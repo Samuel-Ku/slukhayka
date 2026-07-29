@@ -1,0 +1,61 @@
+package com.example.data.db
+
+import androidx.room.Entity
+import androidx.room.PrimaryKey
+
+@Entity(tableName = "audiobooks")
+data class AudiobookEntity(
+    @PrimaryKey val id: String,
+    val title: String,
+    val author: String,
+    val narrator: String,
+    val description: String,
+    val coverDrawableRes: Int,
+    val coverImageUrl: String? = null,
+    val genre: String,
+    val sourceUrl: String,
+    val isDownloaded: Boolean = false,
+    val downloadProgress: Float = 0f,
+    val totalDurationSeconds: Long = 0L,
+    val totalChapters: Int = 0,
+    val rating: Float = 4.9f,
+    val isFavorite: Boolean = false
+)
+
+@Entity(tableName = "listening_stats")
+data class ListeningStatEntity(
+    @PrimaryKey val dateIso: String,
+    val listenedSeconds: Long = 0L
+)
+
+@Entity(tableName = "chapters")
+data class ChapterEntity(
+    @PrimaryKey val id: String,
+    val bookId: String,
+    val chapterIndex: Int,
+    val title: String,
+    val durationSeconds: Long,
+    val streamUrl: String,
+    val localFilePath: String? = null,
+    val isDownloaded: Boolean = false
+)
+
+@Entity(tableName = "bookmarks")
+data class BookmarkEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val bookId: String,
+    val chapterIndex: Int,
+    val chapterTitle: String,
+    val timestampSeconds: Long,
+    val note: String,
+    val createdAt: Long = System.currentTimeMillis()
+)
+
+@Entity(tableName = "playback_progress")
+data class PlaybackProgressEntity(
+    @PrimaryKey val bookId: String,
+    val currentChapterIndex: Int = 0,
+    val currentPositionSeconds: Long = 0L,
+    val lastListenedAt: Long = System.currentTimeMillis(),
+    val isCompleted: Boolean = false
+)

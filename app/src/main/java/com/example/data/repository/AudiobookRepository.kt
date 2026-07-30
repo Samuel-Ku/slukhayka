@@ -16,7 +16,14 @@ import java.util.concurrent.atomic.AtomicInteger
 
 class AudiobookRepository(
     private val dao: AudiobookDao,
-    private val context: Context? = null
+    private val context: Context? = null,
+    /**
+     * Whether construction should kick off the background seed + 4read catalogue
+     * sync. Production leaves this `true`; JVM unit tests (GitHub issue #6) set
+     * it to `false` so a fixture-driven test never performs network I/O and
+     * never races the seeder for the same rows.
+     */
+    private val autoSyncOnInit: Boolean = true
 ) {
 
     val allBooks: Flow<List<AudiobookEntity>> = dao.getAllAudiobooks()
@@ -25,9 +32,11 @@ class AudiobookRepository(
     val recentProgress: Flow<List<PlaybackProgressEntity>> = dao.getAllPlaybackProgress()
 
     init {
-        CoroutineScope(Dispatchers.IO).launch {
-            seedInitialDataIfEmpty()
-            fetchCatalogFrom4Read()
+        if (autoSyncOnInit) {
+            CoroutineScope(Dispatchers.IO).launch {
+                seedInitialDataIfEmpty()
+                fetchCatalogFrom4Read()
+            }
         }
     }
 

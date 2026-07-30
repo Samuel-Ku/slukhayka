@@ -468,6 +468,11 @@ class AudioPlayerManager(
     fun release() {
         sleepTimer?.cancel()
         updateProgressJob?.cancel()
+        // Code-review HIGH #1 (post-Wave-1 review): without this, a prepare
+        // timeout coroutine launched by `prepareChapter` can outlive the
+        // manager and mutate `_playerState.value` after the test (or a
+        // future onStop hook) releases the underlying player.
+        prepareTimeoutJob?.cancel()
         mediaPlayer?.release()
         mediaPlayer = null
     }

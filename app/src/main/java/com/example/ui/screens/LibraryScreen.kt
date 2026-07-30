@@ -76,7 +76,7 @@ fun LibraryScreen(
             containerColor = CyberBg,
             contentColor = CyberPrimary,
             edgePadding = 16.dp,
-            divider = { Divider(color = CyberCardBorder) }
+            divider = { HorizontalDivider(color = CyberCardBorder) }
         ) {
             Tab(
                 selected = activeTab == 0,
@@ -232,7 +232,7 @@ fun ListeningStatsCard(listeningStats: List<com.example.data.db.ListeningStatEnt
     val todayMinutes = ((todayStat?.listenedSeconds ?: 0L) / 60L)
 
     val totalWeekSeconds = listeningStats.take(7).sumOf { it.listenedSeconds }
-    val weekHours = String.format("%.1f", totalWeekSeconds / 3600f)
+    val weekHours = String.format(java.util.Locale.US, "%.1f", totalWeekSeconds / 3600f)
 
     val streakDays = listeningStats.takeWhile { it.listenedSeconds > 0 }.size.coerceAtLeast(if (todayMinutes > 0) 1 else 0)
 
@@ -285,7 +285,7 @@ fun ListeningStatsCard(listeningStats: List<com.example.data.db.ListeningStatEnt
             StatItemCard(
                 title = "Всього в каталозі",
                 value = "$totalBooks книг",
-                icon = Icons.Default.MenuBook,
+                icon = Icons.AutoMirrored.Filled.MenuBook,
                 color = Color(0xFF4CAF50),
                 modifier = Modifier.weight(1f)
             )

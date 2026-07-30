@@ -1,9 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Phase 2.5 hotfix (SEC-002 in docs/audits/2026-07-30-static-and-agents.md).
+
+  Previous version permitted cleartext traffic and trusted user-supplied
+  certificates, making MITM trivial on any device with a custom CA
+  (corporate proxy, Charles/mitmproxy, rooted phone with custom CA, malicious
+  VPN). 4read.org audio + HTML fetches now require HTTPS with a system-CA
+  certificate only.
+-->
 <network-security-config>
-    <base-config cleartextTrafficPermitted="true">
+    <base-config cleartextTrafficPermitted="false">
         <trust-anchors>
             <certificates src="system" />
-            <certificates src="user" />
         </trust-anchors>
     </base-config>
 </network-security-config>

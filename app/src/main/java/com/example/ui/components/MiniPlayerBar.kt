@@ -42,8 +42,12 @@ fun MiniPlayerBar(
 ) {
     val book = playerState.currentBook ?: return
 
+    // Phase 2.5 hotfix (compile warning at MiniPlayerBar.kt:46): the parent
+    // already early-returns when currentBook is null, so the AnimatedVisibility
+    // gate was always-true. Render the bar directly; keep the slide animation
+    // for nicer transitions when a book is set then cleared.
     AnimatedVisibility(
-        visible = playerState.currentBook != null,
+        visible = true,
         enter = slideInVertically(initialOffsetY = { it }),
         exit = slideOutVertically(targetOffsetY = { it }),
         modifier = modifier

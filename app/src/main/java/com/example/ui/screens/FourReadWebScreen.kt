@@ -1,9 +1,9 @@
 package com.example.ui.screens
 
 import android.annotation.SuppressLint
-import android.content.Intent
 import android.graphics.Bitmap
-import android.net.Uri
+import androidx.core.net.toUri
+import android.net.http.SslError
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.background
@@ -119,7 +119,7 @@ fun FourReadWebScreen(
                             enabled = canGoBack
                         ) {
                             Icon(
-                                imageVector = Icons.Default.ArrowBack,
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                                 contentDescription = "Назад",
                                 tint = if (canGoBack) CyberPrimary else CyberTextSecondary.copy(alpha = 0.4f)
                             )
@@ -130,7 +130,7 @@ fun FourReadWebScreen(
                             enabled = canGoForward
                         ) {
                             Icon(
-                                imageVector = Icons.Default.ArrowForward,
+                                imageVector = Icons.AutoMirrored.Filled.ArrowForward,
                                 contentDescription = "Вперед",
                                 tint = if (canGoForward) CyberPrimary else CyberTextSecondary.copy(alpha = 0.4f)
                             )
@@ -202,11 +202,11 @@ fun FourReadWebScreen(
                         Row {
                             IconButton(onClick = {
                                 try {
-                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(currentWebUrl))
+                                    val intent = Intent(Intent.ACTION_VIEW, currentWebUrl.toUri())
                                     context.startActivity(intent)
                                 } catch (_: Exception) {}
                             }) {
-                                Icon(imageVector = Icons.Default.OpenInNew, contentDescription = "Браузер", tint = CyberSecondary)
+                                Icon(imageVector = Icons.AutoMirrored.Filled.OpenInNew, contentDescription = "Браузер", tint = CyberSecondary)
                             }
                             if (urlInput.isNotEmpty()) {
                                 IconButton(onClick = {
@@ -283,33 +283,49 @@ fun FourReadWebScreen(
             AndroidView(
                 factory = { ctx ->
                     WebView(ctx).apply {
-                        android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(this@apply, true)
+                        // Phase 2.5 hotfix (SEC-006/007): disable third-party
+                        // cookies and the deprecated WebSQL database surface.
+                        android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(this@apply, false)
                         settings.apply {
                             javaScriptEnabled = true
                             domStorageEnabled = true
-                            databaseEnabled = true
-                            mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-                            mediaPlaybackRequiresUserGesture = false
+                            // Phase 2.5 hotfix (SEC-006): WebSQL databaseEnabled
+                            // is deprecated and widens the JS-bridge blast radius.
+                            databaseEnabled = false
+                            // Phase 2.5 hotfix (SEC-005): never load http
+                            // subresources from https pages.
+                            mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW
+                            // Phase 2.5 hotfix (SEC-027): require an explicit
+                            // user gesture for media playback.
+                            mediaPlaybackRequiresUserGesture = true
                             useWideViewPort = true
                             loadWithOverviewMode = true
-                            allowFileAccess = true
-                            allowContentAccess = true
+                            // Phase 2.5 hotfix (SEC-003): file/content access
+                            // combined with the JS interface lets a compromised
+                            // page reach file:// content.
+                            allowFileAccess = false
+                            allowContentAccess = false
 
-                            userAgentString = "Mozilla/5.0 (Linux; Android 13; Mobile; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
+                            // Phase 2.5 hotfix (SEC-018): drop the hardcoded
+                            // SM-S918B model so every user doesn't appear as
+                            // one developer's device.
+                            userAgentString = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
                         }
                         webChromeClient = android.webkit.WebChromeClient()
                         webViewClient = object : WebViewClient() {
                             override fun shouldOverrideUrlLoading(view: WebView?, request: android.webkit.WebResourceRequest?): Boolean {
                                 val url = request?.url?.toString() ?: return false
-                                if (url.startsWith("http://") || url.startsWith("https://")) {
-                                    return false // Let WebView load it natively
-                                }
-                                return try {
-                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
-                                    view?.context?.startActivity(intent)
+                                val scheme = request?.url?.scheme?.lowercase() ?: ""
+                                // Phase 2.5 hotfix (SEC-011): whitelist http(s)
+                                // only. Reject intent://, market://, javascript:,
+                                // tel:, mailto:, data:, content:, file: to close
+                                // the implicit-intent abuse vector.
+                                return if (scheme == "http" || scheme == "https") {
+                                    false // Let WebView load it natively
+                                } else {
+                                    // Silently drop non-http(s) intents.
+                                    Log.w("FourReadWeb", "Blocked non-http navigation: $url")
                                     true
-                                } catch (_: Exception) {
-                                    false
                                 }
                             }
 
@@ -336,12 +352,20 @@ fun FourReadWebScreen(
                                 canGoForward = view?.canGoForward() ?: false
                             }
 
+                            // Phase 2.5 hotfix (SEC-001 / SF-009): cancel the
+                            // connection instead of `handler.proceed()`. The
+                            // old behavior silently accepted every TLS error
+                            // (expired cert, wrong host, MITM) and loaded the
+                            // page anyway.
                             override fun onReceivedSslError(
                                 view: WebView?,
                                 handler: android.webkit.SslErrorHandler?,
                                 error: android.net.http.SslError?
                             ) {
-                                handler?.proceed()
+                                Log.w("FourReadWeb", "SSL error: ${error?.toString()}")
+                                handler?.cancel()
+                                hasWebError = true
+                                webErrorMsg = "SSL помилка: ${error?.primaryError?.let { sSLErrorToString(it) } ?: "невідомо"}"
                             }
 
                             override fun onReceivedError(
@@ -410,14 +434,14 @@ fun FourReadWebScreen(
                             Button(
                                 onClick = {
                                     try {
-                                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(currentWebUrl))
+                                        val intent = Intent(Intent.ACTION_VIEW, currentWebUrl.toUri())
                                         context.startActivity(intent)
                                     } catch (_: Exception) {}
                                 },
                                 colors = ButtonDefaults.buttonColors(containerColor = CyberPrimary),
                                 shape = RoundedCornerShape(8.dp)
                             ) {
-                                Icon(imageVector = Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.size(14.dp))
+                                Icon(imageVector = Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(14.dp))
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text("В браузері", fontSize = 12.sp)
                             }
@@ -449,4 +473,36 @@ fun FourReadWebScreen(
             }
         }
     }
+
+    // Phase 2.5 hotfix (PERF-003 / PERF-020): every time the user leaves the
+    // 4read Web tab we used to leak the WebView (renderer process, JS engine,
+    // CookieManager session, native heap) and the `AndroidHtml` JavascriptInterface
+    // held a strong reference to MainViewModel + a Handler. Destroy the view
+    // and detach the JS bridge on disposal.
+    DisposableEffect(Unit) {
+        onDispose {
+            webViewInstance?.let { wv ->
+                try {
+                    wv.removeJavascriptInterface("AndroidHtml")
+                    wv.stopLoading()
+                    wv.destroy()
+                } catch (_: Exception) {}
+            }
+            webViewInstance = null
+        }
+    }
+}
+
+/**
+ * Phase 2.5 hotfix helper: convert an [SslError] primary error code into a
+ * short Ukrainian description for the user-facing error card.
+ */
+private fun sSLErrorToString(code: Int): String = when (code) {
+    SslError.SSL_DATE_INVALID -> "термін дії сертифіката минув або ще не почався"
+    SslError.SSL_EXPIRED -> "термін дії сертифіката завершився"
+    SslError.SSL_IDMISMATCH -> "домен не відповідає сертифікату"
+    SslError.SSL_INVALID -> "невалідний сертифікат"
+    SslError.SSL_NOTYETVALID -> "термін дії сертифіката ще не почався"
+    SslError.SSL_UNTRUSTED -> "недовірений сертифікат (можливий MITM)"
+    else -> "помилка TLS ($code)"
 }

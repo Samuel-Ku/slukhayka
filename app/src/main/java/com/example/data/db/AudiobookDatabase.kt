@@ -30,7 +30,7 @@ abstract class AudiobookDatabase : RoomDatabase() {
                     AudiobookDatabase::class.java,
                     "read4_audiobook_database"
                 )
-                    .fallbackToDestructiveMigration()
+                    .fallbackToDestructiveMigration(dropAllTables = true)
                     .build()
                 INSTANCE = instance
                 instance

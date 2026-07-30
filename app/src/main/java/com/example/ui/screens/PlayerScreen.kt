@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.sp
 import com.example.player.PlayerState
 import com.example.ui.MainViewModel
 import com.example.ui.components.BookmarkDialog
+import com.example.ui.components.PlayerDebugOverlay
 import com.example.ui.components.SleepTimerSheet
 import com.example.ui.theme.*
 
@@ -41,6 +42,7 @@ fun PlayerScreen(
     var showSleepTimerSheet by remember { mutableStateOf(false) }
     var showAddBookmarkDialog by remember { mutableStateOf(false) }
     var showChapterSelectSheet by remember { mutableStateOf(false) }
+    var showDebugOverlay by remember { mutableStateOf(true) }
 
     val currentChapterTitle = if (playerState.chapters.isNotEmpty() && playerState.currentChapterIndex in playerState.chapters.indices) {
         playerState.chapters[playerState.currentChapterIndex].title
@@ -61,6 +63,13 @@ fun PlayerScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = { showDebugOverlay = !showDebugOverlay }) {
+                        Icon(
+                            imageVector = Icons.Default.BugReport,
+                            contentDescription = "Debug Overlay",
+                            tint = if (showDebugOverlay) CyberPrimary else CyberTextSecondary
+                        )
+                    }
                     IconButton(onClick = { viewModel.toggleFavorite(book.id, !book.isFavorite) }) {
                         Icon(
                             imageVector = if (book.isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
@@ -77,15 +86,19 @@ fun PlayerScreen(
         },
         containerColor = CyberBg
     ) { padding ->
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(horizontal = 24.dp)
-                .testTag("full_player_screen"),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.SpaceBetween
         ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 24.dp)
+                    .testTag("full_player_screen"),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.SpaceBetween
+            ) {
             Spacer(modifier = Modifier.height(10.dp))
 
             // Cover Image
@@ -346,7 +359,25 @@ fun PlayerScreen(
                 )
             }
         }
+
+        if (showDebugOverlay) {
+            PlayerDebugOverlay(
+                playerState = playerState,
+                onClose = { showDebugOverlay = false },
+                onRetryPlayback = {
+                    viewModel.playerManager.prepareChapter(
+                        playerState.currentChapterIndex,
+                        playerState.currentPositionMs,
+                        autoPlay = true
+                    )
+                },
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(16.dp)
+            )
+        }
     }
+}
 
     if (showSleepTimerSheet) {
         SleepTimerSheet(

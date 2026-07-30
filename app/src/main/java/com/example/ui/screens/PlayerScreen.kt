@@ -42,7 +42,12 @@ fun PlayerScreen(
     var showSleepTimerSheet by remember { mutableStateOf(false) }
     var showAddBookmarkDialog by remember { mutableStateOf(false) }
     var showChapterSelectSheet by remember { mutableStateOf(false) }
-    var showDebugOverlay by remember { mutableStateOf(true) }
+    var showDebugOverlay by remember {
+        // Phase 2.5 hotfix (CR-003): PlayerDebugOverlay was rendering by default
+        // every time the PlayerScreen opened, shipping 296 lines of debug UI
+        // (monospace status panels, copy-URL, "Retry Audio Load") to release.
+        mutableStateOf(com.example.BuildConfig.DEBUG)
+    }
 
     val currentChapterTitle = if (playerState.chapters.isNotEmpty() && playerState.currentChapterIndex in playerState.chapters.indices) {
         playerState.chapters[playerState.currentChapterIndex].title
@@ -441,7 +446,7 @@ fun PlayerScreen(
                             color = CyberTextSecondary
                         )
                     }
-                    Divider(color = CyberCardBorder.copy(alpha = 0.5f))
+                    HorizontalDivider(color = CyberCardBorder.copy(alpha = 0.5f))
                 }
             }
         }

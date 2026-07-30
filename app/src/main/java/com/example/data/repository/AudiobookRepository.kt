@@ -314,26 +314,19 @@ class AudiobookRepository(
             }
         }
 
+        // Phase 2.5 hotfix (CR-002 / SF-003 / SF-005 / SF-006): when 4read fetch
+        // returns no streams the previous code synthesised N chapters pointing
+        // at unrelated archive.org MP3s (time_machine / war_of_the_worlds) so
+        // that the chapter list was always populated. Users heard 19th-century
+        // sci-fi while the UI showed their selected book. We refuse to fabricate
+        // audio and surface an empty chapter list — the player / UI sees the
+        // absence and shows a "no chapters available" message instead.
         if (chapters.isEmpty()) {
-            val numChapters = book?.totalChapters ?: 5
-            val title = book?.title ?: "Аудиокнига"
-            val generated = (0 until numChapters).map { index ->
-                ChapterEntity(
-                    id = "${bookId}_gen_ch_$index",
-                    bookId = bookId,
-                    chapterIndex = index,
-                    title = "Глава ${index + 1} ($title)",
-                    durationSeconds = (book?.totalDurationSeconds ?: 15000L) / numChapters,
-                    streamUrl = when (index % 4) {
-                        0 -> "https://ia800201.us.archive.org/12/items/time_machine_0802_librivox/timemachine_01_wells_64kb.mp3"
-                        1 -> "https://ia800201.us.archive.org/12/items/time_machine_0802_librivox/timemachine_02_wells_64kb.mp3"
-                        2 -> "https://ia800302.us.archive.org/1/items/war_of_the_worlds_librivox/war_of_the_worlds_01_wells_64kb.mp3"
-                        else -> "https://ia800302.us.archive.org/1/items/war_of_the_worlds_librivox/war_of_the_worlds_02_wells_64kb.mp3"
-                    }
-                )
-            }
-            dao.insertChapters(generated)
-            chapters = generated
+            Log.w(
+                "AudiobookRepo",
+                "No chapters for bookId=$bookId and 4read fetch returned none; " +
+                    "refusing to fabricate placeholder audio."
+            )
         }
         return chapters
     }
@@ -411,21 +404,32 @@ class AudiobookRepository(
         val total = chapters.size
         if (total == 0) return
 
-        val audioDir = context?.let { File(it.filesDir, "audiobooks") } ?: File("/sdcard/audiobooks")
-        if (!audioDir.exists()) {
-            audioDir.mkdirs()
+        // Phase 2.5 hotfix (SF-004 / SEC-008): the previous /sdcard fallback
+        // was unreachable on Android 11+ scoped storage and would have failed
+        // at runtime. The app always constructs this repository with a real
+        // Context, so fail loudly when it isn't there.
+        val ctx = context ?: run {
+            Log.e("AudiobookRepo", "downloadAudiobookOffline called without Context; aborting")
+            dao.updateDownloadState(bookId, isDownloaded = false, progress = 0f)
+            return
         }
+        // Phase 2.5 hotfix (HI-002 / PERF-015): the cache size reader and
+        // clearer look at filesDir/audio_downloads while this method wrote
+        // to filesDir/audiobooks, so Clear Cache never cleared anything.
+        // Align every component on the same constant directory name.
+        val audioDir = File(ctx.filesDir, OFFLINE_AUDIO_DIR)
+        if (!audioDir.exists()) audioDir.mkdirs()
 
         val completedCount = AtomicInteger(0)
+        var successCount = 0
 
-        // Set initial download state in DB
         dao.updateDownloadState(bookId, isDownloaded = false, progress = 0.05f)
 
         coroutineScope {
-            // Concurrent parallel downloading across chapters
             chapters.map { chapter ->
                 async(Dispatchers.IO) {
                     val localFile = File(audioDir, "${chapter.id}.mp3")
+                    var chapterOk = false
 
                     try {
                         if (!localFile.exists() || localFile.length() < 100) {
@@ -436,7 +440,7 @@ class AudiobookRepository(
                                     connectTimeout = 10000
                                     readTimeout = 20000
                                     requestMethod = "GET"
-                                    setRequestProperty("User-Agent", "Mozilla/5.0 (Android; 4read-Audio-Engine)")
+                                    setRequestProperty("User-Agent", OFFLINE_USER_AGENT)
                                     instanceFollowRedirects = true
                                 }
 
@@ -451,30 +455,45 @@ class AudiobookRepository(
                                             output.flush()
                                         }
                                     }
-                                } else {
-                                    localFile.writeText("CACHE_${chapter.id}")
+                                    chapterOk = localFile.length() > 100
                                 }
                                 connection.disconnect()
-                            } else {
-                                localFile.writeText("CACHE_${chapter.id}")
                             }
+                        } else if (localFile.length() > 100) {
+                            // Already downloaded.
+                            chapterOk = true
                         }
                     } catch (e: Exception) {
-                        // High-res fallback offline cache payload
-                        if (!localFile.exists() || localFile.length() == 0L) {
-                            localFile.writeText("OFFLINE_AUDIO_${chapter.id}")
-                        }
+                        Log.w("AudiobookRepo", "Download failed for chapter ${chapter.id}: ${e.message}")
+                        // Phase 2.5 hotfix (HI-001 / SF-001): the previous
+                        // catch wrote a literal "OFFLINE_AUDIO_<id>" text
+                        // marker into the .mp3 path and then set
+                        // chapter.isDownloaded = true. The player tried to
+                        // decode text and the user saw a "Downloaded" badge
+                        // over unplayable content. Surface the failure
+                        // instead.
+                        if (localFile.exists()) localFile.delete()
                     }
 
                     val finished = completedCount.incrementAndGet()
                     val currentProgress = finished.toFloat() / total
                     dao.updateDownloadState(bookId, isDownloaded = false, progress = currentProgress)
-                    dao.updateChapterDownloadState(chapter.id, isDownloaded = true, filePath = localFile.absolutePath)
+                    dao.updateChapterDownloadState(
+                        chapter.id,
+                        isDownloaded = chapterOk,
+                        filePath = if (chapterOk) localFile.absolutePath else null
+                    )
+                    if (chapterOk) successCount++
                 }
             }.awaitAll()
         }
 
-        dao.updateDownloadState(bookId, isDownloaded = true, progress = 1.0f)
+        val allOk = successCount == total
+        dao.updateDownloadState(
+            bookId,
+            isDownloaded = allOk,
+            progress = if (allOk) 1.0f else successCount.toFloat() / total
+        )
     }
 
     suspend fun removeOfflineDownload(bookId: String) {
@@ -1037,7 +1056,10 @@ class AudiobookRepository(
     fun getAudioCacheSizeBytes(): Long {
         val ctx = context ?: return 0L
         var total = 0L
-        val audioDir = File(ctx.filesDir, "audio_downloads")
+        // Phase 2.5 hotfix (HI-002 / PERF-015): previously read
+        // filesDir/audio_downloads while downloadAudiobookOffline wrote
+        // filesDir/audiobooks. Cache size was always 0 MB.
+        val audioDir = File(ctx.filesDir, OFFLINE_AUDIO_DIR)
         if (audioDir.exists()) {
             audioDir.walkTopDown().forEach { file ->
                 if (file.isFile) total += file.length()
@@ -1050,7 +1072,9 @@ class AudiobookRepository(
         val ctx = context
         withContext(Dispatchers.IO) {
             if (ctx != null) {
-                val audioDir = File(ctx.filesDir, "audio_downloads")
+                // Phase 2.5 hotfix (HI-002 / PERF-015): same constant as
+                // getAudioCacheSizeBytes and downloadAudiobookOffline.
+                val audioDir = File(ctx.filesDir, OFFLINE_AUDIO_DIR)
                 if (audioDir.exists()) {
                     audioDir.deleteRecursively()
                 }
@@ -1078,6 +1102,13 @@ class AudiobookRepository(
             val updatedSeconds = (current?.listenedSeconds ?: 0L) + seconds
             dao.saveListeningStat(ListeningStatEntity(dateIso, updatedSeconds))
         }
+    }
+
+    companion object {
+        /** Single source of truth for the offline-audio directory name. */
+        const val OFFLINE_AUDIO_DIR = "audiobooks"
+        /** User-Agent used by the offline-download HttpURLConnection. */
+        const val OFFLINE_USER_AGENT = "Mozilla/5.0 (Android; 4read-Audio-Engine/1.0)"
     }
 }
 

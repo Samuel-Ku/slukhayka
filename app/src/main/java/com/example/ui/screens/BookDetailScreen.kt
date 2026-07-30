@@ -55,7 +55,7 @@ fun BookDetailScreen(
                 title = { Text(currentBook.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 navigationIcon = {
                     IconButton(onClick = onBackClick) {
-                        Icon(imageVector = Icons.Default.ArrowBack, contentDescription = "Back")
+                        Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
                 actions = {
@@ -273,7 +273,7 @@ fun BookDetailScreen(
                     selectedTabIndex = activeTab,
                     containerColor = CyberBg,
                     contentColor = CyberPrimary,
-                    divider = { Divider(color = CyberCardBorder) }
+                    divider = { HorizontalDivider(color = CyberCardBorder) }
                 ) {
                     Tab(
                         selected = activeTab == 0,
@@ -385,7 +385,7 @@ fun ChapterRowItem(
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     if (isPlaying) {
-                        Icon(imageVector = Icons.Default.VolumeUp, contentDescription = null, tint = CyberOnPrimary, modifier = Modifier.size(20.dp))
+                        Icon(imageVector = Icons.AutoMirrored.Filled.VolumeUp, contentDescription = null, tint = CyberOnPrimary, modifier = Modifier.size(20.dp))
                     } else {
                         Text(
                             text = "${index + 1}",

@@ -8,9 +8,11 @@ import com.example.data.repository.AudiobookRepository
 import com.example.player.AudioPlayerManager
 import com.example.player.PlayerState
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.Locale
 
 enum class SelectedTab {
     EXPLORE,
@@ -20,6 +22,8 @@ enum class SelectedTab {
     SETTINGS
 }
 
+// Phase 2.5 hotfix: flatMapLatest is @ExperimentalCoroutinesApi.
+@OptIn(ExperimentalCoroutinesApi::class)
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val db = AudiobookDatabase.getDatabase(application)
@@ -277,9 +281,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val mins = (seconds % 3600) / 60
             val secs = seconds % 60
             return if (hrs > 0) {
-                String.format("%d:%02d:%02d", hrs, mins, secs)
+                String.format(Locale.US, "%d:%02d:%02d", hrs, mins, secs)
             } else {
-                String.format("%02d:%02d", mins, secs)
+                String.format(Locale.US, "%02d:%02d", mins, secs)
             }
         }
     }

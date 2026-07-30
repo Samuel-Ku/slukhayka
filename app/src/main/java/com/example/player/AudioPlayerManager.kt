@@ -46,6 +46,18 @@ data class PlayerState(
 )
 
 /**
+ * Creates the [Player] that [AudioPlayerManager] drives.
+ *
+ * This exists purely as a test seam (GitHub issue #4): production always uses
+ * [AudioPlayerManager.DEFAULT_PLAYER_FACTORY], which builds a real ExoPlayer,
+ * while JVM unit tests substitute `FakePlayerEngine` so they never touch
+ * ExoPlayer, the network, or a real audio device.
+ */
+fun interface PlayerFactory {
+    fun create(context: Context): Player
+}
+
+/**
  * AudioPlayerManager wraps Media3 ExoPlayer. The class opts into Media3's
  * `UnstableApi` surface because we intentionally call HttpDataSource.Factory
  * accessors (`setUserAgent`, `setDefaultRequestProperties`, etc.) that are
@@ -59,13 +71,14 @@ data class PlayerState(
 @OptIn(UnstableApi::class)
 class AudioPlayerManager(
     private val context: Context,
-    private val repository: AudiobookRepository
+    private val repository: AudiobookRepository,
+    private val playerFactory: PlayerFactory = DEFAULT_PLAYER_FACTORY
 ) {
 
     private val _playerState = MutableStateFlow(PlayerState())
     val playerState: StateFlow<PlayerState> = _playerState.asStateFlow()
 
-    private var mediaPlayer: ExoPlayer? = null
+    private var mediaPlayer: Player? = null
 
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var updateProgressJob: Job? = null
@@ -126,26 +139,8 @@ class AudioPlayerManager(
         )
 
         try {
-            val dataSourceFactory = DefaultHttpDataSource.Factory()
-                // Phase 2.5 hotfix (SEC-004, SEC-018, SEC-019 in the audit report):
-                // drop cross-protocol redirects so a cleartext downgrade via 4read
-                // is impossible, drop the hardcoded "SM-S918B" User-Agent that
-                // leaks a developer's device model, and remove the 4read.org
-                // Referer leak that archive.org uses to correlate playback.
-                .setUserAgent("Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36")
-                .setAllowCrossProtocolRedirects(false)
-                .setConnectTimeoutMs(15000)
-                .setReadTimeoutMs(30000)
-            val audioAttr = AudioAttributes.Builder()
-                .setContentType(C.AUDIO_CONTENT_TYPE_SPEECH)
-                .setUsage(C.USAGE_MEDIA)
-                .build()
-            val mp = ExoPlayer.Builder(getPlayerContext())
-                .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
-                .setAudioAttributes(audioAttr, true)
-                .setWakeMode(C.WAKE_MODE_LOCAL)
-                .build().apply {
-                
+            val mp = playerFactory.create(getPlayerContext()).apply {
+
                 val localPath = chapter.localFilePath
                 val localFile = localPath?.let { java.io.File(it) }
                 if (localFile != null && localFile.exists() && localFile.length() > 100) {
@@ -475,6 +470,35 @@ class AudioPlayerManager(
         updateProgressJob?.cancel()
         mediaPlayer?.release()
         mediaPlayer = null
+    }
+
+    companion object {
+        /**
+         * Production [PlayerFactory]: a real ExoPlayer wired to the hardened
+         * HTTP data source.
+         *
+         * Phase 2.5 hotfix (SEC-004, SEC-018, SEC-019 in the audit report):
+         * drop cross-protocol redirects so a cleartext downgrade via 4read is
+         * impossible, drop the hardcoded "SM-S918B" User-Agent that leaks a
+         * developer's device model, and remove the 4read.org Referer leak that
+         * archive.org uses to correlate playback.
+         */
+        val DEFAULT_PLAYER_FACTORY = PlayerFactory { playerContext ->
+            val dataSourceFactory = DefaultHttpDataSource.Factory()
+                .setUserAgent("Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36")
+                .setAllowCrossProtocolRedirects(false)
+                .setConnectTimeoutMs(15000)
+                .setReadTimeoutMs(30000)
+            val audioAttr = AudioAttributes.Builder()
+                .setContentType(C.AUDIO_CONTENT_TYPE_SPEECH)
+                .setUsage(C.USAGE_MEDIA)
+                .build()
+            ExoPlayer.Builder(playerContext)
+                .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
+                .setAudioAttributes(audioAttr, true)
+                .setWakeMode(C.WAKE_MODE_LOCAL)
+                .build()
+        }
     }
 }
 

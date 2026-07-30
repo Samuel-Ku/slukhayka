@@ -4,6 +4,7 @@ import android.content.Context
 import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.net.Uri
+import androidx.core.net.toUri
 import android.os.Build
 import android.os.CountDownTimer
 import android.util.Log
@@ -14,6 +15,7 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.ExoPlayer
@@ -43,6 +45,18 @@ data class PlayerState(
     val lastErrorMsg: String = ""
 )
 
+/**
+ * AudioPlayerManager wraps Media3 ExoPlayer. The class opts into Media3's
+ * `UnstableApi` surface because we intentionally call HttpDataSource.Factory
+ * accessors (`setUserAgent`, `setDefaultRequestProperties`, etc.) that are
+ * not part of the stable API yet.
+ *
+ * Historical note: before Phase 2.5 hotfix these calls were unguarded, which
+ * caused `./gradlew lintDebug` to fail with 11 `UnsafeOptInUsageError`s and
+ * was flagged as CRITICAL finding CR-004 in
+ * docs/audits/2026-07-30-static-and-agents.md.
+ */
+@OptIn(UnstableApi::class)
 class AudioPlayerManager(
     private val context: Context,
     private val repository: AudiobookRepository
@@ -113,9 +127,13 @@ class AudioPlayerManager(
 
         try {
             val dataSourceFactory = DefaultHttpDataSource.Factory()
-                .setUserAgent("Mozilla/5.0 (Linux; Android 13; Mobile; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
-                .setDefaultRequestProperties(mapOf("Referer" to "https://4read.org/", "Accept" to "*/*"))
-                .setAllowCrossProtocolRedirects(true)
+                // Phase 2.5 hotfix (SEC-004, SEC-018, SEC-019 in the audit report):
+                // drop cross-protocol redirects so a cleartext downgrade via 4read
+                // is impossible, drop the hardcoded "SM-S918B" User-Agent that
+                // leaks a developer's device model, and remove the 4read.org
+                // Referer leak that archive.org uses to correlate playback.
+                .setUserAgent("Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36")
+                .setAllowCrossProtocolRedirects(false)
                 .setConnectTimeoutMs(15000)
                 .setReadTimeoutMs(30000)
             val audioAttr = AudioAttributes.Builder()
@@ -133,7 +151,7 @@ class AudioPlayerManager(
                 if (localFile != null && localFile.exists() && localFile.length() > 100) {
                     setMediaItem(MediaItem.fromUri(Uri.fromFile(localFile)))
                 } else {
-                    setMediaItem(MediaItem.fromUri(Uri.parse(chapter.streamUrl)))
+                    setMediaItem(MediaItem.fromUri(chapter.streamUrl.toUri()))
                 }
 
                 addListener(object : Player.Listener {
@@ -180,7 +198,7 @@ class AudioPlayerManager(
                 
                 prepareTimeoutJob?.cancel()
                 prepareTimeoutJob = scope.launch {
-                    delay(45000L) // 15 second timeout
+                    delay(45000L) // 45 second prepare timeout (was commented as 15s, see HI-003)
                     if (_playerState.value.isBuffering) {
                         Log.w("AudioPlayer", "Primary stream timeout")
                         _playerState.value = _playerState.value.copy(
@@ -198,104 +216,40 @@ class AudioPlayerManager(
         }
     }
 
-    private fun tryFallbackPlayback(chapter: ChapterEntity, startPositionMs: Long, autoPlay: Boolean, durationMs: Long, fallbackIndex: Int) {
-        val backupUrls = listOf(
-            "https://raw.githubusercontent.com/rafaelreis-hotmart/Audio-Sample-files/master/sample.mp3",
-            "https://ia800201.us.archive.org/12/items/time_machine_0802_librivox/timemachine_01_wells_64kb.mp3",
-            "https://ia800201.us.archive.org/12/items/time_machine_0802_librivox/timemachine_02_wells_64kb.mp3"
-        )
-        if (fallbackIndex >= backupUrls.size) {
-            playLocalSyntheticAudio(chapter, startPositionMs, autoPlay, durationMs)
-            return
-        }
-
-        val fallbackUrl = backupUrls[(chapter.chapterIndex + fallbackIndex) % backupUrls.size]
-        _playerState.value = _playerState.value.copy(
-            currentStreamUrl = fallbackUrl,
-            isBuffering = true
-        )
-        try {
-            mediaPlayer?.release()
-            mediaPlayer = null
-            val fallbackDataSourceFactory = DefaultHttpDataSource.Factory()
-                .setUserAgent("Mozilla/5.0 (Linux; Android 13; Mobile; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
-                .setDefaultRequestProperties(mapOf("Referer" to "https://archive.org/"))
-                .setAllowCrossProtocolRedirects(true)
-                .setConnectTimeoutMs(15000)
-                .setReadTimeoutMs(30000)
-            val fallbackAudioAttr = AudioAttributes.Builder()
-                .setContentType(C.AUDIO_CONTENT_TYPE_SPEECH)
-                .setUsage(C.USAGE_MEDIA)
-                .build()
-            val fallbackMp = ExoPlayer.Builder(getPlayerContext())
-                .setMediaSourceFactory(DefaultMediaSourceFactory(fallbackDataSourceFactory))
-                .setAudioAttributes(fallbackAudioAttr, true)
-                .setWakeMode(C.WAKE_MODE_LOCAL)
-                .build().apply {
-                setMediaItem(MediaItem.fromUri(Uri.parse(fallbackUrl)))
-                addListener(object : Player.Listener {
-                    override fun onPlaybackStateChanged(playbackState: Int) {
-                        if (playbackState == Player.STATE_READY) {
-                            prepareTimeoutJob?.cancel()
-                            _playerState.value = _playerState.value.copy(
-                                isBuffering = false,
-                                durationMs = if (duration > 0) duration else durationMs,
-                                audioEngineMode = "4read Audio Engine (Backup Stream)"
-                            )
-                            applyPlaybackSpeed(_playerState.value.playbackSpeed)
-                            val validDur = if (duration > 0) duration else durationMs
-                            if (_playerState.value.currentPositionMs > 0 && _playerState.value.currentPositionMs < validDur) {
-                                try { seekTo(_playerState.value.currentPositionMs) } catch (_: Exception) {}
-                            }
-                            if (autoPlay || _playerState.value.isPlaying) {
-                                try {
-                                    play()
-                                    _playerState.value = _playerState.value.copy(isPlaying = true)
-                                } catch (e: Exception) {
-                                    Log.e("AudioPlayer", "Error starting after fallback prepare", e)
-                                }
-                            } else {
-                                _playerState.value = _playerState.value.copy(isPlaying = false)
-                            }
-                        } else if (playbackState == Player.STATE_ENDED) {
-                            onChapterCompleted()
-                        }
-                    }
-                    override fun onPlayerError(error: PlaybackException) {
-                        prepareTimeoutJob?.cancel()
-                        tryFallbackPlayback(chapter, startPositionMs, autoPlay, durationMs, fallbackIndex + 1)
-                    }
-                })
-                prepare()
-                prepareTimeoutJob?.cancel()
-                prepareTimeoutJob = scope.launch {
-                    delay(45000L)
-                    if (_playerState.value.isBuffering) {
-                        Log.w("AudioPlayer", "Fallback stream timeout")
-                        _playerState.value = _playerState.value.copy(
-                            lastErrorMsg = "Fallback stream timeout (45s)"
-                        )
-                        tryFallbackPlayback(chapter, startPositionMs, autoPlay, durationMs, fallbackIndex + 1)
-                    }
-                }
-            }
-            mediaPlayer = fallbackMp
-        } catch (ex: Exception) {
-            prepareTimeoutJob?.cancel()
-            Log.e("AudioPlayer", "Fallback playback failed for index $fallbackIndex", ex)
-            tryFallbackPlayback(chapter, startPositionMs, autoPlay, durationMs, fallbackIndex + 1)
-        }
-    }
-
-    private fun playLocalSyntheticAudio(chapter: ChapterEntity, startPositionMs: Long, autoPlay: Boolean, durationMs: Long) {
+    /**
+     * Called by [prepareChapter] when the primary stream surfaces a
+     * PlaybackException OR when the 45s preparation timeout elapses.
+     *
+     * Phase 2.5 hotfix (CR-002 / SF-003 / SF-005 / SF-006 in
+     * docs/audits/2026-07-30-static-and-agents.md): the previous
+     * implementation walked a hardcoded list of unrelated archive.org / GitHub
+     * sample MP3s and silently played them as if they were the user-requested
+     * chapter. Users heard time-machine / war-of-the-worlds audio while the
+     * UI showed their selected book. That is the textbook "failure that looks
+     * like success" and trips every reasonable trust assumption about media
+     * playback.
+     *
+     * The new contract: report the failure to PlayerState and let the UI
+     * decide what to render. We do NOT synthesize audio from unrelated
+     * sources.
+     */
+    private fun tryFallbackPlayback(
+        chapter: ChapterEntity,
+        @Suppress("UNUSED_PARAMETER") startPositionMs: Long,
+        @Suppress("UNUSED_PARAMETER") autoPlay: Boolean,
+        @Suppress("UNUSED_PARAMETER") durationMs: Long,
+        @Suppress("UNUSED_PARAMETER") fallbackIndex: Int
+    ) {
         prepareTimeoutJob?.cancel()
+        mediaPlayer?.release()
+        mediaPlayer = null
         _playerState.value = _playerState.value.copy(
             isBuffering = false,
             isPlaying = false,
-            audioEngineMode = "Помилка відтворення (Немає доступу до аудіо)"
+            currentStreamUrl = "",
+            audioEngineMode = "Playback error",
+            lastErrorMsg = "Цю главу зараз не вдалося відтворити. Спробуйте пізніше або інший розділ."
         )
-        mediaPlayer?.release()
-        mediaPlayer = null
     }
 
     fun play() {

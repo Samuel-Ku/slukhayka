@@ -245,6 +245,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun importAndPlay4ReadHtml(url: String, html: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val importedBook = repository.importAudiobookFromHtml(url, html)
+            viewModelScope.launch(Dispatchers.Main) {
+                playAudiobook(importedBook, chapterIndex = 0, autoPlay = true)
+                _showFullPlayer.value = true
+            }
+        }
+    }
+
     fun importAndPlay4ReadUrl(urlOrSlug: String) {
         if (urlOrSlug.isBlank()) return
         viewModelScope.launch(Dispatchers.IO) {

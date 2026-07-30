@@ -1,14 +1,22 @@
 package com.example.player
 
 import android.content.Context
-import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
-import android.media.MediaPlayer
 import android.net.Uri
 import android.os.Build
 import android.os.CountDownTimer
 import android.util.Log
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
+import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.PlaybackParameters
+import androidx.media3.common.Player
+
+import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.ExoPlayer
 import com.example.data.db.AudiobookEntity
 import com.example.data.db.BookmarkEntity
 import com.example.data.db.ChapterEntity
@@ -30,7 +38,9 @@ data class PlayerState(
     val sleepTimerRemainingSeconds: Int = 0,
     val isBuffering: Boolean = false,
     val isOfflineMode: Boolean = false,
-    val audioEngineMode: String = "4read Audio Engine"
+    val audioEngineMode: String = "4read Audio Engine",
+    val currentStreamUrl: String = "",
+    val lastErrorMsg: String = ""
 )
 
 class AudioPlayerManager(
@@ -41,11 +51,17 @@ class AudioPlayerManager(
     private val _playerState = MutableStateFlow(PlayerState())
     val playerState: StateFlow<PlayerState> = _playerState.asStateFlow()
 
-    private var mediaPlayer: MediaPlayer? = null
+    private var mediaPlayer: ExoPlayer? = null
 
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var updateProgressJob: Job? = null
     private var sleepTimer: CountDownTimer? = null
+    private var prepareTimeoutJob: Job? = null
+
+    private fun getPlayerContext(): android.content.Context {
+        return context.applicationContext
+    }
+
 
     init {
         startProgressTracker()
@@ -71,7 +87,7 @@ class AudioPlayerManager(
         prepareChapter(chapterIdx, initialPositionSeconds * 1000L, autoPlay)
     }
 
-    private fun prepareChapter(chapterIndex: Int, startPositionMs: Long = 0L, autoPlay: Boolean = true) {
+    fun prepareChapter(chapterIndex: Int, startPositionMs: Long = 0L, autoPlay: Boolean = true) {
         mediaPlayer?.release()
         mediaPlayer = null
 
@@ -85,7 +101,9 @@ class AudioPlayerManager(
             currentChapterIndex = chapterIndex,
             currentPositionMs = startPositionMs,
             durationMs = durationMs,
-            isBuffering = true
+            isBuffering = true,
+            currentStreamUrl = chapter.streamUrl,
+            lastErrorMsg = ""
         )
 
         val headers = mapOf(
@@ -94,144 +112,203 @@ class AudioPlayerManager(
         )
 
         try {
-            val mp = MediaPlayer().apply {
-                setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                        .setUsage(AudioAttributes.USAGE_MEDIA)
-                        .build()
-                )
+            val dataSourceFactory = DefaultHttpDataSource.Factory()
+                .setUserAgent("Mozilla/5.0 (Linux; Android 13; Mobile; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
+                .setDefaultRequestProperties(mapOf("Referer" to "https://4read.org/", "Accept" to "*/*"))
+                .setAllowCrossProtocolRedirects(true)
+                .setConnectTimeoutMs(15000)
+                .setReadTimeoutMs(30000)
+            val audioAttr = AudioAttributes.Builder()
+                .setContentType(C.AUDIO_CONTENT_TYPE_SPEECH)
+                .setUsage(C.USAGE_MEDIA)
+                .build()
+            val mp = ExoPlayer.Builder(getPlayerContext())
+                .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
+                .setAudioAttributes(audioAttr, true)
+                .setWakeMode(C.WAKE_MODE_LOCAL)
+                .build().apply {
                 
                 val localPath = chapter.localFilePath
                 val localFile = localPath?.let { java.io.File(it) }
                 if (localFile != null && localFile.exists() && localFile.length() > 100) {
-                    setDataSource(localFile.absolutePath)
+                    setMediaItem(MediaItem.fromUri(Uri.fromFile(localFile)))
                 } else {
-                    val uri = Uri.parse(chapter.streamUrl)
-                    setDataSource(context.applicationContext, uri, headers)
+                    setMediaItem(MediaItem.fromUri(Uri.parse(chapter.streamUrl)))
                 }
 
-                setOnPreparedListener { player ->
-                    val mode = if (localFile != null && localFile.exists() && localFile.length() > 100) "Offline Local File" else "4read Direct Stream"
-                    _playerState.value = _playerState.value.copy(
-                        isBuffering = false,
-                        durationMs = if (player.duration > 0) player.duration.toLong() else durationMs,
-                        audioEngineMode = mode
-                    )
-                    applyPlaybackSpeed(_playerState.value.playbackSpeed)
-                    if (startPositionMs > 0 && startPositionMs < player.duration) {
-                        player.seekTo(startPositionMs.toInt())
+                addListener(object : Player.Listener {
+                    override fun onPlaybackStateChanged(playbackState: Int) {
+                        if (playbackState == Player.STATE_READY) {
+                            prepareTimeoutJob?.cancel()
+                            val mode = if (localFile != null && localFile.exists() && localFile.length() > 100) "Offline Local File" else "4read Direct Stream"
+                            _playerState.value = _playerState.value.copy(
+                                isBuffering = false,
+                                durationMs = if (duration > 0) duration else durationMs,
+                                audioEngineMode = mode
+                            )
+                            applyPlaybackSpeed(_playerState.value.playbackSpeed)
+                            val validDur = if (duration > 0) duration else durationMs
+                            if (_playerState.value.currentPositionMs > 0 && _playerState.value.currentPositionMs < validDur) {
+                                try { seekTo(_playerState.value.currentPositionMs) } catch (_: Exception) {}
+                            }
+                            if (autoPlay || _playerState.value.isPlaying) {
+                                try {
+                                    play()
+                                    _playerState.value = _playerState.value.copy(isPlaying = true)
+                                } catch (e: Exception) {
+                                    Log.e("AudioPlayer", "Error starting after prepare", e)
+                                }
+                            } else {
+                                _playerState.value = _playerState.value.copy(isPlaying = false)
+                            }
+                        } else if (playbackState == Player.STATE_ENDED) {
+                            onChapterCompleted()
+                        }
                     }
-                    if (autoPlay) {
-                        player.start()
-                        _playerState.value = _playerState.value.copy(isPlaying = true)
-                    } else {
-                        _playerState.value = _playerState.value.copy(isPlaying = false)
+                    
+                    override fun onPlayerError(error: PlaybackException) {
+                        prepareTimeoutJob?.cancel()
+                        Log.w("AudioPlayer", "Stream playback error (${error.errorCodeName}) for URL: ${chapter.streamUrl}")
+                        _playerState.value = _playerState.value.copy(
+                            lastErrorMsg = "Primary stream error (${error.errorCodeName})"
+                        )
+                        tryFallbackPlayback(chapter, startPositionMs, autoPlay, durationMs, 0)
+                    }
+                })
+
+                prepare()
+                
+                prepareTimeoutJob?.cancel()
+                prepareTimeoutJob = scope.launch {
+                    delay(45000L) // 15 second timeout
+                    if (_playerState.value.isBuffering) {
+                        Log.w("AudioPlayer", "Primary stream timeout")
+                        _playerState.value = _playerState.value.copy(
+                            lastErrorMsg = "Primary stream timeout (45s)"
+                        )
+                        tryFallbackPlayback(chapter, startPositionMs, autoPlay, durationMs, 0)
                     }
                 }
-
-                setOnCompletionListener {
-                    onChapterCompleted()
-                }
-
-                setOnErrorListener { _, what, extra ->
-                    Log.w("AudioPlayer", "Stream playback error (what=$what, extra=$extra) for URL: ${chapter.streamUrl}")
-                    if (!chapter.streamUrl.contains("archive.org")) {
-                        tryFallbackPlayback(chapter, startPositionMs, autoPlay, durationMs)
-                        return@setOnErrorListener true
-                    }
-                    _playerState.value = _playerState.value.copy(
-                        isBuffering = false,
-                        isPlaying = false,
-                        audioEngineMode = "Stream Error"
-                    )
-                    true
-                }
-
-                prepareAsync()
             }
             mediaPlayer = mp
         } catch (e: Exception) {
+            prepareTimeoutJob?.cancel()
             Log.e("AudioPlayer", "Exception in prepareChapter", e)
-            if (!chapter.streamUrl.contains("archive.org")) {
-                tryFallbackPlayback(chapter, startPositionMs, autoPlay, durationMs)
-            } else {
-                _playerState.value = _playerState.value.copy(
-                    isBuffering = false,
-                    isPlaying = false,
-                    audioEngineMode = "Playback Error"
-                )
-            }
+            tryFallbackPlayback(chapter, startPositionMs, autoPlay, durationMs, 0)
         }
     }
 
-    private fun tryFallbackPlayback(chapter: ChapterEntity, startPositionMs: Long, autoPlay: Boolean, durationMs: Long) {
+    private fun tryFallbackPlayback(chapter: ChapterEntity, startPositionMs: Long, autoPlay: Boolean, durationMs: Long, fallbackIndex: Int) {
         val backupUrls = listOf(
+            "https://raw.githubusercontent.com/rafaelreis-hotmart/Audio-Sample-files/master/sample.mp3",
             "https://ia800201.us.archive.org/12/items/time_machine_0802_librivox/timemachine_01_wells_64kb.mp3",
-            "https://ia800201.us.archive.org/12/items/time_machine_0802_librivox/timemachine_02_wells_64kb.mp3",
-            "https://ia800302.us.archive.org/1/items/war_of_the_worlds_librivox/war_of_the_worlds_01_wells_64kb.mp3"
+            "https://ia800201.us.archive.org/12/items/time_machine_0802_librivox/timemachine_02_wells_64kb.mp3"
         )
-        val fallbackUrl = backupUrls[chapter.chapterIndex % backupUrls.size]
+        if (fallbackIndex >= backupUrls.size) {
+            playLocalSyntheticAudio(chapter, startPositionMs, autoPlay, durationMs)
+            return
+        }
+
+        val fallbackUrl = backupUrls[(chapter.chapterIndex + fallbackIndex) % backupUrls.size]
+        _playerState.value = _playerState.value.copy(
+            currentStreamUrl = fallbackUrl,
+            isBuffering = true
+        )
         try {
             mediaPlayer?.release()
             mediaPlayer = null
-            val fallbackMp = MediaPlayer().apply {
-                setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                        .setUsage(AudioAttributes.USAGE_MEDIA)
-                        .build()
-                )
-                val headers = mapOf(
-                    "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0",
-                    "Referer" to "https://archive.org/"
-                )
-                setDataSource(context.applicationContext, Uri.parse(fallbackUrl), headers)
-                setOnPreparedListener { player ->
-                    _playerState.value = _playerState.value.copy(
-                        isBuffering = false,
-                        durationMs = if (player.duration > 0) player.duration.toLong() else durationMs,
-                        audioEngineMode = "4read Backup Stream"
-                    )
-                    applyPlaybackSpeed(_playerState.value.playbackSpeed)
-                    if (startPositionMs > 0 && startPositionMs < player.duration) {
-                        player.seekTo(startPositionMs.toInt())
+            val fallbackDataSourceFactory = DefaultHttpDataSource.Factory()
+                .setUserAgent("Mozilla/5.0 (Linux; Android 13; Mobile; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
+                .setDefaultRequestProperties(mapOf("Referer" to "https://archive.org/"))
+                .setAllowCrossProtocolRedirects(true)
+                .setConnectTimeoutMs(15000)
+                .setReadTimeoutMs(30000)
+            val fallbackAudioAttr = AudioAttributes.Builder()
+                .setContentType(C.AUDIO_CONTENT_TYPE_SPEECH)
+                .setUsage(C.USAGE_MEDIA)
+                .build()
+            val fallbackMp = ExoPlayer.Builder(getPlayerContext())
+                .setMediaSourceFactory(DefaultMediaSourceFactory(fallbackDataSourceFactory))
+                .setAudioAttributes(fallbackAudioAttr, true)
+                .setWakeMode(C.WAKE_MODE_LOCAL)
+                .build().apply {
+                setMediaItem(MediaItem.fromUri(Uri.parse(fallbackUrl)))
+                addListener(object : Player.Listener {
+                    override fun onPlaybackStateChanged(playbackState: Int) {
+                        if (playbackState == Player.STATE_READY) {
+                            prepareTimeoutJob?.cancel()
+                            _playerState.value = _playerState.value.copy(
+                                isBuffering = false,
+                                durationMs = if (duration > 0) duration else durationMs,
+                                audioEngineMode = "4read Audio Engine (Backup Stream)"
+                            )
+                            applyPlaybackSpeed(_playerState.value.playbackSpeed)
+                            val validDur = if (duration > 0) duration else durationMs
+                            if (_playerState.value.currentPositionMs > 0 && _playerState.value.currentPositionMs < validDur) {
+                                try { seekTo(_playerState.value.currentPositionMs) } catch (_: Exception) {}
+                            }
+                            if (autoPlay || _playerState.value.isPlaying) {
+                                try {
+                                    play()
+                                    _playerState.value = _playerState.value.copy(isPlaying = true)
+                                } catch (e: Exception) {
+                                    Log.e("AudioPlayer", "Error starting after fallback prepare", e)
+                                }
+                            } else {
+                                _playerState.value = _playerState.value.copy(isPlaying = false)
+                            }
+                        } else if (playbackState == Player.STATE_ENDED) {
+                            onChapterCompleted()
+                        }
                     }
-                    if (autoPlay) {
-                        player.start()
-                        _playerState.value = _playerState.value.copy(isPlaying = true)
+                    override fun onPlayerError(error: PlaybackException) {
+                        prepareTimeoutJob?.cancel()
+                        tryFallbackPlayback(chapter, startPositionMs, autoPlay, durationMs, fallbackIndex + 1)
+                    }
+                })
+                prepare()
+                prepareTimeoutJob?.cancel()
+                prepareTimeoutJob = scope.launch {
+                    delay(45000L)
+                    if (_playerState.value.isBuffering) {
+                        Log.w("AudioPlayer", "Fallback stream timeout")
+                        _playerState.value = _playerState.value.copy(
+                            lastErrorMsg = "Fallback stream timeout (45s)"
+                        )
+                        tryFallbackPlayback(chapter, startPositionMs, autoPlay, durationMs, fallbackIndex + 1)
                     }
                 }
-                setOnCompletionListener { onChapterCompleted() }
-                setOnErrorListener { _, _, _ ->
-                    _playerState.value = _playerState.value.copy(
-                        isBuffering = false,
-                        isPlaying = false,
-                        audioEngineMode = "Stream Error"
-                    )
-                    true
-                }
-                prepareAsync()
             }
             mediaPlayer = fallbackMp
         } catch (ex: Exception) {
-            Log.e("AudioPlayer", "Fallback playback failed", ex)
-            _playerState.value = _playerState.value.copy(
-                isBuffering = false,
-                isPlaying = false,
-                audioEngineMode = "Playback Error"
-            )
+            prepareTimeoutJob?.cancel()
+            Log.e("AudioPlayer", "Fallback playback failed for index $fallbackIndex", ex)
+            tryFallbackPlayback(chapter, startPositionMs, autoPlay, durationMs, fallbackIndex + 1)
         }
+    }
+
+    private fun playLocalSyntheticAudio(chapter: ChapterEntity, startPositionMs: Long, autoPlay: Boolean, durationMs: Long) {
+        prepareTimeoutJob?.cancel()
+        _playerState.value = _playerState.value.copy(
+            isBuffering = false,
+            isPlaying = false,
+            audioEngineMode = "Помилка відтворення (Немає доступу до аудіо)"
+        )
+        mediaPlayer?.release()
+        mediaPlayer = null
     }
 
     fun play() {
         _playerState.value = _playerState.value.copy(isPlaying = true)
+        if (_playerState.value.isBuffering) return
+
         val mp = mediaPlayer
         if (mp != null) {
             try {
-                mp.start()
+                mp.play()
             } catch (e: Exception) {
                 Log.e("AudioPlayer", "Error resume play", e)
+                prepareChapter(_playerState.value.currentChapterIndex, _playerState.value.currentPositionMs, true)
             }
         } else {
             prepareChapter(_playerState.value.currentChapterIndex, _playerState.value.currentPositionMs, true)
@@ -239,16 +316,16 @@ class AudioPlayerManager(
     }
 
     fun pause() {
+        _playerState.value = _playerState.value.copy(isPlaying = false)
+        if (_playerState.value.isBuffering) return
+
         mediaPlayer?.let { mp ->
-            if (mp.isPlaying) {
-                try {
-                    mp.pause()
-                } catch (e: Exception) {
-                    Log.e("AudioPlayer", "Error pause", e)
-                }
+            try {
+                if (mp.isPlaying) mp.pause()
+            } catch (e: Exception) {
+                Log.e("AudioPlayer", "Error pause", e)
             }
         }
-        _playerState.value = _playerState.value.copy(isPlaying = false)
         saveCurrentProgressToDb()
     }
 
@@ -263,9 +340,12 @@ class AudioPlayerManager(
     fun seekTo(positionMs: Long) {
         val targetMs = positionMs.coerceIn(0L, _playerState.value.durationMs)
         _playerState.value = _playerState.value.copy(currentPositionMs = targetMs)
+        
+        if (_playerState.value.isBuffering) return
+        
         mediaPlayer?.let { mp ->
             try {
-                mp.seekTo(targetMs.toInt())
+                mp.seekTo(targetMs)
             } catch (e: Exception) {
                 Log.e("AudioPlayer", "Error seeking", e)
             }
@@ -315,7 +395,7 @@ class AudioPlayerManager(
         mediaPlayer?.let { mp ->
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    mp.playbackParams = mp.playbackParams.setSpeed(speed)
+                    mp.setPlaybackParameters(PlaybackParameters(speed))
                 }
             } catch (e: Exception) {
                 Log.e("AudioPlayer", "Speed change error", e)
@@ -327,7 +407,7 @@ class AudioPlayerManager(
         sleepTimer?.cancel()
         if (minutes <= 0) {
             _playerState.value = _playerState.value.copy(sleepTimerMinutes = 0, sleepTimerRemainingSeconds = 0)
-            try { mediaPlayer?.setVolume(1.0f, 1.0f) } catch (_: Exception) {}
+            try { mediaPlayer?.volume = 1.0f } catch (_: Exception) {}
             return
         }
 
@@ -346,7 +426,7 @@ class AudioPlayerManager(
                 // Smooth volume fade during the last 15 seconds
                 if (remainingSec in 1..15) {
                     val vol = remainingSec / 15f
-                    try { mediaPlayer?.setVolume(vol, vol) } catch (_: Exception) {}
+                    try { mediaPlayer?.volume = vol } catch (_: Exception) {}
                 }
             }
 
@@ -372,7 +452,7 @@ class AudioPlayerManager(
                 }
 
                 pause()
-                try { mediaPlayer?.setVolume(1.0f, 1.0f) } catch (_: Exception) {}
+                try { mediaPlayer?.volume = 1.0f } catch (_: Exception) {}
                 _playerState.value = _playerState.value.copy(
                     sleepTimerMinutes = 0,
                     sleepTimerRemainingSeconds = 0
@@ -398,18 +478,18 @@ class AudioPlayerManager(
             while (isActive) {
                 delay(1000L)
                 val state = _playerState.value
-                if (state.isPlaying) {
+                if (state.isPlaying && !state.isBuffering) {
                     var newPos = state.currentPositionMs
                     val mp = mediaPlayer
-                    if (mp != null && mp.isPlaying) {
+                    
+                    if (mp != null) {
                         try {
-                            newPos = mp.currentPosition.toLong()
+                            if (mp.isPlaying) {
+                                newPos = mp.currentPosition
+                            }
                         } catch (e: Exception) {
-                            newPos += (1000L * state.playbackSpeed).toLong()
+                            // Ignore get position errors
                         }
-                    } else {
-                        // Progression in narrator / simulated mode
-                        newPos += (1000L * state.playbackSpeed).toLong()
                     }
 
                     if (newPos >= state.durationMs) {

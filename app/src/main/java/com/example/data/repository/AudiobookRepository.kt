@@ -551,6 +551,122 @@ class AudiobookRepository(
         }
     }
 
+    suspend fun importAudiobookFromHtml(urlOrSlug: String, html: String): AudiobookEntity {
+        val cleanInput = urlOrSlug.trim()
+        val slug = cleanInput
+            .removePrefix("https://4read.org/")
+            .removePrefix("http://4read.org/")
+            .removePrefix("4read.org/")
+            .removeSuffix(".html")
+            .ifEmpty { "4read-custom-${System.currentTimeMillis()}" }
+
+        val bookId = "4read-$slug"
+        val existing = dao.getAudiobookById(bookId)
+        if (existing != null && existing.coverImageUrl != null) return existing
+
+        val sourceUrl = if (cleanInput.startsWith("http")) cleanInput else "https://4read.org/$cleanInput"
+        
+        var coverUrl: String? = null
+        val audioStreams = mutableListOf<String>()
+
+        if (html.isNotBlank()) {
+            val ogMatch = Regex("""<meta\s+property="og:image"\s+content="([^"]+)"""", RegexOption.IGNORE_CASE).find(html)
+                ?: Regex("""<meta\s+content="([^"]+)"\s+property="og:image"""", RegexOption.IGNORE_CASE).find(html)
+            if (ogMatch != null) {
+                coverUrl = ogMatch.groupValues[1]
+            }
+            if (coverUrl.isNullOrBlank()) {
+                val imgMatch = Regex("""<img[^>]+src="([^"]*uploads/posts/[^"]+)"""", RegexOption.IGNORE_CASE).find(html)
+                    ?: Regex("""<img[^>]+src="([^"]*4read\.org/[^"]+\.(?:jpg|png|webp|jpeg))"""", RegexOption.IGNORE_CASE).find(html)
+                if (imgMatch != null) {
+                    coverUrl = imgMatch.groupValues[1]
+                }
+            }
+            if (!coverUrl.isNullOrBlank() && !coverUrl.startsWith("http")) {
+                coverUrl = if (coverUrl.startsWith("/")) "https://4read.org$coverUrl" else "https://4read.org/$coverUrl"
+            }
+
+            extractAudioFromHtml(html, sourceUrl, audioStreams)
+            
+            // Search for playerjs playlist inline
+            val fileMatch = Regex("""file(?:\s*:\s*|\s*=\s*)["']([^"']+\.txt)["']""", RegexOption.IGNORE_CASE).find(html)
+            if (fileMatch != null) {
+                val playlistUrl = fileMatch.groupValues[1]
+                val fullUrl = if (playlistUrl.startsWith("http")) playlistUrl else "https://4read.org/$playlistUrl"
+                try {
+                    val playlistContent = fetchUrlText(fullUrl)
+                    if (playlistContent.isNotBlank()) {
+                        if (playlistContent.trim().startsWith("[{")) {
+                            val jsonFileRegex = Regex("""file"\s*:\s*"([^"]+)"""", RegexOption.IGNORE_CASE)
+                            jsonFileRegex.findAll(playlistContent).forEach { m ->
+                                audioStreams.add(encodeUrl(m.groupValues[1]))
+                            }
+                        } else {
+                            val lines = playlistContent.split("\n")
+                            for (line in lines) {
+                                val cleanLine = line.trim()
+                                if (cleanLine.startsWith("http")) {
+                                    audioStreams.add(encodeUrl(cleanLine))
+                                }
+                            }
+                        }
+                    }
+                } catch(e: Exception) { }
+            }
+
+            val fileMatch2 = Regex("""file(?:\s*:\s*|\s*=\s*)["'](http[^"']+(?:mp3|m4a|ogg|aac|m3u8)[^"']*)["']""", RegexOption.IGNORE_CASE).findAll(html)
+            fileMatch2.forEach { m ->
+                audioStreams.add(m.groupValues[1])
+            }
+        }
+        
+        val formattedTitle = slug.split("-")
+            .filter { it.isNotBlank() }
+            .joinToString(" ") { word ->
+                word.replaceFirstChar { if (it.isLowerCase()) it.titlecase(java.util.Locale.getDefault()) else it.toString() }
+            }
+            .ifBlank { "Аудиокнига 4read" }
+
+        val newBook = AudiobookEntity(
+            id = bookId,
+            title = formattedTitle,
+            author = "Аудиокнига 4read.org",
+            narrator = "4read Voice Narrator",
+            description = "Аудиокнига с портала 4read.org ($cleanInput).",
+            coverDrawableRes = R.drawable.img_neuromancer_cover_1785247475170,
+            coverImageUrl = coverUrl,
+            genre = "4read Catalog",
+            sourceUrl = sourceUrl,
+            isDownloaded = false,
+            downloadProgress = 0f,
+            totalDurationSeconds = 14400L,
+            totalChapters = audioStreams.size.coerceAtLeast(1),
+            rating = 4.9f
+        )
+
+        val chapterList = if (audioStreams.isNotEmpty()) {
+            audioStreams.distinct().mapIndexed { index, audioUrl ->
+                ChapterEntity(
+                    id = "${bookId}_ch${index + 1}",
+                    bookId = bookId,
+                    chapterIndex = index,
+                    title = "Глава ${index + 1}",
+                    durationSeconds = 1800L,
+                    streamUrl = audioUrl
+                )
+            }
+        } else {
+            listOf(
+                ChapterEntity("${bookId}_ch1", bookId, 0, "Часть 01: $formattedTitle", 3600L, "https://ia800201.us.archive.org/12/items/time_machine_0802_librivox/timemachine_01_wells_64kb.mp3"),
+                ChapterEntity("${bookId}_ch2", bookId, 1, "Часть 02: Продолжение", 3600L, "https://ia800201.us.archive.org/12/items/time_machine_0802_librivox/timemachine_02_wells_64kb.mp3")
+            )
+        }
+
+        dao.insertAudiobooks(listOf(newBook))
+        dao.insertChapters(chapterList)
+        return newBook
+    }
+
     suspend fun importAudiobookFrom4ReadUrl(urlOrSlug: String): AudiobookEntity {
         val cleanInput = urlOrSlug.trim()
         val slug = cleanInput
@@ -619,17 +735,14 @@ class AudiobookRepository(
     private suspend fun fetch4ReadPageDetails(pageUrl: String): Parsed4ReadData = withContext(Dispatchers.IO) {
         var coverUrl: String? = null
         val audioStreams = mutableListOf<String>()
-
         try {
             val html = fetchUrlText(pageUrl)
             if (html.isNotBlank()) {
-                // 1. Cover Image
                 val ogMatch = Regex("""<meta\s+property="og:image"\s+content="([^"]+)"""", RegexOption.IGNORE_CASE).find(html)
-                    ?: Regex("""<meta\s+content="([^"]+)"\s+property="og:image"""", RegexOption.IGNORE_CASE).find(html)
+                    ?: Regex("""<meta\s+content="([^"]+)"\s+property="og:image""", RegexOption.IGNORE_CASE).find(html)
                 if (ogMatch != null) {
                     coverUrl = ogMatch.groupValues[1]
                 }
-
                 if (coverUrl.isNullOrBlank()) {
                     val imgMatch = Regex("""<img[^>]+src="([^"]*uploads/posts/[^"]+)"""", RegexOption.IGNORE_CASE).find(html)
                         ?: Regex("""<img[^>]+src="([^"]*4read\.org/[^"]+\.(?:jpg|png|webp|jpeg))"""", RegexOption.IGNORE_CASE).find(html)
@@ -637,15 +750,12 @@ class AudiobookRepository(
                         coverUrl = imgMatch.groupValues[1]
                     }
                 }
-
                 if (!coverUrl.isNullOrBlank() && !coverUrl.startsWith("http")) {
                     coverUrl = if (coverUrl.startsWith("/")) "https://4read.org$coverUrl" else "https://4read.org/$coverUrl"
                 }
 
-                // 2. Direct Audio Extraction from Main HTML
                 extractAudioFromHtml(html, pageUrl, audioStreams)
 
-                // 3. Inspect standard iframes embedded on 4read pages
                 val iframeRegex = Regex("""<iframe[^>]+src=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
                 iframeRegex.findAll(html).forEach { m ->
                     val iframeSrc = m.groupValues[1]
@@ -657,11 +767,41 @@ class AudiobookRepository(
                         }
                     }
                 }
+
+                val expandedStreams = mutableListOf<String>()
+                for (stream in audioStreams) {
+                    if (stream.endsWith(".m3u") || stream.endsWith(".txt")) {
+                        try {
+                            val playlistContent = fetchUrlText(stream)
+                            if (playlistContent.isNotBlank()) {
+                                if (playlistContent.trim().startsWith("[{")) {
+                                    val jsonFileRegex = Regex("\"file\"\\s*:\\s*\"([^\"]+)\"", RegexOption.IGNORE_CASE)
+                                    jsonFileRegex.findAll(playlistContent).forEach { m ->
+                                        expandedStreams.add(encodeUrl(m.groupValues[1]))
+                                    }
+                                } else {
+                                    val lines = playlistContent.split("\n")
+                                    for (line in lines) {
+                                        val cleanLine = line.trim()
+                                        if (cleanLine.startsWith("http")) {
+                                            expandedStreams.add(encodeUrl(cleanLine))
+                                        }
+                                    }
+                                }
+                            }
+                        } catch(e: Exception) {
+                             expandedStreams.add(stream)
+                        }
+                    } else {
+                        expandedStreams.add(stream)
+                    }
+                }
+                audioStreams.clear()
+                audioStreams.addAll(expandedStreams)
             }
         } catch (e: Exception) {
             Log.e("AudiobookRepo", "Error parsing 4read page $pageUrl", e)
         }
-
         Parsed4ReadData(
             coverImageUrl = coverUrl,
             audioUrls = audioStreams.distinct()
@@ -674,7 +814,7 @@ class AudiobookRepository(
         mp3Regex.findAll(html).forEach { m ->
             val audioUrl = m.groupValues[1]
             if (!audioUrl.contains("favicon") && !audioUrl.contains("logo")) {
-                resultList.add(audioUrl)
+                resultList.add(encodeUrl(audioUrl))
             }
         }
 
@@ -688,20 +828,23 @@ class AudiobookRepository(
                     "${u.protocol}://${u.host}$rel"
                 } catch (_: Exception) { "https://4read.org$rel" }
             } else "https://4read.org$rel"
-            resultList.add(full)
+            resultList.add(encodeUrl(full))
         }
 
         // C. PlayerJS / Uppod JS variables: file: "..."
         val fileJsRegex = Regex("""file\s*:\s*["']([^"']+)["']""", RegexOption.IGNORE_CASE)
         fileJsRegex.findAll(html).forEach { m ->
-            val rawFile = m.groupValues[1]
-            if (rawFile.contains(".mp3") || rawFile.contains(".m4a") || rawFile.contains(".m3u8") || rawFile.contains("/audio/")) {
+            var rawFile = m.groupValues[1]
+            // Decode {v1} obfuscation pattern used by 4read
+            rawFile = rawFile.replace("{v1}", "https://4read.org/m3u/")
+            
+            if (rawFile.contains(".mp3") || rawFile.contains(".m4a") || rawFile.contains(".m3u8") || rawFile.contains(".m3u") || rawFile.contains(".txt") || rawFile.contains("/audio/")) {
                 rawFile.split(",", ";").forEach { piece ->
                     val clean = piece.trim()
                     if (clean.startsWith("http")) {
-                        resultList.add(clean)
+                        resultList.add(encodeUrl(clean))
                     } else if (clean.startsWith("/")) {
-                        resultList.add("https://4read.org$clean")
+                        resultList.add(encodeUrl("https://4read.org$clean"))
                     }
                 }
             }
@@ -712,25 +855,52 @@ class AudiobookRepository(
         sourceRegex.findAll(html).forEach { m ->
             val src = m.groupValues[1]
             val full = if (src.startsWith("http")) src else if (src.startsWith("/")) "https://4read.org$src" else "https://4read.org/$src"
-            resultList.add(full)
+            resultList.add(encodeUrl(full))
         }
     }
 
     private fun fetchUrlText(targetUrl: String): String {
-        return try {
-            val url = URL(targetUrl)
-            val conn = (url.openConnection() as HttpURLConnection).apply {
-                connectTimeout = 8000
-                readTimeout = 12000
-                requestMethod = "GET"
-                setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-                setRequestProperty("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-                instanceFollowRedirects = true
+        var currentUrl = targetUrl
+        var redirectCount = 0
+        while (redirectCount < 6) {
+            try {
+                val url = URL(currentUrl)
+                val conn = (url.openConnection() as HttpURLConnection).apply {
+                    connectTimeout = 12000
+                    readTimeout = 18000
+                    requestMethod = "GET"
+                    setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 13; Mobile; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
+                    setRequestProperty("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                    setRequestProperty("Referer", "https://4read.org/")
+                    instanceFollowRedirects = true
+                }
+                val code = conn.responseCode
+                if (code in 300..399) {
+                    val location = conn.getHeaderField("Location")
+                    if (!location.isNullOrBlank()) {
+                        currentUrl = if (location.startsWith("http")) location else if (location.startsWith("/")) "https://4read.org$location" else "https://4read.org/$location"
+                        redirectCount++
+                        conn.disconnect()
+                        continue
+                    }
+                }
+                if (code == HttpURLConnection.HTTP_OK) {
+                    return conn.inputStream.bufferedReader().use { it.readText() }
+                } else {
+                    conn.disconnect()
+                    return ""
+                }
+            } catch (e: Exception) {
+                Log.e("AudiobookRepo", "Error fetching text from $currentUrl", e)
+                return ""
             }
-            conn.inputStream.bufferedReader().use { it.readText() }
-        } catch (e: Exception) {
-            ""
         }
+        return ""
+    }
+
+    
+    private fun encodeUrl(url: String): String {
+        return android.net.Uri.encode(url, "@#&=*+-_.,:!?()/~'%")
     }
 
     suspend fun searchAudiobooksOn4Read(query: String): List<AudiobookEntity> {

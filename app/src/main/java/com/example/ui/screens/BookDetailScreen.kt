@@ -368,6 +368,12 @@ fun ChapterRowItem(
                 if (isPlaying) CyberPrimary else CyberCardBorder,
                 RoundedCornerShape(12.dp)
             )
+            // Test seam (GitHub issue #7 — emulator audio scenario): deterministic
+            // compose-test selector for the chapter row in BookDetailScreen.
+            // Tags by chapter entity id so the emulator scenario can target a
+            // specific chapter regardless of ordering. Pure UI annotation; does
+            // not change runtime behaviour.
+            .testTag("book_detail_chapter_${chapter.id}")
             .clickable { onPlayClick() },
         colors = CardDefaults.cardColors(
             containerColor = if (isPlaying) CyberPrimary.copy(alpha = 0.1f) else CyberCardBg

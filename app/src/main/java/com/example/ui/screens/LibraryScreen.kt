@@ -345,6 +345,11 @@ fun OfflineBookItem(
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 6.dp)
             .clickable { onClick() }
+            // Test seam (GitHub issue #7 — emulator audio scenario): deterministic
+            // compose-test selector for the offline-tab book row. Mirrors the
+            // `book_item_<id>` convention already used by AudiobookListItem in
+            // HomeScreen. Pure UI annotation; does not change runtime behaviour.
+            .testTag("library_book_item_${book.id}")
             .clip(RoundedCornerShape(16.dp))
             .border(1.dp, CyberCardBorder, RoundedCornerShape(16.dp)),
         colors = CardDefaults.cardColors(containerColor = CyberCardBg)

@@ -7,6 +7,26 @@ plugins {
   alias(libs.plugins.roborazzi)
   alias(libs.plugins.secrets)
   alias(libs.plugins.google.services)
+  alias(libs.plugins.kover)
+}
+
+fun intProperty(name: String): Int? = providers.gradleProperty(name).orNull?.toIntOrNull()
+
+kover {
+  reports {
+    total {
+      html { onCheck = false }
+      xml { onCheck = true }
+      verify {
+        rule {
+          minBound(intProperty("kover.instructionThreshold") ?: 80)
+        }
+        rule {
+          minBound(intProperty("kover.branchThreshold") ?: 70, coverageUnits = kotlinx.kover.gradle.plugin.dsl.CoverageUnit.BRANCH)
+        }
+      }
+    }
+  }
 }
 
 android {

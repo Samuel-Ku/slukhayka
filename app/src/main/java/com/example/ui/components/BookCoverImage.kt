@@ -40,6 +40,7 @@ fun BookCoverImage(
                 .setHeader("User-Agent", "Mozilla/5.0 (Linux; Android 13; Mobile; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
                 .setHeader("Referer", "https://4read.org/")
                 .crossfade(true)
+                .allowHardware(false) // Disable hardware bitmaps to prevent Ashmem pinning errors on Android Q+
                 .build()
         } else null
     }

@@ -286,6 +286,9 @@ fun FourReadWebScreen(
             AndroidView(
                 factory = { ctx ->
                     WebView(ctx).apply {
+                        // Disable hardware acceleration to prevent E/MESA Failed to open rendernode error
+                        setLayerType(android.view.View.LAYER_TYPE_SOFTWARE, null)
+
                         // Phase 2.5 hotfix (SEC-006/007): disable third-party
                         // cookies and the deprecated WebSQL database surface.
                         android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(this@apply, false)
@@ -344,6 +347,23 @@ fun FourReadWebScreen(
                                 canGoForward = view?.canGoForward() ?: false
                             }
 
+                            override fun shouldInterceptRequest(
+                                view: WebView?,
+                                request: android.webkit.WebResourceRequest?
+                            ): android.webkit.WebResourceResponse? {
+                                val urlStr = request?.url?.toString()?.lowercase() ?: return super.shouldInterceptRequest(view, request)
+                                val adDomains = listOf(
+                                    "googleads", "doubleclick.net", "an.yandex.ru", "yandex.ru/ads", 
+                                    "adfox", "mc.yandex.ru", "adform.net", "adnxs.com", "rubiconproject.com",
+                                    "openx.net", "criteo.com", "adsafeprotected.com", "googlesyndication.com",
+                                    "adskeeper", "mgid.com", "rcvlink.com", "rcvlinks.com"
+                                )
+                                if (adDomains.any { urlStr.contains(it) }) {
+                                    return android.webkit.WebResourceResponse("text/plain", "UTF-8", java.io.ByteArrayInputStream(ByteArray(0)))
+                                }
+                                return super.shouldInterceptRequest(view, request)
+                            }
+
                             override fun onPageFinished(view: WebView?, url: String?) {
                                 super.onPageFinished(view, url)
                                 isLoading = false
@@ -353,6 +373,15 @@ fun FourReadWebScreen(
                                 }
                                 canGoBack = view?.canGoBack() ?: false
                                 canGoForward = view?.canGoForward() ?: false
+                                
+                                // Inject CSS to hide common ad containers on 4read.org
+                                view?.evaluateJavascript(
+                                    "(function() { " +
+                                    "var style = document.createElement('style');" +
+                                    "style.innerHTML = '.sect-rek, .rek, #rek, .reklama, .banner, .adsbygoogle, [id^=yandex_rtb_], iframe[src*=\"ads\"], .dle_b_pid_nav, [id^=bn_] { display: none !important; margin: 0 !important; padding: 0 !important; height: 0 !important; }';" +
+                                    "document.head.appendChild(style);" +
+                                    "})();", null
+                                )
                             }
 
                             // Phase 2.5 hotfix (SEC-001 / SF-009): cancel the

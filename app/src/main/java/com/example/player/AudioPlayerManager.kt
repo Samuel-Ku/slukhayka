@@ -498,7 +498,23 @@ class AudioPlayerManager(
                 .setContentType(C.AUDIO_CONTENT_TYPE_SPEECH)
                 .setUsage(C.USAGE_MEDIA)
                 .build()
-            ExoPlayer.Builder(playerContext)
+            val renderersFactory = object : androidx.media3.exoplayer.DefaultRenderersFactory(playerContext) {
+                override fun buildVideoRenderers(
+                    context: android.content.Context,
+                    extensionRendererMode: Int,
+                    mediaCodecSelector: androidx.media3.exoplayer.mediacodec.MediaCodecSelector,
+                    enableDecoderFallback: Boolean,
+                    eventHandler: android.os.Handler,
+                    eventListener: androidx.media3.exoplayer.video.VideoRendererEventListener,
+                    allowedVideoJoiningTimeMs: Long,
+                    out: java.util.ArrayList<androidx.media3.exoplayer.Renderer>
+                ) {
+                    // Do not build video renderers for an audio-only app
+                    // This prevents MediaCodec resource queries that fail on some device/emulator environments
+                }
+            }.setEnableDecoderFallback(true)
+
+            ExoPlayer.Builder(playerContext, renderersFactory)
                 .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
                 .setAudioAttributes(audioAttr, true)
                 .setWakeMode(C.WAKE_MODE_LOCAL)

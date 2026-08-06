@@ -523,34 +523,10 @@ class AudiobookRepository(
         val book = dao.getAudiobookById(bookId) ?: return@withContext
         val chapters = dao.getChaptersListForBook(bookId)
 
-        // 1. Try audio metadata (embedded picture)
+        // 1. We skip audio metadata (embedded picture) extraction because MediaMetadataRetriever
+        // frequently causes "Media Quality Service not found" and "getEmbeddedPicture failed" errors
+        // on emulators and some devices, and is extremely slow for network streams.
         var audioCoverUrl: String? = null
-        if (context != null && chapters.isNotEmpty()) {
-            val firstChapter = chapters.first()
-            val audioSource = firstChapter.localFilePath ?: firstChapter.streamUrl
-            if (audioSource.isNotBlank()) {
-                val retriever = android.media.MediaMetadataRetriever()
-                try {
-                    if (firstChapter.localFilePath != null) {
-                        retriever.setDataSource(firstChapter.localFilePath)
-                    } else {
-                        retriever.setDataSource(audioSource, mapOf("User-Agent" to "Mozilla/5.0"))
-                    }
-                    val artBytes = retriever.embeddedPicture
-                    if (artBytes != null && artBytes.isNotEmpty()) {
-                        val coversDir = File(context.filesDir, "covers")
-                        if (!coversDir.exists()) coversDir.mkdirs()
-                        val coverFile = File(coversDir, "${bookId}_art.jpg")
-                        coverFile.writeBytes(artBytes)
-                        audioCoverUrl = "file://${coverFile.absolutePath}"
-                    }
-                } catch (e: Exception) {
-                    // Audio has no embedded image
-                } finally {
-                    try { retriever.release() } catch (_: Exception) {}
-                }
-            }
-        }
 
         if (audioCoverUrl != null) {
             dao.updateCoverImageUrl(bookId, audioCoverUrl)

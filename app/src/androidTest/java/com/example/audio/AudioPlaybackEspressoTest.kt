@@ -52,7 +52,7 @@ import java.io.File
  *
  * Why the deterministic seed in `@Before` matters:
  *  - `MainViewModel`'s `AudiobookRepository` performs a background seed on
- *    `init` (`seedInitialDataIfEmpty`) that pulls from 4read.org and writes
+ *    `init` that syncs the catalogue from 4read.org and writes
  *    hardcoded rows pointing at archive.org MP3s. Reusing those rows would
  *    (a) couple the test to network reachability, (b) fail the
  *    `assert playerState.isPlaying == true within 3 s` assertion once the

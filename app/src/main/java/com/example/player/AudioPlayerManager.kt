@@ -1,9 +1,9 @@
 package com.example.player
 
+import android.content.ComponentName
 import android.content.Context
-import android.media.AudioFocusRequest
-import android.media.AudioManager
 import android.net.Uri
+import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
 import android.os.Build
 import android.os.CountDownTimer
@@ -11,14 +11,16 @@ import android.util.Log
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
-
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.session.MediaController
+import androidx.media3.session.SessionToken
 import com.example.data.db.AudiobookEntity
 import com.example.data.db.BookmarkEntity
 import com.example.data.db.ChapterEntity
@@ -67,6 +69,12 @@ fun interface PlayerFactory {
  * caused `./gradlew lintDebug` to fail with 11 `UnsafeOptInUsageError`s and
  * was flagged as CRITICAL finding CR-004 in
  * docs/audits/2026-07-30-static-and-agents.md.
+ *
+ * Lifecycle change (background playback): the manager now owns ONE
+ * long-lived [Player] for its whole lifetime instead of building a fresh
+ * player per chapter. This is required for the MediaSession in
+ * [PlaybackService] to keep working across chapter switches, and it avoids
+ * paying the ExoPlayer construction cost on every chapter boundary.
  */
 @OptIn(UnstableApi::class)
 class AudioPlayerManager(
@@ -78,20 +86,89 @@ class AudioPlayerManager(
     private val _playerState = MutableStateFlow(PlayerState())
     val playerState: StateFlow<PlayerState> = _playerState.asStateFlow()
 
+    /**
+     * The single player instance, created on first playback (or first access
+     * from [PlaybackService]) and reused for every chapter until [release].
+     * The listener is attached exactly once.
+     */
     private var mediaPlayer: Player? = null
+
+    /** Access for [PlaybackService] to build its [androidx.media3.session.MediaSession]. */
+    val player: Player get() = ensurePlayerCreated()
+
+    /** Chapter currently loaded on the player; used by the single listener. */
+    private var currentChapter: ChapterEntity? = null
+
+    /** Whether the current prepare should auto-start once READY. */
+    private var shouldAutoPlay: Boolean = false
 
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var updateProgressJob: Job? = null
     private var sleepTimer: CountDownTimer? = null
     private var prepareTimeoutJob: Job? = null
 
-    private fun getPlayerContext(): android.content.Context {
+    private fun getPlayerContext(): Context {
         return context.applicationContext
     }
 
-
     init {
         startProgressTracker()
+    }
+
+    /** Creates the player exactly once; subsequent calls return the same instance. */
+    private fun ensurePlayerCreated(): Player {
+        mediaPlayer?.let { return it }
+        return playerFactory.create(getPlayerContext()).also { mp ->
+            mp.addListener(playerListener)
+            mediaPlayer = mp
+        }
+    }
+
+    /**
+     * Single listener attached once at player creation. Unlike the old
+     * per-prepare listener, this one reads the "current chapter" state instead
+     * of closing over a chapter local.
+     */
+    private val playerListener = object : Player.Listener {
+        override fun onPlaybackStateChanged(playbackState: Int) {
+            if (playbackState == Player.STATE_READY) {
+                prepareTimeoutJob?.cancel()
+                val mp = mediaPlayer ?: return
+                val localFile = currentChapter?.localFilePath?.let { java.io.File(it) }
+                val isLocal = localFile != null && localFile.exists() && localFile.length() > 100
+                _playerState.value = _playerState.value.copy(
+                    isBuffering = false,
+                    durationMs = if (mp.duration > 0) mp.duration else _playerState.value.durationMs,
+                    audioEngineMode = if (isLocal) "Offline Local File" else "4read Direct Stream"
+                )
+                applyPlaybackSpeed(_playerState.value.playbackSpeed)
+                val validDur = if (mp.duration > 0) mp.duration else _playerState.value.durationMs
+                if (_playerState.value.currentPositionMs > 0 && _playerState.value.currentPositionMs < validDur) {
+                    try { mp.seekTo(_playerState.value.currentPositionMs) } catch (_: Exception) {}
+                }
+                if (shouldAutoPlay || _playerState.value.isPlaying) {
+                    try {
+                        mp.play()
+                        _playerState.value = _playerState.value.copy(isPlaying = true)
+                    } catch (e: Exception) {
+                        Log.e("AudioPlayer", "Error starting after prepare", e)
+                    }
+                } else {
+                    _playerState.value = _playerState.value.copy(isPlaying = false)
+                }
+            } else if (playbackState == Player.STATE_ENDED) {
+                onChapterCompleted()
+            }
+        }
+
+        override fun onPlayerError(error: PlaybackException) {
+            prepareTimeoutJob?.cancel()
+            Log.w("AudioPlayer", "Stream playback error (${error.errorCodeName}) for URL: ${currentChapter?.streamUrl}")
+            _playerState.value = _playerState.value.copy(
+                lastErrorMsg = "Primary stream error (${error.errorCodeName})"
+            )
+            reportPlaybackFailure()
+        }
     }
 
     fun loadAndPlayBook(
@@ -115,14 +192,14 @@ class AudioPlayerManager(
     }
 
     fun prepareChapter(chapterIndex: Int, startPositionMs: Long = 0L, autoPlay: Boolean = true) {
-        mediaPlayer?.release()
-        mediaPlayer = null
-
         val chapters = _playerState.value.chapters
         if (chapters.isEmpty() || chapterIndex !in chapters.indices) return
 
         val chapter = chapters[chapterIndex]
         val durationMs = chapter.durationSeconds * 1000L
+
+        currentChapter = chapter
+        shouldAutoPlay = autoPlay || _playerState.value.isPlaying
 
         _playerState.value = _playerState.value.copy(
             currentChapterIndex = chapterIndex,
@@ -133,87 +210,37 @@ class AudioPlayerManager(
             lastErrorMsg = ""
         )
 
-        val headers = mapOf(
-            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Referer" to "https://4read.org/"
-        )
+        prepareTimeoutJob?.cancel()
+        prepareTimeoutJob = scope.launch {
+            delay(PREPARE_TIMEOUT_MS)
+            if (_playerState.value.isBuffering) {
+                Log.w("AudioPlayer", "Primary stream timeout")
+                _playerState.value = _playerState.value.copy(
+                    lastErrorMsg = "Primary stream timeout (${PREPARE_TIMEOUT_MS / 1000}s)"
+                )
+                reportPlaybackFailure()
+            }
+        }
+
+        if (autoPlay) {
+            ensurePlaybackServiceStarted()
+        }
 
         try {
-            val mp = playerFactory.create(getPlayerContext()).apply {
-
-                val localPath = chapter.localFilePath
-                val localFile = localPath?.let { java.io.File(it) }
-                if (localFile != null && localFile.exists() && localFile.length() > 100) {
-                    setMediaItem(MediaItem.fromUri(Uri.fromFile(localFile)))
-                } else {
-                    setMediaItem(MediaItem.fromUri(chapter.streamUrl.toUri()))
-                }
-
-                addListener(object : Player.Listener {
-                    override fun onPlaybackStateChanged(playbackState: Int) {
-                        if (playbackState == Player.STATE_READY) {
-                            prepareTimeoutJob?.cancel()
-                            val mode = if (localFile != null && localFile.exists() && localFile.length() > 100) "Offline Local File" else "4read Direct Stream"
-                            _playerState.value = _playerState.value.copy(
-                                isBuffering = false,
-                                durationMs = if (duration > 0) duration else durationMs,
-                                audioEngineMode = mode
-                            )
-                            applyPlaybackSpeed(_playerState.value.playbackSpeed)
-                            val validDur = if (duration > 0) duration else durationMs
-                            if (_playerState.value.currentPositionMs > 0 && _playerState.value.currentPositionMs < validDur) {
-                                try { seekTo(_playerState.value.currentPositionMs) } catch (_: Exception) {}
-                            }
-                            if (autoPlay || _playerState.value.isPlaying) {
-                                try {
-                                    play()
-                                    _playerState.value = _playerState.value.copy(isPlaying = true)
-                                } catch (e: Exception) {
-                                    Log.e("AudioPlayer", "Error starting after prepare", e)
-                                }
-                            } else {
-                                _playerState.value = _playerState.value.copy(isPlaying = false)
-                            }
-                        } else if (playbackState == Player.STATE_ENDED) {
-                            onChapterCompleted()
-                        }
-                    }
-                    
-                    override fun onPlayerError(error: PlaybackException) {
-                        prepareTimeoutJob?.cancel()
-                        Log.w("AudioPlayer", "Stream playback error (${error.errorCodeName}) for URL: ${chapter.streamUrl}")
-                        _playerState.value = _playerState.value.copy(
-                            lastErrorMsg = "Primary stream error (${error.errorCodeName})"
-                        )
-                        tryFallbackPlayback(chapter, startPositionMs, autoPlay, durationMs, 0)
-                    }
-                })
-
-                prepare()
-                
-                prepareTimeoutJob?.cancel()
-                prepareTimeoutJob = scope.launch {
-                    delay(45000L) // 45 second prepare timeout (was commented as 15s, see HI-003)
-                    if (_playerState.value.isBuffering) {
-                        Log.w("AudioPlayer", "Primary stream timeout")
-                        _playerState.value = _playerState.value.copy(
-                            lastErrorMsg = "Primary stream timeout (45s)"
-                        )
-                        tryFallbackPlayback(chapter, startPositionMs, autoPlay, durationMs, 0)
-                    }
-                }
-            }
-            mediaPlayer = mp
+            // setMediaItem replaces the previous playlist entry and resets the
+            // player to IDLE; prepare() re-enters BUFFERING -> READY.
+            val mp = ensurePlayerCreated()
+            mp.setMediaItem(buildMediaItem(chapter))
+            mp.prepare()
         } catch (e: Exception) {
             prepareTimeoutJob?.cancel()
             Log.e("AudioPlayer", "Exception in prepareChapter", e)
-            tryFallbackPlayback(chapter, startPositionMs, autoPlay, durationMs, 0)
+            reportPlaybackFailure()
         }
     }
 
     /**
-     * Called by [prepareChapter] when the primary stream surfaces a
-     * PlaybackException OR when the 45s preparation timeout elapses.
+     * Failed primary stream (PlaybackException OR 45s prepare timeout).
      *
      * Phase 2.5 hotfix (CR-002 / SF-003 / SF-005 / SF-006 in
      * docs/audits/2026-07-30-static-and-agents.md): the previous
@@ -224,20 +251,15 @@ class AudioPlayerManager(
      * like success" and trips every reasonable trust assumption about media
      * playback.
      *
-     * The new contract: report the failure to PlayerState and let the UI
-     * decide what to render. We do NOT synthesize audio from unrelated
-     * sources.
+     * The contract: report the failure to PlayerState and let the UI decide
+     * what to render. We do NOT synthesize audio from unrelated sources.
+     *
+     * Unlike the old code, the shared player is intentionally NOT released
+     * here: the MediaSession in PlaybackService wraps it, and a subsequent
+     * [play] re-prepares the same instance.
      */
-    private fun tryFallbackPlayback(
-        chapter: ChapterEntity,
-        @Suppress("UNUSED_PARAMETER") startPositionMs: Long,
-        @Suppress("UNUSED_PARAMETER") autoPlay: Boolean,
-        @Suppress("UNUSED_PARAMETER") durationMs: Long,
-        @Suppress("UNUSED_PARAMETER") fallbackIndex: Int
-    ) {
+    private fun reportPlaybackFailure() {
         prepareTimeoutJob?.cancel()
-        mediaPlayer?.release()
-        mediaPlayer = null
         _playerState.value = _playerState.value.copy(
             isBuffering = false,
             isPlaying = false,
@@ -247,14 +269,114 @@ class AudioPlayerManager(
         )
     }
 
+    /**
+     * MediaItem with book/chapter metadata so the system media notification
+     * (and Android Auto / lock screen) shows a real title instead of a URL.
+     */
+    private fun buildMediaItem(chapter: ChapterEntity): MediaItem {
+        val book = _playerState.value.currentBook
+        val metadata = MediaMetadata.Builder()
+            .setTitle(chapter.title)
+            .setArtist(book?.author?.ifBlank { null } ?: book?.title)
+            .setAlbumTitle(book?.title)
+            .setArtworkUri(book?.coverImageUrl?.toUri())
+            .build()
+        val localFile = chapter.localFilePath?.let { java.io.File(it) }
+        return if (localFile != null && localFile.exists() && localFile.length() > 100) {
+            MediaItem.Builder()
+                .setUri(Uri.fromFile(localFile))
+                .setMediaMetadata(metadata)
+                .build()
+        } else {
+            MediaItem.Builder()
+                .setUri(chapter.streamUrl.toUri())
+                .setMediaMetadata(metadata)
+                .build()
+        }
+    }
+
+    /**
+     * Starts [PlaybackService] so background playback survives the Activity
+     * being destroyed. Called on every user-initiated play path.
+     *
+     * Uses `startService`, deliberately NOT `startForegroundService`: Media3's
+     * MediaSessionService only calls `startForeground()` once playback is
+     * actually playing (READY + playWhenReady). With a slow stream the 30s
+     * startForeground deadline imposed on startForegroundService() would be
+     * exceeded and the system would kill the app with
+     * ForegroundServiceDidNotStartInTimeException (observed on device:
+     * BUFFERING stream -> crash at 20:47:29). startService has no deadline,
+     * and the service promotes itself to foreground the moment playback
+     * starts. The call is always user-initiated while the app is in the
+     * foreground, so the API 26+ background-start ban does not apply.
+     */
+    private fun ensurePlaybackServiceStarted() {
+        try {
+            context.startService(PlaybackService.playIntent(getPlayerContext()))
+        } catch (e: Exception) {
+            // e.g. IllegalStateException if a background start is ever rejected;
+            // playback itself still works.
+            Log.w("AudioPlayer", "Unable to start playback service", e)
+        }
+        // Media3 1.3.1 only promotes the service to foreground (and shows the
+        // media notification) when at least one MediaController is connected to
+        // the session: `MediaNotificationManager.shouldRunInForeground()`
+        // returns false when `getConnectedControllerForSession() == null`.
+        // Verified on device (OnePlus 8 Pro): with no controller the service
+        // runs as a plain background service and the system kills it after
+        // ~90s with "Stopping service due to app idle" even though playback
+        // was PLAYING. Connect a controller we keep around for the process
+        // lifetime; the UI still drives the same Player directly.
+        ensureMediaControllerConnected()
+    }
+
+    /**
+     * Connects a background [MediaController] to the session hosted by
+     * [PlaybackService]. We never issue commands through it (the UI drives the
+     * shared Player directly), but its mere presence tells Media3 the session
+     * is controller-connected, which unlocks the foreground service + media
+     * notification. It also exposes the session to Android Auto / headset
+     * media buttons through the service's intent filter.
+     */
+    private var mediaControllerFuture: com.google.common.util.concurrent.ListenableFuture<MediaController>? = null
+    private var mediaController: MediaController? = null
+
+    private fun ensureMediaControllerConnected() {
+        if (mediaController != null || mediaControllerFuture != null) return
+        val token = SessionToken(
+            getPlayerContext(),
+            ComponentName(getPlayerContext(), PlaybackService::class.java)
+        )
+        val future = MediaController.Builder(getPlayerContext(), token).buildAsync()
+        mediaControllerFuture = future
+        future.addListener(
+            {
+                try {
+                    mediaController = future.get()
+                } catch (e: Exception) {
+                    Log.w("AudioPlayer", "MediaController connect failed", e)
+                }
+            },
+            ContextCompat.getMainExecutor(getPlayerContext())
+        )
+    }
+
     fun play() {
         _playerState.value = _playerState.value.copy(isPlaying = true)
+        ensurePlaybackServiceStarted()
         if (_playerState.value.isBuffering) return
 
         val mp = mediaPlayer
         if (mp != null) {
             try {
-                mp.play()
+                // After an error/timeout the player sits in STATE_IDLE with a
+                // stale error; re-prepare the current chapter instead of
+                // issuing play() into a dead player.
+                if (mp.playbackState == Player.STATE_READY || mp.playbackState == Player.STATE_ENDED) {
+                    mp.play()
+                } else if (currentChapter != null) {
+                    prepareChapter(_playerState.value.currentChapterIndex, _playerState.value.currentPositionMs, true)
+                }
             } catch (e: Exception) {
                 Log.e("AudioPlayer", "Error resume play", e)
                 prepareChapter(_playerState.value.currentChapterIndex, _playerState.value.currentPositionMs, true)
@@ -289,9 +411,9 @@ class AudioPlayerManager(
     fun seekTo(positionMs: Long) {
         val targetMs = positionMs.coerceIn(0L, _playerState.value.durationMs)
         _playerState.value = _playerState.value.copy(currentPositionMs = targetMs)
-        
+
         if (_playerState.value.isBuffering) return
-        
+
         mediaPlayer?.let { mp ->
             try {
                 mp.seekTo(targetMs)
@@ -430,7 +552,7 @@ class AudioPlayerManager(
                 if (state.isPlaying && !state.isBuffering) {
                     var newPos = state.currentPositionMs
                     val mp = mediaPlayer
-                    
+
                     if (mp != null) {
                         try {
                             if (mp.isPlaying) {
@@ -473,11 +595,48 @@ class AudioPlayerManager(
         // manager and mutate `_playerState.value` after the test (or a
         // future onStop hook) releases the underlying player.
         prepareTimeoutJob?.cancel()
+        mediaController?.release()
+        mediaController = null
+        mediaControllerFuture?.let { MediaController.releaseFuture(it) }
+        mediaControllerFuture = null
         mediaPlayer?.release()
         mediaPlayer = null
     }
 
+    /**
+     * Stops playback and resets the manager to a pristine, empty state.
+     *
+     * Spec #8 ticket T3: deleting a book that is currently playing must stop
+     * the player and clear the whole [PlayerState] (book, chapters, position)
+     * so no "ghost" session survives. Unlike [release] the underlying player
+     * instance is kept alive — the app-scoped manager stays usable for the
+     * next book the user picks.
+     */
+    fun stopAndClear() {
+        sleepTimer?.cancel()
+        sleepTimer = null
+        prepareTimeoutJob?.cancel()
+        // Deliberately NOT persisting progress here: the caller (deleteBook)
+        // removes the book's progress row right after, so a save would race it
+        // and could re-insert an orphaned row for a deleted bookId (code-review
+        // MEDIUM). The book is gone — its position goes with it.
+        mediaPlayer?.let { mp ->
+            try {
+                mp.pause()
+                mp.stop()
+            } catch (e: Exception) {
+                Log.e("AudioPlayer", "Error stopping player", e)
+            }
+        }
+        currentChapter = null
+        shouldAutoPlay = false
+        _playerState.value = PlayerState()
+    }
+
     companion object {
+        /** Prepare timeout for a chapter stream: 45 seconds. */
+        const val PREPARE_TIMEOUT_MS: Long = 45_000L
+
         /**
          * Production [PlayerFactory]: a real ExoPlayer wired to the hardened
          * HTTP data source.
@@ -522,4 +681,3 @@ class AudioPlayerManager(
         }
     }
 }
-

@@ -1,6 +1,7 @@
 package com.example.data.db
 
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
 @Entity(tableName = "audiobooks")
@@ -28,7 +29,7 @@ data class ListeningStatEntity(
     val listenedSeconds: Long = 0L
 )
 
-@Entity(tableName = "chapters")
+@Entity(tableName = "chapters", indices = [Index("bookId")])
 data class ChapterEntity(
     @PrimaryKey val id: String,
     val bookId: String,
@@ -40,7 +41,7 @@ data class ChapterEntity(
     val isDownloaded: Boolean = false
 )
 
-@Entity(tableName = "bookmarks")
+@Entity(tableName = "bookmarks", indices = [Index("bookId")])
 data class BookmarkEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val bookId: String,
@@ -51,7 +52,7 @@ data class BookmarkEntity(
     val createdAt: Long = System.currentTimeMillis()
 )
 
-@Entity(tableName = "playback_progress")
+@Entity(tableName = "playback_progress", indices = [Index("bookId")])
 data class PlaybackProgressEntity(
     @PrimaryKey val bookId: String,
     val currentChapterIndex: Int = 0,

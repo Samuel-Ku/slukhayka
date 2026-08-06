@@ -1,5 +1,7 @@
 package com.example.ui.screens
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -18,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -43,6 +46,13 @@ fun LibraryScreen(
     val listeningStats by viewModel.listeningStats.collectAsState()
     val cacheSizeFormatted by viewModel.cacheSizeFormatted.collectAsState()
 
+    // Spec #8 ticket T7: system file picker (SAF) → one picked audio file = one book.
+    val importLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) viewModel.importLocalAudioFile(uri)
+    }
+
     var activeTab by remember { mutableStateOf(0) } // 0 = Offline, 1 = Favorites, 2 = Bookmarks, 3 = Stats
 
     Column(
@@ -56,19 +66,34 @@ fun LibraryScreen(
                 .fillMaxWidth()
                 .padding(16.dp)
         ) {
-            Text(
-                text = "Моя Бібліотека",
-                style = MaterialTheme.typography.titleLarge.copy(
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 24.sp
-                ),
-                color = CyberTextPrimary
-            )
-            Text(
-                text = "Керування завантаженнями, обраними та статистикою",
-                style = MaterialTheme.typography.bodySmall,
-                color = CyberTextSecondary
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Моя Бібліотека",
+                        style = MaterialTheme.typography.titleLarge.copy(
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 24.sp
+                        ),
+                        color = CyberTextPrimary
+                    )
+                    Text(
+                        text = "Завантаження, обрані, закладки, статистика",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = CyberTextSecondary
+                    )
+                }
+
+                // Import a local audio file (spec #8 ticket T7).
+                LocalAudioImportButton(
+                    onClick = {
+                        importLauncher.launch(arrayOf("audio/*", "application/ogg", "application/mpeg"))
+                    }
+                )
+            }
         }
 
         // Tab Navigation Bar
@@ -223,6 +248,35 @@ fun LibraryScreen(
                 }
             }
         }
+    }
+}
+
+/**
+ * The "Додати аудіо" button that opens the SAF file picker (spec #8 T7).
+ * Extracted so the import affordance is unit-testable without a ViewModel.
+ */
+@Composable
+fun LocalAudioImportButton(
+    onClick: () -> Unit
+) {
+    Button(
+        onClick = onClick,
+        colors = ButtonDefaults.buttonColors(containerColor = CyberPrimary),
+        shape = RoundedCornerShape(14.dp),
+        modifier = Modifier.testTag("import_audio_button")
+    ) {
+        Icon(
+            imageVector = Icons.Default.FileUpload,
+            contentDescription = null,
+            tint = CyberOnPrimary,
+            modifier = Modifier.size(16.dp)
+        )
+        Spacer(modifier = Modifier.width(4.dp))
+        Text(
+            text = "Додати аудіо",
+            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+            color = CyberOnPrimary
+        )
     }
 }
 

@@ -48,6 +48,20 @@ interface AudiobookDao {
     @Query("DELETE FROM bookmarks WHERE id = :bookmarkId")
     suspend fun deleteBookmark(bookmarkId: Long)
 
+    // Cascade book deletion (spec #8 ticket T2): the entities have no FK
+    // constraints, so deletion is coordinated explicitly by the repository.
+    @Query("DELETE FROM chapters WHERE bookId = :bookId")
+    suspend fun deleteChaptersForBook(bookId: String)
+
+    @Query("DELETE FROM bookmarks WHERE bookId = :bookId")
+    suspend fun deleteBookmarksForBook(bookId: String)
+
+    @Query("DELETE FROM playback_progress WHERE bookId = :bookId")
+    suspend fun deletePlaybackProgressForBook(bookId: String)
+
+    @Query("DELETE FROM audiobooks WHERE id = :bookId")
+    suspend fun deleteAudiobook(bookId: String)
+
     // Playback Progress
     @Query("SELECT * FROM playback_progress WHERE bookId = :bookId")
     fun getPlaybackProgress(bookId: String): Flow<PlaybackProgressEntity?>

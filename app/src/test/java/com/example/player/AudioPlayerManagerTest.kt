@@ -19,6 +19,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -119,7 +120,10 @@ class AudioPlayerManagerTest {
         assertFalse(state.isPlaying)
         assertEquals("", state.currentStreamUrl)
         assertTrue("user-facing error must be set", state.lastErrorMsg.isNotBlank())
-        assertTrue("the timed-out engine must be released", engine.isReleased)
+        // Background-playback refactor: the single shared engine is kept alive
+        // after a failure so the MediaSession keeps wrapping a live player and
+        // a later play() re-prepares it.
+        assertFalse("the engine must survive the failure", engine.isReleased)
     }
 
     @Test
@@ -133,14 +137,15 @@ class AudioPlayerManagerTest {
         // Act
         firstEngine.simulateEnded()
 
-        // Assert
+        // Assert -- the same long-lived engine is re-prepared for chapter 2
+        // (background-playback refactor: one player per manager lifetime).
         val state = manager.playerState.value
         assertEquals(1, state.currentChapterIndex)
         assertEquals(chapters[1].streamUrl, state.currentStreamUrl)
-        assertEquals(2, factory.engines.size)
-        assertTrue("the finished engine must be released", firstEngine.isReleased)
-        assertEquals(1, factory.current.prepareCount)
-        assertEquals(chapters[1].streamUrl, factory.current.lastMediaItemUri)
+        assertEquals(1, factory.engines.size)
+        assertFalse("the finished engine must be reused, not released", firstEngine.isReleased)
+        assertEquals(2, firstEngine.prepareCount)
+        assertEquals(chapters[1].streamUrl, firstEngine.lastMediaItemUri)
     }
 
     @Test
@@ -191,7 +196,8 @@ class AudioPlayerManagerTest {
         assertEquals("", state.currentStreamUrl)
         assertFalse(state.isPlaying)
         assertTrue(state.lastErrorMsg.isNotBlank())
-        assertTrue(engine.isReleased)
+        // The shared engine survives the failure (see timeout test above).
+        assertFalse(engine.isReleased)
         assertEquals("no replacement engine may be built", 1, factory.engines.size)
     }
 
@@ -213,6 +219,28 @@ class AudioPlayerManagerTest {
         assertFalse(state.isPlaying)
         assertEquals(durationMs, state.currentPositionMs)
         assertEquals("no chapter after the last one", 1, factory.engines.size)
+    }
+
+    @Test
+    fun `stopAndClear stops playback and resets the state`() = playerTest { manager, factory ->
+        // Arrange -- a playing book
+        manager.loadAndPlayBook(book, chapters, initialChapterIndex = 0, autoPlay = true)
+        val engine = factory.current
+        engine.simulateReady(chapters[0].durationSeconds * MILLIS_PER_SECOND)
+        assertTrue(manager.playerState.value.isPlaying)
+
+        // Act -- spec #8 ticket T3: deleting the playing book
+        manager.stopAndClear()
+
+        // Assert -- pristine state, engine stopped but kept alive
+        val state = manager.playerState.value
+        assertNull(state.currentBook)
+        assertTrue(state.chapters.isEmpty())
+        assertFalse(state.isPlaying)
+        assertEquals(0L, state.currentPositionMs)
+        assertEquals("", state.currentStreamUrl)
+        assertTrue("the engine must be stopped", engine.stopCount >= 1)
+        assertFalse("the engine survives for future books", engine.isReleased)
     }
 
     @Test

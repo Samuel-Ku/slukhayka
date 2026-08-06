@@ -170,6 +170,24 @@ class FakeAudiobookDao(
         bookmarksState.update { current -> current.filterNot { it.id == bookmarkId } }
     }
 
+    // --- Cascade deletion (spec #8 ticket T2) ------------------------------
+
+    override suspend fun deleteChaptersForBook(bookId: String) {
+        chaptersState.update { current -> current.filterNot { it.bookId == bookId } }
+    }
+
+    override suspend fun deleteBookmarksForBook(bookId: String) {
+        bookmarksState.update { current -> current.filterNot { it.bookId == bookId } }
+    }
+
+    override suspend fun deletePlaybackProgressForBook(bookId: String) {
+        progressState.update { current -> current.filterNot { it.bookId == bookId } }
+    }
+
+    override suspend fun deleteAudiobook(bookId: String) {
+        booksState.update { current -> current.filterNot { it.id == bookId } }
+    }
+
     // --- Playback progress ------------------------------------------------
 
     override fun getPlaybackProgress(bookId: String): Flow<PlaybackProgressEntity?> =

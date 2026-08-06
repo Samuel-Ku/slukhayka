@@ -3,6 +3,8 @@ package com.example.ui
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.App
+import com.example.data.catalog.CatalogSection
 import com.example.data.db.*
 import com.example.data.repository.AudiobookRepository
 import com.example.player.AudioPlayerManager
@@ -14,21 +16,29 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Locale
 
+// Spec #8 ticket T4: the WebView is no longer a tab — it survives only as the
+// "open on site" fallback on the book page. Bookmarks moved into the Library
+// as a sub-tab, so the bottom bar is Explore · Library.
 enum class SelectedTab {
     EXPLORE,
-    FOUR_READ_WEB,
     LIBRARY,
-    BOOKMARKS,
     SETTINGS
 }
+
+/** A series (cycle) opened from the Explore row (spec #8 ticket T8). */
+data class SelectedSeries(
+    val title: String,
+    val url: String
+)
 
 // Phase 2.5 hotfix: flatMapLatest is @ExperimentalCoroutinesApi.
 @OptIn(ExperimentalCoroutinesApi::class)
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val db = AudiobookDatabase.getDatabase(application)
-    val repository = AudiobookRepository(db.audiobookDao(), application)
-    val playerManager = AudioPlayerManager(application, repository)
+    // Playback stack is application-scoped (see App.kt) so background playback
+    // survives the Activity/ViewModel being destroyed by the system.
+    val repository: AudiobookRepository = App.instance.repository
+    val playerManager: AudioPlayerManager = App.instance.playerManager
 
     val playerState: StateFlow<PlayerState> = playerManager.playerState
 
@@ -114,6 +124,58 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    // Explore catalogue rows (spec #8 tickets T5/T6): populated by the
+    // repository's background sync of the 4read.org homepage.
+    val catalogSections: StateFlow<List<CatalogSection>> = repository.catalogSections
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val isCatalogLoading: StateFlow<Boolean> = repository.isCatalogLoading
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    // "Open on site" WebView fallback (spec #8 ticket T4).
+    private val _webFallbackUrl = MutableStateFlow<String?>(null)
+    val webFallbackUrl: StateFlow<String?> = _webFallbackUrl.asStateFlow()
+
+    fun openWebFallback(url: String) {
+        _webFallbackUrl.value = url
+    }
+
+    fun closeWebFallback() {
+        _webFallbackUrl.value = null
+    }
+
+    // Series pages (spec #8 ticket T8).
+    private val _selectedSeries = MutableStateFlow<SelectedSeries?>(null)
+    val selectedSeries: StateFlow<SelectedSeries?> = _selectedSeries.asStateFlow()
+
+    private val _seriesBooks = MutableStateFlow<List<AudiobookEntity>>(emptyList())
+    val seriesBooks: StateFlow<List<AudiobookEntity>> = _seriesBooks.asStateFlow()
+
+    private val _isSeriesLoading = MutableStateFlow(false)
+    val isSeriesLoading: StateFlow<Boolean> = _isSeriesLoading.asStateFlow()
+
+    fun openSeries(title: String, url: String) {
+        _selectedSeries.value = SelectedSeries(title, url)
+        _seriesBooks.value = emptyList()
+        _isSeriesLoading.value = true
+        viewModelScope.launch(Dispatchers.IO) {
+            val books = repository.fetchSeriesBooks(url)
+            _seriesBooks.value = books
+            _isSeriesLoading.value = false
+        }
+    }
+
+    fun closeSeries() {
+        _selectedSeries.value = null
+        _seriesBooks.value = emptyList()
+    }
+
+    fun refreshCatalog() {
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.fetchCatalogSections()
+        }
+    }
+
     fun selectTab(tab: SelectedTab) {
         _selectedTab.value = tab
     }
@@ -148,6 +210,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) {
             val updatedBook = repository.getBookSync(book.id) ?: book
             val chapters = repository.getChaptersList(updatedBook.id)
+            // Code-review LOW: if the book was deleted while this IO fetch was
+            // in flight (e.g. deleteBook on another screen), do not resurrect
+            // playback for it.
+            if (repository.getBookSync(updatedBook.id) == null) return@launch
             val progress = repository.getProgressSync(updatedBook.id)
             
             val startChapter: Int
@@ -249,6 +315,36 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * Cascading book deletion (spec #8 tickets T2/T3). If the book is the one
+     * currently playing, playback is stopped and the player state cleared;
+     * then book + chapters + bookmarks + progress + local files are removed.
+     * The UI returns to the catalogue.
+     */
+    fun deleteBook(bookId: String) {
+        if (playerState.value.currentBook?.id == bookId) {
+            playerManager.stopAndClear()
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.deleteBook(bookId)
+        }
+        if (_selectedBookId.value == bookId) {
+            _selectedBookId.value = null
+        }
+        _showFullPlayer.value = false
+    }
+
+    /** Imports a user-picked local audio file (spec #8 ticket T7). */
+    fun importLocalAudioFile(uri: android.net.Uri) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                repository.importLocalAudioFile(uri)
+            } catch (e: Exception) {
+                android.util.Log.w("MainViewModel", "Local import failed", e)
+            }
+        }
+    }
+
     fun importAndPlay4ReadHtml(url: String, html: String) {
         viewModelScope.launch(Dispatchers.IO) {
             val importedBook = repository.importAudiobookFromHtml(url, html)
@@ -270,10 +366,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    override fun onCleared() {
-        super.onCleared()
-        playerManager.release()
-    }
+    // NOTE: we intentionally do NOT release the player in onCleared(). The
+    // AudioPlayerManager is application-scoped (App.kt) and must keep playing
+    // after the Activity is destroyed so background playback works.
 
     companion object {
         fun formatTime(seconds: Long): String {

@@ -285,10 +285,9 @@ fun FourReadWebScreen(
         Box(modifier = Modifier.weight(1f)) {
             AndroidView(
                 factory = { ctx ->
+                    Log.w("FourReadWeb", "WebView factory creating WebView")
                     WebView(ctx).apply {
-                        // Disable hardware acceleration to prevent E/MESA Failed to open rendernode error
-                        setLayerType(android.view.View.LAYER_TYPE_SOFTWARE, null)
-
+                        Log.w("FourReadWeb", "WebView created, loading url=$currentWebUrl")
                         // Phase 2.5 hotfix (SEC-006/007): disable third-party
                         // cookies and the deprecated WebSQL database surface.
                         android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(this@apply, false)
@@ -304,8 +303,8 @@ fun FourReadWebScreen(
                             // Phase 2.5 hotfix (SEC-027): require an explicit
                             // user gesture for media playback.
                             mediaPlaybackRequiresUserGesture = true
-                            useWideViewPort = true
-                            loadWithOverviewMode = true
+                            useWideViewPort = false
+                            loadWithOverviewMode = false
                             // Phase 2.5 hotfix (SEC-003): file/content access
                             // combined with the JS interface lets a compromised
                             // page reach file:// content.
@@ -337,6 +336,7 @@ fun FourReadWebScreen(
 
                             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                                 super.onPageStarted(view, url, favicon)
+                                Log.w("FourReadWeb", "onPageStarted: url=$url")
                                 isLoading = true
                                 hasWebError = false
                                 url?.let {
@@ -351,21 +351,12 @@ fun FourReadWebScreen(
                                 view: WebView?,
                                 request: android.webkit.WebResourceRequest?
                             ): android.webkit.WebResourceResponse? {
-                                val urlStr = request?.url?.toString()?.lowercase() ?: return super.shouldInterceptRequest(view, request)
-                                val adDomains = listOf(
-                                    "googleads", "doubleclick.net", "an.yandex.ru", "yandex.ru/ads", 
-                                    "adfox", "mc.yandex.ru", "adform.net", "adnxs.com", "rubiconproject.com",
-                                    "openx.net", "criteo.com", "adsafeprotected.com", "googlesyndication.com",
-                                    "adskeeper", "mgid.com", "rcvlink.com", "rcvlinks.com"
-                                )
-                                if (adDomains.any { urlStr.contains(it) }) {
-                                    return android.webkit.WebResourceResponse("text/plain", "UTF-8", java.io.ByteArrayInputStream(ByteArray(0)))
-                                }
                                 return super.shouldInterceptRequest(view, request)
                             }
 
                             override fun onPageFinished(view: WebView?, url: String?) {
                                 super.onPageFinished(view, url)
+                                Log.w("FourReadWeb", "onPageFinished: url=$url")
                                 isLoading = false
                                 url?.let {
                                     currentWebUrl = it
@@ -374,7 +365,6 @@ fun FourReadWebScreen(
                                 canGoBack = view?.canGoBack() ?: false
                                 canGoForward = view?.canGoForward() ?: false
                                 
-                                // Inject CSS to hide common ad containers on 4read.org
                                 view?.evaluateJavascript(
                                     "(function() { " +
                                     "var style = document.createElement('style');" +
@@ -406,6 +396,7 @@ fun FourReadWebScreen(
                                 error: android.webkit.WebResourceError?
                             ) {
                                 super.onReceivedError(view, request, error)
+                                Log.w("FourReadWeb", "onReceivedError: url=${request?.url} errCode=${error?.errorCode} desc=${error?.description}")
                                 if (request?.isForMainFrame == true) {
                                     isLoading = false
                                     val errCode = error?.errorCode ?: 0

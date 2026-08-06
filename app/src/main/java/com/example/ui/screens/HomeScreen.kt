@@ -20,17 +20,31 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import com.example.data.catalog.CatalogBook
+import com.example.data.catalog.CatalogSection
+import com.example.data.catalog.CatalogSeries
 import com.example.data.db.AudiobookEntity
 import com.example.data.db.PlaybackProgressEntity
 import com.example.ui.MainViewModel
 import com.example.ui.theme.*
 
+/**
+ * Explore tab (spec #8 tickets T6/T1): a Netflix-style feed of horizontal rows
+ * parsed from the 4read.org homepage ("Новинки" book row, "Цикли" series row),
+ * the Continue-Listening card, then the full local library. While the
+ * catalogue syncs on a fresh install a spinner is shown; if nothing arrives
+ * the user gets an actionable empty state (retry / import) instead of mocks.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
@@ -42,14 +56,15 @@ fun HomeScreen(
     val searchQuery by viewModel.searchQuery.collectAsState()
     val selectedGenre by viewModel.selectedGenreFilter.collectAsState()
     val recentProgress by viewModel.recentProgress.collectAsState()
+    val sections by viewModel.catalogSections.collectAsState()
+    val isCatalogLoading by viewModel.isCatalogLoading.collectAsState()
 
-    val featuredBook = allBooks.find { it.id == "2172-ybson-vylyam-neyromant" } ?: allBooks.firstOrNull()
     val genres = listOf("Усі", "Фантастика", "Cyberpunk", "Детективи", "Класика", "Антиутопія", "Завантажені")
 
     val filteredBooks = allBooks.filter { book ->
         val matchesSearch = searchQuery.isBlank() ||
-                book.title.contains(searchQuery, ignoreCase = true) ||
-                book.author.contains(searchQuery, ignoreCase = true)
+            book.title.contains(searchQuery, ignoreCase = true) ||
+            book.author.contains(searchQuery, ignoreCase = true)
 
         val matchesGenre = when (selectedGenre) {
             "Усі", "All" -> true
@@ -64,6 +79,9 @@ fun HomeScreen(
 
         matchesSearch && matchesGenre
     }
+
+    // Search/genre mode: a plain result list, no rows.
+    val inSearchMode = searchQuery.isNotBlank() || selectedGenre != "Усі"
 
     LazyColumn(
         modifier = Modifier
@@ -127,7 +145,7 @@ fun HomeScreen(
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = "4read.org Online",
+                                text = "Українські аудіокниги",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = CyberPrimary
                             )
@@ -141,7 +159,7 @@ fun HomeScreen(
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { viewModel.updateSearchQuery(it) },
-                    placeholder = { Text("Search title, author, or Neuromancer...") },
+                    placeholder = { Text("Пошук книги або автора...") },
                     leadingIcon = {
                         Icon(
                             imageVector = Icons.Default.Search,
@@ -199,221 +217,348 @@ fun HomeScreen(
             }
         }
 
-        // Featured Hero Section
-        if (featuredBook != null && searchQuery.isBlank() && (selectedGenre == "Усі" || selectedGenre == "All")) {
+        if (inSearchMode) {
+            // ---- Search / genre result list -------------------------------
             item {
-                FeaturedHeroCard(
-                    book = featuredBook,
-                    onBookClick = { onBookClick(featuredBook.id) },
-                    onPlayClick = { onPlayClick(featuredBook) },
-                    onDownloadClick = {
-                        if (featuredBook.isDownloaded) {
-                            viewModel.removeOfflineDownload(featuredBook.id)
-                        } else {
-                            viewModel.downloadBookOffline(featuredBook.id)
-                        }
-                    }
+                Text(
+                    text = "Результати (${filteredBooks.size})",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, fontSize = 18.sp),
+                    color = CyberTextPrimary,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                 )
             }
-        }
-
-        // Continue Listening Section
-        if (recentProgress.isNotEmpty() && searchQuery.isBlank()) {
-            val mostRecent = recentProgress.first()
-            val recentBook = allBooks.find { it.id == mostRecent.bookId }
-            if (recentBook != null) {
+            if (filteredBooks.isEmpty()) {
                 item {
-                    ContinueListeningSection(
-                        book = recentBook,
-                        progress = mostRecent,
-                        onBookClick = { onBookClick(recentBook.id) },
-                        onResumeClick = { onPlayClick(recentBook) }
+                    EmptyStateMessage("Нічого не знайдено за цим запитом.")
+                }
+            }
+            items(filteredBooks, key = { it.id }) { book ->
+                AudiobookListItem(
+                    book = book,
+                    onClick = { onBookClick(book.id) },
+                    onPlayClick = { onPlayClick(book) }
+                )
+            }
+        } else {
+            // ---- Netflix feed ---------------------------------------------
+            // Loading spinner while the catalogue syncs on a fresh start.
+            if (isCatalogLoading && allBooks.isEmpty() && sections.isEmpty()) {
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(48.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            CircularProgressIndicator(color = CyberPrimary)
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                text = "Завантажуємо каталог...",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = CyberTextSecondary
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Empty catalogue (first run, no network): actionable state.
+            if (!isCatalogLoading && sections.isEmpty() && allBooks.isEmpty()) {
+                item {
+                    EmptyCatalogState(
+                        onRefreshClick = { viewModel.refreshCatalog() },
+                        onImportClick = { viewModel.selectTab(com.example.ui.SelectedTab.LIBRARY) }
                     )
                 }
             }
-        }
 
-        // Section Title
-        item {
-            PaddingValues(horizontal = 16.dp, vertical = 8.dp)
-            Text(
-                text = "Audiobook Catalog (${filteredBooks.size})",
-                style = MaterialTheme.typography.titleMedium.copy(
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 18.sp
-                ),
-                color = CyberTextPrimary,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-            )
-        }
+            // Continue Listening
+            if (recentProgress.isNotEmpty()) {
+                val mostRecent = recentProgress.first()
+                val recentBook = allBooks.find { it.id == mostRecent.bookId }
+                if (recentBook != null) {
+                    item {
+                        ContinueListeningSection(
+                            book = recentBook,
+                            progress = mostRecent,
+                            onBookClick = { onBookClick(recentBook.id) },
+                            onResumeClick = { onPlayClick(recentBook) }
+                        )
+                    }
+                }
+            }
 
-        // Catalog Book Cards
-        items(filteredBooks, key = { it.id }) { book ->
-            AudiobookListItem(
-                book = book,
-                onClick = { onBookClick(book.id) },
-                onPlayClick = { onPlayClick(book) }
-            )
+            // Catalogue rows parsed from the 4read.org homepage.
+            sections.forEach { section ->
+                if (section.books.isNotEmpty()) {
+                    item {
+                        CatalogRowHeader(title = section.title)
+                    }
+                    item {
+                        LazyRow(
+                            contentPadding = PaddingValues(horizontal = 16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            items(section.books, key = { it.id }) { book ->
+                                CatalogBookCard(
+                                    book = book,
+                                    onClick = { onBookClick(book.id) }
+                                )
+                            }
+                        }
+                    }
+                }
+                if (section.series.isNotEmpty()) {
+                    item {
+                        CatalogRowHeader(title = section.title)
+                    }
+                    item {
+                        LazyRow(
+                            contentPadding = PaddingValues(horizontal = 16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            items(section.series, key = { it.url }) { series ->
+                                CatalogSeriesCard(
+                                    series = series,
+                                    onClick = { viewModel.openSeries(series.title, series.url) }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Full local library
+            item {
+                Text(
+                    text = "Вся бібліотека (${filteredBooks.size})",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, fontSize = 18.sp),
+                    color = CyberTextPrimary,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                )
+            }
+            if (filteredBooks.isEmpty()) {
+                item {
+                    EmptyStateMessage("Бібліотека порожня. Знайдіть книгу через пошук або додайте власний аудіофайл у Бібліотеці.")
+                }
+            }
+            items(filteredBooks, key = { it.id }) { book ->
+                AudiobookListItem(
+                    book = book,
+                    onClick = { onBookClick(book.id) },
+                    onPlayClick = { onPlayClick(book) }
+                )
+            }
         }
     }
 }
 
+/** Section heading for a Netflix row (spec #8 ticket T6). */
 @Composable
-fun FeaturedHeroCard(
-    book: AudiobookEntity,
-    onBookClick: () -> Unit,
-    onPlayClick: () -> Unit,
-    onDownloadClick: () -> Unit
+fun CatalogRowHeader(title: String) {
+    Text(
+        text = title.uppercase(),
+        style = MaterialTheme.typography.titleMedium.copy(
+            fontWeight = FontWeight.ExtraBold,
+            fontSize = 17.sp,
+            letterSpacing = 0.5.sp
+        ),
+        color = CyberTextPrimary,
+        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 8.dp)
+    )
+}
+
+/**
+ * Cover-first card for the horizontal catalogue rows: a portrait cover with
+ * the title underneath — the Netflix look.
+ */
+@Composable
+fun CatalogBookCard(
+    book: CatalogBook,
+    onClick: () -> Unit
 ) {
-    Card(
+    Column(
+        modifier = Modifier
+            .width(120.dp)
+            .clickable { onClick() }
+            .testTag("catalog_book_${book.id}"),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        CatalogCoverImage(
+            coverImageUrl = book.coverImageUrl,
+            title = book.title,
+            modifier = Modifier
+                .width(120.dp)
+                .height(168.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .border(1.dp, CyberCardBorder, RoundedCornerShape(14.dp))
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = book.title,
+            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+            color = CyberTextPrimary,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth()
+        )
+    }
+}
+
+/** Wide cover card for a series (cycle) chip. */
+@Composable
+fun CatalogSeriesCard(
+    series: CatalogSeries,
+    onClick: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .width(132.dp)
+            .clickable { onClick() }
+            .testTag("catalog_series_${series.url.hashCode()}"),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        CatalogCoverImage(
+            coverImageUrl = series.coverImageUrl,
+            title = series.title,
+            modifier = Modifier
+                .width(132.dp)
+                .height(78.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .border(1.dp, CyberCardBorder, RoundedCornerShape(12.dp))
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = series.title,
+            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+            color = CyberPrimary,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth()
+        )
+    }
+}
+
+/** Remote-cover image with the same dark typographic fallback as BookCoverImage. */
+@Composable
+fun CatalogCoverImage(
+    coverImageUrl: String?,
+    title: String,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    var isError by remember(coverImageUrl) { mutableStateOf(false) }
+
+    if (!coverImageUrl.isNullOrBlank() && !isError) {
+        val request = remember(coverImageUrl) {
+            ImageRequest.Builder(context)
+                .data(coverImageUrl)
+                .setHeader("User-Agent", "Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36")
+                .setHeader("Referer", "https://4read.org/")
+                .crossfade(true)
+                .allowHardware(false)
+                .build()
+        }
+        AsyncImage(
+            model = request,
+            contentDescription = title,
+            modifier = modifier,
+            contentScale = ContentScale.Crop,
+            onError = { isError = true }
+        )
+    } else {
+        Box(
+            modifier = modifier.background(
+                brush = Brush.verticalGradient(
+                    colors = listOf(CyberSurface, CyberCardBg, CyberPrimary.copy(alpha = 0.25f))
+                )
+            ),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(
+                    imageVector = Icons.Default.Headphones,
+                    contentDescription = null,
+                    tint = CyberPrimary,
+                    modifier = Modifier.size(22.dp)
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = title,
+                    color = CyberTextPrimary,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(horizontal = 6.dp)
+                )
+            }
+        }
+    }
+}
+
+/** First-run empty catalogue: no mocks, just clear actions (spec #8 T1/T6). */
+@Composable
+fun EmptyCatalogState(
+    onRefreshClick: () -> Unit,
+    onImportClick: () -> Unit
+) {
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
-            .clip(RoundedCornerShape(24.dp))
-            .border(1.dp, CyberPrimary.copy(alpha = 0.5f), RoundedCornerShape(24.dp))
-            .clickable { onBookClick() }
-            .testTag("featured_hero_card"),
-        colors = CardDefaults.cardColors(containerColor = CyberCardBg)
+            .padding(horizontal = 24.dp, vertical = 32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(260.dp)
+        Surface(
+            shape = CircleShape,
+            color = CyberPrimary.copy(alpha = 0.12f),
+            modifier = Modifier.size(64.dp)
         ) {
-            com.example.ui.components.BookCoverImage(
-                book = book,
-                contentDescription = book.title,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop
-            )
-
-            // Dark gradient overlay
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(
-                                Color.Transparent,
-                                CyberBg.copy(alpha = 0.7f),
-                                CyberBg
-                            )
-                        )
-                    )
-            )
-
-            // Badges at Top Right & Left
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Surface(
-                    color = CyberPrimary,
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Text(
-                        text = "★ FEATURED",
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 1.sp
-                        ),
-                        color = CyberOnPrimary,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                    )
-                }
-
-                Surface(
-                    color = CyberSecondary,
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Text(
-                        text = "Rating: ${book.rating} ★",
-                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                        color = CyberOnSecondary,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                    )
-                }
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = Icons.Default.MenuBook,
+                    contentDescription = null,
+                    tint = CyberPrimary,
+                    modifier = Modifier.size(30.dp)
+                )
             }
-
-            // Bottom Info & Controls
-            Column(
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .padding(16.dp)
+        }
+        Spacer(modifier = Modifier.height(14.dp))
+        Text(
+            text = "Знайдіть свою першу книгу",
+            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+            color = CyberTextPrimary
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = "Каталог українських аудіокниг ще завантажується. Оновіть, або додайте власний аудіофайл.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = CyberTextSecondary,
+            textAlign = TextAlign.Center
+        )
+        Spacer(modifier = Modifier.height(18.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Button(
+                onClick = onRefreshClick,
+                colors = ButtonDefaults.buttonColors(containerColor = CyberPrimary),
+                shape = RoundedCornerShape(14.dp)
             ) {
-                Text(
-                    text = book.title,
-                    style = MaterialTheme.typography.titleLarge.copy(
-                        fontWeight = FontWeight.ExtraBold,
-                        fontSize = 20.sp
-                    ),
-                    color = Color.White,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-
-                Text(
-                    text = "${book.author} • Narrated by ${book.narrator}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = CyberTextSecondary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Button(
-                        onClick = onPlayClick,
-                        colors = ButtonDefaults.buttonColors(containerColor = CyberPrimary),
-                        shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier.testTag("featured_listen_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.PlayArrow,
-                            contentDescription = null,
-                            tint = CyberOnPrimary,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "Listen Now",
-                            fontWeight = FontWeight.Bold,
-                            color = CyberOnPrimary
-                        )
-                    }
-
-                    OutlinedButton(
-                        onClick = onDownloadClick,
-                        shape = RoundedCornerShape(14.dp),
-                        border = androidx.compose.foundation.BorderStroke(
-                            1.dp,
-                            if (book.isDownloaded) CyberSecondary else CyberCardBorder
-                        ),
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            contentColor = if (book.isDownloaded) CyberSecondary else CyberTextPrimary
-                        ),
-                        modifier = Modifier.testTag("featured_download_button")
-                    ) {
-                        Icon(
-                            imageVector = if (book.isDownloaded) Icons.Default.CloudDone else Icons.Default.CloudDownload,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = if (book.isDownloaded) "Offline Ready" else "Download",
-                            fontSize = 13.sp
-                        )
-                    }
-                }
+                Icon(imageVector = Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Оновити каталог", fontWeight = FontWeight.Bold)
+            }
+            OutlinedButton(
+                onClick = onImportClick,
+                shape = RoundedCornerShape(14.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, CyberCardBorder)
+            ) {
+                Icon(imageVector = Icons.Default.FileUpload, contentDescription = null, tint = CyberPrimary, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Імпортувати файл", color = CyberTextPrimary)
             }
         }
     }
@@ -447,7 +592,7 @@ fun ContinueListeningSection(
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                    text = "CONTINUE LISTENING",
+                    text = "ПРОДОВЖИТИ СЛУХАННЯ",
                     style = MaterialTheme.typography.labelMedium.copy(
                         fontWeight = FontWeight.Bold,
                         letterSpacing = 1.sp

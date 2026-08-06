@@ -47,6 +47,7 @@ fun BookDetailScreen(
 
     var activeTab by remember { mutableStateOf(0) } // 0 = Chapters, 1 = Bookmarks
     var showAddBookmarkDialog by remember { mutableStateOf(false) }
+    var showDeleteDialog by remember { mutableStateOf(false) }
 
     val currentBook = book ?: return
 
@@ -60,6 +61,17 @@ fun BookDetailScreen(
                     }
                 },
                 actions = {
+                    // Spec #8 ticket T4: the WebView is no longer a tab — a
+                    // book page keeps an "open on site" escape hatch instead.
+                    if (currentBook.sourceUrl.contains("4read.org")) {
+                        IconButton(onClick = { viewModel.openWebFallback(currentBook.sourceUrl) }) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                                contentDescription = "Відкрити на сайті",
+                                tint = CyberPrimary
+                            )
+                        }
+                    }
                     IconButton(onClick = {
                         if (currentBook.isDownloaded) {
                             viewModel.removeOfflineDownload(currentBook.id)
@@ -71,6 +83,14 @@ fun BookDetailScreen(
                             imageVector = if (currentBook.isDownloaded) Icons.Default.CloudDone else Icons.Default.CloudDownload,
                             contentDescription = "Offline Download",
                             tint = if (currentBook.isDownloaded) CyberSecondary else CyberTextPrimary
+                        )
+                    }
+                    // Spec #8 ticket T3: cascading deletion with confirmation.
+                    IconButton(onClick = { showDeleteDialog = true }) {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = "Видалити книгу",
+                            tint = MaterialTheme.colorScheme.error
                         )
                     }
                 },
@@ -346,6 +366,42 @@ fun BookDetailScreen(
             onDismiss = { showAddBookmarkDialog = false },
             onSave = { note ->
                 viewModel.addBookmarkAtCurrentPosition(note)
+            }
+        )
+    }
+
+    if (showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            containerColor = CyberCardBg,
+            title = {
+                Text(
+                    text = "Видалити книгу?",
+                    fontWeight = FontWeight.Bold,
+                    color = CyberTextPrimary
+                )
+            },
+            text = {
+                Text(
+                    text = "Це видалить \"${currentBook.title}\" разом із главами, закладками, прогресом і завантаженими файлами. Дію не можна скасувати.",
+                    color = CyberTextSecondary
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.deleteBook(currentBook.id)
+                        showDeleteDialog = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Видалити", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteDialog = false }) {
+                    Text("Скасувати", color = CyberTextPrimary)
+                }
             }
         )
     }

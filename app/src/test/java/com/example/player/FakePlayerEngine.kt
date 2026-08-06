@@ -58,6 +58,10 @@ class FakePlayerEngine(
     var releaseCount: Int = 0
         private set
 
+    /** Number of times `stop()` was requested. */
+    var stopCount: Int = 0
+        private set
+
     /** Every [MediaItem] handed to this engine, in call order. */
     val mediaItems: List<MediaItem> get() = recordedMediaItems.toList()
 
@@ -132,6 +136,12 @@ class FakePlayerEngine(
     }
 
     override fun getVolume(): Float = volume
+
+    override fun stop() {
+        stopCount += 1
+        playing = false
+        playbackState = Player.STATE_IDLE
+    }
 
     override fun release() {
         releaseCount += 1
@@ -233,8 +243,9 @@ class FakePlayerEngine(
 
 /**
  * [PlayerFactory] that hands out [FakePlayerEngine]s and remembers every one it
- * created, so tests can assert that a chapter switch released the old engine and
- * built a new one.
+ * created. The manager keeps a single long-lived engine per instance, so tests
+ * assert on `current`/`engines.size` that no replacement is ever built mid-
+ * session.
  */
 class RecordingPlayerFactory(
     private val durationMs: Long = FakePlayerEngine.DEFAULT_DURATION_MS

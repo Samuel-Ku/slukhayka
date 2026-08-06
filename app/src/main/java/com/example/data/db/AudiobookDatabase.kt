@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [
@@ -13,7 +15,7 @@ import androidx.room.RoomDatabase
         PlaybackProgressEntity::class,
         ListeningStatEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 abstract class AudiobookDatabase : RoomDatabase() {
@@ -30,10 +32,23 @@ abstract class AudiobookDatabase : RoomDatabase() {
                     AudiobookDatabase::class.java,
                     "read4_audiobook_database"
                 )
+                    // Schema v4: indices on every FK column queried via
+                    // `WHERE bookId = :bookId` (audit CRITICAL PERF-004 --
+                    // full table scans as the library grows).
+                    .addMigrations(MIGRATION_3_4)
                     .fallbackToDestructiveMigration(dropAllTables = true)
                     .build()
                 INSTANCE = instance
                 instance
+            }
+        }
+
+        /** v3 -> v4: add indices matching Room's `index_<table>_<column>` convention. */
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_chapters_bookId ON chapters(bookId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_bookmarks_bookId ON bookmarks(bookId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_playback_progress_bookId ON playback_progress(bookId)")
             }
         }
     }

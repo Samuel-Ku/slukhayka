@@ -37,6 +37,13 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        
+        // Globally disable hardware bitmaps in Coil to prevent E/ashmem Pinning is deprecated errors
+        val imageLoader = coil.ImageLoader.Builder(this)
+            .allowHardware(false)
+            .build()
+        coil.Coil.setImageLoader(imageLoader)
+
         setContent {
             AudiobookTheme {
                 AudiobookApp()

@@ -339,10 +339,40 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 repository.importLocalAudioFile(uri)
+                _importMessage.value = "Аудіофайл додано до бібліотеки"
             } catch (e: Exception) {
                 android.util.Log.w("MainViewModel", "Local import failed", e)
+                _importMessage.value = "Не вдалося імпортувати файл"
             }
         }
+    }
+
+    /** Imports a whole folder of local audiobooks (spec #8 Block 4, SAF tree). */
+    fun importLocalAudioFolder(uri: android.net.Uri) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val result = repository.importLocalAudioFolder(uri)
+                _importMessage.value = if (result.booksImported > 0) {
+                    buildString {
+                        append("Імпортовано ${result.booksImported} книг (${result.filesImported} файлів)")
+                        if (result.skippedFiles > 0) append(" · ${result.skippedFiles} пропущено")
+                    }
+                } else {
+                    "У вибраній папці не знайдено аудіофайлів (mp3/m4a/ogg)"
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("MainViewModel", "Folder import failed", e)
+                _importMessage.value = "Не вдалося імпортувати папку"
+            }
+        }
+    }
+
+    /** One-shot user-facing message for import outcomes (consumed by the UI). */
+    private val _importMessage = MutableStateFlow<String?>(null)
+    val importMessage: StateFlow<String?> = _importMessage.asStateFlow()
+
+    fun consumeImportMessage() {
+        _importMessage.value = null
     }
 
     fun importAndPlay4ReadHtml(url: String, html: String) {

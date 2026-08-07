@@ -102,15 +102,40 @@ class AudiobookRepository(
     /**
      * Fetches the full book list of a series (cycle) page (spec #8 ticket T8)
      * and upserts the books into Room so they are playable. Returns the stored
-     * DB entities.
+     * DB entities. Results are cached per series URL for the session, so the
+     * Слухати tab's "continue the series" block (spec-9 T4) can re-read a
+     * series without a network round-trip on every recomposition.
      */
     suspend fun fetchSeriesBooks(seriesUrl: String): List<AudiobookEntity> = withContext(Dispatchers.IO) {
+        seriesBooksCache[seriesUrl]?.let { return@withContext it }
         val html = fetchUrlText(seriesUrl)
         if (html.isBlank()) return@withContext emptyList()
-        CatalogParser.parseSeriesPage(html)
+        val books = CatalogParser.parseSeriesPage(html)
             .filter { it.id !in deletedCatalogBookIds }
             .map { book -> upsertCatalogBook(book) }
+        seriesBooksCache[seriesUrl] = books
+        books
     }
+
+    /**
+     * The next volume of the series a book belongs to (spec-9 T4). Returns
+     * null when the book has no series, the series page cannot be loaded, or
+     * the current book is the last volume — the UI then hides the block.
+     * Network failures degrade to null, never to an exception.
+     */
+    suspend fun findNextInSeries(book: AudiobookEntity): AudiobookEntity? = withContext(Dispatchers.IO) {
+        val url = book.seriesUrl ?: return@withContext null
+        if (url.isBlank()) return@withContext null
+        try {
+            val seriesBooks = fetchSeriesBooks(url)
+            nextInSeries(book.seriesIndex, book.id, seriesBooks)
+        } catch (e: Exception) {
+            Log.w("AudiobookRepo", "Next-in-series lookup failed for ${book.id}", e)
+            null
+        }
+    }
+
+    private val seriesBooksCache = java.util.concurrent.ConcurrentHashMap<String, List<AudiobookEntity>>()
 
     /**
      * Inserts the book if absent; otherwise returns the stored row. Series
@@ -129,7 +154,14 @@ class AudiobookRepository(
                     existing.seriesIndex != book.seriesIndex)
             ) {
                 dao.updateSeriesFields(book.id, book.seriesTitle, book.seriesUrl, book.seriesIndex)
-                return dao.getAudiobookById(book.id)!!
+                // Return the known updated shape instead of re-querying: the
+                // row may be deleted concurrently and `!!` on a re-query would
+                // crash the whole catalogue sync.
+                return existing.copy(
+                    seriesTitle = book.seriesTitle,
+                    seriesUrl = book.seriesUrl,
+                    seriesIndex = book.seriesIndex
+                )
             }
             return existing
         }
@@ -1182,3 +1214,25 @@ data class LocalImportResult(
     val filesImported: Int,
     val skippedFiles: Int
 )
+
+/**
+ * The next volume of a series, resolved from the series book list (spec-9 T4).
+ * Prefers a volume-number match (`currentIndex + 1`); when the volume badge is
+ * missing it falls back to the series page order. Returns null when the
+ * current book is the last volume or is not in the list at all, so the UI can
+ * hide the suggestion instead of guessing.
+ */
+internal fun nextInSeries(
+    currentIndex: Int?,
+    currentId: String,
+    seriesBooks: List<AudiobookEntity>
+): AudiobookEntity? {
+    if (seriesBooks.isEmpty()) return null
+    if (currentIndex != null) {
+        val byIndex = seriesBooks.firstOrNull { it.seriesIndex == currentIndex + 1 }
+        if (byIndex != null) return byIndex
+    }
+    val position = seriesBooks.indexOfFirst { it.id == currentId }
+    if (position >= 0) return seriesBooks.getOrNull(position + 1)
+    return null
+}

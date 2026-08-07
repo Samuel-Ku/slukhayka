@@ -35,6 +35,7 @@ import com.example.data.catalog.CatalogSection
 import com.example.data.catalog.CatalogSeries
 import com.example.data.db.AudiobookEntity
 import com.example.ui.MainViewModel
+import com.example.ui.components.EmptyState
 import com.example.ui.theme.*
 
 /**
@@ -229,7 +230,11 @@ fun HomeScreen(
             }
             if (filteredBooks.isEmpty()) {
                 item {
-                    EmptyStateMessage("Нічого не знайдено за цим запитом.")
+                    EmptyState(
+                        icon = Icons.Default.SearchOff,
+                        title = "Нічого не знайдено",
+                        body = "Спробуйте змінити запит або фільтр."
+                    )
                 }
             }
             items(filteredBooks, key = { it.id }) { book ->

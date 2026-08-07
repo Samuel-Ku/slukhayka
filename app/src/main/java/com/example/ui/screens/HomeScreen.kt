@@ -34,7 +34,6 @@ import com.example.data.catalog.CatalogBook
 import com.example.data.catalog.CatalogSection
 import com.example.data.catalog.CatalogSeries
 import com.example.data.db.AudiobookEntity
-import com.example.data.db.PlaybackProgressEntity
 import com.example.ui.MainViewModel
 import com.example.ui.theme.*
 
@@ -55,7 +54,6 @@ fun HomeScreen(
     val allBooks by viewModel.allBooks.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
     val selectedGenre by viewModel.selectedGenreFilter.collectAsState()
-    val recentProgress by viewModel.recentProgress.collectAsState()
     val sections by viewModel.catalogSections.collectAsState()
     val isCatalogLoading by viewModel.isCatalogLoading.collectAsState()
 
@@ -273,23 +271,8 @@ fun HomeScreen(
                 }
             }
 
-            // Continue Listening
-            if (recentProgress.isNotEmpty()) {
-                val mostRecent = recentProgress.first()
-                val recentBook = allBooks.find { it.id == mostRecent.bookId }
-                if (recentBook != null) {
-                    item {
-                        ContinueListeningSection(
-                            book = recentBook,
-                            progress = mostRecent,
-                            onBookClick = { onBookClick(recentBook.id) },
-                            onResumeClick = { onPlayClick(recentBook) }
-                        )
-                    }
-                }
-            }
-
-            // Catalogue rows parsed from the 4read.org homepage.
+            // Catalogue rows parsed from the 4read.org homepage. Spec-9: the
+            // Continue-Listening card moved to the Слухати tab.
             sections.forEach { section ->
                 if (section.books.isNotEmpty()) {
                     item {
@@ -329,27 +312,8 @@ fun HomeScreen(
                 }
             }
 
-            // Full local library
-            item {
-                Text(
-                    text = "Вся бібліотека (${filteredBooks.size})",
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, fontSize = 18.sp),
-                    color = CyberTextPrimary,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                )
-            }
-            if (filteredBooks.isEmpty()) {
-                item {
-                    EmptyStateMessage("Бібліотека порожня. Знайдіть книгу через пошук або додайте власний аудіофайл у Бібліотеці.")
-                }
-            }
-            items(filteredBooks, key = { it.id }) { book ->
-                AudiobookListItem(
-                    book = book,
-                    onClick = { onBookClick(book.id) },
-                    onPlayClick = { onPlayClick(book) }
-                )
-            }
+            // Spec-9: the full library list lives in Медіатека (Library tab),
+            // not at the bottom of Огляд.
         }
     }
 }
@@ -559,94 +523,6 @@ fun EmptyCatalogState(
                 Icon(imageVector = Icons.Default.FileUpload, contentDescription = null, tint = CyberPrimary, modifier = Modifier.size(18.dp))
                 Spacer(modifier = Modifier.width(6.dp))
                 Text("Імпортувати файл", color = CyberTextPrimary)
-            }
-        }
-    }
-}
-
-@Composable
-fun ContinueListeningSection(
-    book: AudiobookEntity,
-    progress: PlaybackProgressEntity,
-    onBookClick: () -> Unit,
-    onResumeClick: () -> Unit
-) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
-            .clip(RoundedCornerShape(18.dp))
-            .border(1.dp, CyberCardBorder, RoundedCornerShape(18.dp))
-            .clickable { onBookClick() },
-        colors = CardDefaults.cardColors(containerColor = CyberCardBg)
-    ) {
-        Column(modifier = Modifier.padding(14.dp)) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    imageVector = Icons.Default.History,
-                    contentDescription = null,
-                    tint = CyberSecondary,
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = "ПРОДОВЖИТИ СЛУХАННЯ",
-                    style = MaterialTheme.typography.labelMedium.copy(
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.sp
-                    ),
-                    color = CyberSecondary
-                )
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                com.example.ui.components.BookCoverImage(
-                    book = book,
-                    contentDescription = book.title,
-                    modifier = Modifier
-                        .size(54.dp)
-                        .clip(RoundedCornerShape(10.dp)),
-                    contentScale = ContentScale.Crop
-                )
-
-                Spacer(modifier = Modifier.width(12.dp))
-
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = book.title,
-                        style = MaterialTheme.typography.titleMedium.copy(
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 15.sp
-                        ),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        color = CyberTextPrimary
-                    )
-                    Text(
-                        text = "Chapter ${progress.currentChapterIndex + 1} • ${MainViewModel.formatTime(progress.currentPositionSeconds)}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = CyberTextSecondary
-                    )
-                }
-
-                IconButton(
-                    onClick = onResumeClick,
-                    modifier = Modifier
-                        .size(42.dp)
-                        .clip(CircleShape)
-                        .background(CyberPrimary)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.PlayArrow,
-                        contentDescription = "Resume",
-                        tint = CyberOnPrimary,
-                        modifier = Modifier.size(26.dp)
-                    )
-                }
             }
         }
     }

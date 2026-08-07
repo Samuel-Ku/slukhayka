@@ -18,8 +18,13 @@ import java.util.Locale
 
 // Spec #8 ticket T4: the WebView is no longer a tab — it survives only as the
 // "open on site" fallback on the book page. Bookmarks moved into the Library
-// as a sub-tab, so the bottom bar is Explore · Library.
+// as a sub-tab.
+//
+// Spec-9 (listen-first IA): the bottom bar is Слухати · Огляд · Медіатека;
+// the app always lands on Слухати (the listening panel, not the storefront).
+// Enum order defines the bottom-bar order; SETTINGS has no bar entry.
 enum class SelectedTab {
+    LISTEN,
     EXPLORE,
     LIBRARY,
     SETTINGS
@@ -88,7 +93,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val recentProgress: StateFlow<List<PlaybackProgressEntity>> = repository.recentProgress
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    private val _selectedTab = MutableStateFlow(SelectedTab.EXPLORE)
+    private val _selectedTab = MutableStateFlow(SelectedTab.LISTEN)
     val selectedTab: StateFlow<SelectedTab> = _selectedTab.asStateFlow()
 
     private val _searchQuery = MutableStateFlow("")

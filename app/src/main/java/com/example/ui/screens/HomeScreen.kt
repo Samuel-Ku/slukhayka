@@ -38,11 +38,13 @@ import com.example.ui.MainViewModel
 import com.example.ui.theme.*
 
 /**
- * Explore tab (spec #8 tickets T6/T1): a Netflix-style feed of horizontal rows
- * parsed from the 4read.org homepage ("Новинки" book row, "Цикли" series row),
- * the Continue-Listening card, then the full local library. While the
- * catalogue syncs on a fresh install a spinner is shown; if nothing arrives
- * the user gets an actionable empty state (retry / import) instead of mocks.
+ * Огляд tab (spec #8 tickets T6/T1, spec-9 T2): a Netflix-style feed of
+ * horizontal rows parsed from the 4read.org homepage ("Новинки" book row,
+ * "Цикли" series row) plus search and genre filters. The Continue-Listening
+ * card and the full local library moved to the Слухати/Медіатека tabs
+ * (spec-9). While the catalogue syncs on a fresh install a spinner is shown;
+ * if nothing arrives the user gets an actionable empty state (retry / import)
+ * instead of mocks.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

@@ -212,6 +212,26 @@ class AudiobookRepository(
         dao.deleteAudiobook(bookId)
     }
 
+    /**
+     * Level-1 deletion — "прибрати з медіатеки" (wayfinder #28): the Room rows
+     * (book, chapters, bookmarks, progress) are removed but downloaded audio
+     * files stay on disk, so nothing physical is lost. The book can be
+     * re-added from the catalogue.
+     */
+    suspend fun removeFromLibrary(bookId: String) = withContext(Dispatchers.IO) {
+        deletedCatalogBookIds.add(bookId)
+        dao.deleteChaptersForBook(bookId)
+        dao.deleteBookmarksForBook(bookId)
+        dao.deletePlaybackProgressForBook(bookId)
+        dao.deleteAudiobook(bookId)
+    }
+
+    /** Per-book preferred playback speed (wayfinder #26); null clears the preference. */
+    suspend fun setPreferredSpeed(bookId: String, speed: Float?) = dao.updatePreferredSpeed(bookId, speed)
+
+    /** Last-pause marker for the smart rewind (wayfinder #25); null clears it. */
+    suspend fun updatePausedAt(bookId: String, pausedAt: Long?) = dao.updatePausedAt(bookId, pausedAt)
+
     // ---------------------------------------------------------------------
     // Local audio import (spec #8 ticket T7): one picked file = one book.
     // ---------------------------------------------------------------------

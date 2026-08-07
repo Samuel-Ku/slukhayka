@@ -23,6 +23,9 @@ interface AudiobookDao {
     @Query("UPDATE audiobooks SET isDownloaded = :isDownloaded, downloadProgress = :progress WHERE id = :bookId")
     suspend fun updateDownloadState(bookId: String, isDownloaded: Boolean, progress: Float)
 
+    @Query("UPDATE audiobooks SET seriesTitle = :seriesTitle, seriesUrl = :seriesUrl, seriesIndex = :seriesIndex WHERE id = :bookId")
+    suspend fun updateSeriesFields(bookId: String, seriesTitle: String?, seriesUrl: String?, seriesIndex: Int?)
+
     @Query("SELECT * FROM chapters WHERE bookId = :bookId ORDER BY chapterIndex ASC")
     fun getChaptersForBook(bookId: String): Flow<List<ChapterEntity>>
 

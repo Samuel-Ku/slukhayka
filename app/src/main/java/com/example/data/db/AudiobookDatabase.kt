@@ -15,7 +15,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         PlaybackProgressEntity::class,
         ListeningStatEntity::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 abstract class AudiobookDatabase : RoomDatabase() {
@@ -35,7 +35,7 @@ abstract class AudiobookDatabase : RoomDatabase() {
                     // Schema v4: indices on every FK column queried via
                     // `WHERE bookId = :bookId` (audit CRITICAL PERF-004 --
                     // full table scans as the library grows).
-                    .addMigrations(MIGRATION_3_4)
+                    .addMigrations(MIGRATION_3_4, MIGRATION_4_5)
                     .fallbackToDestructiveMigration(dropAllTables = true)
                     .build()
                 INSTANCE = instance
@@ -49,6 +49,15 @@ abstract class AudiobookDatabase : RoomDatabase() {
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_chapters_bookId ON chapters(bookId)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_bookmarks_bookId ON bookmarks(bookId)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_playback_progress_bookId ON playback_progress(bookId)")
+            }
+        }
+
+        /** v4 -> v5: add the 4read series (cycle) metadata columns (spec-9 T1). */
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE audiobooks ADD COLUMN seriesTitle TEXT")
+                db.execSQL("ALTER TABLE audiobooks ADD COLUMN seriesUrl TEXT")
+                db.execSQL("ALTER TABLE audiobooks ADD COLUMN seriesIndex INTEGER")
             }
         }
     }

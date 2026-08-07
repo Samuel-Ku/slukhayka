@@ -112,10 +112,27 @@ class AudiobookRepository(
             .map { book -> upsertCatalogBook(book) }
     }
 
-    /** Inserts the book if absent; otherwise returns the stored row. */
-    private suspend fun upsertCatalogBook(book: CatalogBook): AudiobookEntity {
+    /**
+     * Inserts the book if absent; otherwise returns the stored row. Series
+     * metadata (spec-9 T1) is written on insert and back-filled on an existing
+     * row when the parsed poster carries it, so a later homepage sync enriches
+     * previously-known books without touching user state (favourite/download).
+     * `internal` so JVM tests can drive the parser→entity mapping without a
+     * network round-trip.
+     */
+    internal suspend fun upsertCatalogBook(book: CatalogBook): AudiobookEntity {
         val existing = dao.getAudiobookById(book.id)
-        if (existing != null) return existing
+        if (existing != null) {
+            if (book.seriesUrl != null &&
+                (existing.seriesUrl != book.seriesUrl ||
+                    existing.seriesTitle != book.seriesTitle ||
+                    existing.seriesIndex != book.seriesIndex)
+            ) {
+                dao.updateSeriesFields(book.id, book.seriesTitle, book.seriesUrl, book.seriesIndex)
+                return dao.getAudiobookById(book.id)!!
+            }
+            return existing
+        }
         val newBook = AudiobookEntity(
             id = book.id,
             title = book.title,
@@ -130,7 +147,10 @@ class AudiobookRepository(
             downloadProgress = 0f,
             totalDurationSeconds = 14400L,
             totalChapters = 5,
-            rating = 4.8f
+            rating = 4.8f,
+            seriesTitle = book.seriesTitle,
+            seriesUrl = book.seriesUrl,
+            seriesIndex = book.seriesIndex
         )
         dao.insertAudiobooks(listOf(newBook))
         return newBook

@@ -78,6 +78,14 @@ class FakeAudiobookDao(
         }
     }
 
+    override suspend fun updateSeriesFields(bookId: String, seriesTitle: String?, seriesUrl: String?, seriesIndex: Int?) {
+        booksState.update { current ->
+            current.map {
+                if (it.id == bookId) it.copy(seriesTitle = seriesTitle, seriesUrl = seriesUrl, seriesIndex = seriesIndex) else it
+            }
+        }
+    }
+
     override suspend fun setFavorite(bookId: String, isFavorite: Boolean) {
         booksState.update { current ->
             current.map { if (it.id == bookId) it.copy(isFavorite = isFavorite) else it }

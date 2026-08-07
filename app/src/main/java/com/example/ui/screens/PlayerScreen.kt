@@ -58,14 +58,28 @@ data class PlayerProgressUi(
 
 data class BookSeekTarget(val chapterIndex: Int, val positionMs: Long)
 
-fun calculateBookSeekTarget(chapters: List<ChapterEntity>, fraction: Float): BookSeekTarget? {
-    if (chapters.isEmpty()) return null
-    val durations = chapters.map { it.durationSeconds.coerceAtLeast(0L) }
-    val totalSeconds = durations.sum()
-    if (totalSeconds <= 0L) {
-        val index = (fraction.coerceIn(0f, 0.999_999f) * chapters.size).toInt().coerceIn(chapters.indices)
-        return BookSeekTarget(index, 0L)
+private fun effectiveChapterDurations(
+    chapters: List<ChapterEntity>,
+    currentChapterIndex: Int,
+    currentChapterDurationMs: Long
+): List<Long> {
+    if (chapters.isEmpty()) return emptyList()
+    val selectedIndex = currentChapterIndex.coerceIn(chapters.indices)
+    return chapters.map { it.durationSeconds.coerceAtLeast(0L) }.toMutableList().also {
+        it[selectedIndex] = max(it[selectedIndex], (currentChapterDurationMs / 1_000L).coerceAtLeast(0L))
     }
+}
+
+fun calculateBookSeekTarget(
+    chapters: List<ChapterEntity>,
+    currentChapterIndex: Int,
+    currentChapterDurationMs: Long,
+    fraction: Float
+): BookSeekTarget? {
+    if (chapters.isEmpty()) return null
+    val durations = effectiveChapterDurations(chapters, currentChapterIndex, currentChapterDurationMs)
+    val totalSeconds = durations.sum()
+    if (totalSeconds <= 0L) return null
 
     val targetSeconds = (fraction.coerceIn(0f, 1f) * totalSeconds)
         .toLong()
@@ -97,12 +111,8 @@ fun calculatePlayerProgress(
     }
 
     val selectedIndex = currentChapterIndex.coerceIn(chapters.indices)
-    val durations = chapters.map { it.durationSeconds.coerceAtLeast(0L) }
-    val measuredChapterSeconds = (currentChapterDurationMs / 1000L).coerceAtLeast(0L)
-    val currentDurationSeconds = max(durations[selectedIndex], measuredChapterSeconds)
-    val effectiveDurations = durations.toMutableList().also {
-        it[selectedIndex] = currentDurationSeconds
-    }
+    val effectiveDurations = effectiveChapterDurations(chapters, selectedIndex, currentChapterDurationMs)
+    val currentDurationSeconds = effectiveDurations[selectedIndex]
     val totalSeconds = effectiveDurations.sum()
     val positionInChapter = (currentPositionMs / 1000L).coerceIn(0L, currentDurationSeconds)
     val elapsedBefore = effectiveDurations.take(selectedIndex).sum()
@@ -191,7 +201,12 @@ fun PlayerScreen(
                 viewModel.playerManager.seekTo((fraction * playerState.durationMs).toLong())
             },
             onBookSeek = { fraction ->
-                calculateBookSeekTarget(playerState.chapters, fraction)?.let { target ->
+                calculateBookSeekTarget(
+                    chapters = playerState.chapters,
+                    currentChapterIndex = playerState.currentChapterIndex,
+                    currentChapterDurationMs = playerState.durationMs,
+                    fraction = fraction
+                )?.let { target ->
                     if (target.chapterIndex == playerState.currentChapterIndex) {
                         viewModel.playerManager.seekTo(target.positionMs)
                     } else {
@@ -298,7 +313,7 @@ fun PlayerScreenContent(
     modifier: Modifier = Modifier
 ) {
     val background = MaterialTheme.colorScheme.background
-    val tint = artworkAccent ?: fallbackArtworkAccent(book)
+    val tint = artworkAccent ?: MaterialTheme.colorScheme.primary
 
     Box(
         modifier = modifier
@@ -343,7 +358,6 @@ fun PlayerScreenContent(
                         contentDescription = "Обкладинка: ${book.title}",
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop,
-                        fallbackTint = tint,
                         onImageLoaded = onArtworkLoaded
                     )
                 }
@@ -538,6 +552,7 @@ private fun BookProgressTrack(progress: PlayerProgressUi, onSeek: (Float) -> Uni
         Slider(
             value = progress.bookFraction,
             onValueChange = onSeek,
+            enabled = progress.bookDurationSeconds > 0L,
             modifier = Modifier.fillMaxWidth().testTag("book_progress_slider"),
             colors = SliderDefaults.colors(
                 thumbColor = active,
@@ -778,9 +793,3 @@ private fun extractArtworkAccent(drawable: Drawable): Color? = runCatching {
     }
     if (count == 0L) null else Color((red / count).toInt(), (green / count).toInt(), (blue / count).toInt())
 }.getOrNull()
-
-/** Stable fallback tint for generated covers; real artwork replaces it after load. */
-fun fallbackArtworkAccent(book: AudiobookEntity): Color {
-    val hue = (book.id.hashCode().toLong().let { if (it < 0) -it else it } % 360L).toFloat()
-    return Color(android.graphics.Color.HSVToColor(floatArrayOf(hue, 0.42f, 0.62f)))
-}

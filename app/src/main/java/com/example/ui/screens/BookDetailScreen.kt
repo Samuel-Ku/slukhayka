@@ -47,6 +47,7 @@ fun BookDetailScreen(
 
     var activeTab by remember { mutableStateOf(0) } // 0 = Chapters, 1 = Bookmarks
     var showAddBookmarkDialog by remember { mutableStateOf(false) }
+    var showDeleteSheet by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
 
     val currentBook = book ?: return
@@ -85,8 +86,9 @@ fun BookDetailScreen(
                             tint = if (currentBook.isDownloaded) CyberSecondary else CyberTextPrimary
                         )
                     }
-                    // Spec #8 ticket T3: cascading deletion with confirmation.
-                    IconButton(onClick = { showDeleteDialog = true }) {
+                    // Wayfinder #28: deletion is a choice — remove from library,
+                    // delete the downloaded copy, or delete everything.
+                    IconButton(onClick = { showDeleteSheet = true }) {
                         Icon(
                             imageVector = Icons.Default.Delete,
                             contentDescription = "Видалити книгу",
@@ -368,6 +370,110 @@ fun BookDetailScreen(
                 viewModel.addBookmarkAtCurrentPosition(note)
             }
         )
+    }
+
+    if (showDeleteSheet) {
+        // Three-level deletion (wayfinder #28): removing from the library must
+        // never silently destroy the user's audio files.
+        ModalBottomSheet(
+            onDismissRequest = { showDeleteSheet = false },
+            containerColor = CyberCardBg
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp)
+            ) {
+                Text(
+                    text = "Видалити книгу",
+                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                    color = CyberTextPrimary
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Оберіть, що саме видалити",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = CyberTextSecondary
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            viewModel.removeFromLibrary(currentBook.id)
+                            showDeleteSheet = false
+                        }
+                        .padding(vertical = 12.dp)
+                        .testTag("delete_remove_from_library"),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.RemoveCircleOutline,
+                        contentDescription = null,
+                        tint = CyberPrimary,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(14.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Прибрати з медіатеки", fontWeight = FontWeight.Bold, color = CyberTextPrimary)
+                        Text("Книга зникне зі списку, файли на пристрої лишаться", style = MaterialTheme.typography.bodySmall, color = CyberTextSecondary)
+                    }
+                }
+                HorizontalDivider(color = CyberCardBorder.copy(alpha = 0.5f))
+
+                if (currentBook.isDownloaded) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                viewModel.removeOfflineDownload(currentBook.id)
+                                showDeleteSheet = false
+                            }
+                            .padding(vertical = 12.dp)
+                            .testTag("delete_downloaded_copy"),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CloudOff,
+                            contentDescription = null,
+                            tint = CyberTextPrimary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(14.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Видалити завантажену копію", fontWeight = FontWeight.Bold, color = CyberTextPrimary)
+                            Text("Лишиться в медіатеці, але без офлайн-копії", style = MaterialTheme.typography.bodySmall, color = CyberTextSecondary)
+                        }
+                    }
+                    HorizontalDivider(color = CyberCardBorder.copy(alpha = 0.5f))
+                }
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            showDeleteSheet = false
+                            showDeleteDialog = true
+                        }
+                        .padding(vertical = 12.dp)
+                        .testTag("delete_book_and_files"),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(14.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Видалити книгу та файли з пристрою", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error)
+                        Text("Повністю видалить книгу й аудіофайли. Дію не можна скасувати.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            }
+        }
     }
 
     if (showDeleteDialog) {

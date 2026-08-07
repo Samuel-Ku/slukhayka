@@ -45,7 +45,11 @@ data class PlayerState(
     val isOfflineMode: Boolean = false,
     val audioEngineMode: String = "4read Audio Engine",
     val currentStreamUrl: String = "",
-    val lastErrorMsg: String = ""
+    val lastErrorMsg: String = "",
+    // Position-history undo (wayfinder #25): true while a big accidental seek
+    // can be undone back to [undoFromPositionMs].
+    val canUndoSeek: Boolean = false,
+    val undoFromPositionMs: Long = 0L
 )
 
 /**
@@ -81,7 +85,11 @@ fun interface PlayerFactory {
 class AudioPlayerManager(
     private val context: Context,
     private val repository: AudiobookRepository,
-    private val playerFactory: PlayerFactory = DEFAULT_PLAYER_FACTORY
+    private val playerFactory: PlayerFactory = DEFAULT_PLAYER_FACTORY,
+    /** Wall clock, injectable for deterministic smart-rewind tests. */
+    private val now: () -> Long = System::currentTimeMillis,
+    /** Global playback preferences; defaults to the real SharedPreferences store. */
+    settings: PlaybackSettings? = null
 ) {
 
     private val _playerState = MutableStateFlow(PlayerState())
@@ -107,6 +115,15 @@ class AudioPlayerManager(
     private var updateProgressJob: Job? = null
     private var sleepTimer: CountDownTimer? = null
     private var prepareTimeoutJob: Job? = null
+
+    /** Global playback preferences (wayfinder #26): default speed etc. */
+    private val playbackSettings = settings ?: PlaybackSettings(context)
+
+    /** Wall-clock epoch of the last in-session pause (wayfinder #25). */
+    private var pausedAtEpochMs: Long? = null
+
+    /** Position history for the "Повернутися" undo action (wayfinder #25). */
+    private val seekHistory = SeekHistory()
 
     private fun getPlayerContext(): Context {
         return context.applicationContext
@@ -186,7 +203,13 @@ class AudioPlayerManager(
             currentChapterIndex = chapterIdx,
             currentPositionMs = initialPositionSeconds * 1000L,
             durationMs = if (chapters.isNotEmpty()) chapters[chapterIdx].durationSeconds * 1000L else 1000L,
-            isOfflineMode = book.isDownloaded
+            isOfflineMode = book.isDownloaded,
+            // Per-book speed memory (wayfinder #26): the book's own speed if it
+            // has one, otherwise the global default. Applied to the engine once
+            // the chapter reaches READY.
+            playbackSpeed = book.preferredSpeed ?: playbackSettings.defaultSpeed,
+            canUndoSeek = false,
+            undoFromPositionMs = 0L
         )
 
         prepareChapter(chapterIdx, initialPositionSeconds * 1000L, autoPlay)
@@ -208,7 +231,10 @@ class AudioPlayerManager(
             durationMs = durationMs,
             isBuffering = true,
             currentStreamUrl = chapter.streamUrl,
-            lastErrorMsg = ""
+            lastErrorMsg = "",
+            // A chapter switch is deliberate — the seek history is cleared.
+            canUndoSeek = false,
+            undoFromPositionMs = 0L
         )
 
         prepareTimeoutJob?.cancel()
@@ -365,6 +391,9 @@ class AudioPlayerManager(
     fun play() {
         _playerState.value = _playerState.value.copy(isPlaying = true)
         ensurePlaybackServiceStarted()
+        // Smart rewind (wayfinder #25): coming back from a pause rewinds a few
+        // seconds to a few tens of seconds depending on how long the break was.
+        applySmartRewindIfNeeded()
         if (_playerState.value.isBuffering) return
 
         val mp = mediaPlayer
@@ -389,6 +418,11 @@ class AudioPlayerManager(
 
     fun pause() {
         _playerState.value = _playerState.value.copy(isPlaying = false)
+        // Record the pause moment (wayfinder #25): the resume rewind depends on
+        // how long the listener has been away. Also persisted so a later app
+        // restart can rewind too.
+        pausedAtEpochMs = now()
+        persistPausedAt(pausedAtEpochMs)
         if (_playerState.value.isBuffering) return
 
         mediaPlayer?.let { mp ->
@@ -409,9 +443,24 @@ class AudioPlayerManager(
         }
     }
 
-    fun seekTo(positionMs: Long) {
+    fun seekTo(positionMs: Long, recordInHistory: Boolean = true) {
+        val prevPos = _playerState.value.currentPositionMs
+        val chapterIdx = _playerState.value.currentChapterIndex
         val targetMs = positionMs.coerceIn(0L, _playerState.value.durationMs)
-        _playerState.value = _playerState.value.copy(currentPositionMs = targetMs)
+
+        if (recordInHistory) {
+            // Position history (wayfinder #25): a big seek is remembered so the
+            // UI can offer "Повернутися" back to where the listener was.
+            seekHistory.recordSeek(prevPos, targetMs, chapterIdx)
+            val jump = seekHistory.lastJump
+            _playerState.value = _playerState.value.copy(
+                currentPositionMs = targetMs,
+                canUndoSeek = jump != null,
+                undoFromPositionMs = jump?.fromPositionMs ?: 0L
+            )
+        } else {
+            _playerState.value = _playerState.value.copy(currentPositionMs = targetMs)
+        }
 
         if (_playerState.value.isBuffering) return
 
@@ -461,6 +510,77 @@ class AudioPlayerManager(
     fun setPlaybackSpeed(speed: Float) {
         _playerState.value = _playerState.value.copy(playbackSpeed = speed)
         applyPlaybackSpeed(speed)
+    }
+
+    /**
+     * Remembers [speed] for the current book (wayfinder #26) so the next time
+     * this book loads it resumes at that speed. No-op when nothing is playing.
+     */
+    fun savePreferredSpeed(speed: Float) {
+        val book = _playerState.value.currentBook ?: return
+        scope.launch(Dispatchers.IO) {
+            repository.setPreferredSpeed(book.id, speed)
+        }
+    }
+
+    /** Sets the global default speed applied to books without a saved one (wayfinder #26). */
+    fun setDefaultSpeed(speed: Float) {
+        playbackSettings.defaultSpeed = speed
+    }
+
+    /**
+     * The "Повернутися" action (wayfinder #25): jumps back to the position the
+     * listener was at before the last big seek.
+     */
+    fun undoLastSeek() {
+        val jump = seekHistory.consumeUndo() ?: return
+        _playerState.value = _playerState.value.copy(
+            canUndoSeek = false,
+            undoFromPositionMs = 0L
+        )
+        if (jump.fromPositionMs == jump.toPositionMs) return
+        if (jump.chapterIndex != _playerState.value.currentChapterIndex &&
+            jump.chapterIndex in _playerState.value.chapters.indices
+        ) {
+            prepareChapter(jump.chapterIndex, jump.fromPositionMs, autoPlay = _playerState.value.isPlaying)
+        } else {
+            // recordInHistory = false: undoing must not record a new jump back.
+            seekTo(jump.fromPositionMs, recordInHistory = false)
+        }
+    }
+
+    /**
+     * Applies the smart rewind once when resuming from a pause (wayfinder #25).
+     * The rewind is written straight into the player state so it also takes
+     * effect on a buffering resume (the READY listener seeks to the state
+     * position); a ready engine is seeked directly.
+     */
+    private fun applySmartRewindIfNeeded() {
+        val pausedAt = pausedAtEpochMs ?: return
+        // The pause has been consumed either way — keep the in-memory marker and
+        // the persisted one in lockstep so a restart never rewinds the same
+        // pause twice (code-review: the two markers must not diverge).
+        pausedAtEpochMs = null
+        persistPausedAt(null)
+        val currentPos = _playerState.value.currentPositionMs
+        if (currentPos <= 0L) return
+        val rewindSec = SmartRewind.computeRewindSeconds(now() - pausedAt)
+        if (rewindSec <= 0L) return
+        val targetMs = (currentPos - rewindSec * 1000L).coerceAtLeast(0L)
+        _playerState.value = _playerState.value.copy(currentPositionMs = targetMs)
+        mediaPlayer?.let { mp ->
+            try {
+                if (mp.playbackState == Player.STATE_READY) mp.seekTo(targetMs)
+            } catch (_: Exception) {}
+        }
+    }
+
+    private fun persistPausedAt(epochMs: Long?) {
+        val book = _playerState.value.currentBook ?: return
+        val bookId = book.id
+        scope.launch(Dispatchers.IO) {
+            repository.updatePausedAt(bookId, epochMs)
+        }
     }
 
     private fun applyPlaybackSpeed(speed: Float) {
@@ -637,6 +757,12 @@ class AudioPlayerManager(
     companion object {
         /** Prepare timeout for a chapter stream: 45 seconds. */
         const val PREPARE_TIMEOUT_MS: Long = 45_000L
+
+        /** Speed presets (wayfinder #26): 0.5x–3.0x with a 0.25 step. */
+        val SPEED_PRESETS: List<Float> = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f, 2.5f, 3.0f)
+
+        const val SPEED_MIN: Float = 0.5f
+        const val SPEED_MAX: Float = 3.0f
 
         /**
          * Production [PlayerFactory]: a real ExoPlayer wired to the hardened

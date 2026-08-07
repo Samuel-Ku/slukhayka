@@ -3,6 +3,7 @@ package com.example.data.repository
 import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
+import com.example.data.catalog.CatalogBook
 import com.example.data.db.AudiobookDao
 import com.example.data.db.AudiobookDatabase
 import com.example.data.db.BookmarkEntity
@@ -14,6 +15,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -140,6 +142,95 @@ class AudiobookRepositoryRoomTest {
         assertEquals(books.size - 1, remaining.size)
         assertEquals(books[1].id, remaining.first().id)
         assertEquals(TestDataFactory.CHAPTERS_PER_BOOK, dao.getChaptersListForBook(books[1].id).size)
+    }
+
+    // ---------------------------------------------------------------------
+    // spec-9 T1: series metadata persistence
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `upserting a catalog book persists its series metadata`() = runBlocking {
+        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+
+        repo.upsertCatalogBook(
+            CatalogBook(
+                id = "4read-7589-neostannij-bij",
+                title = "Неостанній бій",
+                author = "Костянтин Шелест",
+                url = "https://4read.org/7589-neostannij-bij.html",
+                coverImageUrl = null,
+                seriesTitle = "Максим Темний",
+                seriesUrl = "https://4read.org/xfsearch/cikl/maksym-temnyj/",
+                seriesIndex = 7
+            )
+        )
+
+        val stored = dao.getAudiobookById("4read-7589-neostannij-bij")
+        assertNotNull(stored)
+        assertEquals("Максим Темний", stored!!.seriesTitle)
+        assertEquals("https://4read.org/xfsearch/cikl/maksym-temnyj/", stored.seriesUrl)
+        assertEquals(7, stored.seriesIndex)
+    }
+
+    @Test
+    fun `re-upserting a known book back-fills its series metadata without losing user state`() = runBlocking {
+        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+        val book = TestDataFactory.dataBooks()[0]
+        // Insert a book that predates series metadata (e.g. from an earlier sync).
+        dao.insertAudiobooks(listOf(book.copy(isFavorite = true, isDownloaded = true)))
+
+        repo.upsertCatalogBook(
+            CatalogBook(
+                id = book.id,
+                title = book.title,
+                author = book.author,
+                url = book.sourceUrl,
+                coverImageUrl = null,
+                seriesTitle = "Сага про Дріззта",
+                seriesUrl = "https://4read.org/xfsearch/cikl/drizzt/",
+                seriesIndex = 2
+            )
+        )
+
+        val stored = dao.getAudiobookById(book.id)!!
+        assertEquals("Сага про Дріззта", stored.seriesTitle)
+        assertEquals(2, stored.seriesIndex)
+        // User state must survive the back-fill.
+        assertTrue(stored.isFavorite)
+        assertTrue(stored.isDownloaded)
+        // Unrelated fields untouched.
+        assertEquals(book.title, stored.title)
+    }
+
+    @Test
+    fun `upserting a book without series metadata leaves stored series untouched`() = runBlocking {
+        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+        dao.insertAudiobooks(
+            listOf(
+                TestDataFactory.dataBooks()[1].copy(
+                    seriesTitle = "Старий цикл",
+                    seriesUrl = "https://4read.org/xfsearch/cikl/old/",
+                    seriesIndex = 1
+                )
+            )
+        )
+
+        repo.upsertCatalogBook(
+            CatalogBook(
+                id = TestDataFactory.dataBooks()[1].id,
+                title = "1984",
+                author = "Джордж Орвелл",
+                url = "https://4read.org/1984.html",
+                coverImageUrl = null,
+                seriesTitle = null,
+                seriesUrl = null,
+                seriesIndex = null
+            )
+        )
+
+        val stored = dao.getAudiobookById(TestDataFactory.dataBooks()[1].id)!!
+        assertEquals("Старий цикл", stored.seriesTitle)
+        assertEquals(1, stored.seriesIndex)
     }
 
     // ---------------------------------------------------------------------

@@ -20,7 +20,12 @@ data class AudiobookEntity(
     val totalDurationSeconds: Long = 0L,
     val totalChapters: Int = 0,
     val rating: Float = 4.9f,
-    val isFavorite: Boolean = false
+    val isFavorite: Boolean = false,
+    // 4read series (cycle) metadata (spec-9 T1): parsed from the poster's
+    // `poster__series` chip and `poster__label--blue` volume badge.
+    val seriesTitle: String? = null,
+    val seriesUrl: String? = null,
+    val seriesIndex: Int? = null
 )
 
 @Entity(tableName = "listening_stats")

@@ -1,6 +1,7 @@
 package com.example.data.db
 
 import androidx.room.Entity
+import androidx.room.ColumnInfo
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
@@ -28,7 +29,12 @@ data class AudiobookEntity(
     val seriesIndex: Int? = null,
     // Per-book playback speed (wayfinder #26): null means "use the global
     // default" from PlaybackSettings.
-    val preferredSpeed: Float? = null
+    val preferredSpeed: Float? = null,
+    // When the book entered the library (wayfinder #39): drives the
+    // "recently added" sort. Migration 6->7 backfills existing rows with the
+    // migration-run time; new imports stamp their own insert time.
+    @ColumnInfo(defaultValue = "0")
+    val createdAt: Long = System.currentTimeMillis()
 )
 
 @Entity(tableName = "listening_stats")

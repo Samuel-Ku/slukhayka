@@ -43,10 +43,11 @@ Standing preferences:
 - [Cast feasibility](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/33) — GO but last: media3-cast CastPlayer + Default Media Receiver (no fee/registration); custom receiver only for TV chapter UI. Back of stage 4.
 - [Backup & sync approach](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/35) — Auto Backup (dataExtractionRules) covers the Room DB free; manual SAF export/import for a full backup; audio excluded (over the ~25 MB cap); re-pick + re-scan after reinstall. Cloud sync ruled OUT of scope.
 - [Adaptive two-pane layout](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/36) — GO: stable material3-adaptive `ListDetailPaneScaffold` for Медіатека; `selectedBookId` maps onto the scaffold content key; gated on Library rework.
+- [Design system](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/23) — graphite-navy dark (primary) + warm-paper light schemes, one amber accent, editorial type scale, spacing/radius/≥48 dp touch tokens, cards 10–14 dp with minimal shadows, no card-in-card, animation budget decided; primitives `AppSectionHeader`/`EmptyState`/`EmptyStateRow` (empty-states house standard); Слухати migrated as the reference; legacy `Cyber*` aliases remain for other screens. Unblocks themes/player/library/book-page/accessibility.
 
 ## Tickets (children of map #22)
 
-- #23 — Design system `wayfinder:grilling` — frontier.
+- #23 — Design system `wayfinder:grilling` — ✅ resolved 2026-08-07.
 - #24 — Empty states audit `wayfinder:task` — ✅ resolved 2026-08-07.
 - #25 — Smart rewind & position history `wayfinder:grilling` — frontier.
 - #26 — Speed: per-book memory & defaults `wayfinder:grilling` — frontier.

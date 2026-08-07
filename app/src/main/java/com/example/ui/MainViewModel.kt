@@ -175,6 +175,38 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _seriesBooks.value = emptyList()
     }
 
+    // Continue-the-series block (spec-9 T4): the next volume of the currently
+    // listened book's cycle, resolved on demand from the series page and
+    // cached by the repository. The block hides when there is no next volume
+    // or the network fails — the screen never blocks on it.
+    private val _nextInSeries = MutableStateFlow<AudiobookEntity?>(null)
+    val nextInSeries: StateFlow<AudiobookEntity?> = _nextInSeries.asStateFlow()
+
+    // Written on the main thread, read inside the IO coroutine — the guard is
+    // best-effort, but make the visibility contract real.
+    @Volatile
+    private var nextInSeriesRequestId: String? = null
+
+    fun loadNextInSeries(book: AudiobookEntity?) {
+        val requestId = book?.id
+        nextInSeriesRequestId = requestId
+        if (book == null || book.seriesUrl.isNullOrBlank()) {
+            _nextInSeries.value = null
+            return
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            val next = try {
+                repository.findNextInSeries(book)
+            } catch (e: Exception) {
+                null
+            }
+            // Stale-result guard: only apply when the hero book hasn't changed.
+            if (nextInSeriesRequestId == requestId) {
+                _nextInSeries.value = next
+            }
+        }
+    }
+
     fun refreshCatalog() {
         viewModelScope.launch(Dispatchers.IO) {
             repository.fetchCatalogSections()

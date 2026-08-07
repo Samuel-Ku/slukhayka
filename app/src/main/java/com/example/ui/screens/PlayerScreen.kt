@@ -28,6 +28,7 @@ import com.example.ui.MainViewModel
 import com.example.ui.components.BookmarkDialog
 import com.example.ui.components.PlayerDebugOverlay
 import com.example.ui.components.SleepTimerSheet
+import com.example.ui.components.SpeedSheet
 import com.example.ui.theme.*
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -40,6 +41,7 @@ fun PlayerScreen(
     val book = playerState.currentBook ?: return
 
     var showSleepTimerSheet by remember { mutableStateOf(false) }
+    var showSpeedSheet by remember { mutableStateOf(false) }
     var showAddBookmarkDialog by remember { mutableStateOf(false) }
     var showChapterSelectSheet by remember { mutableStateOf(false) }
     var showDebugOverlay by remember {
@@ -307,6 +309,28 @@ fun PlayerScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
+            // Position-history undo (wayfinder #25): after a big accidental
+            // seek, offer a one-tap jump back to where the listener was.
+            if (playerState.canUndoSeek) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 16.dp)
+                        .testTag("undo_seek_row"),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "Повернутися до ${MainViewModel.formatTime(playerState.undoFromPositionMs / 1000L)}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = CyberTextSecondary
+                    )
+                    Button(onClick = { viewModel.playerManager.undoLastSeek() }) {
+                        Text("Повернутися")
+                    }
+                }
+            }
+
             // Secondary Controls (Speed, Bookmark, Sleep Timer)
             Row(
                 modifier = Modifier
@@ -315,21 +339,9 @@ fun PlayerScreen(
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Speed Selector Button
-                val nextSpeed = when (playerState.playbackSpeed) {
-                    0.5f -> 0.8f
-                    0.8f -> 1.0f
-                    1.0f -> 1.25f
-                    1.25f -> 1.5f
-                    1.5f -> 1.75f
-                    1.75f -> 2.0f
-                    2.0f -> 2.5f
-                    2.5f -> 3.0f
-                    else -> 0.5f
-                }
-
+                // Speed Selector Button — opens the speed sheet (wayfinder #26).
                 AssistChip(
-                    onClick = { viewModel.playerManager.setPlaybackSpeed(nextSpeed) },
+                    onClick = { showSpeedSheet = true },
                     label = { Text("${playerState.playbackSpeed}x", fontWeight = FontWeight.Bold) },
                     colors = AssistChipDefaults.assistChipColors(containerColor = CyberCardBg, labelColor = CyberPrimary),
                     border = AssistChipDefaults.assistChipBorder(enabled = true, borderColor = CyberCardBorder),
@@ -394,6 +406,16 @@ fun PlayerScreen(
             currentTimerMinutes = playerState.sleepTimerMinutes,
             onSelectTimer = { minutes -> viewModel.playerManager.setSleepTimer(minutes) },
             onDismiss = { showSleepTimerSheet = false }
+        )
+    }
+
+    if (showSpeedSheet) {
+        SpeedSheet(
+            currentSpeed = playerState.playbackSpeed,
+            onSpeedChange = { speed -> viewModel.playerManager.setPlaybackSpeed(speed) },
+            onSaveForBook = { viewModel.playerManager.savePreferredSpeed(playerState.playbackSpeed) },
+            onSetDefault = { viewModel.playerManager.setDefaultSpeed(playerState.playbackSpeed) },
+            onDismiss = { showSpeedSheet = false }
         )
     }
 

@@ -25,7 +25,10 @@ data class AudiobookEntity(
     // `poster__series` chip and `poster__label--blue` volume badge.
     val seriesTitle: String? = null,
     val seriesUrl: String? = null,
-    val seriesIndex: Int? = null
+    val seriesIndex: Int? = null,
+    // Per-book playback speed (wayfinder #26): null means "use the global
+    // default" from PlaybackSettings.
+    val preferredSpeed: Float? = null
 )
 
 @Entity(tableName = "listening_stats")
@@ -63,5 +66,9 @@ data class PlaybackProgressEntity(
     val currentChapterIndex: Int = 0,
     val currentPositionSeconds: Long = 0L,
     val lastListenedAt: Long = System.currentTimeMillis(),
-    val isCompleted: Boolean = false
+    val isCompleted: Boolean = false,
+    // Wall-clock epoch of the last pause (wayfinder #25): drives the smart
+    // rewind on resume — the longer the pause, the further back playback
+    // rewinds. Null once the rewind has been applied.
+    val lastPausedAtEpochMs: Long? = null
 )

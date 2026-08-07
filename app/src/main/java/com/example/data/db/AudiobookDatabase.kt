@@ -15,7 +15,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         PlaybackProgressEntity::class,
         ListeningStatEntity::class
     ],
-    version = 5,
+    version = 6,
     exportSchema = false
 )
 abstract class AudiobookDatabase : RoomDatabase() {
@@ -35,7 +35,7 @@ abstract class AudiobookDatabase : RoomDatabase() {
                     // Schema v4: indices on every FK column queried via
                     // `WHERE bookId = :bookId` (audit CRITICAL PERF-004 --
                     // full table scans as the library grows).
-                    .addMigrations(MIGRATION_3_4, MIGRATION_4_5)
+                    .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                     .fallbackToDestructiveMigration(dropAllTables = true)
                     .build()
                 INSTANCE = instance
@@ -58,6 +58,20 @@ abstract class AudiobookDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE audiobooks ADD COLUMN seriesTitle TEXT")
                 db.execSQL("ALTER TABLE audiobooks ADD COLUMN seriesUrl TEXT")
                 db.execSQL("ALTER TABLE audiobooks ADD COLUMN seriesIndex INTEGER")
+            }
+        }
+
+        /**
+         * v5 -> v6 (wayfinder #26 + #25): per-book playback speed on
+         * audiobooks, and the last-pause timestamp that drives the smart
+         * rewind on playback_progress. Both columns are nullable; both are
+         * written by new code paths only. Internal (not private) so the JVM
+         * test suite can verify the upgrade path against a real v5 database.
+         */
+        internal val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE audiobooks ADD COLUMN preferredSpeed REAL")
+                db.execSQL("ALTER TABLE playback_progress ADD COLUMN lastPausedAtEpochMs INTEGER")
             }
         }
     }

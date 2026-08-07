@@ -1,6 +1,7 @@
 package com.example.data.catalog
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -88,6 +89,58 @@ class CatalogParserTest {
         assertEquals("Максим Темний", series.title)
         assertEquals("https://4read.org/xfsearch/cikl/%D0%BC%D0%B0%D0%BA%D1%81%D0%B8%D0%BC%20%D1%82%D0%B5%D0%BC%D0%BD%D0%B8%D0%B9/", series.url)
         assertEquals("https://4read.org/uploads/posts/2026-05/medium/4_ks_mt7.webp", series.coverImageUrl)
+    }
+
+    @Test
+    fun `poster with a cycle badge carries its series metadata on the book`() {
+        val sections = CatalogParser.parseHomepage("<html><body>$seriesPoster</body></html>")
+
+        val book = sections.first().books.first { it.id == "4read-7589-neostannij-bij" }
+        assertEquals("Максим Темний", book.seriesTitle)
+        assertEquals("https://4read.org/xfsearch/cikl/%D0%BC%D0%B0%D0%BA%D1%81%D0%B8%D0%BC%20%D1%82%D0%B5%D0%BC%D0%BD%D0%B8%D0%B9/", book.seriesUrl)
+        assertEquals(7, book.seriesIndex)
+    }
+
+    @Test
+    fun `poster without a cycle carries no series metadata`() {
+        val sections = CatalogParser.parseHomepage("<html><body>$plainPoster</body></html>")
+
+        val book = sections.first().books.first()
+        assertNull(book.seriesTitle)
+        assertNull(book.seriesUrl)
+        assertNull(book.seriesIndex)
+    }
+
+    @Test
+    fun `malformed or absent volume badge yields a null index`() {
+        val html = """
+            <div class="poster has-overlay">
+                <div class="poster__desc order-last">
+                    <a href="https://4read.org/1000-test.html" class="poster__link"><div class="poster__title line-clamp">Книга</div></a>
+                    <div class="poster__subtitle ws-nowrap">Автор</div>
+                </div>
+                <div class="poster__img img-responsive">
+                    <img src="/uploads/posts/2026-06/medium/x.webp" loading="lazy">
+                    <div class="poster__label poster__label--blue">seven</div>
+                    <div class="poster__series anim"><a href="https://4read.org/xfsearch/cikl/c/">Цикл</a></div>
+                </div>
+            </div>
+        """.trimIndent()
+
+        val sections = CatalogParser.parseHomepage(html)
+        val book = sections.first().books.first()
+        assertEquals("Цикл", book.seriesTitle)
+        assertNull("non-numeric badge must not crash the parser", book.seriesIndex)
+    }
+
+    @Test
+    fun `series page books also carry their series metadata`() {
+        val html = """<html><body>$seriesPoster</body></html>"""
+
+        val books = CatalogParser.parseSeriesPage(html)
+        val book = books.first { it.id == "4read-7589-neostannij-bij" }
+        assertEquals("Максим Темний", book.seriesTitle)
+        assertEquals(7, book.seriesIndex)
     }
 
     @Test

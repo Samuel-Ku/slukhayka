@@ -16,6 +16,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Explore
+import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -32,6 +33,7 @@ import com.example.ui.screens.BookDetailScreen
 import com.example.ui.screens.FourReadWebScreen
 import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.LibraryScreen
+import com.example.ui.screens.ListenScreen
 import com.example.ui.screens.PlayerScreen
 import com.example.ui.screens.SeriesScreen
 import com.example.ui.theme.AudiobookTheme
@@ -150,6 +152,17 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                     )
 
                     else -> when (selectedTab) {
+                        // Spec-9: first tab is the listening panel, not the storefront.
+                        SelectedTab.LISTEN -> ListenScreen(
+                            viewModel = viewModel,
+                            onBookClick = { id -> viewModel.selectBook(id) },
+                            onPlayClick = { book ->
+                                viewModel.playAudiobook(book)
+                                viewModel.setShowFullPlayer(true)
+                            },
+                            onBrowseClick = { viewModel.selectTab(SelectedTab.EXPLORE) },
+                            onImportClick = { viewModel.selectTab(SelectedTab.LIBRARY) }
+                        )
                         SelectedTab.EXPLORE -> HomeScreen(
                             viewModel = viewModel,
                             onBookClick = { id -> viewModel.selectBook(id) },
@@ -211,11 +224,27 @@ fun AppBottomBar(
             .windowInsetsPadding(WindowInsets.navigationBars)
             .testTag("bottom_navigation_bar")
     ) {
+        // Spec-9: exactly Слухати · Огляд · Медіатека (the listening panel
+        // first). Test tags stay stable for the screens that moved (tab_explore
+        // / tab_library) so existing UI tests keep working.
+        NavigationBarItem(
+            selected = selectedTab == SelectedTab.LISTEN && !bookDetailOpen,
+            onClick = { onSelect(SelectedTab.LISTEN) },
+            icon = { Icon(imageVector = Icons.Default.Headphones, contentDescription = "Listen") },
+            label = { Text("Слухати") },
+            colors = NavigationBarItemDefaults.colors(
+                selectedIconColor = CyberPrimary,
+                selectedTextColor = CyberPrimary,
+                indicatorColor = CyberCardBorder
+            ),
+            modifier = Modifier.testTag("tab_listen")
+        )
+
         NavigationBarItem(
             selected = selectedTab == SelectedTab.EXPLORE && !bookDetailOpen,
             onClick = { onSelect(SelectedTab.EXPLORE) },
-            icon = { Icon(imageVector = Icons.Default.Explore, contentDescription = "Explore") },
-            label = { Text("Explore") },
+            icon = { Icon(imageVector = Icons.Default.Explore, contentDescription = "Browse") },
+            label = { Text("Огляд") },
             colors = NavigationBarItemDefaults.colors(
                 selectedIconColor = CyberPrimary,
                 selectedTextColor = CyberPrimary,
@@ -228,7 +257,7 @@ fun AppBottomBar(
             selected = selectedTab == SelectedTab.LIBRARY && !bookDetailOpen,
             onClick = { onSelect(SelectedTab.LIBRARY) },
             icon = { Icon(imageVector = Icons.Default.LibraryMusic, contentDescription = "Library") },
-            label = { Text("Бібліотека") },
+            label = { Text("Медіатека") },
             colors = NavigationBarItemDefaults.colors(
                 selectedIconColor = CyberPrimary,
                 selectedTextColor = CyberPrimary,

@@ -7,6 +7,7 @@ import com.example.data.db.AudiobookDao
 import com.example.data.db.AudiobookDatabase
 import com.example.data.db.BookmarkEntity
 import com.example.data.db.PlaybackProgressEntity
+import com.example.data.imports.LocalAudioEntry
 import com.example.testing.TestDataFactory
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -167,5 +168,120 @@ class AudiobookRepositoryRoomTest {
         // The imported book shows in the downloaded set.
         val downloaded = dao.getDownloadedAudiobooks().first()
         assertTrue(downloaded.any { it.id == book.id })
+    }
+
+    // ---------------------------------------------------------------------
+    // Block 4: folder import (SAF tree) — grouping core
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `importAudioEntries groups each folder into one book and root files into individual books`() = runBlocking {
+        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+
+        val result = repo.importAudioEntries(
+            listOf(
+                LocalAudioEntry("01.mp3", "Кобзар") { ByteArrayInputStream(ByteArray(16)) },
+                LocalAudioEntry("02.mp3", "Кобзар") { ByteArrayInputStream(ByteArray(16)) },
+                LocalAudioEntry("Лісова пісня.mp3", null) { ByteArrayInputStream(ByteArray(16)) },
+                LocalAudioEntry("Промова.mp3", "Історія") { ByteArrayInputStream(ByteArray(16)) }
+            )
+        )
+
+        assertEquals(3, result.booksImported)
+        assertEquals(4, result.filesImported)
+        assertEquals(0, result.skippedFiles)
+
+        val books = dao.getAllAudiobooks().first()
+        val folderBook = books.first { it.title == "Кобзар" }
+        val rootBook = books.first { it.title == "Лісова пісня" }
+        val historyBook = books.first { it.title == "Історія" }
+
+        // Folder book: two chapters, all downloaded, pointing at copied files.
+        val folderChapters = dao.getChaptersListForBook(folderBook.id)
+        assertEquals(2, folderChapters.size)
+        assertTrue(folderChapters.all { it.isDownloaded && it.localFilePath != null })
+        assertTrue(folderChapters.all { File(it.localFilePath!!).exists() })
+
+        // Root book: single chapter, title = file name (T7 behaviour).
+        assertEquals(1, dao.getChaptersListForBook(rootBook.id).size)
+        assertEquals(1, dao.getChaptersListForBook(historyBook.id).size)
+    }
+
+    @Test
+    fun `importAudioEntries sorts folder chapters by natural file name order`() = runBlocking {
+        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+
+        repo.importAudioEntries(
+            listOf(
+                LocalAudioEntry("track10.mp3", "Сага") { ByteArrayInputStream(ByteArray(8)) },
+                LocalAudioEntry("track2.mp3", "Сага") { ByteArrayInputStream(ByteArray(8)) },
+                LocalAudioEntry("track1.mp3", "Сага") { ByteArrayInputStream(ByteArray(8)) }
+            )
+        )
+
+        val book = dao.getAllAudiobooks().first().first { it.title == "Сага" }
+        val chapters = dao.getChaptersListForBook(book.id)
+        assertEquals("track1", chapters[0].title)
+        assertEquals("track2", chapters[1].title)
+        assertEquals("track10", chapters[2].title)
+        assertEquals(listOf(0, 1, 2), chapters.map { it.chapterIndex })
+    }
+
+    @Test
+    fun `importAudioEntries skips unreadable files without crashing and skips empty folders`() = runBlocking {
+        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+
+        val result = repo.importAudioEntries(
+            listOf(
+                LocalAudioEntry("broken.mp3", "Поламана") { throw java.io.IOException("no access") },
+                LocalAudioEntry("good.mp3", "Поламана") { ByteArrayInputStream(ByteArray(8)) },
+                LocalAudioEntry("empty.mp3", "Пуста") { throw java.io.IOException("no access") }
+            )
+        )
+
+        assertEquals(1, result.booksImported)
+        assertEquals(1, result.filesImported)
+        assertEquals(2, result.skippedFiles)
+
+        val books = dao.getAllAudiobooks().first()
+        // Only the folder with a readable file produced a book; the all-broken
+        // folder produced none.
+        assertEquals(listOf("Поламана"), books.map { it.title })
+    }
+
+    @Test
+    fun `importAudioEntries keeps same-named folders from different branches separate`() = runBlocking {
+        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+
+        repo.importAudioEntries(
+            listOf(
+                LocalAudioEntry("01.mp3", "SeriesA/Кобзар") { ByteArrayInputStream(ByteArray(8)) },
+                LocalAudioEntry("01.mp3", "SeriesB/Кобзар") { ByteArrayInputStream(ByteArray(8)) }
+            )
+        )
+
+        val books = dao.getAllAudiobooks().first()
+        // Two distinct books despite the identical folder names — grouping is
+        // by the full relative path, not the bare folder name. Each holds only
+        // its own chapter.
+        assertEquals(2, books.size)
+        assertEquals(2, books.sumOf { dao.getChaptersListForBook(it.id).size })
+    }
+
+    @Test
+    fun `importAudioEntries preserves the original file extension`() = runBlocking {
+        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+
+        repo.importAudioEntries(
+            listOf(
+                LocalAudioEntry("Розділ.ogg", "Книга") { ByteArrayInputStream(ByteArray(8)) },
+                LocalAudioEntry("Глава.m4a", "Книга") { ByteArrayInputStream(ByteArray(8)) }
+            )
+        )
+
+        val book = dao.getAllAudiobooks().first().first { it.title == "Книга" }
+        val paths = dao.getChaptersListForBook(book.id).mapNotNull { it.localFilePath }
+        assertTrue(paths.any { it.endsWith(".ogg") })
+        assertTrue(paths.any { it.endsWith(".m4a") })
     }
 }

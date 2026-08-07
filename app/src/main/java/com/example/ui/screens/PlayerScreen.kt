@@ -60,8 +60,8 @@ fun PlayerScreen(
             TopAppBar(
                 title = {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("PLAYING AUDIOBOOK", style = MaterialTheme.typography.labelSmall, color = CyberPrimary)
-                        Text("${book.genre} • ${playerState.audioEngineMode}", style = MaterialTheme.typography.bodySmall, color = CyberSecondary)
+                        Text("PLAYING AUDIOBOOK", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                        Text("${book.genre} • ${playerState.audioEngineMode}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
                     }
                 },
                 navigationIcon = {
@@ -74,24 +74,24 @@ fun PlayerScreen(
                         Icon(
                             imageVector = Icons.Default.BugReport,
                             contentDescription = "Debug Overlay",
-                            tint = if (showDebugOverlay) CyberPrimary else CyberTextSecondary
+                            tint = if (showDebugOverlay) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                     IconButton(onClick = { viewModel.toggleFavorite(book.id, !book.isFavorite) }) {
                         Icon(
                             imageVector = if (book.isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                             contentDescription = "Favorite",
-                            tint = if (book.isFavorite) Color(0xFFFF4081) else CyberTextSecondary
+                            tint = if (book.isFavorite) Color(0xFFFF4081) else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                     IconButton(onClick = { showChapterSelectSheet = true }) {
-                        Icon(imageVector = Icons.Default.FormatListNumbered, contentDescription = "Chapter List", tint = CyberPrimary)
+                        Icon(imageVector = Icons.Default.FormatListNumbered, contentDescription = "Chapter List", tint = MaterialTheme.colorScheme.primary)
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = CyberBg)
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
             )
         },
-        containerColor = CyberBg
+        containerColor = MaterialTheme.colorScheme.background
     ) { padding ->
         Box(
             modifier = Modifier
@@ -114,7 +114,7 @@ fun PlayerScreen(
                     .fillMaxWidth()
                     .aspectRatio(1f)
                     .clip(RoundedCornerShape(24.dp))
-                    .border(2.dp, CyberPrimary.copy(alpha = 0.6f), RoundedCornerShape(24.dp)),
+                    .border(2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f), RoundedCornerShape(24.dp)),
                 elevation = CardDefaults.cardElevation(12.dp)
             ) {
                 Box(modifier = Modifier.fillMaxSize()) {
@@ -127,7 +127,7 @@ fun PlayerScreen(
 
                     if (playerState.isOfflineMode) {
                         Surface(
-                            color = CyberSecondary,
+                            color = MaterialTheme.colorScheme.secondary,
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier
                                 .align(Alignment.TopEnd)
@@ -140,14 +140,14 @@ fun PlayerScreen(
                                 Icon(
                                     imageVector = Icons.Default.CloudDone,
                                     contentDescription = null,
-                                    tint = CyberOnSecondary,
+                                    tint = MaterialTheme.colorScheme.onSecondary,
                                     modifier = Modifier.size(14.dp)
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text(
                                     text = "OFFLINE",
                                     style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                    color = CyberOnSecondary
+                                    color = MaterialTheme.colorScheme.onSecondary
                                 )
                             }
                         }
@@ -173,7 +173,7 @@ fun PlayerScreen(
                         fontWeight = FontWeight.Bold,
                         fontSize = 20.sp
                     ),
-                    color = CyberTextPrimary,
+                    color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -183,15 +183,15 @@ fun PlayerScreen(
                 Text(
                     text = currentChapterTitle,
                     style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
-                    color = CyberPrimary,
+                    color = MaterialTheme.colorScheme.primary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
 
                 Text(
                     text = "By ${book.author}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = CyberTextSecondary
+                    style = MaterialTheme.typography.bodySmall,                            color = MaterialTheme.colorScheme.onSurfaceVariant
+
                 )
             }
 
@@ -215,9 +215,9 @@ fun PlayerScreen(
                         viewModel.playerManager.seekTo(targetMs)
                     },
                     colors = SliderDefaults.colors(
-                        thumbColor = CyberPrimary,
-                        activeTrackColor = CyberPrimary,
-                        inactiveTrackColor = CyberCardBorder
+                        thumbColor = MaterialTheme.colorScheme.primary,
+                        activeTrackColor = MaterialTheme.colorScheme.primary,
+                        inactiveTrackColor = MaterialTheme.colorScheme.outlineVariant
                     ),
                     modifier = Modifier
                         .fillMaxWidth()
@@ -231,12 +231,12 @@ fun PlayerScreen(
                     Text(
                         text = MainViewModel.formatTime(currentSec),
                         style = MaterialTheme.typography.labelSmall,
-                        color = CyberTextSecondary
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Text(
                         text = "-${MainViewModel.formatTime((durationSec - currentSec).coerceAtLeast(0L))}",
                         style = MaterialTheme.typography.labelSmall,
-                        color = CyberTextSecondary
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
@@ -254,7 +254,7 @@ fun PlayerScreen(
                     Icon(
                         imageVector = Icons.Default.Replay10,
                         contentDescription = "Rewind 15s",
-                        tint = CyberTextPrimary,
+                        tint = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.size(32.dp)
                     )
                 }
@@ -264,7 +264,7 @@ fun PlayerScreen(
                     Icon(
                         imageVector = Icons.Default.SkipPrevious,
                         contentDescription = "Previous Chapter",
-                        tint = CyberTextPrimary,
+                        tint = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.size(36.dp)
                     )
                 }
@@ -275,13 +275,13 @@ fun PlayerScreen(
                     modifier = Modifier
                         .size(68.dp)
                         .clip(CircleShape)
-                        .background(CyberPrimary)
+                        .background(MaterialTheme.colorScheme.primary)
                         .testTag("player_play_pause_button")
                 ) {
                     Icon(
                         imageVector = if (playerState.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                         contentDescription = if (playerState.isPlaying) "Pause" else "Play",
-                        tint = CyberOnPrimary,
+                        tint = MaterialTheme.colorScheme.onPrimary,
                         modifier = Modifier.size(42.dp)
                     )
                 }
@@ -291,7 +291,7 @@ fun PlayerScreen(
                     Icon(
                         imageVector = Icons.Default.SkipNext,
                         contentDescription = "Next Chapter",
-                        tint = CyberTextPrimary,
+                        tint = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.size(36.dp)
                     )
                 }
@@ -301,7 +301,7 @@ fun PlayerScreen(
                     Icon(
                         imageVector = Icons.Default.Forward30,
                         contentDescription = "Forward 30s",
-                        tint = CyberTextPrimary,
+                        tint = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.size(32.dp)
                     )
                 }
@@ -323,7 +323,7 @@ fun PlayerScreen(
                     Text(
                         text = "Повернутися до ${MainViewModel.formatTime(playerState.undoFromPositionMs / 1000L)}",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = CyberTextSecondary
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Button(onClick = { viewModel.playerManager.undoLastSeek() }) {
                         Text("Повернутися")
@@ -343,8 +343,8 @@ fun PlayerScreen(
                 AssistChip(
                     onClick = { showSpeedSheet = true },
                     label = { Text("${playerState.playbackSpeed}x", fontWeight = FontWeight.Bold) },
-                    colors = AssistChipDefaults.assistChipColors(containerColor = CyberCardBg, labelColor = CyberPrimary),
-                    border = AssistChipDefaults.assistChipBorder(enabled = true, borderColor = CyberCardBorder),
+                    colors = AssistChipDefaults.assistChipColors(containerColor = MaterialTheme.colorScheme.surfaceVariant, labelColor = MaterialTheme.colorScheme.primary),
+                    border = AssistChipDefaults.assistChipBorder(enabled = true, borderColor = MaterialTheme.colorScheme.outlineVariant),
                     modifier = Modifier.testTag("speed_chip")
                 )
 
@@ -352,9 +352,9 @@ fun PlayerScreen(
                 AssistChip(
                     onClick = { showAddBookmarkDialog = true },
                     label = { Text("Bookmark") },
-                    leadingIcon = { Icon(imageVector = Icons.Default.BookmarkAdd, contentDescription = null, tint = CyberSecondary) },
-                    colors = AssistChipDefaults.assistChipColors(containerColor = CyberCardBg, labelColor = CyberTextPrimary),
-                    border = AssistChipDefaults.assistChipBorder(enabled = true, borderColor = CyberCardBorder),
+                    leadingIcon = { Icon(imageVector = Icons.Default.BookmarkAdd, contentDescription = null, tint = MaterialTheme.colorScheme.secondary) },
+                    colors = AssistChipDefaults.assistChipColors(containerColor = MaterialTheme.colorScheme.surfaceVariant, labelColor = MaterialTheme.colorScheme.onSurface),
+                    border = AssistChipDefaults.assistChipBorder(enabled = true, borderColor = MaterialTheme.colorScheme.outlineVariant),
                     modifier = Modifier.testTag("add_bookmark_chip")
                 )
 
@@ -365,18 +365,18 @@ fun PlayerScreen(
                     label = {
                         Text(
                             if (timerActive) "${playerState.sleepTimerRemainingSeconds / 60}m" else "Sleep Timer",
-                            color = if (timerActive) CyberSecondary else CyberTextPrimary
+                            color = if (timerActive) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurface
                         )
                     },
                     leadingIcon = {
                         Icon(
                             imageVector = Icons.Default.Timer,
                             contentDescription = null,
-                            tint = if (timerActive) CyberSecondary else CyberTextSecondary
+                            tint = if (timerActive) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     },
-                    colors = AssistChipDefaults.assistChipColors(containerColor = CyberCardBg),
-                    border = AssistChipDefaults.assistChipBorder(enabled = true, borderColor = if (timerActive) CyberSecondary else CyberCardBorder),
+                    colors = AssistChipDefaults.assistChipColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                    border = AssistChipDefaults.assistChipBorder(enabled = true, borderColor = if (timerActive) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.outlineVariant),
                     modifier = Modifier.testTag("sleep_timer_chip")
                 )
             }
@@ -433,7 +433,7 @@ fun PlayerScreen(
     if (showChapterSelectSheet) {
         ModalBottomSheet(
             onDismissRequest = { showChapterSelectSheet = false },
-            containerColor = CyberCardBg
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
         ) {
             Column(
                 modifier = Modifier
@@ -443,7 +443,7 @@ fun PlayerScreen(
                 Text(
                     text = "Select Chapter",
                     style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                    color = CyberTextPrimary
+                    color = MaterialTheme.colorScheme.onSurface
                 )
                 Spacer(modifier = Modifier.height(12.dp))
                 playerState.chapters.forEachIndexed { index, chapter ->
@@ -464,16 +464,16 @@ fun PlayerScreen(
                             style = MaterialTheme.typography.bodyMedium.copy(
                                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
                             ),
-                            color = if (isSelected) CyberPrimary else CyberTextPrimary,
+                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.weight(1f)
                         )
                         Text(
                             text = MainViewModel.formatTime(chapter.durationSeconds),
                             style = MaterialTheme.typography.bodySmall,
-                            color = CyberTextSecondary
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                    HorizontalDivider(color = CyberCardBorder.copy(alpha = 0.5f))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                 }
             }
         }
@@ -512,7 +512,7 @@ fun AudioWaveformVisualizer(isPlaying: Boolean) {
                     .width(4.dp)
                     .height(h.dp)
                     .clip(RoundedCornerShape(2.dp))
-                    .background(if (isPlaying) CyberPrimary else CyberCardBorder)
+                    .background(if (isPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant)
             )
             Spacer(modifier = Modifier.width(4.dp))
         }

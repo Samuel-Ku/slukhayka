@@ -28,9 +28,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.player.PlayerState
-import com.example.ui.theme.CyberCardBorder
-import com.example.ui.theme.CyberPrimary
-import com.example.ui.theme.CyberSurface
 
 @Composable
 fun MiniPlayerBar(
@@ -57,8 +54,8 @@ fun MiniPlayerBar(
                 .fillMaxWidth()
                 .padding(horizontal = 12.dp, vertical = 6.dp)
                 .clip(RoundedCornerShape(16.dp))
-                .background(CyberSurface.copy(alpha = 0.95f))
-                .border(1.dp, CyberCardBorder, RoundedCornerShape(16.dp))
+                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.95f))
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(16.dp))
                 .clickable { onBarClick() }
                 .testTag("mini_player_bar")
         ) {
@@ -72,7 +69,7 @@ fun MiniPlayerBar(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(3.dp),
-                color = CyberPrimary,
+                color = MaterialTheme.colorScheme.primary,
                 trackColor = Color.White.copy(alpha = 0.1f)
             )
 
@@ -114,7 +111,7 @@ fun MiniPlayerBar(
                             Icon(
                                 imageVector = Icons.Default.CloudDone,
                                 contentDescription = "Offline Available",
-                                tint = CyberPrimary,
+                                tint = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.size(14.dp)
                             )
                         }
@@ -147,7 +144,7 @@ fun MiniPlayerBar(
                     Icon(
                         imageVector = if (playerState.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                         contentDescription = if (playerState.isPlaying) "Pause" else "Play",
-                        tint = CyberPrimary,
+                        tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(28.dp)
                     )
                 }

@@ -50,7 +50,7 @@ class DesignSystemSnapshotTest {
     @Test
     fun section_header_dark() {
         composeTestRule.setContent {
-            AudiobookTheme {
+            AudiobookTheme(darkTheme = true) {
                 DesignSurface {
                     AppSectionHeader(title = "Нещодавно слухали")
                 }
@@ -64,7 +64,7 @@ class DesignSystemSnapshotTest {
     @Test
     fun empty_state_full_dark() {
         composeTestRule.setContent {
-            AudiobookTheme {
+            AudiobookTheme(darkTheme = true) {
                 DesignSurface {
                     EmptyState(
                         icon = Icons.Default.PlayCircle,
@@ -93,7 +93,7 @@ class DesignSystemSnapshotTest {
     @Test
     fun empty_state_compact_dark() {
         composeTestRule.setContent {
-            AudiobookTheme {
+            AudiobookTheme(darkTheme = true) {
                 DesignSurface {
                     EmptyStateRow(
                         icon = Icons.Default.MenuBook,

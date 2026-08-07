@@ -15,8 +15,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.example.ui.MainViewModel
-import com.example.ui.theme.CyberCardBg
-import com.example.ui.theme.CyberPrimary
 
 @Composable
 fun BookmarkDialog(
@@ -34,7 +32,7 @@ fun BookmarkDialog(
                 .padding(16.dp)
                 .testTag("bookmark_dialog"),
             shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(containerColor = CyberCardBg)
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
         ) {
             Column(
                 modifier = Modifier
@@ -48,7 +46,7 @@ fun BookmarkDialog(
                     Icon(
                         imageVector = Icons.Default.BookmarkAdd,
                         contentDescription = null,
-                        tint = CyberPrimary,
+                        tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(28.dp)
                     )
                     Spacer(modifier = Modifier.width(10.dp))
@@ -78,7 +76,7 @@ fun BookmarkDialog(
                         Text(
                             text = "Timestamp: ${MainViewModel.formatTime(timestampSeconds)}",
                             style = MaterialTheme.typography.bodySmall,
-                            color = CyberPrimary
+                            color = MaterialTheme.colorScheme.primary
                         )
                     }
                 }
@@ -112,7 +110,7 @@ fun BookmarkDialog(
                             onSave(noteText)
                             onDismiss()
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = CyberPrimary),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                         modifier = Modifier.testTag("save_bookmark_button")
                     ) {
                         Text("Save Bookmark", color = MaterialTheme.colorScheme.onPrimary)

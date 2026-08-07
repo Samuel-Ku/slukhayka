@@ -30,7 +30,6 @@ fun BookCoverImage(
     contentDescription: String?,
     modifier: Modifier = Modifier,
     contentScale: ContentScale = ContentScale.Crop,
-    fallbackTint: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.primary,
     onImageLoaded: ((Drawable) -> Unit)? = null
 ) {
     val context = LocalContext.current
@@ -67,7 +66,7 @@ fun BookCoverImage(
                         colors = listOf(
                             MaterialTheme.colorScheme.surface,
                             MaterialTheme.colorScheme.surfaceVariant,
-                            fallbackTint.copy(alpha = 0.25f)
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)
                         )
                     )
                 )
@@ -81,7 +80,7 @@ fun BookCoverImage(
                 Icon(
                     imageVector = Icons.Default.Headphones,
                     contentDescription = null,
-                    tint = fallbackTint,
+                    tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(24.dp)
                 )
                 Spacer(modifier = Modifier.height(4.dp))

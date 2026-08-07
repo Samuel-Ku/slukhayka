@@ -98,12 +98,12 @@ fun LibraryScreen(
                             fontWeight = FontWeight.Bold,
                             fontSize = 24.sp
                         ),
-                        color = CyberTextPrimary
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
                         text = "Завантаження, обрані, закладки, статистика",
                         style = MaterialTheme.typography.bodySmall,
-                        color = CyberTextSecondary
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
 
@@ -124,10 +124,10 @@ fun LibraryScreen(
         // Tab Navigation Bar
         ScrollableTabRow(
             selectedTabIndex = activeTab,
-            containerColor = CyberBg,
-            contentColor = CyberPrimary,
+            containerColor = MaterialTheme.colorScheme.background,
+            contentColor = MaterialTheme.colorScheme.primary,
             edgePadding = 16.dp,
-            divider = { HorizontalDivider(color = CyberCardBorder) }
+            divider = { HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant) }
         ) {
             Tab(
                 selected = activeTab == 0,
@@ -164,8 +164,8 @@ fun LibraryScreen(
                                 .fillMaxWidth()
                                 .padding(horizontal = 16.dp, vertical = 6.dp)
                                 .clip(RoundedCornerShape(16.dp))
-                                .border(1.dp, CyberCardBorder, RoundedCornerShape(16.dp)),
-                            colors = CardDefaults.cardColors(containerColor = CyberCardBg)
+                                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(16.dp)),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                         ) {
                             Row(
                                 modifier = Modifier
@@ -179,21 +179,21 @@ fun LibraryScreen(
                                         Icon(
                                             imageVector = Icons.Default.SdCard,
                                             contentDescription = null,
-                                            tint = CyberPrimary,
+                                            tint = MaterialTheme.colorScheme.primary,
                                             modifier = Modifier.size(24.dp)
                                         )
                                         Spacer(modifier = Modifier.width(8.dp))
                                         Text(
                                             text = "Пам'ять пристрою: $cacheSizeFormatted",
                                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                                            color = CyberTextPrimary
+                                            color = MaterialTheme.colorScheme.onSurface
                                         )
                                     }
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Text(
                                         text = "${downloadedBooks.size} аудіокниг збережено offline",
                                         style = MaterialTheme.typography.bodySmall,
-                                        color = CyberTextSecondary
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
 
@@ -294,21 +294,21 @@ fun LocalAudioImportButton(
 ) {
     Button(
         onClick = onClick,
-        colors = ButtonDefaults.buttonColors(containerColor = CyberPrimary),
+        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
         shape = RoundedCornerShape(14.dp),
         modifier = Modifier.testTag("import_audio_button")
     ) {
         Icon(
             imageVector = Icons.Default.FileUpload,
             contentDescription = null,
-            tint = CyberOnPrimary,
+            tint = MaterialTheme.colorScheme.onPrimary,
             modifier = Modifier.size(16.dp)
         )
         Spacer(modifier = Modifier.width(4.dp))
         Text(
             text = "Додати аудіо",
             style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-            color = CyberOnPrimary
+            color = MaterialTheme.colorScheme.onPrimary
         )
     }
 }
@@ -324,20 +324,20 @@ fun LocalFolderImportButton(
     OutlinedButton(
         onClick = onClick,
         shape = RoundedCornerShape(14.dp),
-        border = BorderStroke(1.dp, CyberPrimary),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
         modifier = Modifier.testTag("import_folder_button")
     ) {
         Icon(
             imageVector = Icons.Default.CreateNewFolder,
             contentDescription = null,
-            tint = CyberPrimary,
+            tint = MaterialTheme.colorScheme.primary,
             modifier = Modifier.size(16.dp)
         )
         Spacer(modifier = Modifier.width(4.dp))
         Text(
             text = "Папку",
             style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-            color = CyberPrimary
+            color = MaterialTheme.colorScheme.primary
         )
     }
 }
@@ -361,7 +361,7 @@ fun ListeningStatsCard(listeningStats: List<com.example.data.db.ListeningStatEnt
         Text(
             text = "Статистика прослуховування",
             style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-            color = CyberTextPrimary
+            color = MaterialTheme.colorScheme.onSurface
         )
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -374,14 +374,14 @@ fun ListeningStatsCard(listeningStats: List<com.example.data.db.ListeningStatEnt
                 title = "Сьогодні",
                 value = "$todayMinutes хв",
                 icon = Icons.Default.Today,
-                color = CyberPrimary,
+                color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.weight(1f)
             )
             StatItemCard(
                 title = "За тиждень",
                 value = "$weekHours год",
                 icon = Icons.Default.DateRange,
-                color = CyberSecondary,
+                color = MaterialTheme.colorScheme.secondary,
                 modifier = Modifier.weight(1f)
             )
         }
@@ -421,8 +421,8 @@ fun StatItemCard(
     Card(
         modifier = modifier
             .clip(RoundedCornerShape(16.dp))
-            .border(1.dp, CyberCardBorder, RoundedCornerShape(16.dp)),
-        colors = CardDefaults.cardColors(containerColor = CyberCardBg)
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(16.dp)),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -438,12 +438,12 @@ fun StatItemCard(
             Text(
                 text = value,
                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, fontSize = 18.sp),
-                color = CyberTextPrimary
+                color = MaterialTheme.colorScheme.onSurface
             )
             Text(
                 text = title,
                 style = MaterialTheme.typography.bodySmall,
-                color = CyberTextSecondary
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }
@@ -467,8 +467,8 @@ fun OfflineBookItem(
             // HomeScreen. Pure UI annotation; does not change runtime behaviour.
             .testTag("library_book_item_${book.id}")
             .clip(RoundedCornerShape(16.dp))
-            .border(1.dp, CyberCardBorder, RoundedCornerShape(16.dp)),
-        colors = CardDefaults.cardColors(containerColor = CyberCardBg)
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(16.dp)),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
     ) {
         Row(
             modifier = Modifier
@@ -491,33 +491,33 @@ fun OfflineBookItem(
                 Text(
                     text = book.title,
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                    color = CyberTextPrimary,
+                    color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
                     text = book.author,
                     style = MaterialTheme.typography.bodySmall,
-                    color = CyberTextSecondary
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         imageVector = Icons.Default.CloudDone,
                         contentDescription = null,
-                        tint = CyberSecondary,
+                        tint = MaterialTheme.colorScheme.secondary,
                         modifier = Modifier.size(14.dp)
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
                         text = "Офлайн доступно",
                         style = MaterialTheme.typography.labelSmall,
-                        color = CyberSecondary
+                        color = MaterialTheme.colorScheme.secondary
                     )
                 }
             }
 
             IconButton(onClick = onPlayClick) {
-                Icon(imageVector = Icons.Default.PlayCircleFilled, contentDescription = "Play", tint = CyberPrimary, modifier = Modifier.size(36.dp))
+                Icon(imageVector = Icons.Default.PlayCircleFilled, contentDescription = "Play", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(36.dp))
             }
 
             IconButton(onClick = onDeleteClick) {
@@ -539,14 +539,14 @@ fun EmptyStateMessage(message: String) {
             Icon(
                 imageVector = Icons.Default.BookmarkBorder,
                 contentDescription = null,
-                tint = CyberTextSecondary,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(48.dp)
             )
             Spacer(modifier = Modifier.height(12.dp))
             Text(
                 text = message,
                 style = MaterialTheme.typography.bodyMedium,
-                color = CyberTextSecondary
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }
@@ -564,8 +564,8 @@ fun GlobalBookmarkItem(
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 6.dp)
             .clip(RoundedCornerShape(14.dp))
-            .border(1.dp, CyberCardBorder, RoundedCornerShape(14.dp)),
-        colors = CardDefaults.cardColors(containerColor = CyberCardBg)
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(14.dp)),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
     ) {
         Row(
             modifier = Modifier
@@ -576,7 +576,7 @@ fun GlobalBookmarkItem(
             Icon(
                 imageVector = Icons.Default.Bookmark,
                 contentDescription = null,
-                tint = CyberSecondary,
+                tint = MaterialTheme.colorScheme.secondary,
                 modifier = Modifier.size(24.dp)
             )
 
@@ -586,19 +586,19 @@ fun GlobalBookmarkItem(
                 Text(
                     text = bookTitle,
                     style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                    color = CyberPrimary,
+                    color = MaterialTheme.colorScheme.primary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
                     text = bookmark.chapterTitle,
                     style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
-                    color = CyberTextPrimary
+                    color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
                     text = "At ${MainViewModel.formatTime(bookmark.timestampSeconds)}: ${bookmark.note}",
                     style = MaterialTheme.typography.bodySmall,
-                    color = CyberTextSecondary
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
 
@@ -606,7 +606,7 @@ fun GlobalBookmarkItem(
                 Icon(
                     imageVector = Icons.Default.PlayArrow,
                     contentDescription = "Jump to bookmark",
-                    tint = CyberPrimary
+                    tint = MaterialTheme.colorScheme.primary
                 )
             }
 

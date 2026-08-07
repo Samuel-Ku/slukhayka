@@ -15,8 +15,6 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.ui.theme.CyberCardBg
-import com.example.ui.theme.CyberPrimary
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -37,7 +35,7 @@ fun SleepTimerSheet(
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        containerColor = CyberCardBg,
+        containerColor = MaterialTheme.colorScheme.surfaceVariant,
         dragHandle = { BottomSheetDefaults.DragHandle() },
         modifier = Modifier.testTag("sleep_timer_sheet")
     ) {
@@ -52,7 +50,7 @@ fun SleepTimerSheet(
                 Icon(
                     imageVector = Icons.Default.Timer,
                     contentDescription = null,
-                    tint = CyberPrimary,
+                    tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(28.dp)
                 )
                 Spacer(modifier = Modifier.width(10.dp))
@@ -76,7 +74,7 @@ fun SleepTimerSheet(
                         .fillMaxWidth()
                         .padding(vertical = 4.dp)
                         .clip(RoundedCornerShape(12.dp))
-                        .background(if (isSelected) CyberPrimary.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+                        .background(if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
                         .clickable {
                             onSelectTimer(mins)
                             onDismiss()
@@ -90,7 +88,7 @@ fun SleepTimerSheet(
                         style = MaterialTheme.typography.bodyLarge.copy(
                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                         ),
-                        color = if (isSelected) CyberPrimary else MaterialTheme.colorScheme.onSurface
+                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                     )
 
                     RadioButton(
@@ -99,7 +97,7 @@ fun SleepTimerSheet(
                             onSelectTimer(mins)
                             onDismiss()
                         },
-                        colors = RadioButtonDefaults.colors(selectedColor = CyberPrimary)
+                        colors = RadioButtonDefaults.colors(selectedColor = MaterialTheme.colorScheme.primary)
                     )
                 }
             }

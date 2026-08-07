@@ -37,9 +37,6 @@ import com.example.ui.screens.ListenScreen
 import com.example.ui.screens.PlayerScreen
 import com.example.ui.screens.SeriesScreen
 import com.example.ui.theme.AudiobookTheme
-import com.example.ui.theme.CyberCardBorder
-import com.example.ui.theme.CyberPrimary
-import com.example.ui.theme.CyberSurface
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -218,8 +215,8 @@ fun AppBottomBar(
     onSelect: (SelectedTab) -> Unit
 ) {
     NavigationBar(
-        containerColor = CyberSurface,
-        contentColor = CyberPrimary,
+        containerColor = MaterialTheme.colorScheme.surface,
+        contentColor = MaterialTheme.colorScheme.primary,
         modifier = Modifier
             .windowInsetsPadding(WindowInsets.navigationBars)
             .testTag("bottom_navigation_bar")
@@ -233,9 +230,9 @@ fun AppBottomBar(
             icon = { Icon(imageVector = Icons.Default.Headphones, contentDescription = "Listen") },
             label = { Text("Слухати") },
             colors = NavigationBarItemDefaults.colors(
-                selectedIconColor = CyberPrimary,
-                selectedTextColor = CyberPrimary,
-                indicatorColor = CyberCardBorder
+                selectedIconColor = MaterialTheme.colorScheme.primary,
+                selectedTextColor = MaterialTheme.colorScheme.primary,
+                indicatorColor = MaterialTheme.colorScheme.outlineVariant
             ),
             modifier = Modifier.testTag("tab_listen")
         )
@@ -246,9 +243,9 @@ fun AppBottomBar(
             icon = { Icon(imageVector = Icons.Default.Explore, contentDescription = "Browse") },
             label = { Text("Огляд") },
             colors = NavigationBarItemDefaults.colors(
-                selectedIconColor = CyberPrimary,
-                selectedTextColor = CyberPrimary,
-                indicatorColor = CyberCardBorder
+                selectedIconColor = MaterialTheme.colorScheme.primary,
+                selectedTextColor = MaterialTheme.colorScheme.primary,
+                indicatorColor = MaterialTheme.colorScheme.outlineVariant
             ),
             modifier = Modifier.testTag("tab_explore")
         )
@@ -259,9 +256,9 @@ fun AppBottomBar(
             icon = { Icon(imageVector = Icons.Default.LibraryMusic, contentDescription = "Library") },
             label = { Text("Медіатека") },
             colors = NavigationBarItemDefaults.colors(
-                selectedIconColor = CyberPrimary,
-                selectedTextColor = CyberPrimary,
-                indicatorColor = CyberCardBorder
+                selectedIconColor = MaterialTheme.colorScheme.primary,
+                selectedTextColor = MaterialTheme.colorScheme.primary,
+                indicatorColor = MaterialTheme.colorScheme.outlineVariant
             ),
             modifier = Modifier.testTag("tab_library")
         )

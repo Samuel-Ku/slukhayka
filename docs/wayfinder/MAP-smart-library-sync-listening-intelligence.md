@@ -26,9 +26,12 @@ An implementation-ready product and domain specification for Stage 2: Smart Libr
 - Sync covers state, metadata corrections, identities, and position history, but never audiobook files.
 - The app remains fully usable offline and without an account; later sign-in merges rather than replaces local state.
 
-## Initial frontier
+## Decisions so far
 
-- [Unified library invariants & state ownership](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/46) — domain invariants behind every later decision.
+- [Unified library invariants & state ownership](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/46) — stable Work/Edition/Source identities are separate from device-local Source Bindings; Library Entry is Work-level, Listening State and logical Chapters are Edition-level, and provenance, overrides, redirects, and tombstones preserve user intent.
+
+## Current frontier
+
 - [Room migration risk inventory](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/47) — current-schema and compatibility evidence.
 - [Local media recognition evidence audit](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/48) — reliable MP3/M4B/SAF evidence.
 - [Sync backend & optional-auth feasibility](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/49) — backend and anonymous-to-account options.
@@ -36,10 +39,10 @@ An implementation-ready product and domain specification for Stage 2: Smart Libr
 - [Ukrainian-tolerant search benchmark](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/51) — normalization, accuracy, latency, and index evidence.
 - [Playback reliability observability audit](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/52) — current failure-observation gaps.
 - [Sleep timer & bookmark upgrades](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/27) — reused inherited listening decision.
+- [Listening event model & position-history semantics](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/53) — event ownership, causality, conflict recovery, and compaction.
 
 ## Blocked route
 
-- [Listening event model & position-history semantics](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/53)
 - [Identity matching & correction memory](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/54)
 - [Import preview & corrections flow](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/29)
 - [Safe unified-library migration & rollout](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/55)
@@ -55,4 +58,4 @@ An implementation-ready product and domain specification for Stage 2: Smart Libr
 
 ## Fog and exclusions
 
-The canonical map holds the current fog: backend-specific security and recovery, exact recognition scoring, event compaction, and operational monitoring. Audiobook-file sync, mandatory registration, non-Android clients, social/gamification, AI recommendations, transcripts, recaps, implementation, a custom equalizer, and deeper WebView dependence are outside this effort.
+The canonical map holds the current fog: backend-specific security, account recovery, retention, and operational monitoring. Audiobook-file sync, mandatory registration, non-Android clients, social/gamification, AI recommendations, transcripts, recaps, implementation, a custom equalizer, and deeper WebView dependence are outside this effort.

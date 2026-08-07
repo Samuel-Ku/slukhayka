@@ -16,6 +16,7 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.ExoPlayer
@@ -648,11 +649,18 @@ class AudioPlayerManager(
          * archive.org uses to correlate playback.
          */
         val DEFAULT_PLAYER_FACTORY = PlayerFactory { playerContext ->
-            val dataSourceFactory = DefaultHttpDataSource.Factory()
+            // HTTP factory for streamed 4read chapters…
+            val httpDataSourceFactory = DefaultHttpDataSource.Factory()
                 .setUserAgent("Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36")
                 .setAllowCrossProtocolRedirects(false)
                 .setConnectTimeoutMs(15000)
                 .setReadTimeoutMs(30000)
+            // …wrapped in DefaultDataSource so file:// and content:// URIs from
+            // locally-imported books (spec #8 T7 / Block 4) are read via
+            // FileDataSource/ContentDataSource instead of being forced through
+            // HTTP (on-device crash: FileURLConnection cannot be cast to
+            // HttpURLConnection).
+            val dataSourceFactory = DefaultDataSource.Factory(playerContext, httpDataSourceFactory)
             val audioAttr = AudioAttributes.Builder()
                 .setContentType(C.AUDIO_CONTENT_TYPE_SPEECH)
                 .setUsage(C.USAGE_MEDIA)

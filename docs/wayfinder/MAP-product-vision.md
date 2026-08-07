@@ -47,6 +47,7 @@ Standing preferences:
 - [Smart rewind & position history](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/25) — tiered rewind on resume (0/3/12/25 s by pause length), in-memory + persisted pause markers (cross-restart), SeekHistory 5-min threshold + one-tap «Повернутися» undo in the player.
 - [Speed: per-book memory & defaults](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/26) — per-book preferredSpeed (Room 5→6) + PlaybackSettings global default; SpeedSheet presets 0.5–3.0 + slider + save-for-book/set-default; applied on book load.
 - [Three-level deletion](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/28) — removeFromLibrary (rows only, files kept) / delete downloaded copy / delete book + files behind explicit confirm; tombstones prevent catalogue resurrection.
+- [Light and dark themes](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/37) — `AudiobookTheme` follows the system setting (dark graphite-navy stays primary); all ~300 legacy `Cyber*` usages across 12 screens/components migrated to `MaterialTheme.colorScheme` roles; tests pin `darkTheme` explicitly; light-scheme hero-card snapshot as the light-mode guard.
 
 ## Tickets (children of map #22)
 
@@ -64,7 +65,7 @@ Standing preferences:
 - #34 — Home-screen widget `wayfinder:grilling` — frontier.
 - #35 — Backup & sync approach `wayfinder:research` — ✅ resolved 2026-08-07.
 - #36 — Adaptive two-pane layout `wayfinder:research` — ✅ resolved 2026-08-07.
-- #37 — Light and dark themes `wayfinder:grilling` — **blocked by #23**.
+- #37 — Light and dark themes `wayfinder:grilling` — ✅ resolved 2026-08-07.
 - #38 — Player redesign `wayfinder:prototype` — **blocked by #23**.
 - #39 — Library filters, sorting & book card `wayfinder:grilling` — **blocked by #23**.
 - #40 — Book page completeness `wayfinder:grilling` — **blocked by #23**.

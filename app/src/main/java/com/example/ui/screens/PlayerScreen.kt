@@ -199,7 +199,12 @@ fun PlayerScreen(
             Column(modifier = Modifier.fillMaxWidth()) {
                 val currentSec = playerState.currentPositionMs / 1000L
                 val durationSec = (playerState.durationMs / 1000L).coerceAtLeast(1L)
-                val sliderValue = (playerState.currentPositionMs.toFloat() / playerState.durationMs.toFloat()).coerceIn(0f, 1f)
+                // Guard against a 0-duration chapter (locally-imported books start
+                // with durationSeconds = 0): 0/0 is NaN and Material3 Slider
+                // crashes with "Cannot round NaN value" (observed on device).
+                val sliderValue = if (playerState.durationMs > 0L) {
+                    (playerState.currentPositionMs.toFloat() / playerState.durationMs.toFloat()).coerceIn(0f, 1f)
+                } else 0f
 
                 Slider(
                     value = sliderValue,

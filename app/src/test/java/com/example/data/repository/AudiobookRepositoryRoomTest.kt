@@ -2,6 +2,9 @@ package com.example.data.repository
 
 import android.content.Context
 import androidx.room.Room
+import androidx.sqlite.db.SupportSQLiteDatabase
+import androidx.sqlite.db.SupportSQLiteOpenHelper
+import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.catalog.CatalogBook
 import com.example.data.db.AudiobookDao
@@ -142,6 +145,122 @@ class AudiobookRepositoryRoomTest {
         assertEquals(books.size - 1, remaining.size)
         assertEquals(books[1].id, remaining.first().id)
         assertEquals(TestDataFactory.CHAPTERS_PER_BOOK, dao.getChaptersListForBook(books[1].id).size)
+    }
+
+    // ---------------------------------------------------------------------
+    // wayfinder #25 + #26: schema migration 5 -> 6 (first two-table migration)
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `migration 5 to 6 adds the speed and pause columns`() {
+        val factory = FrameworkSQLiteOpenHelperFactory()
+        val config = SupportSQLiteOpenHelper.Configuration.builder(context)
+            .name("migration-5-test.db")
+            .callback(object : SupportSQLiteOpenHelper.Callback(5) {
+                override fun onCreate(db: SupportSQLiteDatabase) {
+                    // Minimal v5 schema for the two tables the migration alters.
+                    db.execSQL(
+                        "CREATE TABLE audiobooks (id TEXT NOT NULL PRIMARY KEY, title TEXT NOT NULL, " +
+                            "author TEXT NOT NULL, narrator TEXT NOT NULL, description TEXT NOT NULL, " +
+                            "coverDrawableRes INTEGER NOT NULL, coverImageUrl TEXT, genre TEXT NOT NULL, " +
+                            "sourceUrl TEXT NOT NULL, isDownloaded INTEGER NOT NULL DEFAULT 0, " +
+                            "downloadProgress REAL NOT NULL DEFAULT 0, totalDurationSeconds INTEGER NOT NULL DEFAULT 0, " +
+                            "totalChapters INTEGER NOT NULL DEFAULT 0, rating REAL NOT NULL DEFAULT 4.9, " +
+                            "isFavorite INTEGER NOT NULL DEFAULT 0, seriesTitle TEXT, seriesUrl TEXT, seriesIndex INTEGER)"
+                    )
+                    db.execSQL(
+                        "CREATE TABLE playback_progress (bookId TEXT NOT NULL PRIMARY KEY, " +
+                            "currentChapterIndex INTEGER NOT NULL DEFAULT 0, currentPositionSeconds INTEGER NOT NULL DEFAULT 0, " +
+                            "lastListenedAt INTEGER NOT NULL, isCompleted INTEGER NOT NULL DEFAULT 0)"
+                    )
+                }
+
+                override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) {}
+            })
+            .build()
+        val helper = factory.create(config)
+        val db = helper.writableDatabase
+
+        AudiobookDatabase.MIGRATION_5_6.migrate(db)
+
+        assertTrue("preferredSpeed column must exist", tableColumns(db, "audiobooks").contains("preferredSpeed"))
+        assertTrue("lastPausedAtEpochMs column must exist", tableColumns(db, "playback_progress").contains("lastPausedAtEpochMs"))
+        db.close()
+    }
+
+    private fun tableColumns(db: SupportSQLiteDatabase, table: String): Set<String> {
+        val columns = mutableSetOf<String>()
+        db.query("PRAGMA table_info($table)").use { cursor ->
+            while (cursor.moveToNext()) {
+                columns.add(cursor.getString(cursor.getColumnIndexOrThrow("name")))
+            }
+        }
+        return columns
+    }
+
+    // ---------------------------------------------------------------------
+    // wayfinder #26: per-book preferred speed persistence
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `preferred speed round-trips through the repository`() = runBlocking {
+        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+        val book = TestDataFactory.dataBooks()[0]
+        dao.insertAudiobooks(listOf(book))
+
+        repo.setPreferredSpeed(book.id, 1.5f)
+
+        assertEquals(1.5f, dao.getAudiobookById(book.id)?.preferredSpeed ?: 0f, 0.001f)
+
+        repo.setPreferredSpeed(book.id, null)
+        assertNull(dao.getAudiobookById(book.id)?.preferredSpeed)
+    }
+
+    // ---------------------------------------------------------------------
+    // wayfinder #25: last-pause marker persistence
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `pause marker round-trips through the repository`() = runBlocking {
+        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+        val book = TestDataFactory.dataBooks()[0]
+        dao.insertAudiobooks(listOf(book))
+        dao.savePlaybackProgress(PlaybackProgressEntity(bookId = book.id))
+
+        repo.updatePausedAt(book.id, 1_700_000_000_000L)
+
+        assertEquals(1_700_000_000_000L, dao.getPlaybackProgressSync(book.id)?.lastPausedAtEpochMs)
+
+        repo.updatePausedAt(book.id, null)
+        assertNull(dao.getPlaybackProgressSync(book.id)?.lastPausedAtEpochMs)
+    }
+
+    // ---------------------------------------------------------------------
+    // wayfinder #28: three-level deletion — removeFromLibrary keeps files
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `removeFromLibrary deletes rows but keeps local files`() = runBlocking {
+        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+        val book = TestDataFactory.dataBooks()[0]
+        val localFile = File(context.filesDir, "keep-${book.id}.mp3")
+        localFile.writeBytes(ByteArray(64))
+
+        val chapters = TestDataFactory.chaptersFor(book).mapIndexed { index, ch ->
+            if (index == 0) ch.copy(localFilePath = localFile.absolutePath, isDownloaded = true) else ch
+        }
+        dao.insertAudiobooks(listOf(book))
+        dao.insertChapters(chapters)
+        dao.savePlaybackProgress(PlaybackProgressEntity(bookId = book.id))
+
+        repo.removeFromLibrary(book.id)
+
+        assertNull(dao.getAudiobookById(book.id))
+        assertTrue(dao.getChaptersListForBook(book.id).isEmpty())
+        assertNull(dao.getPlaybackProgressSync(book.id))
+        assertTrue("files must survive removeFromLibrary", localFile.exists())
+        localFile.delete()
+        Unit
     }
 
     // ---------------------------------------------------------------------

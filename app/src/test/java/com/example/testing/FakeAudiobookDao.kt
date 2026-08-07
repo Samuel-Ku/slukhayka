@@ -86,6 +86,18 @@ class FakeAudiobookDao(
         }
     }
 
+    override suspend fun updatePreferredSpeed(bookId: String, speed: Float?) {
+        booksState.update { current ->
+            current.map { if (it.id == bookId) it.copy(preferredSpeed = speed) else it }
+        }
+    }
+
+    override suspend fun updatePausedAt(bookId: String, pausedAt: Long?) {
+        progressState.update { current ->
+            current.map { if (it.bookId == bookId) it.copy(lastPausedAtEpochMs = pausedAt) else it }
+        }
+    }
+
     override suspend fun setFavorite(bookId: String, isFavorite: Boolean) {
         booksState.update { current ->
             current.map { if (it.id == bookId) it.copy(isFavorite = isFavorite) else it }

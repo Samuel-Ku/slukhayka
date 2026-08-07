@@ -26,6 +26,9 @@ interface AudiobookDao {
     @Query("UPDATE audiobooks SET seriesTitle = :seriesTitle, seriesUrl = :seriesUrl, seriesIndex = :seriesIndex WHERE id = :bookId")
     suspend fun updateSeriesFields(bookId: String, seriesTitle: String?, seriesUrl: String?, seriesIndex: Int?)
 
+    @Query("UPDATE audiobooks SET preferredSpeed = :speed WHERE id = :bookId")
+    suspend fun updatePreferredSpeed(bookId: String, speed: Float?)
+
     @Query("SELECT * FROM chapters WHERE bookId = :bookId ORDER BY chapterIndex ASC")
     fun getChaptersForBook(bookId: String): Flow<List<ChapterEntity>>
 
@@ -71,6 +74,9 @@ interface AudiobookDao {
 
     @Query("SELECT * FROM playback_progress WHERE bookId = :bookId")
     suspend fun getPlaybackProgressSync(bookId: String): PlaybackProgressEntity?
+
+    @Query("UPDATE playback_progress SET lastPausedAtEpochMs = :pausedAt WHERE bookId = :bookId")
+    suspend fun updatePausedAt(bookId: String, pausedAt: Long?)
 
     @Query("SELECT * FROM playback_progress ORDER BY lastListenedAt DESC")
     fun getAllPlaybackProgress(): Flow<List<PlaybackProgressEntity>>

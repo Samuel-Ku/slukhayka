@@ -9,6 +9,7 @@ import com.example.data.db.*
 import com.example.data.repository.AudiobookRepository
 import com.example.player.AudioPlayerManager
 import com.example.player.PlayerState
+import com.example.player.SmartRewind
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.*
@@ -254,7 +255,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val progress = repository.getProgressSync(updatedBook.id)
             
             val startChapter: Int
-            val startPositionSec: Long
+            var startPositionSec: Long
 
             if (chapterIndex != null) {
                 // User explicitly selected a specific chapter
@@ -268,6 +269,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 // Restore from saved Room playback position or default to chapter 0
                 startChapter = progress?.currentChapterIndex ?: 0
                 startPositionSec = progress?.currentPositionSeconds ?: 0L
+            }
+
+            // Smart rewind across restarts (wayfinder #25): the resume position
+            // is rewound by how long ago the book was paused, and the marker is
+            // cleared so the same pause never rewinds twice.
+            progress?.lastPausedAtEpochMs?.let { pausedAt ->
+                val rewindSec = SmartRewind.computeRewindSeconds(System.currentTimeMillis() - pausedAt)
+                if (rewindSec > 0L && startPositionSec > rewindSec) {
+                    startPositionSec -= rewindSec
+                }
+                repository.updatePausedAt(updatedBook.id, null)
             }
 
             withContext(Dispatchers.Main) {
@@ -353,10 +365,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * Cascading book deletion (spec #8 tickets T2/T3). If the book is the one
-     * currently playing, playback is stopped and the player state cleared;
-     * then book + chapters + bookmarks + progress + local files are removed.
-     * The UI returns to the catalogue.
+     * Cascading book deletion — level 3 "видалити книгу та файли" (spec #8
+     * tickets T2/T3, wayfinder #28). If the book is the one currently playing,
+     * playback is stopped and the player state cleared; then book + chapters +
+     * bookmarks + progress + local files are removed. The UI returns to the
+     * catalogue. Requires an explicit confirmation dialog in the UI.
      */
     fun deleteBook(bookId: String) {
         if (playerState.value.currentBook?.id == bookId) {
@@ -364,6 +377,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         viewModelScope.launch(Dispatchers.IO) {
             repository.deleteBook(bookId)
+        }
+        if (_selectedBookId.value == bookId) {
+            _selectedBookId.value = null
+        }
+        _showFullPlayer.value = false
+    }
+
+    /**
+     * Level-1 deletion — "прибрати з медіатеки" (wayfinder #28): removes the
+     * book's rows from Room but keeps the downloaded audio files on disk, so
+     * the action is reversible by re-adding the book.
+     */
+    fun removeFromLibrary(bookId: String) {
+        if (playerState.value.currentBook?.id == bookId) {
+            playerManager.stopAndClear()
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.removeFromLibrary(bookId)
         }
         if (_selectedBookId.value == bookId) {
             _selectedBookId.value = null

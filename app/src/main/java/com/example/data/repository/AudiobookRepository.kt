@@ -8,6 +8,8 @@ import com.example.data.catalog.CatalogBook
 import com.example.data.catalog.CatalogParser
 import com.example.data.catalog.CatalogSection
 import com.example.data.db.*
+import com.example.data.imports.LocalAudioEntry
+import com.example.data.imports.LocalFolderScanner
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -182,53 +184,180 @@ class AudiobookRepository(
      */
     suspend fun importLocalAudioStream(displayName: String, stream: java.io.InputStream): AudiobookEntity =
         withContext(Dispatchers.IO) {
-            val ctx = context ?: throw IllegalStateException("importLocalAudioStream called without Context")
-            val cleanBase = displayName.substringBeforeLast('.').trim().ifBlank { displayName }
-            val safeName = cleanBase
-                .replace(Regex("""[^\p{L}\p{N} _\-]"""), "")
-                .ifBlank { "audiobook-${System.currentTimeMillis()}" }
-            val bookId = "local-${System.currentTimeMillis()}"
-
-            val audioDir = File(ctx.filesDir, LOCAL_AUDIO_DIR)
-            if (!audioDir.exists()) audioDir.mkdirs()
-            // Unique suffix so two same-named files (e.g. "chapter.mp3" from
-            // different folders) never overwrite each other (code-review LOW).
-            val destFile = File(audioDir, "$safeName-${System.currentTimeMillis()}.mp3")
-            stream.use { input -> destFile.outputStream().use { output -> input.copyTo(output) } }
-
-            val book = AudiobookEntity(
-                id = bookId,
-                title = cleanBase,
-                author = "Локальний файл",
-                narrator = "Локальний аудіофайл",
+            val base = sanitizeLocalBaseName(displayName)
+            val dest = copyLocalAudioStream(base, localFileExtension(displayName), stream)
+            insertLocalBook(
+                title = base,
+                author = LOCAL_FILE_AUTHOR,
                 description = "Імпортований аудіофайл: $displayName",
-                coverDrawableRes = R.drawable.img_neuromancer_cover_1785247475170,
-                coverImageUrl = null,
-                genre = "Локальні",
-                sourceUrl = "",
-                isDownloaded = true,
-                downloadProgress = 1f,
-                totalDurationSeconds = 0L,
-                totalChapters = 1,
-                rating = 4.5f
+                chapters = listOf(base to dest)
             )
-            dao.insertAudiobooks(listOf(book))
-            dao.insertChapters(
-                listOf(
-                    ChapterEntity(
-                        id = "${bookId}_ch1",
-                        bookId = bookId,
-                        chapterIndex = 0,
-                        title = cleanBase,
-                        durationSeconds = 0L,
-                        streamUrl = destFile.absolutePath,
-                        localFilePath = destFile.absolutePath,
-                        isDownloaded = true
-                    )
-                )
-            )
-            book
         }
+
+    /**
+     * Folder import (spec #8 Block 4): walks the SAF tree picked via
+     * `OpenDocumentTree` (recursively collecting mp3/m4a/ogg audio files) and
+     * delegates the grouping/insertion to the testable [importAudioEntries]
+     * core.
+     */
+    suspend fun importLocalAudioFolder(treeUri: Uri): LocalImportResult = withContext(Dispatchers.IO) {
+        val ctx = context ?: throw IllegalStateException("importLocalAudioFolder called without Context")
+        val entries = LocalFolderScanner.scan(ctx, treeUri)
+        importAudioEntries(entries)
+    }
+
+    /**
+     * Core of the local import (T7 single-file + Block 4 folder): groups the
+     * scanned files and materialises them as books in Room.
+     *
+     * Grouping rule: files at the root of the picked tree become one
+     * single-chapter book each (exactly like the single-file import); every
+     * sub-folder becomes one multi-chapter book whose chapters are its audio
+     * files sorted naturally by file name (track1 → track2 → … → track10).
+     * Unreadable files are skipped without failing the whole import.
+     */
+    suspend fun importAudioEntries(entries: List<LocalAudioEntry>): LocalImportResult =
+        withContext(Dispatchers.IO) {
+            var booksImported = 0
+            var filesImported = 0
+            var skippedFiles = 0
+
+            // 1) Loose files at the tree root → one single-chapter book each.
+            for (entry in entries.filter { it.parentFolder.isNullOrBlank() }) {
+                val base = sanitizeLocalBaseName(entry.fileName)
+                val dest = try {
+                    copyLocalAudioStream(base, localFileExtension(entry.fileName), entry.openStream())
+                } catch (e: Exception) {
+                    Log.w("AudiobookRepo", "Local import failed for ${entry.fileName}", e)
+                    skippedFiles++
+                    continue
+                }
+                insertLocalBook(
+                    title = base,
+                    author = LOCAL_FILE_AUTHOR,
+                    description = "Імпортований аудіофайл: ${entry.fileName}",
+                    chapters = listOf(base to dest)
+                )
+                booksImported++
+                filesImported++
+            }
+
+            // 2) Each sub-folder → one book; files become naturally-sorted chapters.
+            for ((folder, files) in entries.filter { !it.parentFolder.isNullOrBlank() }.groupBy { it.parentFolder }) {
+                if (folder.isNullOrBlank()) continue
+                // Title from the last path segment so a relative path like
+                // "SeriesA/Кобзар" still yields a clean "Кобзар" book name.
+                val bookTitle = sanitizeLocalBaseName(folder.substringAfterLast('/')).ifBlank { "Аудіокнига" }
+                val chapters = mutableListOf<Pair<String, String>>()
+                for (entry in files.sortedWith(Comparator { a, b -> compareNatural(a.fileName, b.fileName) })) {
+                    val chapterTitle = sanitizeLocalBaseName(entry.fileName).ifBlank { entry.fileName }
+                    val dest = try {
+                        copyLocalAudioStream("$bookTitle-$chapterTitle", localFileExtension(entry.fileName), entry.openStream())
+                    } catch (e: Exception) {
+                        Log.w("AudiobookRepo", "Local import failed for ${entry.fileName}", e)
+                        skippedFiles++
+                        continue
+                    }
+                    chapters.add(chapterTitle to dest)
+                    filesImported++
+                }
+                if (chapters.isNotEmpty()) {
+                    insertLocalBook(
+                        title = bookTitle,
+                        author = LOCAL_FOLDER_AUTHOR,
+                        description = "Імпортовано з папки «$folder» — ${chapters.size} файл(ів)",
+                        chapters = chapters
+                    )
+                    booksImported++
+                }
+            }
+
+            LocalImportResult(booksImported = booksImported, filesImported = filesImported, skippedFiles = skippedFiles)
+        }
+
+    /** Strips the extension and unsafe characters from a file/folder display name. */
+    private fun sanitizeLocalBaseName(displayName: String): String {
+        val cleanBase = displayName.substringBeforeLast('.').trim().ifBlank { displayName }
+        return cleanBase
+            .replace(Regex("""[^\p{L}\p{N} _\-]"""), "")
+            .ifBlank { "audiobook-${System.currentTimeMillis()}" }
+    }
+
+    /** Original extension of an audio file (lowercased), defaulting to mp3. */
+    private fun localFileExtension(fileName: String): String =
+        fileName.substringAfterLast('.', "").ifBlank { "mp3" }.lowercase().take(5)
+
+    /** Copies a stream into the private local-imports dir under a unique name. */
+    private fun copyLocalAudioStream(baseName: String, extension: String, stream: java.io.InputStream): String {
+        val ctx = context ?: throw IllegalStateException("local import requires Context")
+        val audioDir = File(ctx.filesDir, LOCAL_AUDIO_DIR)
+        if (!audioDir.exists()) audioDir.mkdirs()
+        // Unique suffix (counter-based, unlike the old timestamp-only one) so
+        // rapid folder imports never collide within the same millisecond. The
+        // original extension is preserved so ExoPlayer detects the container.
+        val destFile = File(audioDir, "$baseName-${localImportSeq.incrementAndGet()}.$extension")
+        stream.use { input -> destFile.outputStream().use { output -> input.copyTo(output) } }
+        return destFile.absolutePath
+    }
+
+    /** Creates one local book with the given chapters (title, localFilePath). */
+    private suspend fun insertLocalBook(
+        title: String,
+        author: String,
+        description: String,
+        chapters: List<Pair<String, String>>
+    ): AudiobookEntity {
+        val bookId = "local-${System.currentTimeMillis()}-${localImportSeq.incrementAndGet()}"
+        val book = AudiobookEntity(
+            id = bookId,
+            title = title,
+            author = author,
+            narrator = "Локальний аудіофайл",
+            description = description,
+            coverDrawableRes = R.drawable.img_neuromancer_cover_1785247475170,
+            coverImageUrl = null,
+            genre = LOCAL_GENRE,
+            sourceUrl = "",
+            isDownloaded = true,
+            downloadProgress = 1f,
+            totalDurationSeconds = 0L,
+            totalChapters = chapters.size,
+            rating = 4.5f
+        )
+        dao.insertAudiobooks(listOf(book))
+        dao.insertChapters(
+            chapters.mapIndexed { index, (chapterTitle, filePath) ->
+                ChapterEntity(
+                    id = "${bookId}_ch${index + 1}",
+                    bookId = bookId,
+                    chapterIndex = index,
+                    title = chapterTitle,
+                    durationSeconds = 0L,
+                    streamUrl = filePath,
+                    localFilePath = filePath,
+                    isDownloaded = true
+                )
+            }
+        )
+        return book
+    }
+
+    /** Natural (human) file-name comparison: track2 < track10. */
+    private fun compareNatural(a: String, b: String): Int {
+        val chunksA = SPLIT_CHUNKS.findAll(a.lowercase()).map { it.value }.toList()
+        val chunksB = SPLIT_CHUNKS.findAll(b.lowercase()).map { it.value }.toList()
+        for (i in 0 until minOf(chunksA.size, chunksB.size)) {
+            val ca = chunksA[i]
+            val cb = chunksB[i]
+            val cmp = if (ca.first().isDigit() && cb.first().isDigit()) {
+                (ca.toLongOrNull() ?: 0L).compareTo(cb.toLongOrNull() ?: 0L)
+            } else {
+                ca.compareTo(cb)
+            }
+            if (cmp != 0) return cmp
+        }
+        return chunksA.size - chunksB.size
+    }
 
     private fun queryDisplayName(ctx: android.content.Context, uri: Uri): String? = try {
         ctx.contentResolver.query(
@@ -1008,10 +1137,28 @@ class AudiobookRepository(
         const val LOCAL_AUDIO_DIR = "local_imports"
         /** User-Agent used by the offline-download HttpURLConnection. */
         const val OFFLINE_USER_AGENT = "Mozilla/5.0 (Android; 4read-Audio-Engine/1.0)"
+
+        /** Author/genre labels for locally-imported books. */
+        private const val LOCAL_FILE_AUTHOR = "Локальний файл"
+        private const val LOCAL_FOLDER_AUTHOR = "Локальна папка"
+        private const val LOCAL_GENRE = "Локальні"
+
+        /** Monotonic counter guaranteeing unique local ids/names within a burst of imports. */
+        private val localImportSeq = java.util.concurrent.atomic.AtomicInteger(0)
+
+        /** Splits a file name into numeric and non-numeric chunks for natural sorting. */
+        private val SPLIT_CHUNKS = Regex("""\d+|\D+""")
     }
 }
 
 data class Parsed4ReadData(
     val coverImageUrl: String? = null,
     val audioUrls: List<String> = emptyList()
+)
+
+/** Outcome of a local folder/file import (spec #8 Block 4). */
+data class LocalImportResult(
+    val booksImported: Int,
+    val filesImported: Int,
+    val skippedFiles: Int
 )

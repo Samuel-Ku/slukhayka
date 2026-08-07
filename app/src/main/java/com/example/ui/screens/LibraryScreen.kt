@@ -2,6 +2,7 @@ package com.example.ui.screens
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -53,13 +54,32 @@ fun LibraryScreen(
         if (uri != null) viewModel.importLocalAudioFile(uri)
     }
 
+    // Spec #8 Block 4: SAF tree picker → recursively import every audio file
+    // in the picked folder (files grouped into books by their sub-folder).
+    val folderLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        if (uri != null) viewModel.importLocalAudioFolder(uri)
+    }
+
+    // Import-result feedback (Block 4): one-shot Snackbar from the ViewModel.
+    val snackbarHostState = remember { SnackbarHostState() }
+    val importMessage by viewModel.importMessage.collectAsState()
+    LaunchedEffect(importMessage) {
+        importMessage?.let { message ->
+            snackbarHostState.showSnackbar(message)
+            viewModel.consumeImportMessage()
+        }
+    }
+
     var activeTab by remember { mutableStateOf(0) } // 0 = Offline, 1 = Favorites, 2 = Bookmarks, 3 = Stats
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .testTag("library_screen")
-    ) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .testTag("library_screen")
+        ) {
         // Top Header
         Column(
             modifier = Modifier
@@ -87,12 +107,17 @@ fun LibraryScreen(
                     )
                 }
 
-                // Import a local audio file (spec #8 ticket T7).
-                LocalAudioImportButton(
-                    onClick = {
-                        importLauncher.launch(arrayOf("audio/*", "application/ogg", "application/mpeg"))
-                    }
-                )
+                // Import a local audio file / folder (spec #8 T7 + Block 4).
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    LocalAudioImportButton(
+                        onClick = {
+                            importLauncher.launch(arrayOf("audio/*", "application/ogg", "application/mpeg"))
+                        }
+                    )
+                    LocalFolderImportButton(
+                        onClick = { folderLauncher.launch(null) }
+                    )
+                }
             }
         }
 
@@ -248,6 +273,14 @@ fun LibraryScreen(
                 }
             }
         }
+        }
+
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(16.dp)
+        )
     }
 }
 
@@ -276,6 +309,35 @@ fun LocalAudioImportButton(
             text = "Додати аудіо",
             style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
             color = CyberOnPrimary
+        )
+    }
+}
+
+/**
+ * The "Папку" button that opens the SAF tree picker (spec #8 Block 4).
+ * Extracted so the import affordance is unit-testable without a ViewModel.
+ */
+@Composable
+fun LocalFolderImportButton(
+    onClick: () -> Unit
+) {
+    OutlinedButton(
+        onClick = onClick,
+        shape = RoundedCornerShape(14.dp),
+        border = BorderStroke(1.dp, CyberPrimary),
+        modifier = Modifier.testTag("import_folder_button")
+    ) {
+        Icon(
+            imageVector = Icons.Default.CreateNewFolder,
+            contentDescription = null,
+            tint = CyberPrimary,
+            modifier = Modifier.size(16.dp)
+        )
+        Spacer(modifier = Modifier.width(4.dp))
+        Text(
+            text = "Папку",
+            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+            color = CyberPrimary
         )
     }
 }

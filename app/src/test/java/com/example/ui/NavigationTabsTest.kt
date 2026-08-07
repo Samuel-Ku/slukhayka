@@ -18,9 +18,9 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
 /**
- * Spec #8 ticket T4: the WebView is no longer a bottom-bar tab. The bar shows
- * exactly Explore and Library; the Library exposes the local-audio import
- * button (T7). Renders the extracted [AppBottomBar] and
+ * Spec-9 (listen-first IA): the bottom bar shows exactly Слухати · Огляд ·
+ * Медіатека, with the listening panel first. The Library still exposes the
+ * local-audio import button (T7). Renders the extracted [AppBottomBar] and
  * [LocalAudioImportButton] directly — no `MainViewModel`, no full app — so the
  * assertions are deterministic and fast.
  */
@@ -33,7 +33,28 @@ class NavigationTabsTest {
     val composeTestRule = createComposeRule()
 
     @Test
-    fun bottomBarHasExploreAndLibraryOnly() {
+    fun bottomBarShowsListenBrowseAndLibraryTabs() {
+        var selected: SelectedTab? = null
+        composeTestRule.setContent {
+            AudiobookTheme {
+                Scaffold(
+                    bottomBar = {
+                        AppBottomBar(selectedTab = SelectedTab.LISTEN) { tab -> selected = tab }
+                    }
+                ) { }
+            }
+        }
+
+        composeTestRule.onNodeWithTag("tab_listen").assertExists().assertIsDisplayed()
+        composeTestRule.onNodeWithTag("tab_explore").assertExists().assertIsDisplayed()
+        composeTestRule.onNodeWithTag("tab_library").assertExists().assertIsDisplayed()
+        // Removed tabs: the WebView and the standalone Bookmarks tab.
+        composeTestRule.onNodeWithTag("tab_4read_web").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("tab_bookmarks").assertDoesNotExist()
+    }
+
+    @Test
+    fun listenTabClickReportsListenSelection() {
         var selected: SelectedTab? = null
         composeTestRule.setContent {
             AudiobookTheme {
@@ -45,11 +66,27 @@ class NavigationTabsTest {
             }
         }
 
-        composeTestRule.onNodeWithTag("tab_explore").assertExists().assertIsDisplayed()
-        composeTestRule.onNodeWithTag("tab_library").assertExists().assertIsDisplayed()
-        // Removed tabs (T4): the WebView and the standalone Bookmarks tab.
-        composeTestRule.onNodeWithTag("tab_4read_web").assertDoesNotExist()
-        composeTestRule.onNodeWithTag("tab_bookmarks").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("tab_listen").performClick()
+
+        assertEquals(SelectedTab.LISTEN, selected)
+    }
+
+    @Test
+    fun browseTabClickReportsBrowseSelection() {
+        var selected: SelectedTab? = null
+        composeTestRule.setContent {
+            AudiobookTheme {
+                Scaffold(
+                    bottomBar = {
+                        AppBottomBar(selectedTab = SelectedTab.LISTEN) { tab -> selected = tab }
+                    }
+                ) { }
+            }
+        }
+
+        composeTestRule.onNodeWithTag("tab_explore").performClick()
+
+        assertEquals(SelectedTab.EXPLORE, selected)
     }
 
     @Test
@@ -59,7 +96,7 @@ class NavigationTabsTest {
             AudiobookTheme {
                 Scaffold(
                     bottomBar = {
-                        AppBottomBar(selectedTab = SelectedTab.EXPLORE) { tab -> selected = tab }
+                        AppBottomBar(selectedTab = SelectedTab.LISTEN) { tab -> selected = tab }
                     }
                 ) { }
             }

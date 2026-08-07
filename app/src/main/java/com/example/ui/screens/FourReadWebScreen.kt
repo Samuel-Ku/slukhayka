@@ -100,12 +100,12 @@ fun FourReadWebScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(CyberBg)
+            .background(MaterialTheme.colorScheme.background)
             .testTag("4read_web_screen")
     ) {
         // Header Controls
         Surface(
-            color = CyberSurface,
+            color = MaterialTheme.colorScheme.surface,
             tonalElevation = 4.dp,
             modifier = Modifier.fillMaxWidth()
         ) {
@@ -124,7 +124,7 @@ fun FourReadWebScreen(
                             Icon(
                                 imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                                 contentDescription = "Назад",
-                                tint = if (canGoBack) CyberPrimary else CyberTextSecondary.copy(alpha = 0.4f)
+                                tint = if (canGoBack) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
                             )
                         }
 
@@ -135,7 +135,7 @@ fun FourReadWebScreen(
                             Icon(
                                 imageVector = Icons.AutoMirrored.Filled.ArrowForward,
                                 contentDescription = "Вперед",
-                                tint = if (canGoForward) CyberPrimary else CyberTextSecondary.copy(alpha = 0.4f)
+                                tint = if (canGoForward) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
                             )
                         }
 
@@ -145,7 +145,7 @@ fun FourReadWebScreen(
                             Icon(
                                 imageVector = Icons.Default.Refresh,
                                 contentDescription = "Оновити",
-                                tint = CyberPrimary
+                                tint = MaterialTheme.colorScheme.primary
                             )
                         }
 
@@ -159,7 +159,7 @@ fun FourReadWebScreen(
                             Icon(
                                 imageVector = Icons.Default.Home,
                                 contentDescription = "Головна",
-                                tint = CyberPrimary
+                                tint = MaterialTheme.colorScheme.primary
                             )
                         }
                     }
@@ -168,21 +168,21 @@ fun FourReadWebScreen(
                         onClick = {
                             executeImportScript()
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = CyberPrimary),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                         shape = RoundedCornerShape(12.dp),
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.PlayArrow,
                             contentDescription = null,
-                            tint = CyberOnPrimary,
+                            tint = MaterialTheme.colorScheme.onPrimary,
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
                             text = "Слухати книгу",
                             style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                            color = CyberOnPrimary
+                            color = MaterialTheme.colorScheme.onPrimary
                         )
                     }
                 }
@@ -198,7 +198,7 @@ fun FourReadWebScreen(
                         Icon(
                             imageVector = Icons.Default.Link,
                             contentDescription = "URL",
-                            tint = CyberPrimary
+                            tint = MaterialTheme.colorScheme.primary
                         )
                     },
                     trailingIcon = {
@@ -209,7 +209,7 @@ fun FourReadWebScreen(
                                     context.startActivity(intent)
                                 } catch (_: Exception) {}
                             }) {
-                                Icon(imageVector = Icons.AutoMirrored.Filled.OpenInNew, contentDescription = "Браузер", tint = CyberSecondary)
+                                Icon(imageVector = Icons.AutoMirrored.Filled.OpenInNew, contentDescription = "Браузер", tint = MaterialTheme.colorScheme.secondary)
                             }
                             if (urlInput.isNotEmpty()) {
                                 IconButton(onClick = {
@@ -222,7 +222,7 @@ fun FourReadWebScreen(
                                     currentWebUrl = target
                                     webViewInstance?.loadUrl(target)
                                 }) {
-                                    Icon(imageVector = Icons.Default.Search, contentDescription = "Пошук", tint = CyberPrimary)
+                                    Icon(imageVector = Icons.Default.Search, contentDescription = "Пошук", tint = MaterialTheme.colorScheme.primary)
                                 }
                             }
                         }
@@ -230,10 +230,10 @@ fun FourReadWebScreen(
                     singleLine = true,
                     shape = RoundedCornerShape(14.dp),
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = CyberCardBg,
-                        unfocusedContainerColor = CyberCardBg,
-                        focusedBorderColor = CyberPrimary,
-                        unfocusedBorderColor = CyberCardBorder
+                        focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
                     ),
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -260,12 +260,12 @@ fun FourReadWebScreen(
                                 )
                             },
                             colors = AssistChipDefaults.assistChipColors(
-                                containerColor = CyberCardBg,
-                                labelColor = CyberTextPrimary
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                labelColor = MaterialTheme.colorScheme.onSurface
                             ),
                             border = AssistChipDefaults.assistChipBorder(
                                 enabled = true,
-                                borderColor = CyberCardBorder
+                                borderColor = MaterialTheme.colorScheme.outlineVariant
                             )
                         )
                     }
@@ -276,8 +276,8 @@ fun FourReadWebScreen(
         if (isLoading) {
             LinearProgressIndicator(
                 modifier = Modifier.fillMaxWidth(),
-                color = CyberPrimary,
-                trackColor = CyberCardBg
+                color = MaterialTheme.colorScheme.primary,
+                trackColor = MaterialTheme.colorScheme.surfaceVariant
             )
         }
 
@@ -420,8 +420,8 @@ fun FourReadWebScreen(
 
             if (hasWebError) {
                 Card(
-                    colors = CardDefaults.cardColors(containerColor = CyberCardBg),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, CyberSecondary),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.secondary),
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier
                         .fillMaxWidth()
@@ -433,24 +433,24 @@ fun FourReadWebScreen(
                             Icon(
                                 imageVector = Icons.Default.Warning,
                                 contentDescription = null,
-                                tint = CyberSecondary,
+                                tint = MaterialTheme.colorScheme.secondary,
                                 modifier = Modifier.size(20.dp)
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
                                 text = "Мережева помилка (${webErrorMsg.ifBlank { "ERR_NAME_NOT_RESOLVED" }})",
                                 style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                                color = CyberTextPrimary,
+                                color = MaterialTheme.colorScheme.onSurface,
                                 modifier = Modifier.weight(1f)
                             )
                             IconButton(onClick = { hasWebError = false }) {
-                                Icon(imageVector = Icons.Default.Close, contentDescription = "Закрити", tint = CyberTextSecondary)
+                                Icon(imageVector = Icons.Default.Close, contentDescription = "Закрити", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                         Text(
                             text = "Якщо сторінка 4read.org не завантажується через локальну мережу, відкрийте в браузері або натисніть 'Слухати книгу'.",
                             style = MaterialTheme.typography.bodySmall,
-                            color = CyberTextSecondary
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -461,7 +461,7 @@ fun FourReadWebScreen(
                                         context.startActivity(intent)
                                     } catch (_: Exception) {}
                                 },
-                                colors = ButtonDefaults.buttonColors(containerColor = CyberPrimary),
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                                 shape = RoundedCornerShape(8.dp)
                             ) {
                                 Icon(imageVector = Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(14.dp))
@@ -476,7 +476,7 @@ fun FourReadWebScreen(
                                     webViewInstance?.loadUrl(currentWebUrl)
                                 },
                                 shape = RoundedCornerShape(8.dp),
-                                colors = ButtonDefaults.outlinedButtonColors(contentColor = CyberPrimary)
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.primary)
                             ) {
                                 Text("Оновити", fontSize = 12.sp)
                             }
@@ -486,7 +486,7 @@ fun FourReadWebScreen(
                                     executeImportScript()
                                 },
                                 shape = RoundedCornerShape(8.dp),
-                                colors = ButtonDefaults.outlinedButtonColors(contentColor = CyberSecondary)
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.secondary)
                             ) {
                                 Text("Слухати книгу", fontSize = 12.sp)
                             }

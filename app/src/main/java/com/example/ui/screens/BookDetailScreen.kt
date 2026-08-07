@@ -69,7 +69,7 @@ fun BookDetailScreen(
                             Icon(
                                 imageVector = Icons.AutoMirrored.Filled.OpenInNew,
                                 contentDescription = "Відкрити на сайті",
-                                tint = CyberPrimary
+                                tint = MaterialTheme.colorScheme.primary
                             )
                         }
                     }
@@ -83,7 +83,7 @@ fun BookDetailScreen(
                         Icon(
                             imageVector = if (currentBook.isDownloaded) Icons.Default.CloudDone else Icons.Default.CloudDownload,
                             contentDescription = "Offline Download",
-                            tint = if (currentBook.isDownloaded) CyberSecondary else CyberTextPrimary
+                            tint = if (currentBook.isDownloaded) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurface
                         )
                     }
                     // Wayfinder #28: deletion is a choice — remove from library,
@@ -96,10 +96,10 @@ fun BookDetailScreen(
                         )
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = CyberBg)
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
             )
         },
-        containerColor = CyberBg
+        containerColor = MaterialTheme.colorScheme.background
     ) { padding ->
         LazyColumn(
             modifier = Modifier
@@ -121,7 +121,7 @@ fun BookDetailScreen(
                             .width(180.dp)
                             .height(240.dp)
                             .clip(RoundedCornerShape(20.dp))
-                            .border(1.dp, CyberPrimary.copy(alpha = 0.4f), RoundedCornerShape(20.dp)),
+                            .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f), RoundedCornerShape(20.dp)),
                         elevation = CardDefaults.cardElevation(8.dp)
                     ) {
                         com.example.ui.components.BookCoverImage(
@@ -140,7 +140,7 @@ fun BookDetailScreen(
                             fontWeight = FontWeight.Bold,
                             fontSize = 22.sp
                         ),
-                        color = CyberTextPrimary,
+                        color = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.testTag("book_detail_title")
                     )
 
@@ -149,13 +149,13 @@ fun BookDetailScreen(
                     Text(
                         text = "By ${currentBook.author}",
                         style = MaterialTheme.typography.titleMedium,
-                        color = CyberPrimary
+                        color = MaterialTheme.colorScheme.primary
                     )
 
                     Text(
                         text = "Narrated by ${currentBook.narrator}",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = CyberTextSecondary
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
 
                     Spacer(modifier = Modifier.height(12.dp))
@@ -166,39 +166,39 @@ fun BookDetailScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Surface(
-                            color = CyberCardBg,
+                            color = MaterialTheme.colorScheme.surfaceVariant,
                             shape = RoundedCornerShape(12.dp),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, CyberCardBorder)
+                            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
                         ) {
                             Text(
                                 text = currentBook.genre,
                                 style = MaterialTheme.typography.labelSmall,
-                                color = CyberTextPrimary,
+                                color = MaterialTheme.colorScheme.onSurface,
                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                             )
                         }
 
                         Surface(
-                            color = CyberCardBg,
+                            color = MaterialTheme.colorScheme.surfaceVariant,
                             shape = RoundedCornerShape(12.dp),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, CyberCardBorder)
+                            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
                         ) {
                             Text(
                                 text = "${currentBook.totalChapters} Ch. • ${MainViewModel.formatTime(currentBook.totalDurationSeconds)}",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = CyberTextSecondary,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                             )
                         }
 
                         Surface(
-                            color = CyberSecondary.copy(alpha = 0.2f),
+                            color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.2f),
                             shape = RoundedCornerShape(12.dp)
                         ) {
                             Text(
                                 text = "4read.org Source",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = CyberSecondary,
+                                color = MaterialTheme.colorScheme.secondary,
                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                             )
                         }
@@ -210,7 +210,7 @@ fun BookDetailScreen(
                     Text(
                         text = currentBook.description,
                         style = MaterialTheme.typography.bodyMedium,
-                        color = CyberTextSecondary,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = 8.dp)
                     )
 
@@ -226,19 +226,19 @@ fun BookDetailScreen(
                                 viewModel.playAudiobook(currentBook)
                                 viewModel.setShowFullPlayer(true)
                             },
-                            colors = ButtonDefaults.buttonColors(containerColor = CyberPrimary),
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                             shape = RoundedCornerShape(16.dp),
                             modifier = Modifier
                                 .weight(1.2f)
                                 .height(50.dp)
                                 .testTag("play_book_button")
                         ) {
-                            Icon(imageVector = Icons.Default.PlayArrow, contentDescription = null, tint = CyberOnPrimary)
+                            Icon(imageVector = Icons.Default.PlayArrow, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary)
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
                                 text = if (playerState.currentBook?.id == currentBook.id && playerState.isPlaying) "Playing" else "Play",
                                 fontWeight = FontWeight.Bold,
-                                color = CyberOnPrimary
+                                color = MaterialTheme.colorScheme.onPrimary
                             )
                         }
 
@@ -253,10 +253,10 @@ fun BookDetailScreen(
                             shape = RoundedCornerShape(16.dp),
                             border = androidx.compose.foundation.BorderStroke(
                                 1.dp,
-                                if (currentBook.isDownloaded) CyberSecondary else CyberCardBorder
+                                if (currentBook.isDownloaded) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.outlineVariant
                             ),
                             colors = ButtonDefaults.outlinedButtonColors(
-                                contentColor = if (currentBook.isDownloaded) CyberSecondary else CyberTextPrimary
+                                contentColor = if (currentBook.isDownloaded) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurface
                             ),
                             modifier = Modifier
                                 .weight(1f)
@@ -279,12 +279,12 @@ fun BookDetailScreen(
                         OutlinedButton(
                             onClick = { showAddBookmarkDialog = true },
                             shape = RoundedCornerShape(16.dp),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, CyberCardBorder),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                             modifier = Modifier
                                 .height(50.dp)
                                 .testTag("bookmark_button")
                         ) {
-                            Icon(imageVector = Icons.Default.BookmarkAdd, contentDescription = null, tint = CyberPrimary)
+                            Icon(imageVector = Icons.Default.BookmarkAdd, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                         }
                     }
                 }
@@ -294,9 +294,9 @@ fun BookDetailScreen(
             item {
                 TabRow(
                     selectedTabIndex = activeTab,
-                    containerColor = CyberBg,
-                    contentColor = CyberPrimary,
-                    divider = { HorizontalDivider(color = CyberCardBorder) }
+                    containerColor = MaterialTheme.colorScheme.background,
+                    contentColor = MaterialTheme.colorScheme.primary,
+                    divider = { HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant) }
                 ) {
                     Tab(
                         selected = activeTab == 0,
@@ -340,7 +340,7 @@ fun BookDetailScreen(
                             Text(
                                 text = "No bookmarks added yet for this book.",
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = CyberTextSecondary
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
@@ -377,7 +377,7 @@ fun BookDetailScreen(
         // never silently destroy the user's audio files.
         ModalBottomSheet(
             onDismissRequest = { showDeleteSheet = false },
-            containerColor = CyberCardBg
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
         ) {
             Column(
                 modifier = Modifier
@@ -387,13 +387,13 @@ fun BookDetailScreen(
                 Text(
                     text = "Видалити книгу",
                     style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                    color = CyberTextPrimary
+                    color = MaterialTheme.colorScheme.onSurface
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = "Оберіть, що саме видалити",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = CyberTextSecondary
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Spacer(modifier = Modifier.height(12.dp))
 
@@ -411,16 +411,16 @@ fun BookDetailScreen(
                     Icon(
                         imageVector = Icons.Default.RemoveCircleOutline,
                         contentDescription = null,
-                        tint = CyberPrimary,
+                        tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(24.dp)
                     )
                     Spacer(modifier = Modifier.width(14.dp))
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("Прибрати з медіатеки", fontWeight = FontWeight.Bold, color = CyberTextPrimary)
-                        Text("Книга зникне зі списку, файли на пристрої лишаться", style = MaterialTheme.typography.bodySmall, color = CyberTextSecondary)
+                        Text("Прибрати з медіатеки", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                        Text("Книга зникне зі списку, файли на пристрої лишаться", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
-                HorizontalDivider(color = CyberCardBorder.copy(alpha = 0.5f))
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
 
                 if (currentBook.isDownloaded) {
                     Row(
@@ -437,16 +437,16 @@ fun BookDetailScreen(
                         Icon(
                             imageVector = Icons.Default.CloudOff,
                             contentDescription = null,
-                            tint = CyberTextPrimary,
+                            tint = MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.size(24.dp)
                         )
                         Spacer(modifier = Modifier.width(14.dp))
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("Видалити завантажену копію", fontWeight = FontWeight.Bold, color = CyberTextPrimary)
-                            Text("Лишиться в медіатеці, але без офлайн-копії", style = MaterialTheme.typography.bodySmall, color = CyberTextSecondary)
+                            Text("Видалити завантажену копію", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                            Text("Лишиться в медіатеці, але без офлайн-копії", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
-                    HorizontalDivider(color = CyberCardBorder.copy(alpha = 0.5f))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                 }
 
                 Row(
@@ -479,18 +479,18 @@ fun BookDetailScreen(
     if (showDeleteDialog) {
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },
-            containerColor = CyberCardBg,
+            containerColor = MaterialTheme.colorScheme.surfaceVariant,
             title = {
                 Text(
                     text = "Видалити книгу?",
                     fontWeight = FontWeight.Bold,
-                    color = CyberTextPrimary
+                    color = MaterialTheme.colorScheme.onSurface
                 )
             },
             text = {
                 Text(
                     text = "Це видалить \"${currentBook.title}\" разом із главами, закладками, прогресом і завантаженими файлами. Дію не можна скасувати.",
-                    color = CyberTextSecondary
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             },
             confirmButton = {
@@ -506,7 +506,7 @@ fun BookDetailScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showDeleteDialog = false }) {
-                    Text("Скасувати", color = CyberTextPrimary)
+                    Text("Скасувати", color = MaterialTheme.colorScheme.onSurface)
                 }
             }
         )
@@ -527,7 +527,7 @@ fun ChapterRowItem(
             .clip(RoundedCornerShape(12.dp))
             .border(
                 1.dp,
-                if (isPlaying) CyberPrimary else CyberCardBorder,
+                if (isPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
                 RoundedCornerShape(12.dp)
             )
             // Test seam (GitHub issue #7 — emulator audio scenario): deterministic
@@ -538,7 +538,7 @@ fun ChapterRowItem(
             .testTag("book_detail_chapter_${chapter.id}")
             .clickable { onPlayClick() },
         colors = CardDefaults.cardColors(
-            containerColor = if (isPlaying) CyberPrimary.copy(alpha = 0.1f) else CyberCardBg
+            containerColor = if (isPlaying) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f) else MaterialTheme.colorScheme.surfaceVariant
         )
     ) {
         Row(
@@ -549,17 +549,17 @@ fun ChapterRowItem(
         ) {
             Surface(
                 shape = CircleShape,
-                color = if (isPlaying) CyberPrimary else CyberSurfaceVariant,
+                color = if (isPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
                 modifier = Modifier.size(36.dp)
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     if (isPlaying) {
-                        Icon(imageVector = Icons.AutoMirrored.Filled.VolumeUp, contentDescription = null, tint = CyberOnPrimary, modifier = Modifier.size(20.dp))
+                        Icon(imageVector = Icons.AutoMirrored.Filled.VolumeUp, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(20.dp))
                     } else {
                         Text(
                             text = "${index + 1}",
                             style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
-                            color = CyberTextPrimary
+                            color = MaterialTheme.colorScheme.onSurface
                         )
                     }
                 }
@@ -574,14 +574,14 @@ fun ChapterRowItem(
                         fontWeight = if (isPlaying) FontWeight.Bold else FontWeight.Medium,
                         fontSize = 15.sp
                     ),
-                    color = if (isPlaying) CyberPrimary else CyberTextPrimary,
+                    color = if (isPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
                     text = "Duration: ${MainViewModel.formatTime(chapter.durationSeconds)}",
                     style = MaterialTheme.typography.bodySmall,
-                    color = CyberTextSecondary
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
 
@@ -589,7 +589,7 @@ fun ChapterRowItem(
                 Icon(
                     imageVector = if (isPlaying) Icons.Default.PauseCircle else Icons.Default.PlayCircle,
                     contentDescription = "Play Chapter",
-                    tint = CyberPrimary,
+                    tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(32.dp)
                 )
             }
@@ -608,8 +608,8 @@ fun BookmarkRowItem(
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 4.dp)
             .clip(RoundedCornerShape(12.dp))
-            .border(1.dp, CyberCardBorder, RoundedCornerShape(12.dp)),
-        colors = CardDefaults.cardColors(containerColor = CyberCardBg)
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp)),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
     ) {
         Row(
             modifier = Modifier
@@ -620,7 +620,7 @@ fun BookmarkRowItem(
             Icon(
                 imageVector = Icons.Default.Bookmark,
                 contentDescription = null,
-                tint = CyberSecondary,
+                tint = MaterialTheme.colorScheme.secondary,
                 modifier = Modifier.size(24.dp)
             )
 
@@ -630,12 +630,12 @@ fun BookmarkRowItem(
                 Text(
                     text = bookmark.chapterTitle,
                     style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                    color = CyberTextPrimary
+                    color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
                     text = "At ${MainViewModel.formatTime(bookmark.timestampSeconds)}: ${bookmark.note}",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = CyberTextSecondary
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
 
@@ -643,7 +643,7 @@ fun BookmarkRowItem(
                 Icon(
                     imageVector = Icons.Default.PlayArrow,
                     contentDescription = "Jump to bookmark",
-                    tint = CyberPrimary
+                    tint = MaterialTheme.colorScheme.primary
                 )
             }
 

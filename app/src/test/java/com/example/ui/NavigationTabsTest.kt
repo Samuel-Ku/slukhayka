@@ -36,7 +36,7 @@ class NavigationTabsTest {
     fun bottomBarShowsListenBrowseAndLibraryTabs() {
         var selected: SelectedTab? = null
         composeTestRule.setContent {
-            AudiobookTheme {
+            AudiobookTheme(darkTheme = true) {
                 Scaffold(
                     bottomBar = {
                         AppBottomBar(selectedTab = SelectedTab.LISTEN) { tab -> selected = tab }
@@ -57,7 +57,7 @@ class NavigationTabsTest {
     fun listenTabClickReportsListenSelection() {
         var selected: SelectedTab? = null
         composeTestRule.setContent {
-            AudiobookTheme {
+            AudiobookTheme(darkTheme = true) {
                 Scaffold(
                     bottomBar = {
                         AppBottomBar(selectedTab = SelectedTab.EXPLORE) { tab -> selected = tab }
@@ -75,7 +75,7 @@ class NavigationTabsTest {
     fun browseTabClickReportsBrowseSelection() {
         var selected: SelectedTab? = null
         composeTestRule.setContent {
-            AudiobookTheme {
+            AudiobookTheme(darkTheme = true) {
                 Scaffold(
                     bottomBar = {
                         AppBottomBar(selectedTab = SelectedTab.LISTEN) { tab -> selected = tab }
@@ -93,7 +93,7 @@ class NavigationTabsTest {
     fun libraryTabClickReportsLibrarySelection() {
         var selected: SelectedTab? = null
         composeTestRule.setContent {
-            AudiobookTheme {
+            AudiobookTheme(darkTheme = true) {
                 Scaffold(
                     bottomBar = {
                         AppBottomBar(selectedTab = SelectedTab.LISTEN) { tab -> selected = tab }
@@ -111,7 +111,7 @@ class NavigationTabsTest {
     fun localAudioImportButtonIsPresentAndClickable() {
         var clicked = false
         composeTestRule.setContent {
-            AudiobookTheme {
+            AudiobookTheme(darkTheme = true) {
                 LocalAudioImportButton(onClick = { clicked = true })
             }
         }

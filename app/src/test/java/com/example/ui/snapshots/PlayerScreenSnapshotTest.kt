@@ -124,7 +124,8 @@ class PlayerScreenSnapshotTest {
                         book = book,
                         currentChapterTitle = chapters[1].title,
                         progress = progress,
-                        artworkAccent = null,
+                        // Simulates the muted tint emitted after a real cover loads.
+                        artworkAccent = androidx.compose.ui.graphics.Color(0xFF355D67),
                         onArtworkLoaded = {},
                         onDismiss = {},
                         onToggleFavorite = {},

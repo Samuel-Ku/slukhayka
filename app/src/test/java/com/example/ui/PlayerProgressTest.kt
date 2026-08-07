@@ -62,9 +62,19 @@ class PlayerProgressTest {
 
     @Test
     fun `book seek resolves chapter and chapter relative position`() {
-        val target = calculateBookSeekTarget(chapters, 0.5f)!!
+        val target = calculateBookSeekTarget(chapters, 1, chapters[1].durationSeconds * 1_000L, 0.5f)!!
 
         assertEquals(1, target.chapterIndex)
         assertEquals(390_000L, target.positionMs)
+    }
+
+    @Test
+    fun `book seek uses measured duration when imported metadata is missing`() {
+        val zeroDuration = chapters.map { it.copy(durationSeconds = 0L) }
+
+        val target = calculateBookSeekTarget(zeroDuration, 1, 600_000L, 0.5f)!!
+
+        assertEquals(1, target.chapterIndex)
+        assertEquals(300_000L, target.positionMs)
     }
 }

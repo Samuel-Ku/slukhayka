@@ -25,6 +25,8 @@ import androidx.compose.ui.unit.sp
 import com.example.data.db.AudiobookEntity
 import com.example.data.db.PlaybackProgressEntity
 import com.example.ui.MainViewModel
+import com.example.ui.components.AppSectionHeader
+import com.example.ui.components.EmptyState
 import com.example.ui.theme.*
 
 /**
@@ -99,7 +101,7 @@ fun ListenScreen(
         // cycle. Hidden when there is none or the lookup failed.
         val continueSeriesBook = heroBook?.let { hb -> nextInSeries?.takeIf { it.id != hb.id } }
         if (continueSeriesBook != null) {
-            item { CatalogRowHeader(title = "ПРОДОВЖИТИ СЕРІЮ") }
+            item { AppSectionHeader(title = "Продовжити серію") }
             item {
                 ContinueSeriesRow(
                     seriesTitle = heroBook.seriesTitle.orEmpty(),
@@ -115,7 +117,7 @@ fun ListenScreen(
             .take(6)
             .mapNotNull { p -> allBooks.find { it.id == p.bookId }?.let { it to p } }
         if (recentItems.isNotEmpty()) {
-            item { CatalogRowHeader(title = "НЕЩОДАВНО СЛУХАЛИ") }
+            item { AppSectionHeader(title = "Нещодавно слухали") }
             items(recentItems, key = { it.first.id }) { (book, progress) ->
                 RecentlyListenedRow(
                     book = book,
@@ -128,7 +130,7 @@ fun ListenScreen(
 
         // Завантажено.
         if (downloadedBooks.isNotEmpty()) {
-            item { CatalogRowHeader(title = "ЗАВАНТАЖЕНО") }
+            item { AppSectionHeader(title = "Завантажено") }
             items(downloadedBooks, key = { it.id }) { book ->
                 AudiobookListItem(
                     book = book,
@@ -141,7 +143,7 @@ fun ListenScreen(
         // Нове на 4read: at most two rows (spec-9 — a couple, not ten).
         val newSections = sections.filter { it.books.isNotEmpty() }.take(2)
         newSections.forEach { section ->
-            item { CatalogRowHeader(title = section.title) }
+            item { AppSectionHeader(title = section.title) }
             item {
                 LazyRow(
                     contentPadding = PaddingValues(horizontal = 16.dp),
@@ -172,10 +174,10 @@ fun ContinueSeriesRow(
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 5.dp)
             .clip(RoundedCornerShape(14.dp))
-            .border(1.dp, CyberPrimary.copy(alpha = 0.5f), RoundedCornerShape(14.dp))
+            .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f), RoundedCornerShape(14.dp))
             .clickable { onClick() }
             .testTag("continue_series_${book.id}"),
-        colors = CardDefaults.cardColors(containerColor = CyberCardBg)
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
     ) {
         Row(
             modifier = Modifier
@@ -196,7 +198,7 @@ fun ContinueSeriesRow(
                 Text(
                     text = if (seriesTitle.isBlank()) "Наступна частина циклу" else "Наступна частина: $seriesTitle",
                     style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                    color = CyberSecondary,
+                    color = MaterialTheme.colorScheme.secondary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -206,14 +208,14 @@ fun ContinueSeriesRow(
                     style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    color = CyberTextPrimary
+                    color = MaterialTheme.colorScheme.onSurface
                 )
                 book.seriesIndex?.let { index ->
                     if (index > 0) {
                         Text(
                             text = "Частина $index",
                             style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
-                            color = CyberTextSecondary
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
@@ -221,14 +223,14 @@ fun ContinueSeriesRow(
             IconButton(
                 onClick = onPlayClick,
                 modifier = Modifier
-                    .size(40.dp)
+                    .size(AppDimens.TouchTarget)
                     .clip(CircleShape)
-                    .background(CyberPrimary)
+                    .background(MaterialTheme.colorScheme.primary)
             ) {
                 Icon(
                     imageVector = Icons.Default.PlayArrow,
                     contentDescription = "Play",
-                    tint = CyberOnPrimary,
+                    tint = MaterialTheme.colorScheme.onPrimary,
                     modifier = Modifier.size(24.dp)
                 )
             }
@@ -260,15 +262,15 @@ fun ListenHeroCard(
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 10.dp)
             .clip(RoundedCornerShape(20.dp))
-            .border(1.dp, CyberCardBorder, RoundedCornerShape(20.dp)),
-        colors = CardDefaults.cardColors(containerColor = CyberCardBg)
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(20.dp)),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
                     imageVector = Icons.Default.Headphones,
                     contentDescription = null,
-                    tint = CyberPrimary,
+                    tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(18.dp)
                 )
                 Spacer(modifier = Modifier.width(6.dp))
@@ -278,7 +280,7 @@ fun ListenHeroCard(
                         fontWeight = FontWeight.Bold,
                         letterSpacing = 1.sp
                     ),
-                    color = CyberPrimary
+                    color = MaterialTheme.colorScheme.primary
                 )
             }
 
@@ -305,7 +307,7 @@ fun ListenHeroCard(
                         ),
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
-                        color = CyberTextPrimary
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
@@ -313,13 +315,13 @@ fun ListenHeroCard(
                         style = MaterialTheme.typography.bodySmall,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        color = CyberTextSecondary
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
                         text = "Розділ ${progress.currentChapterIndex + 1} із ${book.totalChapters.coerceAtLeast(1)}",
                         style = MaterialTheme.typography.labelMedium,
-                        color = CyberSecondary
+                        color = MaterialTheme.colorScheme.secondary
                     )
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
@@ -329,7 +331,7 @@ fun ListenHeroCard(
                             MainViewModel.formatTime(positionSec)
                         },
                         style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                        color = CyberTextPrimary
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                 }
 
@@ -341,13 +343,13 @@ fun ListenHeroCard(
                         modifier = Modifier
                             .size(56.dp)
                             .clip(CircleShape)
-                            .background(CyberPrimary),
+                            .background(MaterialTheme.colorScheme.primary),
                         colors = IconButtonDefaults.iconButtonColors()
                     ) {
                         Icon(
                             imageVector = Icons.Default.PlayArrow,
                             contentDescription = "Продовжити",
-                            tint = CyberOnPrimary,
+                            tint = MaterialTheme.colorScheme.onPrimary,
                             modifier = Modifier.size(32.dp)
                         )
                     }
@@ -359,7 +361,7 @@ fun ListenHeroCard(
                         Icon(
                             imageVector = Icons.Default.Info,
                             contentDescription = "До книги",
-                            tint = CyberTextSecondary,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(18.dp)
                         )
                     }
@@ -375,8 +377,8 @@ fun ListenHeroCard(
                     .fillMaxWidth()
                     .height(6.dp)
                     .clip(RoundedCornerShape(3.dp)),
-                color = CyberPrimary,
-                trackColor = CyberCardBorder
+                color = MaterialTheme.colorScheme.primary,
+                trackColor = MaterialTheme.colorScheme.outlineVariant
             )
         }
     }
@@ -401,10 +403,10 @@ fun RecentlyListenedRow(
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 5.dp)
             .clip(RoundedCornerShape(14.dp))
-            .border(1.dp, CyberCardBorder, RoundedCornerShape(14.dp))
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(14.dp))
             .clickable { onClick() }
             .testTag("recently_listened_${book.id}"),
-        colors = CardDefaults.cardColors(containerColor = CyberCardBg)
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
     ) {
         Column(modifier = Modifier.padding(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -423,25 +425,25 @@ fun RecentlyListenedRow(
                         style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        color = CyberTextPrimary
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
                         text = "Розділ ${progress.currentChapterIndex + 1} · ${MainViewModel.formatTime(positionSec)}",
                         style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
-                        color = CyberTextSecondary
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
                 IconButton(
                     onClick = onPlayClick,
                     modifier = Modifier
-                        .size(36.dp)
+                        .size(AppDimens.TouchTarget)
                         .clip(CircleShape)
-                        .background(CyberSurfaceVariant)
+                        .background(MaterialTheme.colorScheme.primaryContainer)
                 ) {
                     Icon(
                         imageVector = Icons.Default.PlayArrow,
                         contentDescription = "Play",
-                        tint = CyberPrimary,
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
                         modifier = Modifier.size(22.dp)
                     )
                 }
@@ -453,8 +455,8 @@ fun RecentlyListenedRow(
                     .fillMaxWidth()
                     .height(4.dp)
                     .clip(RoundedCornerShape(2.dp)),
-                color = CyberSecondary,
-                trackColor = CyberCardBorder
+                color = MaterialTheme.colorScheme.secondary,
+                trackColor = MaterialTheme.colorScheme.outlineVariant
             )
         }
     }
@@ -469,63 +471,18 @@ fun ListenEmptyState(
     onBrowseClick: () -> Unit,
     onImportClick: () -> Unit
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 24.dp, vertical = 28.dp)
+    EmptyState(
+        icon = Icons.Default.PlayCircle,
+        title = "Продовжити слухати",
+        body = "Тут з'явиться ваша поточна книга, щойно ви почнете слухати."
     ) {
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(20.dp))
-                .border(1.dp, CyberCardBorder, RoundedCornerShape(20.dp)),
-            colors = CardDefaults.cardColors(containerColor = CyberCardBg)
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(20.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Surface(
-                    shape = CircleShape,
-                    color = CyberPrimary.copy(alpha = 0.12f),
-                    modifier = Modifier.size(56.dp)
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.Default.PlayCircle,
-                            contentDescription = null,
-                            tint = CyberPrimary,
-                            modifier = Modifier.size(28.dp)
-                        )
-                    }
-                }
-                Spacer(modifier = Modifier.height(12.dp))
-                Text(
-                    text = "Продовжити слухати",
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                    color = CyberTextPrimary
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "Тут з'явиться ваша поточна книга, щойно ви почнете слухати.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = CyberTextSecondary,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(20.dp))
-
         Button(
             onClick = onBrowseClick,
-            colors = ButtonDefaults.buttonColors(containerColor = CyberPrimary),
-            shape = RoundedCornerShape(14.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+            shape = RoundedCornerShape(AppDimens.RadiusCard),
             modifier = Modifier
                 .fillMaxWidth()
-                .height(48.dp)
+                .height(AppDimens.TouchTarget)
         ) {
             Icon(imageVector = Icons.Default.Explore, contentDescription = null, modifier = Modifier.size(18.dp))
             Spacer(modifier = Modifier.width(8.dp))
@@ -536,15 +493,20 @@ fun ListenEmptyState(
 
         OutlinedButton(
             onClick = onImportClick,
-            shape = RoundedCornerShape(14.dp),
-            border = androidx.compose.foundation.BorderStroke(1.dp, CyberCardBorder),
+            shape = RoundedCornerShape(AppDimens.RadiusCard),
+            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
             modifier = Modifier
                 .fillMaxWidth()
-                .height(48.dp)
+                .height(AppDimens.TouchTarget)
         ) {
-            Icon(imageVector = Icons.Default.FileUpload, contentDescription = null, tint = CyberPrimary, modifier = Modifier.size(18.dp))
+            Icon(
+                imageVector = Icons.Default.FileUpload,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(18.dp)
+            )
             Spacer(modifier = Modifier.width(8.dp))
-            Text("Імпортувати з пристрою", color = CyberTextPrimary)
+            Text("Імпортувати з пристрою", color = MaterialTheme.colorScheme.onSurface)
         }
     }
 }

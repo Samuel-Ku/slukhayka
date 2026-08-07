@@ -41,7 +41,10 @@ data class CatalogBook(
     val title: String,
     val author: String,
     val url: String,
-    val coverImageUrl: String?
+    val coverImageUrl: String?,
+    val seriesTitle: String? = null,
+    val seriesUrl: String? = null,
+    val seriesIndex: Int? = null
 )
 
 /** One series (cycle) chip shown in the "Цикли" row. */
@@ -69,6 +72,8 @@ object CatalogParser {
     private val authorRegex = Regex("""class="poster__subtitle ws-nowrap">(.*?)</div>""", RegexOption.DOT_MATCHES_ALL)
     private val imgRegex = Regex("""<img[^>]+src="([^"]+)"[^>]*>""")
     private val seriesRegex = Regex("""class="poster__series anim"><a href="([^"]+)">([^<]+)</a>""")
+    // Volume badge on a poster: the book's number inside its series (cycle).
+    private val seriesIndexRegex = Regex("""<div class="poster__label poster__label--blue">(\d+)</div>""")
 
     private val htmlEntityRegex = Regex("""&#(\d+);""")
     private val htmlEntityNamedRegex = Regex("""&(amp|quot|apos|lt|gt);""")
@@ -97,16 +102,30 @@ object CatalogParser {
             val cover = toAbsoluteUrl(imgRegex.find(poster)?.groupValues?.get(1))
 
             val series = seriesRegex.find(poster)
+            var seriesTitle: String? = null
+            var seriesUrl: String? = null
             if (series != null) {
-                val seriesUrl = series.groupValues[1]
-                val seriesTitle = decodeEntities(series.groupValues[2].trim())
+                seriesUrl = series.groupValues[1]
+                seriesTitle = decodeEntities(series.groupValues[2].trim())
                 seriesByUrl.putIfAbsent(
                     seriesUrl,
                     CatalogSeries(title = seriesTitle, url = seriesUrl, coverImageUrl = cover)
                 )
             }
+            val seriesIndex = seriesIndexRegex.find(poster)?.groupValues?.get(1)?.toIntOrNull()
 
-            books.add(CatalogBook(bookId(bookUrl), title, author, bookUrl, cover))
+            books.add(
+                CatalogBook(
+                    id = bookId(bookUrl),
+                    title = title,
+                    author = author,
+                    url = bookUrl,
+                    coverImageUrl = cover,
+                    seriesTitle = seriesTitle,
+                    seriesUrl = seriesUrl,
+                    seriesIndex = seriesIndex
+                )
+            )
         }
 
         val sections = mutableListOf<CatalogSection>()
@@ -136,13 +155,26 @@ object CatalogParser {
                 ?.replace(Regex("\\s+"), " ")
                 ?.trim()
                 ?: ""
+
+            val series = seriesRegex.find(poster)
+            var seriesTitle: String? = null
+            var seriesUrl: String? = null
+            if (series != null) {
+                seriesUrl = series.groupValues[1]
+                seriesTitle = decodeEntities(series.groupValues[2].trim())
+            }
+            val seriesIndex = seriesIndexRegex.find(poster)?.groupValues?.get(1)?.toIntOrNull()
+
             books.add(
                 CatalogBook(
                     id = bookId(bookUrl),
                     title = title,
                     author = author,
                     url = bookUrl,
-                    coverImageUrl = toAbsoluteUrl(imgRegex.find(poster)?.groupValues?.get(1))
+                    coverImageUrl = toAbsoluteUrl(imgRegex.find(poster)?.groupValues?.get(1)),
+                    seriesTitle = seriesTitle,
+                    seriesUrl = seriesUrl,
+                    seriesIndex = seriesIndex
                 )
             )
         }

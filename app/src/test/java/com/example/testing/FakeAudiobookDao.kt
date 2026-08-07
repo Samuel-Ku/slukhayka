@@ -130,6 +130,9 @@ class FakeAudiobookDao(
     override suspend fun getChaptersListForBook(bookId: String): List<ChapterEntity> =
         chaptersState.value.filter { it.bookId == bookId }.sortedBy { it.chapterIndex }
 
+    override fun getAllChapters(): Flow<List<ChapterEntity>> =
+        chaptersState.map { chapters -> chapters.sortedWith(compareBy({ it.bookId }, { it.chapterIndex })) }
+
     override suspend fun insertChapters(chapters: List<ChapterEntity>) {
         val incomingIds = chapters.map { it.id }.toSet()
         chaptersState.update { current -> current.filterNot { it.id in incomingIds } + chapters }

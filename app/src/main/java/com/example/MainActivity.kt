@@ -174,7 +174,8 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                             onPlayClick = { book ->
                                 viewModel.playAudiobook(book)
                                 viewModel.setShowFullPlayer(true)
-                            }
+                            },
+                            onBrowseClick = { viewModel.selectTab(SelectedTab.EXPLORE) }
                         )
                         else -> HomeScreen(
                             viewModel = viewModel,

@@ -188,6 +188,51 @@ class AudiobookRepositoryRoomTest {
         db.close()
     }
 
+    // ---------------------------------------------------------------------
+    // wayfinder #39: schema migration 6 -> 7 (createdAt for "recently added")
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `migration 6 to 7 adds createdAt and backfills existing rows`() {
+        val factory = FrameworkSQLiteOpenHelperFactory()
+        val config = SupportSQLiteOpenHelper.Configuration.builder(context)
+            .name("migration-6-test.db")
+            .callback(object : SupportSQLiteOpenHelper.Callback(6) {
+                override fun onCreate(db: SupportSQLiteDatabase) {
+                    // Minimal v6 schema for the table the migration alters.
+                    db.execSQL(
+                        "CREATE TABLE audiobooks (id TEXT NOT NULL PRIMARY KEY, title TEXT NOT NULL, " +
+                            "author TEXT NOT NULL, narrator TEXT NOT NULL, description TEXT NOT NULL, " +
+                            "coverDrawableRes INTEGER NOT NULL, coverImageUrl TEXT, genre TEXT NOT NULL, " +
+                            "sourceUrl TEXT NOT NULL, isDownloaded INTEGER NOT NULL DEFAULT 0, " +
+                            "downloadProgress REAL NOT NULL DEFAULT 0, totalDurationSeconds INTEGER NOT NULL DEFAULT 0, " +
+                            "totalChapters INTEGER NOT NULL DEFAULT 0, rating REAL NOT NULL DEFAULT 4.9, " +
+                            "isFavorite INTEGER NOT NULL DEFAULT 0, seriesTitle TEXT, seriesUrl TEXT, seriesIndex INTEGER, " +
+                            "preferredSpeed REAL)"
+                    )
+                    db.execSQL(
+                        "INSERT INTO audiobooks (id, title, author, narrator, description, coverDrawableRes, " +
+                            "genre, sourceUrl) VALUES ('b1', 'Книга', 'Автор', 'Читець', '', 0, '', '')"
+                    )
+                }
+
+                override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) {}
+            })
+            .build()
+        val helper = factory.create(config)
+        val db = helper.writableDatabase
+
+        AudiobookDatabase.MIGRATION_6_7.migrate(db)
+
+        assertTrue("createdAt column must exist", tableColumns(db, "audiobooks").contains("createdAt"))
+        val backfilled = db.query("SELECT createdAt FROM audiobooks WHERE id = 'b1'").use { cursor ->
+            cursor.moveToFirst()
+            cursor.getLong(cursor.getColumnIndexOrThrow("createdAt"))
+        }
+        assertTrue("existing rows must be backfilled with a non-zero stamp", backfilled > 0L)
+        db.close()
+    }
+
     private fun tableColumns(db: SupportSQLiteDatabase, table: String): Set<String> {
         val columns = mutableSetOf<String>()
         db.query("PRAGMA table_info($table)").use { cursor ->

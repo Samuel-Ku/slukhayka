@@ -15,7 +15,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         PlaybackProgressEntity::class,
         ListeningStatEntity::class
     ],
-    version = 6,
+    version = 7,
     exportSchema = false
 )
 abstract class AudiobookDatabase : RoomDatabase() {
@@ -35,7 +35,7 @@ abstract class AudiobookDatabase : RoomDatabase() {
                     // Schema v4: indices on every FK column queried via
                     // `WHERE bookId = :bookId` (audit CRITICAL PERF-004 --
                     // full table scans as the library grows).
-                    .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                    .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
                     .fallbackToDestructiveMigration(dropAllTables = true)
                     .build()
                 INSTANCE = instance
@@ -72,6 +72,20 @@ abstract class AudiobookDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE audiobooks ADD COLUMN preferredSpeed REAL")
                 db.execSQL("ALTER TABLE playback_progress ADD COLUMN lastPausedAtEpochMs INTEGER")
+            }
+        }
+
+        /**
+         * v6 -> v7 (wayfinder #39): the "recently added" sort needs a
+         * creation stamp on audiobooks. Existing rows get the migration-run
+         * time so the library is never empty-handed; new imports stamp their
+         * own insert time via the entity default. Internal (not private) so
+         * the JVM test suite can verify the upgrade path.
+         */
+        internal val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE audiobooks ADD COLUMN createdAt INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("UPDATE audiobooks SET createdAt = (strftime('%s','now') * 1000)")
             }
         }
     }

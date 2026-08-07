@@ -35,6 +35,11 @@ interface AudiobookDao {
     @Query("SELECT * FROM chapters WHERE bookId = :bookId ORDER BY chapterIndex ASC")
     suspend fun getChaptersListForBook(bookId: String): List<ChapterEntity>
 
+    // Wayfinder #39: every chapter of every book, so the library can compute
+    // cumulative positions and real total durations for its cards and sorts.
+    @Query("SELECT * FROM chapters")
+    fun getAllChapters(): Flow<List<ChapterEntity>>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertChapters(chapters: List<ChapterEntity>)
 

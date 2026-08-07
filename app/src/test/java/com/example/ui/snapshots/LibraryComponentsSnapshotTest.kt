@@ -3,6 +3,7 @@ package com.example.ui.snapshots
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -14,7 +15,6 @@ import com.example.ui.screens.EmptyStateMessage
 import com.example.ui.screens.ListeningStatsCard
 import com.example.ui.screens.OfflineBookItem
 import com.example.ui.theme.AudiobookTheme
-import com.example.ui.theme.CyberBg
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
 import com.github.takahirom.roborazzi.captureRoboImage
 import org.junit.Rule
@@ -57,7 +57,7 @@ class LibraryComponentsSnapshotTest {
     @Test
     fun stats_card_empty() {
         composeTestRule.setContent {
-            AudiobookTheme {
+            AudiobookTheme(darkTheme = true) {
                 LibrarySurface {
                     ListeningStatsCard(listeningStats = emptyList(), totalBooks = 0)
                 }
@@ -71,7 +71,7 @@ class LibraryComponentsSnapshotTest {
     @Test
     fun stats_card_populated() {
         composeTestRule.setContent {
-            AudiobookTheme {
+            AudiobookTheme(darkTheme = true) {
                 LibrarySurface {
                     ListeningStatsCard(
                         listeningStats = TestDataFactory.seedListeningStats(),
@@ -88,7 +88,7 @@ class LibraryComponentsSnapshotTest {
     @Test
     fun empty_state_no_offline_books() {
         composeTestRule.setContent {
-            AudiobookTheme {
+            AudiobookTheme(darkTheme = true) {
                 LibrarySurface {
                     EmptyStateMessage(
                         message = "Завантажені аудіокниги відсутні. " +
@@ -105,7 +105,7 @@ class LibraryComponentsSnapshotTest {
     @Test
     fun offline_book_item_single_fixture_book() {
         composeTestRule.setContent {
-            AudiobookTheme {
+            AudiobookTheme(darkTheme = true) {
                 LibrarySurface {
                     OfflineBookItem(
                         book = TestDataFactory.dataBooks()[0],
@@ -123,13 +123,13 @@ class LibraryComponentsSnapshotTest {
 }
 
 /**
- * Match the `LibraryScreen` chrome: dark surface, full-size column with
- * the same outer padding the screen would apply. Keeps the snapshot
+ * Match the `LibraryScreen` chrome: scheme background, full-size column
+ * with the same outer padding the screen would apply. Keeps the snapshot
  * faithful without dragging in `MainViewModel`.
  */
 @Composable
 private fun LibrarySurface(content: @Composable () -> Unit) {
-    Surface(modifier = Modifier.fillMaxSize(), color = CyberBg) {
+    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(modifier = Modifier.padding(0.dp)) { content() }
     }
 }

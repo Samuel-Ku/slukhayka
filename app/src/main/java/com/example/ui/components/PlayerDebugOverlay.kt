@@ -41,7 +41,7 @@ fun PlayerDebugOverlay(
 
     Card(
         colors = CardDefaults.cardColors(containerColor = Color(0xFF10141D).copy(alpha = 0.95f)),
-        border = androidx.compose.foundation.BorderStroke(1.dp, CyberPrimary),
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
         shape = RoundedCornerShape(16.dp),
         modifier = modifier
             .fillMaxWidth()
@@ -62,7 +62,7 @@ fun PlayerDebugOverlay(
                     Icon(
                         imageVector = Icons.Default.BugReport,
                         contentDescription = "Debug Icon",
-                        tint = CyberPrimary,
+                        tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(20.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
@@ -73,7 +73,7 @@ fun PlayerDebugOverlay(
                             fontFamily = FontFamily.Monospace,
                             letterSpacing = 1.sp
                         ),
-                        color = CyberPrimary
+                        color = MaterialTheme.colorScheme.primary
                     )
                 }
 
@@ -85,7 +85,7 @@ fun PlayerDebugOverlay(
                         Icon(
                             imageVector = if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
                             contentDescription = "Toggle Expand",
-                            tint = CyberTextSecondary
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                     Spacer(modifier = Modifier.width(4.dp))
@@ -96,7 +96,7 @@ fun PlayerDebugOverlay(
                         Icon(
                             imageVector = Icons.Default.Close,
                             contentDescription = "Close Debug Overlay",
-                            tint = CyberTextSecondary
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
@@ -112,7 +112,7 @@ fun PlayerDebugOverlay(
                         .fillMaxWidth()
                         .padding(top = 10.dp)
                 ) {
-                    HorizontalDivider(color = CyberCardBorder, thickness = 1.dp)
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 1.dp)
                     Spacer(modifier = Modifier.height(10.dp))
 
                     // Status indicators grid
@@ -135,7 +135,7 @@ fun PlayerDebugOverlay(
                         DebugStatusBadge(
                             label = "ENGINE",
                             value = playerState.audioEngineMode.take(16),
-                            color = CyberSecondary
+                            color = MaterialTheme.colorScheme.secondary
                         )
                     }
 
@@ -145,7 +145,7 @@ fun PlayerDebugOverlay(
                     Surface(
                         color = Color(0xFF0A0D14),
                         shape = RoundedCornerShape(8.dp),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, CyberCardBorder),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(modifier = Modifier.padding(10.dp)) {
@@ -160,7 +160,7 @@ fun PlayerDebugOverlay(
                                         fontFamily = FontFamily.Monospace,
                                         fontWeight = FontWeight.Bold
                                     ),
-                                    color = CyberTextSecondary
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
 
                                 IconButton(
@@ -175,7 +175,7 @@ fun PlayerDebugOverlay(
                                     Icon(
                                         imageVector = Icons.Default.ContentCopy,
                                         contentDescription = "Copy URL",
-                                        tint = CyberPrimary,
+                                        tint = MaterialTheme.colorScheme.primary,
                                         modifier = Modifier.size(14.dp)
                                     )
                                 }
@@ -189,7 +189,7 @@ fun PlayerDebugOverlay(
                                     fontFamily = FontFamily.Monospace,
                                     fontSize = 11.sp
                                 ),
-                                color = if (playerState.currentStreamUrl.isNotBlank()) CyberPrimary else Color(0xFFFF5252),
+                                color = if (playerState.currentStreamUrl.isNotBlank()) MaterialTheme.colorScheme.primary else Color(0xFFFF5252),
                                 maxLines = 3,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -206,13 +206,13 @@ fun PlayerDebugOverlay(
                         Text(
                             text = "Position: ${MainViewModel.formatTime(playerState.currentPositionMs / 1000L)} / ${MainViewModel.formatTime((playerState.durationMs / 1000L).coerceAtLeast(0L))}",
                             style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-                            color = CyberTextPrimary
+                            color = MaterialTheme.colorScheme.onSurface
                         )
 
                         Text(
                             text = "Chapter: ${playerState.currentChapterIndex + 1}/${playerState.chapters.size.coerceAtLeast(1)}",
                             style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-                            color = CyberTextSecondary
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
 
@@ -238,7 +238,7 @@ fun PlayerDebugOverlay(
                         if (onRetryPlayback != null) {
                             Button(
                                 onClick = onRetryPlayback,
-                                colors = ButtonDefaults.buttonColors(containerColor = CyberPrimary),
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                                 shape = RoundedCornerShape(8.dp),
                                 modifier = Modifier.height(34.dp)
                             ) {

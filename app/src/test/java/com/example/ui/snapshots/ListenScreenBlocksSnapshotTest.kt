@@ -2,6 +2,7 @@ package com.example.ui.snapshots
 
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -13,7 +14,6 @@ import com.example.ui.screens.ListenEmptyState
 import com.example.ui.screens.ListenHeroCard
 import com.example.ui.screens.RecentlyListenedRow
 import com.example.ui.theme.AudiobookTheme
-import com.example.ui.theme.CyberBg
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
 import com.github.takahirom.roborazzi.captureRoboImage
 import org.junit.Rule
@@ -42,7 +42,7 @@ class ListenScreenBlocksSnapshotTest {
     @Test
     fun hero_resume_card() {
         composeTestRule.setContent {
-            AudiobookTheme {
+            AudiobookTheme(darkTheme = true) {
                 ListenSurface {
                     ListenHeroCard(
                         book = book,
@@ -59,9 +59,30 @@ class ListenScreenBlocksSnapshotTest {
     }
 
     @Test
+    fun hero_resume_card_light() {
+        // Themes ticket (#37): the light scheme must render the migrated
+        // reference screen, not just the primitives.
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = false) {
+                ListenSurface {
+                    ListenHeroCard(
+                        book = book,
+                        progress = progress,
+                        onResumeClick = {},
+                        onBookClick = {}
+                    )
+                }
+            }
+        }
+        composeTestRule.onRoot().captureRoboImage(
+            filePath = "src/test/snapshots/listen_hero_card_light.png"
+        )
+    }
+
+    @Test
     fun recently_listened_row() {
         composeTestRule.setContent {
-            AudiobookTheme {
+            AudiobookTheme(darkTheme = true) {
                 ListenSurface {
                     RecentlyListenedRow(
                         book = book,
@@ -85,7 +106,7 @@ class ListenScreenBlocksSnapshotTest {
             seriesIndex = 3
         )
         composeTestRule.setContent {
-            AudiobookTheme {
+            AudiobookTheme(darkTheme = true) {
                 ListenSurface {
                     ContinueSeriesRow(
                         seriesTitle = "Сага про Дріззта",
@@ -104,7 +125,7 @@ class ListenScreenBlocksSnapshotTest {
     @Test
     fun empty_state_with_ctas() {
         composeTestRule.setContent {
-            AudiobookTheme {
+            AudiobookTheme(darkTheme = true) {
                 ListenSurface {
                     ListenEmptyState(
                         onBrowseClick = {},
@@ -119,10 +140,10 @@ class ListenScreenBlocksSnapshotTest {
     }
 }
 
-/** Same chrome as the other snapshot suites: dark surface, full size. */
+/** Same chrome as the other snapshot suites: scheme background, full size. */
 @Composable
 private fun ListenSurface(content: @Composable () -> Unit) {
-    Surface(modifier = Modifier.fillMaxSize(), color = CyberBg) {
+    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(modifier = Modifier.fillMaxSize()) { content() }
     }
 }

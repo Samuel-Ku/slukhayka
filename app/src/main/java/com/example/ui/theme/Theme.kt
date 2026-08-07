@@ -1,5 +1,6 @@
 package com.example.ui.theme
 
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
@@ -58,13 +59,13 @@ private val AppShapes = Shapes(
 
 /**
  * The app's single design system (wayfinder #23). Dark (graphite-navy) is the
- * primary theme and the current default. The light "paper" scheme is defined
- * and snapshot-tested here; making it selectable is the themes ticket (spec
- * #37), which also migrates the remaining hard-coded legacy colours.
+ * primary theme; the warm "paper" light scheme is the secondary. The active
+ * scheme follows the system setting by default (themes ticket #37) — pass
+ * [darkTheme] explicitly to force either scheme (the snapshot suites do).
  */
 @Composable
 fun AudiobookTheme(
-    darkTheme: Boolean = true,
+    darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit
 ) {
     MaterialTheme(

@@ -53,10 +53,10 @@ fun SeriesScreen(
                         Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = CyberBg)
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
             )
         },
-        containerColor = CyberBg
+        containerColor = MaterialTheme.colorScheme.background
     ) { padding ->
         LazyColumn(
             modifier = Modifier
@@ -74,7 +74,7 @@ fun SeriesScreen(
                                 .padding(48.dp),
                             contentAlignment = Alignment.Center
                         ) {
-                            CircularProgressIndicator(color = CyberPrimary)
+                            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
                         }
                     }
                 }
@@ -91,14 +91,14 @@ fun SeriesScreen(
                                 Icon(
                                     imageVector = Icons.Default.MenuBook,
                                     contentDescription = null,
-                                    tint = CyberTextSecondary,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.size(48.dp)
                                 )
                                 Spacer(modifier = Modifier.height(12.dp))
                                 Text(
                                     text = "Не вдалося завантажити книги циклу. Перевірте з'єднання.",
                                     style = MaterialTheme.typography.bodyMedium,
-                                    color = CyberTextSecondary
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         }
@@ -113,7 +113,7 @@ fun SeriesScreen(
                                 fontWeight = FontWeight.SemiBold,
                                 fontSize = 13.sp
                             ),
-                            color = CyberSecondary,
+                            color = MaterialTheme.colorScheme.secondary,
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
                         )
                     }

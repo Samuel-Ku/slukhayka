@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -60,9 +61,9 @@ fun BookCoverImage(
                 .background(
                     brush = Brush.verticalGradient(
                         colors = listOf(
-                            CyberSurface,
-                            CyberCardBg,
-                            CyberPrimary.copy(alpha = 0.25f)
+                            MaterialTheme.colorScheme.surface,
+                            MaterialTheme.colorScheme.surfaceVariant,
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)
                         )
                     )
                 )
@@ -76,13 +77,13 @@ fun BookCoverImage(
                 Icon(
                     imageVector = Icons.Default.Headphones,
                     contentDescription = null,
-                    tint = CyberPrimary,
+                    tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(24.dp)
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = book.title,
-                    color = CyberTextPrimary,
+                    color = MaterialTheme.colorScheme.onSurface,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
                     maxLines = 3,
@@ -93,7 +94,7 @@ fun BookCoverImage(
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
                         text = book.author,
-                        color = CyberTextSecondary,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 9.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,

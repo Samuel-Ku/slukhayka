@@ -44,15 +44,18 @@ Standing preferences:
 - [Backup & sync approach](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/35) — Auto Backup (dataExtractionRules) covers the Room DB free; manual SAF export/import for a full backup; audio excluded (over the ~25 MB cap); re-pick + re-scan after reinstall. Cloud sync ruled OUT of scope.
 - [Adaptive two-pane layout](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/36) — GO: stable material3-adaptive `ListDetailPaneScaffold` for Медіатека; `selectedBookId` maps onto the scaffold content key; gated on Library rework.
 - [Design system](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/23) — graphite-navy dark (primary) + warm-paper light schemes, one amber accent, editorial type scale, spacing/radius/≥48 dp touch tokens, cards 10–14 dp with minimal shadows, no card-in-card, animation budget decided; primitives `AppSectionHeader`/`EmptyState`/`EmptyStateRow` (empty-states house standard); Слухати migrated as the reference; legacy `Cyber*` aliases remain for other screens. Unblocks themes/player/library/book-page/accessibility.
+- [Smart rewind & position history](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/25) — tiered rewind on resume (0/3/12/25 s by pause length), in-memory + persisted pause markers (cross-restart), SeekHistory 5-min threshold + one-tap «Повернутися» undo in the player.
+- [Speed: per-book memory & defaults](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/26) — per-book preferredSpeed (Room 5→6) + PlaybackSettings global default; SpeedSheet presets 0.5–3.0 + slider + save-for-book/set-default; applied on book load.
+- [Three-level deletion](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/28) — removeFromLibrary (rows only, files kept) / delete downloaded copy / delete book + files behind explicit confirm; tombstones prevent catalogue resurrection.
 
 ## Tickets (children of map #22)
 
 - #23 — Design system `wayfinder:grilling` — ✅ resolved 2026-08-07.
 - #24 — Empty states audit `wayfinder:task` — ✅ resolved 2026-08-07.
-- #25 — Smart rewind & position history `wayfinder:grilling` — frontier.
-- #26 — Speed: per-book memory & defaults `wayfinder:grilling` — frontier.
+- #25 — Smart rewind & position history `wayfinder:grilling` — ✅ resolved 2026-08-07.
+- #26 — Speed: per-book memory & defaults `wayfinder:grilling` — ✅ resolved 2026-08-07.
 - #27 — Sleep timer & bookmark upgrades `wayfinder:grilling` — frontier.
-- #28 — Three-level deletion `wayfinder:grilling` — frontier.
+- #28 — Three-level deletion `wayfinder:grilling` — ✅ resolved 2026-08-07.
 - #29 — Import preview & corrections flow `wayfinder:prototype` — frontier.
 - #30 — Enrichment data spike `wayfinder:research` — ✅ resolved 2026-08-07.
 - #31 — 4read catalog data audit `wayfinder:research` — ✅ resolved 2026-08-07.

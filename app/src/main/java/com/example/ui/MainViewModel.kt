@@ -91,6 +91,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val allBookmarks: StateFlow<List<BookmarkEntity>> = repository.allBookmarks
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    // Wayfinder #39: the unified Медіатека list — every book with its playback
+    // state and chapter-derived metrics. Filtering and sorting happen in the
+    // screen via the pure filterAndSortLibrary; this flow only combines.
+    val libraryBooks: StateFlow<List<com.example.ui.library.LibraryBook>> = combine(
+        repository.allBooks,
+        repository.recentProgress,
+        repository.allChapters
+    ) { books, progress, chapters ->
+        com.example.ui.library.buildLibraryBooks(books, progress, chapters.groupBy { it.bookId })
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     val recentProgress: StateFlow<List<PlaybackProgressEntity>> = repository.recentProgress
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 

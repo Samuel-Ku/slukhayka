@@ -40,6 +40,10 @@ class AudiobookRepository(
     val allBookmarks: Flow<List<BookmarkEntity>> = dao.getAllBookmarks()
     val recentProgress: Flow<List<PlaybackProgressEntity>> = dao.getAllPlaybackProgress()
 
+    // Wayfinder #39: every chapter, for the library's cumulative position and
+    // real total durations. One query; recomputed in memory on change.
+    val allChapters: Flow<List<ChapterEntity>> = dao.getAllChapters()
+
     init {
         if (autoSyncOnInit) {
             CoroutineScope(Dispatchers.IO).launch {

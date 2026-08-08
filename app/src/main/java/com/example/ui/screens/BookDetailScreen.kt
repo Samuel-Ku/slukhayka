@@ -6,6 +6,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
@@ -24,17 +25,20 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.data.catalog.CatalogBook
 import com.example.data.db.AudiobookEntity
 import com.example.data.db.BookmarkEntity
 import com.example.data.db.ChapterEntity
 import com.example.ui.MainViewModel
 import com.example.ui.components.BookmarkDialog
+import com.example.ui.displayAuthor
 import com.example.ui.theme.*
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun BookDetailScreen(
     viewModel: MainViewModel,
@@ -43,7 +47,10 @@ fun BookDetailScreen(
     val book by viewModel.selectedBook.collectAsState()
     val chapters by viewModel.selectedBookChapters.collectAsState()
     val bookmarks by viewModel.selectedBookBookmarks.collectAsState()
+    val relatedBooks by viewModel.relatedBooks.collectAsState()
     val playerState by viewModel.playerState.collectAsState()
+    val downloadingBookId by viewModel.downloadingBookId.collectAsState()
+    val downloadMessage by viewModel.downloadMessage.collectAsState()
 
     var activeTab by remember { mutableStateOf(0) } // 0 = Chapters, 1 = Bookmarks
     var showAddBookmarkDialog by remember { mutableStateOf(false) }
@@ -51,10 +58,33 @@ fun BookDetailScreen(
     var showDeleteDialog by remember { mutableStateOf(false) }
 
     val currentBook = book ?: return
+    val isDownloadingThis = downloadingBookId == currentBook.id
+
+    // Offline-download outcome feedback: the repository may find no audio for
+    // a catalogue book whose page could not be fetched — surface that instead
+    // of the button silently doing nothing.
+    val snackbarHostState = remember { SnackbarHostState() }
+    LaunchedEffect(downloadMessage) {
+        downloadMessage?.let { message ->
+            snackbarHostState.showSnackbar(message)
+            viewModel.consumeDownloadMessage()
+        }
+    }
+
+    // Related books ("Можливо, Тебе зацікавить:") — load once per opened book;
+    // navigating to a related book re-triggers this via the new book id.
+    LaunchedEffect(currentBook.id) {
+        viewModel.loadRelatedBooks(currentBook.id)
+    }
 
     Scaffold(
         topBar = {
+            // The host Scaffold in MainActivity already consumed the status
+            // bar (innerPadding.top), so this inner TopAppBar must NOT add
+            // statusBarsPadding again or the header sits a full status-bar
+            // height too low.
             TopAppBar(
+                windowInsets = WindowInsets(0, 0, 0, 0),
                 title = { Text(currentBook.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 navigationIcon = {
                     IconButton(onClick = onBackClick) {
@@ -73,18 +103,30 @@ fun BookDetailScreen(
                             )
                         }
                     }
-                    IconButton(onClick = {
-                        if (currentBook.isDownloaded) {
-                            viewModel.removeOfflineDownload(currentBook.id)
+                    IconButton(
+                        onClick = {
+                            if (currentBook.isDownloaded) {
+                                viewModel.removeOfflineDownload(currentBook.id)
+                            } else {
+                                viewModel.downloadBookOffline(currentBook.id)
+                            }
+                        },
+                        enabled = !isDownloadingThis
+                    ) {
+                        if (isDownloadingThis) {
+                            CircularProgressIndicator(
+                                progress = { currentBook.downloadProgress.coerceIn(0.05f, 0.95f) },
+                                modifier = Modifier.size(22.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.primary
+                            )
                         } else {
-                            viewModel.downloadBookOffline(currentBook.id)
+                            Icon(
+                                imageVector = if (currentBook.isDownloaded) Icons.Default.CloudDone else Icons.Default.CloudDownload,
+                                contentDescription = "Offline Download",
+                                tint = if (currentBook.isDownloaded) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurface
+                            )
                         }
-                    }) {
-                        Icon(
-                            imageVector = if (currentBook.isDownloaded) Icons.Default.CloudDone else Icons.Default.CloudDownload,
-                            contentDescription = "Offline Download",
-                            tint = if (currentBook.isDownloaded) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurface
-                        )
                     }
                     // Wayfinder #28: deletion is a choice — remove from library,
                     // delete the downloaded copy, or delete everything.
@@ -99,7 +141,8 @@ fun BookDetailScreen(
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
             )
         },
-        containerColor = MaterialTheme.colorScheme.background
+        containerColor = MaterialTheme.colorScheme.background,
+        snackbarHost = { SnackbarHost(hostState = snackbarHostState) }
     ) { padding ->
         LazyColumn(
             modifier = Modifier
@@ -120,8 +163,8 @@ fun BookDetailScreen(
                         modifier = Modifier
                             .width(180.dp)
                             .height(240.dp)
-                            .clip(RoundedCornerShape(20.dp))
-                            .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f), RoundedCornerShape(20.dp)),
+                            .clip(RoundedCornerShape(AppDimens.RadiusHero))
+                            .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f), RoundedCornerShape(AppDimens.RadiusHero)),
                         elevation = CardDefaults.cardElevation(8.dp)
                     ) {
                         com.example.ui.components.BookCoverImage(
@@ -136,83 +179,124 @@ fun BookDetailScreen(
 
                     Text(
                         text = currentBook.title,
-                        style = MaterialTheme.typography.headlineMedium.copy(
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 22.sp
-                        ),
+                        style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
                         color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.Center,
                         modifier = Modifier.testTag("book_detail_title")
                     )
 
                     Spacer(modifier = Modifier.height(4.dp))
 
-                    Text(
-                        text = "By ${currentBook.author}",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.primary
-                    )
+                    // "4read.org" is a placeholder author, not a real one — the
+                    // Source pill below already names the catalog.
+                    if (currentBook.displayAuthor.isNotBlank()) {
+                        Text(
+                            text = "By ${currentBook.displayAuthor}",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
 
                     Text(
                         text = "Narrated by ${currentBook.narrator}",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.fillMaxWidth(),
+                        textAlign = TextAlign.Center
                     )
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    // Tags row
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                    // Tags row — FlowRow so long labels wrap instead of being
+                    // clipped off-screen or split mid-word.
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Surface(
-                            color = MaterialTheme.colorScheme.surfaceVariant,
-                            shape = RoundedCornerShape(12.dp),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                        // "4read Каталог" is the placeholder genre for catalog
+                        // books — the Source pill below already says it.
+                        if (currentBook.genre.isNotBlank() &&
+                            !currentBook.genre.contains("4read", ignoreCase = true)
                         ) {
-                            Text(
+                            TagPill(
                                 text = currentBook.genre,
-                                style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                container = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
                             )
                         }
 
-                        Surface(
-                            color = MaterialTheme.colorScheme.surfaceVariant,
-                            shape = RoundedCornerShape(12.dp),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-                        ) {
-                            Text(
-                                text = "${currentBook.totalChapters} Ch. • ${MainViewModel.formatTime(currentBook.totalDurationSeconds)}",
-                                style = MaterialTheme.typography.labelSmall,
+                        // Only render the stats pill when at least one value is
+                        // actually known — never a fabricated "5 Ch. • 4:00:00"
+                        // for a catalogue book whose chapters haven't loaded yet.
+                        // Each part renders only when known, so a source with a
+                        // real duration but no chapter count shows just the
+                        // duration, never "0 Ch.".
+                        val chaptersKnown = currentBook.totalChapters > 0
+                        val durationKnown = currentBook.totalDurationSeconds > 0L
+                        if (chaptersKnown || durationKnown) {
+                            TagPill(
+                                text = when {
+                                    chaptersKnown && durationKnown ->
+                                        "${currentBook.totalChapters} Ch. • ${MainViewModel.formatTime(currentBook.totalDurationSeconds)}"
+                                    chaptersKnown -> "${currentBook.totalChapters} Ch."
+                                    else -> MainViewModel.formatTime(currentBook.totalDurationSeconds)
+                                },
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                container = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
                             )
                         }
 
-                        Surface(
-                            color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.2f),
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Text(
+                        // Real site rating — repositories seed 0f for unknown,
+                        // so a positive value means the page actually carried one.
+                        if (currentBook.rating > 0f) {
+                            TagPill(
+                                text = "★ ${currentBook.rating}",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                container = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                            )
+                        }
+
+                        // The one canonical source label — only for books that
+                        // actually came from the catalog, never for local imports.
+                        if (currentBook.sourceUrl.contains("4read.org")) {
+                            TagPill(
                                 text = "4read.org Source",
-                                style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.secondary,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                container = MaterialTheme.colorScheme.secondary.copy(alpha = 0.2f),
+                                border = null
                             )
                         }
                     }
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // Description
-                    Text(
-                        text = currentBook.description,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 8.dp)
-                    )
+                    // Description — the Source pill above already names the
+                    // catalog, so strip the repeated domain/prefix from the
+                    // stored template and keep only the meaningful part.
+                    val displayDescription = remember(currentBook.description) {
+                        currentBook.description
+                            .replace("Аудіокнига з каталогу 4read.org. ", "")
+                            .replace("Аудиокнига с портала 4read.org. ", "")
+                            .replace("Книга знайдена на порталі 4read.org за запитом \"", "")
+                            .replace("\". Джерело: ", ". Джерело: ")
+                            .replace(Regex("""https?://4read\.org/"""), "")
+                            .trim()
+                    }
+                    if (displayDescription.isNotBlank()) {
+                        Text(
+                            text = displayDescription,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 8.dp)
+                        )
+                    }
 
                     Spacer(modifier = Modifier.height(20.dp))
 
@@ -227,7 +311,7 @@ fun BookDetailScreen(
                                 viewModel.setShowFullPlayer(true)
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                            shape = RoundedCornerShape(16.dp),
+                            shape = RoundedCornerShape(AppDimens.RadiusPanel),
                             modifier = Modifier
                                 .weight(1.2f)
                                 .height(50.dp)
@@ -250,7 +334,8 @@ fun BookDetailScreen(
                                     viewModel.downloadBookOffline(currentBook.id)
                                 }
                             },
-                            shape = RoundedCornerShape(16.dp),
+                            enabled = !isDownloadingThis,
+                            shape = RoundedCornerShape(AppDimens.RadiusPanel),
                             border = androidx.compose.foundation.BorderStroke(
                                 1.dp,
                                 if (currentBook.isDownloaded) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.outlineVariant
@@ -258,27 +343,48 @@ fun BookDetailScreen(
                             colors = ButtonDefaults.outlinedButtonColors(
                                 contentColor = if (currentBook.isDownloaded) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurface
                             ),
+                            contentPadding = PaddingValues(horizontal = 10.dp),
                             modifier = Modifier
                                 .weight(1f)
                                 .height(50.dp)
                                 .testTag("download_offline_button")
                         ) {
-                            Icon(
-                                imageVector = if (currentBook.isDownloaded) Icons.Default.CloudDone else Icons.Default.CloudDownload,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = if (currentBook.isDownloaded) "Offline" else "Download",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Medium
-                            )
+                            if (isDownloadingThis) {
+                                // Live progress: the repository writes
+                                // downloadProgress to the observed book row,
+                                // so this recomposes as chapters complete.
+                                CircularProgressIndicator(
+                                    progress = { currentBook.downloadProgress.coerceIn(0.05f, 0.95f) },
+                                    modifier = Modifier.size(18.dp),
+                                    strokeWidth = 2.dp,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "${(currentBook.downloadProgress.coerceIn(0f, 1f) * 100).toInt()}%",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            } else {
+                                Text(
+                                    text = if (currentBook.isDownloaded) "Offline" else "Download",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Icon(
+                                    imageVector = if (currentBook.isDownloaded) Icons.Default.CloudDone else Icons.Default.CloudDownload,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
                         }
 
                         OutlinedButton(
                             onClick = { showAddBookmarkDialog = true },
-                            shape = RoundedCornerShape(16.dp),
+                            shape = RoundedCornerShape(AppDimens.RadiusPanel),
                             border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                             modifier = Modifier
                                 .height(50.dp)
@@ -301,12 +407,26 @@ fun BookDetailScreen(
                     Tab(
                         selected = activeTab == 0,
                         onClick = { activeTab = 0 },
-                        text = { Text("Chapters (${chapters.size})", fontWeight = FontWeight.Bold) }
+                        text = {
+                            Text(
+                                text = "Chapters (${chapters.size})",
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
                     )
                     Tab(
                         selected = activeTab == 1,
                         onClick = { activeTab = 1 },
-                        text = { Text("Bookmarks (${bookmarks.size})", fontWeight = FontWeight.Bold) }
+                        text = {
+                            Text(
+                                text = "Bookmarks (${bookmarks.size})",
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
                     )
                 }
             }
@@ -354,6 +474,37 @@ fun BookDetailScreen(
                     }
                 }
             }
+
+            // Related books from the book page ("Можливо, Тебе зацікавить:").
+            if (relatedBooks.isNotEmpty()) {
+                item {
+                    Text(
+                        text = "Можливо, Тебе зацікавить",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 20.dp, bottom = 8.dp)
+                    )
+                }
+                item {
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        items(relatedBooks, key = { it.id }) { related ->
+                            CatalogBookCard(
+                                book = CatalogBook(
+                                    id = related.id,
+                                    title = related.title,
+                                    author = related.author,
+                                    url = related.sourceUrl,
+                                    coverImageUrl = related.coverImageUrl
+                                ),
+                                onClick = { viewModel.selectBook(related.id) }
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -377,7 +528,7 @@ fun BookDetailScreen(
         // never silently destroy the user's audio files.
         ModalBottomSheet(
             onDismissRequest = { showDeleteSheet = false },
-            containerColor = MaterialTheme.colorScheme.surfaceVariant
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
         ) {
             Column(
                 modifier = Modifier
@@ -479,7 +630,9 @@ fun BookDetailScreen(
     if (showDeleteDialog) {
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },
-            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+            // MD3: dialog = surfaceContainerHigh (highest tonal step of a
+            // raised container, below text fields).
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
             title = {
                 Text(
                     text = "Видалити книгу?",
@@ -501,7 +654,8 @@ fun BookDetailScreen(
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
                 ) {
-                    Text("Видалити", color = Color.White, fontWeight = FontWeight.Bold)
+                    // MD3 tonal pairing: onError text on the error container.
+                    Text("Видалити", color = MaterialTheme.colorScheme.onError, fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
@@ -509,6 +663,29 @@ fun BookDetailScreen(
                     Text("Скасувати", color = MaterialTheme.colorScheme.onSurface)
                 }
             }
+        )
+    }
+}
+
+@Composable
+private fun TagPill(
+    text: String,
+    color: Color,
+    container: Color,
+    border: androidx.compose.foundation.BorderStroke?
+) {
+    Surface(
+        color = container,
+        shape = RoundedCornerShape(AppDimens.RadiusCard),
+        border = border
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelSmall,
+            color = color,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
         )
     }
 }
@@ -524,11 +701,11 @@ fun ChapterRowItem(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 4.dp)
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(AppDimens.RadiusCard))
             .border(
                 1.dp,
                 if (isPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
-                RoundedCornerShape(12.dp)
+                RoundedCornerShape(AppDimens.RadiusCard)
             )
             // Test seam (GitHub issue #7 — emulator audio scenario): deterministic
             // compose-test selector for the chapter row in BookDetailScreen.
@@ -538,7 +715,7 @@ fun ChapterRowItem(
             .testTag("book_detail_chapter_${chapter.id}")
             .clickable { onPlayClick() },
         colors = CardDefaults.cardColors(
-            containerColor = if (isPlaying) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f) else MaterialTheme.colorScheme.surfaceVariant
+            containerColor = if (isPlaying) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f) else MaterialTheme.colorScheme.surfaceContainer
         )
     ) {
         Row(
@@ -549,7 +726,7 @@ fun ChapterRowItem(
         ) {
             Surface(
                 shape = CircleShape,
-                color = if (isPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                color = if (isPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh,
                 modifier = Modifier.size(36.dp)
             ) {
                 Box(contentAlignment = Alignment.Center) {
@@ -571,18 +748,19 @@ fun ChapterRowItem(
                 Text(
                     text = chapter.title,
                     style = MaterialTheme.typography.titleMedium.copy(
-                        fontWeight = if (isPlaying) FontWeight.Bold else FontWeight.Medium,
-                        fontSize = 15.sp
+                        fontWeight = if (isPlaying) FontWeight.Bold else FontWeight.Medium
                     ),
                     color = if (isPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                Text(
-                    text = "Duration: ${MainViewModel.formatTime(chapter.durationSeconds)}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                if (chapter.durationSeconds > 0L) {
+                    Text(
+                        text = "Duration: ${MainViewModel.formatTime(chapter.durationSeconds)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
 
             IconButton(onClick = onPlayClick) {
@@ -607,9 +785,9 @@ fun BookmarkRowItem(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 4.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp)),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+            .clip(RoundedCornerShape(AppDimens.RadiusCard))
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(AppDimens.RadiusCard)),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
     ) {
         Row(
             modifier = Modifier

@@ -1,3 +1,5 @@
+@file:androidx.annotation.OptIn(UnstableApi::class)
+
 package com.example.player
 
 import android.content.ComponentName
@@ -65,10 +67,12 @@ fun interface PlayerFactory {
 }
 
 /**
- * AudioPlayerManager wraps Media3 ExoPlayer. The class opts into Media3's
- * `UnstableApi` surface because we intentionally call HttpDataSource.Factory
- * accessors (`setUserAgent`, `setDefaultRequestProperties`, etc.) that are
- * not part of the stable API yet.
+ * AudioPlayerManager wraps Media3 ExoPlayer. This file opts into Media3's
+ * `UnstableApi` surface (`@file:androidx.annotation.OptIn` — kotlin's
+ * `@OptIn` is a no-op for androidx `@RequiresOptIn` markers) because we
+ * intentionally call HttpDataSource.Factory accessors (`setUserAgent`,
+ * `setDefaultRequestProperties`, etc.) that are not part of the stable API
+ * yet.
  *
  * Historical note: before Phase 2.5 hotfix these calls were unguarded, which
  * caused `./gradlew lintDebug` to fail with 11 `UnsafeOptInUsageError`s and
@@ -81,7 +85,6 @@ fun interface PlayerFactory {
  * [PlaybackService] to keep working across chapter switches, and it avoids
  * paying the ExoPlayer construction cost on every chapter boundary.
  */
-@OptIn(UnstableApi::class)
 class AudioPlayerManager(
     private val context: Context,
     private val repository: AudiobookRepository,
@@ -110,6 +113,22 @@ class AudioPlayerManager(
 
     /** Whether the current prepare should auto-start once READY. */
     private var shouldAutoPlay: Boolean = false
+
+    /**
+     * Resume position to seek EXACTLY ONCE after the next READY transition,
+     * or -1 when nothing is pending.
+     *
+     * Root cause of the 2026-08-08 device bug (resume seek loop): the READY
+     * listener used to call `mp.seekTo(_playerState.currentPositionMs)` on
+     * EVERY READY. When resuming at a saved position > 0 the state position
+     * never advances while the player is in BUFFERING, so every READY re-issued
+     * the same seek -> READY -> seek -> BUFFERING -> READY forever (device
+     * logcat: buffered position kept resetting to the frozen resume position
+     * 452000). Seeking is now a consumed one-shot: [prepareChapter],
+     * [seekTo] while buffering and [applySmartRewindIfNeeded] arm it, the READY
+     * listener fires it once and disarms.
+     */
+    private var pendingResumeSeekMs: Long = -1L
 
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var updateProgressJob: Job? = null
@@ -159,10 +178,19 @@ class AudioPlayerManager(
                     durationMs = if (mp.duration > 0) mp.duration else _playerState.value.durationMs,
                     audioEngineMode = if (isLocal) "Offline Local File" else "4read Direct Stream"
                 )
+                // Persist the real chapter duration once the stream reports it,
+                // so the book's total duration is honest instead of a seeded
+                // placeholder ("4:00:00" for every catalogue book).
+                persistRealDurationIfKnown(mp.duration)
                 applyPlaybackSpeed(_playerState.value.playbackSpeed)
                 val validDur = if (mp.duration > 0) mp.duration else _playerState.value.durationMs
-                if (_playerState.value.currentPositionMs > 0 && _playerState.value.currentPositionMs < validDur) {
-                    try { mp.seekTo(_playerState.value.currentPositionMs) } catch (_: Exception) {}
+                // One-shot resume seek (see [pendingResumeSeekMs]): fire it once
+                // and consume it. Never seek from the live state position here -
+                // that re-armed on every READY and stalled resume forever.
+                val pendingSeek = pendingResumeSeekMs
+                pendingResumeSeekMs = -1L
+                if (pendingSeek > 0 && pendingSeek < validDur) {
+                    try { mp.seekTo(pendingSeek) } catch (_: Exception) {}
                 }
                 if (shouldAutoPlay || _playerState.value.isPlaying) {
                     try {
@@ -236,6 +264,11 @@ class AudioPlayerManager(
             canUndoSeek = false,
             undoFromPositionMs = 0L
         )
+
+        // Arm the one-shot resume seek (see [pendingResumeSeekMs]): it is fired
+        // by the READY listener exactly once and consumed, so a resume position
+        // can never re-trigger a READY -> seek -> BUFFERING loop.
+        pendingResumeSeekMs = startPositionMs.takeIf { it > 0 } ?: -1L
 
         prepareTimeoutJob?.cancel()
         prepareTimeoutJob = scope.launch {
@@ -462,7 +495,13 @@ class AudioPlayerManager(
             _playerState.value = _playerState.value.copy(currentPositionMs = targetMs)
         }
 
-        if (_playerState.value.isBuffering) return
+        // Seek requested while the engine is still preparing/buffering: the
+        // player cannot honour it now, so arm the one-shot READY seek instead.
+        // (A target of 0 needs no arm: a fresh prepare starts at 0 anyway.)
+        if (_playerState.value.isBuffering) {
+            if (targetMs > 0) pendingResumeSeekMs = targetMs
+            return
+        }
 
         mediaPlayer?.let { mp ->
             try {
@@ -570,7 +609,14 @@ class AudioPlayerManager(
         _playerState.value = _playerState.value.copy(currentPositionMs = targetMs)
         mediaPlayer?.let { mp ->
             try {
-                if (mp.playbackState == Player.STATE_READY) mp.seekTo(targetMs)
+                if (mp.playbackState == Player.STATE_READY) {
+                    mp.seekTo(targetMs)
+                } else {
+                    // Engine not ready yet: arm the one-shot seek so the rewind
+                    // position survives the pending READY (same consumed-once
+                    // mechanism as [pendingResumeSeekMs]).
+                    pendingResumeSeekMs = targetMs
+                }
             } catch (_: Exception) {}
         }
     }
@@ -698,6 +744,27 @@ class AudioPlayerManager(
         }
     }
 
+    /**
+     * Writes the player-reported duration back into the chapter row when the
+     * engine actually knows it. The book's total duration is only recomputed
+     * once EVERY chapter has a real duration — until then the site's own
+     * "Триває:" value (stored via updateBookStats) stays authoritative, so a
+     * partially-played book never shows a shrunken partial sum.
+     */
+    private fun persistRealDurationIfKnown(durationMs: Long) {
+        val book = _playerState.value.currentBook ?: return
+        val chapter = currentChapter ?: return
+        if (durationMs <= 0L) return
+        val seconds = durationMs / 1000L
+        scope.launch(Dispatchers.IO) {
+            repository.updateChapterDuration(chapter.id, seconds)
+            val chapters = repository.getChaptersList(book.id)
+            if (chapters.isNotEmpty() && chapters.all { it.durationSeconds > 0L }) {
+                repository.updateBookStats(book.id, chapters.size, chapters.sumOf { it.durationSeconds })
+            }
+        }
+    }
+
     private fun saveCurrentProgressToDb() {
         val book = _playerState.value.currentBook ?: return
         val currentChapter = _playerState.value.currentChapterIndex
@@ -716,6 +783,7 @@ class AudioPlayerManager(
         // manager and mutate `_playerState.value` after the test (or a
         // future onStop hook) releases the underlying player.
         prepareTimeoutJob?.cancel()
+        pendingResumeSeekMs = -1L
         mediaController?.release()
         mediaController = null
         mediaControllerFuture?.let { MediaController.releaseFuture(it) }
@@ -751,6 +819,7 @@ class AudioPlayerManager(
         }
         currentChapter = null
         shouldAutoPlay = false
+        pendingResumeSeekMs = -1L
         _playerState.value = PlayerState()
     }
 

@@ -166,6 +166,198 @@ class CatalogParserTest {
     }
 
     @Test
+    fun `genre nav sidebar parses into absolute genre links`() {
+        val html = """
+            <aside class="cols__right">
+                <div class="sb js-this-in-mobile-menu">
+                    <div class="sb__title"><span class="fal fa-book"></span>Аудіокниги жанру:</div>
+                    <ul class="sb__content sb__nav">
+                        <li><a href="/kazka/">Казка</a></li>
+                        <li><a href="/fentezi/">Фентезі</a></li>
+                        <li><a href="/dytlit/">Дитячі</a></li>
+                        <li><a href="/zno-ukrajinska-literatura.html">ЗНО</a></li>
+                        <li><a href="/addnews.html"><i class="fal fa-pencil-square-o" style="color:red"></i> Додати книгу</a></li>
+                    </ul>
+                </div>
+            </aside>
+        """.trimIndent()
+
+        val genres = CatalogParser.parseGenreNav(html)
+
+        // "Додати книгу" embeds an <i> icon and ЗНО is a static works list
+        // (no poster grid) — both must be skipped.
+        assertEquals(3, genres.size)
+        assertEquals("Казка", genres[0].title)
+        assertEquals("https://4read.org/kazka/", genres[0].url)
+        assertEquals("Фентезі", genres[1].title)
+        assertEquals("https://4read.org/fentezi/", genres[1].url)
+        assertEquals("Дитячі", genres[2].title)
+        assertEquals("https://4read.org/dytlit/", genres[2].url)
+    }
+
+    @Test
+    fun `related books section parses into books`() {
+        val html = """
+            <section class="sect pmovie__related carou">
+                <h2 class="sect__title sect__header"><span>Можливо,</span> Тебе зацікавить:</h2>
+                <div class="sect__content grid-items">
+                    $plainPoster
+                    $seriesPoster
+                </div>
+            </section>
+        """.trimIndent()
+
+        val related = CatalogParser.parseRelatedBooks(html)
+
+        assertEquals(2, related.size)
+        assertEquals("4read-7611-vkradi-mene-zaraz", related[0].id)
+        assertEquals("Вкради мене... Зараз!", related[0].title)
+        assertEquals("4read-7589-neostannij-bij", related[1].id)
+    }
+
+    @Test
+    fun `related books degrade to empty on absent section`() {
+        assertTrue(CatalogParser.parseRelatedBooks("").isEmpty())
+        assertTrue(CatalogParser.parseRelatedBooks("<html><body><p>no related</p></body></html>").isEmpty())
+        assertTrue(CatalogParser.parseRelatedBooks("<section class=\"sect pmovie__related\"></section>").isEmpty())
+    }
+
+    @Test
+    fun `top 100 linek cards parse into ranked books with real duration`() {
+        val html = """
+            <div class="sect__content count-items">
+                <div class="linek d-flex ai-center has-overlay card">
+                    <div class="linek__img img-fit-cover"><img src="/uploads/posts/2026-02/medium/x.webp" loading="lazy"></div>
+                    <div class="linek__desc flex-grow-1">
+                        <a href="https://4read.org/6945-dzho-aberkrombi-chorti.html"><div class="linek__title ws-nowrap">Чорти - Джо Аберкромбі</div></a>
+                        <div class="linek__meta ws-nowrap"><span>Триває:</span> 21:42:42</div>
+                    </div>
+                </div>
+                <div class="linek d-flex ai-center has-overlay card">
+                    <div class="linek__img img-fit-cover"><img src="/uploads/posts/2026-01/medium/y.webp" loading="lazy"></div>
+                    <div class="linek__desc flex-grow-1">
+                        <a href="https://4read.org/7001-vkradi-mene-zaraz.html"><div class="linek__title ws-nowrap">Вкради мене... Зараз! - Сергій Оріанець</div></a>
+                        <div class="linek__meta ws-nowrap"><span>Триває:</span> 8:05:00</div>
+                    </div>
+                </div>
+            </div>
+        """.trimIndent()
+
+        val books = CatalogParser.parseTop100(html)
+
+        assertEquals(2, books.size)
+        val first = books[0]
+        assertEquals("4read-6945-dzho-aberkrombi-chorti", first.id)
+        // "Title - Author" split at the LAST separator.
+        assertEquals("Чорти", first.title)
+        assertEquals("Джо Аберкромбі", first.author)
+        assertEquals(21 * 3600L + 42 * 60L + 42L, first.totalDurationSeconds)
+        assertEquals("https://4read.org/uploads/posts/2026-02/medium/x.webp", first.coverImageUrl)
+        // A title that itself contains " - " keeps it intact.
+        assertEquals("Вкради мене... Зараз!", books[1].title)
+        assertEquals("Сергій Оріанець", books[1].author)
+        assertEquals(8 * 3600L + 5 * 60L, books[1].totalDurationSeconds)
+    }
+
+    @Test
+    fun `people list parses narrators and authors with book counts`() {
+        val readers = """
+            <h1>Усі виконавці:</h1>
+            <div style="font-size:16px!important;"><ul>
+                <li><a href="/xfsearch/chitaet/Ада Роговцева/" target="_blank">Ада Роговцева - 23 книги</a></li>
+                <li><a href="/xfsearch/chitaet/Аліна Лукащук/" target="_blank">Аліна Лукащук - 8 книг</a></li>
+                <li><a href="/xfsearch/chitaet/Аза Власова/" target="_blank">Аза Власова - 1 книга</a></li>
+            </ul></div>
+        """.trimIndent()
+
+        val people = CatalogParser.parsePeopleList(readers)
+
+        assertEquals(3, people.size)
+        assertEquals("Ада Роговцева", people[0].name)
+        assertEquals("/xfsearch/chitaet/Ада Роговцева/", people[0].path)
+        assertEquals(23, people[0].bookCount)
+        assertEquals(1, people[2].bookCount)
+    }
+
+    @Test
+    fun `popular sidebar block parses into books with alt-author and duration`() {
+        val html = """
+            <aside class="cols__right">
+                <div class="sb sb--mt">
+                    <div class="sb__title"><span class="fal fa-trophy"></span>Популярне</div>
+                    <div class="sb__content sb__grid">
+                        <a class="ftop-item d-flex ai-center has-overlay" href="https://4read.org/7894-zhan-kristof-granzhe-pasazhir.html">
+                            <div class="ftop-item__img img-fit-cover">
+                                <img src="/uploads/posts/2026-07/medium/pasazhyr.webp" loading="lazy" alt="Жан-Крістоф Ґранже - Пасажир">
+                                <div class="has-overlay__icon anim"></div>
+                            </div>
+                            <div class="ftop-item__desc flex-grow-1">
+                                <div class="ftop-item__title poster__title line-clamp">Пасажир</div>
+                                <div class="ftop-item__meta poster__subtitle line-clamp">Світова література / Детектив / Роман</div>
+                                <div class="ftop-item__meta poster__subtitle line-clamp"><span class="fal fa-clock"></span> 24:54:14</div>
+                            </div>
+                        </a>
+                    </div>
+                </div>
+            </aside>
+        """.trimIndent()
+
+        val books = CatalogParser.parsePopularBooks(html)
+
+        assertEquals(1, books.size)
+        assertEquals("Пасажир", books[0].title)
+        assertEquals("Жан-Крістоф Ґранже", books[0].author)
+        assertEquals(24 * 3600L + 54 * 60L + 14L, books[0].totalDurationSeconds)
+        assertEquals("https://4read.org/uploads/posts/2026-07/medium/pasazhyr.webp", books[0].coverImageUrl)
+    }
+
+    @Test
+    fun `homepage with popular block yields a third section`() {
+        val html = """
+            <html><body>
+            <main>$plainPoster</main>
+            <aside class="cols__right">
+                <div class="sb sb--mt">
+                    <div class="sb__title"><span class="fal fa-trophy"></span>Популярне</div>
+                    <div class="sb__content sb__grid">
+                        <a class="ftop-item d-flex ai-center has-overlay" href="https://4read.org/7894-zhan-kristof-granzhe-pasazhir.html">
+                            <div class="ftop-item__img img-fit-cover"><img src="/uploads/posts/2026-07/medium/pasazhyr.webp" alt="Жан-Крістоф Ґранже - Пасажир"></div>
+                            <div class="ftop-item__desc flex-grow-1">
+                                <div class="ftop-item__title poster__title line-clamp">Пасажир</div>
+                                <div class="ftop-item__meta poster__subtitle line-clamp"><span class="fal fa-clock"></span> 24:54:14</div>
+                            </div>
+                        </a>
+                    </div>
+                </div>
+            </aside>
+            </body></html>
+        """.trimIndent()
+
+        val sections = CatalogParser.parseHomepage(html)
+
+        val popular = sections.first { it.title == "Популярне" }
+        assertEquals("Пасажир", popular.books.first().title)
+        assertEquals(24 * 3600L + 54 * 60L + 14L, popular.books.first().totalDurationSeconds)
+    }
+
+    @Test
+    fun `top100 and people lists degrade to empty on malformed html`() {
+        assertTrue(CatalogParser.parsePopularBooks("").isEmpty())
+        assertTrue(CatalogParser.parsePopularBooks("<html><body><p>no popular</p></body></html>").isEmpty())
+        assertTrue(CatalogParser.parseTop100("").isEmpty())
+        assertTrue(CatalogParser.parseTop100("<html><body><p>no linek</p></body></html>").isEmpty())
+        assertTrue(CatalogParser.parsePeopleList("").isEmpty())
+        assertTrue(CatalogParser.parsePeopleList("<html><body><p>no people</p></body></html>").isEmpty())
+    }
+
+    @Test
+    fun `genre nav degrades to empty on malformed html`() {
+        assertTrue(CatalogParser.parseGenreNav("").isEmpty())
+        assertTrue(CatalogParser.parseGenreNav("<html><body><p>no nav</p></body></html>").isEmpty())
+        assertTrue(CatalogParser.parseGenreNav("<ul class=\"sb__content sb__nav\"></ul>").isEmpty())
+    }
+
+    @Test
     fun `html entities are decoded in titles and series names`() {
         val html = """
             <div class="poster has-overlay">

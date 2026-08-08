@@ -27,6 +27,7 @@ import com.example.data.db.PlaybackProgressEntity
 import com.example.ui.MainViewModel
 import com.example.ui.components.AppSectionHeader
 import com.example.ui.components.EmptyState
+import com.example.ui.displayAuthor
 import com.example.ui.theme.*
 
 /**
@@ -118,7 +119,12 @@ fun ListenScreen(
             .mapNotNull { p -> allBooks.find { it.id == p.bookId }?.let { it to p } }
         if (recentItems.isNotEmpty()) {
             item { AppSectionHeader(title = "Нещодавно слухали") }
-            items(recentItems, key = { it.first.id }) { (book, progress) ->
+            // Keys are prefixed per section: LazyColumn keys must be unique
+            // across the WHOLE list, and the same book can legitimately appear
+            // in both "Нещодавно слухали" and "Завантажено" (observed
+            // on-device: duplicate key "..." crashed the Listen tab for any
+            // downloaded-and-listened book).
+            items(recentItems, key = { "recent-${it.first.id}" }) { (book, progress) ->
                 RecentlyListenedRow(
                     book = book,
                     progress = progress,
@@ -131,7 +137,7 @@ fun ListenScreen(
         // Завантажено.
         if (downloadedBooks.isNotEmpty()) {
             item { AppSectionHeader(title = "Завантажено") }
-            items(downloadedBooks, key = { it.id }) { book ->
+            items(downloadedBooks, key = { "downloaded-${it.id}" }) { book ->
                 AudiobookListItem(
                     book = book,
                     onClick = { onBookClick(book.id) },
@@ -173,11 +179,12 @@ fun ContinueSeriesRow(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 5.dp)
-            .clip(RoundedCornerShape(14.dp))
-            .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f), RoundedCornerShape(14.dp))
+            .clip(RoundedCornerShape(AppDimens.RadiusCardLg))
+            .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f), RoundedCornerShape(AppDimens.RadiusCardLg))
             .clickable { onClick() }
             .testTag("continue_series_${book.id}"),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Row(
             modifier = Modifier
@@ -190,7 +197,7 @@ fun ContinueSeriesRow(
                 contentDescription = book.title,
                 modifier = Modifier
                     .size(48.dp)
-                    .clip(RoundedCornerShape(8.dp)),
+                    .clip(RoundedCornerShape(AppDimens.RadiusInner)),
                 contentScale = ContentScale.Crop
             )
             Spacer(modifier = Modifier.width(10.dp))
@@ -214,7 +221,7 @@ fun ContinueSeriesRow(
                     if (index > 0) {
                         Text(
                             text = "Частина $index",
-                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                            style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
@@ -261,9 +268,9 @@ fun ListenHeroCard(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 10.dp)
-            .clip(RoundedCornerShape(20.dp))
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(20.dp)),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+            .clip(RoundedCornerShape(AppDimens.RadiusHero)),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -292,7 +299,7 @@ fun ListenHeroCard(
                     contentDescription = book.title,
                     modifier = Modifier
                         .size(88.dp)
-                        .clip(RoundedCornerShape(14.dp)),
+                        .clip(RoundedCornerShape(AppDimens.RadiusCardLg)),
                     contentScale = ContentScale.Crop
                 )
 
@@ -302,8 +309,7 @@ fun ListenHeroCard(
                     Text(
                         text = book.title,
                         style = MaterialTheme.typography.titleMedium.copy(
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 17.sp
+                            fontWeight = FontWeight.Bold
                         ),
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
@@ -311,7 +317,7 @@ fun ListenHeroCard(
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = book.author,
+                        text = book.displayAuthor,
                         style = MaterialTheme.typography.bodySmall,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -376,7 +382,7 @@ fun ListenHeroCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(6.dp)
-                    .clip(RoundedCornerShape(3.dp)),
+                    .clip(RoundedCornerShape(AppDimens.RadiusProgress)),
                 color = MaterialTheme.colorScheme.primary,
                 trackColor = MaterialTheme.colorScheme.outlineVariant
             )
@@ -402,11 +408,11 @@ fun RecentlyListenedRow(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 5.dp)
-            .clip(RoundedCornerShape(14.dp))
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(14.dp))
+            .clip(RoundedCornerShape(AppDimens.RadiusCardLg))
             .clickable { onClick() }
             .testTag("recently_listened_${book.id}"),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(modifier = Modifier.padding(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -415,7 +421,7 @@ fun RecentlyListenedRow(
                     contentDescription = book.title,
                     modifier = Modifier
                         .size(44.dp)
-                        .clip(RoundedCornerShape(8.dp)),
+                        .clip(RoundedCornerShape(AppDimens.RadiusInner)),
                     contentScale = ContentScale.Crop
                 )
                 Spacer(modifier = Modifier.width(10.dp))
@@ -429,7 +435,7 @@ fun RecentlyListenedRow(
                     )
                     Text(
                         text = "Розділ ${progress.currentChapterIndex + 1} · ${MainViewModel.formatTime(positionSec)}",
-                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                        style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
@@ -454,7 +460,7 @@ fun RecentlyListenedRow(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(4.dp)
-                    .clip(RoundedCornerShape(2.dp)),
+                    .clip(RoundedCornerShape(AppDimens.RadiusProgress)),
                 color = MaterialTheme.colorScheme.secondary,
                 trackColor = MaterialTheme.colorScheme.outlineVariant
             )

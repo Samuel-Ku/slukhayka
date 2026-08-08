@@ -36,6 +36,7 @@ import com.example.data.catalog.CatalogSeries
 import com.example.data.db.AudiobookEntity
 import com.example.ui.MainViewModel
 import com.example.ui.components.EmptyState
+import com.example.ui.displayAuthor
 import com.example.ui.theme.*
 
 /**
@@ -59,6 +60,7 @@ fun HomeScreen(
     val selectedGenre by viewModel.selectedGenreFilter.collectAsState()
     val sections by viewModel.catalogSections.collectAsState()
     val isCatalogLoading by viewModel.isCatalogLoading.collectAsState()
+    val catalogGenres by viewModel.catalogGenres.collectAsState()
 
     val genres = listOf("Усі", "Фантастика", "Cyberpunk", "Детективи", "Класика", "Антиутопія", "Завантажені")
 
@@ -122,7 +124,6 @@ fun HomeScreen(
                             text = "4Read Audio",
                             style = MaterialTheme.typography.titleLarge.copy(
                                 fontWeight = FontWeight.ExtraBold,
-                                fontSize = 22.sp,
                                 letterSpacing = 1.sp
                             ),
                             color = MaterialTheme.colorScheme.onSurface
@@ -131,7 +132,7 @@ fun HomeScreen(
 
                     Surface(
                         color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
-                        shape = RoundedCornerShape(20.dp),
+                        shape = RoundedCornerShape(AppDimens.RadiusHero),
                         border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f))
                     ) {
                         Row(
@@ -148,7 +149,9 @@ fun HomeScreen(
                             Text(
                                 text = "Українські аудіокниги",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary
+                                color = MaterialTheme.colorScheme.primary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                     }
@@ -178,10 +181,11 @@ fun HomeScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag("home_search_input"),
-                    shape = RoundedCornerShape(16.dp),
+                    shape = RoundedCornerShape(AppDimens.RadiusPanel),
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        // MD3: input fills sit on the highest tonal container.
+                        focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
                         focusedBorderColor = MaterialTheme.colorScheme.primary,
                         unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
                     ),
@@ -203,7 +207,7 @@ fun HomeScreen(
                             colors = FilterChipDefaults.filterChipColors(
                                 selectedContainerColor = MaterialTheme.colorScheme.primary,
                                 selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
-                                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                                 labelColor = MaterialTheme.colorScheme.onSurface
                             ),
                             border = FilterChipDefaults.filterChipBorder(
@@ -223,7 +227,7 @@ fun HomeScreen(
             item {
                 Text(
                     text = "Результати (${filteredBooks.size})",
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, fontSize = 18.sp),
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                 )
@@ -275,6 +279,62 @@ fun HomeScreen(
                         onRefreshClick = { viewModel.refreshCatalog() },
                         onImportClick = { viewModel.selectTab(com.example.ui.SelectedTab.LIBRARY) }
                     )
+                }
+            }
+
+            // Catalogue navigation — the site's header menu: ТОП 100,
+            // Виконавці (narrators) and Автори (authors).
+            item {
+                CatalogRowHeader(title = "Каталог")
+            }
+            item {
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    item {
+                        GenreChip(
+                            title = "ТОП 100",
+                            onClick = { viewModel.openTop100() }
+                        )
+                    }
+                    item {
+                        GenreChip(
+                            title = "Виконавці",
+                            onClick = {
+                                viewModel.openPeople(com.example.ui.PeopleKind("Виконавці", "https://4read.org/readers.html"))
+                            }
+                        )
+                    }
+                    item {
+                        GenreChip(
+                            title = "Автори",
+                            onClick = {
+                                viewModel.openPeople(com.example.ui.PeopleKind("Автори", "https://4read.org/avtors.html"))
+                            }
+                        )
+                    }
+                }
+            }
+
+            // Genre navigation ("Аудіокниги жанру:") — chips that open the
+            // genre's own book list, mirroring the site's primary sidebar nav.
+            if (catalogGenres.isNotEmpty()) {
+                item {
+                    CatalogRowHeader(title = "Жанри")
+                }
+                item {
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        items(catalogGenres, key = { it.url }) { genre ->
+                            GenreChip(
+                                title = genre.title,
+                                onClick = { viewModel.openGenre(genre.title, genre.url) }
+                            )
+                        }
+                    }
                 }
             }
 
@@ -332,7 +392,6 @@ fun CatalogRowHeader(title: String) {
         text = title.uppercase(),
         style = MaterialTheme.typography.titleMedium.copy(
             fontWeight = FontWeight.ExtraBold,
-            fontSize = 17.sp,
             letterSpacing = 0.5.sp
         ),
         color = MaterialTheme.colorScheme.onSurface,
@@ -362,8 +421,8 @@ fun CatalogBookCard(
             modifier = Modifier
                 .width(120.dp)
                 .height(168.dp)
-                .clip(RoundedCornerShape(14.dp))
-                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(14.dp))
+                .clip(RoundedCornerShape(AppDimens.RadiusCardLg))
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(AppDimens.RadiusCardLg))
         )
         Spacer(modifier = Modifier.height(6.dp))
         Text(
@@ -374,6 +433,28 @@ fun CatalogBookCard(
             overflow = TextOverflow.Ellipsis,
             textAlign = TextAlign.Center,
             modifier = Modifier.fillMaxWidth()
+        )
+    }
+}
+
+/** Tappable genre chip for the "Жанри" row — opens the genre book list. */
+@Composable
+fun GenreChip(
+    title: String,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(AppDimens.RadiusCardLg),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        modifier = Modifier.testTag("genre_chip_$title")
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
         )
     }
 }
@@ -397,8 +478,8 @@ fun CatalogSeriesCard(
             modifier = Modifier
                 .width(132.dp)
                 .height(78.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))
+                .clip(RoundedCornerShape(AppDimens.RadiusCard))
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(AppDimens.RadiusCard))
         )
         Spacer(modifier = Modifier.height(6.dp))
         Text(
@@ -444,7 +525,7 @@ fun CatalogCoverImage(
         Box(
             modifier = modifier.background(
                 brush = Brush.verticalGradient(
-                    colors = listOf(MaterialTheme.colorScheme.surface, MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f))
+                    colors = listOf(MaterialTheme.colorScheme.surface, MaterialTheme.colorScheme.surfaceContainerHigh, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f))
                 )
             ),
             contentAlignment = Alignment.Center
@@ -460,8 +541,7 @@ fun CatalogCoverImage(
                 Text(
                     text = title,
                     color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                     maxLines = 3,
                     overflow = TextOverflow.Ellipsis,
                     textAlign = TextAlign.Center,
@@ -516,7 +596,7 @@ fun EmptyCatalogState(
             Button(
                 onClick = onRefreshClick,
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                shape = RoundedCornerShape(14.dp)
+                shape = RoundedCornerShape(AppDimens.RadiusCardLg)
             ) {
                 Icon(imageVector = Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(modifier = Modifier.width(6.dp))
@@ -524,7 +604,7 @@ fun EmptyCatalogState(
             }
             OutlinedButton(
                 onClick = onImportClick,
-                shape = RoundedCornerShape(14.dp),
+                shape = RoundedCornerShape(AppDimens.RadiusCardLg),
                 border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
             ) {
                 Icon(imageVector = Icons.Default.FileUpload, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
@@ -545,11 +625,11 @@ fun AudiobookListItem(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 6.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(16.dp))
+            .clip(RoundedCornerShape(AppDimens.RadiusPanel))
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(AppDimens.RadiusPanel))
             .clickable { onClick() }
             .testTag("book_item_${book.id}"),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
     ) {
         Row(
             modifier = Modifier
@@ -562,7 +642,7 @@ fun AudiobookListItem(
                 contentDescription = book.title,
                 modifier = Modifier
                     .size(68.dp)
-                    .clip(RoundedCornerShape(12.dp)),
+                    .clip(RoundedCornerShape(AppDimens.RadiusCard)),
                 contentScale = ContentScale.Crop
             )
 
@@ -572,11 +652,15 @@ fun AudiobookListItem(
                 modifier = Modifier.weight(1f)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = book.genre,
-                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                        color = MaterialTheme.colorScheme.primary
-                    )
+                    // "4read Каталог" is the placeholder genre for catalogue
+                    // books — skip it so every list row isn't labelled "4read".
+                    if (book.genre.isNotBlank() && !book.genre.contains("4read", ignoreCase = true)) {
+                        Text(
+                            text = book.genre,
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
                     if (book.isDownloaded) {
                         Spacer(modifier = Modifier.width(6.dp))
                         Icon(
@@ -590,17 +674,14 @@ fun AudiobookListItem(
 
                 Text(
                     text = book.title,
-                    style = MaterialTheme.typography.titleMedium.copy(
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp
-                    ),
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     color = MaterialTheme.colorScheme.onSurface
                 )
 
                 Text(
-                    text = book.author,
+                    text = book.displayAuthor,
                     style = MaterialTheme.typography.bodySmall,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -609,11 +690,26 @@ fun AudiobookListItem(
 
                 Spacer(modifier = Modifier.height(4.dp))
 
-                Text(
-                    text = "${book.totalChapters} Chapters • ${MainViewModel.formatTime(book.totalDurationSeconds)}",
-                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                // Only the values we actually know — catalogue books start
+                // with 0 chapters / 0 duration until their page is fetched.
+                // Each part renders only when known, so a source that carries a
+                // real duration but no chapter count (e.g. "Популярне") shows
+                // just the duration, never "0 Chapters".
+                val chaptersLabel = if (book.totalChapters > 0) "${book.totalChapters} Chapters" else null
+                val durationLabel = if (book.totalDurationSeconds > 0L) MainViewModel.formatTime(book.totalDurationSeconds) else null
+                val statsLabel = when {
+                    chaptersLabel != null && durationLabel != null -> "$chaptersLabel • $durationLabel"
+                    chaptersLabel != null -> chaptersLabel
+                    durationLabel != null -> durationLabel
+                    else -> null
+                }
+                if (statsLabel != null) {
+                    Text(
+                        text = statsLabel,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.width(8.dp))
@@ -623,7 +719,7 @@ fun AudiobookListItem(
                 modifier = Modifier
                     .size(40.dp)
                     .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .background(MaterialTheme.colorScheme.surfaceContainerHigh)
             ) {
                 Icon(
                     imageVector = Icons.Default.PlayArrow,

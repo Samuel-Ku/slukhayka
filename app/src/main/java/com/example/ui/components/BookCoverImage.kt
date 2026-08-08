@@ -18,10 +18,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.data.db.AudiobookEntity
+import com.example.ui.displayAuthor
 import com.example.ui.theme.*
 
 @Composable
@@ -65,7 +65,7 @@ fun BookCoverImage(
                     brush = Brush.verticalGradient(
                         colors = listOf(
                             MaterialTheme.colorScheme.surface,
-                            MaterialTheme.colorScheme.surfaceVariant,
+                            MaterialTheme.colorScheme.surfaceContainerHigh,
                             MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)
                         )
                     )
@@ -87,18 +87,17 @@ fun BookCoverImage(
                 Text(
                     text = book.title,
                     color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
                     maxLines = 3,
                     overflow = TextOverflow.Ellipsis,
                     textAlign = TextAlign.Center
                 )
-                if (book.author.isNotBlank()) {
+                if (book.displayAuthor.isNotBlank()) {
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = book.author,
+                        text = book.displayAuthor,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 9.sp,
+                        style = MaterialTheme.typography.labelSmall,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         textAlign = TextAlign.Center

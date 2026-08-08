@@ -7,35 +7,35 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.example.ui.MainViewModel
+import com.example.data.db.AudiobookEntity
 import com.example.ui.theme.*
 
 /**
- * Full-screen list of every book in a 4read.org series (cycle) — spec #8
- * ticket T8. Opened from the "Цикли" row of the Explore screen; the book list
- * is fetched (and upserted) from the series page, then rendered as the
- * standard [AudiobookListItem] rows.
+ * Shared full-screen book list used by the series, genre and person-book
+ * screens: a back button, the list's title, a small count label, the standard
+ * [AudiobookListItem] rows and a friendly empty state. Keeping the layout here
+ * means each catalogue screen only wires its own state to it.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SeriesScreen(
-    viewModel: MainViewModel,
+fun BookListScreen(
+    title: String,
+    countLabel: String?,
+    emptyMessage: String,
+    isLoading: Boolean,
+    books: List<AudiobookEntity>,
     onBackClick: () -> Unit,
-    onBookClick: (String) -> Unit
+    onBookClick: (String) -> Unit,
+    onPlayClick: (AudiobookEntity) -> Unit,
+    testTag: String
 ) {
-    val series by viewModel.selectedSeries.collectAsState()
-    val books by viewModel.seriesBooks.collectAsState()
-    val isLoading by viewModel.isSeriesLoading.collectAsState()
-
-    val currentSeries = series ?: return
-
     Scaffold(
         topBar = {
             // Host Scaffold in MainActivity already consumed the status bar
@@ -44,7 +44,7 @@ fun SeriesScreen(
                 windowInsets = WindowInsets(0, 0, 0, 0),
                 title = {
                     Text(
-                        text = currentSeries.title,
+                        text = title,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
@@ -64,7 +64,7 @@ fun SeriesScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .testTag("series_screen"),
+                .testTag(testTag),
             contentPadding = PaddingValues(bottom = 120.dp, top = 8.dp)
         ) {
             when {
@@ -98,7 +98,7 @@ fun SeriesScreen(
                                 )
                                 Spacer(modifier = Modifier.height(12.dp))
                                 Text(
-                                    text = "Не вдалося завантажити книги циклу. Перевірте з'єднання.",
+                                    text = emptyMessage,
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -108,22 +108,21 @@ fun SeriesScreen(
                 }
 
                 else -> {
-                    item {
-                        Text(
-                            text = "${books.size} книг у циклі",
-                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                            color = MaterialTheme.colorScheme.secondary,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-                        )
+                    if (countLabel != null) {
+                        item {
+                            Text(
+                                text = countLabel,
+                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                                color = MaterialTheme.colorScheme.secondary,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                            )
+                        }
                     }
                     items(books, key = { it.id }) { book ->
                         AudiobookListItem(
                             book = book,
                             onClick = { onBookClick(book.id) },
-                            onPlayClick = {
-                                viewModel.playAudiobook(book)
-                                viewModel.setShowFullPlayer(true)
-                            }
+                            onPlayClick = { onPlayClick(book) }
                         )
                     }
                 }

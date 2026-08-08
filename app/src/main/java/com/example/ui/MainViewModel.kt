@@ -4,6 +4,8 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.App
+import com.example.data.catalog.CatalogGenre
+import com.example.data.catalog.CatalogPerson
 import com.example.data.catalog.CatalogSection
 import com.example.data.db.*
 import com.example.data.repository.AudiobookRepository
@@ -35,6 +37,24 @@ enum class SelectedTab {
 data class SelectedSeries(
     val title: String,
     val url: String
+)
+
+/** A genre (category) opened from the Explore "Жанри" chips row. */
+data class SelectedGenre(
+    val title: String,
+    val url: String
+)
+
+/** Виконавці or Автори index (from the Explore "Каталог" chips row). */
+data class PeopleKind(
+    val title: String,
+    val url: String
+)
+
+/** One person (narrator/author) whose books list was opened. */
+data class SelectedPerson(
+    val name: String,
+    val path: String
 )
 
 // Phase 2.5 hotfix: flatMapLatest is @ExperimentalCoroutinesApi.
@@ -149,6 +169,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val isCatalogLoading: StateFlow<Boolean> = repository.isCatalogLoading
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
+    // Genre navigation chips, parsed from the homepage sidebar ("Аудіокниги
+    // жанру:") during the same catalogue sync that fills [catalogSections].
+    val catalogGenres: StateFlow<List<CatalogGenre>> = repository.catalogGenres
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     // "Open on site" WebView fallback (spec #8 ticket T4).
     private val _webFallbackUrl = MutableStateFlow<String?>(null)
     val webFallbackUrl: StateFlow<String?> = _webFallbackUrl.asStateFlow()
@@ -185,6 +210,108 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun closeSeries() {
         _selectedSeries.value = null
         _seriesBooks.value = emptyList()
+    }
+
+    // Genre pages ("Аудіокниги жанру:" from the homepage sidebar): one
+    // full-screen book list per genre, same shape as the series page.
+    private val _selectedGenre = MutableStateFlow<SelectedGenre?>(null)
+    val selectedGenre: StateFlow<SelectedGenre?> = _selectedGenre.asStateFlow()
+
+    private val _genreBooks = MutableStateFlow<List<AudiobookEntity>>(emptyList())
+    val genreBooks: StateFlow<List<AudiobookEntity>> = _genreBooks.asStateFlow()
+
+    private val _isGenreLoading = MutableStateFlow(false)
+    val isGenreLoading: StateFlow<Boolean> = _isGenreLoading.asStateFlow()
+
+    fun openGenre(title: String, url: String) {
+        _selectedGenre.value = SelectedGenre(title, url)
+        _genreBooks.value = emptyList()
+        _isGenreLoading.value = true
+        viewModelScope.launch(Dispatchers.IO) {
+            val books = repository.fetchGenreBooks(url)
+            _genreBooks.value = books
+            _isGenreLoading.value = false
+        }
+    }
+
+    fun closeGenre() {
+        _selectedGenre.value = null
+        _genreBooks.value = emptyList()
+    }
+
+    // ТОП 100 АудіоКниг (`/top-100.html`): a ranked book list.
+    private val _selectedTop100 = MutableStateFlow(false)
+    val selectedTop100: StateFlow<Boolean> = _selectedTop100.asStateFlow()
+
+    private val _top100Books = MutableStateFlow<List<AudiobookEntity>>(emptyList())
+    val top100Books: StateFlow<List<AudiobookEntity>> = _top100Books.asStateFlow()
+
+    private val _isTop100Loading = MutableStateFlow(false)
+    val isTop100Loading: StateFlow<Boolean> = _isTop100Loading.asStateFlow()
+
+    fun openTop100() {
+        _selectedTop100.value = true
+        _top100Books.value = emptyList()
+        _isTop100Loading.value = true
+        viewModelScope.launch(Dispatchers.IO) {
+            _top100Books.value = repository.fetchTop100()
+            _isTop100Loading.value = false
+        }
+    }
+
+    fun closeTop100() {
+        _selectedTop100.value = false
+        _top100Books.value = emptyList()
+    }
+
+    // Виконавці / Автори index pages (`/readers.html`, `/avtors.html`).
+    private val _selectedPeopleKind = MutableStateFlow<PeopleKind?>(null)
+    val selectedPeopleKind: StateFlow<PeopleKind?> = _selectedPeopleKind.asStateFlow()
+
+    private val _peopleEntries = MutableStateFlow<List<CatalogPerson>>(emptyList())
+    val peopleEntries: StateFlow<List<CatalogPerson>> = _peopleEntries.asStateFlow()
+
+    private val _isPeopleLoading = MutableStateFlow(false)
+    val isPeopleLoading: StateFlow<Boolean> = _isPeopleLoading.asStateFlow()
+
+    fun openPeople(kind: PeopleKind) {
+        _selectedPeopleKind.value = kind
+        _peopleEntries.value = emptyList()
+        _isPeopleLoading.value = true
+        viewModelScope.launch(Dispatchers.IO) {
+            _peopleEntries.value = repository.fetchPeople(kind.url)
+            _isPeopleLoading.value = false
+        }
+    }
+
+    fun closePeople() {
+        _selectedPeopleKind.value = null
+        _peopleEntries.value = emptyList()
+    }
+
+    // One person's books (`/xfsearch/chitaet|avtor/<name>/` — a poster grid).
+    private val _selectedPerson = MutableStateFlow<SelectedPerson?>(null)
+    val selectedPerson: StateFlow<SelectedPerson?> = _selectedPerson.asStateFlow()
+
+    private val _personBooks = MutableStateFlow<List<AudiobookEntity>>(emptyList())
+    val personBooks: StateFlow<List<AudiobookEntity>> = _personBooks.asStateFlow()
+
+    private val _isPersonLoading = MutableStateFlow(false)
+    val isPersonLoading: StateFlow<Boolean> = _isPersonLoading.asStateFlow()
+
+    fun openPersonBooks(person: CatalogPerson) {
+        _selectedPerson.value = SelectedPerson(person.name, person.path)
+        _personBooks.value = emptyList()
+        _isPersonLoading.value = true
+        viewModelScope.launch(Dispatchers.IO) {
+            _personBooks.value = repository.fetchPersonBooks(person.path)
+            _isPersonLoading.value = false
+        }
+    }
+
+    fun closePersonBooks() {
+        _selectedPerson.value = null
+        _personBooks.value = emptyList()
     }
 
     // Continue-the-series block (spec-9 T4): the next volume of the currently
@@ -242,11 +369,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _selectedGenreFilter.value = genre
     }
 
+    // Related books from the book page ("Можливо, Тебе зацікавить:"). Loaded
+    // per opened book by the detail screen; cleared when the selection moves.
+    private val _relatedBooks = MutableStateFlow<List<AudiobookEntity>>(emptyList())
+    val relatedBooks: StateFlow<List<AudiobookEntity>> = _relatedBooks.asStateFlow()
+
     fun selectBook(bookId: String?) {
         _selectedBookId.value = bookId
         if (bookId != null) {
             viewModelScope.launch(Dispatchers.IO) {
                 repository.refreshBookCoverAndDetails(bookId)
+            }
+        } else {
+            _relatedBooks.value = emptyList()
+        }
+    }
+
+    fun loadRelatedBooks(bookId: String) {
+        // Clear first: switching books must never show the previous book's
+        // "Можливо, Тебе зацікавить" row while the new list is in flight.
+        _relatedBooks.value = emptyList()
+        viewModelScope.launch(Dispatchers.IO) {
+            val books = repository.fetchRelatedBooks(bookId)
+            // Stale-result guard: only apply while the user is still on this book.
+            if (_selectedBookId.value == bookId) {
+                _relatedBooks.value = books
             }
         }
     }
@@ -363,10 +510,49 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    // Offline download state: one download at a time, with explicit progress
+    // and outcome feedback so the Download button never silently no-ops (a
+    // catalogue book with no chapters in Room used to do nothing at all).
+    private val _downloadingBookId = MutableStateFlow<String?>(null)
+    val downloadingBookId: StateFlow<String?> = _downloadingBookId.asStateFlow()
+
+    private val _downloadMessage = MutableStateFlow<String?>(null)
+    val downloadMessage: StateFlow<String?> = _downloadMessage.asStateFlow()
+
     fun downloadBookOffline(bookId: String) {
+        if (_downloadingBookId.value != null) return
+        _downloadingBookId.value = bookId
         viewModelScope.launch(Dispatchers.IO) {
-            repository.downloadAudiobookOffline(bookId)
+            try {
+                val result = repository.downloadAudiobookOffline(bookId)
+                // Stale-result guard (same pattern as relatedBooks): only
+                // surface the outcome while the user is still on this book —
+                // otherwise the message would pop on whichever book screen is
+                // open next.
+                if (_selectedBookId.value == bookId) {
+                    _downloadMessage.value = when {
+                        result.totalChapters == 0 ->
+                            "Не вдалося знайти аудіо для завантаження. Перевірте з'єднання."
+                        result.downloadedChapters == 0 ->
+                            "Не вдалося завантажити книгу. Спробуйте пізніше."
+                        result.downloadedChapters < result.totalChapters ->
+                            "Завантажено ${result.downloadedChapters} з ${result.totalChapters} глав"
+                        else -> "Книгу завантажено для офлайн-прослуховування"
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("MainViewModel", "Offline download failed", e)
+                if (_selectedBookId.value == bookId) {
+                    _downloadMessage.value = "Не вдалося завантажити книгу"
+                }
+            } finally {
+                _downloadingBookId.value = null
+            }
         }
+    }
+
+    fun consumeDownloadMessage() {
+        _downloadMessage.value = null
     }
 
     fun removeOfflineDownload(bookId: String) {

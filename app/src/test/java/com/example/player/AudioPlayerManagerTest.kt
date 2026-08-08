@@ -148,6 +148,71 @@ class AudioPlayerManagerTest {
         assertEquals(chapters[1].streamUrl, firstEngine.lastMediaItemUri)
     }
 
+    // ---------------------------------------------------------------------
+    // Resume-seek regression (2026-08-08, reproduced live on device): the
+    // READY listener used to call mp.seekTo(currentPositionMs) on EVERY READY
+    // transition. When resuming at a saved position > 0, currentPositionMs
+    // never updates while the player is stuck in BUFFERING, so every READY
+    // re-issued the same seek -> READY -> seek -> BUFFERING -> READY loop that
+    // never settles (device logcat: buffered position kept resetting to the
+    // resume position 452000 forever, position frozen). The resume seek must
+    // be issued exactly once per prepare.
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `resume position seeks the engine exactly once - no READY seek loop`() =
+        playerTest { manager, factory ->
+            // Arrange -- resume a book at chapter 2, 452s in.
+            manager.loadAndPlayBook(
+                book, chapters,
+                initialChapterIndex = 1,
+                initialPositionSeconds = 452L,
+                autoPlay = true
+            )
+            val engine = factory.current
+
+            // Act -- the chapter becomes ready; the listener must seek once to
+            // the saved position (first READY after prepare).
+            engine.simulateReady(chapters[1].durationSeconds * MILLIS_PER_SECOND)
+            assertEquals(listOf(452_000L), engine.seekTargetsMs)
+            assertEquals(452_000L, manager.playerState.value.currentPositionMs)
+
+            // Act -- the seek settles and the engine reports READY again. The
+            // listener must NOT re-issue the same seek (that is the loop).
+            engine.simulateReady(chapters[1].durationSeconds * MILLIS_PER_SECOND)
+            assertEquals(
+                "the resume seek must be consumed after the first READY",
+                listOf(452_000L),
+                engine.seekTargetsMs
+            )
+
+            // Act -- a third READY (e.g. post-seek buffer drain) still no seek.
+            engine.simulateReady(chapters[1].durationSeconds * MILLIS_PER_SECOND)
+            assertEquals(listOf(452_000L), engine.seekTargetsMs)
+        }
+
+    @Test
+    fun `seekTo while buffering arms the one-shot seek for the next READY`() =
+        playerTest { manager, factory ->
+            // Arrange -- prepare starts, engine stays BUFFERING (slow stream).
+            manager.loadAndPlayBook(book, chapters, initialChapterIndex = 0, autoPlay = true)
+            val engine = factory.current
+            assertTrue(manager.playerState.value.isBuffering)
+
+            // Act -- user seeks while the engine cannot honour it yet.
+            manager.seekTo(60_000L)
+            // No engine call yet (engine is not READY).
+            assertTrue(engine.seekTargetsMs.isEmpty())
+
+            // Act -- the stream finally becomes ready: the one-shot fires once.
+            engine.simulateReady(chapters[0].durationSeconds * MILLIS_PER_SECOND)
+            assertEquals(listOf(60_000L), engine.seekTargetsMs)
+
+            // Act -- a second READY (post-seek buffer drain) must not re-seek.
+            engine.simulateReady(chapters[0].durationSeconds * MILLIS_PER_SECOND)
+            assertEquals(listOf(60_000L), engine.seekTargetsMs)
+        }
+
     @Test
     fun `pause then play resumes from the same position`() = playerTest { manager, factory ->
         // Arrange
@@ -176,6 +241,79 @@ class AudioPlayerManagerTest {
         assertEquals(resumePositionMs, engine.currentPosition)
         assertTrue(engine.seekTargetsMs.contains(resumePositionMs))
     }
+
+    // ---------------------------------------------------------------------
+    // Whole-book offline playback: every chapter of a downloaded book must be
+    // prepared from its LOCAL file (file://), never from the network stream.
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `fully downloaded multi-chapter book prepares EVERY chapter from its local file`() =
+        playerTest { manager, factory ->
+            // Arrange — a fully downloaded 3-chapter book: every chapter points
+            // at a real file on disk (length > 100 so the local path wins).
+            val localChapters = chapters.mapIndexed { index, chapter ->
+                val file = java.io.File(context.cacheDir, "downloaded-${chapter.id}.mp3")
+                file.writeBytes(ByteArray(1024))
+                chapter.copy(localFilePath = file.absolutePath, isDownloaded = true)
+            }
+            val offlineBook = book.copy(isDownloaded = true, downloadProgress = 1f)
+
+            // Act — play chapter 0, then auto-advance through ALL chapters.
+            manager.loadAndPlayBook(offlineBook, localChapters, initialChapterIndex = 0, autoPlay = false)
+            val engine = factory.current
+
+            for (i in localChapters.indices) {
+                if (i > 0) manager.nextChapter()
+                val expectedUri = android.net.Uri.fromFile(java.io.File(localChapters[i].localFilePath!!)).toString()
+                assertEquals("chapter ${i + 1} must resolve to its local file", expectedUri, engine.lastMediaItemUri)
+                assertNotEquals("chapter ${i + 1} must NOT use the network stream", localChapters[i].streamUrl, engine.lastMediaItemUri)
+                engine.simulateReady(localChapters[i].durationSeconds * MILLIS_PER_SECOND)
+                assertEquals("Offline Local File", manager.playerState.value.audioEngineMode)
+            }
+            assertEquals("one engine reused across all chapters", 1, factory.engines.size)
+        }
+
+    @Test
+    fun `partially downloaded book mixes local files and stream fallback per chapter`() =
+        playerTest { manager, factory ->
+            // Arrange — chapter 0 downloaded; chapter 1's file was deleted from
+            // disk (localFilePath stale); chapter 2 downloaded.
+            val file0 = java.io.File(context.cacheDir, "partial-0.mp3").apply { writeBytes(ByteArray(1024)) }
+            val file2 = java.io.File(context.cacheDir, "partial-2.mp3").apply { writeBytes(ByteArray(1024)) }
+            val mixedChapters = chapters.mapIndexed { index, chapter ->
+                when (index) {
+                    0 -> chapter.copy(localFilePath = file0.absolutePath, isDownloaded = true)
+                    1 -> chapter.copy(localFilePath = "/nonexistent/missing.mp3", isDownloaded = true) // file gone
+                    else -> chapter.copy(localFilePath = file2.absolutePath, isDownloaded = true)
+                }
+            }
+            val offlineBook = book.copy(isDownloaded = true, downloadProgress = 1f)
+
+            manager.loadAndPlayBook(offlineBook, mixedChapters, initialChapterIndex = 0, autoPlay = false)
+            val engine = factory.current
+
+            // Chapter 0 — local file.
+            assertEquals(
+                android.net.Uri.fromFile(file0).toString(),
+                engine.lastMediaItemUri
+            )
+            engine.simulateReady(mixedChapters[0].durationSeconds * MILLIS_PER_SECOND)
+            assertEquals("Offline Local File", manager.playerState.value.audioEngineMode)
+
+            // Chapter 1 — localFilePath set but the file is GONE: fall back to
+            // the network stream rather than preparing a dead file URI.
+            manager.nextChapter()
+            assertEquals(mixedChapters[1].streamUrl, engine.lastMediaItemUri)
+            engine.simulateReady(mixedChapters[1].durationSeconds * MILLIS_PER_SECOND)
+            assertEquals("4read Direct Stream", manager.playerState.value.audioEngineMode)
+
+            // Chapter 2 — local file again.
+            manager.nextChapter()
+            assertEquals(android.net.Uri.fromFile(file2).toString(), engine.lastMediaItemUri)
+            engine.simulateReady(mixedChapters[2].durationSeconds * MILLIS_PER_SECOND)
+            assertEquals("Offline Local File", manager.playerState.value.audioEngineMode)
+        }
 
     // ---------------------------------------------------------------------
     // Regression guards for the Phase 2.5 hotfix (audit CR-002 / SF-003)

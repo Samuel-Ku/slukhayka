@@ -94,13 +94,24 @@ fun buildLibraryBooks(
     val progressById = progressList.associateBy { it.bookId }
     return books.map { book ->
         val chapters = chaptersByBook[book.id].orEmpty().sortedBy { it.chapterIndex }
-        val totalDuration = chapters.sumOf { it.durationSeconds }.takeIf { it > 0L }
-            ?: book.totalDurationSeconds
         val progress = progressById[book.id]
+        // Same source of truth as the player (see [effectiveChapterDurations]):
+        // the site-provided book total is authoritative — unknown (unplayed)
+        // chapter durations are spread over the remainder so the book card
+        // never shows a shrunken "37:23" for a 16:41:11 book. Locally imported
+        // books (no site total) fall back to the sum of known chapters.
+        val chapterDurations = effectiveChapterDurations(
+            chapters = chapters,
+            currentChapterIndex = progress?.currentChapterIndex ?: 0,
+            currentChapterDurationMs = 0L,
+            bookTotalDurationSeconds = book.totalDurationSeconds
+        )
+        val totalDuration = book.totalDurationSeconds.takeIf { it > 0L }
+            ?: chapterDurations.sum()
         val cumulative = if (progress == null) 0L else {
-            val beforeChapter = chapters
+            val beforeChapter = chapterDurations
                 .take(progress.currentChapterIndex.coerceAtLeast(0))
-                .sumOf { it.durationSeconds }
+                .sum()
             beforeChapter + progress.currentPositionSeconds
         }
         LibraryBook(

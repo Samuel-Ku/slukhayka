@@ -46,6 +46,41 @@ interface AudiobookDao {
     @Query("UPDATE chapters SET isDownloaded = :isDownloaded, localFilePath = :filePath WHERE id = :chapterId")
     suspend fun updateChapterDownloadState(chapterId: String, isDownloaded: Boolean, filePath: String?)
 
+    /** Real chapter duration discovered during playback (replaces placeholder 0). */
+    @Query("UPDATE chapters SET durationSeconds = :durationSeconds WHERE id = :chapterId")
+    suspend fun updateChapterDuration(chapterId: String, durationSeconds: Long)
+
+    /** Real chapter/duration counts once the book's chapters are known. */
+    @Query("UPDATE audiobooks SET totalChapters = :totalChapters, totalDurationSeconds = :totalDurationSeconds WHERE id = :bookId")
+    suspend fun updateBookStats(bookId: String, totalChapters: Int, totalDurationSeconds: Long)
+
+    /**
+     * Back-fills the real page metadata (author, narrator, genre, rating,
+     * series) onto a catalogue book once its page has been fetched, replacing
+     * the seeded placeholders. Nulls keep the stored value.
+     */
+    @Query(
+        "UPDATE audiobooks SET " +
+            "author = COALESCE(:author, author), " +
+            "narrator = COALESCE(:narrator, narrator), " +
+            "genre = COALESCE(:genre, genre), " +
+            "rating = COALESCE(:rating, rating), " +
+            "seriesTitle = COALESCE(:seriesTitle, seriesTitle), " +
+            "seriesIndex = COALESCE(:seriesIndex, seriesIndex), " +
+            "seriesUrl = COALESCE(:seriesUrl, seriesUrl) " +
+            "WHERE id = :bookId"
+    )
+    suspend fun updateBookMetadata(
+        bookId: String,
+        author: String?,
+        narrator: String?,
+        genre: String?,
+        rating: Float?,
+        seriesTitle: String?,
+        seriesIndex: Int?,
+        seriesUrl: String?
+    )
+
     // Bookmarks
     @Query("SELECT * FROM bookmarks WHERE bookId = :bookId ORDER BY timestampSeconds ASC")
     fun getBookmarksForBook(bookId: String): Flow<List<BookmarkEntity>>

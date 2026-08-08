@@ -33,11 +33,13 @@ import com.example.data.db.BookmarkEntity
 import com.example.ui.MainViewModel
 import com.example.ui.components.BookCoverImage
 import com.example.ui.components.EmptyState
+import com.example.ui.displayAuthor
 import com.example.ui.library.LibraryBook
 import com.example.ui.library.LibraryFilter
 import com.example.ui.library.LibrarySort
 import com.example.ui.library.filterAndSortLibrary
 import com.example.ui.library.formatRemainingTime
+import com.example.ui.theme.*
 
 /**
  * Wayfinder #39 — Медіатека as one unified library. Local files and 4read
@@ -103,32 +105,32 @@ fun LibraryScreen(
                 .fillMaxSize()
                 .testTag("library_screen")
         ) {
-            // Top Header
+            // Top Header — the title gets its own full-width line so the
+            // import buttons can never squeeze «Медіатека» into a wrap.
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(16.dp)
             ) {
+                Text(
+                    text = "Медіатека",
+                    style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1
+                )
+                Spacer(modifier = Modifier.height(4.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Медіатека",
-                            style = MaterialTheme.typography.titleLarge.copy(
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 24.sp
-                            ),
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Text(
-                            text = "Локальні книги та 4read — в одному місці",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
+                    Text(
+                        text = "Локальні книги та 4read — в одному місці",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
 
                     // Import a local audio file / folder (spec #8 T7 + Block 4).
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -188,7 +190,7 @@ fun LibraryScreen(
                         }
                     } else null,
                     singleLine = true,
-                    shape = RoundedCornerShape(12.dp)
+                    shape = RoundedCornerShape(AppDimens.RadiusCard)
                 )
 
                 LazyRow(
@@ -290,7 +292,7 @@ fun LibraryScreen(
                                 Button(
                                     onClick = { importLauncher.launch(arrayOf("audio/*", "application/ogg", "application/mpeg")) },
                                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                                    shape = RoundedCornerShape(12.dp),
+                                    shape = RoundedCornerShape(AppDimens.RadiusCard),
                                     modifier = Modifier.height(48.dp).testTag("library_empty_import")
                                 ) {
                                     Text("Додати свої файли")
@@ -298,7 +300,7 @@ fun LibraryScreen(
                                 Spacer(modifier = Modifier.height(8.dp))
                                 OutlinedButton(
                                     onClick = onBrowseClick,
-                                    shape = RoundedCornerShape(12.dp),
+                                    shape = RoundedCornerShape(AppDimens.RadiusCard),
                                     modifier = Modifier.height(48.dp)
                                 ) {
                                     Text("Знайти книгу")
@@ -395,7 +397,7 @@ fun LibraryBookCard(
             .clip(MaterialTheme.shapes.medium)
             .clickable(onClick = onClick)
             .testTag("library_book_item_${book.book.id}"),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
     ) {
         if (grid) {
             LibraryBookGridContent(book)
@@ -432,9 +434,9 @@ private fun LibraryBookRowContent(book: LibraryBook) {
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            if (book.book.author.isNotBlank()) {
+            if (book.book.displayAuthor.isNotBlank()) {
                 Text(
-                    text = book.book.author,
+                    text = book.book.displayAuthor,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
@@ -456,7 +458,7 @@ private fun LibraryBookRowContent(book: LibraryBook) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(4.dp)
-                    .clip(RoundedCornerShape(2.dp)),
+                    .clip(RoundedCornerShape(AppDimens.RadiusProgress)),
                 color = MaterialTheme.colorScheme.primary,
                 trackColor = MaterialTheme.colorScheme.outlineVariant
             )
@@ -506,9 +508,9 @@ private fun LibraryBookGridContent(book: LibraryBook) {
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
-            if (book.book.author.isNotBlank()) {
+            if (book.book.displayAuthor.isNotBlank()) {
                 Text(
-                    text = book.book.author,
+                    text = book.book.displayAuthor,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
@@ -530,7 +532,7 @@ private fun LibraryBookGridContent(book: LibraryBook) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(4.dp)
-                    .clip(RoundedCornerShape(2.dp)),
+                    .clip(RoundedCornerShape(AppDimens.RadiusProgress)),
                 color = MaterialTheme.colorScheme.primary,
                 trackColor = MaterialTheme.colorScheme.outlineVariant
             )
@@ -569,7 +571,7 @@ private fun SourceBadge(book: LibraryBook) {
     Surface(
         color = MaterialTheme.colorScheme.primaryContainer,
         contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-        shape = RoundedCornerShape(6.dp)
+        shape = RoundedCornerShape(AppDimens.RadiusXs)
     ) {
         Text(
             text = if (book.isLocal) "Локальна" else "4read",
@@ -590,7 +592,7 @@ fun LocalAudioImportButton(
     Button(
         onClick = onClick,
         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(AppDimens.RadiusCardLg),
         modifier = Modifier.testTag("import_audio_button")
     ) {
         Icon(
@@ -618,7 +620,7 @@ fun LocalFolderImportButton(
 ) {
     OutlinedButton(
         onClick = onClick,
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(AppDimens.RadiusCardLg),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
         modifier = Modifier.testTag("import_folder_button")
     ) {
@@ -691,14 +693,14 @@ fun ListeningStatsCard(listeningStats: List<com.example.data.db.ListeningStatEnt
                 title = "Серія днів",
                 value = "$streakDays дн поспіль",
                 icon = Icons.Default.Whatshot,
-                color = Color(0xFFFF9800),
+                color = AppStatStreak,
                 modifier = Modifier.weight(1f)
             )
             StatItemCard(
                 title = "Всього в бібліотеці",
                 value = "$totalBooks книг",
                 icon = Icons.AutoMirrored.Filled.MenuBook,
-                color = Color(0xFF4CAF50),
+                color = AppStatLibrary,
                 modifier = Modifier.weight(1f)
             )
         }
@@ -715,9 +717,9 @@ fun StatItemCard(
 ) {
     Card(
         modifier = modifier
-            .clip(RoundedCornerShape(16.dp))
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(16.dp)),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+            .clip(RoundedCornerShape(AppDimens.RadiusPanel))
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(AppDimens.RadiusPanel)),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -732,7 +734,7 @@ fun StatItemCard(
             Spacer(modifier = Modifier.height(8.dp))
             Text(
                 text = value,
-                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, fontSize = 18.sp),
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                 color = MaterialTheme.colorScheme.onSurface
             )
             Text(
@@ -755,9 +757,9 @@ fun GlobalBookmarkItem(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 6.dp)
-            .clip(RoundedCornerShape(14.dp))
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(14.dp)),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+            .clip(RoundedCornerShape(AppDimens.RadiusCardLg))
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(AppDimens.RadiusCardLg)),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
     ) {
         Row(
             modifier = Modifier

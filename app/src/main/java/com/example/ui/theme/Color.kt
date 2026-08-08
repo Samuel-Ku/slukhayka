@@ -35,6 +35,22 @@ val AppOnAccentLight = Color(0xFFFFFFFF)
 val AppAccentContainerLight = Color(0xFFF7E6C3)
 val AppOnAccentContainerLight = Color(0xFF4A3200)
 
+// ── Semantic stat colours (listening stats cards) ──────────────────────────
+// Named tokens so screens never hardcode literal Color() values; decorative
+// accents for stat tiles, not brand colours.
+val AppStatStreak = Color(0xFFFF9800)   // "Серія днів" — warm orange
+val AppStatLibrary = Color(0xFF4CAF50)  // "Всього в бібліотеці" — green
+
+// ── Debug-overlay tokens ───────────────────────────────────────────────────
+// The player diagnostic overlay is the only screen that intentionally uses a
+// denser, terminal-like palette. Kept as named tokens (never literal Color()
+// in screens) so the whole palette lives in this one file.
+val AppDebugOk = Color(0xFF00E676)      // status: playing / ok
+val AppDebugWarn = Color(0xFFFFAB00)    // status: buffering / warning
+val AppDebugError = Color(0xFFFF5252)   // status: idle / error
+val AppDebugPanel = Color(0xFF10141D)   // overlay card background
+val AppDebugPanelInner = Color(0xFF0A0D14) // source-url surface
+
 // ── Legacy aliases ──────────────────────────────────────────────────────────
 // The pre-design-system "Cyber*" constants, kept so existing screens compile
 // and pick up the new dark palette unchanged. Migrate screens to scheme roles

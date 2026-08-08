@@ -31,11 +31,15 @@ import com.example.ui.SelectedTab
 import com.example.ui.components.MiniPlayerBar
 import com.example.ui.screens.BookDetailScreen
 import com.example.ui.screens.FourReadWebScreen
+import com.example.ui.screens.GenreScreen
 import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.LibraryScreen
 import com.example.ui.screens.ListenScreen
+import com.example.ui.screens.PeopleScreen
+import com.example.ui.screens.PersonBooksScreen
 import com.example.ui.screens.PlayerScreen
 import com.example.ui.screens.SeriesScreen
+import com.example.ui.screens.Top100Screen
 import com.example.ui.theme.AudiobookTheme
 
 class MainActivity : ComponentActivity() {
@@ -83,15 +87,29 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
 
     val webFallbackUrl by viewModel.webFallbackUrl.collectAsState()
     val selectedSeries by viewModel.selectedSeries.collectAsState()
+    val selectedGenre by viewModel.selectedGenre.collectAsState()
+    val selectedTop100 by viewModel.selectedTop100.collectAsState()
+    val selectedPeopleKind by viewModel.selectedPeopleKind.collectAsState()
+    val selectedPerson by viewModel.selectedPerson.collectAsState()
 
     // Handle system back press
-    BackHandler(enabled = showFullPlayer || selectedBookId != null || webFallbackUrl != null || selectedSeries != null) {
+    BackHandler(enabled = showFullPlayer || selectedBookId != null || webFallbackUrl != null ||
+        selectedSeries != null || selectedGenre != null || selectedTop100 ||
+        selectedPeopleKind != null || selectedPerson != null) {
         if (showFullPlayer) {
             viewModel.setShowFullPlayer(false)
         } else if (webFallbackUrl != null) {
             viewModel.closeWebFallback()
         } else if (selectedSeries != null) {
             viewModel.closeSeries()
+        } else if (selectedGenre != null) {
+            viewModel.closeGenre()
+        } else if (selectedTop100) {
+            viewModel.closeTop100()
+        } else if (selectedPerson != null) {
+            viewModel.closePersonBooks()
+        } else if (selectedPeopleKind != null) {
+            viewModel.closePeople()
         } else if (selectedBookId != null) {
             viewModel.selectBook(null)
         }
@@ -141,6 +159,35 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                         viewModel = viewModel,
                         onBackClick = { viewModel.closeSeries() },
                         onBookClick = { id -> viewModel.selectBook(id) }
+                    )
+
+                    // Genre (category) page ("Аудіокниги жанру:").
+                    selectedGenre != null -> GenreScreen(
+                        viewModel = viewModel,
+                        onBackClick = { viewModel.closeGenre() },
+                        onBookClick = { id -> viewModel.selectBook(id) }
+                    )
+
+                    // ТОП 100 АудіоКниг (`/top-100.html`).
+                    selectedTop100 -> Top100Screen(
+                        viewModel = viewModel,
+                        onBackClick = { viewModel.closeTop100() },
+                        onBookClick = { id -> viewModel.selectBook(id) }
+                    )
+
+                    // One person's books (opened from Виконавці/Автори index).
+                    selectedPerson != null -> PersonBooksScreen(
+                        viewModel = viewModel,
+                        onBackClick = { viewModel.closePersonBooks() },
+                        onBookClick = { id -> viewModel.selectBook(id) }
+                    )
+
+                    // Виконавці or Автори index.
+                    selectedPeopleKind != null -> PeopleScreen(
+                        viewModel = viewModel,
+                        onBackClick = { viewModel.closePeople() },
+                        onBookClick = { id -> viewModel.selectBook(id) },
+                        onPersonClick = { person -> viewModel.openPersonBooks(person) }
                     )
 
                     selectedBookId != null -> BookDetailScreen(
@@ -216,7 +263,9 @@ fun AppBottomBar(
     onSelect: (SelectedTab) -> Unit
 ) {
     NavigationBar(
-        containerColor = MaterialTheme.colorScheme.surface,
+        // MD3: the navigation bar is a tonal container (surfaceContainer),
+        // one step above the screen surface.
+        containerColor = MaterialTheme.colorScheme.surfaceContainer,
         contentColor = MaterialTheme.colorScheme.primary,
         modifier = Modifier
             .windowInsetsPadding(WindowInsets.navigationBars)

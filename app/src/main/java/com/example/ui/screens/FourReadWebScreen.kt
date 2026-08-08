@@ -169,7 +169,7 @@ fun FourReadWebScreen(
                             executeImportScript()
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(AppDimens.RadiusCard),
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                     ) {
                         Icon(
@@ -228,10 +228,10 @@ fun FourReadWebScreen(
                         }
                     },
                     singleLine = true,
-                    shape = RoundedCornerShape(14.dp),
+                    shape = RoundedCornerShape(AppDimens.RadiusCardLg),
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
                         focusedBorderColor = MaterialTheme.colorScheme.primary,
                         unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
                     ),
@@ -260,7 +260,7 @@ fun FourReadWebScreen(
                                 )
                             },
                             colors = AssistChipDefaults.assistChipColors(
-                                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                                 labelColor = MaterialTheme.colorScheme.onSurface
                             ),
                             border = AssistChipDefaults.assistChipBorder(
@@ -277,7 +277,7 @@ fun FourReadWebScreen(
             LinearProgressIndicator(
                 modifier = Modifier.fillMaxWidth(),
                 color = MaterialTheme.colorScheme.primary,
-                trackColor = MaterialTheme.colorScheme.surfaceVariant
+                trackColor = MaterialTheme.colorScheme.surfaceContainerHighest
             )
         }
 
@@ -420,9 +420,9 @@ fun FourReadWebScreen(
 
             if (hasWebError) {
                 Card(
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
                     border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.secondary),
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(AppDimens.RadiusCard),
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(12.dp)
@@ -462,7 +462,7 @@ fun FourReadWebScreen(
                                     } catch (_: Exception) {}
                                 },
                                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                                shape = RoundedCornerShape(8.dp)
+                                shape = RoundedCornerShape(AppDimens.RadiusInner)
                             ) {
                                 Icon(imageVector = Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(14.dp))
                                 Spacer(modifier = Modifier.width(4.dp))
@@ -475,7 +475,7 @@ fun FourReadWebScreen(
                                     isLoading = true
                                     webViewInstance?.loadUrl(currentWebUrl)
                                 },
-                                shape = RoundedCornerShape(8.dp),
+                                shape = RoundedCornerShape(AppDimens.RadiusInner),
                                 colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.primary)
                             ) {
                                 Text("Оновити", fontSize = 12.sp)
@@ -485,7 +485,7 @@ fun FourReadWebScreen(
                                 onClick = {
                                     executeImportScript()
                                 },
-                                shape = RoundedCornerShape(8.dp),
+                                shape = RoundedCornerShape(AppDimens.RadiusInner),
                                 colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.secondary)
                             ) {
                                 Text("Слухати книгу", fontSize = 12.sp)

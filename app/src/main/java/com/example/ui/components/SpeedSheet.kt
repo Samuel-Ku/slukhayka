@@ -13,6 +13,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
@@ -46,7 +47,12 @@ fun SpeedSheet(
 ) {
     var sliderSpeed by remember { mutableStateOf(currentSpeed) }
 
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    // Explicit tonal role (matching the other sheets) instead of relying on
+    // the component default.
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -74,7 +80,12 @@ fun SpeedSheet(
                             sliderSpeed = preset
                             onSpeedChange(preset)
                         },
-                        label = { Text("${formatSpeed(preset)}x") }
+                        label = { Text("${formatSpeed(preset)}x") },
+                        // Unselected chips one tonal step above the sheet so
+                        // they read as affordances (same as the timer rows).
+                        colors = FilterChipDefaults.filterChipColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                        )
                     )
                 }
             }

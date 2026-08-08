@@ -5,7 +5,9 @@ import android.net.Uri
 import android.util.Log
 import com.example.R
 import com.example.data.catalog.CatalogBook
+import com.example.data.catalog.CatalogGenre
 import com.example.data.catalog.CatalogParser
+import com.example.data.catalog.CatalogPerson
 import com.example.data.catalog.CatalogSection
 import com.example.data.db.*
 import com.example.data.imports.LocalAudioEntry
@@ -44,25 +46,25 @@ class AudiobookRepository(
     // real total durations. One query; recomputed in memory on change.
     val allChapters: Flow<List<ChapterEntity>> = dao.getAllChapters()
 
-    init {
-        if (autoSyncOnInit) {
-            CoroutineScope(Dispatchers.IO).launch {
-                // Spec #8 ticket T1: a fresh install starts with an empty
-                // catalogue (the mock seed books are gone); the catalogue
-                // fills from the live 4read.org homepage.
-                fetchCatalogSections()
-            }
-        }
-    }
-
-
     // ---------------------------------------------------------------------
     // Catalogue sections (spec #8 tickets T5/T6): rows for the Explore
     // screen, parsed from the 4read.org homepage and cached in memory.
+    //
+    // Declared BEFORE the init block on purpose: init launches
+    // fetchCatalogSections() on an IO coroutine, and with an idle dispatcher
+    // the coroutine can start undispatched — i.e. run synchronously while the
+    // constructor is still on the stack. Fields declared after init would
+    // still be null at that point and the sync would crash with an NPE
+    // (observed on-device: cold-start crash in fetchCatalogSections).
     // ---------------------------------------------------------------------
 
     private val _catalogSections = MutableStateFlow<List<CatalogSection>>(emptyList())
     val catalogSections: StateFlow<List<CatalogSection>> = _catalogSections.asStateFlow()
+
+    // Genre navigation from the homepage sidebar ("Аудіокниги жанру:"):
+    // chips that open a genre book list, mirroring the site's own navigation.
+    private val _catalogGenres = MutableStateFlow<List<CatalogGenre>>(emptyList())
+    val catalogGenres: StateFlow<List<CatalogGenre>> = _catalogGenres.asStateFlow()
 
     private val _isCatalogLoading = MutableStateFlow(false)
     val isCatalogLoading: StateFlow<Boolean> = _isCatalogLoading.asStateFlow()
@@ -73,6 +75,17 @@ class AudiobookRepository(
      * resurrect them in Room and in the Explore rows (code-review MEDIUM).
      */
     private val deletedCatalogBookIds = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
+    init {
+        if (autoSyncOnInit) {
+            CoroutineScope(Dispatchers.IO).launch {
+                // Spec #8 ticket T1: a fresh install starts with an empty
+                // catalogue (the mock seed books are gone); the catalogue
+                // fills from the live 4read.org homepage.
+                fetchCatalogSections()
+            }
+        }
+    }
 
     /**
      * Syncs the Explore catalogue from the live 4read.org homepage: parses the
@@ -85,6 +98,7 @@ class AudiobookRepository(
         try {
             val html = fetchUrlText("https://4read.org/")
             if (html.isBlank()) return@withContext emptyList()
+            _catalogGenres.value = CatalogParser.parseGenreNav(html)
             val sections = CatalogParser.parseHomepage(html)
                 .map { section ->
                     section.copy(books = section.books.filter { it.id !in deletedCatalogBookIds })
@@ -139,6 +153,67 @@ class AudiobookRepository(
         }
     }
 
+    /**
+     * All books of a genre (category) page — `4read.org/<genre>/` — e.g.
+     * `https://4read.org/fentezi/`. Genre pages reuse the poster markup of the
+     * homepage, so the series-page parser and cache apply unchanged.
+     */
+    suspend fun fetchGenreBooks(genreUrl: String): List<AudiobookEntity> = fetchSeriesBooks(genreUrl)
+
+    /**
+     * ТОП 100 АудіоКниг (`/top-100.html`): ranked `linek` cards, not posters.
+     * Upserted into Room (like series/genre pages) so every entry is playable
+     * and opens its own detail. Cached per session; rank is the list order.
+     */
+    private var top100Cache: List<AudiobookEntity>? = null
+    suspend fun fetchTop100(): List<AudiobookEntity> = withContext(Dispatchers.IO) {
+        top100Cache?.let { return@withContext it }
+        val html = fetchUrlText("https://4read.org/top-100.html")
+        if (html.isBlank()) return@withContext emptyList()
+        val books = CatalogParser.parseTop100(html)
+            .filter { it.id !in deletedCatalogBookIds }
+            .map { upsertCatalogBook(it) }
+        top100Cache = books
+        books
+    }
+
+    /** Виконавці/Автори index pages, cached per URL for the session. */
+    private val peopleCache = java.util.concurrent.ConcurrentHashMap<String, List<CatalogPerson>>()
+    suspend fun fetchPeople(url: String): List<CatalogPerson> = withContext(Dispatchers.IO) {
+        peopleCache[url]?.let { return@withContext it }
+        val html = fetchUrlText(url)
+        if (html.isBlank()) return@withContext emptyList()
+        val people = CatalogParser.parsePeopleList(html)
+        peopleCache[url] = people
+        people
+    }
+
+    /**
+     * Books narrated/written by one person. The `/xfsearch/<kind>/<name>/`
+     * page is a poster grid, so the series-page fetch applies unchanged.
+     * The person's name is URL-encoded (the site serves raw Cyrillic paths).
+     */
+    suspend fun fetchPersonBooks(path: String): List<AudiobookEntity> {
+        val encoded = "https://4read.org" + android.net.Uri.encode(path, "/")
+        return fetchSeriesBooks(encoded)
+    }
+
+    /**
+     * Related books from the book page's "Можливо, Тебе зацікавить:" section.
+     * The posters are upserted into Room (like series/genre pages) so tapping
+     * one opens its own detail screen and the book is playable.
+     */
+    suspend fun fetchRelatedBooks(bookId: String): List<AudiobookEntity> = withContext(Dispatchers.IO) {
+        val book = dao.getAudiobookById(bookId) ?: return@withContext emptyList()
+        val sourceUrl = book.sourceUrl
+        if (!sourceUrl.contains("4read.org")) return@withContext emptyList()
+        val pageDetails = fetch4ReadPageDetails(sourceUrl)
+        if (pageDetails.relatedBooks.isEmpty()) return@withContext emptyList()
+        pageDetails.relatedBooks
+            .filter { it.id !in deletedCatalogBookIds }
+            .map { upsertCatalogBook(it) }
+    }
+
     private val seriesBooksCache = java.util.concurrent.ConcurrentHashMap<String, List<AudiobookEntity>>()
 
     /**
@@ -152,22 +227,40 @@ class AudiobookRepository(
     internal suspend fun upsertCatalogBook(book: CatalogBook): AudiobookEntity {
         val existing = dao.getAudiobookById(book.id)
         if (existing != null) {
+            var updated = existing
+            // Legacy placeholder cleanup: catalogue books were once seeded with
+            // a fabricated 4:00:00 (14400s) and 5 chapters. Treat that exact
+            // value as unknown so it never renders as real; the real duration
+            // is back-filled from the book page (refreshBookCoverAndDetails).
+            // The stored chapter count may already be REAL (a page fetch with
+            // no parseable duration keeps 14400s but writes the true chapter
+            // count), so only the duration is reset — never the chapters.
+            if (existing.totalDurationSeconds == 14400L) {
+                dao.updateBookStats(book.id, existing.totalChapters, 0L)
+                updated = updated.copy(totalDurationSeconds = 0L)
+            }
+            // Enrich with a real duration this source carries (e.g. the ТОП 100
+            // page's "Триває:") — never clobber a known value with 0.
+            if (book.totalDurationSeconds > 0L && updated.totalDurationSeconds != book.totalDurationSeconds) {
+                dao.updateBookStats(book.id, updated.totalChapters, book.totalDurationSeconds)
+                updated = updated.copy(totalDurationSeconds = book.totalDurationSeconds)
+            }
             if (book.seriesUrl != null &&
-                (existing.seriesUrl != book.seriesUrl ||
-                    existing.seriesTitle != book.seriesTitle ||
-                    existing.seriesIndex != book.seriesIndex)
+                (updated.seriesUrl != book.seriesUrl ||
+                    updated.seriesTitle != book.seriesTitle ||
+                    updated.seriesIndex != book.seriesIndex)
             ) {
                 dao.updateSeriesFields(book.id, book.seriesTitle, book.seriesUrl, book.seriesIndex)
-                // Return the known updated shape instead of re-querying: the
-                // row may be deleted concurrently and `!!` on a re-query would
-                // crash the whole catalogue sync.
-                return existing.copy(
+                updated = updated.copy(
                     seriesTitle = book.seriesTitle,
                     seriesUrl = book.seriesUrl,
                     seriesIndex = book.seriesIndex
                 )
             }
-            return existing
+            // Return the known updated shape instead of re-querying: the
+            // row may be deleted concurrently and `!!` on a re-query would
+            // crash the whole catalogue sync.
+            return updated
         }
         val newBook = AudiobookEntity(
             id = book.id,
@@ -181,9 +274,14 @@ class AudiobookRepository(
             sourceUrl = book.url,
             isDownloaded = false,
             downloadProgress = 0f,
-            totalDurationSeconds = 14400L,
-            totalChapters = 5,
-            rating = 4.8f,
+            // The catalogue homepage doesn't know the chapter count or total
+            // duration — they're back-filled from the real chapter list once
+            // the book page is fetched (see getChaptersList). Sources that DO
+            // carry a real duration (ТОП 100's "Триває:") keep it; unknown is
+            // 0, never a fabricated "5 Ch. • 4:00:00".
+            totalDurationSeconds = book.totalDurationSeconds,
+            totalChapters = 0,
+            rating = 0f,
             seriesTitle = book.seriesTitle,
             seriesUrl = book.seriesUrl,
             seriesIndex = book.seriesIndex
@@ -232,6 +330,26 @@ class AudiobookRepository(
 
     /** Per-book preferred playback speed (wayfinder #26); null clears the preference. */
     suspend fun setPreferredSpeed(bookId: String, speed: Float?) = dao.updatePreferredSpeed(bookId, speed)
+
+    /** Real chapter duration discovered during playback (replaces unknown 0). */
+    suspend fun updateChapterDuration(chapterId: String, durationSeconds: Long) =
+        dao.updateChapterDuration(chapterId, durationSeconds)
+
+    /** Real chapter count / total duration once the book's chapters are known. */
+    suspend fun updateBookStats(bookId: String, totalChapters: Int, totalDurationSeconds: Long) =
+        dao.updateBookStats(bookId, totalChapters, totalDurationSeconds)
+
+    /** Back-fills real page metadata (author/narrator/genre/rating/series). */
+    suspend fun updateBookMetadata(
+        bookId: String,
+        author: String? = null,
+        narrator: String? = null,
+        genre: String? = null,
+        rating: Float? = null,
+        seriesTitle: String? = null,
+        seriesIndex: Int? = null,
+        seriesUrl: String? = null
+    ) = dao.updateBookMetadata(bookId, author, narrator, genre, rating, seriesTitle, seriesIndex, seriesUrl)
 
     /** Last-pause marker for the smart rewind (wayfinder #25); null clears it. */
     suspend fun updatePausedAt(bookId: String, pausedAt: Long?) = dao.updatePausedAt(bookId, pausedAt)
@@ -398,7 +516,7 @@ class AudiobookRepository(
             downloadProgress = 1f,
             totalDurationSeconds = 0L,
             totalChapters = chapters.size,
-            rating = 4.5f
+            rating = 0f
         )
         dao.insertAudiobooks(listOf(book))
         dao.insertChapters(
@@ -473,11 +591,32 @@ class AudiobookRepository(
                         bookId = bookId,
                         chapterIndex = index,
                         title = "Глава ${index + 1} (${book?.title ?: "4read"})",
-                        durationSeconds = 1800L,
+                        durationSeconds = 0L, // unknown until the stream is actually played
                         streamUrl = audioUrl
                     )
                 }
                 dao.insertChapters(realChapters)
+                // Back-fill the real chapter count, the site's own total
+                // duration ("Триває:"), and the real author/narrator/genre/
+                // rating/series now that we've fetched the book page — the
+                // catalogue seed only ever had placeholders.
+                val knownDuration = pageDetails.totalDurationSeconds ?: book?.totalDurationSeconds ?: 0L
+                dao.updateBookStats(bookId, realChapters.size, knownDuration)
+                if (pageDetails.author != null || pageDetails.narrator != null ||
+                    pageDetails.genres != null || pageDetails.rating != null ||
+                    pageDetails.seriesLabel != null || pageDetails.seriesUrl != null
+                ) {
+                    dao.updateBookMetadata(
+                        bookId,
+                        author = pageDetails.author,
+                        narrator = pageDetails.narrator,
+                        genre = pageDetails.genres,
+                        rating = pageDetails.rating,
+                        seriesTitle = pageDetails.seriesLabel,
+                        seriesIndex = pageDetails.seriesIndex,
+                        seriesUrl = pageDetails.seriesUrl
+                    )
+                }
                 if (pageDetails.coverImageUrl != null && book != null) {
                     dao.insertAudiobooks(listOf(book.copy(coverImageUrl = pageDetails.coverImageUrl)))
                 }
@@ -521,10 +660,29 @@ class AudiobookRepository(
         dao.savePlaybackProgress(progress)
     }
 
-    suspend fun downloadAudiobookOffline(bookId: String) {
-        val chapters = dao.getChaptersListForBook(bookId)
+    /**
+     * Outcome of an offline download attempt. `totalChapters == 0` means no
+     * audio could be found at all (the caller shows a "no audio" message);
+     * `downloadedChapters` counts how many chapters made it to disk.
+     */
+    data class OfflineDownloadResult(
+        val downloadedChapters: Int,
+        val totalChapters: Int
+    )
+
+    suspend fun downloadAudiobookOffline(bookId: String): OfflineDownloadResult {
+        // Use the fallback-fetching [getChaptersList], NOT a raw Room read: a
+        // catalogue book's chapters live on its 4read page and are materialised
+        // on demand. Previously the raw read returned 0 chapters for any book
+        // whose page had never been opened/played, and the method silently
+        // returned — the Download button did nothing (observed on-device:
+        // 183 of 214 books had no chapters in Room).
+        val chapters = getChaptersList(bookId)
         val total = chapters.size
-        if (total == 0) return
+        if (total == 0) {
+            Log.w("AudiobookRepo", "downloadAudiobookOffline: no chapters found for bookId=$bookId")
+            return OfflineDownloadResult(0, 0)
+        }
 
         // Phase 2.5 hotfix (SF-004 / SEC-008): the previous /sdcard fallback
         // was unreachable on Android 11+ scoped storage and would have failed
@@ -533,7 +691,7 @@ class AudiobookRepository(
         val ctx = context ?: run {
             Log.e("AudiobookRepo", "downloadAudiobookOffline called without Context; aborting")
             dao.updateDownloadState(bookId, isDownloaded = false, progress = 0f)
-            return
+            return OfflineDownloadResult(0, 0)
         }
         // Phase 2.5 hotfix (HI-002 / PERF-015): the cache size reader and
         // clearer look at filesDir/audio_downloads while this method wrote
@@ -616,6 +774,7 @@ class AudiobookRepository(
             isDownloaded = allOk,
             progress = if (allOk) 1.0f else successCount.toFloat() / total
         )
+        return OfflineDownloadResult(successCount, total)
     }
 
     suspend fun removeOfflineDownload(bookId: String) {
@@ -652,17 +811,48 @@ class AudiobookRepository(
             if (!pageData.coverImageUrl.isNullOrBlank()) {
                 dao.updateCoverImageUrl(bookId, pageData.coverImageUrl)
             }
+            // Real metadata (author/narrator/genre/duration/rating/series) is
+            // back-filled on EVERY book-page open — the catalogue seed only
+            // ever had placeholders, and a book may already carry them from a
+            // previous session, so gating on chapters.isEmpty() would leave
+            // "4read.org" / "4:00:00" forever.
+            if (pageData.totalDurationSeconds != null || pageData.author != null ||
+                pageData.narrator != null || pageData.genres != null ||
+                pageData.rating != null || pageData.seriesLabel != null ||
+                pageData.seriesUrl != null
+            ) {
+                dao.updateBookStats(
+                    bookId,
+                    chapters.size.takeIf { it > 0 } ?: pageData.audioUrls.size,
+                    pageData.totalDurationSeconds ?: book.totalDurationSeconds
+                )
+                dao.updateBookMetadata(
+                    bookId,
+                    author = pageData.author,
+                    narrator = pageData.narrator,
+                    genre = pageData.genres,
+                    rating = pageData.rating,
+                    seriesTitle = pageData.seriesLabel,
+                    seriesIndex = pageData.seriesIndex,
+                    seriesUrl = pageData.seriesUrl
+                )
+            }
             // Same guard as getChaptersList: never overwrite existing (seeded)
             // chapters with live-page ones -- that duplicated rows on every
             // book-detail open.
             if (chapters.isEmpty() && pageData.audioUrls.isNotEmpty()) {
+                // Same id format as getChaptersList ("_ch_") so a concurrent
+                // fetch-then-insert (e.g. an offline Download racing this
+                // refresh) produces identical rows and @Insert(REPLACE)
+                // dedupes them — a mixed `ch`/`ch_` format used to duplicate
+                // the whole chapter list.
                 val updatedChapters = pageData.audioUrls.mapIndexed { index, audioUrl ->
                     ChapterEntity(
-                        id = "${bookId}_ch${index + 1}",
+                        id = "${bookId}_ch_${index + 1}",
                         bookId = bookId,
                         chapterIndex = index,
                         title = "Глава ${index + 1} (${book.title})",
-                        durationSeconds = 1800L,
+                        durationSeconds = 0L, // unknown until played
                         streamUrl = audioUrl
                     )
                 }
@@ -759,9 +949,9 @@ class AudiobookRepository(
             sourceUrl = sourceUrl,
             isDownloaded = false,
             downloadProgress = 0f,
-            totalDurationSeconds = 14400L,
-            totalChapters = audioStreams.size.coerceAtLeast(1),
-            rating = 4.9f
+            totalDurationSeconds = 0L,
+            totalChapters = audioStreams.distinct().size,
+            rating = 0f
         )
 
         val chapterList = if (audioStreams.isNotEmpty()) {
@@ -771,7 +961,7 @@ class AudiobookRepository(
                     bookId = bookId,
                     chapterIndex = index,
                     title = "Глава ${index + 1}",
-                    durationSeconds = 1800L,
+                    durationSeconds = 0L, // unknown until played
                     streamUrl = audioUrl
                 )
             }
@@ -813,18 +1003,21 @@ class AudiobookRepository(
         val newBook = AudiobookEntity(
             id = bookId,
             title = formattedTitle,
-            author = "Аудиокнига 4read.org",
-            narrator = "4read Voice Narrator",
+            author = parsedDetails.author ?: "Аудиокнига 4read.org",
+            narrator = parsedDetails.narrator ?: "4read Voice Narrator",
             description = "Аудиокнига с портала 4read.org ($cleanInput). Доступны все главы с онлайн-стримингом.",
             coverDrawableRes = R.drawable.img_neuromancer_cover_1785247475170,
             coverImageUrl = parsedDetails.coverImageUrl,
-            genre = "4read Catalog",
+            genre = parsedDetails.genres ?: "4read Catalog",
             sourceUrl = sourceUrl,
             isDownloaded = false,
             downloadProgress = 0f,
-            totalDurationSeconds = 14400L,
-            totalChapters = parsedDetails.audioUrls.size.coerceAtLeast(3),
-            rating = 4.9f
+            totalDurationSeconds = parsedDetails.totalDurationSeconds ?: 0L,
+            totalChapters = parsedDetails.audioUrls.size,
+            rating = parsedDetails.rating ?: 0f,
+            seriesTitle = parsedDetails.seriesLabel,
+            seriesIndex = parsedDetails.seriesIndex,
+            seriesUrl = parsedDetails.seriesUrl
         )
 
         dao.insertAudiobooks(listOf(newBook))
@@ -836,7 +1029,7 @@ class AudiobookRepository(
                     bookId = bookId,
                     chapterIndex = index,
                     title = "Глава ${index + 1} ($formattedTitle)",
-                    durationSeconds = 1800L,
+                    durationSeconds = 0L, // unknown until played
                     streamUrl = audioUrl
                 )
             }
@@ -852,12 +1045,42 @@ class AudiobookRepository(
         return newBook
     }
 
+    /** Session-scoped book-page cache: one fetch per page per app run. */
+    private val pageDetailsCache = java.util.concurrent.ConcurrentHashMap<String, Parsed4ReadData>()
+
     private suspend fun fetch4ReadPageDetails(pageUrl: String): Parsed4ReadData = withContext(Dispatchers.IO) {
+        pageDetailsCache[pageUrl]?.let { return@withContext it }
         var coverUrl: String? = null
         val audioStreams = mutableListOf<String>()
+        var totalDurationSeconds: Long? = null
+        var author: String? = null
+        var narrator: String? = null
+        var genres: String? = null
+        var rating: Float? = null
+        var ratingVotes: Int? = null
+        var seriesLabel: String? = null
+        var seriesIndex: Int? = null
+        var seriesUrl: String? = null
+        var relatedBooks: List<CatalogBook> = emptyList()
         try {
             val html = fetchUrlText(pageUrl)
             if (html.isNotBlank()) {
+                // Real metadata straight from the page: the site renders a
+                // `<ul class="pmovie__list">` with Жанр / Автор / Читає /
+                // Триває / Цикл entries plus a pmovie__rating-score block.
+                // Parsing these replaces the fabricated defaults ("4read.org",
+                // "4read Voice Narrator", "4.8") with the book's real data.
+                totalDurationSeconds = parsePageDuration(html)
+                author = parsePmovieText(html, "Автор")
+                narrator = parsePmovieText(html, "Читає")
+                genres = parsePmovieGenres(html)
+                rating = parseRatingScore(html)
+                ratingVotes = parseRatingVotes(html)
+                val cycle = parsePmovieCycle(html)
+                seriesLabel = cycle?.first
+                seriesIndex = cycle?.second
+                seriesUrl = cycle?.third
+                relatedBooks = CatalogParser.parseRelatedBooks(html)
                 val ogMatch = Regex("""<meta\s+property="og:image"\s+content="([^"]+)"""", RegexOption.IGNORE_CASE).find(html)
                     ?: Regex("""<meta\s+content="([^"]+)"\s+property="og:image""", RegexOption.IGNORE_CASE).find(html)
                 if (ogMatch != null) {
@@ -924,8 +1147,119 @@ class AudiobookRepository(
         }
         Parsed4ReadData(
             coverImageUrl = coverUrl,
-            audioUrls = audioStreams.distinct()
-        )
+            audioUrls = audioStreams.distinct(),
+            totalDurationSeconds = totalDurationSeconds,
+            author = author,
+            narrator = narrator,
+            genres = genres,
+            rating = rating,
+            ratingVotes = ratingVotes,
+            seriesLabel = seriesLabel,
+            seriesIndex = seriesIndex,
+            seriesUrl = seriesUrl,
+            relatedBooks = relatedBooks
+        ).also { pageDetailsCache[pageUrl] = it }
+    }
+
+    /**
+     * Parses the book page's real total duration from either the visible
+     * "Триває:" field or the schema.org meta tag. Formats seen on the site:
+     * `10:57:18` (h:mm:ss) and `53:42` (mm:ss). Returns null when absent —
+     * callers then keep the book's stored value instead of inventing one.
+     */
+    private fun parsePageDuration(html: String): Long? {
+        val raw = Regex("""(?:itemprop="duration"\s+content="|Триває:</span>\s*)(\d{1,2}:\d{2}(?::\d{2})?)""")
+            .find(html)
+            ?.groupValues
+            ?.get(1)
+            ?: return null
+        val parts = raw.split(":").map { it.toLongOrNull() ?: return null }
+        return when (parts.size) {
+            3 -> parts[0] * 3600L + parts[1] * 60L + parts[2]
+            2 -> parts[0] * 60L + parts[1]
+            else -> null
+        }
+    }
+
+    /**
+     * Extracts the visible text of a `pmovie__list` entry by its label, e.g.
+     * `<li><span>Автор:</span> … <a>Роберт Сальваторе</a></li>` →
+     * "Роберт Сальваторе". Strips HTML and the label itself; unescapes
+     * entities. Null when the entry or a readable value is missing.
+     */
+    private fun parsePmovieText(html: String, label: String): String? {
+        val marker = Regex("""<span>\s*$label:\s*</span>(.*?)</li>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+            .find(html)
+            ?.groupValues
+            ?.get(1)
+            ?: return null
+        val clean = Regex("""<[^>]+>""").replace(marker, "")
+            .replace("&quot;", "\"")
+            .replace("&#039;", "'")
+            .replace("&amp;", "&")
+            .trim()
+        return clean.ifBlank { null }
+    }
+
+    /**
+     * Genres from the "Жанр:" entry — a chain of links separated by " / "
+     * (e.g. "Світова література / Пригоди / Фентезі"). Joined with " · " and
+     * truncated to the two most specific categories (the first is usually the
+     * broad "Світова література"). Null when absent.
+     */
+    private fun parsePmovieGenres(html: String): String? {
+        val marker = Regex("""<span>\s*Жанр:\s*</span>(.*?)</li>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+            .find(html)
+            ?.groupValues
+            ?.get(1)
+            ?: return null
+        val genres = Regex(""">([^<]+)</a>""").findAll(marker)
+            .map { it.groupValues[1].trim() }
+            .filter { it.isNotBlank() && !it.equals("Жанр", ignoreCase = true) }
+            .toList()
+        val picked = genres.drop(1).ifEmpty { genres.take(1) }
+        return picked.joinToString(" · ").ifBlank { null }
+    }
+
+    /** Real rating score from `pmovie__rating-score` (e.g. 4.9). */
+    private fun parseRatingScore(html: String): Float? {
+        return Regex("""pmovie__rating-score[^"]*\">\s*([0-9]+(?:\.[0-9]+)?)""")
+            .find(html)
+            ?.groupValues
+            ?.get(1)
+            ?.toFloatOrNull()
+    }
+
+    /** Vote count from `pmovie__rating-votes` (e.g. `(<span …>30</span> голосів)`). */
+    private fun parseRatingVotes(html: String): Int? {
+        return Regex("""data-vote-num-id="[^"]*">\s*([0-9]+)""")
+            .find(html)
+            ?.groupValues
+            ?.get(1)
+            ?.toIntOrNull()
+    }
+
+    /**
+     * Series (cycle) entry, e.g.
+     * `<li …><span>Цикл:</span> <a href="https://4read.org/xfsearch/cikl/slug/">Сага про Дріззта До'Урдена</a>
+     * (<span itemprop="volumeNumber">7</span>)</li>` →
+     * ("Сага про Дріззта До'Урдена", 7, "https://4read.org/xfsearch/cikl/slug/").
+     * Triple of (label, index, pageUrl); null when there is no cycle.
+     */
+    private fun parsePmovieCycle(html: String): Triple<String, Int, String>? {
+        val block = Regex("""<span>\s*Цикл:\s*</span>(.*?)</li>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+            .find(html)
+            ?.groupValues
+            ?.get(1)
+            ?: return null
+        val anchor = Regex("""<a\s+href="([^"]+)"[^>]*>([^<]+)</a>""").find(block) ?: return null
+        val name = anchor.groupValues[2]
+            .replace("&#039;", "'")
+            .trim()
+            .ifBlank { return null }
+        val href = anchor.groupValues[1]
+        val index = Regex("""volumeNumber">\s*([0-9]+)""").find(block)?.groupValues?.get(1)?.toIntOrNull()
+        return Triple(name, index ?: 0, href)
     }
 
     private fun extractAudioFromHtml(html: String, baseUrl: String, resultList: MutableList<String>) {
@@ -1076,18 +1410,21 @@ class AudiobookRepository(
                             val newBook = AudiobookEntity(
                                 id = bookId,
                                 title = cleanTitle,
-                                author = "4read.org",
-                                narrator = "4read Voice Narrator",
+                                author = pageDetails.author ?: "4read.org",
+                                narrator = pageDetails.narrator ?: "4read Voice Narrator",
                                 description = "Книга знайдена на порталі 4read.org за запитом \"$cleanQuery\". Джерело: $fullUrl",
                                 coverDrawableRes = R.drawable.img_neuromancer_cover_1785247475170,
                                 coverImageUrl = pageDetails.coverImageUrl,
-                                genre = "4read Каталог",
+                                genre = pageDetails.genres ?: "4read Каталог",
                                 sourceUrl = fullUrl,
                                 isDownloaded = false,
                                 downloadProgress = 0f,
-                                totalDurationSeconds = 14400L,
-                                totalChapters = pageDetails.audioUrls.size.coerceAtLeast(3),
-                                rating = 4.8f
+                                totalDurationSeconds = pageDetails.totalDurationSeconds ?: 0L,
+                                totalChapters = pageDetails.audioUrls.size,
+                                rating = pageDetails.rating ?: 0f,
+                                seriesTitle = pageDetails.seriesLabel,
+                                seriesIndex = pageDetails.seriesIndex,
+                                seriesUrl = pageDetails.seriesUrl
                             )
                             dao.insertAudiobooks(listOf(newBook))
 
@@ -1098,7 +1435,7 @@ class AudiobookRepository(
                                         bookId = bookId,
                                         chapterIndex = idx,
                                         title = "Частина ${idx + 1}: $cleanTitle",
-                                        durationSeconds = 1800L,
+                                        durationSeconds = 0L, // unknown until played
                                         streamUrl = audioUrl
                                     )
                                 }
@@ -1131,9 +1468,9 @@ class AudiobookRepository(
                         sourceUrl = "https://4read.org/index.php?do=search&subaction=search&story=$encodedQuery",
                         isDownloaded = false,
                         downloadProgress = 0f,
-                        totalDurationSeconds = 14400L,
-                        totalChapters = 3,
-                        rating = 4.9f
+                        totalDurationSeconds = 0L,
+                        totalChapters = 0,
+                        rating = 0f
                     )
                     if (existing == null) {
                         dao.insertAudiobooks(listOf(book))
@@ -1229,7 +1566,32 @@ class AudiobookRepository(
 
 data class Parsed4ReadData(
     val coverImageUrl: String? = null,
-    val audioUrls: List<String> = emptyList()
+    val audioUrls: List<String> = emptyList(),
+    /**
+     * The book's real total duration, parsed from the page's
+     * `<span>Триває:</span> 10:57:18` / `<meta itemprop="duration"
+     * content="10:57:18" />` fields. Null when the page doesn't carry one
+     * (e.g. a search-listing page). Never a fabricated default.
+     */
+    val totalDurationSeconds: Long? = null,
+    /** Real author from `itemprop="author"` (e.g. "Роберт Сальваторе"). */
+    val author: String? = null,
+    /** Real reader/narrator from `itemprop="readBy"` (e.g. "Костянтин Шарков"). */
+    val narrator: String? = null,
+    /** Real genres from the "Жанр:" list, joined with " · " (e.g. "Фентезі · Пригоди"). */
+    val genres: String? = null,
+    /** Real rating from `pmovie__rating-score` (e.g. 4.9); null when absent. */
+    val rating: Float? = null,
+    /** Vote count from `pmovie__rating-votes` (e.g. 30); null when absent. */
+    val ratingVotes: Int? = null,
+    /** Series (cycle) name + volume, e.g. "Сага про Дріззта До'Урдена · Книга 7". */
+    val seriesLabel: String? = null,
+    /** Volume number parsed from the cycle label, when present (e.g. 7). */
+    val seriesIndex: Int? = null,
+    /** Series (cycle) page URL, when present — enables "continue the series". */
+    val seriesUrl: String? = null,
+    /** Related books from the page's "Можливо, Тебе зацікавить:" section. */
+    val relatedBooks: List<CatalogBook> = emptyList()
 )
 
 /** Outcome of a local folder/file import (spec #8 Block 4). */

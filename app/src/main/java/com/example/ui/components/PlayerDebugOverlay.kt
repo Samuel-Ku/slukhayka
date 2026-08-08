@@ -40,9 +40,9 @@ fun PlayerDebugOverlay(
     var isExpanded by remember { mutableStateOf(true) }
 
     Card(
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF10141D).copy(alpha = 0.95f)),
+        colors = CardDefaults.cardColors(containerColor = AppDebugPanel.copy(alpha = 0.95f)),
         border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(AppDimens.RadiusPanel),
         modifier = modifier
             .fillMaxWidth()
             .testTag("player_debug_overlay")
@@ -123,13 +123,13 @@ fun PlayerDebugOverlay(
                         DebugStatusBadge(
                             label = "STATE",
                             value = if (playerState.isPlaying) "PLAYING" else if (playerState.isBuffering) "BUFFERING" else "IDLE / PAUSED",
-                            color = if (playerState.isPlaying) Color(0xFF00E676) else if (playerState.isBuffering) Color(0xFFFFAB00) else Color(0xFFFF5252)
+                            color = if (playerState.isPlaying) AppDebugOk else if (playerState.isBuffering) AppDebugWarn else AppDebugError
                         )
 
                         DebugStatusBadge(
                             label = "BUFFERING",
                             value = if (playerState.isBuffering) "YES" else "NO",
-                            color = if (playerState.isBuffering) Color(0xFFFFAB00) else Color(0xFF00E676)
+                            color = if (playerState.isBuffering) AppDebugWarn else AppDebugOk
                         )
 
                         DebugStatusBadge(
@@ -143,8 +143,8 @@ fun PlayerDebugOverlay(
 
                     // Media Source URL
                     Surface(
-                        color = Color(0xFF0A0D14),
-                        shape = RoundedCornerShape(8.dp),
+                        color = AppDebugPanelInner,
+                        shape = RoundedCornerShape(AppDimens.RadiusInner),
                         border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                         modifier = Modifier.fillMaxWidth()
                     ) {
@@ -189,7 +189,7 @@ fun PlayerDebugOverlay(
                                     fontFamily = FontFamily.Monospace,
                                     fontSize = 11.sp
                                 ),
-                                color = if (playerState.currentStreamUrl.isNotBlank()) MaterialTheme.colorScheme.primary else Color(0xFFFF5252),
+                                color = if (playerState.currentStreamUrl.isNotBlank()) MaterialTheme.colorScheme.primary else AppDebugError,
                                 maxLines = 3,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -222,7 +222,7 @@ fun PlayerDebugOverlay(
                             text = "⚠️ LOG: ${playerState.lastErrorMsg}",
                             style = MaterialTheme.typography.bodySmall.copy(
                                 fontFamily = FontFamily.Monospace,
-                                color = Color(0xFFFF5252)
+                                color = AppDebugError
                             )
                         )
                     }
@@ -239,7 +239,7 @@ fun PlayerDebugOverlay(
                             Button(
                                 onClick = onRetryPlayback,
                                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                                shape = RoundedCornerShape(8.dp),
+                                shape = RoundedCornerShape(AppDimens.RadiusInner),
                                 modifier = Modifier.height(34.dp)
                             ) {
                                 Icon(
@@ -267,7 +267,7 @@ private fun DebugStatusBadge(
     Surface(
         color = color.copy(alpha = 0.15f),
         border = androidx.compose.foundation.BorderStroke(1.dp, color.copy(alpha = 0.5f)),
-        shape = RoundedCornerShape(6.dp)
+        shape = RoundedCornerShape(AppDimens.RadiusXs)
     ) {
         Column(
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),

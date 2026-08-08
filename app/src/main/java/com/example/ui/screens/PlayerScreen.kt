@@ -24,6 +24,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.layout.ContentScale
@@ -43,8 +44,9 @@ import com.example.ui.components.BookCoverImage
 import com.example.ui.components.PlayerDebugOverlay
 import com.example.ui.components.SleepTimerSheet
 import com.example.ui.components.SpeedSheet
+import com.example.ui.displayAuthor
+import com.example.ui.library.effectiveChapterDurations
 import com.example.ui.theme.AppDimens
-import kotlin.math.max
 
 /** Values shared by the visual progress treatment and its unit tests. */
 data class PlayerProgressUi(
@@ -58,26 +60,17 @@ data class PlayerProgressUi(
 
 data class BookSeekTarget(val chapterIndex: Int, val positionMs: Long)
 
-private fun effectiveChapterDurations(
-    chapters: List<ChapterEntity>,
-    currentChapterIndex: Int,
-    currentChapterDurationMs: Long
-): List<Long> {
-    if (chapters.isEmpty()) return emptyList()
-    val selectedIndex = currentChapterIndex.coerceIn(chapters.indices)
-    return chapters.map { it.durationSeconds.coerceAtLeast(0L) }.toMutableList().also {
-        it[selectedIndex] = max(it[selectedIndex], (currentChapterDurationMs / 1_000L).coerceAtLeast(0L))
-    }
-}
+
 
 fun calculateBookSeekTarget(
     chapters: List<ChapterEntity>,
     currentChapterIndex: Int,
     currentChapterDurationMs: Long,
-    fraction: Float
+    fraction: Float,
+    bookTotalDurationSeconds: Long = 0L
 ): BookSeekTarget? {
     if (chapters.isEmpty()) return null
-    val durations = effectiveChapterDurations(chapters, currentChapterIndex, currentChapterDurationMs)
+    val durations = effectiveChapterDurations(chapters, currentChapterIndex, currentChapterDurationMs, bookTotalDurationSeconds)
     val totalSeconds = durations.sum()
     if (totalSeconds <= 0L) return null
 
@@ -104,14 +97,15 @@ fun calculatePlayerProgress(
     currentChapterIndex: Int,
     currentPositionMs: Long,
     currentChapterDurationMs: Long,
-    bookmarks: List<BookmarkEntity>
+    bookmarks: List<BookmarkEntity>,
+    bookTotalDurationSeconds: Long = 0L
 ): PlayerProgressUi {
     if (chapters.isEmpty()) {
         return PlayerProgressUi(0f, 0f, 0L, 0L, emptyList(), emptyList())
     }
 
     val selectedIndex = currentChapterIndex.coerceIn(chapters.indices)
-    val effectiveDurations = effectiveChapterDurations(chapters, selectedIndex, currentChapterDurationMs)
+    val effectiveDurations = effectiveChapterDurations(chapters, selectedIndex, currentChapterDurationMs, bookTotalDurationSeconds)
     val currentDurationSeconds = effectiveDurations[selectedIndex]
     val totalSeconds = effectiveDurations.sum()
     val positionInChapter = (currentPositionMs / 1000L).coerceIn(0L, currentDurationSeconds)
@@ -167,6 +161,26 @@ fun PlayerScreen(
     var showChapterSheet by rememberSaveable { mutableStateOf(false) }
     var showDebugOverlay by rememberSaveable { mutableStateOf(false) }
     var artworkAccent by remember(book.id) { mutableStateOf<Color?>(null) }
+    // Real cover aspect ratio once the artwork loads (defaults to a portrait
+    // book cover ~2:3); used to size the cover frame instead of a forced
+    // square, so tall covers are NOT cropped — the player has plenty of
+    // vertical room, and a cropped cover read as a rendering bug.
+    var artworkAspect by remember(book.id) { mutableStateOf(2f / 3f) }
+
+    // Peak-end feedback (design pass): one-shot snackbar confirming the
+    // small wins — bookmark saved, sleep timer armed, speed changed. The
+    // bottom sheets close silently otherwise.
+    val snackbarHostState = remember { SnackbarHostState() }
+    var pendingFeedback by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(pendingFeedback) {
+        pendingFeedback?.let { message ->
+            // Wait for the bottom sheet's dismissal animation before surfacing
+            // the confirmation, so the snackbar never renders beneath it.
+            kotlinx.coroutines.delay(300)
+            snackbarHostState.showSnackbar(message)
+            pendingFeedback = null
+        }
+    }
 
     val currentChapter = playerState.chapters.getOrNull(playerState.currentChapterIndex)
     val currentChapterTitle = currentChapter?.title ?: "Розділ ${playerState.currentChapterIndex + 1}"
@@ -175,25 +189,42 @@ fun PlayerScreen(
         playerState.currentChapterIndex,
         playerState.currentPositionMs,
         playerState.durationMs,
-        bookmarks
+        bookmarks,
+        book.totalDurationSeconds
     ) {
         calculatePlayerProgress(
             chapters = playerState.chapters,
             currentChapterIndex = playerState.currentChapterIndex,
             currentPositionMs = playerState.currentPositionMs,
             currentChapterDurationMs = playerState.durationMs,
-            bookmarks = bookmarks
+            bookmarks = bookmarks,
+            bookTotalDurationSeconds = book.totalDurationSeconds
         )
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        PlayerScreenContent(
+    // The player's backdrop is a plain Box.background() (no Material Surface
+    // above it), so LocalContentColor would otherwise stay at its framework
+    // default (BLACK) and every IconButton/Icon without an explicit tint
+    // would render near-invisible black glyphs on the dark backdrop.
+    CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onBackground) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            PlayerScreenContent(
             playerState = playerState,
             book = book,
             currentChapterTitle = currentChapterTitle,
             progress = progress,
             artworkAccent = artworkAccent,
-            onArtworkLoaded = { artworkAccent = extractArtworkAccent(it) },
+            artworkAspect = artworkAspect,
+            onArtworkLoaded = {
+                artworkAccent = extractArtworkAccent(it)
+                val iw = it.intrinsicWidth
+                val ih = it.intrinsicHeight
+                if (iw > 0 && ih > 0) {
+                    // Clamp to sane bounds so a panorama or a postage-stamp
+                    // cover cannot blow the layout apart.
+                    artworkAspect = (iw.toFloat() / ih).coerceIn(0.6f, 1.6f)
+                }
+            },
             onDismiss = onDismiss,
             onToggleFavorite = { viewModel.toggleFavorite(book.id, !book.isFavorite) },
             onToggleDebug = { showDebugOverlay = !showDebugOverlay },
@@ -205,7 +236,8 @@ fun PlayerScreen(
                     chapters = playerState.chapters,
                     currentChapterIndex = playerState.currentChapterIndex,
                     currentChapterDurationMs = playerState.durationMs,
-                    fraction = fraction
+                    fraction = fraction,
+                    bookTotalDurationSeconds = book.totalDurationSeconds
                 )?.let { target ->
                     if (target.chapterIndex == playerState.currentChapterIndex) {
                         viewModel.playerManager.seekTo(target.positionMs)
@@ -230,6 +262,14 @@ fun PlayerScreen(
             onChapters = { showChapterSheet = true }
         )
 
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(AppDimens.SpaceLg)
+                .navigationBarsPadding()
+        )
+
         if (showDebugOverlay) {
             PlayerDebugOverlay(
                 playerState = playerState,
@@ -244,12 +284,20 @@ fun PlayerScreen(
                 modifier = Modifier.align(Alignment.TopCenter).padding(AppDimens.SpaceLg)
             )
         }
+        }
     }
 
     if (showSleepTimerSheet) {
         SleepTimerSheet(
             currentTimerMinutes = playerState.sleepTimerMinutes,
-            onSelectTimer = viewModel.playerManager::setSleepTimer,
+            // Close-on-select: previously the sheet stayed open until the user
+            // dismissed it; the chip already reflects the new value, so closing
+            // immediately feels tighter and the Snackbar confirms the change.
+            onSelectTimer = { minutes ->
+                viewModel.playerManager.setSleepTimer(minutes)
+                if (minutes > 0) pendingFeedback = "Таймер на $minutes хв"
+                showSleepTimerSheet = false
+            },
             onDismiss = { showSleepTimerSheet = false }
         )
     }
@@ -269,7 +317,11 @@ fun PlayerScreen(
             timestampSeconds = playerState.currentPositionMs / 1000L,
             chapterTitle = currentChapterTitle,
             onDismiss = { showBookmarkSheet = false },
-            onSave = viewModel::addBookmarkAtCurrentPosition
+            onSave = {
+                viewModel.addBookmarkAtCurrentPosition(it)
+                pendingFeedback = "Закладку збережено"
+                showBookmarkSheet = false
+            }
         )
     }
 
@@ -294,6 +346,7 @@ fun PlayerScreenContent(
     currentChapterTitle: String,
     progress: PlayerProgressUi,
     artworkAccent: Color?,
+    artworkAspect: Float = 2f / 3f,
     onArtworkLoaded: (Drawable) -> Unit,
     onDismiss: () -> Unit,
     onToggleFavorite: () -> Unit,
@@ -319,9 +372,16 @@ fun PlayerScreenContent(
         modifier = modifier
             .fillMaxSize()
             .background(
+                // The player is a full-screen OVERLAY on top of whatever screen
+                // was open (AnimatedVisibility in MainActivity), so its backdrop
+                // must be fully opaque — a translucent gradient let the previous
+                // screen (book page, list) show through the top of the player,
+                // which read as a rendering bug. The accent is blended INTO the
+                // background color (lerp) instead of painted with alpha, keeping
+                // the soft tinted look with zero see-through.
                 Brush.verticalGradient(
-                    0f to tint.copy(alpha = 0.16f),
-                    0.42f to background.copy(alpha = 0.96f),
+                    0f to lerp(background, tint, 0.12f),
+                    0.42f to background,
                     1f to background
                 )
             )
@@ -344,22 +404,52 @@ fun PlayerScreenContent(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Spacer(Modifier.height(AppDimens.SpaceSm))
-                Surface(
-                    shape = RoundedCornerShape(AppDimens.RadiusHero),
-                    tonalElevation = 1.dp,
-                    shadowElevation = 4.dp,
-                    modifier = Modifier
-                        .widthIn(max = 272.dp)
-                        .fillMaxWidth(0.76f)
-                        .aspectRatio(1f)
-                ) {
-                    BookCoverImage(
-                        book = book,
-                        contentDescription = "Обкладинка: ${book.title}",
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop,
-                        onImageLoaded = onArtworkLoaded
+                Box(contentAlignment = Alignment.Center) {
+                    // Soft glow behind the cover — tinted with the artwork accent
+                    // (or the brand accent before the cover loads) so the shadow
+                    // hue matches the scene instead of reading as flat black.
+                    // Sized and painted in dp so the falloff is density-stable.
+                    val glowRadiusPx = with(androidx.compose.ui.platform.LocalDensity.current) { 300.dp.toPx() }
+                    // The glow mirrors the cover's (real) aspect ratio instead
+                    // of a hard-coded square, so the halo hugs the artwork.
+                    // aspectRatio honours the heightIn cap and shrinks the
+                    // WIDTH to match, so a tall cover is scaled (never
+                    // cropped) and the transport row stays on screen.
+                    val coverAspect = artworkAspect.coerceIn(0.6f, 1.6f)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(0.9f)
+                            .heightIn(max = 336.dp)
+                            .aspectRatio(coverAspect)
+                            .background(
+                                Brush.radialGradient(
+                                    colors = listOf(
+                                        tint.copy(alpha = 0.28f),
+                                        tint.copy(alpha = 0.08f),
+                                        Color.Transparent
+                                    ),
+                                    radius = glowRadiusPx
+                                )
+                            )
                     )
+                    Surface(
+                        shape = RoundedCornerShape(AppDimens.RadiusHero),
+                        tonalElevation = 1.dp,
+                        shadowElevation = 6.dp,
+                        modifier = Modifier
+                            .widthIn(max = 272.dp)
+                            .heightIn(max = 336.dp)
+                            .fillMaxWidth(0.76f)
+                            .aspectRatio(coverAspect)
+                    ) {
+                        BookCoverImage(
+                            book = book,
+                            contentDescription = "Обкладинка: ${book.title}",
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop,
+                            onImageLoaded = onArtworkLoaded
+                        )
+                    }
                 }
 
                 Spacer(Modifier.height(AppDimens.SpaceXl))
@@ -374,7 +464,7 @@ fun PlayerScreenContent(
                 )
                 Spacer(Modifier.height(AppDimens.SpaceXs))
                 Text(
-                    text = book.author,
+                    text = book.displayAuthor,
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
@@ -441,6 +531,11 @@ fun PlayerScreenContent(
                     onChapters = onChapters
                 )
                 Spacer(Modifier.height(AppDimens.SpaceLg))
+                // The player is a full-screen OVERLAY rendered outside the host
+                // Scaffold, so it gets no bottom inset from it. Pad past the
+                // system navigation bar / gesture zone so the quick-tools row
+                // is never hidden behind it (3-button nav is ~48dp tall).
+                Spacer(Modifier.navigationBarsPadding())
             }
         }
     }
@@ -458,6 +553,7 @@ private fun PlayerTopBar(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .statusBarsPadding()
             .heightIn(min = 64.dp)
             .padding(horizontal = AppDimens.SpaceSm),
         verticalAlignment = Alignment.CenterVertically
@@ -700,7 +796,7 @@ private fun BookmarkBottomSheet(
     onSave: (String) -> Unit
 ) {
     var note by rememberSaveable { mutableStateOf("") }
-    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = MaterialTheme.colorScheme.surface) {
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
         Column(Modifier.fillMaxWidth().padding(horizontal = AppDimens.SpaceXl, vertical = AppDimens.SpaceMd)) {
             Text("Додати закладку", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(AppDimens.SpaceXs))
@@ -736,7 +832,7 @@ private fun ChapterBottomSheet(
     onSelect: (Int) -> Unit,
     onDismiss: () -> Unit
 ) {
-    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = MaterialTheme.colorScheme.surface) {
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
         Column(Modifier.fillMaxWidth().padding(horizontal = AppDimens.SpaceXl)) {
             Text("Розділи", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(AppDimens.SpaceMd))

@@ -22,10 +22,17 @@ object AppDimens {
     // Page sides (16–20 dp)
     val PageSides = 16.dp
 
-    // Radii — cards sit in the 10–14 dp band
-    val RadiusInner = 8.dp
-    val RadiusCard = 12.dp
-    val RadiusHero = 20.dp
+    // Radii — cards sit in the 10–14 dp band. Every radius the UI uses is a
+    // named token here (MD3: no magic corner numbers); components reference
+    // these so shapes stay consistent with theming.
+    val RadiusProgress = 2.dp   // progress-bar rounded caps
+    val RadiusXs = 6.dp         // tiny badges / compact chips
+    val RadiusInner = 8.dp      // chips, text fields, inner surfaces
+    val RadiusCover = 10.dp     // small covers inside rows
+    val RadiusCard = 12.dp      // standard cards
+    val RadiusCardLg = 14.dp    // larger cards / list rows
+    val RadiusPanel = 16.dp     // panels, sheets, buttons
+    val RadiusHero = 20.dp      // hero covers, dialogs
 
     // Touch targets (Android accessibility: ≥ 48 dp)
     val TouchTarget = 48.dp

@@ -83,6 +83,26 @@ class LibraryModelTest {
         assertFalse(built.isCompleted)
     }
 
+    // Same root cause as the player bug (2026-08-08): unplayed chapters carry
+    // durationSeconds = 0, so summing them under-reports the book. The site
+    // total is authoritative; unknown chapters are spread so the card shows
+    // the real book length.
+    @Test
+    fun `authoritative book total wins over the shrunken sum of known chapters`() {
+        val b = book("a", "Книга", totalDurationSeconds = 60_071L)
+        // Only chapter 0 was played (real duration); the rest unknown.
+        val chapters = listOf(chapter("a", 0, 1205L), chapter("a", 1, 0L), chapter("a", 2, 0L))
+        val p = progress("a", chapterIndex = 1, position = 452L)
+
+        val built = buildLibraryBooks(listOf(b), listOf(p), mapOf("a" to chapters)).single()
+
+        assertEquals(60_071L, built.totalDurationSeconds)
+        // Position: known ch0 (1205) + in-chapter offset (452).
+        assertEquals(1205L + 452L, built.cumulativePositionSeconds)
+        assertTrue(built.percent in 0f..1f)
+        assertTrue(built.isListening)
+    }
+
     @Test
     fun `total duration falls back to the book stamp when there are no chapters`() {
         val b = book("a", "Книга", totalDurationSeconds = 3600L)

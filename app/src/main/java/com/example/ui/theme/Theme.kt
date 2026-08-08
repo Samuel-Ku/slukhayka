@@ -6,9 +6,16 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
+import androidx.compose.ui.graphics.Color
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.unit.dp
 
+// MD3 tonal containers (surfaceContainerLow…Highest) — the tonal elevation
+// ladder between `surface` and `outline`. Consumed by the nav bar
+// (surfaceContainer), modal sheets (surfaceContainerLow), dialogs
+// (surfaceContainerHigh), input fills / progress tracks
+// (surfaceContainerHighest) and chips / icon wells (surfaceContainerHigh).
+// Values step from the palette's surface → card.
 private val DarkColorScheme = darkColorScheme(
     primary = AppAccentDark,
     onPrimary = AppOnAccentDark,
@@ -25,6 +32,19 @@ private val DarkColorScheme = darkColorScheme(
     onSurface = AppTextPrimaryDark,
     surfaceVariant = AppCardDark,
     onSurfaceVariant = AppTextMutedDark,
+    surfaceDim = AppBgDark,
+    surfaceBright = Color(0xFF2F3542),
+    surfaceContainerLowest = Color(0xFF0E1015),
+    surfaceContainerLow = Color(0xFF1C2029),
+    surfaceContainer = AppCardDark,
+    surfaceContainerHigh = Color(0xFF252A34),
+    surfaceContainerHighest = Color(0xFF2B313D),
+    inverseSurface = AppTextPrimaryDark,
+    inverseOnSurface = AppBgDark,
+    // inversePrimary sits ON inverseSurface (light in dark mode): a dark amber
+    // keeps WCAG contrast on the light inverse surface.
+    inversePrimary = AppAccentLight,
+    surfaceTint = AppAccentDark,
     outline = AppBorderDark,
     outlineVariant = AppBorderDark
 )
@@ -45,6 +65,21 @@ private val LightColorScheme = lightColorScheme(
     onSurface = AppTextPrimaryLight,
     surfaceVariant = AppCardLight,
     onSurfaceVariant = AppTextMutedLight,
+    // Light ladder: containers step DARKER from surface; surfaceDim is the
+    // darkest of all (not lighter than the containers).
+    surfaceDim = Color(0xFFF0E9DB),
+    surfaceBright = Color(0xFFFFFFFF),
+    surfaceContainerLowest = Color(0xFFFCF9F3),
+    surfaceContainerLow = Color(0xFFF7F2E9),
+    surfaceContainer = AppCardLight,
+    surfaceContainerHigh = Color(0xFFEDE5D4),
+    surfaceContainerHighest = Color(0xFFE6DCC8),
+    inverseSurface = AppTextPrimaryLight,
+    inverseOnSurface = AppBgLight,
+    // inversePrimary sits ON inverseSurface (dark in light mode): a light amber
+    // keeps WCAG contrast on the dark inverse surface.
+    inversePrimary = AppOnAccentContainerDark,
+    surfaceTint = AppAccentLight,
     outline = AppBorderLight,
     outlineVariant = AppBorderLight
 )

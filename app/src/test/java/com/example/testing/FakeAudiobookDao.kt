@@ -154,6 +154,51 @@ class FakeAudiobookDao(
         }
     }
 
+    override suspend fun updateChapterDuration(chapterId: String, durationSeconds: Long) {
+        chaptersState.update { current ->
+            current.map { chapter ->
+                if (chapter.id == chapterId) chapter.copy(durationSeconds = durationSeconds) else chapter
+            }
+        }
+    }
+
+    override suspend fun updateBookStats(bookId: String, totalChapters: Int, totalDurationSeconds: Long) {
+        booksState.update { current ->
+            current.map { book ->
+                if (book.id == bookId) book.copy(totalChapters = totalChapters, totalDurationSeconds = totalDurationSeconds) else book
+            }
+        }
+    }
+
+    override suspend fun updateBookMetadata(
+        bookId: String,
+        author: String?,
+        narrator: String?,
+        genre: String?,
+        rating: Float?,
+        seriesTitle: String?,
+        seriesIndex: Int?,
+        seriesUrl: String?
+    ) {
+        booksState.update { current ->
+            current.map { book ->
+                if (book.id == bookId) {
+                    book.copy(
+                        author = author ?: book.author,
+                        narrator = narrator ?: book.narrator,
+                        genre = genre ?: book.genre,
+                        rating = rating ?: book.rating,
+                        seriesTitle = seriesTitle ?: book.seriesTitle,
+                        seriesIndex = seriesIndex ?: book.seriesIndex,
+                        seriesUrl = seriesUrl ?: book.seriesUrl
+                    )
+                } else {
+                    book
+                }
+            }
+        }
+    }
+
     override suspend fun clearChaptersDownloadState(bookId: String) {
         chaptersState.update { current ->
             current.map {

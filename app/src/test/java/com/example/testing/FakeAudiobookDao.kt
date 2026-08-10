@@ -7,6 +7,7 @@ import com.example.data.db.ChapterEntity
 import com.example.data.db.ListeningStatEntity
 import com.example.data.db.PlaybackFailureEntity
 import com.example.data.db.PlaybackProgressEntity
+import com.example.data.db.SourceEntity
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.map
@@ -34,6 +35,7 @@ class FakeAudiobookDao(
     private val chaptersState = MutableStateFlow(chapters)
     private val bookmarksState = MutableStateFlow(emptyList<BookmarkEntity>())
     private val progressState = MutableStateFlow(emptyList<PlaybackProgressEntity>())
+    private val sourcesState = MutableStateFlow(emptyList<SourceEntity>())
     private val statsState = MutableStateFlow(emptyList<ListeningStatEntity>())
     private val failuresState = MutableStateFlow(emptyList<PlaybackFailureEntity>())
 
@@ -48,6 +50,9 @@ class FakeAudiobookDao(
 
     /** Snapshot of the persisted listening statistics, for assertions. */
     val savedListeningStats: List<ListeningStatEntity> get() = statsState.value
+
+    /** Snapshot of the persisted source rows, for assertions. */
+    val savedSources: List<SourceEntity> get() = sourcesState.value
 
     // --- Audiobooks -------------------------------------------------------
 
@@ -97,9 +102,11 @@ class FakeAudiobookDao(
         }
     }
 
-    override suspend fun updatePausedAt(bookId: String, pausedAt: Long?) {
+    override suspend fun updatePausedAt(bookId: String, pausedAt: Long?, sourceKey: String) {
         progressState.update { current ->
-            current.map { if (it.bookId == bookId) it.copy(lastPausedAtEpochMs = pausedAt) else it }
+            current.map {
+                if (it.bookId == bookId && it.sourceKey == sourceKey) it.copy(lastPausedAtEpochMs = pausedAt) else it
+            }
         }
     }
 
@@ -243,6 +250,26 @@ class FakeAudiobookDao(
         bookmarksState.update { current -> current.filterNot { it.id == bookmarkId } }
     }
 
+    // --- Sources (spec-10 T2) ----------------------------------------------
+
+    override suspend fun findByMergeKey(mergeKey: String): AudiobookEntity? =
+        booksState.value.firstOrNull { it.mergeKey == mergeKey && it.mergeKey.isNotEmpty() }
+
+    override fun getSourcesForBook(bookId: String): Flow<List<SourceEntity>> =
+        sourcesState.map { sources -> sources.filter { it.bookId == bookId }.sortedBy { it.addedAt } }
+
+    override suspend fun getSourcesForBookSync(bookId: String): List<SourceEntity> =
+        sourcesState.value.filter { it.bookId == bookId }.sortedBy { it.addedAt }
+
+    override suspend fun insertSources(sources: List<SourceEntity>) {
+        val incomingIds = sources.map { it.id }.toSet()
+        sourcesState.update { current -> current.filterNot { it.id in incomingIds } + sources }
+    }
+
+    override suspend fun deleteSourcesForBook(bookId: String) {
+        sourcesState.update { current -> current.filterNot { it.bookId == bookId } }
+    }
+
     // --- Cascade deletion (spec #8 ticket T2) ------------------------------
 
     override suspend fun deleteChaptersForBook(bookId: String) {
@@ -261,20 +288,26 @@ class FakeAudiobookDao(
         booksState.update { current -> current.filterNot { it.id == bookId } }
     }
 
-    // --- Playback progress ------------------------------------------------
+    // --- Playback progress (spec-10 T2: per-source rows) -------------------
 
     override fun getPlaybackProgress(bookId: String): Flow<PlaybackProgressEntity?> =
-        progressState.map { progress -> progress.firstOrNull { it.bookId == bookId } }
+        progressState.map { progress -> progress.filter { it.bookId == bookId }.maxByOrNull { it.lastListenedAt } }
+
+    override fun getPlaybackProgress(bookId: String, sourceKey: String): Flow<PlaybackProgressEntity?> =
+        progressState.map { progress -> progress.firstOrNull { it.bookId == bookId && it.sourceKey == sourceKey } }
 
     override suspend fun getPlaybackProgressSync(bookId: String): PlaybackProgressEntity? =
-        progressState.value.firstOrNull { it.bookId == bookId }
+        progressState.value.filter { it.bookId == bookId }.maxByOrNull { it.lastListenedAt }
+
+    override suspend fun getPlaybackProgressSync(bookId: String, sourceKey: String): PlaybackProgressEntity? =
+        progressState.value.firstOrNull { it.bookId == bookId && it.sourceKey == sourceKey }
 
     override fun getAllPlaybackProgress(): Flow<List<PlaybackProgressEntity>> =
         progressState.map { progress -> progress.sortedByDescending { it.lastListenedAt } }
 
     override suspend fun savePlaybackProgress(progress: PlaybackProgressEntity) {
         progressState.update { current ->
-            current.filterNot { it.bookId == progress.bookId } + progress
+            current.filterNot { it.bookId == progress.bookId && it.sourceKey == progress.sourceKey } + progress
         }
     }
 

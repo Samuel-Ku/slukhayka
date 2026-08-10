@@ -1,0 +1,109 @@
+package com.example.data.source
+
+/**
+ * audiobook-mp3.com/uk [SourceAdapter] (spec-10 T1 verdict: PASS, server-fetch).
+ *
+ * The /uk section is a playerjs library (the same player framework 4read
+ * uses): book pages reference a playlist JSON on the `redirectto.cc` CDN
+ * (`https://<hash>.redirectto.cc/s05/<nested>/<id>.pl.txt`), which yields
+ * `[{"title":"001.mp3","file":"https://…/track-N.mp3"}]`. The CDN 403s without
+ * a Referer, so this adapter's fetcher always sends one.
+ *
+ * Search: genre pages (`/uk-genre-*`) are the site's discovery; a dedicated
+ * /uk search endpoint was not verified in the spike, so [search] stays empty
+ * and [fetchNew] parses the homepage's recent additions.
+ */
+class AudiobookMp3Adapter(
+    private val fetcher: HttpFetcher = HttpFetcher(referer = "https://audiobook-mp3.com/uk")
+) : SourceAdapter {
+
+    override val sourceId: String = "audiobookmp3"
+
+    override suspend fun search(query: String): List<SourceBook> = emptyList()
+
+    override suspend fun fetchBookPage(url: String): SourceBookDetail {
+        val html = fetcher.getText(url)
+        if (html.isEmpty()) return SourceBookDetail("", "", url = url, chapters = emptyList())
+
+        val title = ogMeta(html, "og:title") ?: slugTitle(url)
+        val author = authorFromSlug(url)
+
+        val playlistUrl = PLAYLIST_URL.find(html)?.groupValues?.get(1)
+            ?: return SourceBookDetail(title = title, author = author, url = url, chapters = emptyList())
+
+        val playlistJson = fetcher.getText(playlistUrl)
+        val chapters = mutableListOf<SourceChapter>()
+        // The playerjs playlist is a small JSON array of {title, file} objects;
+        // a regex parse (same approach as the 4read playlist expansion) keeps
+        // the adapter pure JVM and free of org.json stubs in unit tests.
+        if (playlistJson.trim().startsWith("[{")) {
+            val fileRegex = Regex(""""file"\s*:\s*"([^"]+)"""", RegexOption.IGNORE_CASE)
+            val titleRegex = Regex(""""title"\s*:\s*"([^"]*)"""", RegexOption.IGNORE_CASE)
+            val files = fileRegex.findAll(playlistJson).map { it.groupValues[1] }.toList()
+            val titles = titleRegex.findAll(playlistJson).map { it.groupValues[1] }.toList()
+            files.forEachIndexed { index, file ->
+                chapters.add(
+                    SourceChapter(
+                        title = titles.getOrNull(index)?.takeIf { it.isNotBlank() } ?: "Глава ${index + 1}",
+                        streamUrl = file
+                    )
+                )
+            }
+        }
+
+        return SourceBookDetail(
+            title = title,
+            author = author,
+            url = url,
+            chapters = chapters
+        )
+    }
+
+    override suspend fun fetchNew(limit: Int): List<SourceBook> {
+        val html = fetcher.getText("https://audiobook-mp3.com/uk")
+        if (html.isEmpty()) return emptyList()
+        val seen = mutableSetOf<String>()
+        return BOOK_LINK.findAll(html)
+            .mapNotNull { m ->
+                val path = m.groupValues[1]
+                val url = "https://audiobook-mp3.com$path"
+                if (!seen.add(url)) return@mapNotNull null
+                SourceBook(
+                    title = slugTitle(url),
+                    author = authorFromSlug(url),
+                    url = url,
+                    sourceId = sourceId
+                )
+            }
+            .take(limit)
+            .toList()
+    }
+
+    private fun ogMeta(html: String, property: String): String? =
+        Regex("""<meta\s+property="$property"\s+content="([^"]+)"""", RegexOption.IGNORE_CASE)
+            .find(html)?.groupValues?.get(1)
+            ?: Regex("""<meta\s+content="([^"]+)"\s+property="$property"""", RegexOption.IGNORE_CASE)
+            .find(html)?.groupValues?.get(1)
+
+    /**
+     * The /uk slugs are transliterated `author-title` after the numeric id;
+     * the author/title boundary is not delimited, so the whole remainder is
+     * used as the feed title (the real title comes from the page's og:title
+     * once the book page is fetched).
+     */
+    private fun slugTitle(url: String): String {
+        val slug = url.substringAfterLast('/').substringBefore('?')
+        val remainder = slug.substringAfter("uk-audio-", slug).substringAfter("-", slug)
+        return remainder.replace("-", " ")
+            .trim()
+            .replaceFirstChar { if (it.isLowerCase()) it.titlecase(java.util.Locale.getDefault()) else it.toString() }
+            .ifBlank { slug }
+    }
+
+    private fun authorFromSlug(url: String): String = ""
+
+    private companion object {
+        val PLAYLIST_URL = Regex("""(https://[a-z0-9]+\.redirectto\.cc/[^"'<> ]+\.pl\.txt)""", RegexOption.IGNORE_CASE)
+        val BOOK_LINK = Regex("""href="(/uk-audio-\d+-[^"]+)"""", RegexOption.IGNORE_CASE)
+    }
+}

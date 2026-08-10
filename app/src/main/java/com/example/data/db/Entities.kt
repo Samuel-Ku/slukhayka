@@ -39,7 +39,14 @@ data class AudiobookEntity(
     // #48): kept so a future rescan can re-read chapter metadata without
     // asking the user to pick the folder again. Null for streamed 4read books
     // and single-file imports.
-    val sourceTreeUri: String? = null
+    val sourceTreeUri: String? = null,
+    // Multi-source catalog (spec-10 T2): the Work-level dedup key, computed as
+    // normalized title|author|narrator (see MergeKey). Books imported from
+    // different sources with the same key merge into one Work card. Empty for
+    // rows that predate the merge (migration 7->8 leaves them unmatched until
+    // re-import).
+    @ColumnInfo(defaultValue = "")
+    val mergeKey: String = ""
 )
 
 @Entity(tableName = "listening_stats")
@@ -64,6 +71,22 @@ data class ChapterEntity(
     val contentHash: String? = null
 )
 
+/**
+ * One playable source of a Work (spec-10 T2). The Work card is the
+ * AudiobookEntity row; every source (4read, soundbooks, audiobookmp3, lihtar,
+ * local, …) is a row here. `streamOnly` gates the download action per the T1
+ * verdicts; local imports carry type "local" with a blank url.
+ */
+@Entity(tableName = "sources", indices = [Index("bookId")])
+data class SourceEntity(
+    @PrimaryKey val id: String,
+    val bookId: String,
+    val type: String,
+    val url: String,
+    val streamOnly: Boolean = false,
+    val addedAt: Long = System.currentTimeMillis()
+)
+
 @Entity(tableName = "bookmarks", indices = [Index("bookId")])
 data class BookmarkEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
@@ -75,9 +98,18 @@ data class BookmarkEntity(
     val createdAt: Long = System.currentTimeMillis()
 )
 
-@Entity(tableName = "playback_progress", indices = [Index("bookId")])
+@Entity(
+    tableName = "playback_progress",
+    indices = [Index("bookId")],
+    // Spec-10 T2: listening state is keyed per source (ADR-0001), so the
+    // position of the same book on two sources never corrupts each other.
+    primaryKeys = ["bookId", "sourceKey"]
+)
 data class PlaybackProgressEntity(
-    @PrimaryKey val bookId: String,
+    val bookId: String,
+    // Which source this position belongs to; "" = the book's primary source
+    // (legacy rows and the single-source case).
+    val sourceKey: String = "",
     val currentChapterIndex: Int = 0,
     val currentPositionSeconds: Long = 0L,
     val lastListenedAt: Long = System.currentTimeMillis(),

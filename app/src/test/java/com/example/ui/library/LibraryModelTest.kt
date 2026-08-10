@@ -301,6 +301,24 @@ class LibraryModelTest {
         assertEquals("4 год", formatRemainingTime(4 * 3600L))
     }
 
+    // --- spec-10 T2: per-source progress rows dedup to one card -------------
+
+    @Test
+    fun `per-source progress rows collapse into one card with the latest`() {
+        val b = book("b", "Бета")
+        val progress = listOf(
+            progress("b", chapterIndex = 0, position = 10L, lastListenedAt = 100L).copy(sourceKey = "soundbooks"),
+            progress("b", chapterIndex = 0, position = 400L, lastListenedAt = 300L).copy(sourceKey = "audiobookmp3")
+        )
+
+        val cards = buildLibraryBooks(listOf(b), progress, emptyMap())
+
+        assertEquals(1, cards.size)
+        // The card reflects the latest-listened source row.
+        assertEquals(400L, cards.single().progress?.currentPositionSeconds)
+        assertEquals(300L, cards.single().lastListenedAt)
+    }
+
     // --- helpers ------------------------------------------------------------
 
     private fun ids(items: List<LibraryBook>): List<String> = items.map { it.book.id }

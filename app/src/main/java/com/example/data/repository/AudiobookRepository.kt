@@ -13,7 +13,10 @@ import com.example.data.catalog.CatalogSection
 import com.example.data.db.*
 import com.example.data.imports.LocalAudioEntry
 import com.example.data.imports.LocalFolderScanner
+import com.example.data.merge.MergeKey
 import com.example.data.sha256Hex
+import com.example.data.source.FourReadAdapter
+import com.example.data.source.SourceBookDetail
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -47,6 +50,108 @@ class AudiobookRepository(
     // Wayfinder #39: every chapter, for the library's cumulative position and
     // real total durations. One query; recomputed in memory on change.
     val allChapters: Flow<List<ChapterEntity>> = dao.getAllChapters()
+
+    // Spec-10 T3: the 4read parser lives behind the adapter seam; the legacy
+    // 4read fetch paths delegate to it so markup changes fail only its tests.
+    private val fourReadAdapter = FourReadAdapter()
+
+    // ---------------------------------------------------------------------
+    // Multi-source helpers (spec-10 T2)
+    // ---------------------------------------------------------------------
+
+    /**
+     * Maps a book URL to its stable source id (the `type` of the `sources`
+     * table). Blank URL = a local import.
+     */
+    fun sourceTypeOfUrl(url: String): String = when {
+        url.isBlank() -> "local"
+        url.contains("4read.org") -> "4read"
+        url.contains("sound-books.net") -> "soundbooks"
+        url.contains("audiobook-mp3.com") -> "audiobookmp3"
+        url.contains("lihtar.in.ua") -> "lihtar"
+        else -> "unknown"
+    }
+
+    /**
+     * The playback-position key of a book: its current (primary) source type.
+     * Local imports have a blank sourceUrl, hence key "local".
+     */
+    fun sourceKeyFor(book: AudiobookEntity): String = sourceTypeOfUrl(book.sourceUrl)
+
+    fun observeSources(bookId: String): Flow<List<SourceEntity>> = dao.getSourcesForBook(bookId)
+    suspend fun getSourcesForBook(bookId: String): List<SourceEntity> = dao.getSourcesForBookSync(bookId)
+
+    /**
+     * Spec-10 T2 — the multi-source import core. Turns a parsed source book
+     * (from a [SourceAdapter]) into a Work row plus a Source row. When a book
+     * with the same merge key (normalized title|author|narrator) already
+     * exists, the new source is attached to it and the existing Work is
+     * returned — one library card, several sources, no duplicates.
+     */
+    suspend fun importBookFromSource(sourceId: String, detail: SourceBookDetail): AudiobookEntity =
+        withContext(Dispatchers.IO) {
+            val mergeKey = MergeKey.keyFor(detail.title, detail.author, detail.narrator)
+            val existing = if (mergeKey.isNotBlank()) dao.findByMergeKey(mergeKey) else null
+            val bookId = existing?.id ?: sourceBookId(sourceId, detail.url)
+
+            if (existing == null) {
+                val book = AudiobookEntity(
+                    id = bookId,
+                    title = detail.title,
+                    author = detail.author.ifBlank { sourceId },
+                    narrator = detail.narrator.ifBlank { "$sourceId narrator" },
+                    description = "Аудіокнига з джерела $sourceId. Джерело: ${detail.url}",
+                    coverDrawableRes = R.drawable.img_neuromancer_cover_1785247475170,
+                    coverImageUrl = detail.coverImageUrl,
+                    genre = "Каталог",
+                    sourceUrl = detail.url,
+                    isDownloaded = false,
+                    downloadProgress = 0f,
+                    totalDurationSeconds = detail.chapters.sumOf { it.durationSeconds }.takeIf { it > 0L } ?: 0L,
+                    totalChapters = detail.chapters.size,
+                    mergeKey = mergeKey
+                )
+                dao.insertAudiobooks(listOf(book))
+                dao.insertChapters(
+                    detail.chapters.mapIndexed { index, ch ->
+                        ChapterEntity(
+                            id = "${bookId}_ch${index + 1}",
+                            bookId = bookId,
+                            chapterIndex = index,
+                            title = ch.title.ifBlank { "Глава ${index + 1}" },
+                            durationSeconds = ch.durationSeconds,
+                            streamUrl = ch.streamUrl
+                        )
+                    }
+                )
+                dao.insertSources(listOf(sourceRow(sourceId, bookId, detail.url)))
+                book
+            } else {
+                // Merge: attach the new source unless it is already known.
+                val known = dao.getSourcesForBookSync(existing.id).any { it.url == detail.url }
+                if (!known) {
+                    dao.insertSources(listOf(sourceRow(sourceId, existing.id, detail.url)))
+                }
+                existing
+            }
+        }
+
+    private fun sourceRow(sourceId: String, bookId: String, url: String) = SourceEntity(
+        id = "$sourceId-$bookId",
+        bookId = bookId,
+        type = sourceId,
+        url = url,
+        streamOnly = false,
+        addedAt = System.currentTimeMillis()
+    )
+
+    private fun sourceBookId(sourceId: String, url: String): String {
+        val slug = url.substringAfterLast('/').substringBefore('?')
+            .removeSuffix(".html")
+            .removeSuffix(".m3u")
+            .ifBlank { "book-${System.currentTimeMillis()}" }
+        return "$sourceId-$slug"
+    }
 
     // ---------------------------------------------------------------------
     // Catalogue sections (spec #8 tickets T5/T6): rows for the Explore
@@ -313,6 +418,7 @@ class AudiobookRepository(
         dao.deleteChaptersForBook(bookId)
         dao.deleteBookmarksForBook(bookId)
         dao.deletePlaybackProgressForBook(bookId)
+        dao.deleteSourcesForBook(bookId)
         dao.deleteAudiobook(bookId)
     }
 
@@ -327,6 +433,7 @@ class AudiobookRepository(
         dao.deleteChaptersForBook(bookId)
         dao.deleteBookmarksForBook(bookId)
         dao.deletePlaybackProgressForBook(bookId)
+        dao.deleteSourcesForBook(bookId)
         dao.deleteAudiobook(bookId)
     }
 
@@ -354,7 +461,8 @@ class AudiobookRepository(
     ) = dao.updateBookMetadata(bookId, author, narrator, genre, rating, seriesTitle, seriesIndex, seriesUrl)
 
     /** Last-pause marker for the smart rewind (wayfinder #25); null clears it. */
-    suspend fun updatePausedAt(bookId: String, pausedAt: Long?) = dao.updatePausedAt(bookId, pausedAt)
+    suspend fun updatePausedAt(bookId: String, pausedAt: Long?, sourceKey: String = "") =
+        dao.updatePausedAt(bookId, pausedAt, sourceKey)
 
     /**
      * Appends one row to the durable playback-failure ledger (wayfinder #52).
@@ -614,6 +722,19 @@ class AudiobookRepository(
                 )
             }
         )
+        // Spec-10 T2: local imports are a LOCAL source of the Work.
+        dao.insertSources(
+            listOf(
+                SourceEntity(
+                    id = "$bookId-local",
+                    bookId = bookId,
+                    type = "local",
+                    url = "",
+                    streamOnly = false,
+                    addedAt = System.currentTimeMillis()
+                )
+            )
+        )
         return book
     }
 
@@ -729,11 +850,21 @@ class AudiobookRepository(
     suspend fun deleteBookmark(bookmarkId: Long) = dao.deleteBookmark(bookmarkId)
 
     fun observeProgress(bookId: String): Flow<PlaybackProgressEntity?> = dao.getPlaybackProgress(bookId)
+    fun observeProgress(bookId: String, sourceKey: String): Flow<PlaybackProgressEntity?> =
+        dao.getPlaybackProgress(bookId, sourceKey)
     suspend fun getProgressSync(bookId: String): PlaybackProgressEntity? = dao.getPlaybackProgressSync(bookId)
+    suspend fun getProgressSync(bookId: String, sourceKey: String): PlaybackProgressEntity? =
+        dao.getPlaybackProgressSync(bookId, sourceKey)
 
-    suspend fun updateProgress(bookId: String, chapterIndex: Int, positionSeconds: Long) {
+    /**
+     * Persists the playback position keyed per source (spec-10 T2). Callers
+     * that know the source pass its key; the default "" keeps the legacy
+     * single-source behaviour.
+     */
+    suspend fun updateProgress(bookId: String, chapterIndex: Int, positionSeconds: Long, sourceKey: String = "") {
         val progress = PlaybackProgressEntity(
             bookId = bookId,
+            sourceKey = sourceKey,
             currentChapterIndex = chapterIndex,
             currentPositionSeconds = positionSeconds,
             lastListenedAt = System.currentTimeMillis()
@@ -1342,7 +1473,6 @@ class AudiobookRepository(
         val index = Regex("""volumeNumber">\s*([0-9]+)""").find(block)?.groupValues?.get(1)?.toIntOrNull()
         return Triple(name, index ?: 0, href)
     }
-
     private fun extractAudioFromHtml(html: String, baseUrl: String, resultList: MutableList<String>) {
         // A. Direct mp3, m4a, ogg, aac, m3u8 URLs
         val mp3Regex = Regex("""(https?://[^"'\s\n<>]+\.(?:mp3|m4a|ogg|aac|m3u8)(?:\?[^"'\s\n<>]*)?)""", RegexOption.IGNORE_CASE)
@@ -1445,48 +1575,24 @@ class AudiobookRepository(
         return withContext(Dispatchers.IO) {
             try {
                 val encodedQuery = java.net.URLEncoder.encode(cleanQuery, "UTF-8")
-                val searchUrl = "https://4read.org/index.php?do=search&subaction=search&story=$encodedQuery"
-                val url = URL(searchUrl)
-                val conn = (url.openConnection() as HttpURLConnection).apply {
-                    connectTimeout = 8000
-                    readTimeout = 12000
-                    requestMethod = "GET"
-                    setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-                    instanceFollowRedirects = true
-                }
-
-                val html = try {
-                    conn.inputStream.bufferedReader().use { it.readText() }
-                } catch (e: Exception) {
-                    ""
-                } finally {
-                    conn.disconnect()
-                }
-
                 val foundBooks = mutableListOf<AudiobookEntity>()
 
-                if (html.isNotEmpty()) {
-                    val linkRegex = Regex("""<a\s+href="(https?://4read\.org/([^"]+)\.html)"[^>]*>([^<]+)</a>""", RegexOption.IGNORE_CASE)
-                    val matches = linkRegex.findAll(html)
-                    val addedSlugs = mutableSetOf<String>()
+                // Spec-10 T3: the search-page parse lives in the 4read adapter;
+                // the repository only persists what the adapter found.
+                val searchResults = fourReadAdapter.search(cleanQuery)
 
-                    for (match in matches) {
-                        val fullUrl = match.groupValues[1]
-                        val slug = match.groupValues[2]
-                        val rawTitle = match.groupValues[3].trim()
+                for (result in searchResults) {
+                    val fullUrl = result.url
+                    val slug = fullUrl.substringAfterLast('/').removeSuffix(".html")
+                    if (slug.contains("index") || slug.contains("page")) continue
 
-                        if (slug.contains("index") || slug.contains("page") || rawTitle.length < 3 || addedSlugs.contains(slug)) {
-                            continue
-                        }
-                        addedSlugs.add(slug)
-
-                        val bookId = "4read-$slug"
-                        val existing = dao.getAudiobookById(bookId)
-                        if (existing != null) {
-                            foundBooks.add(existing)
-                        } else {
-                            val cleanTitle = rawTitle.replace("&quot;", "\"").replace("&amp;", "&").replace("&#039;", "'")
-                            val pageDetails = fetch4ReadPageDetails(fullUrl)
+                    val bookId = "4read-$slug"
+                    val existing = dao.getAudiobookById(bookId)
+                    if (existing != null) {
+                        foundBooks.add(existing)
+                    } else {
+                        val cleanTitle = result.title
+                        val pageDetails = fetch4ReadPageDetails(fullUrl)
 
                             val newBook = AudiobookEntity(
                                 id = bookId,
@@ -1527,9 +1633,8 @@ class AudiobookRepository(
                                     ChapterEntity("${bookId}_ch3", bookId, 2, "Частина 03", 3600L, "https://ia800201.us.archive.org/12/items/time_machine_0802_librivox/timemachine_03_wells_64kb.mp3")
                                 )
                             }
-                            dao.insertChapters(chapterList)
-                            foundBooks.add(newBook)
-                        }
+                        dao.insertChapters(chapterList)
+                        foundBooks.add(newBook)
                     }
                 }
 

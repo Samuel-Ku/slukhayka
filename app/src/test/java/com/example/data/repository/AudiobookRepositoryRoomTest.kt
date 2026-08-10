@@ -235,12 +235,12 @@ class AudiobookRepositoryRoomTest {
     }
 
     // ---------------------------------------------------------------------
-    // wayfinder #47/#48/#52: schema migration 7 -> 8 (content hash, SAF tree
-    // uri, playback failure ledger)
+    // wayfinder #47/#48/#52 + spec-10 T2: schema migration 7 -> 8 (content
+    // hash, SAF tree uri, failure ledger, mergeKey, sources, per-source PK)
     // ---------------------------------------------------------------------
 
     @Test
-    fun `migration 7 to 8 adds hash and tree uri columns and the failure ledger table`() {
+    fun `migration 7 to 8 adds hash, tree uri, mergeKey, sources, ledger and widens the progress PK`() {
         val factory = FrameworkSQLiteOpenHelperFactory()
         val config = SupportSQLiteOpenHelper.Configuration.builder(context)
             .name("migration-7-test.db")
@@ -262,6 +262,16 @@ class AudiobookRepositoryRoomTest {
                             "chapterIndex INTEGER NOT NULL, title TEXT NOT NULL, durationSeconds INTEGER NOT NULL, " +
                             "streamUrl TEXT NOT NULL, localFilePath TEXT, isDownloaded INTEGER NOT NULL DEFAULT 0)"
                     )
+                    db.execSQL(
+                        "CREATE TABLE playback_progress (bookId TEXT NOT NULL PRIMARY KEY, " +
+                            "currentChapterIndex INTEGER NOT NULL DEFAULT 0, currentPositionSeconds INTEGER NOT NULL DEFAULT 0, " +
+                            "lastListenedAt INTEGER NOT NULL, isCompleted INTEGER NOT NULL DEFAULT 0, " +
+                            "lastPausedAtEpochMs INTEGER)"
+                    )
+                    db.execSQL(
+                        "INSERT INTO playback_progress (bookId, currentChapterIndex, currentPositionSeconds, " +
+                            "lastListenedAt, isCompleted) VALUES ('b1', 2, 500, 1700000000000, 0)"
+                    )
                 }
 
                 override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) {}
@@ -282,7 +292,113 @@ class AudiobookRepositoryRoomTest {
                 setOf("id", "timestamp", "bookId", "chapterIndex", "errorCodeName", "streamUrl", "audioEngineMode")
             )
         )
+        assertTrue("mergeKey column must exist", tableColumns(db, "audiobooks").contains("mergeKey"))
+        assertTrue("sources table must exist", tableExists(db, "sources"))
+        val progressColumns = tableColumns(db, "playback_progress")
+        assertTrue("sourceKey column must exist", progressColumns.contains("sourceKey"))
+        // The old row migrated with sourceKey '' and keeps its values.
+        db.query("SELECT * FROM playback_progress WHERE bookId = 'b1'").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals("", cursor.getString(cursor.getColumnIndexOrThrow("sourceKey")))
+            assertEquals(2, cursor.getInt(cursor.getColumnIndexOrThrow("currentChapterIndex")))
+            assertEquals(500, cursor.getInt(cursor.getColumnIndexOrThrow("currentPositionSeconds")))
+        }
+        // The composite PK now admits two rows per book.
+        db.execSQL(
+            "INSERT INTO playback_progress (bookId, sourceKey, currentChapterIndex, currentPositionSeconds, " +
+                "lastListenedAt, isCompleted) VALUES ('b1', 'soundbooks', 1, 60, 1700000001000, 0)"
+        )
+        db.query("SELECT COUNT(*) FROM playback_progress WHERE bookId = 'b1'").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals(2, cursor.getInt(0))
+        }
         db.close()
+    }
+
+    // ---------------------------------------------------------------------
+    // spec-10 T2: multi-source merge and per-source position
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `importBookFromSource merges the same book from two sources into one Work`() = runBlocking {
+        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+        val detail1 = com.example.data.source.SourceBookDetail(
+            title = "Кобзар",
+            author = "Тарас Шевченко",
+            narrator = "Валерій Завалко",
+            url = "https://sound-books.net/ukrainska-literatura/100-kobzar.html",
+            chapters = listOf(com.example.data.source.SourceChapter("Розділ 1", "https://arch.sound-books.net/100/01.mp3"))
+        )
+        val detail2 = com.example.data.source.SourceBookDetail(
+            title = "КОБЗАР",
+            author = "Тарас Шевченко",
+            narrator = "Валерій Завалко",
+            url = "https://audiobook-mp3.com/uk-audio-99-kobzar",
+            chapters = listOf(com.example.data.source.SourceChapter("01.mp3", "https://cdn.audiobook-mp3.com/kobzar/track-0.mp3"))
+        )
+
+        val first = repo.importBookFromSource("soundbooks", detail1)
+        val second = repo.importBookFromSource("audiobookmp3", detail2)
+
+        // One Work card, two sources.
+        assertEquals(first.id, second.id)
+        assertEquals(1, dao.getAllAudiobooks().first().size)
+        val sources = dao.getSourcesForBookSync(first.id)
+        assertEquals(2, sources.size)
+        assertEquals(setOf("soundbooks", "audiobookmp3"), sources.map { it.type }.toSet())
+    }
+
+    @Test
+    fun `importBookFromSource keeps different narrations separate`() = runBlocking {
+        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+        val base = com.example.data.source.SourceBookDetail(
+            title = "Кобзар",
+            author = "Тарас Шевченко",
+            url = "https://sound-books.net/x.html",
+            chapters = listOf(com.example.data.source.SourceChapter("1", "https://arch.sound-books.net/x/01.mp3"))
+        )
+        val narratorA = base.copy(narrator = "Валерій Завалко", url = "https://sound-books.net/a.html")
+        val narratorB = base.copy(narrator = "Богдан Бенюк", url = "https://sound-books.net/b.html")
+
+        val a = repo.importBookFromSource("soundbooks", narratorA)
+        val b = repo.importBookFromSource("soundbooks", narratorB)
+
+        assertTrue(a.id != b.id)
+        assertEquals(2, dao.getAllAudiobooks().first().size)
+    }
+
+    @Test
+    fun `playback positions are isolated per source`() = runBlocking {
+        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+        val book = TestDataFactory.dataBooks()[0]
+        dao.insertAudiobooks(listOf(book))
+
+        repo.updateProgress(book.id, 0, 100L, sourceKey = "soundbooks")
+        repo.updateProgress(book.id, 1, 200L, sourceKey = "audiobookmp3")
+
+        // Each source keeps its own position.
+        assertEquals(100L, dao.getPlaybackProgressSync(book.id, "soundbooks")?.currentPositionSeconds)
+        assertEquals(200L, dao.getPlaybackProgressSync(book.id, "audiobookmp3")?.currentPositionSeconds)
+        // The bookId-only read returns the latest row.
+        assertEquals(200L, dao.getPlaybackProgressSync(book.id)?.currentPositionSeconds)
+        // Writing one source's position does not touch the other.
+        repo.updateProgress(book.id, 0, 150L, sourceKey = "soundbooks")
+        assertEquals(150L, dao.getPlaybackProgressSync(book.id, "soundbooks")?.currentPositionSeconds)
+        assertEquals(200L, dao.getPlaybackProgressSync(book.id, "audiobookmp3")?.currentPositionSeconds)
+    }
+
+    @Test
+    fun `local import records a LOCAL source row`() = runBlocking {
+        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+
+        val book = repo.importLocalAudioStream("Моя книга.mp3", ByteArrayInputStream(ByteArray(32)))
+
+        val sources = dao.getSourcesForBookSync(book.id)
+        assertEquals(1, sources.size)
+        assertEquals("local", sources.single().type)
+        assertEquals("", sources.single().url)
+        // isLocal derivation stays on the blank sourceUrl, untouched.
+        assertEquals("", book.sourceUrl)
     }
 
     private fun tableColumns(db: SupportSQLiteDatabase, table: String): Set<String> {
@@ -293,6 +409,12 @@ class AudiobookRepositoryRoomTest {
             }
         }
         return columns
+    }
+
+    private fun tableExists(db: SupportSQLiteDatabase, table: String): Boolean {
+        db.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = '$table'").use { cursor ->
+            return cursor.moveToFirst()
+        }
     }
 
     // ---------------------------------------------------------------------

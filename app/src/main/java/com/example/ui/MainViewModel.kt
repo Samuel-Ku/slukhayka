@@ -123,7 +123,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         com.example.ui.library.buildLibraryBooks(books, progress, chapters.groupBy { it.bookId })
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    // Spec-10 T2: positions are stored per source, so the raw flow can hold
+    // several rows per book; the UI wants one card per Work — the latest.
     val recentProgress: StateFlow<List<PlaybackProgressEntity>> = repository.recentProgress
+        .map { rows ->
+            rows.groupBy { it.bookId }
+                .map { (_, perBook) -> perBook.maxBy { it.lastListenedAt } }
+        }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _selectedTab = MutableStateFlow(SelectedTab.LISTEN)
@@ -438,7 +444,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (rewindSec > 0L && startPositionSec > rewindSec) {
                     startPositionSec -= rewindSec
                 }
-                repository.updatePausedAt(updatedBook.id, null)
+                // Spec-10 T2: the marker lives on the source's progress row.
+                repository.updatePausedAt(updatedBook.id, null, sourceKey = progress.sourceKey)
             }
 
             withContext(Dispatchers.Main) {

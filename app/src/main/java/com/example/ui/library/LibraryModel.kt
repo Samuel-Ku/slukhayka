@@ -91,7 +91,11 @@ fun buildLibraryBooks(
     progressList: List<PlaybackProgressEntity>,
     chaptersByBook: Map<String, List<ChapterEntity>>
 ): List<LibraryBook> {
-    val progressById = progressList.associateBy { it.bookId }
+    // Spec-10 T2: positions are per source, so several rows can exist for one
+    // book; the card shows the latest (last-listened) one.
+    val progressById = progressList
+        .groupBy { it.bookId }
+        .mapValues { (_, rows) -> rows.maxByOrNull { it.lastListenedAt } }
     return books.map { book ->
         val chapters = chaptersByBook[book.id].orEmpty().sortedBy { it.chapterIndex }
         val progress = progressById[book.id]

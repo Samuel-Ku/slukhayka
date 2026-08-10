@@ -17,6 +17,24 @@ interface AudiobookDao {
     @Query("SELECT * FROM audiobooks WHERE id = :id")
     fun observeAudiobookById(id: String): Flow<AudiobookEntity?>
 
+    // Spec-10 T2: Work-level dedup — one book per normalized merge key.
+    @Query("SELECT * FROM audiobooks WHERE mergeKey = :mergeKey AND mergeKey != '' LIMIT 1")
+    suspend fun findByMergeKey(mergeKey: String): AudiobookEntity?
+
+    // --- Sources (spec-10 T2) ---
+
+    @Query("SELECT * FROM sources WHERE bookId = :bookId ORDER BY addedAt ASC")
+    fun getSourcesForBook(bookId: String): Flow<List<SourceEntity>>
+
+    @Query("SELECT * FROM sources WHERE bookId = :bookId ORDER BY addedAt ASC")
+    suspend fun getSourcesForBookSync(bookId: String): List<SourceEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertSources(sources: List<SourceEntity>)
+
+    @Query("DELETE FROM sources WHERE bookId = :bookId")
+    suspend fun deleteSourcesForBook(bookId: String)
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAudiobooks(books: List<AudiobookEntity>)
 
@@ -116,15 +134,22 @@ interface AudiobookDao {
     @Query("DELETE FROM audiobooks WHERE id = :bookId")
     suspend fun deleteAudiobook(bookId: String)
 
-    // Playback Progress
-    @Query("SELECT * FROM playback_progress WHERE bookId = :bookId")
+    // Playback Progress (spec-10 T2: position is keyed per source; the
+    // bookId-only variants return the latest row for compatibility).
+    @Query("SELECT * FROM playback_progress WHERE bookId = :bookId ORDER BY lastListenedAt DESC LIMIT 1")
     fun getPlaybackProgress(bookId: String): Flow<PlaybackProgressEntity?>
 
-    @Query("SELECT * FROM playback_progress WHERE bookId = :bookId")
+    @Query("SELECT * FROM playback_progress WHERE bookId = :bookId AND sourceKey = :sourceKey")
+    fun getPlaybackProgress(bookId: String, sourceKey: String): Flow<PlaybackProgressEntity?>
+
+    @Query("SELECT * FROM playback_progress WHERE bookId = :bookId ORDER BY lastListenedAt DESC LIMIT 1")
     suspend fun getPlaybackProgressSync(bookId: String): PlaybackProgressEntity?
 
-    @Query("UPDATE playback_progress SET lastPausedAtEpochMs = :pausedAt WHERE bookId = :bookId")
-    suspend fun updatePausedAt(bookId: String, pausedAt: Long?)
+    @Query("SELECT * FROM playback_progress WHERE bookId = :bookId AND sourceKey = :sourceKey")
+    suspend fun getPlaybackProgressSync(bookId: String, sourceKey: String): PlaybackProgressEntity?
+
+    @Query("UPDATE playback_progress SET lastPausedAtEpochMs = :pausedAt WHERE bookId = :bookId AND sourceKey = :sourceKey")
+    suspend fun updatePausedAt(bookId: String, pausedAt: Long?, sourceKey: String = "")
 
     @Query("SELECT * FROM playback_progress ORDER BY lastListenedAt DESC")
     fun getAllPlaybackProgress(): Flow<List<PlaybackProgressEntity>>

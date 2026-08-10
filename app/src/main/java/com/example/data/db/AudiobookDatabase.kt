@@ -10,6 +10,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 @Database(
     entities = [
         AudiobookEntity::class,
+        SourceEntity::class,
         ChapterEntity::class,
         BookmarkEntity::class,
         PlaybackProgressEntity::class,
@@ -93,18 +94,40 @@ abstract class AudiobookDatabase : RoomDatabase() {
         }
 
         /**
-         * v7 -> v8 (wayfinder #47/#48/#52): three additive, append-only
-         * changes. `chapters.contentHash` and `audiobooks.sourceTreeUri`
-         * back the local-import work (SHA-256 dedupe + persisted SAF grants);
-         * the new `playback_failures` table is the durable error ledger. All
-         * new columns are nullable and all new writes come from new code
-         * paths, so existing rows need no backfill. Internal (not private) so
-         * the JVM test suite can verify the upgrade path.
+         * v7 -> v8 (wayfinder #47/#48/#52 + spec-10 T2, merged in one step —
+         * the parallel branches both picked v8). Additive changes only:
+         * `audiobooks.sourceTreeUri` (persisted SAF grants, #48),
+         * `audiobooks.mergeKey` + the `sources` table (multi-source catalog,
+         * spec-10 T2), `chapters.contentHash` (SHA-256 import dedupe, #48),
+         * the durable `playback_failures` ledger (#52), and the
+         * `playback_progress` PK widened to (bookId, sourceKey) so listening
+         * state is isolated per source (ADR-0001). Existing progress rows
+         * migrate with sourceKey '' (the book's primary source). Internal
+         * (not private) so the JVM test suite can verify the upgrade path
+         * against a real v7 database.
          */
         internal val MIGRATION_7_8 = object : Migration(7, 8) {
             override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL("ALTER TABLE chapters ADD COLUMN contentHash TEXT")
+                // #48: SAF tree URI of the local folder, for future rescans.
                 db.execSQL("ALTER TABLE audiobooks ADD COLUMN sourceTreeUri TEXT")
+                // spec-10 T2: Work-level dedup key; '' for pre-existing rows.
+                db.execSQL("ALTER TABLE audiobooks ADD COLUMN mergeKey TEXT NOT NULL DEFAULT ''")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_audiobooks_mergeKey ON audiobooks(mergeKey)")
+                // #48: SHA-256 content hash of copied local files.
+                db.execSQL("ALTER TABLE chapters ADD COLUMN contentHash TEXT")
+                // spec-10 T2: one row per playable source of a Work.
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS sources (" +
+                        "id TEXT NOT NULL, " +
+                        "bookId TEXT NOT NULL, " +
+                        "type TEXT NOT NULL, " +
+                        "url TEXT NOT NULL, " +
+                        "streamOnly INTEGER NOT NULL DEFAULT 0, " +
+                        "addedAt INTEGER NOT NULL DEFAULT 0, " +
+                        "PRIMARY KEY(id))"
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_sources_bookId ON sources(bookId)")
+                // #52: durable playback-failure ledger.
                 db.execSQL(
                     """
                     CREATE TABLE IF NOT EXISTS playback_failures (
@@ -119,6 +142,27 @@ abstract class AudiobookDatabase : RoomDatabase() {
                     """.trimIndent()
                 )
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_playback_failures_bookId ON playback_failures(bookId)")
+                // spec-10 T2: widen playback_progress PK to (bookId, sourceKey).
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS playback_progress_new (" +
+                        "bookId TEXT NOT NULL, " +
+                        "sourceKey TEXT NOT NULL, " +
+                        "currentChapterIndex INTEGER NOT NULL, " +
+                        "currentPositionSeconds INTEGER NOT NULL, " +
+                        "lastListenedAt INTEGER NOT NULL, " +
+                        "isCompleted INTEGER NOT NULL, " +
+                        "lastPausedAtEpochMs INTEGER, " +
+                        "PRIMARY KEY(bookId, sourceKey))"
+                )
+                db.execSQL(
+                    "INSERT INTO playback_progress_new (bookId, sourceKey, currentChapterIndex, " +
+                        "currentPositionSeconds, lastListenedAt, isCompleted, lastPausedAtEpochMs) " +
+                        "SELECT bookId, '', currentChapterIndex, currentPositionSeconds, " +
+                        "lastListenedAt, isCompleted, lastPausedAtEpochMs FROM playback_progress"
+                )
+                db.execSQL("DROP TABLE playback_progress")
+                db.execSQL("ALTER TABLE playback_progress_new RENAME TO playback_progress")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_playback_progress_bookId ON playback_progress(bookId)")
             }
         }
     }

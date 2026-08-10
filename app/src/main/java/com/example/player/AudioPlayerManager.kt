@@ -822,7 +822,9 @@ class AudioPlayerManager(
         val currentChapter = _playerState.value.currentChapterIndex
         val posSec = _playerState.value.currentPositionMs / 1000L
         scope.launch(Dispatchers.IO) {
-            repository.updateProgress(book.id, currentChapter, posSec)
+            // Spec-10 T2: positions are keyed per source (ADR-0001), so the
+            // player writes to the current book's source key.
+            repository.updateProgress(book.id, currentChapter, posSec, sourceKey = repository.sourceKeyFor(book))
             repository.recordListeningTime(5L)
         }
     }

@@ -72,6 +72,14 @@ interface AudiobookDao {
     @Query("SELECT * FROM chapters WHERE contentHash = :hash LIMIT 1")
     suspend fun getChapterByContentHash(hash: String): ChapterEntity?
 
+    /**
+     * Forget the content hashes of a book's chapters (wayfinder #48 + #50):
+     * when an offline copy is removed from disk, its hash must not block a
+     * future re-import — the file is gone, so copying it again is legitimate.
+     */
+    @Query("UPDATE chapters SET contentHash = NULL WHERE bookId = :bookId")
+    suspend fun clearChapterContentHashes(bookId: String)
+
     /** Real chapter duration discovered during playback (replaces placeholder 0). */
     @Query("UPDATE chapters SET durationSeconds = :durationSeconds WHERE id = :chapterId")
     suspend fun updateChapterDuration(chapterId: String, durationSeconds: Long)

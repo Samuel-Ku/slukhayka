@@ -23,10 +23,27 @@ class FourReadAdapterTest {
 
     private val playlistJson = """[{"title":"Глава 1","file":"https://4read.org/uploads/audio/7589/01.mp3"}]"""
 
+    // Real search page: each hit is a .poster block with the Cyrillic title in
+    // poster__title, the author in the first poster__subtitle and the duration
+    // clock in the second (captured during this session's live fetch).
     private val searchPage = """
         <html><body>
-        <a href="https://4read.org/7589-neostannij-bij.html">Неостанній бій</a>
-        <a href="https://4read.org/7611-vkradi-mene-zaraz.html">Вкради мене... Зараз!</a>
+        <div class="poster has-overlay grid-item d-flex fd-column">
+            <div class="poster__desc order-last">
+                <a href="https://4read.org/5359-taras-shevchenko-kobzar.html" class="poster__link"><div class="poster__title line-clamp">Кобзар</div></a>
+                <div class="poster__subtitle ws-nowrap">Тарас Шевченко</div>
+                <div class="poster__subtitle"><span class="lcomm__link fal fa-clock" aria-hidden="true"></span><span class="js-duration" data-time="02:19:35"></span></div>
+            </div>
+            <div class="poster__img img-responsive img-responsive--portrait img-fit-cover anim">
+                <img src="/uploads/posts/2025-05/medium/shevchenko-taras-kobzar.webp" alt="Шевченко Тарас - Кобзар">
+            </div>
+        </div>
+        <div class="poster has-overlay grid-item d-flex fd-column">
+            <div class="poster__desc order-last">
+                <a href="https://4read.org/7199-nechista-sila.html" class="poster__link"><div class="poster__title line-clamp">Нечиста сила</div></a>
+                <div class="poster__subtitle ws-nowrap">Іван Андрусяк</div>
+            </div>
+        </div>
         </body></html>
     """.trimIndent()
 
@@ -76,15 +93,21 @@ class FourReadAdapterTest {
     }
 
     @Test
-    fun `search parses result links into source books`() = runBlocking {
+    fun `search parses poster blocks with real title author and cover`() = runBlocking {
         val adapter = FourReadAdapter(FakeFetcher(emptyMap(), fallback = searchPage))
 
-        val books = adapter.search("Неостанній")
+        val books = adapter.search("Кобзар")
 
         assertEquals(2, books.size)
-        assertEquals("https://4read.org/7589-neostannij-bij.html", books[0].url)
-        assertEquals("Неостанній бій", books[0].title)
+        assertEquals("https://4read.org/5359-taras-shevchenko-kobzar.html", books[0].url)
+        assertEquals("Кобзар", books[0].title)
+        // The real Cyrillic author replaces the old "4read.org" placeholder so
+        // the same Work found on another source can merge.
+        assertEquals("Тарас Шевченко", books[0].author)
+        assertEquals("https://4read.org/uploads/posts/2025-05/medium/shevchenko-taras-kobzar.webp", books[0].coverImageUrl)
         assertEquals("4read", books[0].sourceId)
+        assertEquals("Нечиста сила", books[1].title)
+        assertEquals("Іван Андрусяк", books[1].author)
     }
 
     @Test

@@ -26,7 +26,12 @@ class AudiobookMp3Adapter(
         if (html.isEmpty()) return SourceBookDetail("", "", url = url, chapters = emptyList())
 
         val title = ogMeta(html, "og:title") ?: slugTitle(url)
-        val author = authorFromSlug(url)
+        // The real author lives in the «Автор:» breadcrumb link (and in the
+        // page's JSON-LD as "author": "…"). The slug carries a transliterated
+        // author-title blob with no delimiter, so it is never usable.
+        val author = AUTHOR_LINK.find(html)?.groupValues?.get(1)?.trim()
+            ?: JSONLD_AUTHOR.find(html)?.groupValues?.get(1)?.trim()
+            ?: ""
 
         val playlistUrl = PLAYLIST_URL.find(html)?.groupValues?.get(1)
             ?: return SourceBookDetail(title = title, author = author, url = url, chapters = emptyList())
@@ -68,9 +73,15 @@ class AudiobookMp3Adapter(
                 val path = m.groupValues[1]
                 val url = "https://audiobook-mp3.com$path"
                 if (!seen.add(url)) return@mapNotNull null
+                // The /uk feed renders each entry as «Автор - Назва» in real
+                // Cyrillic — the real title and author, no page fetch needed.
+                val anchor = m.groupValues[2].trim()
+                val sep = anchor.indexOf(" - ")
+                val author = if (sep >= 0) anchor.substring(0, sep).trim() else ""
+                val title = if (sep >= 0) anchor.substring(sep + 3).trim() else anchor
                 SourceBook(
-                    title = slugTitle(url),
-                    author = authorFromSlug(url),
+                    title = title.ifBlank { slugTitle(url) },
+                    author = author,
                     url = url,
                     sourceId = sourceId
                 )
@@ -100,10 +111,10 @@ class AudiobookMp3Adapter(
             .ifBlank { slug }
     }
 
-    private fun authorFromSlug(url: String): String = ""
-
     private companion object {
         val PLAYLIST_URL = Regex("""(https://[a-z0-9]+\.redirectto\.cc/[^"'<> ]+\.pl\.txt)""", RegexOption.IGNORE_CASE)
-        val BOOK_LINK = Regex("""href="(/uk-audio-\d+-[^"]+)"""", RegexOption.IGNORE_CASE)
+        val BOOK_LINK = Regex("""href="(/uk-audio-\d+-[^"]+)"[^>]*>([^<]*)""", RegexOption.IGNORE_CASE)
+        val AUTHOR_LINK = Regex("""Автор:\s*<a[^>]*>([^<]+)</a>""", RegexOption.IGNORE_CASE)
+        val JSONLD_AUTHOR = Regex(""""author"\s*:\s*"([^"]+)"""", RegexOption.IGNORE_CASE)
     }
 }

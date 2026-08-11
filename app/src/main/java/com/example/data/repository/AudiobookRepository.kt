@@ -271,14 +271,43 @@ class AudiobookRepository(
                 }
                 matched += direct
                 if (direct.isEmpty()) {
-                    matched += newFeedFor(adapter).filter { book ->
-                        book.title.contains(cleanQuery, ignoreCase = true) ||
-                            book.author.contains(cleanQuery, ignoreCase = true)
-                    }
+                    matched += newFeedFor(adapter)
+                        .filter { book ->
+                            book.title.contains(cleanQuery, ignoreCase = true) ||
+                                book.author.contains(cleanQuery, ignoreCase = true)
+                        }
+                        // A feed entry with a blank author can't form a merge
+                        // key — fetch its book page once and use the real
+                        // title/author/narrator so the Work-level merge with
+                        // other sources actually composes.
+                        .map { book -> if (book.author.isBlank()) enrichFeedMatch(adapter, book) else book }
                 }
             }
             mergeGlobalSearchResults(matched)
         }
+
+    /**
+     * Spec-10 — replaces a weak feed entry (blank author, possibly a
+     * transliterated title) with the metadata parsed from its own book page.
+     * Best-effort: any failure keeps the original entry.
+     */
+    private suspend fun enrichFeedMatch(adapter: SourceAdapter, book: SourceBook): SourceBook {
+        return try {
+            val detail = adapter.fetchBookPage(book.url)
+            if (detail.title.isBlank() && detail.author.isBlank() && detail.narrator.isBlank()) {
+                book
+            } else {
+                book.copy(
+                    title = detail.title.ifBlank { book.title },
+                    author = detail.author.ifBlank { book.author },
+                    narrator = detail.narrator.ifBlank { book.narrator },
+                    coverImageUrl = detail.coverImageUrl ?: book.coverImageUrl
+                )
+            }
+        } catch (e: Exception) {
+            book
+        }
+    }
 
     /**
      * Spec-10 T4 — import-and-play entry point for a search result: fetch the

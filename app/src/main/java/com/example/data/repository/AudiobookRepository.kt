@@ -19,6 +19,7 @@ import com.example.data.source.AudiobookMp3Adapter
 import com.example.data.source.FourReadAdapter
 import com.example.data.source.GlobalSearchResult
 import com.example.data.source.LihtarAdapter
+import com.example.data.source.SluhayuaAdapter
 import com.example.data.source.SoundBooksAdapter
 import com.example.data.source.SourceAdapter
 import com.example.data.source.SourceBook
@@ -56,7 +57,8 @@ class AudiobookRepository(
         FourReadAdapter(),
         SoundBooksAdapter(),
         AudiobookMp3Adapter(),
-        LihtarAdapter()
+        LihtarAdapter(),
+        SluhayuaAdapter()
     )
 ) {
 
@@ -69,11 +71,11 @@ class AudiobookRepository(
     // real total durations. One query; recomputed in memory on change.
     val allChapters: Flow<List<ChapterEntity>> = dao.getAllChapters()
 
-    // Spec-10 T3/T4: every verified server-fetch source behind the adapter
-    // seam. sluhay/sluhayknigi (Cloudflare, WebView-pattern) and sluhayua
-    // (playlist XHR endpoint) are NOT here — they need their own workstreams
-    // (T1 verdicts). The 4read parser lives behind the seam too; the legacy
-    // 4read fetch paths delegate to it so markup changes fail only its tests.
+    // Spec-10 T3/T4 + spec-11 T3: every verified server-fetch source behind
+    // the adapter seam. sluhay/sluhayknigi (Cloudflare, WebView-pattern) are
+    // NOT here — they need the WebView-pattern workstream (wayfinder #70). The
+    // 4read parser lives behind the seam too; the legacy 4read fetch paths
+    // delegate to it so markup changes fail only its tests.
     private val fourReadAdapter: SourceAdapter =
         sourceAdapters.firstOrNull { it.sourceId == "4read" } ?: FourReadAdapter()
 
@@ -91,6 +93,7 @@ class AudiobookRepository(
         url.contains("sound-books.net") -> "soundbooks"
         url.contains("audiobook-mp3.com") -> "audiobookmp3"
         url.contains("lihtar.in.ua") -> "lihtar"
+        url.contains("sluhay.com.ua") -> "sluhayua"
         else -> "unknown"
     }
 

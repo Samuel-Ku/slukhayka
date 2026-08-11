@@ -19,7 +19,10 @@ class DownloadPolicyTest {
 
     @Test
     fun `download-permitting sources and unknown ones are not stream-only`() {
-        listOf("4read", "soundbooks", "audiobookmp3", "local", "unknown-source").forEach { sourceId ->
+        // sluhayua included per the T1 verdict: robots.txt has no Disallow, no
+        // ToS restriction found, the site tracks downloadedTimes — downloads
+        // are intended use.
+        listOf("4read", "soundbooks", "audiobookmp3", "sluhayua", "local", "unknown-source").forEach { sourceId ->
             assertFalse("$sourceId must allow downloads", streamOnlyFor(sourceId))
         }
     }

@@ -68,6 +68,21 @@ class GlobalSearchRepositoryTest {
     private fun repo(vararg adapters: SourceAdapter) =
         AudiobookRepository(dao, context, autoSyncOnInit = false, sourceAdapters = adapters.toList())
 
+    @Test
+    fun `sluhayua urls map to the sluhayua source`() {
+        val repository = repo()
+        assertEquals("sluhayua", repository.sourceTypeOfUrl("https://sluhay.com.ua/4508492:taras-shevchenko-Єretik"))
+        assertEquals("sluhayua", repository.sourceTypeOfUrl("https://mp3.sluhay.com.ua/Serdeshna/01.mp3"))
+    }
+
+    @Test
+    fun `default adapter registry constructs with sluhayua registered`() {
+        // The production default list (no injection) must build and know the
+        // sluhayua source; adapter construction is inert (no network).
+        val defaultRepo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+        assertEquals("sluhayua", defaultRepo.sourceTypeOfUrl("https://sluhay.com.ua/1965454:olga-kobilyanska-priroda"))
+    }
+
     private fun book(title: String, author: String, sourceId: String) =
         SourceBook(title = title, author = author, url = "https://$sourceId.example/$title", sourceId = sourceId)
 

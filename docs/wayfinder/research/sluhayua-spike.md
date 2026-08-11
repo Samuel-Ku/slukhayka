@@ -101,10 +101,16 @@ name even encodes the narrator («…_Diana_Goncharenko»).
 
 Live captures trimmed into `fixtures/sluhayua/` (committed with this spike):
 `book-multi-chapter.html` (Сердешна Оксана — 7-file playlist + CSRF + og tags),
-`book-single-file.html` (Природа — `[["0",0]]`), `search-kobzar.json`
-(`/find/allcards` cards), `new-sort-time.json` (newest-first cards),
-`play-response.txt` (plain mp3 URL). No network in tests — serve canned
-HTML/JSON via FakeFetcher by URL.
+`book-single-file.html` (Природа — `[["0",0]]`), `search-shevchenko.json`
+(`/find/allcards?search=Шевченко` — 16 real matches, trimmed to 2 cards),
+`new-sort-time.json` (newest-first cards), `play-response.txt` (plain mp3
+URL). No network in tests — serve canned HTML/JSON via FakeFetcher by URL.
+
+Search correction (post-spike): the live `/find/allcards?search=кобзар` probe
+returned the *unfiltered* default catalog — «кобзар» simply has no matches on
+sluhay.com.ua, it was not a parser failure. `search=` is the correct key
+(confirmed from the bundle's `resetRollCardUrl`); `search=левеня` → 1 match,
+`search=Шевченко` → 16 matches. The fixture captures the latter.
 
 ## Risks / caveats
 

@@ -1,0 +1,63 @@
+{
+ "cards": [
+  {
+   "_id": 4508492,
+   "downloadedTimes": 0,
+   "views": 18829,
+   "rating": 10,
+   "downloadedTimesDiff": 0,
+   "kbps": 0,
+   "totalSeconds": 0,
+   "creationTime": "16 декабря 2018",
+   "slug": "taras-shevchenko-Єretik",
+   "timeLength": "00:02:46",
+   "title": "Тарас Шевченко - Єретик",
+   "bgIndex": "16",
+   "name": "Тарас Шевченко - Єретик",
+   "bookName": "Єретик",
+   "bookAuthor": [
+    "Тарас Шевченко"
+   ],
+   "audioAuthor": [
+    "Євгеній Янович"
+   ],
+   "genre": [
+    "поема"
+   ],
+   "kind": "authorPhoto",
+   "kindSrc": "/uploads/1569063231.png",
+   "text": "Єретик — поема видатного українського поета Тараса Шевченка. Датується за автографом в окремому зошиті: присвята «Шафарикові» — 22 листопада 1845 р., Переяслав; поема — 10 жовтня 1845 р., с. Мар’їнське.",
+   "viewed": 0
+  },
+  {
+   "_id": 2959974,
+   "downloadedTimes": 0,
+   "views": 12165,
+   "rating": 10,
+   "downloadedTimesDiff": 0,
+   "kbps": 0,
+   "totalSeconds": 0,
+   "creationTime": "16 декабря 2018",
+   "slug": "taras-shevchenko-nadj-djnіprovoju-sagoju",
+   "timeLength": "00:00:54",
+   "title": "Тарас Шевченко - Над Дніпровою сагою",
+   "bgIndex": "16",
+   "name": "Тарас Шевченко - Над Дніпровою сагою",
+   "bookName": "Над Дніпровою сагою",
+   "bookAuthor": [
+    "Тарас Шевченко"
+   ],
+   "audioAuthor": [
+    "Максим Тимченко"
+   ],
+   "genre": [
+    "поезія"
+   ],
+   "kind": "authorPhoto",
+   "kindSrc": "/uploads/1569063052.png",
+   "text": "Над Дніпровою сагóю Стоїть явор меж лозою, Меж лозою з ялиною, З червоною калиною. Дніпро берег риє-риє, Яворові корінь миє. Стоїть старий, похилився, Мов козак той зажурився. Що без долі, без роди́ни Та без вірної дружини, І друж",
+   "viewed": 0
+  }
+ ],
+ "pageCount": 1
+}

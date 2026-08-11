@@ -500,7 +500,11 @@ class AudiobookRepositoryRoomTest {
         val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
         val book = TestDataFactory.dataBooks()[0]
         dao.insertAudiobooks(listOf(book))
-        dao.savePlaybackProgress(PlaybackProgressEntity(bookId = book.id))
+        // Frozen timestamp — the default lastListenedAt is wall clock and
+        // would make this (and any) fixture row non-deterministic.
+        dao.savePlaybackProgress(
+            PlaybackProgressEntity(bookId = book.id, lastListenedAt = TestDataFactory.FIXED_CLOCK_MS)
+        )
 
         repo.updatePausedAt(book.id, 1_700_000_000_000L)
 
@@ -526,7 +530,9 @@ class AudiobookRepositoryRoomTest {
         }
         dao.insertAudiobooks(listOf(book))
         dao.insertChapters(chapters)
-        dao.savePlaybackProgress(PlaybackProgressEntity(bookId = book.id))
+        dao.savePlaybackProgress(
+            PlaybackProgressEntity(bookId = book.id, lastListenedAt = TestDataFactory.FIXED_CLOCK_MS)
+        )
 
         repo.removeFromLibrary(book.id)
 

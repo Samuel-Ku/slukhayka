@@ -15,8 +15,15 @@ import com.example.data.imports.LocalAudioEntry
 import com.example.data.imports.LocalFolderScanner
 import com.example.data.merge.MergeKey
 import com.example.data.sha256Hex
+import com.example.data.source.AudiobookMp3Adapter
 import com.example.data.source.FourReadAdapter
+import com.example.data.source.GlobalSearchResult
+import com.example.data.source.LihtarAdapter
+import com.example.data.source.SoundBooksAdapter
+import com.example.data.source.SourceAdapter
+import com.example.data.source.SourceBook
 import com.example.data.source.SourceBookDetail
+import com.example.data.source.mergeGlobalSearchResults
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -39,7 +46,15 @@ class AudiobookRepository(
      * it to `false` so a fixture-driven test never performs network I/O and
      * never races the seeder for the same rows.
      */
-    private val autoSyncOnInit: Boolean = true
+    private val autoSyncOnInit: Boolean = true,
+    // Spec-10 T4: injectable for repository-seam tests (fake adapters, no
+    // network). Default = all verified server-fetch sources.
+    private val sourceAdapters: List<SourceAdapter> = listOf(
+        FourReadAdapter(),
+        SoundBooksAdapter(),
+        AudiobookMp3Adapter(),
+        LihtarAdapter()
+    )
 ) {
 
     val allBooks: Flow<List<AudiobookEntity>> = dao.getAllAudiobooks()
@@ -51,9 +66,13 @@ class AudiobookRepository(
     // real total durations. One query; recomputed in memory on change.
     val allChapters: Flow<List<ChapterEntity>> = dao.getAllChapters()
 
-    // Spec-10 T3: the 4read parser lives behind the adapter seam; the legacy
+    // Spec-10 T3/T4: every verified server-fetch source behind the adapter
+    // seam. sluhay/sluhayknigi (Cloudflare, WebView-pattern) and sluhayua
+    // (playlist XHR endpoint) are NOT here — they need their own workstreams
+    // (T1 verdicts). The 4read parser lives behind the seam too; the legacy
     // 4read fetch paths delegate to it so markup changes fail only its tests.
-    private val fourReadAdapter = FourReadAdapter()
+    private val fourReadAdapter: SourceAdapter =
+        sourceAdapters.firstOrNull { it.sourceId == "4read" } ?: FourReadAdapter()
 
     // ---------------------------------------------------------------------
     // Multi-source helpers (spec-10 T2)
@@ -152,6 +171,83 @@ class AudiobookRepository(
             .ifBlank { "book-${System.currentTimeMillis()}" }
         return "$sourceId-$slug"
     }
+
+    // ---------------------------------------------------------------------
+    // Global search (spec-10 T4)
+    // ---------------------------------------------------------------------
+
+    // Per-source «new arrivals» feeds are cached in memory so repeated search
+    // keystrokes never re-fetch the same homepage; the cache is a session
+    // convenience, safe to lose.
+    private class CachedFeed(val fetchedAt: Long, val books: List<SourceBook>)
+
+    private val newFeedCache = java.util.concurrent.ConcurrentHashMap<String, CachedFeed>()
+
+    private suspend fun newFeedFor(adapter: SourceAdapter): List<SourceBook> {
+        val now = System.currentTimeMillis()
+        newFeedCache[adapter.sourceId]?.let { cached ->
+            if (now - cached.fetchedAt < NEW_FEED_TTL_MS) return cached.books
+        }
+        val books = try {
+            adapter.fetchNew()
+        } catch (e: Exception) {
+            emptyList()
+        }
+        newFeedCache[adapter.sourceId] = CachedFeed(now, books)
+        return books
+    }
+
+    /**
+     * Spec-10 T4 — aggregated search across every verified source.
+     *
+     * Each adapter is queried through its `search()` endpoint (4read); sources
+     * without a usable search endpoint (soundbooks, audiobookmp3, lihtar per
+     * the T1 verdicts) are discovered by filtering their recent feed. Results
+     * are merged by the Work-level [MergeKey] — one card per Work with all
+     * matching sources (see [mergeGlobalSearchResults]). Ephemeral: nothing is
+     * imported into Room until the user taps a result.
+     */
+    suspend fun searchAllSources(query: String): List<GlobalSearchResult> =
+        withContext(Dispatchers.IO) {
+            val cleanQuery = query.trim()
+            if (cleanQuery.isBlank()) return@withContext emptyList()
+
+            val matched = mutableListOf<SourceBook>()
+            for (adapter in sourceAdapters) {
+                val direct = try {
+                    adapter.search(cleanQuery)
+                } catch (e: Exception) {
+                    emptyList()
+                }
+                matched += direct
+                if (direct.isEmpty()) {
+                    matched += newFeedFor(adapter).filter { book ->
+                        book.title.contains(cleanQuery, ignoreCase = true) ||
+                            book.author.contains(cleanQuery, ignoreCase = true)
+                    }
+                }
+            }
+            mergeGlobalSearchResults(matched)
+        }
+
+    /**
+     * Spec-10 T4 — import-and-play entry point for a search result: fetch the
+     * book page from the chosen source, import the Work (merging into an
+     * existing card when the merge key matches), return the stored book. Null
+     * when the source is unknown or the page yields nothing playable.
+     */
+    suspend fun importFromSourceUrl(sourceId: String, url: String): AudiobookEntity? =
+        withContext(Dispatchers.IO) {
+            val adapter = sourceAdapters.firstOrNull { it.sourceId == sourceId }
+                ?: return@withContext null
+            try {
+                val detail = adapter.fetchBookPage(url)
+                if (detail.chapters.isEmpty()) return@withContext null
+                importBookFromSource(sourceId, detail)
+            } catch (e: Exception) {
+                null
+            }
+        }
 
     // ---------------------------------------------------------------------
     // Catalogue sections (spec #8 tickets T5/T6): rows for the Explore
@@ -1729,6 +1825,9 @@ class AudiobookRepository(
     }
 
     companion object {
+        /** TTL of the in-memory per-source «new arrivals» feed cache (spec-10 T4). */
+        private const val NEW_FEED_TTL_MS = 15 * 60 * 1000L
+
         /** Single source of truth for the offline-audio directory name. */
         const val OFFLINE_AUDIO_DIR = "audiobooks"
 

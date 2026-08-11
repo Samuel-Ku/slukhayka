@@ -10,11 +10,13 @@ import com.example.data.catalog.CatalogSection
 import com.example.data.db.*
 import com.example.data.imports.ImportGrantStore
 import com.example.data.repository.AudiobookRepository
+import com.example.data.source.GlobalSearchResult
 import com.example.player.AudioPlayerManager
 import com.example.player.PlayerState
 import com.example.player.SmartRewind
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -363,11 +365,55 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _selectedTab.value = tab
     }
 
+    // Spec-10 T4: aggregated search results across all verified sources
+    // (ephemeral — nothing is imported until the user taps a result).
+    private val _globalSearchResults = MutableStateFlow<List<GlobalSearchResult>>(emptyList())
+    val globalSearchResults: StateFlow<List<GlobalSearchResult>> = _globalSearchResults.asStateFlow()
+
+    private val _isGlobalSearchLoading = MutableStateFlow(false)
+    val isGlobalSearchLoading: StateFlow<Boolean> = _isGlobalSearchLoading.asStateFlow()
+
+    private var globalSearchJob: kotlinx.coroutines.Job? = null
+
     fun updateSearchQuery(query: String) {
         _searchQuery.value = query
-        if (query.trim().length >= 2) {
-            viewModelScope.launch(Dispatchers.IO) {
-                repository.searchAudiobooksOn4Read(query)
+        globalSearchJob?.cancel()
+        val clean = query.trim()
+        if (clean.length < 2) {
+            _globalSearchResults.value = emptyList()
+            _isGlobalSearchLoading.value = false
+            return
+        }
+        _isGlobalSearchLoading.value = true
+        globalSearchJob = viewModelScope.launch(Dispatchers.IO) {
+            // Debounce keystrokes; cancellation keeps a stale search from
+            // overwriting a newer one.
+            delay(350)
+            val results = try {
+                repository.searchAllSources(clean)
+            } catch (e: Exception) {
+                emptyList()
+            }
+            _globalSearchResults.value = results
+            _isGlobalSearchLoading.value = false
+        }
+    }
+
+    /**
+     * Spec-10 T4 — tap a global search result: import from the found source
+     * (merging into the existing Work card when the merge key matches) and
+     * play through the app player.
+     */
+    fun playGlobalSearchResult(result: GlobalSearchResult) {
+        val source = result.sources.firstOrNull() ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            val book = try {
+                repository.importFromSourceUrl(source.sourceId, source.url)
+            } catch (e: Exception) {
+                null
+            }
+            if (book != null) {
+                playAudiobook(book)
             }
         }
     }

@@ -1,8 +1,8 @@
 # [Spec] sluhay.com.ua source (sluhayua) — 2026-08-11
 
-> **Status:** Draft — proposed next wave after spec-10 M1. **T1 spike resolved 2026-08-11: PASS** (see `docs/wayfinder/research/sluhayua-spike.md`). Tickets not yet filed.
+> **Status:** **Implemented (2026-08-11)** — T1–T3 resolved and closed (#74–#76), CI green, 232 unit tests.
 > **Source:** T1 spike verdicts (`docs/wayfinder/research/source-pool-spike.md` + `sluhayua-spike.md`): sluhay.com.ua is the only remaining server-fetch candidate — live, Ukrainian, free (donations), no Cloudflare. The playlist is inline in the book page; audio comes from `/play` per file; search and «new» come from the `/find/allcards` JSON API.
-> **Tracker:** planned as spec-11 issues (`spec-11` + `ready-for-agent` labels), pending approval.
+> **Tracker:** spec-11 issues `spec-11` + `ready-for-agent` — #74–#76, all closed.
 
 ## Problem Statement
 
@@ -59,11 +59,16 @@ Rules (spec-10): no network in tests; fixtures only; each iteration ends with `a
 - The spike (T1) ran as the wave's first step (AFK) and resolved with a PASS — the endpoint specs, fixture shapes and risks live in `docs/wayfinder/research/sluhayua-spike.md`.
 - The WebView fallback is moot — the server-fetch path is confirmed; the WebView-pattern effort (sluhay.com / sluhayknigi.com) stays its own wayfinder map.
 - Prior art: spec-10 (`2026-08-10-multi-source-catalog.md`) — adapter seam, merge key, download policy, registry-driven wiring.
+- Live-search correction (T2): `search=кобзар` returns the *unfiltered* default catalog — «кобзар» has no matches on the site (not a parser failure); `search=Шевченко` → 16 real matches. Fixture `search-shevchenko.json` captures the filtered response.
 
 ## Tickets
 
-T1 is resolved; T2–T3 remain:
+All three resolved and closed:
 
-- **T1 — sluhayua spike** (research, AFK): reverse-engineer the playlist-XHR endpoint from a live book page; verify direct playable audio; confirm `/find` server-render vs SPA; pick the «new» feed source; ToS/robots download verdict; capture fixtures. No blockers. **✅ Done** — verdict PASS, `docs/wayfinder/research/sluhayua-spike.md`.
-- **T2 — SluhayuaAdapter** (task): `search` (`/find/allcards`) + `fetchBookPage` (inline playlist + `/play` per file) + `fetchNew` (`sort=time`) with fixture tests; `HttpFetcher` extra-headers extension; `DownloadPolicy` entry (allowed). Blocked by T1.
-- **T3 — sluhayua wiring** (task): register the adapter in the repository registry; `sourceDisplayName`; global-search + feed verification; device check on OnePlus 8 Pro. Blocked by T2.
+- **T1 — sluhayua spike** (research, AFK): reverse-engineer the playlist-XHR endpoint from a live book page; verify direct playable audio; confirm `/find` server-render vs SPA; pick the «new» feed source; ToS/robots download verdict; capture fixtures. No blockers. **✅ Done** — verdict PASS (`28ec0c7`, fixtures `123699e`), closed [#74](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/74).
+- **T2 — SluhayuaAdapter** (task): `search` (`/find/allcards`) + `fetchBookPage` (inline playlist + `/play` per file) + `fetchNew` (`sort=time`) with fixture tests; `HttpFetcher` extra-headers extension; `DownloadPolicy` entry (allowed). Blocked by T1. **✅ Done** — `24672eb` (7 files, 8 fixture tests), closed [#75](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/75).
+- **T3 — sluhayua wiring** (task): register the adapter in the repository registry; `sourceDisplayName`; global-search + feed verification; device check on OnePlus 8 Pro. Blocked by T2. **✅ Done** — `e34560d` (registry + URL mapping + badge + policy tests), closed [#76](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/76).
+
+### Remaining verification
+
+- **Device check (OnePlus 8 Pro)** — import-and-play from a sluhayua search result on device; unit suite (232 tests) + `assembleDebug` are green, no device was attached at close time.

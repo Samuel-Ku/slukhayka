@@ -17,6 +17,7 @@ class SoundBooksAdapterTest {
         <html><head>
         <meta property="og:title" content="Темна матерія">
         </head><body>
+        <p>Автор: Блейк Крауч. Читає: Pik CAH4E3. Триває: 09:28:09</p>
         <script>
         PlayerLang     = {prev: 'Попередній'}
         var player = new Playerjs({file:"https://sound-books.net/uploads/public_files/2026-07/4111-krauch-bleik-temna-materiia.m3u"});
@@ -29,10 +30,13 @@ class SoundBooksAdapterTest {
         https://arch.sound-books.net/4111/Темна матерія-02.mp3
     """.trimIndent()
 
+    // The homepage renders each entry twice: a bare-title cover tile and a
+    // «Назва - Автор» tile — both pointing at the same url (real markup).
     private val homepage = """
         <html><body>
-        <a href="https://sound-books.net/zarubizhna-literatura/2851-temna-materiia.html">Темна матерія</a>
-        <a href="https://sound-books.net/ukrainska-literatura/2850-statut-vnutrishnoi-sluzhby-zbroinykh-syl-ukrainy.html">Статут внутрішньої служби Збройних Сил України</a>
+        <a class="short-title" href="https://sound-books.net/zarubizhna-literatura/2851-temna-materiia.html">Темна матерія 15.07.26 970 2</a>
+        <a class="short-title" href="https://sound-books.net/zarubizhna-literatura/2851-temna-materiia.html">Темна матерія - Блейк Крауч</a>
+        <a class="short-title" href="https://sound-books.net/ukrainska-literatura/2850-statut-vnutrishnoi-sluzhby-zbroinykh-syl-ukrainy.html">Статут внутрішньої служби Збройних Сил України</a>
         </body></html>
     """.trimIndent()
 
@@ -50,6 +54,8 @@ class SoundBooksAdapterTest {
         val detail = adapter.fetchBookPage("https://sound-books.net/zarubizhna-literatura/2851-temna-materiia.html")
 
         assertEquals("Темна матерія", detail.title)
+        assertEquals("Блейк Крауч", detail.author)
+        assertEquals("Pik CAH4E3", detail.narrator)
         assertEquals(2, detail.chapters.size)
         assertEquals("https://arch.sound-books.net/4111/Темна матерія-01.mp3", detail.chapters[0].streamUrl)
         assertEquals("https://arch.sound-books.net/4111/Темна матерія-02.mp3", detail.chapters[1].streamUrl)
@@ -67,14 +73,20 @@ class SoundBooksAdapterTest {
     }
 
     @Test
-    fun `new feed parses recent book links`() = runBlocking {
+    fun `new feed splits title and author from the anchors`() = runBlocking {
         val adapter = SoundBooksAdapter(FakeFetcher(mapOf("https://sound-books.net/" to homepage)))
 
         val books = adapter.fetchNew(limit = 10)
 
         assertEquals(2, books.size)
+        // The duplicate url collapses to one row, and the author-bearing
+        // «Назва - Автор» tile wins over the bare-title cover tile.
         assertEquals("Темна матерія", books[0].title)
+        assertEquals("Блейк Крауч", books[0].author)
         assertEquals("https://sound-books.net/zarubizhna-literatura/2851-temna-materiia.html", books[0].url)
         assertEquals("soundbooks", books[0].sourceId)
+        // An anchor without a separator stays a title-only entry.
+        assertEquals("Статут внутрішньої служби Збройних Сил України", books[1].title)
+        assertEquals("", books[1].author)
     }
 }

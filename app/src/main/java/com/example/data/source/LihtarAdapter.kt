@@ -53,22 +53,27 @@ class LihtarAdapter(
     }
 
     override suspend fun fetchNew(limit: Int): List<SourceBook> {
+        // The /biblioteka landing page only lists the category groups, not the
+        // books — the feed has to enumerate each category page and collect its
+        // book links. Titles are the (transliterated) slugs; the real Cyrillic
+        // title comes from the book page once it is fetched (search enrichment).
         val html = fetcher.getText("https://lihtar.in.ua/biblioteka")
         if (html.isEmpty()) return emptyList()
+        val categories = CATEGORY_LINK.findAll(html).map { it.groupValues[1] }.toList()
         val seen = mutableSetOf<String>()
-        return BOOK_LINK.findAll(html)
-            .mapNotNull { m ->
+        val books = mutableListOf<SourceBook>()
+        for (category in categories) {
+            if (books.size >= limit) break
+            val categoryHtml = fetcher.getText(category)
+            for (m in BOOK_LINK.findAll(categoryHtml)) {
                 val url = m.groupValues[1]
-                if (!seen.add(url)) return@mapNotNull null
-                SourceBook(
-                    title = slugTitle(url),
-                    author = "",
-                    url = url,
-                    sourceId = sourceId
-                )
+                if (seen.add(url)) {
+                    books += SourceBook(title = slugTitle(url), author = "", url = url, sourceId = sourceId)
+                    if (books.size >= limit) break
+                }
             }
-            .take(limit)
-            .toList()
+        }
+        return books
     }
 
     private fun ogMeta(html: String, property: String): String? =
@@ -89,6 +94,7 @@ class LihtarAdapter(
     private companion object {
         val LISTEN_LINK = Regex("""href="(https://web\.lihtar\.in\.ua/library/[^"]+)"""", RegexOption.IGNORE_CASE)
         val AUDIO_SRC = Regex("""<audio[^>]+src="(https://web\.lihtar\.in\.ua/audio/[^"]+)"""", RegexOption.IGNORE_CASE)
+        val CATEGORY_LINK = Regex("""href="(https://lihtar\.in\.ua/biblioteka/[a-z0-9-]+)"""", RegexOption.IGNORE_CASE)
         val BOOK_LINK = Regex("""href="(https://lihtar\.in\.ua/biblioteka/[a-z0-9-]+/[a-z0-9-]+)"""", RegexOption.IGNORE_CASE)
     }
 }

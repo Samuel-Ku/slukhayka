@@ -28,7 +28,16 @@ class LihtarAdapterTest {
         </body></html>
     """.trimIndent()
 
+    // The /biblioteka landing lists category groups only — the feed enumerates
+    // each category page to find the books (mirrors the real site).
     private val libraryPage = """
+        <html><body>
+        <a href="https://lihtar.in.ua/biblioteka/khudozhnja-literatura" class="groupitem">Художня література</a>
+        <a href="https://lihtar.in.ua/biblioteka/dytjacha-literatura" class="groupitem">Дитяча література</a>
+        </body></html>
+    """.trimIndent()
+
+    private val childCategoryPage = """
         <html><body>
         <a href="https://lihtar.in.ua/biblioteka/dytjacha-literatura/bojahuz">Боягуз</a>
         <a href="https://lihtar.in.ua/biblioteka/dytjacha-literatura/andriyko-ta-shakhove-korolivstvo">Андрійко та шахове королівство</a>
@@ -67,13 +76,22 @@ class LihtarAdapterTest {
     }
 
     @Test
-    fun `new feed enumerates library book links`() = runBlocking {
-        val adapter = LihtarAdapter(FakeFetcher(mapOf("https://lihtar.in.ua/biblioteka" to libraryPage)))
+    fun `new feed enumerates category pages to find the books`() = runBlocking {
+        val adapter = LihtarAdapter(
+            FakeFetcher(
+                mapOf(
+                    "https://lihtar.in.ua/biblioteka" to libraryPage,
+                    "https://lihtar.in.ua/biblioteka/dytjacha-literatura" to childCategoryPage
+                )
+            )
+        )
 
         val books = adapter.fetchNew(limit = 10)
 
+        // Only the category with a fixture contributes; the other yields none.
         assertEquals(2, books.size)
         assertEquals("https://lihtar.in.ua/biblioteka/dytjacha-literatura/bojahuz", books[0].url)
         assertEquals("lihtar", books[0].sourceId)
+        assertEquals("bojahuz", books[0].title.lowercase())
     }
 }

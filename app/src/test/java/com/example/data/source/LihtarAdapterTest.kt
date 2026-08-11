@@ -41,6 +41,18 @@ class LihtarAdapterTest {
         <html><body>
         <a href="https://lihtar.in.ua/biblioteka/dytjacha-literatura/bojahuz">Боягуз</a>
         <a href="https://lihtar.in.ua/biblioteka/dytjacha-literatura/andriyko-ta-shakhove-korolivstvo">Андрійко та шахове королівство</a>
+        <a href="https://lihtar.in.ua/biblioteka/dytjacha-literatura/zahublena-stinka">Загублена стінка</a>
+        </body></html>
+    """.trimIndent()
+
+    // Real book page: the author rides in og:description and may carry HTML
+    // entities (live sample: «Наталія Дев&#039;ятко»).
+    private val andriykoPage = """
+        <html><head>
+        <meta property="og:title" content="Андрійко та шахове королівство">
+        <meta property="og:description" content="Наталія Дев&#039;ятко">
+        </head><body>
+        <h1>Андрійко та шахове королівство</h1>
         </body></html>
     """.trimIndent()
 
@@ -76,22 +88,33 @@ class LihtarAdapterTest {
     }
 
     @Test
-    fun `new feed enumerates category pages to find the books`() = runBlocking {
+    fun `new feed enriches every entry from its book page - real title and author`() = runBlocking {
         val adapter = LihtarAdapter(
             FakeFetcher(
                 mapOf(
                     "https://lihtar.in.ua/biblioteka" to libraryPage,
-                    "https://lihtar.in.ua/biblioteka/dytjacha-literatura" to childCategoryPage
+                    "https://lihtar.in.ua/biblioteka/dytjacha-literatura" to childCategoryPage,
+                    "https://lihtar.in.ua/biblioteka/dytjacha-literatura/bojahuz" to bookPage,
+                    "https://lihtar.in.ua/biblioteka/dytjacha-literatura/andriyko-ta-shakhove-korolivstvo" to andriykoPage
+                    // zahublena-stinka intentionally has no page fixture: the
+                    // entry must fall back to the transliterated slug.
                 )
             )
         )
 
         val books = adapter.fetchNew(limit = 10)
 
-        // Only the category with a fixture contributes; the other yields none.
-        assertEquals(2, books.size)
-        assertEquals("https://lihtar.in.ua/biblioteka/dytjacha-literatura/bojahuz", books[0].url)
+        // The real Cyrillic title and the author come from each book page, so
+        // Ukrainian queries match and the Work-level merge key can form.
+        assertEquals(3, books.size)
+        assertEquals("Боягуз", books[0].title)
+        assertEquals("Микола Стеценко", books[0].author)
         assertEquals("lihtar", books[0].sourceId)
-        assertEquals("bojahuz", books[0].title.lowercase())
+        // Entities in the author decode before the merge key normalizes it.
+        assertEquals("Андрійко та шахове королівство", books[1].title)
+        assertEquals("Наталія Дев'ятко", books[1].author)
+        // A failed page fetch keeps the transliterated slug, best-effort.
+        assertEquals("zahublena stinka", books[2].title.lowercase())
+        assertEquals("", books[2].author)
     }
 }

@@ -8,6 +8,7 @@ import com.example.data.catalog.CatalogGenre
 import com.example.data.catalog.CatalogPerson
 import com.example.data.catalog.CatalogSection
 import com.example.data.db.*
+import com.example.data.imports.ImportGrantStore
 import com.example.data.repository.AudiobookRepository
 import com.example.player.AudioPlayerManager
 import com.example.player.PlayerState
@@ -617,11 +618,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val result = repository.importLocalAudioFolder(uri)
+                if (result.booksImported > 0 || result.duplicateFiles > 0) {
+                    // wayfinder #48: remember the tree so a future rescan can
+                    // re-open it without asking the user to pick again.
+                    ImportGrantStore(getApplication()).addTreeUri(uri.toString())
+                }
                 _importMessage.value = if (result.booksImported > 0) {
                     buildString {
                         append("Імпортовано ${result.booksImported} книг (${result.filesImported} файлів)")
-                        if (result.skippedFiles > 0) append(" · ${result.skippedFiles} пропущено")
+                        if (result.duplicateFiles > 0) append(" · ${result.duplicateFiles} дублікатів пропущено")
+                        if (result.skippedFiles > 0) append(" · ${result.skippedFiles} не вдалося прочитати")
                     }
+                } else if (result.duplicateFiles > 0) {
+                    "Всі файли вже в бібліотеці (${result.duplicateFiles} дублікатів пропущено)"
                 } else {
                     "У вибраній папці не знайдено аудіофайлів (mp3/m4a/ogg)"
                 }

@@ -34,6 +34,11 @@ fun PlayerDebugOverlay(
     playerState: PlayerState,
     onClose: () -> Unit,
     onRetryPlayback: (() -> Unit)? = null,
+    // wayfinder #52 session telemetry: recent ring-buffer events, the metrics
+    // one-liner, and the full journal payload for the copy button.
+    events: List<String> = emptyList(),
+    metricsSummary: String = "",
+    journalExport: String = "",
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -225,6 +230,74 @@ fun PlayerDebugOverlay(
                                 color = AppDebugError
                             )
                         )
+                    }
+
+                    if (events.isNotEmpty() || metricsSummary.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Surface(
+                            color = AppDebugPanelInner,
+                            shape = RoundedCornerShape(AppDimens.RadiusInner),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(10.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = "SESSION TELEMETRY",
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            fontFamily = FontFamily.Monospace,
+                                            fontWeight = FontWeight.Bold
+                                        ),
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    IconButton(
+                                        onClick = {
+                                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                            val clip = ClipData.newPlainText(
+                                                "Playback journal",
+                                                metricsSummary + "\n" + journalExport
+                                            )
+                                            clipboard.setPrimaryClip(clip)
+                                            Toast.makeText(context, "Журнал скопійовано в буфер!", Toast.LENGTH_SHORT).show()
+                                        },
+                                        modifier = Modifier.size(24.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.ContentCopy,
+                                            contentDescription = "Copy journal",
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                    }
+                                }
+                                if (metricsSummary.isNotBlank()) {
+                                    Text(
+                                        text = metricsSummary,
+                                        style = MaterialTheme.typography.bodySmall.copy(
+                                            fontFamily = FontFamily.Monospace,
+                                            fontSize = 11.sp
+                                        ),
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                                events.forEach { event ->
+                                    Text(
+                                        text = event,
+                                        style = MaterialTheme.typography.bodySmall.copy(
+                                            fontFamily = FontFamily.Monospace,
+                                            fontSize = 9.sp
+                                        ),
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(12.dp))

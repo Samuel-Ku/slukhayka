@@ -34,7 +34,12 @@ data class AudiobookEntity(
     // "recently added" sort. Migration 6->7 backfills existing rows with the
     // migration-run time; new imports stamp their own insert time.
     @ColumnInfo(defaultValue = "0")
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+    // SAF tree URI of the local folder this book was imported from (wayfinder
+    // #48): kept so a future rescan can re-read chapter metadata without
+    // asking the user to pick the folder again. Null for streamed 4read books
+    // and single-file imports.
+    val sourceTreeUri: String? = null
 )
 
 @Entity(tableName = "listening_stats")
@@ -52,7 +57,11 @@ data class ChapterEntity(
     val durationSeconds: Long,
     val streamUrl: String,
     val localFilePath: String? = null,
-    val isDownloaded: Boolean = false
+    val isDownloaded: Boolean = false,
+    // SHA-256 of the copied local file (wayfinder #48): lets re-imports of the
+    // same file be detected and skipped without duplicating storage. Null for
+    // streamed 4read chapters.
+    val contentHash: String? = null
 )
 
 @Entity(tableName = "bookmarks", indices = [Index("bookId")])
@@ -77,4 +86,26 @@ data class PlaybackProgressEntity(
     // rewind on resume — the longer the pause, the further back playback
     // rewinds. Null once the rewind has been applied.
     val lastPausedAtEpochMs: Long? = null
+)
+
+/**
+ * Durable ledger of playback failures (wayfinder #52). Appended from
+ * [com.example.player.AudioPlayerManager.reportPlaybackFailure] so support
+ * can see error codes, hosts and audio engine modes per book even if no
+ * logcat was captured. Written on the IO dispatcher; never thrown back into
+ * the player path — observability must not break playback.
+ */
+@Entity(tableName = "playback_failures", indices = [Index("bookId")])
+data class PlaybackFailureEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val timestamp: Long,
+    val bookId: String,
+    val chapterIndex: Int,
+    // Media3 error.errorCodeName (e.g. ERROR_CODE_IO_UNSPECIFIED), or our own
+    // synthetic codes for non-ExoPlayer failures (PREPARE_TIMEOUT, UNKNOWN).
+    val errorCodeName: String,
+    // The stream URL or local file path being played when the failure hit.
+    val streamUrl: String,
+    // Player state mode snapshot at failure time (IDLE/BUFFERING/READY/ENDED).
+    val audioEngineMode: String
 )

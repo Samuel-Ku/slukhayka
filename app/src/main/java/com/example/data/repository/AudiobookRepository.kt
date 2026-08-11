@@ -1193,6 +1193,10 @@ class AudiobookRepository(
             }
             dao.updateChapterDownloadState(ch.id, isDownloaded = false, filePath = null)
         }
+        // The copies are gone; the hashes must not pretend they still exist,
+        // otherwise a later re-import of the same files would be skipped as
+        // "duplicate" and the book would stay unplayable (wayfinder #48+#50).
+        dao.clearChapterContentHashes(bookId)
         dao.updateDownloadState(bookId, isDownloaded = false, progress = 0f)
     }
 

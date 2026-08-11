@@ -858,4 +858,62 @@ class AudiobookRepositoryRoomTest {
             book.sourceTreeUri
         )
     }
+
+    // ---------------------------------------------------------------------
+    // wayfinder #50: takedown — removeOfflineDownload purges the local copy
+    // but keeps the book in the library
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `removeOfflineDownload deletes files clears download state and keeps the book`() = runBlocking {
+        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+        val book = TestDataFactory.dataBooks()[0]
+        val files = listOf(
+            File(context.filesDir, "purge-1.mp3").apply { writeBytes(ByteArray(64)) },
+            File(context.filesDir, "purge-2.mp3").apply { writeBytes(ByteArray(64)) }
+        )
+        dao.insertAudiobooks(listOf(book.copy(isDownloaded = true, downloadProgress = 1f)))
+        dao.insertChapters(
+            TestDataFactory.chaptersFor(book).mapIndexed { index, ch ->
+                ch.copy(
+                    isDownloaded = true,
+                    localFilePath = files[index % files.size].absolutePath,
+                    streamUrl = files[index % files.size].absolutePath
+                )
+            }
+        )
+
+        repo.removeOfflineDownload(book.id)
+
+        assertTrue("copies must be gone", files.all { !it.exists() })
+        assertFalse("book must no longer be downloaded", dao.getAudiobookById(book.id)!!.isDownloaded)
+        assertEquals(0f, dao.getAudiobookById(book.id)!!.downloadProgress)
+        assertTrue(dao.getChaptersListForBook(book.id).all { !it.isDownloaded && it.localFilePath == null })
+        assertNotNull("the book itself must survive", dao.getAudiobookById(book.id))
+    }
+
+    @Test
+    fun `removeOfflineDownload clears hashes so a re-import can copy the files again`() = runBlocking {
+        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+        val bytes = ByteArray(16) { it.toByte() }
+        val entries = listOf(LocalAudioEntry("01.mp3", "Сага") { ByteArrayInputStream(bytes) })
+
+        val imported = repo.importAudioEntries(entries)
+        val book = dao.getAllAudiobooks().first().first()
+        assertEquals(1, imported.booksImported)
+        val filesDir = File(context.filesDir, "local_imports")
+        val copiesBefore = filesDir.listFiles()?.size ?: 0
+
+        repo.removeOfflineDownload(book.id)
+        assertEquals(0, filesDir.listFiles()?.size ?: 0)
+
+        val reimport = repo.importAudioEntries(entries)
+
+        assertEquals("re-import must NOT be blocked by a stale hash", 1, reimport.booksImported)
+        assertEquals(0, reimport.duplicateFiles)
+        assertEquals("a fresh copy must land on disk", copiesBefore, filesDir.listFiles()?.size ?: 0)
+        // The original book survives the takedown; the re-import adds a second,
+        // playable copy next to it.
+        assertEquals(2, dao.getAllAudiobooks().first().size)
+    }
 }

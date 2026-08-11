@@ -326,6 +326,12 @@ class FakeAudiobookDao(
     override suspend fun getChapterByContentHash(hash: String): ChapterEntity? =
         chaptersState.value.firstOrNull { it.contentHash == hash }
 
+    override suspend fun clearChapterContentHashes(bookId: String) {
+        chaptersState.update { current ->
+            current.map { ch -> if (ch.bookId == bookId) ch.copy(contentHash = null) else ch }
+        }
+    }
+
     override suspend fun insertPlaybackFailure(failure: PlaybackFailureEntity) {
         failuresState.update { current -> current + failure }
     }

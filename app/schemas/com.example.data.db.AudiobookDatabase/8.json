@@ -2,11 +2,11 @@
   "formatVersion": 1,
   "database": {
     "version": 8,
-    "identityHash": "6d4efae03b117964f3f9151f2bc69d13",
+    "identityHash": "730026af0b96c4fa5b44c5798d96ff69",
     "entities": [
       {
         "tableName": "audiobooks",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `title` TEXT NOT NULL, `author` TEXT NOT NULL, `narrator` TEXT NOT NULL, `description` TEXT NOT NULL, `coverDrawableRes` INTEGER NOT NULL, `coverImageUrl` TEXT, `genre` TEXT NOT NULL, `sourceUrl` TEXT NOT NULL, `isDownloaded` INTEGER NOT NULL, `downloadProgress` REAL NOT NULL, `totalDurationSeconds` INTEGER NOT NULL, `totalChapters` INTEGER NOT NULL, `rating` REAL NOT NULL, `isFavorite` INTEGER NOT NULL, `seriesTitle` TEXT, `seriesUrl` TEXT, `seriesIndex` INTEGER, `preferredSpeed` REAL, `createdAt` INTEGER NOT NULL DEFAULT 0, `sourceTreeUri` TEXT, PRIMARY KEY(`id`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `title` TEXT NOT NULL, `author` TEXT NOT NULL, `narrator` TEXT NOT NULL, `description` TEXT NOT NULL, `coverDrawableRes` INTEGER NOT NULL, `coverImageUrl` TEXT, `genre` TEXT NOT NULL, `sourceUrl` TEXT NOT NULL, `isDownloaded` INTEGER NOT NULL, `downloadProgress` REAL NOT NULL, `totalDurationSeconds` INTEGER NOT NULL, `totalChapters` INTEGER NOT NULL, `rating` REAL NOT NULL, `isFavorite` INTEGER NOT NULL, `seriesTitle` TEXT, `seriesUrl` TEXT, `seriesIndex` INTEGER, `preferredSpeed` REAL, `createdAt` INTEGER NOT NULL DEFAULT 0, `sourceTreeUri` TEXT, `mergeKey` TEXT NOT NULL DEFAULT '', PRIMARY KEY(`id`))",
         "fields": [
           {
             "fieldPath": "id",
@@ -128,6 +128,13 @@
             "fieldPath": "sourceTreeUri",
             "columnName": "sourceTreeUri",
             "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "mergeKey",
+            "columnName": "mergeKey",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "''"
           }
         ],
         "primaryKey": {
@@ -136,6 +143,65 @@
             "id"
           ]
         }
+      },
+      {
+        "tableName": "sources",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `bookId` TEXT NOT NULL, `type` TEXT NOT NULL, `url` TEXT NOT NULL, `streamOnly` INTEGER NOT NULL, `addedAt` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "bookId",
+            "columnName": "bookId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "type",
+            "columnName": "type",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "url",
+            "columnName": "url",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "streamOnly",
+            "columnName": "streamOnly",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "addedAt",
+            "columnName": "addedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_sources_bookId",
+            "unique": false,
+            "columnNames": [
+              "bookId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_sources_bookId` ON `${TABLE_NAME}` (`bookId`)"
+          }
+        ]
       },
       {
         "tableName": "chapters",
@@ -279,11 +345,17 @@
       },
       {
         "tableName": "playback_progress",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`bookId` TEXT NOT NULL, `currentChapterIndex` INTEGER NOT NULL, `currentPositionSeconds` INTEGER NOT NULL, `lastListenedAt` INTEGER NOT NULL, `isCompleted` INTEGER NOT NULL, `lastPausedAtEpochMs` INTEGER, PRIMARY KEY(`bookId`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`bookId` TEXT NOT NULL, `sourceKey` TEXT NOT NULL, `currentChapterIndex` INTEGER NOT NULL, `currentPositionSeconds` INTEGER NOT NULL, `lastListenedAt` INTEGER NOT NULL, `isCompleted` INTEGER NOT NULL, `lastPausedAtEpochMs` INTEGER, PRIMARY KEY(`bookId`, `sourceKey`))",
         "fields": [
           {
             "fieldPath": "bookId",
             "columnName": "bookId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceKey",
+            "columnName": "sourceKey",
             "affinity": "TEXT",
             "notNull": true
           },
@@ -320,7 +392,8 @@
         "primaryKey": {
           "autoGenerate": false,
           "columnNames": [
-            "bookId"
+            "bookId",
+            "sourceKey"
           ]
         },
         "indices": [
@@ -427,7 +500,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '6d4efae03b117964f3f9151f2bc69d13')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '730026af0b96c4fa5b44c5798d96ff69')"
     ]
   }
 }

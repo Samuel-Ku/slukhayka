@@ -597,6 +597,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _downloadMessage = MutableStateFlow<String?>(null)
     val downloadMessage: StateFlow<String?> = _downloadMessage.asStateFlow()
 
+    /** Spec-10 T6: whether the book's primary source is stream-only. */
+    fun isStreamOnly(book: AudiobookEntity): Boolean = repository.isStreamOnly(book)
+
     fun downloadBookOffline(bookId: String) {
         if (_downloadingBookId.value != null) return
         _downloadingBookId.value = bookId

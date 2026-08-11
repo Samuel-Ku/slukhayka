@@ -59,6 +59,9 @@ fun BookDetailScreen(
 
     val currentBook = book ?: return
     val isDownloadingThis = downloadingBookId == currentBook.id
+    // Spec-10 T6: stream-only sources (lihtar — its ToS forbids reproduction)
+    // hide the download action; the repository refuses anyway, in depth.
+    val streamOnly = viewModel.isStreamOnly(currentBook)
 
     // Offline-download outcome feedback: the repository may find no audio for
     // a catalogue book whose page could not be fetched — surface that instead
@@ -103,29 +106,31 @@ fun BookDetailScreen(
                             )
                         }
                     }
-                    IconButton(
-                        onClick = {
-                            if (currentBook.isDownloaded) {
-                                viewModel.removeOfflineDownload(currentBook.id)
+                    if (!streamOnly) {
+                        IconButton(
+                            onClick = {
+                                if (currentBook.isDownloaded) {
+                                    viewModel.removeOfflineDownload(currentBook.id)
+                                } else {
+                                    viewModel.downloadBookOffline(currentBook.id)
+                                }
+                            },
+                            enabled = !isDownloadingThis
+                        ) {
+                            if (isDownloadingThis) {
+                                CircularProgressIndicator(
+                                    progress = { currentBook.downloadProgress.coerceIn(0.05f, 0.95f) },
+                                    modifier = Modifier.size(22.dp),
+                                    strokeWidth = 2.dp,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
                             } else {
-                                viewModel.downloadBookOffline(currentBook.id)
+                                Icon(
+                                    imageVector = if (currentBook.isDownloaded) Icons.Default.CloudDone else Icons.Default.CloudDownload,
+                                    contentDescription = "Offline Download",
+                                    tint = if (currentBook.isDownloaded) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurface
+                                )
                             }
-                        },
-                        enabled = !isDownloadingThis
-                    ) {
-                        if (isDownloadingThis) {
-                            CircularProgressIndicator(
-                                progress = { currentBook.downloadProgress.coerceIn(0.05f, 0.95f) },
-                                modifier = Modifier.size(22.dp),
-                                strokeWidth = 2.dp,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        } else {
-                            Icon(
-                                imageVector = if (currentBook.isDownloaded) Icons.Default.CloudDone else Icons.Default.CloudDownload,
-                                contentDescription = "Offline Download",
-                                tint = if (currentBook.isDownloaded) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurface
-                            )
                         }
                     }
                     // Wayfinder #28: deletion is a choice — remove from library,
@@ -313,7 +318,9 @@ fun BookDetailScreen(
                             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                             shape = RoundedCornerShape(AppDimens.RadiusPanel),
                             modifier = Modifier
-                                .weight(1.2f)
+                                // Spec-10 T6: for a stream-only book the Play
+                                // button takes the full row (no download twin).
+                                .then(if (streamOnly) Modifier.fillMaxWidth() else Modifier.weight(1.2f))
                                 .height(50.dp)
                                 .testTag("play_book_button")
                         ) {
@@ -326,7 +333,8 @@ fun BookDetailScreen(
                             )
                         }
 
-                        OutlinedButton(
+                        if (!streamOnly) {
+                            OutlinedButton(
                             onClick = {
                                 if (currentBook.isDownloaded) {
                                     viewModel.removeOfflineDownload(currentBook.id)
@@ -380,6 +388,7 @@ fun BookDetailScreen(
                                     modifier = Modifier.size(16.dp)
                                 )
                             }
+                        }
                         }
 
                         OutlinedButton(

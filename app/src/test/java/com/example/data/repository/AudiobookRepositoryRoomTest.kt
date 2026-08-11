@@ -11,6 +11,7 @@ import com.example.data.contentHashOf
 import com.example.data.db.AudiobookDao
 import com.example.data.db.AudiobookDatabase
 import com.example.data.db.BookmarkEntity
+import com.example.data.db.ChapterEntity
 import com.example.data.db.PlaybackProgressEntity
 import com.example.data.imports.LocalAudioEntry
 import com.example.testing.TestDataFactory
@@ -385,6 +386,61 @@ class AudiobookRepositoryRoomTest {
         repo.updateProgress(book.id, 0, 150L, sourceKey = "soundbooks")
         assertEquals(150L, dao.getPlaybackProgressSync(book.id, "soundbooks")?.currentPositionSeconds)
         assertEquals(200L, dao.getPlaybackProgressSync(book.id, "audiobookmp3")?.currentPositionSeconds)
+    }
+
+    // ---------------------------------------------------------------------
+    // spec-10 T6: downloads across sources
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `download is refused for a stream-only book without touching the network`() = runBlocking {
+        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+        val book = TestDataFactory.dataBooks()[0].copy(
+            sourceUrl = "https://lihtar.in.ua/biblioteka/khudozhnja-literatura/slovo",
+            // The first fixture book is downloaded by default; the refusal
+            // must be observable as a book that stays un-downloaded.
+            isDownloaded = false,
+            downloadProgress = 0f
+        )
+        dao.insertAudiobooks(listOf(book))
+        dao.insertChapters(TestDataFactory.chaptersFor(book))
+
+        val result = repo.downloadAudiobookOffline(book.id)
+
+        // Stream-only: refused up front, no files, no state change.
+        assertEquals(0, result.downloadedChapters)
+        assertEquals(0, result.totalChapters)
+        val stored = dao.getAudiobookById(book.id)
+        assertFalse(stored!!.isDownloaded)
+        assertEquals(0f, stored.downloadProgress)
+        assertTrue(dao.getChaptersListForBook(book.id).none { it.isDownloaded })
+    }
+
+    @Test
+    fun `download loop runs for a non-stream-only book and reports the outcome`() = runBlocking {
+        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+        val book = TestDataFactory.dataBooks()[0].copy(
+            sourceUrl = "https://4read.org/7589-neostannij-bij.html",
+            isDownloaded = false,
+            downloadProgress = 0f
+        )
+        dao.insertAudiobooks(listOf(book))
+        // Non-http stream urls: the loop executes, skips the network hop and
+        // reports every chapter as failed — exercising the whole download path
+        // with fakes (in-memory Room), no network.
+        dao.insertChapters(
+            listOf(
+                ChapterEntity("${book.id}_ch1", book.id, 0, "Глава 1", 60L, "not-a-url"),
+                ChapterEntity("${book.id}_ch2", book.id, 1, "Глава 2", 60L, "not-a-url")
+            )
+        )
+
+        val result = repo.downloadAudiobookOffline(book.id)
+
+        assertEquals(2, result.totalChapters)
+        assertEquals(0, result.downloadedChapters)
+        assertFalse(dao.getAudiobookById(book.id)!!.isDownloaded)
+        assertTrue(dao.getChaptersListForBook(book.id).none { it.isDownloaded })
     }
 
     @Test

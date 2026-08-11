@@ -2,7 +2,7 @@
 name: webview-pattern-sources
 label: wayfinder:map
 created: 2026-08-11
-status: charting
+status: completed
 tracker: github-issues
 map_issue: https://github.com/Samuel-Ku/4read-audiobooks-player/issues/70
 ---
@@ -14,6 +14,7 @@ map_issue: https://github.com/Samuel-Ku/4read-audiobooks-player/issues/70
 > shows the destination and current frontier.
 >
 > Map issue: [#70](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/70)
+> — **COMPLETED**, handed off to spec-13.
 
 ## Destination
 
@@ -53,25 +54,20 @@ Skills для сесій: `/prototype` (HITL — дешеві артефакти
 
 - [T3 — Cloudflare challenge and WebView session persistence (#72)](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/72) — clearance = персистентна cookie (TTL «Challenge Passage», 30 хв–24 год), WebView-джар переживає вбивство процесу → challenge проходить раз на TTL; стан вкладки — ні (URL зберігає застосунок сам). Повний розбір: `docs/wayfinder/research/webview-session-persistence.md`.
 - [T1 — WebView audio interception prototype (sluhay.com) (#71)](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/71) — **PASS, перехоплення доведено**: `shouldInterceptRequest` бачить медіа-запити; формат = прямий mp3 (playerjs, `*.redirectto.cc`, Range 206); відтворюваний поза сесією через Media3 **з `Referer: https://sluhay.com/`** (проба без Referer → 403 nginx; curl з Referer → 206 audio/mpeg, без cookies). Аудіо-хост — **НЕ Cloudflare** → TLS-відбитковий ризик #72 до аудіо не застосовується; той самий Referer-механізм, що в audiobookmp3. #73 розблоковано.
+- [T2 — UX surface of a WebView source (#73)](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/73) — **поверхню зафіксовано (сам-гриль, користувач делегував і підтвердив)**: повноекранний pushed-браузер per-source (узагальнення `FourReadWebScreen`), не таб, не bottom-sheet; ручний імпорт «Додати до медіатеки» на сторінці книги (автозахоплення — вторинне), **без JS-моста** (SEC-003) — `shouldInterceptRequest` + `evaluateJavascript` з origin-перевіркою; метадані з og: тегів; глобальний пошук лишається server-fetch, у сесії — власний пошук сайту; бейдж «Sluhay» + начиточно-чутливий мердж; per-source Referer у стримінгу/завантаженнях. Повний розбір — у резолюції #73 та спеку spec-13.
 
-## Not yet specified (fog)
+## Handoff (fog cleared)
 
-- **Де живе браузерний поверх**: повноекранний браузер per-source? bottom-sheet?
-  заміна чи узагальнення таба «4read Web»? (тепер — тікет #73, розблокований)
-- **Як книга з WebView-сесії стає карткою медіатеки**: ручний імпорт із панелі?
-  автозахоплення при програванні? які метадані беремо (назва/автор зі сторінки)?
-- **Пошук у межах сесії**: глобальний пошук лишається server-fetch (sluhayua),
-  чи є місток «пошук у WebView»?
-- **Друге джерело (sluhayknigi)**: чи той самий патерн (mp3 + Referer) чи інший
-  формат — виміряти при підключенні.
+Мапа досягла призначення — шлях до sluhay.com пройдено й зафіксовано; реалізація
+продовжується в **spec-13 (WebView-pattern sources)**, док `docs/specs/2026-08-11-webview-pattern-sources.md`.
 
 ## Tickets (children of map #70)
 
 - [#71 — T1 WebView audio interception prototype (sluhay.com)](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/71) `wayfinder:prototype` — **closed** (verdict PASS: mp3 + Referer → Media3; resolution on the issue).
 - [#72 — T3 Cloudflare challenge and WebView session persistence](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/72) `wayfinder:research` — **closed** (resolution → `docs/wayfinder/research/webview-session-persistence.md`).
-- [#73 — T2 UX surface of a WebView source](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/73) `wayfinder:grilling` — **frontier** (was blocked by #71; unblocked by the verdict).
+- [#73 — T2 UX surface of a WebView source](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/73) `wayfinder:grilling` — **closed** (UX decisions locked; handoff to spec-13).
 
-Fog у тілі GitHub-мапи. Локально — лише цей міррор.
+Follow-on spec-13 tickets (children of the spec-13 issue): #78 (T1, no blockers) → #79 (T2) → #80 (T3) → #81 (T4, native «Нове з Sluhay»).
 
 ## Out of scope
 

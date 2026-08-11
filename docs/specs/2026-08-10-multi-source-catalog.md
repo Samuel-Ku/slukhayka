@@ -1,8 +1,8 @@
 # [Spec] Multi-source catalog: an aggregator over free Ukrainian audiobook sources — 2026-08-10
 
-> **Status:** Approved — decisions locked in a grilling session on 2026-08-10 (Q1–Q6). Not yet implemented.
+> **Status:** **M1 implemented (2026-08-11)** — T1–T6 all resolved and closed on GitHub (#64–#69); CI green (`assembleDebug` + `testDebugUnitTest` + Kover gate, 221 unit tests). Decisions locked in a grilling session on 2026-08-10 (Q1–Q6).
 > **Source:** Grilling session «час розширювати асортимент» + code-fact checks. 6 resolved decisions, seams confirmed.
-> **Tracker:** GitHub issues filed from this spec (one issue per ticket, T1–T6, `spec-10` + `ready-for-agent` labels).
+> **Tracker:** GitHub issues filed from this spec (one issue per ticket, T1–T6, `spec-10` + `ready-for-agent` labels). All six closed with resolution comments; see Tickets below for the commit trail.
 
 ## Problem Statement
 
@@ -14,9 +14,18 @@ From the user's perspective: **«Я шукаю книгу — а її немає
 
 Turn the app into an **aggregator**: a unified native catalog over several free Ukrainian audiobook sources. All sources are equal citizens; a book may have several sources; the library card is per **Work**, playback position is per **source**; downloads work from every source whose ToS allows them (stream-only otherwise).
 
-**Milestone 1 (this spec):** global search across all verified sources + «Нове з кожного джерела» feeds + import/play/download from any verified source, built on a Work-level identity with a narrator-aware merge key. The existing 4read fetch+regex path is refactored into the first `SourceAdapter` with no behavior change. The full per-source catalog (genres/authors/narrators browsing) is a later milestone — it subsumes the wayfinder ticket «Browse tab expansion» (#44).
+**Milestone 1 (this spec):** global search across all verified sources + «Нове з кожного джерела» feeds + import/play/download from any verified source, built on a Work-level identity with a narrator-aware merge key. The existing 4read fetch+regex path is refactored into the first `SourceAdapter` with no behavior change. The full per-source catalog (genres/authors/narrators browsing) is a later milestone — it subsumes the wayfinder ticket «Browse tab expansion» (#44). **M1 shipped 2026-08-11 — see M1 Status.**
 
 **Milestone 2 (future, not this spec):** full per-source catalogs and genre/author/narrator browsing, once M1 proves the source pool.
+
+## M1 Status (2026-08-11)
+
+M1 is shipped: the app aggregates **4read + soundbooks + audiobookmp3 + lihtar** through the `SourceAdapter` seam — one global search, one card per Work with per-source badges, «Нове з кожного джерела» rows on the Listen tab, and import-and-play/download from any verified source into the unified library (schema v8: `sources` table, per-source playback position, Work-level `mergeKey`).
+
+- **Live-verified facts (T1 spike + T6 checks):** sound-books.net downloads documented on site; audiobook-mp3.com/uk serves tracks only with `Referer: https://audiobook-mp3.com/uk` (403 without) — the download path sends per-source headers; **lihtar is stream-only** (ToS blanket no-reproduction clause) — its download affordances are hidden; books-audio.in / md-eksperiment.org / notatky.com.ua rejected in the spike (Russian content / YouTube-embeds only).
+- **Merge actually composes:** feed/book-page metadata enrichment (`68a3088`, `0f4bb20`) replaced the 4read `"4read.org"` author placeholder and the soundbooks/audiobookmp3 slug titles with real Cyrillic titles and authors parsed from anchors, poster blocks and book pages — so the same Work found on two sources collapses into one card. Narration-sensitivity is preserved: a known narrator stays in the merge key (soundbooks), so only genuinely shared narrations merge.
+- **Schema safety:** the merged 7→8 migration (spec-10 T2 + wayfinder #47/#48/#52 in one `MIGRATION_7_8`, exported `edefb90`) was reviewed against a real v7 database — Room validation passes; the `mergeKey` index is declared in the entity so `findByMergeKey` stays indexed.
+- **Test state:** 221 unit tests (parser fixtures per source, repository seam on fake adapters, pure merge model, Compose snapshots), `assembleDebug` green, CI green.
 
 ## User Stories
 
@@ -83,6 +92,14 @@ The four seams confirmed with the user (same set the listen-first spec used; no 
 
 Rules: no network in tests (fixtures and in-memory fakes only); tests assert external behavior, not parser internals; each iteration ends with `assembleDebug` + `testDebugUnitTest` green, device check where relevant, and a commit.
 
+## Follow-on work (post-M1)
+
+M1 shipped the server-fetch path. The rest of the source pool and the catalog breadth are follow-ons, not part of this spec:
+
+- **WebView-pattern sources — sluhay.com, sluhayknigi.com** (spike verdict PASS-WEBVIEW): both sit behind a Cloudflare interactive challenge on every path, so the server-fetch adapter model does not apply. They need the WebView-interception pattern (a real browser session whose playback URLs the app intercepts) — a new integration workstream; searchable only inside WebView sessions. The «4read Web» tab stays as the fallback surface until native paths cover these sources.
+- **sluhayua (sluhay.com.ua)** — server-fetch, no Cloudflare, `/find` + `/find/genre=` search exist, but the book page renders client-side: the playlist-XHR endpoint is undiscovered (one focused reverse-engineering task on the minified player JS, likely a `/playlist/<id>`-style route).
+- **Full per-source catalogs (M2)** — genre/author/narrator browsing per source, subsuming wayfinder «Browse tab expansion» (#44). Genres/authors become per-source questions once the WebView and sluhayua adapters land.
+
 ## Out of Scope
 
 - **Full per-source catalogs** (genres/authors/narrators/short-long browsing) — later milestone; subsumes wayfinder #44.
@@ -95,16 +112,18 @@ Rules: no network in tests (fixtures and in-memory fakes only); tests assert ext
 
 ## Further Notes
 
-- The spike (T1) is the immediate next step and is AFK-executable: verify all 8 listed sites against the four criteria, produce a per-source verdict table (live / Ukrainian / free / direct audio URL / search endpoint / new endpoint / download allowed) as a linked markdown asset, following the methodology of the «4read catalog data audit» (#31).
+- The spike (T1) ran as the first step (AFK) and produced the verdict table in `docs/wayfinder/research/source-pool-spike.md` (`59b78f0`), following the methodology of the «4read catalog data audit» (#31). The next steps are the follow-ons below.
 - ADR-0001 (separate Work, Edition, Source, listener state) is the design anchor of this effort; the spec intentionally implements what the ADR already promised.
 - Prior art: the 2026-08-06 spec (SAF import, parser architecture, snapshot infra), the 2026-08-07 listen-first spec (seams, milestone discipline), #39 unified library (source badge, filters).
 - Each iteration ends with: build (`./gradlew assembleDebug testDebugUnitTest`), device check on OnePlus 8 Pro (wireless ADB) where UI changed, and a commit.
 
 ## Tickets
 
-- **T1 — Source pool spike** (research, AFK): verify the 8 sites against the four admission criteria; per-source verdict table; exact search/new endpoints. No blockers.
-- **T2 — Sources schema & repository (7→8)**: `sources` table, per-source position, Work merge/dedup upsert with normalized key, migration test. Blocked by T1 (source id scheme and stream-only flags from the verdicts).
-- **T3 — SourceAdapter layer + 4read refactor**: adapter interface, 4read adapter (behavior-neutral refactor), adapters for verified sources (search + book page + new). Blocked by T1.
-- **T4 — Global search end-to-end**: aggregated search UI, dedup display, source badges, import-and-play from results. Blocked by T2 + T3.
-- **T5 — «Нове з кожного джерела» feeds**: per-source rows on the listen/explore surface. Blocked by T2 + T3.
-- **T6 — Downloads across sources**: verify/download mechanics on new sources, stream-only gating from verdicts. Blocked by T2 + T3.
+All six tickets are **closed** (`spec-10` label); status + evidence per ticket:
+
+- **T1 — Source pool spike** (research, AFK): verify the 8 sites against the four admission criteria; per-source verdict table; exact search/new endpoints. No blockers. **✅ Done** — `59b78f0`; verdicts in `docs/wayfinder/research/source-pool-spike.md`. PASS: soundbooks, audiobookmp3 (Referer), lihtar (niche); sluhay.com.ua conditional (SPA playlist XHR undiscovered); sluhay.com + sluhayknigi.com PASS-WEBVIEW (Cloudflare); books-audio.in rejected (Russian), md-eksperiment.org + notatky.com.ua rejected (YouTube embeds only).
+- **T2 — Sources schema & repository (7→8)**: `sources` table, per-source position, Work merge/dedup upsert with normalized key, migration test. Blocked by T1. **✅ Done** — `d2d238d`; after the merge with wayfinder #47/#48/#52 the schema lives in one shared `MIGRATION_7_8` (export `edefb90`). Migration safety review on a real v7 database: Room validation passes, `mergeKey` index declared in the entity.
+- **T3 — SourceAdapter layer + 4read refactor**: adapter interface, 4read adapter (behavior-neutral refactor), adapters for verified sources (search + book page + new). Blocked by T1. **✅ Done** — `d2d238d`; `SourceAdapter` seam + FourReadAdapter (poster-parsed search with real authors), SoundBooksAdapter (m3u → mp3), AudiobookMp3Adapter (playerjs JSON + Referer), LihtarAdapter (direct audio element).
+- **T4 — Global search end-to-end**: aggregated search UI, dedup display, source badges, import-and-play from results. Blocked by T2 + T3. **✅ Done** — `ee69e2e`; one card per Work with per-source badges, ephemeral results, tap → import-and-play.
+- **T5 — «Нове з кожного джерела» feeds**: per-source rows on the listen/explore surface. Blocked by T2 + T3. **✅ Done** — `7fccd16`; best-effort per-source rows, per-source failure isolation, 4read excluded (its «Нове» already renders natively).
+- **T6 — Downloads across sources**: verify/download mechanics on new sources, stream-only gating from verdicts. Blocked by T2 + T3. **✅ Done** — `3f48005`; `DownloadPolicy` seam: lihtar stream-only (ToS), audiobookmp3 downloads with per-CDN Referer, soundbooks documented; stream-only books refuse downloads before any network I/O and hide both download affordances.

@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.util.Log
 import com.example.R
+import com.example.data.HASH_BUFFER_SIZE
 import com.example.data.catalog.CatalogBook
 import com.example.data.catalog.CatalogGenre
 import com.example.data.catalog.CatalogParser
@@ -12,6 +13,7 @@ import com.example.data.catalog.CatalogSection
 import com.example.data.db.*
 import com.example.data.imports.LocalAudioEntry
 import com.example.data.imports.LocalFolderScanner
+import com.example.data.sha256Hex
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -354,6 +356,30 @@ class AudiobookRepository(
     /** Last-pause marker for the smart rewind (wayfinder #25); null clears it. */
     suspend fun updatePausedAt(bookId: String, pausedAt: Long?) = dao.updatePausedAt(bookId, pausedAt)
 
+    /**
+     * Appends one row to the durable playback-failure ledger (wayfinder #52).
+     * Called from the player's failure path; write failures here are logged,
+     * never thrown back into playback.
+     */
+    suspend fun recordPlaybackFailure(
+        bookId: String,
+        chapterIndex: Int,
+        errorCodeName: String,
+        streamUrl: String,
+        audioEngineMode: String
+    ) = withContext(Dispatchers.IO) {
+        dao.insertPlaybackFailure(
+            PlaybackFailureEntity(
+                timestamp = System.currentTimeMillis(),
+                bookId = bookId,
+                chapterIndex = chapterIndex,
+                errorCodeName = errorCodeName,
+                streamUrl = streamUrl,
+                audioEngineMode = audioEngineMode
+            )
+        )
+    }
+
     // ---------------------------------------------------------------------
     // Local audio import (spec #8 ticket T7): one picked file = one book.
     // ---------------------------------------------------------------------
@@ -375,16 +401,26 @@ class AudiobookRepository(
      * Creates a single-chapter book from an audio stream. Kept separate from
      * [importLocalAudioFile] so JVM tests can drive it with a plain stream
      * without a content resolver (spec #8 ticket T7).
+     *
+     * Dedupe (wayfinder #48): if the copied bytes already exist in the
+     * library, the fresh copy is deleted and the existing book is returned —
+     * importing the same file twice never duplicates storage.
      */
     suspend fun importLocalAudioStream(displayName: String, stream: java.io.InputStream): AudiobookEntity =
         withContext(Dispatchers.IO) {
             val base = sanitizeLocalBaseName(displayName)
             val dest = copyLocalAudioStream(base, localFileExtension(displayName), stream)
+            val existing = dao.getChapterByContentHash(dest.sha256Hex)
+            if (existing != null) {
+                File(dest.path).delete()
+                return@withContext dao.getAudiobookById(existing.bookId)
+                    ?: throw java.io.IOException("Дублікат файлу, але книгу не знайдено")
+            }
             insertLocalBook(
                 title = base,
                 author = LOCAL_FILE_AUTHOR,
                 description = "Імпортований аудіофайл: $displayName",
-                chapters = listOf(base to dest)
+                chapters = listOf(LocalChapterInput(title = base, filePath = dest.path, contentHash = dest.sha256Hex))
             )
         }
 
@@ -397,7 +433,7 @@ class AudiobookRepository(
     suspend fun importLocalAudioFolder(treeUri: Uri): LocalImportResult = withContext(Dispatchers.IO) {
         val ctx = context ?: throw IllegalStateException("importLocalAudioFolder called without Context")
         val entries = LocalFolderScanner.scan(ctx, treeUri)
-        importAudioEntries(entries)
+        importAudioEntries(entries, treeUri.toString())
     }
 
     /**
@@ -409,28 +445,56 @@ class AudiobookRepository(
      * sub-folder becomes one multi-chapter book whose chapters are its audio
      * files sorted naturally by file name (track1 → track2 → … → track10).
      * Unreadable files are skipped without failing the whole import.
+     *
+     * Dedupe (wayfinder #48): a file whose bytes already exist in the library
+     * is never copied again — the fresh copy is deleted on the spot and
+     * counted in [LocalImportResult.duplicateFiles].
      */
-    suspend fun importAudioEntries(entries: List<LocalAudioEntry>): LocalImportResult =
+    suspend fun importAudioEntries(entries: List<LocalAudioEntry>, sourceTreeUri: String? = null): LocalImportResult =
         withContext(Dispatchers.IO) {
             var booksImported = 0
             var filesImported = 0
             var skippedFiles = 0
+            var duplicateFiles = 0
+            // Hashes seen earlier in THIS run (same-folder repeated files), so
+            // dedupe is consistent even before the folder's chapters hit the DB.
+            val seenHashes = mutableSetOf<String>()
+
+            // Copy-then-hash; when the bytes already exist, delete the copy
+            // and report a duplicate instead of a new chapter. `baseName` is
+            // the copied-file stem; `chapterTitle` is what users see.
+            suspend fun copyUnlessDuplicate(
+                baseName: String,
+                chapterTitle: String,
+                extension: String,
+                openStream: () -> java.io.InputStream
+            ): LocalChapterInput? {
+                val dest = try {
+                    copyLocalAudioStream(baseName, extension, openStream())
+                } catch (e: Exception) {
+                    Log.w("AudiobookRepo", "Local import failed", e)
+                    skippedFiles++
+                    return null
+                }
+                if (!seenHashes.add(dest.sha256Hex) || dao.getChapterByContentHash(dest.sha256Hex) != null) {
+                    File(dest.path).delete()
+                    duplicateFiles++
+                    return null
+                }
+                return LocalChapterInput(title = chapterTitle, filePath = dest.path, contentHash = dest.sha256Hex)
+            }
 
             // 1) Loose files at the tree root → one single-chapter book each.
             for (entry in entries.filter { it.parentFolder.isNullOrBlank() }) {
                 val base = sanitizeLocalBaseName(entry.fileName)
-                val dest = try {
-                    copyLocalAudioStream(base, localFileExtension(entry.fileName), entry.openStream())
-                } catch (e: Exception) {
-                    Log.w("AudiobookRepo", "Local import failed for ${entry.fileName}", e)
-                    skippedFiles++
-                    continue
-                }
+                val chapter = copyUnlessDuplicate(base, base, localFileExtension(entry.fileName), entry.openStream)
+                    ?: continue
                 insertLocalBook(
                     title = base,
                     author = LOCAL_FILE_AUTHOR,
                     description = "Імпортований аудіофайл: ${entry.fileName}",
-                    chapters = listOf(base to dest)
+                    chapters = listOf(chapter),
+                    sourceTreeUri = sourceTreeUri
                 )
                 booksImported++
                 filesImported++
@@ -442,17 +506,12 @@ class AudiobookRepository(
                 // Title from the last path segment so a relative path like
                 // "SeriesA/Кобзар" still yields a clean "Кобзар" book name.
                 val bookTitle = sanitizeLocalBaseName(folder.substringAfterLast('/')).ifBlank { "Аудіокнига" }
-                val chapters = mutableListOf<Pair<String, String>>()
+                val chapters = mutableListOf<LocalChapterInput>()
                 for (entry in files.sortedWith(Comparator { a, b -> compareNatural(a.fileName, b.fileName) })) {
                     val chapterTitle = sanitizeLocalBaseName(entry.fileName).ifBlank { entry.fileName }
-                    val dest = try {
-                        copyLocalAudioStream("$bookTitle-$chapterTitle", localFileExtension(entry.fileName), entry.openStream())
-                    } catch (e: Exception) {
-                        Log.w("AudiobookRepo", "Local import failed for ${entry.fileName}", e)
-                        skippedFiles++
-                        continue
-                    }
-                    chapters.add(chapterTitle to dest)
+                    val chapter = copyUnlessDuplicate("$bookTitle-$chapterTitle", chapterTitle, localFileExtension(entry.fileName), entry.openStream)
+                        ?: continue
+                    chapters.add(chapter)
                     filesImported++
                 }
                 if (chapters.isNotEmpty()) {
@@ -460,13 +519,19 @@ class AudiobookRepository(
                         title = bookTitle,
                         author = LOCAL_FOLDER_AUTHOR,
                         description = "Імпортовано з папки «$folder» — ${chapters.size} файл(ів)",
-                        chapters = chapters
+                        chapters = chapters,
+                        sourceTreeUri = sourceTreeUri
                     )
                     booksImported++
                 }
             }
 
-            LocalImportResult(booksImported = booksImported, filesImported = filesImported, skippedFiles = skippedFiles)
+            LocalImportResult(
+                booksImported = booksImported,
+                filesImported = filesImported,
+                skippedFiles = skippedFiles,
+                duplicateFiles = duplicateFiles
+            )
         }
 
     /** Strips the extension and unsafe characters from a file/folder display name. */
@@ -482,7 +547,7 @@ class AudiobookRepository(
         fileName.substringAfterLast('.', "").ifBlank { "mp3" }.lowercase().take(5)
 
     /** Copies a stream into the private local-imports dir under a unique name. */
-    private fun copyLocalAudioStream(baseName: String, extension: String, stream: java.io.InputStream): String {
+    private fun copyLocalAudioStream(baseName: String, extension: String, stream: java.io.InputStream): CopiedLocalFile {
         val ctx = context ?: throw IllegalStateException("local import requires Context")
         val audioDir = File(ctx.filesDir, LOCAL_AUDIO_DIR)
         if (!audioDir.exists()) audioDir.mkdirs()
@@ -490,8 +555,21 @@ class AudiobookRepository(
         // rapid folder imports never collide within the same millisecond. The
         // original extension is preserved so ExoPlayer detects the container.
         val destFile = File(audioDir, "$baseName-${localImportSeq.incrementAndGet()}.$extension")
-        stream.use { input -> destFile.outputStream().use { output -> input.copyTo(output) } }
-        return destFile.absolutePath
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+        stream.use { input ->
+            destFile.outputStream().use { output ->
+                val buffer = ByteArray(HASH_BUFFER_SIZE)
+                while (true) {
+                    val read = input.read(buffer)
+                    if (read < 0) break
+                    if (read > 0) {
+                        output.write(buffer, 0, read)
+                        digest.update(buffer, 0, read)
+                    }
+                }
+            }
+        }
+        return CopiedLocalFile(path = destFile.absolutePath, sha256Hex = sha256Hex(digest.digest()))
     }
 
     /** Creates one local book with the given chapters (title, localFilePath). */
@@ -499,7 +577,8 @@ class AudiobookRepository(
         title: String,
         author: String,
         description: String,
-        chapters: List<Pair<String, String>>
+        chapters: List<LocalChapterInput>,
+        sourceTreeUri: String? = null
     ): AudiobookEntity {
         val bookId = "local-${System.currentTimeMillis()}-${localImportSeq.incrementAndGet()}"
         val book = AudiobookEntity(
@@ -516,20 +595,22 @@ class AudiobookRepository(
             downloadProgress = 1f,
             totalDurationSeconds = 0L,
             totalChapters = chapters.size,
-            rating = 0f
+            rating = 0f,
+            sourceTreeUri = sourceTreeUri
         )
         dao.insertAudiobooks(listOf(book))
         dao.insertChapters(
-            chapters.mapIndexed { index, (chapterTitle, filePath) ->
+            chapters.mapIndexed { index, chapter ->
                 ChapterEntity(
                     id = "${bookId}_ch${index + 1}",
                     bookId = bookId,
                     chapterIndex = index,
-                    title = chapterTitle,
+                    title = chapter.title,
                     durationSeconds = 0L,
-                    streamUrl = filePath,
-                    localFilePath = filePath,
-                    isDownloaded = true
+                    streamUrl = chapter.filePath,
+                    localFilePath = chapter.filePath,
+                    isDownloaded = true,
+                    contentHash = chapter.contentHash
                 )
             }
         )
@@ -1598,7 +1679,27 @@ data class Parsed4ReadData(
 data class LocalImportResult(
     val booksImported: Int,
     val filesImported: Int,
-    val skippedFiles: Int
+    val skippedFiles: Int,
+    // wayfinder #48: files whose bytes already existed in the library; they
+    // were never copied, so no storage was consumed.
+    val duplicateFiles: Int = 0
+)
+
+/**
+ * A local audio file materialised into the library (wayfinder #48): the
+ * chapter title, the copied file path, and the SHA-256 that made the copy
+ * dedupe-able against earlier imports.
+ */
+data class LocalChapterInput(
+    val title: String,
+    val filePath: String,
+    val contentHash: String
+)
+
+/** A local file copied into private storage, with its content digest. */
+data class CopiedLocalFile(
+    val path: String,
+    val sha256Hex: String
 )
 
 /**

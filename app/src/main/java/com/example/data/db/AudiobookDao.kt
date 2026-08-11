@@ -46,6 +46,14 @@ interface AudiobookDao {
     @Query("UPDATE chapters SET isDownloaded = :isDownloaded, localFilePath = :filePath WHERE id = :chapterId")
     suspend fun updateChapterDownloadState(chapterId: String, isDownloaded: Boolean, filePath: String?)
 
+    /**
+     * First chapter that already holds the given content hash (wayfinder
+     * #48): a re-import of the same file is a duplicate and must not consume
+     * storage again. NULL when no chapter has ever imported this file.
+     */
+    @Query("SELECT * FROM chapters WHERE contentHash = :hash LIMIT 1")
+    suspend fun getChapterByContentHash(hash: String): ChapterEntity?
+
     /** Real chapter duration discovered during playback (replaces placeholder 0). */
     @Query("UPDATE chapters SET durationSeconds = :durationSeconds WHERE id = :chapterId")
     suspend fun updateChapterDuration(chapterId: String, durationSeconds: Long)
@@ -153,4 +161,14 @@ interface AudiobookDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun saveListeningStat(stat: ListeningStatEntity)
+
+    @Insert
+    suspend fun insertPlaybackFailure(failure: PlaybackFailureEntity)
+
+    /** Most recent failures first (wayfinder #52): the durable error ledger. */
+    @Query("SELECT * FROM playback_failures ORDER BY timestamp DESC LIMIT :limit")
+    suspend fun getRecentPlaybackFailures(limit: Int): List<PlaybackFailureEntity>
+
+    @Query("DELETE FROM playback_failures WHERE id = :id")
+    suspend fun deletePlaybackFailure(id: Long)
 }

@@ -7,6 +7,7 @@ import androidx.sqlite.db.SupportSQLiteOpenHelper
 import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.catalog.CatalogBook
+import com.example.data.contentHashOf
 import com.example.data.db.AudiobookDao
 import com.example.data.db.AudiobookDatabase
 import com.example.data.db.BookmarkEntity
@@ -233,6 +234,57 @@ class AudiobookRepositoryRoomTest {
         db.close()
     }
 
+    // ---------------------------------------------------------------------
+    // wayfinder #47/#48/#52: schema migration 7 -> 8 (content hash, SAF tree
+    // uri, playback failure ledger)
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `migration 7 to 8 adds hash and tree uri columns and the failure ledger table`() {
+        val factory = FrameworkSQLiteOpenHelperFactory()
+        val config = SupportSQLiteOpenHelper.Configuration.builder(context)
+            .name("migration-7-test.db")
+            .callback(object : SupportSQLiteOpenHelper.Callback(7) {
+                override fun onCreate(db: SupportSQLiteDatabase) {
+                    // Minimal v7 schema for the tables the migration touches.
+                    db.execSQL(
+                        "CREATE TABLE audiobooks (id TEXT NOT NULL PRIMARY KEY, title TEXT NOT NULL, " +
+                            "author TEXT NOT NULL, narrator TEXT NOT NULL, description TEXT NOT NULL, " +
+                            "coverDrawableRes INTEGER NOT NULL, coverImageUrl TEXT, genre TEXT NOT NULL, " +
+                            "sourceUrl TEXT NOT NULL, isDownloaded INTEGER NOT NULL DEFAULT 0, " +
+                            "downloadProgress REAL NOT NULL DEFAULT 0, totalDurationSeconds INTEGER NOT NULL DEFAULT 0, " +
+                            "totalChapters INTEGER NOT NULL DEFAULT 0, rating REAL NOT NULL DEFAULT 4.9, " +
+                            "isFavorite INTEGER NOT NULL DEFAULT 0, seriesTitle TEXT, seriesUrl TEXT, seriesIndex INTEGER, " +
+                            "preferredSpeed REAL, createdAt INTEGER NOT NULL DEFAULT 0)"
+                    )
+                    db.execSQL(
+                        "CREATE TABLE chapters (id TEXT NOT NULL PRIMARY KEY, bookId TEXT NOT NULL, " +
+                            "chapterIndex INTEGER NOT NULL, title TEXT NOT NULL, durationSeconds INTEGER NOT NULL, " +
+                            "streamUrl TEXT NOT NULL, localFilePath TEXT, isDownloaded INTEGER NOT NULL DEFAULT 0)"
+                    )
+                }
+
+                override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) {}
+            })
+            .build()
+        val helper = factory.create(config)
+        val db = helper.writableDatabase
+
+        AudiobookDatabase.MIGRATION_7_8.migrate(db)
+
+        val bookColumns = tableColumns(db, "audiobooks")
+        val chapterColumns = tableColumns(db, "chapters")
+        assertTrue("sourceTreeUri column must exist", bookColumns.contains("sourceTreeUri"))
+        assertTrue("contentHash column must exist", chapterColumns.contains("contentHash"))
+        assertTrue(
+            "playback_failures table must exist",
+            tableColumns(db, "playback_failures").containsAll(
+                setOf("id", "timestamp", "bookId", "chapterIndex", "errorCodeName", "streamUrl", "audioEngineMode")
+            )
+        )
+        db.close()
+    }
+
     private fun tableColumns(db: SupportSQLiteDatabase, table: String): Set<String> {
         val columns = mutableSetOf<String>()
         db.query("PRAGMA table_info($table)").use { cursor ->
@@ -436,9 +488,9 @@ class AudiobookRepositoryRoomTest {
         val result = repo.importAudioEntries(
             listOf(
                 LocalAudioEntry("01.mp3", "Кобзар") { ByteArrayInputStream(ByteArray(16)) },
-                LocalAudioEntry("02.mp3", "Кобзар") { ByteArrayInputStream(ByteArray(16)) },
-                LocalAudioEntry("Лісова пісня.mp3", null) { ByteArrayInputStream(ByteArray(16)) },
-                LocalAudioEntry("Промова.mp3", "Історія") { ByteArrayInputStream(ByteArray(16)) }
+                LocalAudioEntry("02.mp3", "Кобзар") { ByteArrayInputStream(ByteArray(17)) },
+                LocalAudioEntry("Лісова пісня.mp3", null) { ByteArrayInputStream(ByteArray(18)) },
+                LocalAudioEntry("Промова.mp3", "Історія") { ByteArrayInputStream(ByteArray(19)) }
             )
         )
 
@@ -468,9 +520,9 @@ class AudiobookRepositoryRoomTest {
 
         repo.importAudioEntries(
             listOf(
-                LocalAudioEntry("track10.mp3", "Сага") { ByteArrayInputStream(ByteArray(8)) },
+                LocalAudioEntry("track10.mp3", "Сага") { ByteArrayInputStream(ByteArray(10)) },
                 LocalAudioEntry("track2.mp3", "Сага") { ByteArrayInputStream(ByteArray(8)) },
-                LocalAudioEntry("track1.mp3", "Сага") { ByteArrayInputStream(ByteArray(8)) }
+                LocalAudioEntry("track1.mp3", "Сага") { ByteArrayInputStream(ByteArray(9)) }
             )
         )
 
@@ -511,7 +563,7 @@ class AudiobookRepositoryRoomTest {
         repo.importAudioEntries(
             listOf(
                 LocalAudioEntry("01.mp3", "SeriesA/Кобзар") { ByteArrayInputStream(ByteArray(8)) },
-                LocalAudioEntry("01.mp3", "SeriesB/Кобзар") { ByteArrayInputStream(ByteArray(8)) }
+                LocalAudioEntry("01.mp3", "SeriesB/Кобзар") { ByteArrayInputStream(ByteArray(9)) }
             )
         )
 
@@ -530,7 +582,7 @@ class AudiobookRepositoryRoomTest {
         repo.importAudioEntries(
             listOf(
                 LocalAudioEntry("Розділ.ogg", "Книга") { ByteArrayInputStream(ByteArray(8)) },
-                LocalAudioEntry("Глава.m4a", "Книга") { ByteArrayInputStream(ByteArray(8)) }
+                LocalAudioEntry("Глава.m4a", "Книга") { ByteArrayInputStream(ByteArray(9)) }
             )
         )
 
@@ -538,5 +590,88 @@ class AudiobookRepositoryRoomTest {
         val paths = dao.getChaptersListForBook(book.id).mapNotNull { it.localFilePath }
         assertTrue(paths.any { it.endsWith(".ogg") })
         assertTrue(paths.any { it.endsWith(".m4a") })
+    }
+
+    // ---------------------------------------------------------------------
+    // wayfinder #48: content-hash dedupe on local imports
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `importLocalAudioStream twice with identical bytes returns the existing book and copies once`() = runBlocking {
+        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+        val filesDir = File(context.filesDir, "local_imports")
+
+        val first = repo.importLocalAudioStream("Книга.mp3", ByteArrayInputStream(ByteArray(32)))
+        val second = repo.importLocalAudioStream("Книга.mp3", ByteArrayInputStream(ByteArray(32)))
+
+        assertEquals("duplicate import must return the same book", first.id, second.id)
+        assertEquals(1, dao.getAllAudiobooks().first().size)
+        assertEquals(1, dao.getChaptersListForBook(first.id).size)
+        assertEquals("only one copy may exist on disk", 1, filesDir.listFiles()?.size ?: 0)
+    }
+
+    @Test
+    fun `importLocalAudioStream with different bytes creates a second book`() = runBlocking {
+        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+
+        repo.importLocalAudioStream("Книга.mp3", ByteArrayInputStream(ByteArray(32)))
+        repo.importLocalAudioStream("Книга.mp3", ByteArrayInputStream(ByteArray(33)))
+
+        assertEquals(2, dao.getAllAudiobooks().first().size)
+    }
+
+    @Test
+    fun `importAudioEntries re-import of the same folder is fully deduplicated`() = runBlocking {
+        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+        val bytes = ByteArray(16) { it.toByte() }
+        val entries = listOf(
+            LocalAudioEntry("01.mp3", "Сага") { ByteArrayInputStream(bytes) },
+            LocalAudioEntry("02.mp3", "Сага") { ByteArrayInputStream(bytes.copyOf(17)) }
+        )
+        val filesDir = File(context.filesDir, "local_imports")
+
+        val first = repo.importAudioEntries(entries)
+        val filesAfterFirst = filesDir.listFiles()?.size ?: 0
+        val second = repo.importAudioEntries(entries)
+
+        assertEquals(1, first.booksImported)
+        assertEquals(2, first.filesImported)
+        assertEquals(0, first.duplicateFiles)
+        assertEquals(0, second.booksImported)
+        assertEquals(0, second.filesImported)
+        assertEquals(2, second.duplicateFiles)
+        assertEquals("no new copies may be written for duplicates", filesAfterFirst, filesDir.listFiles()?.size ?: 0)
+        assertEquals(1, dao.getAllAudiobooks().first().size)
+        assertEquals(2, dao.getChaptersListForBook(dao.getAllAudiobooks().first().first().id).size)
+    }
+
+    @Test
+    fun `importAudioEntries persists the chapter content hash`() = runBlocking {
+        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+        val bytes = ByteArray(64) { it.toByte() }
+
+        repo.importAudioEntries(
+            listOf(LocalAudioEntry("Розділ.mp3", "Книга") { ByteArrayInputStream(bytes) })
+        )
+
+        val book = dao.getAllAudiobooks().first().first()
+        val chapter = dao.getChaptersListForBook(book.id).first()
+        assertEquals(contentHashOf(ByteArrayInputStream(bytes)), chapter.contentHash)
+    }
+
+    @Test
+    fun `folder import stamps the source tree uri on the book`() = runBlocking {
+        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+
+        repo.importAudioEntries(
+            listOf(LocalAudioEntry("Розділ.mp3", "Книга") { ByteArrayInputStream(ByteArray(8)) }),
+            sourceTreeUri = "content://com.android.externalstorage.documents/tree/primary%3AAudioBooks"
+        )
+
+        val book = dao.getAllAudiobooks().first().first()
+        assertEquals(
+            "content://com.android.externalstorage.documents/tree/primary%3AAudioBooks",
+            book.sourceTreeUri
+        )
     }
 }

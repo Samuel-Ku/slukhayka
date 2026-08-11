@@ -99,11 +99,12 @@ name even encodes the narrator («…_Diana_Goncharenko»).
 
 ## Fixture shapes (for T2 fixture tests)
 
-Captured live 2026-08-11 (`/tmp/sluhay-*` files; rebuild fixtures from the
-shapes above): book page with 7-file playlist (Сердешна Оксана), book page with
-single file (Природа), search JSON for «кобзар», `sort=time` JSON, and the
-`/play` plain-text responses. No network in tests — serve canned HTML/JSON via
-FakeFetcher by URL.
+Live captures trimmed into `fixtures/sluhayua/` (committed with this spike):
+`book-multi-chapter.html` (Сердешна Оксана — 7-file playlist + CSRF + og tags),
+`book-single-file.html` (Природа — `[["0",0]]`), `search-kobzar.json`
+(`/find/allcards` cards), `new-sort-time.json` (newest-first cards),
+`play-response.txt` (plain mp3 URL). No network in tests — serve canned
+HTML/JSON via FakeFetcher by URL.
 
 ## Risks / caveats
 

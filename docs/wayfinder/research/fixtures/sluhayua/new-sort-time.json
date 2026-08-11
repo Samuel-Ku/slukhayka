@@ -1,0 +1,93 @@
+{
+ "cards": [
+  {
+   "_id": 9716855,
+   "downloadedTimes": 0,
+   "rating": 10,
+   "downloadedTimesDiff": 0,
+   "kbps": 0,
+   "totalSeconds": 0,
+   "views": 163,
+   "creationTime": "27 июля 2026",
+   "slug": "10-istorij-vid-psa-patrona-koli-ti",
+   "timeLength": "01:00:00",
+   "title": "10 історій від пса Патрона «Коли ти…»",
+   "bgIndex": "1",
+   "name": "10 історій від пса Патрона «Коли ти…»",
+   "bookName": "10 історій від пса Патрона «Коли ти…»",
+   "bookAuthor": [
+    " "
+   ],
+   "audioAuthor": [
+    "Григорій Решетник, Тімур Мірошниченко, Дар'я Квіткова, Олександр Педан. Світлана Тарабарова."
+   ],
+   "genre": [
+    "казки"
+   ],
+   "kind": "previewPhoto",
+   "kindSrc": "/uploads/1785180328.jpeg",
+   "text": "Це 10 теплих історій від пса Патрона для дітей дошкільного та шкільного віку. Через знайомі дітям ситуації, оповідки допомагають досліджувати й розуміти емоції: радість і смуток, сором і нудьгу, образу й страх. Кожна історія завер",
+   "viewed": 0
+  },
+  {
+   "_id": 7167611,
+   "downloadedTimes": 0,
+   "rating": 10,
+   "downloadedTimesDiff": 0,
+   "kbps": 0,
+   "totalSeconds": 0,
+   "views": 1694,
+   "creationTime": "05 декабря 2025",
+   "slug": "kostyantin-bakayevich-levenya-yake-navchilosya-richati",
+   "timeLength": "01:44",
+   "title": "Костянтин Бакаєвич - Левеня, яке навчилося ричати",
+   "bgIndex": "1",
+   "name": "Костянтин Бакаєвич - Левеня, яке навчилося ричати",
+   "bookName": "Левеня, яке навчилося ричати",
+   "bookAuthor": [
+    "Костянтин Бакаєвич"
+   ],
+   "audioAuthor": [
+    "Олександра Зушман, Каміла Гришко, Поліна Московець"
+   ],
+   "genre": [
+    "казка"
+   ],
+   "kind": "previewPhoto",
+   "kindSrc": "/uploads/1764974761.png",
+   "text": "Це казка, в якій розповідається про маленьке левенятко, яке вчилося ричати. Про пошук себе, та як знайти силу всередині себе.",
+   "viewed": 0
+  },
+  {
+   "_id": 3444041,
+   "downloadedTimes": 0,
+   "rating": 10,
+   "downloadedTimesDiff": 0,
+   "kbps": 0,
+   "totalSeconds": 0,
+   "views": 1220,
+   "creationTime": "05 декабря 2025",
+   "slug": "kostyantin-bakayevich-yak-sonyachna-kraplinka-shukala-svij-kolir",
+   "timeLength": "01:37",
+   "title": "Костянтин Бакаєвич - Як Сонячна Краплинка шукала свій колір",
+   "bgIndex": "1",
+   "name": "Костянтин Бакаєвич - Як Сонячна Краплинка шукала свій колір",
+   "bookName": " ",
+   "bookAuthor": [
+    "Костянтин Бакаєвич"
+   ],
+   "audioAuthor": [
+    "Беленкова Дарія, Михайленко Марія, Московець Поліна"
+   ],
+   "genre": [
+    "казка"
+   ],
+   "kind": "previewPhoto",
+   "kindSrc": "/uploads/1764974502.png",
+   "text": "Це казка, в якій розповідається про Сонячну Краплинку та її пригоди. Про пошук себе, та як навчитися світитися всередині себе.",
+   "viewed": 0
+  }
+ ],
+ "highlightWords": [],
+ "pageCount": 18
+}

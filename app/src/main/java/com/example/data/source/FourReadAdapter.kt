@@ -26,25 +26,38 @@ class FourReadAdapter(
         val html = fetcher.getText(searchUrl)
         if (html.isEmpty()) return emptyList()
 
+        // 4read renders each hit as a .poster block: the real Cyrillic title
+        // in poster__title and the real author in the first poster__subtitle
+        // (the second one carries the duration clock). Real authors matter for
+        // the cross-source merge — a "4read.org" placeholder could never match
+        // the same Work on sound-books.net.
         val books = mutableListOf<SourceBook>()
         val addedSlugs = mutableSetOf<String>()
-        val linkRegex = Regex("""<a\s+href="(https?://4read\.org/([^"]+)\.html)"[^>]*>([^<]+)</a>""", RegexOption.IGNORE_CASE)
-        for (match in linkRegex.findAll(html)) {
-            val fullUrl = match.groupValues[1]
-            val slug = match.groupValues[2]
-            val rawTitle = match.groupValues[3].trim()
+        val posterStarts = POSTER_START.findAll(html).map { it.range.first }.toList()
+        for (i in posterStarts.indices) {
+            val from = posterStarts[i]
+            val to = if (i + 1 < posterStarts.size) posterStarts[i + 1] else html.length
+            val block = html.substring(from, to)
+
+            val linkMatch = POSTER_LINK.find(block) ?: continue
+            val fullUrl = linkMatch.groupValues[1]
+            val slug = linkMatch.groupValues[2]
+            val rawTitle = POSTER_TITLE.find(block)?.groupValues?.get(1)?.trim().orEmpty()
             if (slug.contains("index") || slug.contains("page") || rawTitle.length < 3 || !addedSlugs.add(slug)) {
                 continue
             }
-            val cleanTitle = rawTitle
-                .replace("&quot;", "\"")
-                .replace("&amp;", "&")
-                .replace("&#039;", "'")
+            val author = POSTER_SUBTITLE.findAll(block)
+                .map { stripTags(it.groupValues[1]).trim() }
+                .firstOrNull { it.isNotBlank() }
+                ?: ""
+            val cover = POSTER_IMG.find(block)?.groupValues?.get(1)
+                ?.takeIf { it.contains("/uploads/posts/") }
             books.add(
                 SourceBook(
-                    title = cleanTitle,
-                    author = "4read.org",
+                    title = decodeEntities(rawTitle),
+                    author = author,
                     url = fullUrl,
+                    coverImageUrl = cover?.let { if (it.startsWith("http")) it else "https://4read.org$it" },
                     sourceId = sourceId
                 )
             )
@@ -169,6 +182,13 @@ class FourReadAdapter(
             .ifBlank { "Аудиокнига 4read" }
     }
 
+    private fun stripTags(html: String): String = html.replace(Regex("""<[^>]+>"""), "")
+
+    private fun decodeEntities(s: String): String = s
+        .replace("&quot;", "\"")
+        .replace("&amp;", "&")
+        .replace("&#039;", "'")
+
     /**
      * Collects audio URLs from raw page HTML: direct audio URLs, relative
      * /uploads paths, playerjs `file:` variables (with the `{v1}` obfuscation
@@ -254,5 +274,13 @@ class FourReadAdapter(
 
     private companion object {
         const val HEX = "0123456789ABCDEF"
+        val POSTER_START = Regex("""<div class="poster\b""", RegexOption.IGNORE_CASE)
+        val POSTER_LINK = Regex("""href="(https?://4read\.org/([^"]+)\.html)"""", RegexOption.IGNORE_CASE)
+        val POSTER_TITLE = Regex("""poster__title[^>]*>\s*([^<]+?)\s*<""", RegexOption.IGNORE_CASE)
+        val POSTER_SUBTITLE = Regex(
+            """poster__subtitle[^>]*>\s*(.*?)\s*</div>""",
+            setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)
+        )
+        val POSTER_IMG = Regex("""<img[^>]+src="([^"]+)"[^>]*>""", RegexOption.IGNORE_CASE)
     }
 }

@@ -99,6 +99,16 @@ class AudioPlayerManager(
     val playerState: StateFlow<PlayerState> = _playerState.asStateFlow()
 
     /**
+     * Session telemetry (wayfinder #52): ring buffer of recent events and
+     * attempt/failure counters, surfaced in the diagnostic overlay
+     * (PlayerDebugOverlay) and the exported journal. In-memory only; failures
+     * additionally land in the durable Room ledger via
+     * [AudiobookRepository.recordPlaybackFailure].
+     */
+    val playbackEventLog = PlaybackEventLog()
+    val playbackMetrics = PlaybackMetrics()
+
+    /**
      * The single player instance, created on first playback (or first access
      * from [PlaybackService]) and reused for every chapter until [release].
      * The listener is attached exactly once.
@@ -213,7 +223,10 @@ class AudioPlayerManager(
             _playerState.value = _playerState.value.copy(
                 lastErrorMsg = "Primary stream error (${error.errorCodeName})"
             )
-            reportPlaybackFailure()
+            reportPlaybackFailure(
+                errorCodeName = error.errorCodeName,
+                detail = "Primary stream error (${error.errorCodeName})"
+            )
         }
     }
 
@@ -278,13 +291,19 @@ class AudioPlayerManager(
                 _playerState.value = _playerState.value.copy(
                     lastErrorMsg = "Primary stream timeout (${PREPARE_TIMEOUT_MS / 1000}s)"
                 )
-                reportPlaybackFailure()
+                reportPlaybackFailure(
+                    errorCodeName = "PREPARE_TIMEOUT",
+                    detail = "Primary stream timeout (${PREPARE_TIMEOUT_MS / 1000}s)"
+                )
             }
         }
 
         if (autoPlay) {
             ensurePlaybackServiceStarted()
         }
+
+        playbackMetrics.recordAttempt()
+        playbackEventLog.record("PREPARE ch${chapterIndex} ${chapter.streamUrl}")
 
         try {
             // setMediaItem replaces the previous playlist entry and resets the
@@ -295,7 +314,10 @@ class AudioPlayerManager(
         } catch (e: Exception) {
             prepareTimeoutJob?.cancel()
             Log.e("AudioPlayer", "Exception in prepareChapter", e)
-            reportPlaybackFailure()
+            reportPlaybackFailure(
+                errorCodeName = e::class.java.simpleName,
+                detail = "Exception in prepareChapter (${e::class.java.simpleName})"
+            )
         }
     }
 
@@ -318,15 +340,45 @@ class AudioPlayerManager(
      * here: the MediaSession in PlaybackService wraps it, and a subsequent
      * [play] re-prepares the same instance.
      */
-    private fun reportPlaybackFailure() {
+    private fun reportPlaybackFailure(
+        errorCodeName: String = "UNKNOWN",
+        detail: String = "Цю главу зараз не вдалося відтворити. Спробуйте пізніше або інший розділ."
+    ) {
         prepareTimeoutJob?.cancel()
-        _playerState.value = _playerState.value.copy(
+        val state = _playerState.value
+        val failedUrl = currentChapter?.streamUrl ?: state.currentStreamUrl
+        playbackMetrics.recordFailure(errorCodeName)
+        playbackEventLog.record("FAIL $errorCodeName ${failedUrl}")
+        // The host part turns an opaque error into an actionable one ("which
+        // server refused the stream"), without leaking credentials: stream
+        // URLs never carry secrets.
+        val host = failedUrl.toUri().host
+        val enriched = if (host != null) "$detail (host: $host)" else detail
+        _playerState.value = state.copy(
             isBuffering = false,
             isPlaying = false,
             currentStreamUrl = "",
             audioEngineMode = "Playback error",
-            lastErrorMsg = "Цю главу зараз не вдалося відтворити. Спробуйте пізніше або інший розділ."
+            lastErrorMsg = enriched
         )
+        val chapter = currentChapter
+        val bookId = state.currentBook?.id
+        if (bookId != null && chapter != null) {
+            scope.launch {
+                try {
+                    repository.recordPlaybackFailure(
+                        bookId = bookId,
+                        chapterIndex = chapter.chapterIndex,
+                        errorCodeName = errorCodeName,
+                        streamUrl = failedUrl,
+                        audioEngineMode = "Playback error"
+                    )
+                } catch (e: Exception) {
+                    // Observability must never break playback (wayfinder #52).
+                    Log.w("AudioPlayer", "Failed to record playback failure", e)
+                }
+            }
+        }
     }
 
     /**

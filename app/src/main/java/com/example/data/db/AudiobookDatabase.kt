@@ -13,10 +13,11 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ChapterEntity::class,
         BookmarkEntity::class,
         PlaybackProgressEntity::class,
-        ListeningStatEntity::class
+        ListeningStatEntity::class,
+        PlaybackFailureEntity::class
     ],
-    version = 7,
-    exportSchema = false
+    version = 8,
+    exportSchema = true
 )
 abstract class AudiobookDatabase : RoomDatabase() {
     abstract fun audiobookDao(): AudiobookDao
@@ -35,8 +36,10 @@ abstract class AudiobookDatabase : RoomDatabase() {
                     // Schema v4: indices on every FK column queried via
                     // `WHERE bookId = :bookId` (audit CRITICAL PERF-004 --
                     // full table scans as the library grows).
-                    .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
-                    .fallbackToDestructiveMigration(dropAllTables = true)
+                    // Schema v8 (wayfinder #47): a user's library must survive
+                    // upgrades, so a schema change fails loudly at runtime
+                    // instead of silently dropping the database.
+                    .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
                     .build()
                 INSTANCE = instance
                 instance
@@ -86,6 +89,36 @@ abstract class AudiobookDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE audiobooks ADD COLUMN createdAt INTEGER NOT NULL DEFAULT 0")
                 db.execSQL("UPDATE audiobooks SET createdAt = (strftime('%s','now') * 1000)")
+            }
+        }
+
+        /**
+         * v7 -> v8 (wayfinder #47/#48/#52): three additive, append-only
+         * changes. `chapters.contentHash` and `audiobooks.sourceTreeUri`
+         * back the local-import work (SHA-256 dedupe + persisted SAF grants);
+         * the new `playback_failures` table is the durable error ledger. All
+         * new columns are nullable and all new writes come from new code
+         * paths, so existing rows need no backfill. Internal (not private) so
+         * the JVM test suite can verify the upgrade path.
+         */
+        internal val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE chapters ADD COLUMN contentHash TEXT")
+                db.execSQL("ALTER TABLE audiobooks ADD COLUMN sourceTreeUri TEXT")
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS playback_failures (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        timestamp INTEGER NOT NULL,
+                        bookId TEXT NOT NULL,
+                        chapterIndex INTEGER NOT NULL,
+                        errorCodeName TEXT NOT NULL,
+                        streamUrl TEXT NOT NULL,
+                        audioEngineMode TEXT NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_playback_failures_bookId ON playback_failures(bookId)")
             }
         }
     }

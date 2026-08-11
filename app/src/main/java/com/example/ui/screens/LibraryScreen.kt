@@ -1,5 +1,7 @@
 package com.example.ui.screens
 
+import android.content.Intent
+import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
@@ -23,6 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -62,6 +65,7 @@ fun LibraryScreen(
     val allBooks by viewModel.allBooks.collectAsState()
     val listeningStats by viewModel.listeningStats.collectAsState()
     val cacheSizeFormatted by viewModel.cacheSizeFormatted.collectAsState()
+    val context = LocalContext.current
 
     // Spec #8 ticket T7: system file picker (SAF) → one picked audio file = one book.
     val importLauncher = rememberLauncherForActivityResult(
@@ -72,10 +76,23 @@ fun LibraryScreen(
 
     // Spec #8 Block 4: SAF tree picker → recursively import every audio file
     // in the picked folder (files grouped into books by their sub-folder).
+    // The persisted grant (wayfinder #48) keeps this folder re-importable on
+    // later launches without a re-pick, and the tree uri travels with the
+    // imported books as `sourceTreeUri`.
     val folderLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
     ) { uri ->
-        if (uri != null) viewModel.importLocalAudioFolder(uri)
+        if (uri != null) {
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                )
+            } catch (e: SecurityException) {
+                Log.w("LibraryScreen", "Persistable grant refused for $uri", e)
+            }
+            viewModel.importLocalAudioFolder(uri)
+        }
     }
 
     // Import-result feedback (Block 4): one-shot Snackbar from the ViewModel.

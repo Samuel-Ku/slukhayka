@@ -23,8 +23,10 @@ import com.example.data.source.SoundBooksAdapter
 import com.example.data.source.SourceAdapter
 import com.example.data.source.SourceBook
 import com.example.data.source.SourceBookDetail
+import com.example.data.source.downloadHeadersFor
 import com.example.data.source.mergeGlobalSearchResults
 import com.example.data.source.sourceDisplayName
+import com.example.data.source.streamOnlyFor
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -161,9 +163,17 @@ class AudiobookRepository(
         bookId = bookId,
         type = sourceId,
         url = url,
-        streamOnly = false,
+        streamOnly = streamOnlyFor(sourceId),
         addedAt = System.currentTimeMillis()
     )
+
+    /**
+     * Spec-10 T6 — whether the book's primary source is stream-only (its ToS
+     * permits streaming but not downloading). The gate is derived from the
+     * book's primary [AudiobookEntity.sourceUrl] so it covers every book,
+     * including those imported before the `sources` table existed.
+     */
+    fun isStreamOnly(book: AudiobookEntity): Boolean = streamOnlyFor(sourceTypeOfUrl(book.sourceUrl))
 
     private fun sourceBookId(sourceId: String, url: String): String {
         val slug = url.substringAfterLast('/').substringBefore('?')
@@ -1019,6 +1029,15 @@ class AudiobookRepository(
     )
 
     suspend fun downloadAudiobookOffline(bookId: String): OfflineDownloadResult {
+        // Spec-10 T6: a stream-only source must never download — refuse before
+        // any state change or network I/O. The UI hides the action too; this
+        // guard is defence in depth.
+        val streamOnlyBook = dao.getAudiobookById(bookId)
+        if (streamOnlyBook != null && isStreamOnly(streamOnlyBook)) {
+            Log.w("AudiobookRepo", "downloadAudiobookOffline refused: book $bookId is stream-only")
+            return OfflineDownloadResult(0, 0)
+        }
+
         // Use the fallback-fetching [getChaptersList], NOT a raw Room read: a
         // catalogue book's chapters live on its 4read page and are materialised
         // on demand. Previously the raw read returned 0 chapters for any book
@@ -1069,6 +1088,12 @@ class AudiobookRepository(
                                     readTimeout = 20000
                                     requestMethod = "GET"
                                     setRequestProperty("User-Agent", OFFLINE_USER_AGENT)
+                                    // Spec-10 T6: some source CDNs require the
+                                    // site Referer (audiobookmp3's redirectto.cc
+                                    // 403s without it).
+                                    downloadHeadersFor(streamUrl).forEach { (k, v) ->
+                                        setRequestProperty(k, v)
+                                    }
                                     instanceFollowRedirects = true
                                 }
 

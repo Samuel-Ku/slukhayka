@@ -1,6 +1,6 @@
 # [Spec] Multi-source catalog: an aggregator over free Ukrainian audiobook sources — 2026-08-10
 
-> **Status:** **M1 implemented (2026-08-11)** — T1–T6 all resolved and closed on GitHub (#64–#69); CI green (`assembleDebug` + `testDebugUnitTest` + Kover gate, 221 unit tests). Decisions locked in a grilling session on 2026-08-10 (Q1–Q6).
+> **Status:** **M1 implemented (2026-08-11)** — T1–T6 all resolved and closed on GitHub (#64–#69); CI green (`assembleDebug` + `testDebugUnitTest` + Kover gate, 232 unit tests). **5th source shipped the same day: sluhayua (spec-11, #74–#76 closed).** Decisions locked in a grilling session on 2026-08-10 (Q1–Q6).
 > **Source:** Grilling session «час розширювати асортимент» + code-fact checks. 6 resolved decisions, seams confirmed.
 > **Tracker:** GitHub issues filed from this spec (one issue per ticket, T1–T6, `spec-10` + `ready-for-agent` labels). All six closed with resolution comments; see Tickets below for the commit trail.
 
@@ -22,10 +22,12 @@ Turn the app into an **aggregator**: a unified native catalog over several free 
 
 M1 is shipped: the app aggregates **4read + soundbooks + audiobookmp3 + lihtar** through the `SourceAdapter` seam — one global search, one card per Work with per-source badges, «Нове з кожного джерела» rows on the Listen tab, and import-and-play/download from any verified source into the unified library (schema v8: `sources` table, per-source playback position, Work-level `mergeKey`).
 
+**5th source: sluhayua (sluhay.com.ua)** — spec-11, fully implemented the same day (tickets #74–#76 closed): T1 spike PASS (`28ec0c7`, fixtures `123699e`; the «playlist-XHR undiscovered» follow-on item is resolved — the playlist is inline in the page, audio per file via `/play` with the single `X-Requested-With` gate); T2 `SluhayuaAdapter` (`24672eb`, 8 fixture tests); T3 registry wiring — global search, «Нове» feed and the «Sluhay» badge all work with no new UI, downloads allowed per the verdict (`e34560d`). The spec-11 detail lives in `2026-08-11-sluhayua-source.md`.
+
 - **Live-verified facts (T1 spike + T6 checks):** sound-books.net downloads documented on site; audiobook-mp3.com/uk serves tracks only with `Referer: https://audiobook-mp3.com/uk` (403 without) — the download path sends per-source headers; **lihtar is stream-only** (ToS blanket no-reproduction clause) — its download affordances are hidden; books-audio.in / md-eksperiment.org / notatky.com.ua rejected in the spike (Russian content / YouTube-embeds only).
 - **Merge actually composes:** feed/book-page metadata enrichment (`68a3088`, `0f4bb20`) replaced the 4read `"4read.org"` author placeholder and the soundbooks/audiobookmp3 slug titles with real Cyrillic titles and authors parsed from anchors, poster blocks and book pages — so the same Work found on two sources collapses into one card. Narration-sensitivity is preserved: a known narrator stays in the merge key (soundbooks), so only genuinely shared narrations merge.
 - **Schema safety:** the merged 7→8 migration (spec-10 T2 + wayfinder #47/#48/#52 in one `MIGRATION_7_8`, exported `edefb90`) was reviewed against a real v7 database — Room validation passes; the `mergeKey` index is declared in the entity so `findByMergeKey` stays indexed.
-- **Test state:** 221 unit tests (parser fixtures per source, repository seam on fake adapters, pure merge model, Compose snapshots), `assembleDebug` green, CI green.
+- **Test state:** 232 unit tests (parser fixtures per source — now including sluhayua — repository seam on fake adapters, pure merge model, Compose snapshots), `assembleDebug` green, CI green.
 
 ## User Stories
 
@@ -96,9 +98,8 @@ Rules: no network in tests (fixtures and in-memory fakes only); tests assert ext
 
 M1 shipped the server-fetch path. The rest of the source pool and the catalog breadth are follow-ons, not part of this spec:
 
-- **WebView-pattern sources — sluhay.com, sluhayknigi.com** (spike verdict PASS-WEBVIEW): both sit behind a Cloudflare interactive challenge on every path, so the server-fetch adapter model does not apply. They need the WebView-interception pattern (a real browser session whose playback URLs the app intercepts) — a new integration workstream; searchable only inside WebView sessions. The «4read Web» tab stays as the fallback surface until native paths cover these sources.
-- **sluhayua (sluhay.com.ua)** — server-fetch, no Cloudflare, `/find` + `/find/genre=` search exist, but the book page renders client-side: the playlist-XHR endpoint is undiscovered (one focused reverse-engineering task on the minified player JS, likely a `/playlist/<id>`-style route).
-- **Full per-source catalogs (M2)** — genre/author/narrator browsing per source, subsuming wayfinder «Browse tab expansion» (#44). Genres/authors become per-source questions once the WebView and sluhayua adapters land.
+- **WebView-pattern sources — sluhay.com, sluhayknigi.com** (spike verdict PASS-WEBVIEW): both sit behind a Cloudflare interactive challenge on every path, so the server-fetch adapter model does not apply. They need the WebView-interception pattern (a real browser session whose playback URLs the app intercepts) — a new integration workstream, charted as wayfinder map #70; searchable only inside WebView sessions. The «4read Web» tab stays as the fallback surface until native paths cover these sources.
+- **Full per-source catalogs (M2)** — genre/author/narrator browsing per source, subsuming wayfinder «Browse tab expansion» (#44). Genres/authors become per-source questions once the WebView adapters land.
 
 ## Out of Scope
 
@@ -121,7 +122,7 @@ M1 shipped the server-fetch path. The rest of the source pool and the catalog br
 
 All six tickets are **closed** (`spec-10` label); status + evidence per ticket:
 
-- **T1 — Source pool spike** (research, AFK): verify the 8 sites against the four admission criteria; per-source verdict table; exact search/new endpoints. No blockers. **✅ Done** — `59b78f0`; verdicts in `docs/wayfinder/research/source-pool-spike.md`. PASS: soundbooks, audiobookmp3 (Referer), lihtar (niche); sluhay.com.ua conditional (SPA playlist XHR undiscovered); sluhay.com + sluhayknigi.com PASS-WEBVIEW (Cloudflare); books-audio.in rejected (Russian), md-eksperiment.org + notatky.com.ua rejected (YouTube embeds only).
+- **T1 — Source pool spike** (research, AFK): verify the 8 sites against the four admission criteria; per-source verdict table; exact search/new endpoints. No blockers. **✅ Done** — `59b78f0`; verdicts in `docs/wayfinder/research/source-pool-spike.md`. PASS: soundbooks, audiobookmp3 (Referer), lihtar (niche); sluhay.com.ua conditional (SPA playlist XHR undiscovered — **since resolved by spec-11 T1**, `28ec0c7`, and the source shipped as the 5th, `e34560d`); sluhay.com + sluhayknigi.com PASS-WEBVIEW (Cloudflare); books-audio.in rejected (Russian), md-eksperiment.org + notatky.com.ua rejected (YouTube embeds only).
 - **T2 — Sources schema & repository (7→8)**: `sources` table, per-source position, Work merge/dedup upsert with normalized key, migration test. Blocked by T1. **✅ Done** — `d2d238d`; after the merge with wayfinder #47/#48/#52 the schema lives in one shared `MIGRATION_7_8` (export `edefb90`). Migration safety review on a real v7 database: Room validation passes, `mergeKey` index declared in the entity.
 - **T3 — SourceAdapter layer + 4read refactor**: adapter interface, 4read adapter (behavior-neutral refactor), adapters for verified sources (search + book page + new). Blocked by T1. **✅ Done** — `d2d238d`; `SourceAdapter` seam + FourReadAdapter (poster-parsed search with real authors), SoundBooksAdapter (m3u → mp3), AudiobookMp3Adapter (playerjs JSON + Referer), LihtarAdapter (direct audio element).
 - **T4 — Global search end-to-end**: aggregated search UI, dedup display, source badges, import-and-play from results. Blocked by T2 + T3. **✅ Done** — `ee69e2e`; one card per Work with per-source badges, ephemeral results, tap → import-and-play.

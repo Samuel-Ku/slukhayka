@@ -35,6 +35,21 @@ class GlobalSearchMergeTest {
     }
 
     @Test
+    fun `sluhayua result merges with the same work and carries the Sluhay badge`() {
+        val results = listOf(
+            book("Кобзар", "Тарас Шевченко", "4read", "https://4read.org/kobzar.html"),
+            book("Кобзар", "Тарас Шевченко", "sluhayua", "https://sluhay.com.ua/4508492:taras-shevchenko-Єretik")
+        )
+
+        val merged = mergeGlobalSearchResults(results)
+
+        assertEquals(1, merged.size)
+        val card = merged.single()
+        assertEquals(listOf("4read", "sluhayua"), card.sources.map { it.sourceId })
+        assertEquals(listOf("4read", "Sluhay"), card.sources.map { it.sourceName })
+    }
+
+    @Test
     fun `different narrations of the same work stay separate cards`() {
         val results = listOf(
             book("Кобзар", "Тарас Шевченко", "4read").copy(narrator = "Валерій Завалко"),

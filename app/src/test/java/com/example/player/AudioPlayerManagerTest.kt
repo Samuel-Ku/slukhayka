@@ -9,10 +9,12 @@ import com.example.testing.FakeAudiobookDao
 import com.example.testing.TestDataFactory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
@@ -124,6 +126,14 @@ class AudioPlayerManagerTest {
         // after a failure so the MediaSession keeps wrapping a live player and
         // a later play() re-prepares it.
         assertFalse("the engine must survive the failure", engine.isReleased)
+
+        // wayfinder #52: synthetic codes are observable too.
+        assertEquals(1, manager.playbackMetrics.failures())
+        assertTrue(manager.playbackMetrics.failureByCode().containsKey("PREPARE_TIMEOUT"))
+        assertTrue(manager.playbackEventLog.export().contains("FAIL PREPARE_TIMEOUT"))
+        awaitLedgerRows(1)
+        assertEquals(1, dao.savedFailures.size)
+        assertEquals("PREPARE_TIMEOUT", dao.savedFailures.first().errorCodeName)
     }
 
     @Test
@@ -334,9 +344,24 @@ class AudioPlayerManagerTest {
         assertEquals("", state.currentStreamUrl)
         assertFalse(state.isPlaying)
         assertTrue(state.lastErrorMsg.isNotBlank())
+        // wayfinder #52: the error message names the code and the failing host.
+        assertTrue(state.lastErrorMsg.contains("ERROR_CODE_IO_NETWORK_CONNECTION_FAILED"))
+        assertTrue(state.lastErrorMsg.contains("fixtures.4read.invalid"))
         // The shared engine survives the failure (see timeout test above).
         assertFalse(engine.isReleased)
         assertEquals("no replacement engine may be built", 1, factory.engines.size)
+
+        // wayfinder #52: telemetry and the durable ledger both caught it.
+        assertEquals(1, manager.playbackMetrics.failures())
+        assertTrue(manager.playbackMetrics.failureByCode().containsKey("ERROR_CODE_IO_NETWORK_CONNECTION_FAILED"))
+        assertTrue(manager.playbackEventLog.export().contains("FAIL ERROR_CODE_IO_NETWORK_CONNECTION_FAILED"))
+        // The ledger write hops through the real IO dispatcher, so drain with
+        // a bounded real-time poll instead of advancing virtual time (the
+        // progress tracker re-schedules forever; advanceUntilIdle never idles).
+        awaitLedgerRows(1)
+        assertEquals(1, dao.savedFailures.size)
+        assertEquals("ERROR_CODE_IO_NETWORK_CONNECTION_FAILED", dao.savedFailures.first().errorCodeName)
+        assertEquals(chapters[0].streamUrl, dao.savedFailures.first().streamUrl)
     }
 
     @Test
@@ -412,6 +437,21 @@ class AudioPlayerManagerTest {
         } finally {
             manager.release()
         }
+    }
+
+    /**
+     * Waits until the durable failure ledger holds at least [expected] rows.
+     * The write crosses the real IO dispatcher inside the repository, so a
+     * virtual-time drain cannot observe it deterministically; this polls the
+     * in-memory fake with a real-time budget instead.
+     */
+    private suspend fun TestScope.awaitLedgerRows(expected: Int) {
+        val deadline = System.currentTimeMillis() + 5_000
+        while (dao.savedFailures.size < expected && System.currentTimeMillis() < deadline) {
+            runCurrent()
+            delay(10)
+        }
+        assertTrue("ledger must hold $expected rows, got ${dao.savedFailures.size}", dao.savedFailures.size >= expected)
     }
 
     private companion object {

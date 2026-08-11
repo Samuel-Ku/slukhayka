@@ -281,6 +281,9 @@ fun PlayerScreen(
                         autoPlay = true
                     )
                 },
+                events = viewModel.playerManager.playbackEventLog.recent(6),
+                metricsSummary = viewModel.playerManager.playbackMetrics.export(),
+                journalExport = viewModel.playerManager.playbackEventLog.export(),
                 modifier = Modifier.align(Alignment.TopCenter).padding(AppDimens.SpaceLg)
             )
         }

@@ -29,6 +29,13 @@ kover {
   }
 }
 
+// wayfinder #47: export Room schemas into the repo so future migrations are
+// reviewable and verifiable. KSP writes the JSON for the current database
+// version on every build.
+ksp {
+  arg("room.schemaLocation", "$projectDir/schemas")
+}
+
 android {
   namespace = "com.example"
   compileSdk { version = release(36) { minorApiLevel = 1 } }

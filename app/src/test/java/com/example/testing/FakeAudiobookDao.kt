@@ -5,6 +5,7 @@ import com.example.data.db.AudiobookEntity
 import com.example.data.db.BookmarkEntity
 import com.example.data.db.ChapterEntity
 import com.example.data.db.ListeningStatEntity
+import com.example.data.db.PlaybackFailureEntity
 import com.example.data.db.PlaybackProgressEntity
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -34,6 +35,10 @@ class FakeAudiobookDao(
     private val bookmarksState = MutableStateFlow(emptyList<BookmarkEntity>())
     private val progressState = MutableStateFlow(emptyList<PlaybackProgressEntity>())
     private val statsState = MutableStateFlow(emptyList<ListeningStatEntity>())
+    private val failuresState = MutableStateFlow(emptyList<PlaybackFailureEntity>())
+
+    /** Snapshot of the recorded playback failures, for assertions. */
+    val savedFailures: List<PlaybackFailureEntity> get() = failuresState.value
 
     /** Snapshot of the persisted playback progress, for assertions. */
     val savedProgress: List<PlaybackProgressEntity> get() = progressState.value
@@ -283,5 +288,19 @@ class FakeAudiobookDao(
 
     override suspend fun saveListeningStat(stat: ListeningStatEntity) {
         statsState.update { current -> current.filterNot { it.dateIso == stat.dateIso } + stat }
+    }
+
+    override suspend fun getChapterByContentHash(hash: String): ChapterEntity? =
+        chaptersState.value.firstOrNull { it.contentHash == hash }
+
+    override suspend fun insertPlaybackFailure(failure: PlaybackFailureEntity) {
+        failuresState.update { current -> current + failure }
+    }
+
+    override suspend fun getRecentPlaybackFailures(limit: Int): List<PlaybackFailureEntity> =
+        failuresState.value.sortedByDescending { it.timestamp }.take(limit)
+
+    override suspend fun deletePlaybackFailure(id: Long) {
+        failuresState.update { current -> current.filterNot { it.id == id } }
     }
 }

@@ -1,8 +1,38 @@
 <?xml version="1.0" encoding="utf-8"?>
-<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item
-        android:width="66dp"
-        android:height="66dp"
-        android:drawable="@drawable/img_app_icon_1785247464691"
-        android:gravity="center" />
-</layer-list>
+<!-- spec-12 rebrand: «Слухайка» — open book + sound wave in the single
+     brand accent #E9A13B on the graphite background (design system, wayfinder
+     #23). Glyph stays inside the 66dp adaptive safe zone (21..87 of 108). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Sound wave: three arcs above the book. -->
+    <path
+        android:pathData="M47,45 C47,36 61,36 61,45"
+        android:strokeColor="#E9A13B"
+        android:strokeWidth="3.5"
+        android:fillColor="@android:color/transparent"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M42,46 C42,31 66,31 66,46"
+        android:strokeColor="#E9A13B"
+        android:strokeWidth="3.5"
+        android:fillColor="@android:color/transparent"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M37,47 C37,26 71,26 71,47"
+        android:strokeColor="#E9A13B"
+        android:strokeWidth="3.5"
+        android:fillColor="@android:color/transparent"
+        android:strokeLineCap="round" />
+
+    <!-- Open book: two pages meeting at the spine. -->
+    <path
+        android:pathData="M54,50 L31,43 L31,76 L53,82 Z"
+        android:fillColor="#E9A13B" />
+    <path
+        android:pathData="M54,50 L77,43 L77,76 L55,82 Z"
+        android:fillColor="#E9A13B" />
+</vector>

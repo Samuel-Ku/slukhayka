@@ -49,6 +49,10 @@ Domain: Android (Kotlin, Compose, Media3), WebView-інтеграція, CF-за
 Skills для сесій: `/prototype` (HITL — дешеві артефакти UX/перехоплення),
 `/grilling` (destination формується з людиною).
 
+## Decisions so far
+
+- [T3 — Cloudflare challenge and WebView session persistence (#72)](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/72) — clearance = персистентна cookie (TTL «Challenge Passage», 30 хв–24 год), WebView-джар переживає вбивство процесу → challenge проходить раз на TTL; стан вкладки — ні (URL зберігає застосунок сам). Але clearance прив'язаний до IP + UA + TLS-відбитки: #71 має першим тестом виміряти, чи приймає CF mp3-хост cookie з HTTP-стека Media3 (ризик прямого відтворення). Повний розбір: `docs/wayfinder/research/webview-session-persistence.md`.
+
 ## Not yet specified (fog)
 
 - **Як саме перехоплюються playback-URL** з живої WebView-сесії: який формат
@@ -60,15 +64,13 @@ Skills для сесій: `/prototype` (HITL — дешеві артефакти
   автозахоплення при програванні? які метадані беремо (назва/автор зі сторінки)?
 - **Пошук у межах сесії**: глобальний пошук лишається server-fetch (sluhayua),
   чи є місток «пошук у WebView»?
-- **Сесії та challenge**: персистентність CF-cookies, поведінка при вбивстві
-  процесу, Android lifecycle для фонового WebView.
 - **Чи працює взагалі**: спочатку довести перехоплення на одному джерелі —
   поки це не доведено, решта туман.
 
 ## Tickets (children of map #70)
 
 - [#71 — T1 WebView audio interception prototype (sluhay.com)](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/71) `wayfinder:prototype` — **frontier**.
-- [#72 — T3 Cloudflare challenge and WebView session persistence](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/72) `wayfinder:research` — **frontier**.
+- [#72 — T3 Cloudflare challenge and WebView session persistence](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/72) `wayfinder:research` — **closed** (resolution → `docs/wayfinder/research/webview-session-persistence.md`).
 - [#73 — T2 UX surface of a WebView source](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/73) `wayfinder:grilling` — **blocked by #71**.
 
 Fog у тілі GitHub-мапи. Локально — лише цей міррор.

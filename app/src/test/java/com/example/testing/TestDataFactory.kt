@@ -5,6 +5,8 @@ import com.example.data.db.BookmarkEntity
 import com.example.data.db.ChapterEntity
 import com.example.data.db.ListeningStatEntity
 import com.example.data.db.PlaybackProgressEntity
+import com.example.data.db.SourceEntity
+import com.example.data.source.streamOnlyFor
 
 /**
  * Deterministic Room-entity fixtures for JVM unit tests (GitHub issue #6).
@@ -169,6 +171,31 @@ object TestDataFactory {
             lastListenedAt = FIXED_CLOCK_MS,
             isCompleted = isCompleted
         )
+    }
+
+    /**
+     * One [SourceEntity] per book per source type, frozen at [FIXED_CLOCK_MS].
+     *
+     * Mirrors `AudiobookRepository.sourceRow` (id "`<type>-<bookId>`",
+     * `streamOnly` from the T1-verified [streamOnlyFor] policy) so repository
+     * tests can seed the `sources` table deterministically — `addedAt`
+     * otherwise defaults to the wall clock and would make any order/equality
+     * assertion over sources flaky (same class as the createdAt flake).
+     */
+    fun seedSources(
+        audiobooks: List<AudiobookEntity> = dataBooks(),
+        sourceIds: List<String> = listOf("4read", "soundbooks")
+    ): List<SourceEntity> = audiobooks.flatMap { book ->
+        sourceIds.map { sourceId ->
+            SourceEntity(
+                id = "$sourceId-${book.id}",
+                bookId = book.id,
+                type = sourceId,
+                url = "$FIXTURE_HOST/$sourceId/${book.id}",
+                streamOnly = streamOnlyFor(sourceId),
+                addedAt = FIXED_CLOCK_MS
+            )
+        }
     }
 
     /**

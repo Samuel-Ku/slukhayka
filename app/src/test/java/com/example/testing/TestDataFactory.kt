@@ -108,7 +108,11 @@ object TestDataFactory {
             totalDurationSeconds = totalDurationSecondsOf(bookIndex),
             totalChapters = CHAPTERS_PER_BOOK,
             rating = 4.5f,
-            isFavorite = bookIndex == 0
+            isFavorite = bookIndex == 0,
+            // The entity defaults createdAt to the wall clock — frozen here so
+            // the determinism self-test (and every equality/snapshot assertion
+            // downstream) stays stable, per this factory's no-wall-clock rule.
+            createdAt = FIXED_CLOCK_MS
         )
     }
 

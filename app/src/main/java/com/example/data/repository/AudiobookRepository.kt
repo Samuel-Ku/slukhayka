@@ -24,6 +24,7 @@ import com.example.data.source.SourceAdapter
 import com.example.data.source.SourceBook
 import com.example.data.source.SourceBookDetail
 import com.example.data.source.mergeGlobalSearchResults
+import com.example.data.source.sourceDisplayName
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -182,6 +183,45 @@ class AudiobookRepository(
     private class CachedFeed(val fetchedAt: Long, val books: List<SourceBook>)
 
     private val newFeedCache = java.util.concurrent.ConcurrentHashMap<String, CachedFeed>()
+
+    /** One «Нове з джерела» feed row (spec-10 T5): a source and its recent books. */
+    data class SourceNewFeed(
+        val sourceId: String,
+        val sourceName: String,
+        val books: List<SourceBook>
+    )
+
+    // Spec-10 T5: per-source «Нове з кожного джерела» rows for the Listen
+    // surface. 4read is excluded on purpose — its new-arrivals are already
+    // rendered by the existing «Нове на 4read» rows (spec-9), which carry the
+    // richer curated sections (incl. series) from the homepage parse.
+    private val feedAdapters: List<SourceAdapter> = sourceAdapters.filterNot { it.sourceId == "4read" }
+
+    private val _sourceFeeds = MutableStateFlow<List<SourceNewFeed>>(emptyList())
+    val sourceFeeds: StateFlow<List<SourceNewFeed>> = _sourceFeeds.asStateFlow()
+
+    private val _isFeedsLoading = MutableStateFlow(false)
+    val isFeedsLoading: StateFlow<Boolean> = _isFeedsLoading.asStateFlow()
+
+    /**
+     * Spec-10 T5 — refreshes the per-source «Нове з кожного джерела» rows.
+     * Best-effort per source: a failing source simply contributes no row,
+     * never the whole surface. Reuses the same in-memory feed cache as the
+     * global search, so repeated refreshes within the TTL are free.
+     */
+    suspend fun refreshSourceFeeds(): List<SourceNewFeed> = withContext(Dispatchers.IO) {
+        _isFeedsLoading.value = true
+        try {
+            val feeds = feedAdapters.mapNotNull { adapter ->
+                val books = newFeedFor(adapter).take(20)
+                if (books.isEmpty()) null else SourceNewFeed(adapter.sourceId, sourceDisplayName(adapter.sourceId), books)
+            }
+            _sourceFeeds.value = feeds
+            feeds
+        } finally {
+            _isFeedsLoading.value = false
+        }
+    }
 
     private suspend fun newFeedFor(adapter: SourceAdapter): List<SourceBook> {
         val now = System.currentTimeMillis()

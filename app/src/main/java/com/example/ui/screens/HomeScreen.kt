@@ -61,6 +61,9 @@ fun HomeScreen(
     val sections by viewModel.catalogSections.collectAsState()
     val isCatalogLoading by viewModel.isCatalogLoading.collectAsState()
     val catalogGenres by viewModel.catalogGenres.collectAsState()
+    // Spec-10 T4: aggregated global search across all verified sources.
+    val globalResults by viewModel.globalSearchResults.collectAsState()
+    val isGlobalSearchLoading by viewModel.isGlobalSearchLoading.collectAsState()
 
     val genres = listOf("Усі", "Фантастика", "Cyberpunk", "Детективи", "Класика", "Антиутопія", "Завантажені")
 
@@ -224,9 +227,11 @@ fun HomeScreen(
 
         if (inSearchMode) {
             // ---- Search / genre result list -------------------------------
+            // In-library matches first (local filter, instant), then the
+            // spec-10 T4 global section (all sources, imported on tap).
             item {
                 Text(
-                    text = "Результати (${filteredBooks.size})",
+                    text = "У вашій медіатеці (${filteredBooks.size})",
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
@@ -247,6 +252,49 @@ fun HomeScreen(
                     onClick = { onBookClick(book.id) },
                     onPlayClick = { onPlayClick(book) }
                 )
+            }
+
+            // Spec-10 T4: aggregated search across every verified source —
+            // one card per Work with a source badge each. Only once the query
+            // is long enough to actually search (the ViewModel debounces at
+            // >= 2 chars).
+            if (searchQuery.trim().length >= 2) {
+                item {
+                    Text(
+                        text = "Усі джерела (${globalResults.size})",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                    )
+                }
+                if (isGlobalSearchLoading && globalResults.isEmpty()) {
+                    item {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 16.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                        }
+                    }
+                }
+                if (!isGlobalSearchLoading && globalResults.isEmpty() && searchQuery.trim().length >= 2) {
+                    item {
+                        Text(
+                            text = "В інших джерелах нічого не знайдено.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                        )
+                    }
+                }
+                items(globalResults, key = { it.key }) { result ->
+                    GlobalSearchResultCard(
+                        result = result,
+                        onClick = { viewModel.playGlobalSearchResult(result) }
+                    )
+                }
             }
         } else {
             // ---- Netflix feed ---------------------------------------------

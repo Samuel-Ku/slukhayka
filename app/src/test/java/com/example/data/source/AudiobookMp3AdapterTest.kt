@@ -17,6 +17,7 @@ class AudiobookMp3AdapterTest {
         <html><head>
         <meta property="og:title" content="Клуб боягузів">
         </head><body>
+        <p>Автор: <a href="/uk-avtor-6163-andrij-kokotjuha">Андрій Кокотюха</a>.</p>
         <script src="/js/playerjs-ua.js?v=1.1"></script>
         <script>var player = new Playerjs({file:"https://9giiu0g54k8c.redirectto.cc/s05/2/6/7/2/0/26720.pl.txt"});</script>
         </body></html>
@@ -26,8 +27,9 @@ class AudiobookMp3AdapterTest {
 
     private val homepage = """
         <html><body>
-        <a href="/uk-audio-6163-andrij-kokotjuha-klub-bojaguziv">Клуб боягузів</a>
-        <a href="/uk-audio-1246-dzhek-london-zhaga-do-zhittja">Жага до життя</a>
+        <a href="/uk-audio-6163-andrij-kokotjuha-klub-bojaguziv">Андрій Кокотюха - Клуб боягузів</a>
+        <a href="/uk-audio-1246-dzhek-london-zhaga-do-zhittja">Джек Лондон - Жага до життя</a>
+        <a href="/uk-audio-6175-filis-doroti-dzheims-dim-tvoiei-mrii">Філіс Дороті Джеймс - Дім твоєї мрії</a>
         </body></html>
     """.trimIndent()
 
@@ -45,6 +47,7 @@ class AudiobookMp3AdapterTest {
         val detail = adapter.fetchBookPage("https://audiobook-mp3.com/uk-audio-6163-andrij-kokotjuha-klub-bojaguziv")
 
         assertEquals("Клуб боягузів", detail.title)
+        assertEquals("Андрій Кокотюха", detail.author)
         assertEquals(2, detail.chapters.size)
         assertEquals("https://9giiu0g54k8c.redirectto.cc/s05/2/6/7/2/0/track-0.mp3", detail.chapters[0].streamUrl)
         assertEquals("002.mp3", detail.chapters[1].title)
@@ -60,14 +63,19 @@ class AudiobookMp3AdapterTest {
     }
 
     @Test
-    fun `new feed parses recent uk book links`() = runBlocking {
+    fun `new feed parses real cyrillic title and author from the anchors`() = runBlocking {
         val adapter = AudiobookMp3Adapter(FakeFetcher(mapOf("https://audiobook-mp3.com/uk" to homepage)))
 
         val books = adapter.fetchNew(limit = 10)
 
-        assertEquals(2, books.size)
+        assertEquals(3, books.size)
         assertEquals("https://audiobook-mp3.com/uk-audio-6163-andrij-kokotjuha-klub-bojaguziv", books[0].url)
         assertEquals("audiobookmp3", books[0].sourceId)
-        assertTrue(books[0].title.isNotBlank())
+        // «Автор - Назва» in real Cyrillic, no page fetch needed.
+        assertEquals("Клуб боягузів", books[0].title)
+        assertEquals("Андрій Кокотюха", books[0].author)
+        assertEquals("Жага до життя", books[1].title)
+        assertEquals("Джек Лондон", books[1].author)
+        assertEquals("Дім твоєї мрії", books[2].title)
     }
 }

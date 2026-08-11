@@ -100,6 +100,32 @@ class GlobalSearchRepositoryTest {
     }
 
     @Test
+    fun `feed matches with blank authors are enriched from the book page so the merge forms`() = runBlocking {
+        // audiobookmp3-style page: a real author but no narrator markup, so the
+        // enriched entry's merge key (title + author) matches the 4read card.
+        // (Narrator-sensitivity is covered at the pure seam: GlobalSearchMergeTest.)
+        val detail = SourceBookDetail(
+            title = "Кобзар",
+            author = "Тарас Шевченко",
+            url = "https://audiobook-mp3.com/uk/kobzar.html",
+            chapters = listOf(SourceChapter("Розділ 1", "https://cdn.example.com/kobzar/01.mp3"))
+        )
+        val repository = repo(
+            FakeAdapter("4read", searchBooks = listOf(book("Кобзар", "Тарас Шевченко", "4read"))),
+            FakeAdapter("audiobookmp3", feedBooks = listOf(book("Кобзар", "", "audiobookmp3")), detail = detail)
+        )
+
+        val results = repository.searchAllSources("кобзар")
+
+        // The blank-author feed entry was enriched from its own book page and
+        // now merges with the 4read result: one card, two source badges.
+        assertEquals(1, results.size)
+        assertEquals("Кобзар", results.single().title)
+        assertEquals("Тарас Шевченко", results.single().author)
+        assertEquals(listOf("4read", "audiobookmp3"), results.single().sources.map { it.sourceId })
+    }
+
+    @Test
     fun `global search is ephemeral - nothing is imported into Room`() = runBlocking {
         val repository = repo(
             FakeAdapter("4read", searchBooks = listOf(book("Кобзар", "Тарас Шевченко", "4read")))

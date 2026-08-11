@@ -54,6 +54,16 @@ fun ListenScreen(
     val recentProgress by viewModel.recentProgress.collectAsState()
     val sections by viewModel.catalogSections.collectAsState()
     val nextInSeries by viewModel.nextInSeries.collectAsState()
+    // Spec-10 T5: per-source «Нове з кожного джерела» rows.
+    val sourceFeeds by viewModel.sourceFeeds.collectAsState()
+    val isFeedsLoading by viewModel.isFeedsLoading.collectAsState()
+
+    // Load the per-source feeds once the Listen surface composes; the
+    // repository's TTL cache makes re-compositions free, and a failing source
+    // hides only its own row.
+    LaunchedEffect(Unit) {
+        viewModel.loadSourceFeeds()
+    }
 
     val heroBook = recentProgress.firstOrNull()?.let { mostRecent ->
         allBooks.find { it.id == mostRecent.bookId }
@@ -158,6 +168,31 @@ fun ListenScreen(
                     items(section.books, key = { it.id }) { book ->
                         CatalogBookCard(book = book, onClick = { onBookClick(book.id) })
                     }
+                }
+            }
+        }
+
+        // Spec-10 T5: «Нове з кожного джерела» — one row per verified source
+        // (4read is excluded: its «Нове на 4read» rows above already carry its
+        // new arrivals). A source that fails to load contributes no row.
+        if (sourceFeeds.isNotEmpty()) {
+            sourceFeeds.forEach { feed ->
+                item {
+                    SourceFeedRow(
+                        feed = feed,
+                        onBookClick = { book -> viewModel.playFromSource(feed.sourceId, book.url) }
+                    )
+                }
+            }
+        } else if (isFeedsLoading) {
+            item {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 16.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
                 }
             }
         }

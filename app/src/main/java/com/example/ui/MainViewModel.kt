@@ -406,15 +406,39 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun playGlobalSearchResult(result: GlobalSearchResult) {
         val source = result.sources.firstOrNull() ?: return
+        playFromSource(source.sourceId, source.url)
+    }
+
+    /**
+     * Spec-10 T4/T5 — import-and-play from any source url: fetch the book
+     * page, import the Work (merge-aware), play through the app player.
+     * Shared by the global-search cards and the «Нове з кожного джерела»
+     * feed rows.
+     */
+    fun playFromSource(sourceId: String, url: String) {
         viewModelScope.launch(Dispatchers.IO) {
             val book = try {
-                repository.importFromSourceUrl(source.sourceId, source.url)
+                repository.importFromSourceUrl(sourceId, url)
             } catch (e: Exception) {
                 null
             }
             if (book != null) {
                 playAudiobook(book)
             }
+        }
+    }
+
+    // Spec-10 T5: per-source «Нове з кожного джерела» rows on the Listen tab.
+    val sourceFeeds: StateFlow<List<com.example.data.repository.AudiobookRepository.SourceNewFeed>> =
+        repository.sourceFeeds
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val isFeedsLoading: StateFlow<Boolean> = repository.isFeedsLoading
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    fun loadSourceFeeds() {
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.refreshSourceFeeds()
         }
     }
 

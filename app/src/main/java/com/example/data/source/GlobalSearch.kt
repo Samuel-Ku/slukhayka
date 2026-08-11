@@ -45,6 +45,7 @@ fun sourceDisplayName(sourceId: String): String = when (sourceId) {
     "soundbooks" -> "Sound-Books"
     "audiobookmp3" -> "audiobook-mp3"
     "lihtar" -> "Lihtar"
+    "sluhayua" -> "Sluhay"
     "local" -> "Локальна"
     else -> sourceId
 }

@@ -680,3 +680,74 @@ Pixel analysis results:
 No new visual defects found in this pass; the audit confirms the Round 9-11
 fixes (opaque player backdrop, light transport icons, portrait cover,
 status-bar insets, bottom insets) hold across the whole app.
+
+---
+
+# Folder-import test (spec-8 Block 4) — 2026-08-07
+
+> Executed 2026-08-07 against the Block 4 build (`c28c306` + signing fix
+> `130524e`), then the two playback fixes found during this test (`365dabb`)
+> were applied, rebuilt and re-verified on the same device. Device:
+> **OnePlus 8 Pro** (IN2023), Android 14, wireless ADB.
+
+## Test setup
+
+Test folder pushed to `/sdcard/Тест Імпорту` (root of device storage):
+
+```text
+Тест Імпорту/
+├── Кобзар/
+│   ├── 01 Глава.mp3   (3 s ffmpeg sine tones)
+│   ├── 02 Глава.mp3
+│   └── 10 Глава.mp3   (verifies natural sorting: 01 → 02 → 10)
+├── Лісова пісня.mp3   (root file → own book)
+└── readme.txt         (must be ignored)
+```
+
+Flow driven via `uiautomator dump` + `input tap`: Бібліотека → «Папку» →
+SAF tree picker → «Тест Імпорту» → «Use this folder» → access-permission
+dialog → import.
+
+## Verified PASS
+
+| # | Check | Evidence |
+|---|-------|----------|
+| 01 | SAF tree picker opens from the «Папку» button | picker walk, folder + permission dialogs |
+| 02 | **Grouping**: sub-folder → one multi-chapter book; root files → one book each | Library «Завантажені (2)»: «Кобзар» (author «Локальна папка») + «Лісова пісня» (author «Локальний файл»); `readme.txt` skipped |
+| 03 | **Chapters naturally sorted** | «Кобзар» chapter list: 01 → 02 → 10 |
+| 04 | Files copied into private storage, original names/extension kept | debug overlay path `/data/user/0/com.aistudio.audiobook.read/files/local_imports/Кобзар-10 Глава-5.mp3` |
+| 05 | **Local playback works** | debug overlay `audioEngineMode = "Offline Local File"`, position advances, chapters auto-advance 01→02→10, stops at the end (no wrap), 0 FATAL |
+| 06 | Book metadata correct | Book detail: «Імпортовано з папки «Кобзар» — 3 файл(ів)», «3 Ch. • 00:00» |
+
+## Two real bugs found & fixed on device
+
+1. **Local-file playback was broken.** The player was wired to
+   `DefaultHttpDataSource.Factory` only, so a locally-imported chapter
+   (`file://` URI from `buildMediaItem`) crashed with
+   `ClassCastException: FileURLConnection cannot be cast to HttpURLConnection`
+   → `ExoPlaybackException: Source error` → the PlayerScreen slider then
+   crashed (NaN, see #2). **Fix (`365dabb`)**: wrap the hardened HTTP factory
+   in `DefaultDataSource.Factory(context, httpFactory)` — `file://` and
+   `content://` now go through `FileDataSource`/`ContentDataSource`, streamed
+   4read chapters keep the HTTP config unchanged.
+2. **PlayerScreen Slider crashed with "Cannot round NaN value"** — imported
+   chapters start with `durationSeconds = 0`, so
+   `currentPositionMs / durationMs = 0/0 = NaN` and Material3 Slider throws.
+   Pre-existing: the same crash is in the 07:34 log from the previous build
+   (any zero-duration media triggers it). **Fix (`365dabb`)**: guard the
+   fraction with `durationMs > 0` (MiniPlayerBar already had the guard).
+
+## Notes
+
+- **Debug-signing conflict:** the previously-installed debug APK was signed
+  with the old gitignored `${rootDir}/debug.keystore`; the new build (AGP
+  default debug keystore, `130524e`) fails `INSTALL_FAILED_UPDATE_INCOMPATIBLE`
+  on top of it — uninstall + fresh install required. Debug-only concern;
+  release signing is unchanged.
+- **Emulator unusable on this workstation** (API-35 AVD: no disk space for
+  the userdata partition; API-28 AVD: HVF/HAX acceleration unavailable), so
+  verification was done on the physical phone via wireless ADB.
+- Imported test books remain in the app's Library on the phone; the test
+  folder stays at `/sdcard/Тест Імпорту`.
+
+Screenshots: `docs/phone-test/screenshots/folder_import_{01_launch,02_playing,03_ended}.png`

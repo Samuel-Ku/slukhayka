@@ -480,7 +480,8 @@ class AudiobookRepositoryRoomTest {
         val book = repo.importAudiobookFrom4ReadUrl("https://4read.org/7589-neostannij-bij.html")
 
         // Extracted by the adapter: real title/author/narrator/chapters.
-        assertEquals("Неостанній бій", book.title)
+        assertNotNull(book)
+        assertEquals("Неостанній бій", book!!.title)
         assertEquals("Костянтин Шелест", book.author)
         assertEquals("Валерій Завалко", book.narrator)
         assertEquals(4.9f, book.rating)
@@ -495,7 +496,7 @@ class AudiobookRepositoryRoomTest {
     }
 
     @Test
-    fun `importAudiobookFrom4ReadUrl falls back to a card when the page yields nothing playable`() = runBlocking {
+    fun `importAudiobookFrom4ReadUrl returns null when the page yields nothing playable - missing stays absent`() = runBlocking {
         val fetcher = com.example.testing.FakeFetcher(emptyMap())
         val repo = AudiobookRepository(
             dao, context, autoSyncOnInit = false,
@@ -503,12 +504,12 @@ class AudiobookRepositoryRoomTest {
         )
 
         // A slug with no fixture returns an empty page → the adapter finds no
-        // chapters → the door still returns a minimal card (non-null contract).
+        // chapters → the door surfaces the absence as null (spec-14 T5: no
+        // forged fallback card; a missing book never appears in the library).
         val book = repo.importAudiobookFrom4ReadUrl("https://4read.org/unknown-book.html")
 
-        assertEquals("4read-unknown-book", book.id)
-        assertEquals("https://4read.org/unknown-book.html", book.sourceUrl)
-        assertEquals(0, book.totalChapters)
+        assertNull(book)
+        assertEquals(0, dao.getAllAudiobooks().first().size)
     }
 
 

@@ -88,4 +88,18 @@ interface SourceAdapter {
 
     /** Recent additions of the source — the «Нове з кожного джерела» feed (T5). */
     suspend fun fetchNew(limit: Int = 20): List<SourceBook>
+
+    /**
+     * The stable Work id for [url], produced in exactly this one place
+     * (spec-14 T5): no import door derives ids itself. The default is the
+     * generic "<sourceId>-<slug>" scheme; sources with a catalogue slug
+     * scheme (4read → "4read-slug") override it.
+     */
+    fun bookId(url: String): String {
+        val slug = url.substringAfterLast('/').substringBefore('?')
+            .removeSuffix(".html")
+            .removeSuffix(".m3u")
+            .ifBlank { "book-${System.currentTimeMillis()}" }
+        return "$sourceId-$slug"
+    }
 }

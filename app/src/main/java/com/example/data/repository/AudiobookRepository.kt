@@ -138,6 +138,9 @@ class AudiobookRepository(
             val bookId = existing?.id ?: sourceBookId(sourceId, detail.url)
 
             if (existing == null) {
+                // Spec-14 T2/T3: the shared import path persists the enriched
+                // profile the seam now provides (genres → genre, rating,
+                // series) — every import door's card agrees with the source.
                 val book = AudiobookEntity(
                     id = bookId,
                     title = detail.title,
@@ -146,12 +149,16 @@ class AudiobookRepository(
                     description = "Аудіокнига з джерела $sourceId. Джерело: ${detail.url}",
                     coverDrawableRes = R.drawable.img_neuromancer_cover_1785247475170,
                     coverImageUrl = detail.coverImageUrl,
-                    genre = "Каталог",
+                    genre = detail.genres.joinToString(" · ").ifBlank { "Каталог" },
                     sourceUrl = detail.url,
                     isDownloaded = false,
                     downloadProgress = 0f,
                     totalDurationSeconds = detail.chapters.sumOf { it.durationSeconds }.takeIf { it > 0L } ?: 0L,
                     totalChapters = detail.chapters.size,
+                    rating = detail.rating?.toFloat() ?: 0f,
+                    seriesTitle = detail.series?.name,
+                    seriesIndex = detail.series?.position,
+                    seriesUrl = detail.series?.url,
                     mergeKey = mergeKey
                 )
                 dao.insertAudiobooks(listOf(book))
@@ -1435,19 +1442,28 @@ class AudiobookRepository(
 
     suspend fun importAudiobookFrom4ReadUrl(urlOrSlug: String): AudiobookEntity {
         val cleanInput = urlOrSlug.trim()
-        val slug = cleanInput
-            .removePrefix("https://4read.org/")
-            .removePrefix("http://4read.org/")
-            .removePrefix("4read.org/")
-            .removeSuffix(".html")
-            .ifEmpty { "4read-custom-${System.currentTimeMillis()}" }
+        val sourceUrl = if (cleanInput.startsWith("http")) cleanInput else "https://4read.org/$cleanInput"
+        // Spec-14 T3: the link-import door rides the source seam — the adapter
+        // owns fetching and extraction (fetchBookPage); the repository only
+        // persists through the shared import path (same merge key, same source
+        // row as every other door). A page that yields nothing playable falls
+        // back to a minimal card so the door keeps its non-null contract for
+        // the UI (which plays the book immediately after importing).
+        return importFromSourceUrl("4read", sourceUrl)
+            ?: import4ReadFallbackBook(sourceUrl)
+    }
 
+    /**
+     * Last-resort card for the link-import door when the adapter's page parse
+     * yields nothing playable: keeps the door non-null with the same id shape
+     * (`4read-$slug`) the door always produced.
+     */
+    private suspend fun import4ReadFallbackBook(sourceUrl: String): AudiobookEntity {
+        val cleanInput = sourceUrl.removePrefix("https://4read.org/").removePrefix("http://4read.org/")
+        val slug = cleanInput.removeSuffix(".html").ifEmpty { "4read-custom-${System.currentTimeMillis()}" }
         val bookId = "4read-$slug"
         val existing = dao.getAudiobookById(bookId)
         if (existing != null) return existing
-
-        val sourceUrl = if (cleanInput.startsWith("http")) cleanInput else "https://4read.org/$cleanInput"
-        val parsedDetails = fetch4ReadPageDetails(sourceUrl)
 
         val formattedTitle = slug.split("-")
             .filter { it.isNotBlank() }
@@ -1459,45 +1475,19 @@ class AudiobookRepository(
         val newBook = AudiobookEntity(
             id = bookId,
             title = formattedTitle,
-            author = parsedDetails.author ?: "Аудиокнига 4read.org",
-            narrator = parsedDetails.narrator ?: "4read Voice Narrator",
-            description = "Аудиокнига с портала 4read.org ($cleanInput). Доступны все главы с онлайн-стримингом.",
+            author = "Аудиокнига 4read.org",
+            narrator = "4read Voice Narrator",
+            description = "Аудіокнига з порталу 4read.org ($sourceUrl).",
             coverDrawableRes = R.drawable.img_neuromancer_cover_1785247475170,
-            coverImageUrl = parsedDetails.coverImageUrl,
-            genre = parsedDetails.genres ?: "4read Catalog",
+            genre = "4read Catalog",
             sourceUrl = sourceUrl,
             isDownloaded = false,
             downloadProgress = 0f,
-            totalDurationSeconds = parsedDetails.totalDurationSeconds ?: 0L,
-            totalChapters = parsedDetails.audioUrls.size,
-            rating = parsedDetails.rating ?: 0f,
-            seriesTitle = parsedDetails.seriesLabel,
-            seriesIndex = parsedDetails.seriesIndex,
-            seriesUrl = parsedDetails.seriesUrl
+            totalDurationSeconds = 0L,
+            totalChapters = 0,
+            rating = 0f
         )
-
         dao.insertAudiobooks(listOf(newBook))
-
-        val chapterList = if (parsedDetails.audioUrls.isNotEmpty()) {
-            parsedDetails.audioUrls.mapIndexed { index, audioUrl ->
-                ChapterEntity(
-                    id = "${bookId}_ch${index + 1}",
-                    bookId = bookId,
-                    chapterIndex = index,
-                    title = "Глава ${index + 1} ($formattedTitle)",
-                    durationSeconds = 0L, // unknown until played
-                    streamUrl = audioUrl
-                )
-            }
-        } else {
-            listOf(
-                ChapterEntity("${bookId}_ch1", bookId, 0, "Часть 01: $formattedTitle", 3600L, "https://ia800201.us.archive.org/12/items/time_machine_0802_librivox/timemachine_01_wells_64kb.mp3"),
-                ChapterEntity("${bookId}_ch2", bookId, 1, "Часть 02: Продолжение", 3600L, "https://ia800201.us.archive.org/12/items/time_machine_0802_librivox/timemachine_02_wells_64kb.mp3"),
-                ChapterEntity("${bookId}_ch3", bookId, 2, "Часть 03: Кульминация", 3600L, "https://ia800201.us.archive.org/12/items/time_machine_0802_librivox/timemachine_03_wells_64kb.mp3")
-            )
-        }
-
-        dao.insertChapters(chapterList)
         return newBook
     }
 
@@ -1623,7 +1613,7 @@ class AudiobookRepository(
 
 
     private fun encodeUrl(url: String): String {
-        return android.net.Uri.encode(url, "@#&=*+-_.,:!?()/~'%'")
+        return android.net.Uri.encode(url, "@#&=*+-_.,:!?()/~'%")
     }
 
     // Cache & Download Management

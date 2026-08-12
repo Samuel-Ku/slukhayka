@@ -282,15 +282,28 @@ class WebViewHtmlParser {
         }
     }
 
-    /** JVM-safe percent-encoding with the repository's historical allowed set. */
+    /**
+     * JVM-safe percent-encoding with the repository's historical allowed set.
+     *
+     * Only ASCII bytes (0x00-0x7F) may pass through as letters/digits/allowed
+     * punctuation. Every byte >= 0x80 is percent-encoded unconditionally: a
+     * Latin-1 re-mapping like `(0xD0).toChar()` = 'Ð' would otherwise pass
+     * `isLetterOrDigit()` and leave Cyrillic raw in the URL (found on-device
+     * in spec-14 T6: chapter files with Cyrillic names 403'd because the path
+     * arrived mangled as `Ð%94...` instead of `%D0%94...`).
+     */
     private fun encodeUrl(url: String): String {
         val allowed = "@#&=*+-_.,:!?()/~'%"
         val sb = StringBuilder(url.length)
         for (b in url.toByteArray(Charsets.UTF_8)) {
             val c = b.toInt() and 0xFF
-            val ch = c.toChar()
-            if (ch.isLetterOrDigit() || ch in allowed) {
-                sb.append(ch)
+            if (c < 0x80) {
+                val ch = c.toChar()
+                if (ch.isLetterOrDigit() || ch in allowed) {
+                    sb.append(ch)
+                } else {
+                    sb.append('%').append(HEX[c ushr 4]).append(HEX[c and 0xF])
+                }
             } else {
                 sb.append('%').append(HEX[c ushr 4]).append(HEX[c and 0xF])
             }

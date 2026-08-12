@@ -183,3 +183,44 @@ Logcat tags to watch: `AudiobookRepo` (import outcome / failures), `MainViewMode
    bugs found with their fixes (convention: bug → fix commit → re-verify).
 2. Close #88 with a resolution comment (commits + test counts + device notes).
 3. Spec-14 (#82) has no remaining tickets after T6 — propose closing the parent.
+
+## Session log — 2026-08-12 (partial, in progress)
+
+Device: OnePlus 8 Pro (IN2023), Android 14, wireless ADB `192.168.13.142:37371`.
+Build: HEAD `9b79f89` + the encodeUrl fix below.
+
+### Real bug found (fixed, re-verified on device)
+
+**Cyrillic chapter paths were not percent-encoded → 403/`ERROR_CODE_IO_BAD_HTTP_STATUS`.**
+
+- Symptom: playing „1984” (search-import) failed; logcat showed the stream URL
+  mangled as `…/01.%20Ð%94Ð%B6…` and the chapter `streamUrl` in Room stored
+  with the same mojibake.
+- Root cause: `WebViewHtmlParser.encodeUrl` checked `isLetterOrDigit()` on the
+  Latin-1 re-mapping of each byte — `(0xD0).toChar()` is `'Ð'`, a letter, so
+  every byte ≥ 0x80 with a Latin-1 letter mapping (all Cyrillic) passed through
+  raw instead of being percent-encoded. Not a spec-14 regression (carried over
+  „unchanged”), but it fires on every chapter file with a Cyrillic name.
+- Proof the app, not the site: the correctly encoded URL
+  (`%D0%94%D0%B6%D0%BE%D1%80%D0%B4%D0%B6…`) served **206** from `reasd.org`
+  via curl with and without Referer.
+- Fix: encodeUrl now percent-encodes **every byte ≥ 0x80** unconditionally
+  (ASCII bytes keep the historical allowed-set pass-through). Regression test
+  added in `WebViewHtmlParserTest` (fixture uses the real chapter filename
+  captured from the device DB).
+- Re-verify on device (clean `pm clear`, re-import „1984” via global search):
+  chapter URL now `…%D0%94%D0%B6%D0%BE%D1%80%D0%B4%D0%B6…` and logcat shows
+  `AudioPlayer: HTTP 200` → `HTTP 206` — playback works. Screenshot:
+  `screenshots/spec14_03_playback_fixed.png`.
+
+### Status of the acceptance matrix
+
+- [x] Search-import works; card shows the enriched profile (author/narrator/genres/rating/series)
+- [x] Playback works after search-import (HTTP 206, logcat `AudioPlayer`)
+- [ ] Link-import / WebView-import doors — not yet run in this session
+- [ ] Missing-book ⇒ absent — not yet run in this session
+- [ ] sluhay S01–S09 (challenge, badge, Referer playback, „Нове з Sluhay” row) — not yet run in this session
+
+Old books imported before the fix keep the mangled URL in Room; re-importing
+or re-scanning regenerates them correctly (noted, not a data-migration item
+for this spec).

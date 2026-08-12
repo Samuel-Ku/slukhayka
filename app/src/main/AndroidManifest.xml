@@ -32,16 +32,6 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-
-        <!-- THROWAWAY PROTOTYPE (wayfinder #70 T1/#71): WebView audio
-             interception on sluhay.com. Not production — delete with the
-             verdict. Launched via adb, not from the launcher:
-             adb shell am start -n com.aistudio.audiobook.read/.prototype.WebViewInterceptionPrototypeActivity -->
-        <activity
-            android:name=".prototype.WebViewInterceptionPrototypeActivity"
-            android:exported="true"
-            android:theme="@style/Theme.MyApplication" />
-
         <!-- MediaSessionService: hosts the MediaSession around the shared
              app-scoped player; keeps playback alive in the background and
              shows the media notification with transport controls. -->

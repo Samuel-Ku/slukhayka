@@ -485,6 +485,114 @@ class AudiobookRepositoryRoomTest {
     }
 
     // ---------------------------------------------------------------------
+    // spec-13 T3: import from a WebView-source captured page (sluhay)
+    // ---------------------------------------------------------------------
+
+    // Same markup shape as the T1 capture (trimmed): og:title with the
+    // « » <Site>» suffix, authoritative meta rows, data-src cover, inline
+    // Playerjs playlist URL. The playlist fetch goes through the adapter's
+    // FakeFetcher — no network.
+    private fun sluhayCapturedPage(): String = """
+        <html><head>
+        <meta property="og:title" content="Трохи ненависті - Джо Аберкромбі » Слухай безкоштовні АудіоКниги онлайн українською мовою" />
+        <meta property="og:url" content="https://sluhay.com/svitova-literatura/6150-dzho-aberkrombi-trohi-nenavisti.html" />
+        <meta property="og:description" content="Над Адуа зависочіли промислові труби." />
+        </head><body>
+        <h1>Трохи ненависті - Джо Аберкромбі</h1>
+        <ul class="pmovie__list">
+        <li><span>Назва</span> <span>Трохи ненависті</span></li>
+        <li><span>Автор</span> <span>Джо Аберкромбі</span></li>
+        <li><span>Тривалість</span> <span>16:41:11</span></li>
+        </ul>
+        <img data-src="/uploads/posts/books/6150/dzho-aberkrombi-trohi-nenavisti.webp" src="/uploads/posts/books/6150/dzho-aberkrombi-trohi-nenavisti.webp">
+        <script>
+        Playerjs({id:"playerjs1",file:"https://9giiu0g54k8c.redirectto.cc/s05/2/6/5/4/4/26544.pl.txt"});
+        </script>
+        </body></html>
+    """.trimIndent()
+
+    private val sluhayPlaylist =
+        """[{"title":"Трохи ненависті 01.mp3","file":"https://j3wccg4mgjcw.redirectto.cc/s05/2/6/5/4/4/track-0.mp3"}]"""
+
+    private val sluhayBookUrl = "https://sluhay.com/svitova-literatura/6150-dzho-aberkrombi-trohi-nenavisti.html"
+
+    @Test
+    fun `importWebSourcePage imports a captured sluhay book with its source row and chapters`() = runBlocking {
+        val fetcher = com.example.testing.FakeFetcher(
+            mapOf(
+                "https://9giiu0g54k8c.redirectto.cc/s05/2/6/5/4/4/26544.pl.txt" to sluhayPlaylist
+            )
+        )
+        val repo = AudiobookRepository(
+            dao, context, autoSyncOnInit = false,
+            sourceAdapters = listOf(com.example.data.source.SluhayAdapter(fetcher))
+        )
+
+        val book = repo.importWebSourcePage("sluhay", sluhayBookUrl, sluhayCapturedPage())
+
+        assertNotNull(book)
+        assertEquals("Трохи ненависті", book!!.title)
+        assertEquals("Джо Аберкромбі", book.author)
+        assertEquals(sluhayBookUrl, book.sourceUrl)
+        val sources = dao.getSourcesForBookSync(book.id)
+        assertEquals(1, sources.size)
+        assertEquals("sluhay", sources.single().type)
+        assertEquals(sluhayBookUrl, sources.single().url)
+        assertFalse("sluhay downloads are allowed (robots open)", sources.single().streamOnly)
+        val chapters = dao.getChaptersListForBook(book.id)
+        assertEquals(1, chapters.size)
+        assertEquals("https://j3wccg4mgjcw.redirectto.cc/s05/2/6/5/4/4/track-0.mp3", chapters.single().streamUrl)
+    }
+
+    @Test
+    fun `importWebSourcePage returns null for unknown source unparseable page or unplayable page`() = runBlocking {
+        val fetcher = com.example.testing.FakeFetcher(emptyMap())
+        val repo = AudiobookRepository(
+            dao, context, autoSyncOnInit = false,
+            sourceAdapters = listOf(com.example.data.source.SluhayAdapter(fetcher))
+        )
+
+        // Unknown source id.
+        assertNull(repo.importWebSourcePage("nope", sluhayBookUrl, sluhayCapturedPage()))
+        // Captured HTML with no playlist and no chapters.
+        assertNull(repo.importWebSourcePage("sluhay", sluhayBookUrl, "<html><body>nope</body></html>"))
+        assertEquals(0, dao.getAllAudiobooks().first().size)
+    }
+
+    @Test
+    fun `importWebSourcePage merges the same book with an existing source into one Work`() = runBlocking {
+        val fetcher = com.example.testing.FakeFetcher(
+            mapOf(
+                "https://9giiu0g54k8c.redirectto.cc/s05/2/6/5/4/4/26544.pl.txt" to sluhayPlaylist
+            )
+        )
+        val repo = AudiobookRepository(
+            dao, context, autoSyncOnInit = false,
+            sourceAdapters = listOf(com.example.data.source.SluhayAdapter(fetcher))
+        )
+        // A same-narration 4read copy already in the library (merge key
+        // = normalized title|author, narrator empty on both).
+        val existing = repo.importBookFromSource(
+            "4read",
+            com.example.data.source.SourceBookDetail(
+                title = "Трохи ненависті",
+                author = "Джо Аберкромбі",
+                url = "https://4read.org/6150-trohi-nenavisti.html",
+                chapters = listOf(com.example.data.source.SourceChapter("1", "https://4read.org/a/1.mp3"))
+            )
+        )
+
+        val merged = repo.importWebSourcePage("sluhay", sluhayBookUrl, sluhayCapturedPage())
+
+        // One Work card, two sources.
+        assertEquals(existing.id, merged!!.id)
+        assertEquals(1, dao.getAllAudiobooks().first().size)
+        val sources = dao.getSourcesForBookSync(existing.id)
+        assertEquals(2, sources.size)
+        assertEquals(setOf("4read", "sluhay"), sources.map { it.type }.toSet())
+    }
+
+    // ---------------------------------------------------------------------
     // spec-10 T6: downloads across sources
     // ---------------------------------------------------------------------
 

@@ -12,6 +12,7 @@ import com.example.testing.TestDataFactory
 import com.example.ui.screens.ContinueSeriesRow
 import com.example.ui.screens.ListenEmptyState
 import com.example.ui.screens.ListenHeroCard
+import com.example.ui.screens.OpenWebSourceRow
 import com.example.ui.screens.RecentlyListenedRow
 import com.example.ui.theme.AudiobookTheme
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
@@ -136,6 +137,24 @@ class ListenScreenBlocksSnapshotTest {
         }
         composeTestRule.onRoot().captureRoboImage(
             filePath = "src/test/snapshots/listen_empty_state.png"
+        )
+    }
+
+    @Test
+    fun open_web_source_row() {
+        // Spec-13 T3: the compact «більше книг на Sluhay →» entry row.
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                ListenSurface {
+                    OpenWebSourceRow(
+                        displayName = "Sluhay",
+                        onClick = {}
+                    )
+                }
+            }
+        }
+        composeTestRule.onRoot().captureRoboImage(
+            filePath = "src/test/snapshots/listen_open_web_source.png"
         )
     }
 }

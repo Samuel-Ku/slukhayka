@@ -349,6 +349,27 @@ class AudiobookRepository(
             }
         }
 
+    /**
+     * Spec-13 T3 — import a WebView-source book from its CAPTURED page HTML.
+     * The page HTML comes from the live browser session (past the Cloudflare
+     * challenge — server-fetch would 403); the adapter's captured-page path
+     * parses metadata + the inline Playerjs playlist and fetches the playlist
+     * with the source Referer. Null when the source is unknown, the page is
+     * unparseable or yields nothing playable.
+     */
+    suspend fun importWebSourcePage(sourceId: String, url: String, html: String): AudiobookEntity? =
+        withContext(Dispatchers.IO) {
+            val adapter = sourceAdapters.firstOrNull { it.sourceId == sourceId } as? SluhayAdapter
+                ?: return@withContext null
+            try {
+                val detail = adapter.detailFromCapturedHtml(html, url)
+                if (detail.chapters.isEmpty()) return@withContext null
+                importBookFromSource(sourceId, detail)
+            } catch (e: Exception) {
+                null
+            }
+        }
+
     // ---------------------------------------------------------------------
     // Catalogue sections (spec #8 tickets T5/T6): rows for the Explore
     // screen, parsed from the 4read.org homepage and cached in memory.

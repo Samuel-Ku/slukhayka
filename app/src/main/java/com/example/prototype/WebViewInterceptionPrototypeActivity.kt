@@ -103,6 +103,18 @@ class WebViewInterceptionPrototypeActivity : Activity() {
                     request: WebResourceRequest?
                 ): WebResourceResponse? {
                     val url = request?.url?.toString() ?: return null
+                    // Ad/tracker block for the test session: adskeeper widgets,
+                    // AdSense, analytics and metrica flood the interception log
+                    // and slow the WebView down. Serve an empty 200 so nothing
+                    // breaks; recaptcha is left alone (the site's own JS may
+                    // rely on it).
+                    val host = runCatching { request.url?.host?.lowercase() }.getOrNull().orEmpty()
+                    if (AD_HOST_SUFFIXES.any { host == it || host.endsWith(".$it") }) {
+                        return WebResourceResponse(
+                            "text/plain", "utf-8", 200, "OK",
+                            emptyMap(), java.io.ByteArrayInputStream(byteArrayOf())
+                        )
+                    }
                     val hdrs = runCatching { request.requestHeaders }.getOrNull().orEmpty()
                     val interesting = hdrs.filterKeys {
                         it.equals("Accept", true) || it.equals("Range", true) ||
@@ -155,6 +167,15 @@ class WebViewInterceptionPrototypeActivity : Activity() {
             setText("https://sluhayknigi.com/")
             hint = "URL"
             setSingleLine(true)
+            setOnFocusChangeListener { _, hasFocus -> if (hasFocus) selectAll() }
+        }
+        urlBar.setOnEditorActionListener { _, _, _ ->
+            val target = urlBar.text.toString().trim()
+            if (target.isNotBlank()) {
+                log("[NAV] $target")
+                webView.loadUrl(if (target.startsWith("http")) target else "https://$target")
+            }
+            true
         }
         val btnGo = Button(this).apply { text = "Перейти" }
         btnGo.setOnClickListener {
@@ -194,6 +215,23 @@ class WebViewInterceptionPrototypeActivity : Activity() {
             addView(btnHomeS, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             addView(btnHomeK, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         }
+        val btnNavS = Button(this).apply { text = "Відкрити sluhay.com" }
+        val btnNavK = Button(this).apply { text = "Відкрити sluhayknigi.com" }
+        val btnNavBookK = Button(this).apply { text = "Книга sluhayknigi (метаморфоза)" }
+        btnNavS.setOnClickListener { webView.loadUrl("https://sluhay.com/") }
+        btnNavK.setOnClickListener { webView.loadUrl("https://sluhayknigi.com/") }
+        btnNavBookK.setOnClickListener {
+            webView.loadUrl("https://sluhayknigi.com/svitova-literatura/6066-klark-eshton-smit-metamorfoza-zemli.html")
+        }
+        val row3 = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            addView(btnNavS, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            addView(btnNavK, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        }
+        val row3b = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            addView(btnNavBookK, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        }
 
         root.addView(webView)
         root.addView(statusView)
@@ -203,6 +241,8 @@ class WebViewInterceptionPrototypeActivity : Activity() {
         root.addView(btnCapture, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
         ))
+        root.addView(row3)
+        root.addView(row3b)
         root.addView(urlRow)
         setContentView(root)
 
@@ -247,7 +287,16 @@ class WebViewInterceptionPrototypeActivity : Activity() {
                 }
                 conn.disconnect()
                 val isCfChallenge = body.contains("Just a moment") || body.contains("challenge-platform")
-                "status=$status type=$type server=$server cookie=${if (cookie.isNullOrBlank()) "none" else "present(${cookie.split(";").size} jars)"} cfChallenge=$isCfChallenge bytes=${body.length}"
+                // Save the server-fetch HTML when hydration works — this is the
+                // exact fixture T4's poster-row parse needs (no DOM snapshot).
+                if (status == 200 && body.isNotBlank()) {
+                    val host = runCatching { URL(targetUrl).host.replace(".", "_") }.getOrNull() ?: "page"
+                    val file = java.io.File(filesDir, "probe_${host}.html")
+                    file.writeText(body)
+                    "status=$status type=$type server=$server cookie=${if (cookie.isNullOrBlank()) "none" else "present(${cookie.split(";").size} jars)"} cfChallenge=$isCfChallenge bytes=${body.length} saved=$file"
+                } else {
+                    "status=$status type=$type server=$server cookie=${if (cookie.isNullOrBlank()) "none" else "present(${cookie.split(";").size} jars)"} cfChallenge=$isCfChallenge bytes=${body.length}"
+                }
             }.getOrElse { e -> "ERROR: ${e.javaClass.simpleName}: ${e.message}" }
             runOnUiThread {
                 log("[PROBE_HOME] $result")
@@ -292,6 +341,19 @@ class WebViewInterceptionPrototypeActivity : Activity() {
                 updateStatus("Захоплено. Шлях у логу — adb pull з filesDir.")
             }
         }
+    }
+
+    private companion object {
+        /** Host suffixes blocked during the test session (ads/trackers). */
+        val AD_HOST_SUFFIXES = listOf(
+            "adskeeper.com",
+            "googlesyndication.com",
+            "adtrafficquality.google",
+            "google-analytics.com",
+            "googletagmanager.com",
+            "doubleclick.net",
+            "mc.yandex.com"
+        )
     }
 
     private fun looksLikeAudio(url: String): Boolean {

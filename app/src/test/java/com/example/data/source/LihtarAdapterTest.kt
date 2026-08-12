@@ -17,6 +17,7 @@ class LihtarAdapterTest {
         <html><head>
         <meta property="og:title" content="Боягуз">
         <meta property="og:description" content="Микола Стеценко">
+        <meta property="og:image" content="https://lihtar.in.ua/images/biblioteka/85/w_bojahuz-101.jpg">
         </head><body>
         <a href="https://web.lihtar.in.ua/library/dytjacha-literatura/mykola-stecenko-bojahuz/bojahuz" target="_blank" class="lbutton detbtn">Слухати 'Боягуз'</a>
         </body></html>
@@ -51,6 +52,7 @@ class LihtarAdapterTest {
         <html><head>
         <meta property="og:title" content="Андрійко та шахове королівство">
         <meta property="og:description" content="Наталія Дев&#039;ятко">
+        <meta property="og:image" content="https://lihtar.in.ua/images/biblioteka/86/w_andriyko-ta-shakhove-korolivstvo.jpg">
         </head><body>
         <h1>Андрійко та шахове королівство</h1>
         </body></html>
@@ -110,11 +112,15 @@ class LihtarAdapterTest {
         assertEquals("Боягуз", books[0].title)
         assertEquals("Микола Стеценко", books[0].author)
         assertEquals("lihtar", books[0].sourceId)
+        // The book page's og:image becomes the feed card cover.
+        assertEquals("https://lihtar.in.ua/images/biblioteka/85/w_bojahuz-101.jpg", books[0].coverImageUrl)
         // Entities in the author decode before the merge key normalizes it.
         assertEquals("Андрійко та шахове королівство", books[1].title)
         assertEquals("Наталія Дев'ятко", books[1].author)
+        assertEquals("https://lihtar.in.ua/images/biblioteka/86/w_andriyko-ta-shakhove-korolivstvo.jpg", books[1].coverImageUrl)
         // A failed page fetch keeps the transliterated slug, best-effort.
         assertEquals("zahublena stinka", books[2].title.lowercase())
         assertEquals("", books[2].author)
+        assertEquals(null, books[2].coverImageUrl)
     }
 }

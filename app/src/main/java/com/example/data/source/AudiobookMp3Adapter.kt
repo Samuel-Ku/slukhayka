@@ -67,11 +67,20 @@ class AudiobookMp3Adapter(
     override suspend fun fetchNew(limit: Int): List<SourceBook> {
         val html = fetcher.getText("https://audiobook-mp3.com/uk")
         if (html.isEmpty()) return emptyList()
+        // Each entry's cover rides in its own tile: <a class="image-abook"
+        // href="/uk-audio-…"><img class="b-showshort__cover_image"
+        // src="https://cdn.audiobook-mp3.com/audiobooks/uk/…"></a>.
+        val covers = mutableMapOf<String, String>()
+        COVER_TILE.findAll(html).forEach { m -> covers[m.groupValues[1]] = m.groupValues[2] }
         val seen = mutableSetOf<String>()
         return BOOK_LINK.findAll(html)
             .mapNotNull { m ->
                 val path = m.groupValues[1]
                 val url = "https://audiobook-mp3.com$path"
+                // The image-abook cover tile precedes the text anchor and has
+                // no text — it must not win the dedupe, or every feed entry
+                // falls back to its transliterated slug.
+                if (m.groupValues[2].trim().length < 3) return@mapNotNull null
                 if (!seen.add(url)) return@mapNotNull null
                 // The /uk feed renders each entry as «Автор - Назва» in real
                 // Cyrillic — the real title and author, no page fetch needed.
@@ -83,7 +92,8 @@ class AudiobookMp3Adapter(
                     title = title.ifBlank { slugTitle(url) },
                     author = author,
                     url = url,
-                    sourceId = sourceId
+                    sourceId = sourceId,
+                    coverImageUrl = covers[path]
                 )
             }
             .take(limit)
@@ -114,6 +124,7 @@ class AudiobookMp3Adapter(
     private companion object {
         val PLAYLIST_URL = Regex("""(https://[a-z0-9]+\.redirectto\.cc/[^"'<> ]+\.pl\.txt)""", RegexOption.IGNORE_CASE)
         val BOOK_LINK = Regex("""href="(/uk-audio-\d+-[^"]+)"[^>]*>([^<]*)""", RegexOption.IGNORE_CASE)
+        val COVER_TILE = Regex("""<a\s+class="image-abook"\s+href="([^"]+)"[^>]*>\s*<img[^>]*src="([^"]+)"""", RegexOption.IGNORE_CASE)
         val AUTHOR_LINK = Regex("""Автор:\s*<a[^>]*>([^<]+)</a>""", RegexOption.IGNORE_CASE)
         val JSONLD_AUTHOR = Regex(""""author"\s*:\s*"([^"]+)"""", RegexOption.IGNORE_CASE)
     }

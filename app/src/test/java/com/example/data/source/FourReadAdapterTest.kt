@@ -3,6 +3,7 @@ package com.example.data.source
 import com.example.testing.FakeFetcher
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -61,6 +62,93 @@ class FourReadAdapterTest {
             </div>
         </div>
     """.trimIndent()
+
+    // Real book page with the full pmovie profile (spec-14 T1): Автор / Читає /
+    // Жанр / Триває / Цикл entries, a pmovie__rating-score and a
+    // "Можливо, Тебе зацікавить:" related section — markup shape captured
+    // from live 4read pages during the spec-14 review.
+    private val fullBookPage = """
+        <html><head>
+        <meta property="og:title" content="Неостанній бій">
+        <meta property="og:image" content="https://4read.org/uploads/posts/2026-06/medium/neostannij-bij.webp">
+        </head><body>
+        <script>var player = new Playerjs({file:"https://4read.org/m3u/7589.txt"});</script>
+        <ul class="pmovie__list">
+          <li><span>Жанр:</span> <a href="/svitova-literatura/">Світова література</a> / <a href="/pryhody/">Пригоди</a> / <a href="/fentezi/">Фентезі</a></li>
+          <li><span>Автор:</span> <a href="/avtors/kostyantyn-shelest/">Костянтин Шелест</a></li>
+          <li><span>Читає:</span> <a href="/chytaje/valerij-zavalko/">Валерій Завалко</a></li>
+          <li><span>Триває:</span> 10:57:18</li>
+          <li><span>Цикл:</span> <a href="https://4read.org/xfsearch/cikl/maksym-temnyj/">Максим Темний</a> (<span itemprop="volumeNumber">7</span>)</li>
+        </ul>
+        <div class="pmovie__rating-score">4.9</div>
+        <section class="sect pmovie__related carou">
+            <h2 class="sect__title sect__header"><span>Можливо,</span> Тебе зацікавить:</h2>
+            <div class="sect__content grid-items">
+                <div class="poster has-overlay grid-item d-flex fd-column">
+                    <div class="poster__desc order-last">
+                        <a href="https://4read.org/7611-vkradi-mene-zaraz.html" class="poster__link"><div class="poster__title line-clamp">Вкради мене... Зараз!</div></a>
+                        <div class="poster__subtitle ws-nowrap">Сергій Оріанець</div>
+                    </div>
+                    <div class="poster__img img-responsive img-responsive--portrait img-fit-cover anim">
+                        <img src="/uploads/posts/2026-06/medium/vkrady-mene-zaraz.webp" loading="lazy" alt="Сергій Оріанець - ВКРАДИ МЕНЕ... ЗАРАЗ!">
+                    </div>
+                </div>
+            </div>
+        </section>
+        </body></html>
+    """.trimIndent()
+
+    @Test
+    fun `book page parses the enriched profile - rating genres series related`() = runBlocking {
+        val adapter = FourReadAdapter(
+            FakeFetcher(
+                mapOf(
+                    "https://4read.org/7589-neostannij-bij.html" to fullBookPage,
+                    "https://4read.org/m3u/7589.txt" to playlistJson
+                )
+            )
+        )
+
+        val detail = adapter.fetchBookPage("https://4read.org/7589-neostannij-bij.html")
+
+        // The real profile replaces the old "4read.org" / "4read Voice
+        // Narrator" placeholders straight from the page.
+        assertEquals("Костянтин Шелест", detail.author)
+        assertEquals("Валерій Завалко", detail.narrator)
+        assertEquals(39438L, detail.totalDurationSeconds)
+        assertEquals(4.9, detail.rating)
+        // The broad "Світова література" first genre is dropped — the same
+        // rendering the repository historically stored.
+        assertEquals(listOf("Пригоди", "Фентезі"), detail.genres)
+        assertEquals("Максим Темний", detail.series?.name)
+        assertEquals(7, detail.series?.position)
+        assertEquals("https://4read.org/xfsearch/cikl/maksym-temnyj/", detail.series?.url)
+        assertEquals(1, detail.related.size)
+        assertEquals("Вкради мене... Зараз!", detail.related[0].title)
+        assertEquals("Сергій Оріанець", detail.related[0].author)
+        assertEquals("https://4read.org/7611-vkradi-mene-zaraz.html", detail.related[0].url)
+        assertEquals("https://4read.org/uploads/posts/2026-06/medium/vkrady-mene-zaraz.webp", detail.related[0].coverImageUrl)
+    }
+
+    @Test
+    fun `book page without profile markup yields absent fields never fabricated`() = runBlocking {
+        val adapter = FourReadAdapter(
+            FakeFetcher(mapOf("https://4read.org/bare.html" to "<html><body>no profile here</body></html>"))
+        )
+
+        val detail = adapter.fetchBookPage("https://4read.org/bare.html")
+
+        assertTrue(detail.chapters.isEmpty())
+        // Absent, not fabricated: no "4read.org" / "4read Voice Narrator"
+        // placeholders, no invented rating/genres/series/related.
+        assertEquals("", detail.author)
+        assertEquals("", detail.narrator)
+        assertNull(detail.rating)
+        assertTrue(detail.genres.isEmpty())
+        assertNull(detail.series)
+        assertTrue(detail.related.isEmpty())
+        assertNull(detail.totalDurationSeconds)
+    }
 
     @Test
     fun `book page expands the playerjs playlist into chapters`() = runBlocking {

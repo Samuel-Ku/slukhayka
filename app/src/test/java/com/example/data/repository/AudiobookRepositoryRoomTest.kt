@@ -389,6 +389,102 @@ class AudiobookRepositoryRoomTest {
     }
 
     // ---------------------------------------------------------------------
+    // spec-14 T1: 4read detail flows through the adapter seam
+    // ---------------------------------------------------------------------
+
+    // Real 4read book page with the full pmovie profile (same markup shape as
+    // FourReadAdapterTest.fullBookPage). Served by a FakeFetcher-driven
+    // FourReadAdapter so the repository seam is exercised with no network.
+    private fun fourReadPage(): String = """
+        <html><head>
+        <meta property="og:title" content="Неостанній бій">
+        <meta property="og:image" content="https://4read.org/uploads/posts/2026-06/medium/neostannij-bij.webp">
+        </head><body>
+        <script>var player = new Playerjs({file:"https://4read.org/m3u/7589.txt"});</script>
+        <ul class="pmovie__list">
+          <li><span>Жанр:</span> <a href="/svitova-literatura/">Світова література</a> / <a href="/pryhody/">Пригоди</a> / <a href="/fentezi/">Фентезі</a></li>
+          <li><span>Автор:</span> <a href="/avtors/kostyantyn-shelest/">Костянтин Шелест</a></li>
+          <li><span>Читає:</span> <a href="/chytaje/valerij-zavalko/">Валерій Завалко</a></li>
+          <li><span>Триває:</span> 10:57:18</li>
+          <li><span>Цикл:</span> <a href="https://4read.org/xfsearch/cikl/maksym-temnyj/">Максим Темний</a> (<span itemprop="volumeNumber">7</span>)</li>
+        </ul>
+        <div class="pmovie__rating-score">4.9</div>
+        <section class="sect pmovie__related carou">
+            <h2 class="sect__title sect__header"><span>Можливо,</span> Тебе зацікавить:</h2>
+            <div class="sect__content grid-items">
+                <div class="poster has-overlay grid-item d-flex fd-column">
+                    <div class="poster__desc order-last">
+                        <a href="https://4read.org/7611-vkradi-mene-zaraz.html" class="poster__link"><div class="poster__title line-clamp">Вкради мене... Зараз!</div></a>
+                        <div class="poster__subtitle ws-nowrap">Сергій Оріанець</div>
+                    </div>
+                    <div class="poster__img img-responsive img-responsive--portrait img-fit-cover anim">
+                        <img src="/uploads/posts/2026-06/medium/vkrady-mene-zaraz.webp" loading="lazy" alt="Сергій Оріанець - ВКРАДИ МЕНЕ... ЗАРАЗ!">
+                    </div>
+                </div>
+            </div>
+        </section>
+        </body></html>
+    """.trimIndent()
+
+    private val fourReadPlaylist = """[{"title":"Глава 1","file":"https://4read.org/uploads/audio/7589/01.mp3"}]"""
+
+    private fun fourReadRepo(): AudiobookRepository {
+        val fetcher = com.example.testing.FakeFetcher(
+            mapOf(
+                "https://4read.org/7589-neostannij-bij.html" to fourReadPage(),
+                "https://4read.org/m3u/7589.txt" to fourReadPlaylist
+            )
+        )
+        return AudiobookRepository(
+            dao, context, autoSyncOnInit = false,
+            sourceAdapters = listOf(com.example.data.source.FourReadAdapter(fetcher))
+        )
+    }
+
+    @Test
+    fun `getChaptersList on a chapter-less 4read book fetches through the adapter seam`() = runBlocking {
+        val repo = fourReadRepo()
+        val book = TestDataFactory.dataBooks()[0].copy(
+            id = "4read-7589-neostannij-bij",
+            sourceUrl = "https://4read.org/7589-neostannij-bij.html"
+        )
+        dao.insertAudiobooks(listOf(book))
+
+        val chapters = repo.getChaptersList(book.id)
+
+        // Chapters came from the adapter's playlist expansion, not new repo parsing.
+        assertTrue(chapters.isNotEmpty())
+        assertEquals("https://4read.org/uploads/audio/7589/01.mp3", chapters.single().streamUrl)
+        // The enriched profile flowed into the row's backing state (COALESCE
+        // back-fill replaces the seed placeholders).
+        val stored = dao.getAudiobookById(book.id)!!
+        assertEquals("Костянтин Шелест", stored.author)
+        assertEquals("Валерій Завалко", stored.narrator)
+        assertEquals(4.9f, stored.rating)
+        assertEquals("Пригоди · Фентезі", stored.genre)
+        assertEquals("Максим Темний", stored.seriesTitle)
+        assertEquals(7, stored.seriesIndex)
+        assertEquals(39438L, stored.totalDurationSeconds)
+    }
+
+    @Test
+    fun `fetchRelatedBooks upserts related posters through the adapter seam`() = runBlocking {
+        val repo = fourReadRepo()
+        val book = TestDataFactory.dataBooks()[0].copy(
+            id = "4read-7589-neostannij-bij",
+            sourceUrl = "https://4read.org/7589-neostannij-bij.html"
+        )
+        dao.insertAudiobooks(listOf(book))
+
+        val related = repo.fetchRelatedBooks(book.id)
+
+        assertEquals(1, related.size)
+        assertEquals("4read-7611-vkradi-mene-zaraz", related[0].id)
+        assertEquals("Вкради мене... Зараз!", related[0].title)
+        assertEquals("Сергій Оріанець", related[0].author)
+    }
+
+    // ---------------------------------------------------------------------
     // spec-10 T6: downloads across sources
     // ---------------------------------------------------------------------
 

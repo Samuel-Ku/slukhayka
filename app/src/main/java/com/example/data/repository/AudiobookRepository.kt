@@ -18,15 +18,14 @@ import com.example.data.sha256Hex
 import com.example.data.source.AudiobookMp3Adapter
 import com.example.data.source.FourReadAdapter
 import com.example.data.source.GlobalSearchResult
+import com.example.data.source.HttpFetcher
 import com.example.data.source.LihtarAdapter
-import com.example.data.source.RelatedBook
 import com.example.data.source.SluhayAdapter
 import com.example.data.source.SluhayuaAdapter
 import com.example.data.source.SoundBooksAdapter
 import com.example.data.source.SourceAdapter
 import com.example.data.source.SourceBook
 import com.example.data.source.SourceBookDetail
-import com.example.data.source.WebViewHtmlParser
 import com.example.data.source.headersFor
 import com.example.data.source.mergeGlobalSearchResults
 import com.example.data.source.sourceDisplayName
@@ -85,6 +84,14 @@ class AudiobookRepository(
     private val fourReadAdapter: SourceAdapter =
         sourceAdapters.firstOrNull { it.sourceId == "4read" } ?: FourReadAdapter()
 
+    /**
+     * Shared transport for the Explore catalogue doors (homepage/series/
+     * top-100/people fetches — spec #8, a separate feature from the import
+     * seam). Same HttpFetcher the adapters use; the repository owns no HTTP
+     * client of its own (spec-14 T5).
+     */
+    private val fourReadFetcher: HttpFetcher = HttpFetcher(referer = "https://4read.org/")
+
     // ---------------------------------------------------------------------
     // Multi-source helpers (spec-10 T2)
     // ---------------------------------------------------------------------
@@ -136,7 +143,7 @@ class AudiobookRepository(
         withContext(Dispatchers.IO) {
             val mergeKey = MergeKey.keyFor(detail.title, detail.author, detail.narrator)
             val existing = if (mergeKey.isNotBlank()) dao.findByMergeKey(mergeKey) else null
-            val bookId = existing?.id ?: sourceBookId(sourceId, detail.url)
+            val bookId = existing?.id ?: adapterBookId(sourceId, detail.url)
 
             if (existing == null) {
                 // Spec-14 T2/T3: the shared import path persists the enriched
@@ -204,7 +211,18 @@ class AudiobookRepository(
      */
     fun isStreamOnly(book: AudiobookEntity): Boolean = streamOnlyFor(sourceTypeOfUrl(book.sourceUrl))
 
-    private fun sourceBookId(sourceId: String, url: String): String {
+    /**
+     * Spec-14 T5 — the book id for an import door: the source's adapter owns
+     * its id scheme ([SourceAdapter.bookId]), so no import door derives ids
+     * itself and no scheme can diverge. The generic "<sourceId>-<slug>"
+     * fallback only covers a source without a registered adapter (defensive;
+     * every live source has one).
+     */
+    private fun adapterBookId(sourceId: String, url: String): String =
+        sourceAdapters.firstOrNull { it.sourceId == sourceId }?.bookId(url)
+            ?: genericSourceBookId(sourceId, url)
+
+    private fun genericSourceBookId(sourceId: String, url: String): String {
         val slug = url.substringAfterLast('/').substringBefore('?')
             .removeSuffix(".html")
             .removeSuffix(".m3u")
@@ -428,7 +446,7 @@ class AudiobookRepository(
     suspend fun fetchCatalogSections(): List<CatalogSection> = withContext(Dispatchers.IO) {
         _isCatalogLoading.value = true
         try {
-            val html = fetchUrlText("https://4read.org/")
+            val html = fourReadFetcher.getText("https://4read.org/")
             if (html.isBlank()) return@withContext emptyList()
             _catalogGenres.value = CatalogParser.parseGenreNav(html)
             val sections = CatalogParser.parseHomepage(html)
@@ -458,7 +476,7 @@ class AudiobookRepository(
      */
     suspend fun fetchSeriesBooks(seriesUrl: String): List<AudiobookEntity> = withContext(Dispatchers.IO) {
         seriesBooksCache[seriesUrl]?.let { return@withContext it }
-        val html = fetchUrlText(seriesUrl)
+        val html = fourReadFetcher.getText(seriesUrl)
         if (html.isBlank()) return@withContext emptyList()
         val books = CatalogParser.parseSeriesPage(html)
             .filter { it.id !in deletedCatalogBookIds }
@@ -500,7 +518,7 @@ class AudiobookRepository(
     private var top100Cache: List<AudiobookEntity>? = null
     suspend fun fetchTop100(): List<AudiobookEntity> = withContext(Dispatchers.IO) {
         top100Cache?.let { return@withContext it }
-        val html = fetchUrlText("https://4read.org/top-100.html")
+        val html = fourReadFetcher.getText("https://4read.org/top-100.html")
         if (html.isBlank()) return@withContext emptyList()
         val books = CatalogParser.parseTop100(html)
             .filter { it.id !in deletedCatalogBookIds }
@@ -513,7 +531,7 @@ class AudiobookRepository(
     private val peopleCache = java.util.concurrent.ConcurrentHashMap<String, List<CatalogPerson>>()
     suspend fun fetchPeople(url: String): List<CatalogPerson> = withContext(Dispatchers.IO) {
         peopleCache[url]?.let { return@withContext it }
-        val html = fetchUrlText(url)
+        val html = fourReadFetcher.getText(url)
         if (html.isBlank()) return@withContext emptyList()
         val people = CatalogParser.parsePeopleList(html)
         peopleCache[url] = people
@@ -539,9 +557,21 @@ class AudiobookRepository(
         val book = dao.getAudiobookById(bookId) ?: return@withContext emptyList()
         val sourceUrl = book.sourceUrl
         if (!sourceUrl.contains("4read.org")) return@withContext emptyList()
-        val pageDetails = fetch4ReadPageDetails(sourceUrl)
-        if (pageDetails.relatedBooks.isEmpty()) return@withContext emptyList()
-        pageDetails.relatedBooks
+        // Spec-14 T5: the repository performs no 4read parsing or transport —
+        // the adapter owns the page parse (incl. the related-book posters),
+        // and the upsert shape is built from the seam's [RelatedBook] model.
+        val detail = fourReadAdapter.fetchBookPage(sourceUrl)
+        if (detail.related.isEmpty()) return@withContext emptyList()
+        detail.related
+            .map { related ->
+                CatalogBook(
+                    id = fourReadAdapter.bookId(related.url),
+                    title = related.title,
+                    author = related.author,
+                    url = related.url,
+                    coverImageUrl = related.coverImageUrl
+                )
+            }
             .filter { it.id !in deletedCatalogBookIds }
             .map { upsertCatalogBook(it) }
     }
@@ -1010,16 +1040,18 @@ class AudiobookRepository(
         // 54 chapter rows for one 6-chapter seed book, scrambled order, and
         // the player picking up reasd.org streams instead of the seeded ones.
         if (chapters.isEmpty() && sourceUrl.isNotBlank() && sourceUrl.contains("4read.org")) {
-            val pageDetails = fetch4ReadPageDetails(sourceUrl)
-            if (pageDetails.audioUrls.isNotEmpty()) {
-                val realChapters = pageDetails.audioUrls.mapIndexed { index, audioUrl ->
+            // Spec-14 T5: the adapter owns the page parse; the repository only
+            // persists what the seam's SourceBookDetail carries.
+            val detail = fourReadAdapter.fetchBookPage(sourceUrl)
+            if (detail.chapters.isNotEmpty()) {
+                val realChapters = detail.chapters.mapIndexed { index, chapter ->
                     ChapterEntity(
                         id = "${bookId}_ch_${index + 1}",
                         bookId = bookId,
                         chapterIndex = index,
                         title = "Глава ${index + 1} (${book?.title ?: "4read"})",
                         durationSeconds = 0L, // unknown until the stream is actually played
-                        streamUrl = audioUrl
+                        streamUrl = chapter.streamUrl
                     )
                 }
                 dao.insertChapters(realChapters)
@@ -1027,29 +1059,35 @@ class AudiobookRepository(
                 // duration ("Триває:"), and the real author/narrator/genre/
                 // rating/series now that we've fetched the book page — the
                 // catalogue seed only ever had placeholders.
-                val knownDuration = pageDetails.totalDurationSeconds ?: book?.totalDurationSeconds ?: 0L
+                val knownDuration = detail.totalDurationSeconds ?: book?.totalDurationSeconds ?: 0L
                 dao.updateBookStats(bookId, realChapters.size, knownDuration)
-                if (pageDetails.author != null || pageDetails.narrator != null ||
-                    pageDetails.genres != null || pageDetails.rating != null ||
-                    pageDetails.seriesLabel != null || pageDetails.seriesUrl != null
+                val author = detail.author.ifBlank { null }
+                val narrator = detail.narrator.ifBlank { null }
+                val genres = detail.genres.joinToString(" · ").ifBlank { null }
+                val rating = detail.rating?.toFloat()
+                val seriesTitle = detail.series?.name
+                val seriesIndex = detail.series?.position
+                val seriesUrl = detail.series?.url
+                if (author != null || narrator != null || genres != null ||
+                    rating != null || seriesTitle != null || seriesUrl != null
                 ) {
                     dao.updateBookMetadata(
                         bookId,
-                        author = pageDetails.author,
-                        narrator = pageDetails.narrator,
-                        genre = pageDetails.genres,
-                        rating = pageDetails.rating,
-                        seriesTitle = pageDetails.seriesLabel,
-                        seriesIndex = pageDetails.seriesIndex,
-                        seriesUrl = pageDetails.seriesUrl
+                        author = author,
+                        narrator = narrator,
+                        genre = genres,
+                        rating = rating,
+                        seriesTitle = seriesTitle,
+                        seriesIndex = seriesIndex,
+                        seriesUrl = seriesUrl
                     )
                 }
                 // Cover via a targeted UPDATE, not a REPLACE insert: the row
                 // carries freshly back-filled metadata above, and a full-row
                 // re-insert with the stale seed entity would clobber it back
                 // to the placeholders ("4read.org" etc.).
-                if (pageDetails.coverImageUrl != null) {
-                    dao.updateCoverImageUrl(bookId, pageDetails.coverImageUrl)
+                if (!detail.coverImageUrl.isNullOrBlank()) {
+                    dao.updateCoverImageUrl(bookId, detail.coverImageUrl)
                 }
                 return realChapters
             }
@@ -1269,55 +1307,62 @@ class AudiobookRepository(
             return@withContext
         }
 
-        // 2. Fall back to book's webpage
+        // 2. Fall back to book's webpage (spec-14 T5: the adapter owns the
+        // page parse; the repository persists what the seam provides).
         if (book.sourceUrl.isNotBlank()) {
-            val pageData = fetch4ReadPageDetails(book.sourceUrl)
-            if (!pageData.coverImageUrl.isNullOrBlank()) {
-                dao.updateCoverImageUrl(bookId, pageData.coverImageUrl)
+            val detail = fourReadAdapter.fetchBookPage(book.sourceUrl)
+            if (!detail.coverImageUrl.isNullOrBlank()) {
+                dao.updateCoverImageUrl(bookId, detail.coverImageUrl)
             }
             // Real metadata (author/narrator/genre/duration/rating/series) is
             // back-filled on EVERY book-page open — the catalogue seed only
             // ever had placeholders, and a book may already carry them from a
             // previous session, so gating on chapters.isEmpty() would leave
             // "4read.org" / "4:00:00" forever.
-            if (pageData.totalDurationSeconds != null || pageData.author != null ||
-                pageData.narrator != null || pageData.genres != null ||
-                pageData.rating != null || pageData.seriesLabel != null ||
-                pageData.seriesUrl != null
+            val author = detail.author.ifBlank { null }
+            val narrator = detail.narrator.ifBlank { null }
+            val genres = detail.genres.joinToString(" · ").ifBlank { null }
+            val rating = detail.rating?.toFloat()
+            val seriesTitle = detail.series?.name
+            val seriesIndex = detail.series?.position
+            val seriesUrl = detail.series?.url
+            if (detail.totalDurationSeconds != null || author != null ||
+                narrator != null || genres != null ||
+                rating != null || seriesTitle != null || seriesUrl != null
             ) {
                 dao.updateBookStats(
                     bookId,
-                    chapters.size.takeIf { it > 0 } ?: pageData.audioUrls.size,
-                    pageData.totalDurationSeconds ?: book.totalDurationSeconds
+                    chapters.size.takeIf { it > 0 } ?: detail.chapters.size,
+                    detail.totalDurationSeconds ?: book.totalDurationSeconds
                 )
                 dao.updateBookMetadata(
                     bookId,
-                    author = pageData.author,
-                    narrator = pageData.narrator,
-                    genre = pageData.genres,
-                    rating = pageData.rating,
-                    seriesTitle = pageData.seriesLabel,
-                    seriesIndex = pageData.seriesIndex,
-                    seriesUrl = pageData.seriesUrl
+                    author = author,
+                    narrator = narrator,
+                    genre = genres,
+                    rating = rating,
+                    seriesTitle = seriesTitle,
+                    seriesIndex = seriesIndex,
+                    seriesUrl = seriesUrl
                 )
             }
             // Same guard as getChaptersList: never overwrite existing (seeded)
             // chapters with live-page ones -- that duplicated rows on every
             // book-detail open.
-            if (chapters.isEmpty() && pageData.audioUrls.isNotEmpty()) {
+            if (chapters.isEmpty() && detail.chapters.isNotEmpty()) {
                 // Same id format as getChaptersList ("_ch_") so a concurrent
                 // fetch-then-insert (e.g. an offline Download racing this
                 // refresh) produces identical rows and @Insert(REPLACE)
                 // dedupes them — a mixed `ch`/`ch_` format used to duplicate
                 // the whole chapter list.
-                val updatedChapters = pageData.audioUrls.mapIndexed { index, audioUrl ->
+                val updatedChapters = detail.chapters.mapIndexed { index, chapter ->
                     ChapterEntity(
                         id = "${bookId}_ch_${index + 1}",
                         bookId = bookId,
                         chapterIndex = index,
                         title = "Глава ${index + 1} (${book.title})",
                         durationSeconds = 0L, // unknown until played
-                        streamUrl = audioUrl
+                        streamUrl = chapter.streamUrl
                     )
                 }
                 dao.insertChapters(updatedChapters)
@@ -1325,136 +1370,34 @@ class AudiobookRepository(
         }
     }
 
-    suspend fun importAudiobookFromHtml(urlOrSlug: String, html: String): AudiobookEntity {
+    /**
+     * Spec-14 T4/T5 — the WebView door rides the same parser + transport as
+     * every other door: the adapter owns the captured page parse (playlist
+     * content resolved through its own HttpFetcher), and the shared import
+     * path persists the Work with the same merge key / id shape. The
+     * repository performs no 4read parsing or transport. A captured page that
+     * yields nothing playable surfaces as absent (null) — never a forged card.
+     */
+    suspend fun importAudiobookFromHtml(urlOrSlug: String, html: String): AudiobookEntity? {
         val cleanInput = urlOrSlug.trim()
         val sourceUrl = if (cleanInput.startsWith("http")) cleanInput else "https://4read.org/$cleanInput"
-        // Spec-14 T4: the WebView door rides the same parser as every other
-        // door — the pure WebViewHtmlParser maps the captured page DOM to
-        // SourceBookDetail (playlist content resolved through the repository's
-        // transport), and the shared import path persists the Work with the
-        // same merge key / id shape. No WebView-specific parsing lives here.
-        val detail = WebViewHtmlParser().parse(html, sourceUrl, resolveContent = { fetchUrlText(it) })
+        val adapter = fourReadAdapter as? FourReadAdapter ?: return null
+        val detail = adapter.parseCapturedPage(html, sourceUrl)
+        if (detail.chapters.isEmpty()) return null
         return importBookFromSource("4read", detail)
     }
 
-    suspend fun importAudiobookFrom4ReadUrl(urlOrSlug: String): AudiobookEntity {
+    /**
+     * Spec-14 T3/T5 — the link-import door rides the source seam: the adapter
+     * owns fetching and extraction (fetchBookPage); the repository only
+     * persists through the shared import path (same merge key, same source row
+     * as every other door). A page that yields nothing playable surfaces as
+     * absent (null) — the fabricated fallback card is gone.
+     */
+    suspend fun importAudiobookFrom4ReadUrl(urlOrSlug: String): AudiobookEntity? {
         val cleanInput = urlOrSlug.trim()
         val sourceUrl = if (cleanInput.startsWith("http")) cleanInput else "https://4read.org/$cleanInput"
-        // Spec-14 T3: the link-import door rides the source seam — the adapter
-        // owns fetching and extraction (fetchBookPage); the repository only
-        // persists through the shared import path (same merge key, same source
-        // row as every other door). A page that yields nothing playable falls
-        // back to a minimal card so the door keeps its non-null contract for
-        // the UI (which plays the book immediately after importing).
         return importFromSourceUrl("4read", sourceUrl)
-            ?: import4ReadFallbackBook(sourceUrl)
-    }
-
-    /**
-     * Last-resort card for the link-import door when the adapter's page parse
-     * yields nothing playable: keeps the door non-null with the same id shape
-     * (`4read-$slug`) the door always produced.
-     */
-    private suspend fun import4ReadFallbackBook(sourceUrl: String): AudiobookEntity {
-        val cleanInput = sourceUrl.removePrefix("https://4read.org/").removePrefix("http://4read.org/")
-        val slug = cleanInput.removeSuffix(".html").ifEmpty { "4read-custom-${System.currentTimeMillis()}" }
-        val bookId = "4read-$slug"
-        val existing = dao.getAudiobookById(bookId)
-        if (existing != null) return existing
-
-        val formattedTitle = slug.split("-")
-            .filter { it.isNotBlank() }
-            .joinToString(" ") { word ->
-                word.replaceFirstChar { if (it.isLowerCase()) it.titlecase(java.util.Locale.getDefault()) else it.toString() }
-            }
-            .ifBlank { "Аудиокнига 4read" }
-
-        val newBook = AudiobookEntity(
-            id = bookId,
-            title = formattedTitle,
-            author = "Аудиокнига 4read.org",
-            narrator = "4read Voice Narrator",
-            description = "Аудіокнига з порталу 4read.org ($sourceUrl).",
-            coverDrawableRes = R.drawable.img_neuromancer_cover_1785247475170,
-            genre = "4read Catalog",
-            sourceUrl = sourceUrl,
-            isDownloaded = false,
-            downloadProgress = 0f,
-            totalDurationSeconds = 0L,
-            totalChapters = 0,
-            rating = 0f
-        )
-        dao.insertAudiobooks(listOf(newBook))
-        return newBook
-    }
-
-    /** Session-scoped book-page cache: one fetch per page per app run. */
-    private val pageDetailsCache = java.util.concurrent.ConcurrentHashMap<String, Parsed4ReadData>()
-
-    private suspend fun fetch4ReadPageDetails(pageUrl: String): Parsed4ReadData = withContext(Dispatchers.IO) {
-        pageDetailsCache[pageUrl]?.let { return@withContext it }
-        val detail = fourReadAdapter.fetchBookPage(pageUrl)
-        Parsed4ReadData(
-            coverImageUrl = detail.coverImageUrl,
-            audioUrls = detail.chapters.map { it.streamUrl },
-            totalDurationSeconds = detail.totalDurationSeconds,
-            author = detail.author.ifBlank { null },
-            narrator = detail.narrator.ifBlank { null },
-            genres = detail.genres.joinToString(" · ").ifBlank { null },
-            rating = detail.rating?.toFloat(),
-            seriesLabel = detail.series?.name,
-            seriesIndex = detail.series?.position,
-            seriesUrl = detail.series?.url,
-            relatedBooks = detail.related.map { it.toCatalogBook() }
-        ).also { pageDetailsCache[pageUrl] = it }
-    }
-
-    /** Maps a seam-level [RelatedBook] onto the catalogue shape the upsert needs. */
-    private fun RelatedBook.toCatalogBook(): CatalogBook = CatalogBook(
-        id = CatalogParser.bookId(url),
-        title = title,
-        author = author,
-        url = url,
-        coverImageUrl = coverImageUrl
-    )
-
-    private fun fetchUrlText(targetUrl: String): String {
-        var currentUrl = targetUrl
-        var redirectCount = 0
-        while (redirectCount < 6) {
-            try {
-                val url = URL(currentUrl)
-                val conn = (url.openConnection() as HttpURLConnection).apply {
-                    connectTimeout = 12000
-                    readTimeout = 18000
-                    requestMethod = "GET"
-                    setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 13; Mobile; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
-                    setRequestProperty("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-                    setRequestProperty("Referer", "https://4read.org/")
-                    instanceFollowRedirects = true
-                }
-                val code = conn.responseCode
-                if (code in 300..399) {
-                    val location = conn.getHeaderField("Location")
-                    if (!location.isNullOrBlank()) {
-                        currentUrl = if (location.startsWith("http")) location else if (location.startsWith("/")) "https://4read.org$location" else "https://4read.org/$location"
-                        redirectCount++
-                        conn.disconnect()
-                        continue
-                    }
-                }
-                if (code == HttpURLConnection.HTTP_OK) {
-                    return conn.inputStream.bufferedReader().use { it.readText() }
-                } else {
-                    conn.disconnect()
-                    return ""
-                }
-            } catch (e: Exception) {
-                Log.e("AudiobookRepo", "Error fetching text from $currentUrl", e)
-                return ""
-            }
-        }
-        return ""
     }
 
     // Cache & Download Management
@@ -1533,36 +1476,6 @@ class AudiobookRepository(
         private val SPLIT_CHUNKS = Regex("""\d+|\D+""")
     }
 }
-
-data class Parsed4ReadData(
-    val coverImageUrl: String? = null,
-    val audioUrls: List<String> = emptyList(),
-    /**
-     * The book's real total duration, parsed from the page's
-     * `<span>Триває:</span> 10:57:18` / `<meta itemprop="duration"
-     * content="10:57:18" />` fields. Null when the page doesn't carry one
-     * (e.g. a search-listing page). Never a fabricated default.
-     */
-    val totalDurationSeconds: Long? = null,
-    /** Real author from `itemprop="author"` (e.g. "Роберт Сальваторе"). */
-    val author: String? = null,
-    /** Real reader/narrator from `itemprop="readBy"` (e.g. "Костянтин Шарков"). */
-    val narrator: String? = null,
-    /** Real genres from the "Жанр:" list, joined with " · " (e.g. "Фентезі · Пригоди"). */
-    val genres: String? = null,
-    /** Real rating from `pmovie__rating-score` (e.g. 4.9); null when absent. */
-    val rating: Float? = null,
-    /** Vote count from `pmovie__rating-votes` (e.g. 30); null when absent. */
-    val ratingVotes: Int? = null,
-    /** Series (cycle) name + volume, e.g. "Сага про Дріззта До'Урдена · Книга 7". */
-    val seriesLabel: String? = null,
-    /** Volume number parsed from the cycle label, when present (e.g. 7). */
-    val seriesIndex: Int? = null,
-    /** Series (cycle) page URL, when present — enables "continue the series". */
-    val seriesUrl: String? = null,
-    /** Related books from the page's "Можливо, Тебе зацікавить:" section. */
-    val relatedBooks: List<CatalogBook> = emptyList()
-)
 
 /** Outcome of a local folder/file import (spec #8 Block 4). */
 data class LocalImportResult(

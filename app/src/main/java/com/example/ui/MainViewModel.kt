@@ -773,7 +773,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun importAndPlay4ReadHtml(url: String, html: String) {
         viewModelScope.launch(Dispatchers.IO) {
+            // Spec-14 T5: an unplayable captured page surfaces as absent — no
+            // forged fallback; nothing to play in that case.
             val importedBook = repository.importAudiobookFromHtml(url, html)
+            if (importedBook == null) return@launch
             viewModelScope.launch(Dispatchers.Main) {
                 playAudiobook(importedBook, chapterIndex = 0, autoPlay = true)
                 _showFullPlayer.value = true
@@ -784,7 +787,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun importAndPlay4ReadUrl(urlOrSlug: String) {
         if (urlOrSlug.isBlank()) return
         viewModelScope.launch(Dispatchers.IO) {
+            // Spec-14 T5: a missing book surfaces as absent — the door is
+            // nullable, no fabricated fallback card. The UI simply has nothing
+            // to play in that case.
             val importedBook = repository.importAudiobookFrom4ReadUrl(urlOrSlug)
+            if (importedBook == null) return@launch
             viewModelScope.launch(Dispatchers.Main) {
                 playAudiobook(importedBook, chapterIndex = 0, autoPlay = true)
                 _showFullPlayer.value = true

@@ -15,6 +15,9 @@ class FourReadAdapter(
 
     override val sourceId: String = "4read"
 
+    /** The "4read-slug" id scheme — in exactly this one place (spec-14 T5). */
+    override fun bookId(url: String): String = CatalogParser.bookId(url)
+
     override suspend fun search(query: String): List<SourceBook> {
         val cleanQuery = query.trim()
         if (cleanQuery.isBlank()) return emptyList()
@@ -71,6 +74,15 @@ class FourReadAdapter(
         val html = fetcher.getText(url)
         return WebViewHtmlParser().parse(html, url, resolveContent = { fetcher.getText(it) })
     }
+
+    /**
+     * Spec-14 T5 — the WebView door's captured page, parsed by the same
+     * shared [WebViewHtmlParser] with this adapter's transport resolving
+     * playlist/iframe content. The repository performs no 4read parsing or
+     * transport — it hands the captured DOM straight to the seam.
+     */
+    fun parseCapturedPage(html: String, url: String): SourceBookDetail =
+        WebViewHtmlParser().parse(html, url, resolveContent = { fetcher.getText(it) })
 
     override suspend fun fetchNew(limit: Int): List<SourceBook> {
         val html = fetcher.getText("https://4read.org/")

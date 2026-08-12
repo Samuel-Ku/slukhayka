@@ -209,4 +209,28 @@ class FourReadAdapterTest {
         assertEquals("Сергій Оріанець", books[0].author)
         assertEquals("https://4read.org/7611-vkradi-mene-zaraz.html", books[0].url)
     }
+
+    @Test
+    fun `bookId is the 4read-slug scheme in exactly this one place`() {
+        val adapter = FourReadAdapter(FakeFetcher(emptyMap()))
+
+        // The "4read-slug" id scheme — no import door may derive ids itself.
+        assertEquals("4read-7589-neostannij-bij", adapter.bookId("https://4read.org/7589-neostannij-bij.html"))
+        assertEquals("4read-7611-vkradi-mene-zaraz", adapter.bookId("https://4read.org/7611-vkradi-mene-zaraz.html"))
+    }
+
+    @Test
+    fun `captured page parses through the shared parser with adapter transport`() = runBlocking {
+        val adapter = FourReadAdapter(
+            FakeFetcher(mapOf("https://4read.org/m3u/7589.txt" to playlistJson))
+        )
+
+        // The WebView door hands the adapter the captured DOM; playlist
+        // content resolves through the adapter's own transport.
+        val detail = adapter.parseCapturedPage(bookPage, "https://4read.org/7589-neostannij-bij.html")
+
+        assertEquals("Неостанній бій", detail.title)
+        assertEquals(1, detail.chapters.size)
+        assertEquals("https://4read.org/uploads/audio/7589/01.mp3", detail.chapters.single().streamUrl)
+    }
 }

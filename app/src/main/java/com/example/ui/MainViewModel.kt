@@ -216,6 +216,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun closeWebSource() {
         _selectedWebSource.value = null
+        // Spec-13 T4: returning from the browser surface may have refreshed the
+        // Cloudflare session — re-hydrate the session-bound feeds («Нове з
+        // Sluhay») immediately so a fresh challenge shows the row, not the CTA.
+        loadSourceFeeds()
     }
 
     /**

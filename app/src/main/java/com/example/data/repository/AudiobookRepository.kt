@@ -19,6 +19,7 @@ import com.example.data.source.AudiobookMp3Adapter
 import com.example.data.source.FourReadAdapter
 import com.example.data.source.GlobalSearchResult
 import com.example.data.source.LihtarAdapter
+import com.example.data.source.RelatedBook
 import com.example.data.source.SluhayuaAdapter
 import com.example.data.source.SoundBooksAdapter
 import com.example.data.source.SourceAdapter
@@ -997,8 +998,12 @@ class AudiobookRepository(
                         seriesUrl = pageDetails.seriesUrl
                     )
                 }
-                if (pageDetails.coverImageUrl != null && book != null) {
-                    dao.insertAudiobooks(listOf(book.copy(coverImageUrl = pageDetails.coverImageUrl)))
+                // Cover via a targeted UPDATE, not a REPLACE insert: the row
+                // carries freshly back-filled metadata above, and a full-row
+                // re-insert with the stale seed entity would clobber it back
+                // to the placeholders ("4read.org" etc.).
+                if (pageDetails.coverImageUrl != null) {
+                    dao.updateCoverImageUrl(bookId, pageDetails.coverImageUrl)
                 }
                 return realChapters
             }
@@ -1459,217 +1464,31 @@ class AudiobookRepository(
 
     private suspend fun fetch4ReadPageDetails(pageUrl: String): Parsed4ReadData = withContext(Dispatchers.IO) {
         pageDetailsCache[pageUrl]?.let { return@withContext it }
-        var coverUrl: String? = null
-        val audioStreams = mutableListOf<String>()
-        var totalDurationSeconds: Long? = null
-        var author: String? = null
-        var narrator: String? = null
-        var genres: String? = null
-        var rating: Float? = null
-        var ratingVotes: Int? = null
-        var seriesLabel: String? = null
-        var seriesIndex: Int? = null
-        var seriesUrl: String? = null
-        var relatedBooks: List<CatalogBook> = emptyList()
-        try {
-            val html = fetchUrlText(pageUrl)
-            if (html.isNotBlank()) {
-                // Real metadata straight from the page: the site renders a
-                // `<ul class="pmovie__list">` with Жанр / Автор / Читає /
-                // Триває / Цикл entries plus a pmovie__rating-score block.
-                // Parsing these replaces the fabricated defaults ("4read.org",
-                // "4read Voice Narrator", "4.8") with the book's real data.
-                totalDurationSeconds = parsePageDuration(html)
-                author = parsePmovieText(html, "Автор")
-                narrator = parsePmovieText(html, "Читає")
-                genres = parsePmovieGenres(html)
-                rating = parseRatingScore(html)
-                ratingVotes = parseRatingVotes(html)
-                val cycle = parsePmovieCycle(html)
-                seriesLabel = cycle?.first
-                seriesIndex = cycle?.second
-                seriesUrl = cycle?.third
-                relatedBooks = CatalogParser.parseRelatedBooks(html)
-                val ogMatch = Regex("""<meta\s+property="og:image"\s+content="([^"]+)"""", RegexOption.IGNORE_CASE).find(html)
-                    ?: Regex("""<meta\s+content="([^"]+)"\s+property="og:image""", RegexOption.IGNORE_CASE).find(html)
-                if (ogMatch != null) {
-                    coverUrl = ogMatch.groupValues[1]
-                }
-                if (coverUrl.isNullOrBlank()) {
-                    val imgMatch = Regex("""<img[^>]+src="([^"]*uploads/posts/[^"]+)"""", RegexOption.IGNORE_CASE).find(html)
-                        ?: Regex("""<img[^>]+src="([^"]*4read\.org/[^"]+\.(?:jpg|png|webp|jpeg))"""", RegexOption.IGNORE_CASE).find(html)
-                    if (imgMatch != null) {
-                        coverUrl = imgMatch.groupValues[1]
-                    }
-                }
-                if (!coverUrl.isNullOrBlank() && !coverUrl.startsWith("http")) {
-                    coverUrl = if (coverUrl.startsWith("/")) "https://4read.org$coverUrl" else "https://4read.org/$coverUrl"
-                }
-
-                extractAudioFromHtml(html, pageUrl, audioStreams)
-
-                val iframeRegex = Regex("""<iframe[^>]+src=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
-                iframeRegex.findAll(html).forEach { m ->
-                    val iframeSrc = m.groupValues[1]
-                    val fullIframeUrl = if (iframeSrc.startsWith("http")) iframeSrc else if (iframeSrc.startsWith("/")) "https://4read.org$iframeSrc" else "https://4read.org/$iframeSrc"
-                    if (!fullIframeUrl.contains("facebook") && !fullIframeUrl.contains("vk.com/widget")) {
-                        val iframeHtml = fetchUrlText(fullIframeUrl)
-                        if (iframeHtml.isNotBlank()) {
-                            extractAudioFromHtml(iframeHtml, fullIframeUrl, audioStreams)
-                        }
-                    }
-                }
-
-                val expandedStreams = mutableListOf<String>()
-                for (stream in audioStreams) {
-                    if (stream.endsWith(".m3u") || stream.endsWith(".txt")) {
-                        try {
-                            val playlistContent = fetchUrlText(stream)
-                            if (playlistContent.isNotBlank()) {
-                                if (playlistContent.trim().startsWith("[{")) {
-                                    val jsonFileRegex = Regex("\"file\"\\s*:\\s*\"([^\"]+)\"", RegexOption.IGNORE_CASE)
-                                    jsonFileRegex.findAll(playlistContent).forEach { m ->
-                                        expandedStreams.add(encodeUrl(m.groupValues[1]))
-                                    }
-                                } else {
-                                    val lines = playlistContent.split("\n")
-                                    for (line in lines) {
-                                        val cleanLine = line.trim()
-                                        if (cleanLine.startsWith("http")) {
-                                            expandedStreams.add(encodeUrl(cleanLine))
-                                        }
-                                    }
-                                }
-                            }
-                        } catch(e: Exception) {
-                             expandedStreams.add(stream)
-                        }
-                    } else {
-                        expandedStreams.add(stream)
-                    }
-                }
-                audioStreams.clear()
-                audioStreams.addAll(expandedStreams)
-            }
-        } catch (e: Exception) {
-            Log.e("AudiobookRepo", "Error parsing 4read page $pageUrl", e)
-        }
+        val detail = fourReadAdapter.fetchBookPage(pageUrl)
         Parsed4ReadData(
-            coverImageUrl = coverUrl,
-            audioUrls = audioStreams.distinct(),
-            totalDurationSeconds = totalDurationSeconds,
-            author = author,
-            narrator = narrator,
-            genres = genres,
-            rating = rating,
-            ratingVotes = ratingVotes,
-            seriesLabel = seriesLabel,
-            seriesIndex = seriesIndex,
-            seriesUrl = seriesUrl,
-            relatedBooks = relatedBooks
+            coverImageUrl = detail.coverImageUrl,
+            audioUrls = detail.chapters.map { it.streamUrl },
+            totalDurationSeconds = detail.totalDurationSeconds,
+            author = detail.author.ifBlank { null },
+            narrator = detail.narrator.ifBlank { null },
+            genres = detail.genres.joinToString(" · ").ifBlank { null },
+            rating = detail.rating?.toFloat(),
+            seriesLabel = detail.series?.name,
+            seriesIndex = detail.series?.position,
+            seriesUrl = detail.series?.url,
+            relatedBooks = detail.related.map { it.toCatalogBook() }
         ).also { pageDetailsCache[pageUrl] = it }
     }
 
-    /**
-     * Parses the book page's real total duration from either the visible
-     * "Триває:" field or the schema.org meta tag. Formats seen on the site:
-     * `10:57:18` (h:mm:ss) and `53:42` (mm:ss). Returns null when absent —
-     * callers then keep the book's stored value instead of inventing one.
-     */
-    private fun parsePageDuration(html: String): Long? {
-        val raw = Regex("""(?:itemprop="duration"\s+content="|Триває:</span>\s*)(\d{1,2}:\d{2}(?::\d{2})?)""")
-            .find(html)
-            ?.groupValues
-            ?.get(1)
-            ?: return null
-        val parts = raw.split(":").map { it.toLongOrNull() ?: return null }
-        return when (parts.size) {
-            3 -> parts[0] * 3600L + parts[1] * 60L + parts[2]
-            2 -> parts[0] * 60L + parts[1]
-            else -> null
-        }
-    }
+    /** Maps a seam-level [RelatedBook] onto the catalogue shape the upsert needs. */
+    private fun RelatedBook.toCatalogBook(): CatalogBook = CatalogBook(
+        id = CatalogParser.bookId(url),
+        title = title,
+        author = author,
+        url = url,
+        coverImageUrl = coverImageUrl
+    )
 
-    /**
-     * Extracts the visible text of a `pmovie__list` entry by its label, e.g.
-     * `<li><span>Автор:</span> … <a>Роберт Сальваторе</a></li>` →
-     * "Роберт Сальваторе". Strips HTML and the label itself; unescapes
-     * entities. Null when the entry or a readable value is missing.
-     */
-    private fun parsePmovieText(html: String, label: String): String? {
-        val marker = Regex("""<span>\s*$label:\s*</span>(.*?)</li>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
-            .find(html)
-            ?.groupValues
-            ?.get(1)
-            ?: return null
-        val clean = Regex("""<[^>]+>""").replace(marker, "")
-            .replace("&quot;", "\"")
-            .replace("&#039;", "'")
-            .replace("&amp;", "&")
-            .trim()
-        return clean.ifBlank { null }
-    }
-
-    /**
-     * Genres from the "Жанр:" entry — a chain of links separated by " / "
-     * (e.g. "Світова література / Пригоди / Фентезі"). Joined with " · " and
-     * truncated to the two most specific categories (the first is usually the
-     * broad "Світова література"). Null when absent.
-     */
-    private fun parsePmovieGenres(html: String): String? {
-        val marker = Regex("""<span>\s*Жанр:\s*</span>(.*?)</li>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
-            .find(html)
-            ?.groupValues
-            ?.get(1)
-            ?: return null
-        val genres = Regex(""">([^<]+)</a>""").findAll(marker)
-            .map { it.groupValues[1].trim() }
-            .filter { it.isNotBlank() && !it.equals("Жанр", ignoreCase = true) }
-            .toList()
-        val picked = genres.drop(1).ifEmpty { genres.take(1) }
-        return picked.joinToString(" · ").ifBlank { null }
-    }
-
-    /** Real rating score from `pmovie__rating-score` (e.g. 4.9). */
-    private fun parseRatingScore(html: String): Float? {
-        return Regex("""pmovie__rating-score[^"]*\">\s*([0-9]+(?:\.[0-9]+)?)""")
-            .find(html)
-            ?.groupValues
-            ?.get(1)
-            ?.toFloatOrNull()
-    }
-
-    /** Vote count from `pmovie__rating-votes` (e.g. `(<span …>30</span> голосів)`). */
-    private fun parseRatingVotes(html: String): Int? {
-        return Regex("""data-vote-num-id="[^"]*">\s*([0-9]+)""")
-            .find(html)
-            ?.groupValues
-            ?.get(1)
-            ?.toIntOrNull()
-    }
-
-    /**
-     * Series (cycle) entry, e.g.
-     * `<li …><span>Цикл:</span> <a href="https://4read.org/xfsearch/cikl/slug/">Сага про Дріззта До'Урдена</a>
-     * (<span itemprop="volumeNumber">7</span>)</li>` →
-     * ("Сага про Дріззта До'Урдена", 7, "https://4read.org/xfsearch/cikl/slug/").
-     * Triple of (label, index, pageUrl); null when there is no cycle.
-     */
-    private fun parsePmovieCycle(html: String): Triple<String, Int, String>? {
-        val block = Regex("""<span>\s*Цикл:\s*</span>(.*?)</li>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
-            .find(html)
-            ?.groupValues
-            ?.get(1)
-            ?: return null
-        val anchor = Regex("""<a\s+href="([^"]+)"[^>]*>([^<]+)</a>""").find(block) ?: return null
-        val name = anchor.groupValues[2]
-            .replace("&#039;", "'")
-            .trim()
-            .ifBlank { return null }
-        val href = anchor.groupValues[1]
-        val index = Regex("""volumeNumber">\s*([0-9]+)""").find(block)?.groupValues?.get(1)?.toIntOrNull()
-        return Triple(name, index ?: 0, href)
-    }
     private fun extractAudioFromHtml(html: String, baseUrl: String, resultList: MutableList<String>) {
         // A. Direct mp3, m4a, ogg, aac, m3u8 URLs
         val mp3Regex = Regex("""(https?://[^"'\s\n<>]+\.(?:mp3|m4a|ogg|aac|m3u8)(?:\?[^"'\s\n<>]*)?)""", RegexOption.IGNORE_CASE)

@@ -201,4 +201,46 @@ class GlobalSearchRepositoryTest {
         assertNull(unplayable.importFromSourceUrl("soundbooks", "https://u"))
         assertEquals(0, dao.getAllAudiobooks().first().size)
     }
+
+    // ---------------------------------------------------------------------
+    // spec-14 T2: 4read search runs entirely through the adapter + shared
+    // HTTP client — the repository owns no 4read search transport/parser.
+    // ---------------------------------------------------------------------
+
+    // Same poster-block markup shape as FourReadAdapterTest.searchPage: real
+    // Cyrillic title in poster__title, author in the first poster__subtitle.
+    private fun fourReadSearchPage(): String = """
+        <html><body>
+        <div class="poster has-overlay grid-item d-flex fd-column">
+            <div class="poster__desc order-last">
+                <a href="https://4read.org/5359-taras-shevchenko-kobzar.html" class="poster__link"><div class="poster__title line-clamp">Кобзар</div></a>
+                <div class="poster__subtitle ws-nowrap">Тарас Шевченко</div>
+            </div>
+            <div class="poster__img img-responsive img-responsive--portrait img-fit-cover anim">
+                <img src="/uploads/posts/2025-05/medium/shevchenko-taras-kobzar.webp" alt="Шевченко Тарас - Кобзар">
+            </div>
+        </div>
+        </body></html>
+    """.trimIndent()
+
+    @Test
+    fun `4read search runs through the real adapter and the shared HTTP client`() = runBlocking {
+        // The FakeFetcher serves the search-page markup — the adapter is the
+        // real FourReadAdapter, so this proves the door rides the seam: no
+        // repository-owned transport or parser is involved.
+        val fetcher = com.example.testing.FakeFetcher(responses = emptyMap(), fallback = fourReadSearchPage())
+        val repository = repo(com.example.data.source.FourReadAdapter(fetcher))
+
+        val results = repository.searchAllSources("кобзар")
+
+        assertEquals(1, results.size)
+        val card = results.single()
+        // Enriched profile fields (real author + cover) flow from the adapter.
+        assertEquals("Кобзар", card.title)
+        assertEquals("Тарас Шевченко", card.author)
+        assertEquals("4read", card.sources.single().sourceId)
+        assertEquals("https://4read.org/uploads/posts/2025-05/medium/shevchenko-taras-kobzar.webp", card.coverImageUrl)
+        // Search stays ephemeral — nothing is imported into Room.
+        assertEquals(0, dao.getAllAudiobooks().first().size)
+    }
 }

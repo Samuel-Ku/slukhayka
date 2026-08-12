@@ -331,9 +331,13 @@ fun WebSourceBrowserScreen(
                                 }
                                 // Spec-13 T3: observe audio requests for the
                                 // auto-capture hint. No state is shared with the
-                                // page (SEC-003: no JS bridge).
+                                // page (SEC-003: no JS bridge). The log line is
+                                // the session-side evidence for the S04 device
+                                // checkpoint: the player's TransferListener
+                                // then logs the response code + Referer.
                                 if (looksLikeAudio(url)) {
                                     lastCapturedAudioCount += 1
+                                    Log.w("WebSource", "Audio request in session: $url")
                                 }
                                 return null
                             }

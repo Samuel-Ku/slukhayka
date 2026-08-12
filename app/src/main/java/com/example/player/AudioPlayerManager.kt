@@ -131,6 +131,46 @@ class AudioPlayerManager(
         .setAllowCrossProtocolRedirects(false)
         .setConnectTimeoutMs(15000)
         .setReadTimeoutMs(30000)
+        // Device-session evidence (spec-13 S04 / spec-14 T6): log the HTTP
+        // status and the per-source Referer actually applied for EVERY stream
+        // request. This is what proves the redirectto.cc gate on the phone —
+        // a 206 with `Referer=https://sluhay.com/` plays, a 403 without it
+        // does not. onTransferStart fires right after open(), when the
+        // response code is known; file:// (local) chapters never reach this
+        // listener (it sits on the HTTP factory only).
+        .setTransferListener(object : androidx.media3.datasource.TransferListener {
+            override fun onTransferInitializing(
+                source: androidx.media3.datasource.DataSource,
+                dataSpec: androidx.media3.datasource.DataSpec,
+                isReadingFromCache: Boolean
+            ) = Unit
+
+            override fun onTransferStart(
+                source: androidx.media3.datasource.DataSource,
+                dataSpec: androidx.media3.datasource.DataSpec,
+                isReadingFromCache: Boolean
+            ) {
+                val http = source as? androidx.media3.datasource.HttpDataSource ?: return
+                val referer = lastAppliedStreamHeaders["Referer"]
+                Log.d(
+                    "AudioPlayer",
+                    "HTTP ${http.responseCode} ${dataSpec.uri}${referer?.let { " Referer=$it" } ?: ""}"
+                )
+            }
+
+            override fun onBytesTransferred(
+                source: androidx.media3.datasource.DataSource,
+                dataSpec: androidx.media3.datasource.DataSpec,
+                isReadingFromCache: Boolean,
+                bytesTransferred: Int
+            ) = Unit
+
+            override fun onTransferEnd(
+                source: androidx.media3.datasource.DataSource,
+                dataSpec: androidx.media3.datasource.DataSpec,
+                isReadingFromCache: Boolean
+            ) = Unit
+        })
 
     /**
      * The player factory actually used: the injected test one, or the

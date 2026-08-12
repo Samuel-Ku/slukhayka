@@ -57,10 +57,11 @@ data class PlayerState(
 /**
  * Creates the [Player] that [AudioPlayerManager] drives.
  *
- * This exists purely as a test seam (GitHub issue #4): production always uses
- * [AudioPlayerManager.DEFAULT_PLAYER_FACTORY], which builds a real ExoPlayer,
- * while JVM unit tests substitute `FakePlayerEngine` so they never touch
- * ExoPlayer, the network, or a real audio device.
+ * This exists purely as a test seam (GitHub issue #4): production builds a
+ * real ExoPlayer inside [AudioPlayerManager] (wired to its own HTTP data
+ * source factory so per-source headers can be set per book), while JVM unit
+ * tests substitute `FakePlayerEngine` so they never touch ExoPlayer, the
+ * network, or a real audio device.
  */
 fun interface PlayerFactory {
     fun create(context: Context): Player
@@ -88,7 +89,7 @@ fun interface PlayerFactory {
 class AudioPlayerManager(
     private val context: Context,
     private val repository: AudiobookRepository,
-    private val playerFactory: PlayerFactory = DEFAULT_PLAYER_FACTORY,
+    private val injectedPlayerFactory: PlayerFactory? = null,
     /** Wall clock, injectable for deterministic smart-rewind tests. */
     private val now: () -> Long = System::currentTimeMillis,
     /** Global playback preferences; defaults to the real SharedPreferences store. */
@@ -114,6 +115,82 @@ class AudioPlayerManager(
      * The listener is attached exactly once.
      */
     private var mediaPlayer: Player? = null
+
+    /**
+     * Production HTTP data source factory, owned by the manager (spec-13 T2).
+     * The playerjs CDN (`*.redirectto.cc`) is shared by audiobookmp3/sluhay/
+     * sluhayknigi and 403s without the OWNING source's Referer, so the headers
+     * must change per book — the manager sets them as default request
+     * properties right before each chapter's prepare. A global hardcoded
+     * Referer is impossible (and would leak a Referer onto hosts that need
+     * none — SEC-004). Tests inject their own PlayerFactory and never touch
+     * this one.
+     */
+    private val httpDataSourceFactory: DefaultHttpDataSource.Factory = DefaultHttpDataSource.Factory()
+        .setUserAgent("Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36")
+        .setAllowCrossProtocolRedirects(false)
+        .setConnectTimeoutMs(15000)
+        .setReadTimeoutMs(30000)
+
+    /**
+     * The player factory actually used: the injected test one, or the
+     * production ExoPlayer builder wired to [httpDataSourceFactory].
+     */
+    private val playerFactory: PlayerFactory = injectedPlayerFactory
+        ?: PlayerFactory { playerContext -> buildProductionPlayer(playerContext) }
+
+    /**
+     * Production ExoPlayer wired to the manager's own [httpDataSourceFactory]
+     * (spec-13 T2).
+     *
+     * Phase 2.5 hotfix (SEC-004, SEC-018, SEC-019 in the audit report): drop
+     * cross-protocol redirects so a cleartext downgrade via 4read is
+     * impossible, drop the hardcoded "SM-S918B" User-Agent that leaks a
+     * developer's device model, and remove the 4read.org Referer leak that
+     * archive.org uses to correlate playback.
+     *
+     * The HTTP factory is the manager's own instance so its default request
+     * properties (per-source Referer for the playerjs CDN) can be set per
+     * book right before each chapter prepare. DefaultDataSource wraps it so
+     * file:// and content:// URIs from locally-imported books (spec #8 T7 /
+     * Block 4) are read via FileDataSource/ContentDataSource instead of being
+     * forced through HTTP.
+     */
+    private fun buildProductionPlayer(playerContext: Context): Player {
+        val dataSourceFactory = DefaultDataSource.Factory(playerContext, httpDataSourceFactory)
+        val audioAttr = AudioAttributes.Builder()
+            .setContentType(C.AUDIO_CONTENT_TYPE_SPEECH)
+            .setUsage(C.USAGE_MEDIA)
+            .build()
+        val renderersFactory = object : androidx.media3.exoplayer.DefaultRenderersFactory(playerContext) {
+            override fun buildVideoRenderers(
+                context: android.content.Context,
+                extensionRendererMode: Int,
+                mediaCodecSelector: androidx.media3.exoplayer.mediacodec.MediaCodecSelector,
+                enableDecoderFallback: Boolean,
+                eventHandler: android.os.Handler,
+                eventListener: androidx.media3.exoplayer.video.VideoRendererEventListener,
+                allowedVideoJoiningTimeMs: Long,
+                out: java.util.ArrayList<androidx.media3.exoplayer.Renderer>
+            ) {
+                // Do not build video renderers for an audio-only app. This
+                // prevents MediaCodec resource queries that fail on some
+                // device/emulator environments.
+            }
+        }.setEnableDecoderFallback(true)
+
+        return ExoPlayer.Builder(playerContext, renderersFactory)
+            .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
+            .setAudioAttributes(audioAttr, true)
+            .setWakeMode(C.WAKE_MODE_LOCAL)
+            .build()
+    }
+
+    /**
+     * Test seam: the stream headers most recently applied to
+     * [httpDataSourceFactory] (empty for sources that need none).
+     */
+    internal var lastAppliedStreamHeaders: Map<String, String> = emptyMap()
 
     /** Access for [PlaybackService] to build its [androidx.media3.session.MediaSession]. */
     val player: Player get() = ensurePlayerCreated()
@@ -306,6 +383,18 @@ class AudioPlayerManager(
         playbackEventLog.record("PREPARE ch${chapterIndex} ${chapter.streamUrl}")
 
         try {
+            // Spec-13 T2 — per-source stream headers: the playerjs CDN
+            // (redirectto.cc) 403s without the owning source's Referer. The
+            // manager's HTTP factory reads its default request properties when
+            // it CREATES a data source, so setting them before setMediaItem
+            // covers every request of this chapter; the next chapter re-sets
+            // them (empty for sources that serve plain GETs).
+            val headers = _playerState.value.currentBook
+                ?.let { repository.streamHeadersFor(it, chapter.streamUrl) }
+                ?: emptyMap()
+            httpDataSourceFactory.setDefaultRequestProperties(headers)
+            lastAppliedStreamHeaders = headers
+
             // setMediaItem replaces the previous playlist entry and resets the
             // player to IDLE; prepare() re-enters BUFFERING -> READY.
             val mp = ensurePlayerCreated()
@@ -400,6 +489,9 @@ class AudioPlayerManager(
                 .setMediaMetadata(metadata)
                 .build()
         } else {
+            // Stream headers for this chapter were already applied to the
+            // shared HTTP factory by prepareChapter (spec-13 T2) — the media
+            // item itself carries only the URI and metadata.
             MediaItem.Builder()
                 .setUri(chapter.streamUrl.toUri())
                 .setMediaMetadata(metadata)
@@ -886,55 +978,5 @@ class AudioPlayerManager(
 
         const val SPEED_MIN: Float = 0.5f
         const val SPEED_MAX: Float = 3.0f
-
-        /**
-         * Production [PlayerFactory]: a real ExoPlayer wired to the hardened
-         * HTTP data source.
-         *
-         * Phase 2.5 hotfix (SEC-004, SEC-018, SEC-019 in the audit report):
-         * drop cross-protocol redirects so a cleartext downgrade via 4read is
-         * impossible, drop the hardcoded "SM-S918B" User-Agent that leaks a
-         * developer's device model, and remove the 4read.org Referer leak that
-         * archive.org uses to correlate playback.
-         */
-        val DEFAULT_PLAYER_FACTORY = PlayerFactory { playerContext ->
-            // HTTP factory for streamed 4read chapters…
-            val httpDataSourceFactory = DefaultHttpDataSource.Factory()
-                .setUserAgent("Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36")
-                .setAllowCrossProtocolRedirects(false)
-                .setConnectTimeoutMs(15000)
-                .setReadTimeoutMs(30000)
-            // …wrapped in DefaultDataSource so file:// and content:// URIs from
-            // locally-imported books (spec #8 T7 / Block 4) are read via
-            // FileDataSource/ContentDataSource instead of being forced through
-            // HTTP (on-device crash: FileURLConnection cannot be cast to
-            // HttpURLConnection).
-            val dataSourceFactory = DefaultDataSource.Factory(playerContext, httpDataSourceFactory)
-            val audioAttr = AudioAttributes.Builder()
-                .setContentType(C.AUDIO_CONTENT_TYPE_SPEECH)
-                .setUsage(C.USAGE_MEDIA)
-                .build()
-            val renderersFactory = object : androidx.media3.exoplayer.DefaultRenderersFactory(playerContext) {
-                override fun buildVideoRenderers(
-                    context: android.content.Context,
-                    extensionRendererMode: Int,
-                    mediaCodecSelector: androidx.media3.exoplayer.mediacodec.MediaCodecSelector,
-                    enableDecoderFallback: Boolean,
-                    eventHandler: android.os.Handler,
-                    eventListener: androidx.media3.exoplayer.video.VideoRendererEventListener,
-                    allowedVideoJoiningTimeMs: Long,
-                    out: java.util.ArrayList<androidx.media3.exoplayer.Renderer>
-                ) {
-                    // Do not build video renderers for an audio-only app
-                    // This prevents MediaCodec resource queries that fail on some device/emulator environments
-                }
-            }.setEnableDecoderFallback(true)
-
-            ExoPlayer.Builder(playerContext, renderersFactory)
-                .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
-                .setAudioAttributes(audioAttr, true)
-                .setWakeMode(C.WAKE_MODE_LOCAL)
-                .build()
-        }
     }
 }

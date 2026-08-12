@@ -20,12 +20,13 @@ import com.example.data.source.FourReadAdapter
 import com.example.data.source.GlobalSearchResult
 import com.example.data.source.LihtarAdapter
 import com.example.data.source.RelatedBook
+import com.example.data.source.SluhayAdapter
 import com.example.data.source.SluhayuaAdapter
 import com.example.data.source.SoundBooksAdapter
 import com.example.data.source.SourceAdapter
 import com.example.data.source.SourceBook
 import com.example.data.source.SourceBookDetail
-import com.example.data.source.downloadHeadersFor
+import com.example.data.source.headersFor
 import com.example.data.source.mergeGlobalSearchResults
 import com.example.data.source.sourceDisplayName
 import com.example.data.source.streamOnlyFor
@@ -52,14 +53,17 @@ class AudiobookRepository(
      * never races the seeder for the same rows.
      */
     private val autoSyncOnInit: Boolean = true,
-    // Spec-10 T4: injectable for repository-seam tests (fake adapters, no
-    // network). Default = all verified server-fetch sources.
+    // Spec-10 T4 + spec-13 T2: injectable for repository-seam tests (fake
+    // adapters, no network). Default = every verified source behind the seam;
+    // sluhay (WebView-pattern, spec-13) joins now that its adapter parses the
+    // captured page + fetches the inline playlist with the source Referer.
     private val sourceAdapters: List<SourceAdapter> = listOf(
         FourReadAdapter(),
         SoundBooksAdapter(),
         AudiobookMp3Adapter(),
         LihtarAdapter(),
-        SluhayuaAdapter()
+        SluhayuaAdapter(),
+        SluhayAdapter()
     )
 ) {
 
@@ -94,9 +98,22 @@ class AudiobookRepository(
         url.contains("sound-books.net") -> "soundbooks"
         url.contains("audiobook-mp3.com") -> "audiobookmp3"
         url.contains("lihtar.in.ua") -> "lihtar"
+        // sluhay.com.ua is checked before sluhay.com (it contains it);
+        // sluhayknigi.com before sluhay.com (the CDN is shared, the Referer
+        // differs).
         url.contains("sluhay.com.ua") -> "sluhayua"
+        url.contains("sluhayknigi.com") -> "sluhayknigi"
+        url.contains("sluhay.com") -> "sluhay"
         else -> "unknown"
     }
+
+    /**
+     * Spec-13 T2 — per-source stream headers for a book's chapter URL (the
+     * player attaches these to the MediaItem so the CDN Referer gate is met
+     * per book, never globally). Empty for sources that serve plain GETs.
+     */
+    fun streamHeadersFor(book: AudiobookEntity, streamUrl: String): Map<String, String> =
+        headersFor(sourceTypeOfUrl(book.sourceUrl), streamUrl)
 
     /**
      * The playback-position key of a book: its current (primary) source type.
@@ -1074,6 +1091,9 @@ class AudiobookRepository(
             Log.w("AudiobookRepo", "downloadAudiobookOffline refused: book $bookId is stream-only")
             return OfflineDownloadResult(0, 0)
         }
+        // Spec-13 T2: the track CDNs (shared `redirectto.cc`) 403 without the
+        // owning source's Referer — derive it from the book, not the URL host.
+        val sourceId = streamOnlyBook?.let { sourceTypeOfUrl(it.sourceUrl) } ?: "unknown"
 
         // Use the fallback-fetching [getChaptersList], NOT a raw Room read: a
         // catalogue book's chapters live on its 4read page and are materialised
@@ -1125,10 +1145,11 @@ class AudiobookRepository(
                                     readTimeout = 20000
                                     requestMethod = "GET"
                                     setRequestProperty("User-Agent", OFFLINE_USER_AGENT)
-                                    // Spec-10 T6: some source CDNs require the
-                                    // site Referer (audiobookmp3's redirectto.cc
-                                    // 403s without it).
-                                    downloadHeadersFor(streamUrl).forEach { (k, v) ->
+                                    // Spec-10 T6 + spec-13 T2: the playerjs CDN
+                                    // (redirectto.cc) 403s without the owning
+                                    // source's Referer (audiobookmp3, sluhay,
+                                    // sluhayknigi); other CDNs need none.
+                                    headersFor(sourceId, streamUrl).forEach { (k, v) ->
                                         setRequestProperty(k, v)
                                     }
                                     instanceFollowRedirects = true

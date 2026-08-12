@@ -15,6 +15,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -76,11 +77,29 @@ class GlobalSearchRepositoryTest {
     }
 
     @Test
-    fun `default adapter registry constructs with sluhayua registered`() {
+    fun `sluhay and sluhayknigi urls map to their own sources - never the cdn`() {
+        val repository = repo()
+        // sluhay.com.ua is checked before sluhay.com (it contains it); the
+        // shared redirectto.cc CDN and the knigi domain must resolve to the
+        // right source so the Referer seam picks the owning site.
+        assertEquals("sluhay", repository.sourceTypeOfUrl("https://sluhay.com/svitova-literatura/6150-dzho-aberkrombi-trohi-nenavisti.html"))
+        assertEquals("sluhayknigi", repository.sourceTypeOfUrl("https://sluhayknigi.com/svitova-literatura/6066-klark-eshton-smit-metamorfoza-zemli.html"))
+        // The book's sourceUrl is the PAGE url (never the mp3), but a stray
+        // CDN url must still not map to sluhayua or unknown.
+        assertEquals("sluhay", repository.sourceTypeOfUrl("https://sluhay.com/uploads/books/6150/cover.webp"))
+    }
+
+    @Test
+    fun `default adapter registry constructs with sluhayua and sluhay registered`() {
         // The production default list (no injection) must build and know the
-        // sluhayua source; adapter construction is inert (no network).
+        // sluhayua + sluhay sources; adapter construction is inert (no network).
         val defaultRepo = AudiobookRepository(dao, context, autoSyncOnInit = false)
         assertEquals("sluhayua", defaultRepo.sourceTypeOfUrl("https://sluhay.com.ua/1965454:olga-kobilyanska-priroda"))
+        assertEquals("sluhay", defaultRepo.sourceTypeOfUrl("https://sluhay.com/svitova-literatura/6150-dzho-aberkrombi-trohi-nenavisti.html"))
+        // A WebView source has no server-fetch search — the registry still
+        // holds the adapter (import path), but the feed stays empty (no row).
+        val feed = defaultRepo.sourceFeeds.value
+        assertTrue(feed.none { it.sourceId == "sluhay" })
     }
 
     private fun book(title: String, author: String, sourceId: String) =

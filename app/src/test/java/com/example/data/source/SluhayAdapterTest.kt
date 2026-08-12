@@ -50,6 +50,41 @@ class SluhayAdapterTest {
     private val bookUrl = "https://sluhay.com/svitova-literatura/6150-dzho-aberkrombi-trohi-nenavisti.html"
     private val playlistUrl = "https://9giiu0g54k8c.redirectto.cc/s05/2/6/5/4/4/26544.pl.txt"
 
+    // T4 fixtures: the homepage poster-row markup captured live in the T1
+    // spike (`docs/wayfinder/research/fixtures/webview/sluhay-home.html`),
+    // trimmed to two blocks. Each block: book href, the lazy-loaded cover in
+    // `data-src` (two imgs — absolute /uploads/ then relative), a
+    // «Назва - Автор» title and slash-separated genres.
+    private val homePage = """
+        <html><body>
+        <a class="poster-item grid-item" href="https://sluhay.com/svitova-literatura/6177-zhan-kristof-granzhe-pasazhir.html">
+            <div class="poster-item__img img-fit-cover img-responsive img-responsive--portrait">
+                <img data-src="/uploads/posts/books/6177/zhan-kristof-granzhe-pasazhir.webp" src="/templates/audiobookspbn-final-light/images/no-img.png" alt="Пасажир - Жан-Крістоф Гранже (Ґранже)" class="owl-lazy">
+                <img data-src="books/6177/zhan-kristof-granzhe-pasazhir.webp" src="/templates/audiobookspbn-final-light/images/no-img.png" alt="Пасажир - Жан-Крістоф Гранже (Ґранже)" class="owl-lazy">
+            </div>
+            <div class="poster-item__desc">
+                <div class="poster-item__title">Пасажир - Жан-Крістоф Гранже (Ґранже)</div>
+                <div class="poster-item__meta">Світова література / Детектив / Драмa / Сучасна проза / Роман</div>
+            </div>
+        </a>
+        <a class="poster-item grid-item" href="https://sluhay.com/ukrayinska-literatura/6155-andrij-bachinskij-z-ejnshtejnom-u-rjukzaku.html">
+            <div class="poster-item__img img-fit-cover img-responsive img-responsive--portrait">
+                <img data-src="/uploads/posts/books/6155/andrij-bachinskij-z-ejnshtejnom-u-rjukzaku.webp" src="/templates/audiobookspbn-final-light/images/no-img.png" alt="З Ейнштейном у рюкзаку - Андрій Бачинський" class="owl-lazy">
+                <img data-src="books/6155/andrij-bachinskij-z-ejnshtejnom-u-rjukzaku.webp" src="/templates/audiobookspbn-final-light/images/no-img.png" alt="З Ейнштейном у рюкзаку - Андрій Бачинський" class="owl-lazy">
+            </div>
+            <div class="poster-item__desc">
+                <div class="poster-item__title">З Ейнштейном у рюкзаку - Андрій Бачинський</div>
+                <div class="poster-item__meta">Українська література / Повісті й оповідання / Пригоди</div>
+            </div>
+        </a>
+        </body></html>
+    """.trimIndent()
+
+    private fun adapterWithCookies(cookies: String, fetcher: FakeFetcher = FakeFetcher(emptyMap())) =
+        SluhayAdapter(fetcher, cookieProvider = { cookies })
+
+    private val homeUrl = "https://sluhay.com/"
+
     @Test
     fun `book page parses metadata and ordered chapters from the inline playlist`() = runBlocking {
         val fetcher = FakeFetcher(mapOf(bookUrl to bookPage, playlistUrl to playlistJson))
@@ -134,12 +169,71 @@ class SluhayAdapterTest {
     }
 
     @Test
-    fun `search and feed are WebView-bound - the adapter stays empty`() = runBlocking {
+    fun `search and feed are WebView-bound - no live session means no feed`() = runBlocking {
         val adapter = SluhayAdapter(FakeFetcher(emptyMap()))
 
-        // Cloudflare: discovery is in-session (T3 browser surface, T4 row).
+        // Cloudflare: search is in-session (T3 browser surface); the T4 feed
+        // needs the live session cookies, so without them it stays empty (the
+        // repository surfaces the stale-session CTA then).
         assertTrue(adapter.search("Шевченко").isEmpty())
         assertTrue(adapter.fetchNew(limit = 10).isEmpty())
         assertEquals("sluhay", adapter.sourceId)
+        assertTrue(adapter.sessionBound)
+    }
+
+    @Test
+    fun `homepage poster rows parse into native feed books`() = runBlocking {
+        val adapter = adapterWithCookies("cf_clearance=abc", FakeFetcher(mapOf(homeUrl to homePage)))
+
+        val books = adapter.fetchNew(limit = 10)
+
+        assertEquals(2, books.size)
+        // «Назва - Автор» splits on the LAST separator; cover from data-src is
+        // made absolute; genres ride along; sourceId marks the badge.
+        assertEquals("Пасажир", books[0].title)
+        assertEquals("Жан-Крістоф Гранже (Ґранже)", books[0].author)
+        assertEquals("https://sluhay.com/uploads/posts/books/6177/zhan-kristof-granzhe-pasazhir.webp", books[0].coverImageUrl)
+        assertEquals("Світова література / Детектив / Драмa / Сучасна проза / Роман", books[0].genre)
+        assertEquals("https://sluhay.com/svitova-literatura/6177-zhan-kristof-granzhe-pasazhir.html", books[0].url)
+        assertEquals("sluhay", books[0].sourceId)
+        assertEquals("З Ейнштейном у рюкзаку", books[1].title)
+        assertEquals("Андрій Бачинський", books[1].author)
+    }
+
+    @Test
+    fun `the feed sends the session cookies with the homepage request`() = runBlocking {
+        val fetcher = FakeFetcher(mapOf(homeUrl to homePage))
+        val adapter = adapterWithCookies("cf_clearance=abc; __cf_bm=xyz", fetcher)
+
+        adapter.fetchNew(limit = 10)
+
+        assertEquals(1, fetcher.recordedHeaders.size)
+        assertEquals(mapOf("Cookie" to "cf_clearance=abc; __cf_bm=xyz"), fetcher.recordedHeaders[0])
+    }
+
+    @Test
+    fun `feed stays empty when the session fetch is blocked or stale`() = runBlocking {
+        // Fresh-looking cookies but the fetch comes back empty (Cloudflare 403
+        // behind the scenes) — nothing to parse, the CTA covers it.
+        val adapter = adapterWithCookies("cf_clearance=stale", FakeFetcher(emptyMap()))
+
+        assertTrue(adapter.fetchNew(limit = 10).isEmpty())
+    }
+
+    @Test
+    fun `feed respects the limit`() = runBlocking {
+        val adapter = adapterWithCookies("cf_clearance=abc", FakeFetcher(mapOf(homeUrl to homePage)))
+
+        val books = adapter.fetchNew(limit = 1)
+
+        assertEquals(1, books.size)
+        assertEquals("Пасажир", books[0].title)
+    }
+
+    @Test
+    fun `blank homepage never throws and yields no books`() = runBlocking {
+        val adapter = adapterWithCookies("cf_clearance=abc", FakeFetcher(emptyMap()))
+
+        assertTrue(adapter.parsePosterRows("", limit = 10).isEmpty())
     }
 }

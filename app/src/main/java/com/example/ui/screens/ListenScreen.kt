@@ -182,7 +182,11 @@ fun ListenScreen(
                 item {
                     SourceFeedRow(
                         feed = feed,
-                        onBookClick = { book -> viewModel.playFromSource(feed.sourceId, book.url) }
+                        onBookClick = { book -> viewModel.playFromSource(feed.sourceId, book.url) },
+                        // Spec-13 T4: a stale-session feed row (e.g. «Нове з
+                        // Sluhay» without a live challenge) renders a CTA that
+                        // opens the source's browser surface.
+                        onOpenWebSource = onOpenWebSource
                     )
                 }
             }

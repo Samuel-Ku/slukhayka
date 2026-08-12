@@ -5,9 +5,10 @@ package com.example.data.source
  * T1 spike, 2026-08-12).
  *
  * Discovery on this source is WebView-only: sluhay.com sits behind Cloudflare,
- * so [search] and [fetchNew] stay empty — the browser surface (T3) finds the
- * book in the session, and the «Нове з Sluhay» row (T4) hydrates through the
- * session. What IS usable server-side is the audio pipeline:
+ * so [search] stays empty — the browser surface (T3) finds the book in the
+ * session, and the «Нове з Sluhay» row (T4) hydrates the homepage through the
+ * session cookies (see [fetchNew]). What IS usable server-side is the audio
+ * pipeline:
  *
  * - the book page HTML carries the playlist URL **inline** —
  *   `Playerjs({id:"playerjs1",file:"https://<hash>.redirectto.cc/s05/<id>.pl.txt"})`
@@ -23,16 +24,86 @@ package com.example.data.source
  * cover lives in the lazy-loaded `data-src` (there is NO og:image), and —
  * measured negative finding — **no narrator anywhere** (only a «Ютуб канал
  * диктора» link), so narrator stays empty.
+ *
+ * The «Нове з Sluhay» feed (T4) hydrates the homepage **through the live
+ * WebView session**: [fetchNew] server-fetches the homepage WITH the session
+ * cookies (T1 verdict: 200, cfChallenge=false — the user's session does the
+ * Cloudflare gate, no bypass). Without a live session the fetch would 403, so
+ * [fetchNew] stays empty and the feed pipeline shows the stale-session CTA.
  */
 class SluhayAdapter(
-    private val fetcher: HttpFetcher = HttpFetcher(referer = "https://sluhay.com/")
+    private val fetcher: HttpFetcher = HttpFetcher(referer = "https://sluhay.com/"),
+    /**
+     * The live WebView session's cookies for the source domain (`cf_clearance`
+     * etc. from the WebView jar). Default empty keeps the adapter pure-JVM;
+     * production wires the [android.webkit.CookieManager].
+     */
+    private val cookieProvider: () -> String = { "" }
 ) : SourceAdapter {
 
     override val sourceId: String = "sluhay"
 
+    /** Spec-13 T4: discovery is session-bound — the feed pipeline shows a CTA, never dead data. */
+    override val sessionBound: Boolean = true
+
     override suspend fun search(query: String): List<SourceBook> = emptyList()
 
-    override suspend fun fetchNew(limit: Int): List<SourceBook> = emptyList()
+    /**
+     * The «Нове з Sluhay» feed: the homepage poster rows, hydrated through the
+     * live WebView session's cookies (T1 verdict: server-fetch 200 with the
+     * session, no DOM snapshot needed). Empty without a session or on a
+     * blocked/stale fetch — the repository surfaces the CTA row then.
+     */
+    override suspend fun fetchNew(limit: Int): List<SourceBook> {
+        val cookies = cookieProvider().trim()
+        // No live session: Cloudflare would 403, so there is nothing to parse.
+        if (cookies.isBlank()) return emptyList()
+        val html = fetcher.getText(HOME_URL, mapOf("Cookie" to cookies))
+        if (html.isEmpty()) return emptyList()
+        return parsePosterRows(html, limit)
+    }
+
+    /**
+     * Pure homepage poster-row parse — the T4 fixture seam. `poster-item
+     * grid-item` blocks carry the book url, a `Назва - Автор` title, the cover
+     * in `data-src` and slash-separated genres (T1 spike markup). Never
+     * throws; absent stays absent.
+     */
+    internal fun parsePosterRows(html: String, limit: Int): List<SourceBook> {
+        if (html.isBlank()) return emptyList()
+        val books = mutableListOf<SourceBook>()
+        val starts = POSTER_START.findAll(html).map { it.range.first }.toList()
+        for (i in starts.indices) {
+            if (books.size >= limit) break
+            val from = starts[i]
+            val to = if (i + 1 < starts.size) starts[i + 1] else html.length
+            val block = html.substring(from, to)
+
+            val url = POSTER_HREF.find(block)?.groupValues?.get(1) ?: continue
+            val rawTitle = POSTER_TITLE.find(block)?.groupValues?.get(1)?.trim().orEmpty()
+            if (rawTitle.length < 3) continue
+            // Title is «Назва - Автор»; split on the LAST separator so a title
+            // that itself contains " - " keeps its real author.
+            val author = rawTitle.substringAfterLast(" - ").trim()
+            val title = rawTitle.substringBeforeLast(" - ").trim().ifBlank { rawTitle }
+            val cover = POSTER_COVER.find(block)?.groupValues?.get(1)
+                ?.takeIf { it.startsWith("/uploads/") }
+                ?.let { "https://sluhay.com$it" }
+            val genres = POSTER_META.find(block)?.groupValues?.get(1)?.trim().orEmpty()
+
+            books.add(
+                SourceBook(
+                    title = title,
+                    author = author,
+                    url = url,
+                    coverImageUrl = cover,
+                    genre = genres,
+                    sourceId = sourceId
+                )
+            )
+        }
+        return books
+    }
 
     override suspend fun fetchBookPage(url: String): SourceBookDetail {
         val html = fetcher.getText(url)
@@ -146,6 +217,17 @@ class SluhayAdapter(
     }
 
     private companion object {
+        const val HOME_URL = "https://sluhay.com/"
+
+        // The homepage poster rows (T1 spike): each block starts at
+        // `<a class="poster-item grid-item" href=…>`, the title/meta live in
+        // poster-item__* divs and the cover in the first lazy-loaded data-src.
+        val POSTER_START = Regex("""<a class="poster-item grid-item"""", RegexOption.IGNORE_CASE)
+        val POSTER_HREF = Regex("""href="(https://sluhay\.com/[^"]+\.html)"""", RegexOption.IGNORE_CASE)
+        val POSTER_TITLE = Regex("""poster-item__title[^>]*>\s*([^<]+?)\s*<""", RegexOption.IGNORE_CASE)
+        val POSTER_META = Regex("""poster-item__meta[^>]*>\s*([^<]+?)\s*<""", RegexOption.IGNORE_CASE)
+        val POSTER_COVER = Regex("""<img[^>]+data-src="(/uploads/[^"]+)"[^>]*>""", RegexOption.IGNORE_CASE)
+
         val PLAYLIST_URL = Regex(
             """(https://[a-z0-9]+\.redirectto\.cc/[^"'<>\s]+\.pl\.txt)""",
             RegexOption.IGNORE_CASE

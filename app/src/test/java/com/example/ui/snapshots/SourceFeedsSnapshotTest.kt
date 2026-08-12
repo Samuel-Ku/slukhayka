@@ -59,6 +59,26 @@ class SourceFeedsSnapshotTest {
             filePath = "src/test/snapshots/source_feed_row.png"
         )
     }
+
+    @Test
+    fun stale_session_row_renders_cta_instead_of_dead_data() {
+        val stale = SourceNewFeed(
+            sourceId = "sluhay",
+            sourceName = "Sluhay",
+            books = emptyList(),
+            sessionBound = true
+        )
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                SourceFeedsSurface {
+                    SourceFeedRow(feed = stale, onBookClick = {}, onOpenWebSource = {})
+                }
+            }
+        }
+        composeTestRule.onRoot().captureRoboImage(
+            filePath = "src/test/snapshots/source_feed_stale_session_row.png"
+        )
+    }
 }
 
 /** Same chrome as the other snapshot tests: scheme background, full size. */

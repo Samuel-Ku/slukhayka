@@ -90,6 +90,14 @@ interface SourceAdapter {
     suspend fun fetchNew(limit: Int = 20): List<SourceBook>
 
     /**
+     * WebView-pattern sources (spec-13): discovery only works through the
+     * live browser session (Cloudflare). The feed pipeline turns an
+     * absent/stale session into a «відкрити джерело, щоб оновити» CTA row
+     * instead of silently dropping the source.
+     */
+    val sessionBound: Boolean get() = false
+
+    /**
      * The stable Work id for [url], produced in exactly this one place
      * (spec-14 T5): no import door derives ids itself. The default is the
      * generic "<sourceId>-<slug>" scheme; sources with a catalogue slug

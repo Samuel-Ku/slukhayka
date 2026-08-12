@@ -406,6 +406,53 @@ class AudioPlayerManagerTest {
         assertFalse("the engine survives for future books", engine.isReleased)
     }
 
+    // ---------------------------------------------------------------------
+    // Spec-13 T2 — per-source stream headers: the manager applies the book's
+    // source Referer as default request properties BEFORE each chapter prepare
+    // (the shared redirectto.cc CDN 403s without it), and resets to empty for
+    // sources that serve plain GETs. No headers ever leak onto hosts that need
+    // none (SEC-004).
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `sluhay book applies the sluhay referer as the stream headers`() = playerTest { manager, _ ->
+        // Arrange — a book whose primary source is sluhay.com.
+        val sluhayBook = book.copy(
+            sourceUrl = "https://sluhay.com/svitova-literatura/6150-dzho-aberkrombi-trohi-nenavisti.html"
+        )
+
+        // Act
+        manager.loadAndPlayBook(sluhayBook, chapters, initialChapterIndex = 0, autoPlay = false)
+
+        // Assert — the shared CDN gate is met per book, never globally.
+        assertEquals(
+            mapOf("Referer" to "https://sluhay.com/"),
+            manager.lastAppliedStreamHeaders
+        )
+    }
+
+    @Test
+    fun `audiobookmp3 book applies its own referer on the same cdn family`() = playerTest { manager, _ ->
+        val mp3Book = book.copy(
+            sourceUrl = "https://audiobook-mp3.com/uk/1/2/3.html"
+        )
+
+        manager.loadAndPlayBook(mp3Book, chapters, initialChapterIndex = 0, autoPlay = false)
+
+        assertEquals(
+            mapOf("Referer" to "https://audiobook-mp3.com/uk"),
+            manager.lastAppliedStreamHeaders
+        )
+    }
+
+    @Test
+    fun `plain-get sources apply no stream headers`() = playerTest { manager, _ ->
+        // The fixture book points at fixtures.4read.invalid — a plain-GET host.
+        manager.loadAndPlayBook(book, chapters, initialChapterIndex = 0, autoPlay = false)
+
+        assertTrue("no Referer may leak onto plain-GET hosts", manager.lastAppliedStreamHeaders.isEmpty())
+    }
+
     @Test
     fun `playback speed reaches the engine`() = playerTest { manager, factory ->
         // Arrange

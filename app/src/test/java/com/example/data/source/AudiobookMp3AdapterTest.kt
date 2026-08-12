@@ -27,6 +27,11 @@ class AudiobookMp3AdapterTest {
 
     private val homepage = """
         <html><body>
+        <article class="abook-item">
+        <a class="image-abook" href="/uk-audio-6163-andrij-kokotjuha-klub-bojaguziv" title="Слухати аудіокнигу Клуб боягузів онлайн">
+            <img class="b-showshort__cover_image" title="слухати аудіокнигу Клуб боягузів" src="https://cdn.audiobook-mp3.com/audiobooks/uk/6/1/6/3/andrij-kokotjuha-klub-bojaguziv.webp" alt="Аудіокнига Клуб боягузів">
+        </a>
+        </article>
         <a href="/uk-audio-6163-andrij-kokotjuha-klub-bojaguziv">Андрій Кокотюха - Клуб боягузів</a>
         <a href="/uk-audio-1246-dzhek-london-zhaga-do-zhittja">Джек Лондон - Жага до життя</a>
         <a href="/uk-audio-6175-filis-doroti-dzheims-dim-tvoiei-mrii">Філіс Дороті Джеймс - Дім твоєї мрії</a>
@@ -74,8 +79,14 @@ class AudiobookMp3AdapterTest {
         // «Автор - Назва» in real Cyrillic, no page fetch needed.
         assertEquals("Клуб боягузів", books[0].title)
         assertEquals("Андрій Кокотюха", books[0].author)
+        assertEquals(
+            "https://cdn.audiobook-mp3.com/audiobooks/uk/6/1/6/3/andrij-kokotjuha-klub-bojaguziv.webp",
+            books[0].coverImageUrl
+        )
+        // Entries without a cover tile keep a null cover.
         assertEquals("Жага до життя", books[1].title)
         assertEquals("Джек Лондон", books[1].author)
+        assertEquals(null, books[1].coverImageUrl)
         assertEquals("Дім твоєї мрії", books[2].title)
     }
 }

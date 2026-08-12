@@ -34,6 +34,7 @@ class SoundBooksAdapterTest {
     // «Назва - Автор» tile — both pointing at the same url (real markup).
     private val homepage = """
         <html><body>
+        <a class="short-img img-fit" href="https://sound-books.net/zarubizhna-literatura/2851-temna-materiia.html"><img data-src="/uploads/posts/2026-07/bleik-krauch-temna-materiia.webp" alt="Темна матерія"></a>
         <a class="short-title" href="https://sound-books.net/zarubizhna-literatura/2851-temna-materiia.html">Темна матерія 15.07.26 970 2</a>
         <a class="short-title" href="https://sound-books.net/zarubizhna-literatura/2851-temna-materiia.html">Темна матерія - Блейк Крауч</a>
         <a class="short-title" href="https://sound-books.net/ukrainska-literatura/2850-statut-vnutrishnoi-sluzhby-zbroinykh-syl-ukrainy.html">Статут внутрішньої служби Збройних Сил України</a>
@@ -85,8 +86,15 @@ class SoundBooksAdapterTest {
         assertEquals("Блейк Крауч", books[0].author)
         assertEquals("https://sound-books.net/zarubizhna-literatura/2851-temna-materiia.html", books[0].url)
         assertEquals("soundbooks", books[0].sourceId)
-        // An anchor without a separator stays a title-only entry.
+        // The cover tile's poster rides along (relative path -> absolute).
+        assertEquals(
+            "https://sound-books.net/uploads/posts/2026-07/bleik-krauch-temna-materiia.webp",
+            books[0].coverImageUrl
+        )
+        // An anchor without a separator stays a title-only entry; the entry
+        // without a cover tile keeps a null cover.
         assertEquals("Статут внутрішньої служби Збройних Сил України", books[1].title)
         assertEquals("", books[1].author)
+        assertEquals(null, books[1].coverImageUrl)
     }
 }

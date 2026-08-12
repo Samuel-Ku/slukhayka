@@ -64,6 +64,16 @@ class SoundBooksAdapter(
     override suspend fun fetchNew(limit: Int): List<SourceBook> {
         val html = fetcher.getText("https://sound-books.net/")
         if (html.isEmpty()) return emptyList()
+        // The cover tile carries the poster: <a class="short-img" href="…">
+        // <img data-src="/uploads/posts/…"></a> — a relative path on this site.
+        val covers = mutableMapOf<String, String>()
+        COVER_TILE.findAll(html).forEach { m ->
+            val url = m.groupValues[1]
+            if (!covers.containsKey(url)) {
+                val img = m.groupValues[2]
+                covers[url] = if (img.startsWith("http")) img else "https://sound-books.net$img"
+            }
+        }
         // Each entry renders twice on the homepage: a cover tile with a bare
         // title plus a «Назва - Автор» tile. Keep one row per url, preferring
         // the author-bearing anchor so the Work-level merge can form.
@@ -86,7 +96,8 @@ class SoundBooksAdapter(
                     .ifBlank { slugTitle(url) },
                 author = if (sep >= 0) anchor.substring(sep + 3).trim() else "",
                 url = url,
-                sourceId = sourceId
+                sourceId = sourceId,
+                coverImageUrl = covers[url]
             )
         }
     }
@@ -111,6 +122,7 @@ class SoundBooksAdapter(
         // Real tiles carry attributes before href (`<a class="short-title" href=…>`),
         // so the anchor tag is matched loosely.
         val BOOK_LINK = Regex("""<a\s+[^>]*href="(https://sound-books\.net/[^"]+\.html)"[^>]*>(.*?)</a>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+        val COVER_TILE = Regex("""<a\s+class="short-img[^"]*"\s+href="(https://sound-books\.net/[^"]+\.html)"[^>]*>\s*<img[^>]*(?:data-src|src)="([^"]+)"""", RegexOption.IGNORE_CASE)
         val AUTHOR_MARK = Regex("""Автор:\s*([^.<]{2,80})""", RegexOption.IGNORE_CASE)
         val NARRATOR_MARK = Regex("""Читає:\s*([^.<]{2,80})""", RegexOption.IGNORE_CASE)
         val JSONLD_AUTHOR = Regex(""""author"\s*:\s*"([^"]+)"""", RegexOption.IGNORE_CASE)

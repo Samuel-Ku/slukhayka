@@ -11,6 +11,7 @@ import com.example.data.source.SourceBookDetail
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -49,14 +50,22 @@ class SourceFeedsRepositoryTest {
     private class FakeAdapter(
         override val sourceId: String,
         private val feedBooks: List<SourceBook>,
-        private val failFetchNew: Boolean = false
+        private val failFetchNew: Boolean = false,
+        private val sessionBoundFeed: Boolean = false
     ) : SourceAdapter {
+        // Spec-13 T4: counts fetchNew calls so the session-bound re-hydration
+        // (skip TTL cache) is observable at the repository seam.
+        var fetchNewCalls = 0
+
+        override val sessionBound: Boolean get() = sessionBoundFeed
+
         override suspend fun search(query: String): List<SourceBook> = emptyList()
 
         override suspend fun fetchBookPage(url: String): SourceBookDetail =
             SourceBookDetail("", "", url = url, chapters = emptyList())
 
         override suspend fun fetchNew(limit: Int): List<SourceBook> {
+            fetchNewCalls += 1
             if (failFetchNew) throw java.io.IOException("fixture failure")
             return feedBooks
         }
@@ -122,5 +131,55 @@ class SourceFeedsRepositoryTest {
         // 4read's «Нове» is already covered by the «Нове на 4read» rows.
         assertTrue(feeds.none { it.sourceId == "4read" })
         assertEquals(listOf("soundbooks"), feeds.map { it.sourceId })
+    }
+
+    // ---------------------------------------------------------------------
+    // spec-13 T4: session-bound (WebView-pattern) sources — a missing/stale
+    // session publishes the CTA row instead of dropping the source; a live
+    // session publishes a normal row; every refresh re-hydrates (no TTL cache).
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `a session-bound source with no live session publishes the stale CTA row`() = runBlocking {
+        val repository = repo(
+            FakeAdapter("sluhay", emptyList(), sessionBoundFeed = true),
+            FakeAdapter("soundbooks", listOf(book("soundbooks", "Темна матерія")))
+        )
+
+        val feeds = repository.refreshSourceFeeds()
+
+        val sluhay = feeds.first { it.sourceId == "sluhay" }
+        assertTrue(sluhay.sessionBound)
+        assertTrue(sluhay.books.isEmpty())
+        assertEquals("Sluhay", sluhay.sourceName)
+        // The other, non-session-bound source still renders its normal row.
+        assertTrue(feeds.any { it.sourceId == "soundbooks" && !it.sessionBound })
+    }
+
+    @Test
+    fun `a session-bound source with a live session publishes a normal row`() = runBlocking {
+        val repository = repo(FakeAdapter("sluhay", listOf(book("sluhay", "Пасажир")), sessionBoundFeed = true))
+
+        val feeds = repository.refreshSourceFeeds()
+
+        val sluhay = feeds.single()
+        assertFalse(sluhay.sessionBound)
+        assertEquals(1, sluhay.books.size)
+        assertEquals("Пасажир", sluhay.books.single().title)
+    }
+
+    @Test
+    fun `a session-bound source re-hydrates on every refresh - no stale TTL cache`() = runBlocking {
+        val sluhay = FakeAdapter("sluhay", emptyList(), sessionBoundFeed = true)
+        val soundbooks = FakeAdapter("soundbooks", listOf(book("soundbooks", "Темна матерія")))
+        val repository = repo(sluhay, soundbooks)
+
+        repository.refreshSourceFeeds()
+        repository.refreshSourceFeeds()
+
+        // The session-bound source re-fetches each time (a fresh challenge must
+        // surface immediately); the TTL-cached source is fetched only once.
+        assertEquals(2, sluhay.fetchNewCalls)
+        assertEquals(1, soundbooks.fetchNewCalls)
     }
 }

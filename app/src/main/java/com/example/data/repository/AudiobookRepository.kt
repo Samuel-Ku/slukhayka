@@ -63,7 +63,15 @@ class AudiobookRepository(
         AudiobookMp3Adapter(),
         LihtarAdapter(),
         SluhayuaAdapter(),
-        SluhayAdapter()
+        // Spec-13 T4: the «Нове з Sluhay» feed hydrates the homepage through
+        // the live WebView session — the adapter carries the session's cookies
+        // from the WebView jar (cf_clearance etc.). The lambda only runs on
+        // fetchNew (Android-side), so JVM fixture tests stay free of WebView.
+        SluhayAdapter(cookieProvider = {
+            runCatching {
+                android.webkit.CookieManager.getInstance().getCookie("https://sluhay.com/")
+            }.getOrNull().orEmpty()
+        })
     )
 ) {
 
@@ -241,11 +249,17 @@ class AudiobookRepository(
 
     private val newFeedCache = java.util.concurrent.ConcurrentHashMap<String, CachedFeed>()
 
-    /** One «Нове з джерела» feed row (spec-10 T5): a source and its recent books. */
+    /**
+     * One «Нове з джерела» feed row (spec-10 T5): a source and its recent
+     * books. For a session-bound source (spec-13 T4, WebView pattern) with no
+     * live session the books stay empty and [sessionBound] is set — the UI
+     * renders a «відкрити джерело, щоб оновити» CTA instead of dead data.
+     */
     data class SourceNewFeed(
         val sourceId: String,
         val sourceName: String,
-        val books: List<SourceBook>
+        val books: List<SourceBook>,
+        val sessionBound: Boolean = false
     )
 
     // Spec-10 T5: per-source «Нове з кожного джерела» rows for the Listen
@@ -270,8 +284,19 @@ class AudiobookRepository(
         _isFeedsLoading.value = true
         try {
             val feeds = feedAdapters.mapNotNull { adapter ->
-                val books = newFeedFor(adapter).take(20)
-                if (books.isEmpty()) null else SourceNewFeed(adapter.sourceId, sourceDisplayName(adapter.sourceId), books)
+                // Session-bound sources re-hydrate on every refresh (skip the
+                // TTL cache): a fresh challenge session must surface the row
+                // immediately, never a stale empty cache.
+                val books = newFeedFor(adapter, skipCache = adapter.sessionBound).take(20)
+                when {
+                    books.isNotEmpty() ->
+                        SourceNewFeed(adapter.sourceId, sourceDisplayName(adapter.sourceId), books)
+                    adapter.sessionBound ->
+                        // No live session (Cloudflare): the CTA row guides the
+                        // user to open the source's browser surface.
+                        SourceNewFeed(adapter.sourceId, sourceDisplayName(adapter.sourceId), emptyList(), sessionBound = true)
+                    else -> null
+                }
             }
             _sourceFeeds.value = feeds
             feeds
@@ -280,10 +305,12 @@ class AudiobookRepository(
         }
     }
 
-    private suspend fun newFeedFor(adapter: SourceAdapter): List<SourceBook> {
+    private suspend fun newFeedFor(adapter: SourceAdapter, skipCache: Boolean = false): List<SourceBook> {
         val now = System.currentTimeMillis()
-        newFeedCache[adapter.sourceId]?.let { cached ->
-            if (now - cached.fetchedAt < NEW_FEED_TTL_MS) return cached.books
+        if (!skipCache) {
+            newFeedCache[adapter.sourceId]?.let { cached ->
+                if (now - cached.fetchedAt < NEW_FEED_TTL_MS) return cached.books
+            }
         }
         val books = try {
             adapter.fetchNew()

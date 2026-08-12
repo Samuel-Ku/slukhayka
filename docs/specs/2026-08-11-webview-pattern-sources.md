@@ -1,6 +1,8 @@
 # [Spec] WebView-pattern sources: sluhay.com (first) — 2026-08-11
 
 > **Status:** Approved — decisions from the wayfinder #70 grilling chain (#71 verdict PASS, #72 research, #73 UX self-grilling 2026-08-11). Adapter-first, similar shape to spec-11.
+>
+> **T1 implemented (2026-08-12)** — sluhayknigi spike closed (#78): same mp3 + Referer pattern as sluhay.com, playlist URL inline in page HTML, hydrate = server-fetch 200 with session cookies on BOTH sites, og:title/og:url/og:description confirmed (no og:image, no narrator). Asset: `docs/wayfinder/research/sluhayknigi-spike.md`, fixtures in `docs/wayfinder/research/fixtures/webview/`.
 > **Tracker:** filed as `spec-13` issues (`spec-13` + `ready-for-agent` labels).
 
 ## Problem Statement
@@ -69,7 +71,7 @@ Add sluhay.com as the first WebView-pattern source: a fullscreen per-source brow
 
 ## Tickets
 
-- **T1 — sluhayknigi spike + page-metadata fixtures + hydrate mechanics** (research, AFK+HITL): measure sluhayknigi.com's player format (same mp3 + Referer, or m3u8/other) via the #71 prototype mechanics; confirm `og:` metadata conventions on sluhay.com and sluhayknigi.com book pages; **and decide the «Нове з Sluhay» hydrate path** — does the homepage HTML answer 200 to the app's HTTP stack with the session's cookies + UA (then server-fetch hydration works), or only inside the WebView (DOM snapshot)? Capture fixtures. No blockers.
+- **T1 ✅ — sluhayknigi spike + page-metadata fixtures + hydrate mechanics** (research, AFK+HITL, closed #78 2026-08-12): sluhayknigi format = same mp3 + Referer as sluhay.com; **playlist URL inline in book page HTML** (`Playerjs({…file:"<id>.pl.txt"})`); hydrate verdict = **server-fetch 200 with session cookies on both sites** (`cfChallenge=false`); og:title/og:url/og:description confirmed, **no og:image** (cover in `data-src`), **no narrator in og-tags** (only «Ютуб канал диктора» link). Fixtures committed; verdict in `research/sluhayknigi-spike.md`.
 - **T2 — WebView source: interception + metadata + per-source headers** (task): interception layer (shouldInterceptRequest → ordered chapters), page metadata → SourceBookDetail, the source-aware Referer seam threaded into streaming and download paths (fixing the latent audiobookmp3 streaming gap), fixture tests. Blocked by T1.
 - **T3 — Browser surface + wiring** (task): fullscreen per-source browser (per #73 decisions), «Додати до медіатеки» panel, registry + badge «Sluhay», device check. Blocked by T2.
 - **T4 — Native «Нове з Sluhay» row** (task): hydrate the homepage through the live WebView session per the T1 verdict (server-fetch with cookies, or DOM snapshot), parse the poster rows like `FourReadAdapter`, show the native row on the Listen tab with a stale-cookie CTA; refresh on fresh sessions. Blocked by T3.

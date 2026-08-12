@@ -106,6 +106,27 @@ fun BookDetailScreen(
                             )
                         }
                     }
+                    // Spec-13 T3: a WebView-source book opens the source's own
+                    // browser surface (the site needs the session past CF).
+                    if (currentBook.sourceUrl.contains("sluhay.com") &&
+                        !currentBook.sourceUrl.contains("sluhay.com.ua")
+                    ) {
+                        IconButton(
+                            onClick = {
+                                viewModel.openWebSource(
+                                    sourceId = "sluhay",
+                                    homeUrl = "https://sluhay.com/",
+                                    displayName = "Sluhay"
+                                )
+                            }
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                                contentDescription = "Відкрити на Sluhay",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
                     if (!streamOnly) {
                         IconButton(
                             onClick = {

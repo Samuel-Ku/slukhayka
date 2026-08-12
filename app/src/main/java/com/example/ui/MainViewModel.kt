@@ -42,6 +42,13 @@ data class SelectedSeries(
     val url: String
 )
 
+/** A WebView-pattern source's browser surface (spec-13 T3). */
+data class SelectedWebSource(
+    val sourceId: String,
+    val homeUrl: String,
+    val displayName: String
+)
+
 /** A genre (category) opened from the Explore "Жанри" chips row. */
 data class SelectedGenre(
     val title: String,
@@ -193,6 +200,41 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun closeWebFallback() {
         _webFallbackUrl.value = null
+    }
+
+    // Spec-13 T3: a WebView-pattern source's browser surface (sluhay.com
+    // first; sluhayknigi joins later). A fullscreen pushed destination, NOT a
+    // tab and NOT a bottom sheet (#73 decisions). The source id + home URL
+    // drive the whole surface; the source's own search/browse happens
+    // in-session.
+    private val _selectedWebSource = MutableStateFlow<SelectedWebSource?>(null)
+    val selectedWebSource: StateFlow<SelectedWebSource?> = _selectedWebSource.asStateFlow()
+
+    fun openWebSource(sourceId: String, homeUrl: String, displayName: String) {
+        _selectedWebSource.value = SelectedWebSource(sourceId, homeUrl, displayName)
+    }
+
+    fun closeWebSource() {
+        _selectedWebSource.value = null
+    }
+
+    /**
+     * Spec-13 T3 — «Додати до медіатеки» from the browser surface: the page
+     * HTML captured in the session is imported through the adapter (metadata +
+     * inline playlist) and plays through the app player.
+     */
+    fun importWebSourcePage(sourceId: String, url: String, html: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val book = try {
+                repository.importWebSourcePage(sourceId, url, html)
+            } catch (e: Exception) {
+                null
+            }
+            if (book != null) {
+                playAudiobook(book)
+                _showFullPlayer.value = true
+            }
+        }
     }
 
     // Series pages (spec #8 ticket T8).

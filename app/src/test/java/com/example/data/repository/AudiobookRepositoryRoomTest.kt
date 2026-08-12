@@ -467,6 +467,51 @@ class AudiobookRepositoryRoomTest {
         assertEquals(39438L, stored.totalDurationSeconds)
     }
 
+    // ---------------------------------------------------------------------
+    // spec-14 T3: the link-import door rides the seam — import-by-URL goes
+    // through the adapter's fetchBookPage + the shared import path, never the
+    // repository's private extraction.
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `importAudiobookFrom4ReadUrl imports through the adapter with the enriched profile`() = runBlocking {
+        val repo = fourReadRepo()
+
+        val book = repo.importAudiobookFrom4ReadUrl("https://4read.org/7589-neostannij-bij.html")
+
+        // Extracted by the adapter: real title/author/narrator/chapters.
+        assertEquals("Неостанній бій", book.title)
+        assertEquals("Костянтин Шелест", book.author)
+        assertEquals("Валерій Завалко", book.narrator)
+        assertEquals(4.9f, book.rating)
+        assertEquals("Максим Темний", book.seriesTitle)
+        val chapters = dao.getChaptersListForBook(book.id)
+        assertEquals(1, chapters.size)
+        assertEquals("https://4read.org/uploads/audio/7589/01.mp3", chapters.single().streamUrl)
+        // The shared import path writes the source row too.
+        val sources = dao.getSourcesForBookSync(book.id)
+        assertEquals(1, sources.size)
+        assertEquals("4read", sources.single().type)
+    }
+
+    @Test
+    fun `importAudiobookFrom4ReadUrl falls back to a card when the page yields nothing playable`() = runBlocking {
+        val fetcher = com.example.testing.FakeFetcher(emptyMap())
+        val repo = AudiobookRepository(
+            dao, context, autoSyncOnInit = false,
+            sourceAdapters = listOf(com.example.data.source.FourReadAdapter(fetcher))
+        )
+
+        // A slug with no fixture returns an empty page → the adapter finds no
+        // chapters → the door still returns a minimal card (non-null contract).
+        val book = repo.importAudiobookFrom4ReadUrl("https://4read.org/unknown-book.html")
+
+        assertEquals("4read-unknown-book", book.id)
+        assertEquals("https://4read.org/unknown-book.html", book.sourceUrl)
+        assertEquals(0, book.totalChapters)
+    }
+
+
     @Test
     fun `fetchRelatedBooks upserts related posters through the adapter seam`() = runBlocking {
         val repo = fourReadRepo()

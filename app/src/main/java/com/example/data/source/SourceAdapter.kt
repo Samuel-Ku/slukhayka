@@ -32,14 +32,40 @@ data class SourceChapter(
     val durationSeconds: Long = 0L
 )
 
-/** Full parse of a source book page: cover + ordered chapters. */
+/** A series (cycle) reference parsed from a source book page. */
+data class SeriesRef(
+    val name: String,
+    /** Volume number when the page carries one; null when absent (never 0). */
+    val position: Int? = null,
+    val url: String? = null
+)
+
+/** One related-book card from a source page's "you may also like" section. */
+data class RelatedBook(
+    val title: String,
+    val author: String = "",
+    val url: String,
+    val coverImageUrl: String? = null
+)
+
+/**
+ * Full parse of a source book page (spec-14 T1): cover, ordered chapters and
+ * the enriched profile — rating, genres, series, related books. Fields the
+ * page does not provide are absent (null/empty), never fabricated.
+ */
 data class SourceBookDetail(
     val title: String,
     val author: String,
     val narrator: String = "",
     val url: String,
     val coverImageUrl: String? = null,
-    val chapters: List<SourceChapter>
+    val chapters: List<SourceChapter>,
+    /** Real total duration from the page ("Триває:" / schema.org), null when absent. */
+    val totalDurationSeconds: Long? = null,
+    val rating: Double? = null,
+    val genres: List<String> = emptyList(),
+    val series: SeriesRef? = null,
+    val related: List<RelatedBook> = emptyList()
 )
 
 /**

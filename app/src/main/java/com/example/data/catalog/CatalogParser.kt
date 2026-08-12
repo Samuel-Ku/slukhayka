@@ -414,7 +414,8 @@ object CatalogParser {
         }
     }
 
-    private fun bookId(url: String): String {
+    /** The "4read-slug" book id scheme — produced in exactly this one place. */
+    internal fun bookId(url: String): String {
         val slug = url.removePrefix("https://4read.org/").removeSuffix(".html")
         return "4read-$slug"
     }

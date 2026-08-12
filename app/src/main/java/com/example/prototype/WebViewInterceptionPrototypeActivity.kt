@@ -13,6 +13,7 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Button
+import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -38,6 +39,16 @@ import java.util.concurrent.CopyOnWriteArrayList
  *     ExoPlayer playback, both with the WebView's cookies + UA on the app's
  *     own HTTP stack (the research #72 risk: cf_clearance is bound to the
  *     WebView's TLS fingerprint, so a different stack may get 403).
+ *
+ * Spec-13 T1 (#78) additions:
+ *  4. hydrate-path verdict — can the app's HTTP stack fetch the homepage
+ *     HTML with the session cookies + UA (server-fetch hydration works) or
+ *     does CF still 403 it (WebView-only, DOM snapshot required)? Buttons
+ *     probe sluhay.com/ and sluhayknigi.com/ with the WebView jar cookies;
+ *  5. page-metadata conventions — «Захопити HTML+og» saves the current
+ *     page's rendered DOM to filesDir (adb pull) and logs the og: tags, for
+ *     the T2/T4 parser fixtures;
+ *  6. URL bar to navigate to sluhayknigi.com and any book page.
  *
  * Run: adb install the debug APK, then
  *   adb shell am start -n com.aistudio.audiobook.read/.prototype.WebViewInterceptionPrototypeActivity
@@ -140,13 +151,31 @@ class WebViewInterceptionPrototypeActivity : Activity() {
             setPadding(12, 8, 12, 8)
         }
 
+        val urlBar = EditText(this).apply {
+            setText("https://sluhayknigi.com/")
+            hint = "URL"
+            setSingleLine(true)
+        }
+        val btnGo = Button(this).apply { text = "Перейти" }
+        btnGo.setOnClickListener {
+            val target = urlBar.text.toString().trim()
+            if (target.isNotBlank()) {
+                log("[NAV] $target")
+                webView.loadUrl(if (target.startsWith("http")) target else "https://$target")
+            }
+        }
+        val urlRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            addView(urlBar, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            addView(btnGo, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 0f))
+        }
+
         val btnProbe = Button(this).apply { text = "HTTP-проба (власний стек)" }
         val btnPlay = Button(this).apply { text = "Програти через ExoPlayer" }
         val btnClear = Button(this).apply { text = "Очистити лог" }
         btnProbe.setOnClickListener { probeLastAudioUrl() }
         btnPlay.setOnClickListener { playLastAudioUrl() }
         btnClear.setOnClickListener { requestLog.clear(); renderLog() }
-
         val buttons = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             addView(btnProbe, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
@@ -154,10 +183,27 @@ class WebViewInterceptionPrototypeActivity : Activity() {
             addView(btnClear, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         }
 
+        val btnHomeS = Button(this).apply { text = "Проба sluhay.com/ (cookie+UA)" }
+        val btnHomeK = Button(this).apply { text = "Проба sluhayknigi.com/ (cookie+UA)" }
+        val btnCapture = Button(this).apply { text = "Захопити HTML+og поточної сторінки" }
+        btnHomeS.setOnClickListener { probeUrl("https://sluhay.com/") }
+        btnHomeK.setOnClickListener { probeUrl("https://sluhayknigi.com/") }
+        btnCapture.setOnClickListener { captureCurrentPage() }
+        val row2 = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            addView(btnHomeS, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            addView(btnHomeK, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        }
+
         root.addView(webView)
         root.addView(statusView)
         root.addView(logScroll)
         root.addView(buttons)
+        root.addView(row2)
+        root.addView(btnCapture, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ))
+        root.addView(urlRow)
         setContentView(root)
 
         log("[PROTOTYPE] start. Load https://sluhay.com/ …")
@@ -170,6 +216,82 @@ class WebViewInterceptionPrototypeActivity : Activity() {
         webView.stopLoading()
         webView.destroy()
         super.onDestroy()
+    }
+
+    /**
+     * Spec-13 T1 hydrate verdict: does the app's HTTP stack (same UA, plus
+     * the WebView jar cookies) get 200 from these CF-gated hosts, or does CF
+     * still 403? 200 → server-fetch hydration of the homepage works; 403 →
+     * hydration must go through the live WebView (DOM snapshot).
+     */
+    private fun probeUrl(targetUrl: String) {
+        log("[PROBE_HOME] start $targetUrl")
+        updateStatus("Проба $targetUrl …")
+        Thread {
+            val result = runCatching {
+                val conn = URL(targetUrl).openConnection() as HttpURLConnection
+                conn.requestMethod = "GET"
+                conn.setRequestProperty("User-Agent", ua)
+                conn.setRequestProperty("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                val cookie = CookieManager.getInstance().getCookie(targetUrl)
+                if (!cookie.isNullOrBlank()) conn.setRequestProperty("Cookie", cookie)
+                conn.connectTimeout = 15000
+                conn.readTimeout = 15000
+                val status = conn.responseCode
+                val server = conn.getHeaderField("Server") ?: ""
+                val type = conn.contentType ?: ""
+                val body = if (status == 200) {
+                    conn.inputStream.bufferedReader().use { it.readText() }
+                } else {
+                    runCatching { conn.errorStream?.bufferedReader()?.use { it.readText() } }.getOrNull() ?: ""
+                }
+                conn.disconnect()
+                val isCfChallenge = body.contains("Just a moment") || body.contains("challenge-platform")
+                "status=$status type=$type server=$server cookie=${if (cookie.isNullOrBlank()) "none" else "present(${cookie.split(";").size} jars)"} cfChallenge=$isCfChallenge bytes=${body.length}"
+            }.getOrElse { e -> "ERROR: ${e.javaClass.simpleName}: ${e.message}" }
+            runOnUiThread {
+                log("[PROBE_HOME] $result")
+                updateStatus("Проба: $result")
+            }
+        }.start()
+    }
+
+    /** Saves the current page's rendered DOM to filesDir and logs the og: tags. */
+    private fun captureCurrentPage() {
+        val host = runCatching { URL(webView.url ?: "").host }.getOrNull() ?: "page"
+        log("[CAPTURE] reading DOM of $host …")
+        updateStatus("Захоплення HTML+og …")
+        webView.evaluateJavascript(
+            "(function(){var h=document.head||document;" +
+                "var og={};var ms=h.querySelectorAll('meta');" +
+                "for(var i=0;i<ms.length;i++){var p=ms[i].getAttribute('property')||ms[i].getAttribute('name');" +
+                "if(p&&(p.indexOf('og:')===0||p==='description')){og[p]=ms[i].getAttribute('content');}}" +
+                "return JSON.stringify({og:og,html:document.documentElement.outerHTML});})()"
+        ) { raw ->
+            val decoded = raw?.removePrefix("\"")?.removeSuffix("\"")
+                ?.replace("\\\\", "\\")?.replace("\\\"", "\"") ?: ""
+            runOnUiThread {
+                runCatching {
+                    val json = org.json.JSONObject(decoded)
+                    val og = json.optJSONObject("og")
+                    val ogLog = og?.let {
+                        val keys = it.keys().asSequence().toList().sorted()
+                        keys.joinToString(" | ") { k -> "$k=${it.optString(k).take(160)}" }
+                    } ?: "(no og tags)"
+                    log("[CAPTURE] og: $ogLog")
+                    val html = json.optString("html", "")
+                    if (html.isNotBlank()) {
+                        val dir = filesDir
+                        val file = java.io.File(dir, "page_${host.replace(".", "_")}.html")
+                        file.writeText(html)
+                        log("[CAPTURE] saved ${html.length} chars → $file")
+                    } else {
+                        log("[CAPTURE] empty html")
+                    }
+                }.getOrElse { e -> log("[CAPTURE] parse error: ${e.message}") }
+                updateStatus("Захоплено. Шлях у логу — adb pull з filesDir.")
+            }
+        }
     }
 
     private fun looksLikeAudio(url: String): Boolean {

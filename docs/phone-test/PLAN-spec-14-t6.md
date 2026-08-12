@@ -23,6 +23,13 @@
    into that one card; the three doors' cards agree field-for-field.
 4. **Missing-book ⇒ absent** — a nonexistent book URL never produces a card:
    nothing fabricated appears, no crash, no player; DB stays clean.
+5. **sluhay WebView door (spec-13, bonus that closes the spec-13 device gap)** —
+   the source's browser surface passes the Cloudflare challenge in-session,
+   «Додати до медіатеки» on a book page becomes a normal library card with the
+   «Sluhay» badge, playback plays with the per-source `Referer` (the
+   redirectto.cc CDN gate), the «Нове з Sluhay» row hydrates after the
+   challenge, and a book that exists on both 4read and Sluhay merges into one
+   card.
 
 ## Preconditions
 
@@ -74,6 +81,28 @@ adb shell am start -n com.aistudio.audiobook.read/com.example.MainActivity
 | 09 | Missing book, WebView door: navigate the 4read surface to the same fake URL → «Слухати книгу» (captured 404-page DOM) | Same: absent stays absent, no crash | `spec14_t6_09_missing_webview.png` |
 | 10 | DB proof | `audiobooks`/`sources` have no rows for the fake id | DB dump (below) |
 
+## Golden path — sluhay WebView door (spec-13 T3/T4)
+
+> This section exercises the browser surface end-to-end and doubles as the
+> device check for spec-13 T3 (#80) and the «Нове з Sluhay» row (T4, #81),
+> which were left open pending the phone. It runs AFTER the 4read doors; the
+> session cookies persist in the WebView jar for the app's lifetime, so the
+> order matters only for screenshots, not correctness.
+
+| # | Step | Expected | Evidence |
+|---|------|----------|----------|
+| S01 | Слухати → «Більше книг на Sluhay →» → browser surface opens | Fullscreen pushed browser loads `https://sluhay.com/`; **Cloudflare Turnstile auto-passes or resolves on tap** (in-session challenge — the user's real session does the gate, no bypass); homepage renders | `spec14_t6_sluhay_01_challenge.png`; logcat `WebSource` |
+| S02 | Browse/search in-session (site's own UI), open any book page | Book page loads inside the surface; ads/trackers blocked (no banner noise) | `spec14_t6_sluhay_02_browse.png` |
+| S03 | «Додати до медіатеки» on the book page | Toolbar action captures the DOM (origin-checked), `importWebSourcePage` imports: card appears in Медіатека with **badge «Sluhay»**, author present, **narrator absent** (measured negative finding — not a bug), cover from `data-src`, chapters from the inline Playerjs playlist | `spec14_t6_sluhay_03_add.png` |
+| S04 | Tap the card → play | Audio plays from `*.redirectto.cc` **with `Referer: https://sluhay.com/`** — 206 `audio/mpeg`, position advances, no 403; chapter auto-advance works | `spec14_t6_sluhay_04_playing.png`; logcat `AudioPlayer`/`PlaybackService` + HTTP 206 evidence |
+| S05 | Pause → reopen the book (or replay) | Position remembered **per source** (`sourceKey = "sluhay"`) — resuming does not touch the 4read-source position of the same Work | player screen |
+| S06 | Close the browser surface (back) | `closeWebSource` re-hydrates the feeds — **«Нове з Sluhay» row appears on Слухати** (fresh session cookies → server-fetch 200) | `spec14_t6_sluhay_06_row.png` |
+| S07 | Tap a row card | `playFromSource` → card plays with the sluhay Referer | `spec14_t6_sluhay_07_row_play.png` |
+| S08 | Optional — merge: pick a book that exists on both 4read and Sluhay | «Додати» from the sluhay surface merges into the existing 4read card (one Work, two badges: «4read» + «Sluhay»), no duplicate | `spec14_t6_sluhay_08_merged.png`; DB dump |
+| S09 | Optional — download a sluhay book | Download works (sluhay is **allowed**, not stream-only): per-chapter files with the Referer in the download path | `spec14_t6_sluhay_09_download.png` |
+
+Checkpoints required by the request: **S01 (challenge)**, **S03 (Додати до медіатеки)**, **S04 (playback with Referer)**. S02/S05–S07 are natural completion; S08/S09 optional.
+
 ## Underlying code paths (for failure triage)
 
 | Door | UI entry | Code path |
@@ -81,7 +110,7 @@ adb shell am start -n com.aistudio.audiobook.read/com.example.MainActivity
 | Search-import | Огляд search → result tap | `searchAllSources` → `FourReadAdapter.search` → `playFromSource` → `importFromSourceUrl` → `adapter.fetchBookPage` (WebViewHtmlParser) → `importBookFromSource` |
 | Link-import | 4read WebView surface, URL paste → «Слухати книгу» | `importAudiobookFrom4ReadUrl` → `importFromSourceUrl` (server-fetch) — **nullable** (T5) |
 | WebView-import | 4read WebView surface, «Слухати книгу» (JS capture) | `importAudiobookFromHtml(url, html)` → `adapter.parseCapturedPage` (WebViewHtmlParser) → `importBookFromSource` — **nullable** (T5) |
-| sluhay WebView-import (bonus, spec-13) | Слухати → «Більше книг на Sluhay» → browse → «Додати до медіатеки» | `importWebSourcePage` → `SluhayAdapter.detailFromCapturedHtml` → `importBookFromSource` |
+| sluhay WebView-import (spec-13) | Слухати → «Більше книг на Sluhay» → browser surface → challenge → «Додати до медіатеки» | `importWebSourcePage` → `SluhayAdapter.detailFromCapturedHtml` (inline playlist) → `importBookFromSource`; playback/download headers via `headersFor("sluhay", …)` → `Referer: https://sluhay.com/` |
 
 ## Evidence
 
@@ -119,6 +148,8 @@ Logcat tags to watch: `AudiobookRepo` (import outcome / failures), `MainViewMode
 - [ ] WebView-import (captured DOM) works; card agrees with both above
 - [ ] Playback works after each import (per convention)
 - [ ] Missing-book case: nothing fabricated appears (no card, no player, no crash)
+- [ ] sluhay: challenge passes in-session; «Додати до медіатеки» makes a card with the «Sluhay» badge; playback plays with the sluhay Referer (no 403)
+- [ ] sluhay: «Нове з Sluhay» row appears after closing the browser surface (fresh session)
 - [ ] Results recorded per `docs/phone-test` convention (RESULT.md section)
 
 ## Known risks / notes
@@ -136,8 +167,15 @@ Logcat tags to watch: `AudiobookRepo` (import outcome / failures), `MainViewMode
 - **Related row** needs a live page fetch; if the page loads but the related
   section is empty on the real book, that's a site state, not a regression
   (fixture tests pin the markup).
-- **Out of scope here**: sluhay/sluhayknigi (spec-13) device checks are separate
-  (#88 is 4read doors); if the phone session covers them anyway, mark it bonus.
+- **sluhay session quirks**: the challenge is interactive by design — if
+  Turnstile needs a tap, the tester does it; a 403 on the homepage after the
+  session means cookies are stale (re-open the surface). The «Нове з Sluhay»
+  row and the browser surface depend on the app's own network path — if the
+  phone-DNS quirk also blocks sluhay.com, mark S01–S09 ⚠️ and rely on the
+  fixtures (sluhay markup is pinned in the T1 captures).
+- **sluhayknigi** is NOT part of this runbook (spec-13 T1 fixtures cover its
+  format; its device pass can reuse this section verbatim with the knigi
+  domain + Referer).
 
 ## Wrap-up after the run
 

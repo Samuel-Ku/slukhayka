@@ -71,12 +71,13 @@ class LihtarAdapter(
                 val url = m.groupValues[1]
                 if (!seen.add(url)) continue
                 // Best-effort: a failed fetch keeps the transliterated slug.
-                val (title, author) = pageMeta(url)
+                val (title, author, cover) = pageMeta(url)
                 books += SourceBook(
                     title = title.ifBlank { slugTitle(url) },
                     author = author,
                     url = url,
-                    sourceId = sourceId
+                    sourceId = sourceId,
+                    coverImageUrl = cover.ifBlank { null }
                 )
                 if (books.size >= limit) break
             }
@@ -84,14 +85,22 @@ class LihtarAdapter(
         return books
     }
 
-    /** Fetches a book page and extracts its real title and author, best-effort. */
-    private suspend fun pageMeta(url: String): Pair<String, String> {
+    /**
+     * Fetches a book page and extracts its real title, author and cover
+     * (og:image), best-effort — a failed fetch keeps the slug and an empty
+     * cover.
+     */
+    private suspend fun pageMeta(url: String): Triple<String, String, String> {
         return try {
             val html = fetcher.getText(url)
-            if (html.isEmpty()) return "" to ""
-            decodeEntities(ogMeta(html, "og:title") ?: h1(html) ?: "") to authorFrom(html)
+            if (html.isEmpty()) return Triple("", "", "")
+            Triple(
+                decodeEntities(ogMeta(html, "og:title") ?: h1(html) ?: ""),
+                authorFrom(html),
+                ogMeta(html, "og:image") ?: ""
+            )
         } catch (e: Exception) {
-            "" to ""
+            Triple("", "", "")
         }
     }
 

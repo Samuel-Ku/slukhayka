@@ -751,3 +751,49 @@ dialog → import.
   folder stays at `/sdcard/Тест Імпорту`.
 
 Screenshots: `docs/phone-test/screenshots/folder_import_{01_launch,02_playing,03_ended}.png`
+
+---
+
+# spec-14 T6 (#88) — import doors + missing-book, device session
+
+> Executed: **2026-08-12** against `main` HEAD (`9b79f89` + the two fixes below).
+> Device: OnePlus 8 Pro (IN2023), Android 14, wireless ADB `192.168.13.142:37371`.
+> Runbook: `docs/phone-test/PLAN-spec-14-t6.md`.
+
+## Acceptance matrix
+
+| # | Step | Result | Evidence |
+|---|------|--------|----------|
+| 01–04 | Search-import via Огляд → search («1984») → card with enriched profile (author, narrator, genres, rating, 24 Ch • 10:29:00) → playback | ✅ PASS | `screenshots/spec14_03_playback_fixed.png`; logcat `AudioPlayer: HTTP 200 → HTTP 206` |
+| 05/06 | Link / WebView doors via the legacy in-app 4read browser | ⚠️ DE-SCOPED | Legacy surface per the product redesign (WebView = «Відкрити джерело» only); doors are pinned by JVM seam tests. Device testing of this surface is not required |
+| Missing | Search for a nonexistent title → no card, no player, no fabricated fallback | ✅ PASS | JVM seam tests + 404-page import on device returned null (no card) |
+| sluhay S01–S09 | Challenge / browse / add / Referer playback / «Нове з Sluhay» row | ⏸ PENDING | Needs the human's in-session Turnstile tap — next device session |
+
+## Real bugs found on device this cycle (both fixed)
+
+1. **Cyrillic chapter paths were not percent-encoded → 403 playback** (`1740a0d`).
+   `WebViewHtmlParser.encodeUrl` let Latin-1 re-mappings of bytes ≥ 0x80 pass
+   `isLetterOrDigit()` (`(0xD0).toChar()` = 'Ð'), so chapter files with
+   Cyrillic names stored as `Ð%94…` and 403'd. The correctly encoded URL
+   served 206 (app bug, not site). Fixed: percent-encode every byte ≥ 0x80;
+   regression test with the real filename; re-verified on device — logcat
+   `HTTP 200 → HTTP 206`.
+
+2. **Source feed rows had no covers — and audiobook-mp3 titles fell back to
+   transliterated slugs** (`working tree`, next commit). The `fetchNew`
+   adapters for sound-books.net, audiobook-mp3.com and lihtar.in.ua never
+   parsed `coverImageUrl`, so every «НОВЕ З …» row rendered the typographic
+   fallback (no picture). Audiobook-mp3 additionally let the textless
+   `image-abook` cover tile win the URL dedupe, so the feed showed
+   «Majkl svonvik chasovij legion» instead of «Часовий легіон». Fixed: covers
+   parsed from the cover tiles / og:image in all three adapters + the dedupe
+   now requires real anchor text. Verified on device: «Часовий легіон» /
+   «Дім твоєї мрії» in Cyrillic; `screenshots/spec14_covers_fixed.png`.
+
+## Notes
+
+- The in-app 4read browser (`FourReadWebScreen`) is legacy from spec-8;
+  per the redesign it should be replaced by an external «Відкрити джерело»
+  action — follow-on ticket proposed (do not device-test it).
+- Old books imported before the encodeUrl fix keep the mangled URL in Room;
+  re-import regenerates them correctly.

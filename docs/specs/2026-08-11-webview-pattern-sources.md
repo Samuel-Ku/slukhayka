@@ -56,13 +56,23 @@ Add sluhay.com as the first WebView-pattern source: a fullscreen per-source brow
 - **Repository seam:** import from a WebView-source detail follows the existing import path — covered by the existing repository tests with fake adapters (no new schema: v8 already carries arbitrary source ids; per-source Referer rides on the source row, not a new table).
 - **Device check (OnePlus 8 Pro):** the browser surface + challenge + import + playback with Referer, per the repo convention.
 
+## Follow-on work (post-spec-13): full per-source catalogs (M2)
+
+The T1 spike verdict unblocks this: **both sluhay sites hydrate — server-fetch returns 200 with session cookies and `cfChallenge=false`** — so category pages are reachable through the same hydration path T4 builds for the homepage. The category pages use the same `poster-item grid-item` row markup the homepage carries, so the parser T4 writes extends to them with no new architecture. Per-source genre/author browsing becomes a natural extension of the T4 row — the native «Нове з Sluhay» row generalizes into a native «Категорії Sluhay» surface.
+
+- **F1 — Category-page spike** (research, AFK, reuses the T1 session): enumerate the catalog URL scheme of sluhay.com and sluhayknigi.com — genre listing URLs, pagination, whether author pages exist at all (book pages are a negative finding for narrators, so author/narrator facets must be verified on category pages before promising them), series pages. Capture fixtures from a live session per the T1 pattern. Verdict: which facets (genres / authors / narrators / series) exist and their exact URL shapes. No blockers (can run in parallel with T2–T4).
+- **F2 — Catalog data seam** (task): extend the SluhayAdapter with per-facet catalog fetching — hydrate a category page through the session cookies (server-fetch, the T1 verdict), parse its poster rows with the T4 row parser, map to `SourceBookDetail`. Fixture tests per facet type. Blocked by F1 + T4.
+- **F3 — Native browse surface per source** (task): the catalog surface for sluhay/sluhayknigi — facet list → book rows → import-and-play, reusing the T4 stale-session pattern (fresh cookies → hydrated rows; stale → «відкрити джерело, щоб оновити» CTA). Subsumes the spec-10 «Browse tab expansion» (#44) for these two sources. Blocked by F2 + T3.
+
+Notes: search stays in-session (the site's own search inside the browser surface, spec-13 decisions) — the native catalog is read-only discovery, like T4. When F1–F3 land, the same catalog treatment applies to the server-fetch sources (spec-10 M2) through their own `SourceAdapter.fetchCatalog()` — the facet seam above should be designed source-agnostic so both source families share one browse UI.
+
 ## Out of Scope
 
+- **Full per-source catalogs (M2)** — moved to Follow-on work above; genre/author browsing lands as F1–F3 once T2–T4 ship.
 - **Automatic Cloudflare bypass** — the user passes the challenge themselves (map #70 boundary).
-- **Server-fetch of sluhay HTML with the user's cookies** — out unless T1 measures it works; the hydrate path goes through the live WebView session by default. Automatic CF bypass stays out.
+- **Automatic Cloudflare bypass / cookie forging** — the user's session (real cookies from the live WebView session) is the only credential; server-fetch uses it as-is (T1 verdict: 200, cfChallenge=false) — no bypass, no synthetic clearance.
 - **Android Auto / Cast** for WebView sources — separate milestones.
 - **The UX surface beyond the first source** — #73 decisions apply; sluhayknigi joins with the same surface after T1 measures its format.
-- **Full per-source catalogs (M2)** — per-source genre/author browsing, as in spec-10.
 
 ## Further Notes
 

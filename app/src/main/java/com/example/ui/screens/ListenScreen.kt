@@ -10,6 +10,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -47,7 +48,8 @@ fun ListenScreen(
     onBookClick: (String) -> Unit,
     onPlayClick: (AudiobookEntity) -> Unit,
     onBrowseClick: () -> Unit,
-    onImportClick: () -> Unit
+    onImportClick: () -> Unit,
+    onOpenWebSource: (() -> Unit)? = null
 ) {
     val allBooks by viewModel.allBooks.collectAsState()
     val downloadedBooks by viewModel.downloadedBooks.collectAsState()
@@ -195,6 +197,66 @@ fun ListenScreen(
                     CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
                 }
             }
+        }
+
+        // Spec-13 T3: the WebView-source browser entry point — a compact
+        // "more books on Sluhay →" row (per #73 decisions, NOT a tab). Shown
+        // only when the host surface provided the callback.
+        if (onOpenWebSource != null) {
+            item {
+                OpenWebSourceRow(
+                    displayName = "Sluhay",
+                    onClick = onOpenWebSource
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Spec-13 T3 — compact «більше книг на Sluhay →» entry row to the source's
+ * browser surface. One line, not a storefront: the WebView is a secondary
+ * discovery surface, not a tab (#73).
+ */
+@Composable
+fun OpenWebSourceRow(
+    displayName: String,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 5.dp)
+            .clip(RoundedCornerShape(AppDimens.RadiusCardLg))
+            .clickable { onClick() }
+            .testTag("open_web_source_sluhay"),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Default.Language,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(modifier = Modifier.width(10.dp))
+            Text(
+                text = "Більше книг на $displayName",
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.weight(1f)
+            )
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }

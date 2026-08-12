@@ -40,6 +40,7 @@ import com.example.ui.screens.PersonBooksScreen
 import com.example.ui.screens.PlayerScreen
 import com.example.ui.screens.SeriesScreen
 import com.example.ui.screens.Top100Screen
+import com.example.ui.screens.WebSourceBrowserScreen
 import com.example.ui.theme.AudiobookTheme
 
 class MainActivity : ComponentActivity() {
@@ -86,6 +87,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     }
 
     val webFallbackUrl by viewModel.webFallbackUrl.collectAsState()
+    val selectedWebSource by viewModel.selectedWebSource.collectAsState()
     val selectedSeries by viewModel.selectedSeries.collectAsState()
     val selectedGenre by viewModel.selectedGenre.collectAsState()
     val selectedTop100 by viewModel.selectedTop100.collectAsState()
@@ -94,12 +96,14 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
 
     // Handle system back press
     BackHandler(enabled = showFullPlayer || selectedBookId != null || webFallbackUrl != null ||
-        selectedSeries != null || selectedGenre != null || selectedTop100 ||
+        selectedWebSource != null || selectedSeries != null || selectedGenre != null || selectedTop100 ||
         selectedPeopleKind != null || selectedPerson != null) {
         if (showFullPlayer) {
             viewModel.setShowFullPlayer(false)
         } else if (webFallbackUrl != null) {
             viewModel.closeWebFallback()
+        } else if (selectedWebSource != null) {
+            viewModel.closeWebSource()
         } else if (selectedSeries != null) {
             viewModel.closeSeries()
         } else if (selectedGenre != null) {
@@ -145,6 +149,16 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                     .padding(innerPadding)
             ) {
                 when {
+                    // Spec-13 T3: a WebView-pattern source's browser surface
+                    // (sluhay.com first). Fullscreen pushed destination.
+                    selectedWebSource != null -> WebSourceBrowserScreen(
+                        viewModel = viewModel,
+                        sourceId = selectedWebSource!!.sourceId,
+                        homeUrl = selectedWebSource!!.homeUrl,
+                        displayName = selectedWebSource!!.displayName,
+                        onClose = { viewModel.closeWebSource() }
+                    )
+
                     // "Open on site" WebView fallback (spec #8 ticket T4): no
                     // longer a tab, only reachable from the book page.
                     webFallbackUrl != null -> FourReadWebScreen(
@@ -205,7 +219,16 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                                 viewModel.setShowFullPlayer(true)
                             },
                             onBrowseClick = { viewModel.selectTab(SelectedTab.EXPLORE) },
-                            onImportClick = { viewModel.selectTab(SelectedTab.LIBRARY) }
+                            onImportClick = { viewModel.selectTab(SelectedTab.LIBRARY) },
+                            // Spec-13 T3: the WebView-source browser entry point
+                            // (sluhay.com first; sluhayknigi joins later).
+                            onOpenWebSource = {
+                                viewModel.openWebSource(
+                                    sourceId = "sluhay",
+                                    homeUrl = "https://sluhay.com/",
+                                    displayName = "Sluhay"
+                                )
+                            }
                         )
                         SelectedTab.EXPLORE -> HomeScreen(
                             viewModel = viewModel,

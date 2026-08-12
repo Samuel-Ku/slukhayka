@@ -116,4 +116,27 @@ class WebViewHtmlParserTest {
 
         assertEquals("https://4read.org/m3u/7589.txt", resolved)
     }
+
+    @Test
+    fun `cyrillic chapter paths stay percent-encoded - regression from device session`() {
+        // Found on-device in spec-14 T6: a chapter file with a Cyrillic name
+        // (e.g. 1984) 403'd because encodeUrl let Latin-1 re-mappings of
+        // bytes >= 0x80 through isLetterOrDigit, storing `Ð%94...` instead of
+        // `%D0%94...`. The correctly encoded URL is proven to serve 206.
+        val parser = WebViewHtmlParser()
+        // Real chapter filename captured from the device DB during the session
+        // (the exact file that 403'd before the fix).
+        val cyrillicPlaylist = """[{"title":"Розділ 1","file":"https://reasd.org/4984/01. Джордж Орвелл 1984 частина 1 розділ 1.mp3"}]"""
+
+        val detail = parser.parse(fullBookPage, "https://4read.org/7589-neostannij-bij.html") {
+            if (it == "https://4read.org/m3u/7589.txt") cyrillicPlaylist else ""
+        }
+
+        val url = detail.chapters.single().streamUrl
+        assertTrue("raw Cyrillic must not survive: $url", !url.contains('Д') && !url.contains('Ð'))
+        assertEquals(
+            "https://reasd.org/4984/01.%20%D0%94%D0%B6%D0%BE%D1%80%D0%B4%D0%B6%20%D0%9E%D1%80%D0%B2%D0%B5%D0%BB%D0%BB%201984%20%D1%87%D0%B0%D1%81%D1%82%D0%B8%D0%BD%D0%B0%201%20%D1%80%D0%BE%D0%B7%D0%B4%D1%96%D0%BB%201.mp3",
+            url
+        )
+    }
 }

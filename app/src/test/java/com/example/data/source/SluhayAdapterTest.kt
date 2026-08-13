@@ -236,4 +236,77 @@ class SluhayAdapterTest {
 
         assertTrue(adapter.parsePosterRows("", limit = 10).isEmpty())
     }
+
+    // Spec-15 T3 hydration fixtures: a category page reuses the homepage
+    // poster-row markup (same DLE template), so the crawler walks a few
+    // category sections derived from the poster book URLs' first path segment.
+    private val categoryPage = """
+        <html><body>
+        <a class="poster-item grid-item" href="https://sluhay.com/svitova-literatura/6201-entoni-gorovic-dim-shovku.html">
+            <div class="poster-item__desc">
+                <div class="poster-item__title">Дім шовку - Ентоні Горовіц</div>
+            </div>
+        </a>
+        <a class="poster-item grid-item" href="https://sluhay.com/svitova-literatura/6107-andre-norton-chaklunskij-svit.html">
+            <div class="poster-item__desc">
+                <div class="poster-item__title">Чаклунський світ - Андре Нортон</div>
+            </div>
+        </a>
+        </body></html>
+    """.trimIndent()
+
+    @Test
+    fun `catalogue enumeration walks category pages through the session and dedupes by url`() = runBlocking {
+        val categoryUrl = "https://sluhay.com/svitova-literatura/"
+        val fetcher = FakeFetcher(mapOf(homeUrl to homePage, categoryUrl to categoryPage))
+        val adapter = adapterWithCookies("cf_clearance=abc", fetcher)
+
+        val books = adapter.fetchCatalog(limit = 10)
+
+        // Home rows (2) + category rows (2) — no dedupe collision in this
+        // fixture, but the union is capped by the limit and url-deduped.
+        assertEquals(4, books.size)
+        assertEquals("Пасажир", books[0].title)
+        assertEquals("Дім шовку", books[2].title)
+        assertTrue(books.map { it.url }.distinct().size == books.size)
+    }
+
+    @Test
+    fun `catalogue stays empty without a live session`() = runBlocking {
+        val adapter = SluhayAdapter(FakeFetcher(mapOf(homeUrl to homePage)))
+
+        // Cloudflare: without the session cookies there is nothing to crawl.
+        assertTrue(adapter.fetchCatalog(limit = 10).isEmpty())
+    }
+
+    @Test
+    fun `catalogue sends the session cookies on home and category fetches`() = runBlocking {
+        // The home fixture spans two categories (svitova-literatura,
+        // ukrayinska-literatura), so the crawl fetches home + both category
+        // pages — every request carrying the session cookies.
+        val svitovaUrl = "https://sluhay.com/svitova-literatura/"
+        val ukrayinskaUrl = "https://sluhay.com/ukrayinska-literatura/"
+        val fetcher = FakeFetcher(mapOf(homeUrl to homePage, svitovaUrl to categoryPage, ukrayinskaUrl to categoryPage))
+        val adapter = adapterWithCookies("cf_clearance=abc; __cf_bm=xyz", fetcher)
+
+        adapter.fetchCatalog(limit = 10)
+
+        assertEquals(3, fetcher.recordedHeaders.size)
+        assertTrue(
+            fetcher.recordedHeaders.all { it["Cookie"] == "cf_clearance=abc; __cf_bm=xyz" }
+        )
+    }
+
+    @Test
+    fun `book page fetch sends the session cookies when present`() = runBlocking {
+        val fetcher = FakeFetcher(mapOf(bookUrl to bookPage, playlistUrl to playlistJson))
+        val adapter = adapterWithCookies("cf_clearance=abc", fetcher)
+
+        adapter.fetchBookPage(bookUrl)
+
+        // The page fetch carries the session (Cloudflare); the playlist fetch
+        // is header-less (Referer only, sent by the fetcher itself).
+        assertEquals(1, fetcher.recordedHeaders.size)
+        assertEquals(mapOf("Cookie" to "cf_clearance=abc"), fetcher.recordedHeaders[0])
+    }
 }

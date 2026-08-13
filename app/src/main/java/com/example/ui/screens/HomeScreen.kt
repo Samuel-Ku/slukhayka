@@ -34,6 +34,7 @@ import com.example.data.catalog.CatalogBook
 import com.example.data.catalog.CatalogSection
 import com.example.data.catalog.CatalogSeries
 import com.example.data.db.AudiobookEntity
+import com.example.data.source.catalogCardDownloadAllowed
 import com.example.ui.MainViewModel
 import com.example.ui.components.EmptyState
 import com.example.ui.displayAuthor
@@ -68,6 +69,11 @@ fun HomeScreen(
     // card per Work with a badge per carried source).
     val unifiedCatalog by viewModel.unifiedCatalog.collectAsState()
     val isUnifiedCatalogLoading by viewModel.isUnifiedCatalogLoading.collectAsState()
+    // Spec-15 T4: per-card one-tap download state (progress, done keys) so the
+    // union cards can carry the affordance and its live progress.
+    val catalogDownloadingKeys by viewModel.catalogDownloadingKeys.collectAsState()
+    val catalogDownloadProgress by viewModel.catalogDownloadProgress.collectAsState()
+    val catalogDownloadedKeys by viewModel.catalogDownloadedKeys.collectAsState()
 
     // Spec-15 T1: enumerate the union once per Огляд composition; the
     // repository caches it for the session (and re-fetches session-bound
@@ -412,7 +418,15 @@ fun HomeScreen(
                         items(unifiedCatalog, key = { it.key }) { result ->
                             UnifiedCatalogCard(
                                 result = result,
-                                onClick = { viewModel.playGlobalSearchResult(result) }
+                                onClick = { viewModel.playGlobalSearchResult(result) },
+                                downloadAllowed = catalogCardDownloadAllowed(result),
+                                downloadProgress = if (result.key in catalogDownloadingKeys) {
+                                    catalogDownloadProgress[result.key]
+                                } else {
+                                    null
+                                },
+                                isDownloaded = result.key in catalogDownloadedKeys,
+                                onDownload = { viewModel.downloadCatalogBook(result) }
                             )
                         }
                     }

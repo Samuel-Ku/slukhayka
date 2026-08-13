@@ -14,8 +14,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CloudDone
+import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -127,12 +130,21 @@ fun SourceBadgePill(
  * the first found source and plays (same behaviour as the global-search
  * cards). Pure `@Composable` (no ViewModel) so the snapshot seam can pin it
  * from fixture data.
+ *
+ * Spec-15 T4 — the card also carries a one-tap download affordance (a small
+ * icon on the cover). [downloadAllowed] hides it for stream-only sources;
+ * [downloadProgress] turns it into a progress bar while the book downloads;
+ * [isDownloaded] marks the book as offline-ready (CloudDone).
  */
 @Composable
 fun UnifiedCatalogCard(
     result: GlobalSearchResult,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    downloadAllowed: Boolean = true,
+    downloadProgress: Float? = null,
+    isDownloaded: Boolean = false,
+    onDownload: (() -> Unit)? = null
 ) {
     Column(
         modifier = modifier
@@ -141,14 +153,59 @@ fun UnifiedCatalogCard(
             .testTag("unified_catalog_${result.key}"),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        CatalogCoverImage(
-            coverImageUrl = result.coverImageUrl,
-            title = result.title,
-            modifier = Modifier
-                .width(120.dp)
-                .height(168.dp)
-                .clip(RoundedCornerShape(AppDimens.RadiusCardLg))
-        )
+        Box {
+            CatalogCoverImage(
+                coverImageUrl = result.coverImageUrl,
+                title = result.title,
+                modifier = Modifier
+                    .width(120.dp)
+                    .height(168.dp)
+                    .clip(RoundedCornerShape(AppDimens.RadiusCardLg))
+            )
+            if (downloadAllowed && onDownload != null) {
+                val progress = downloadProgress
+                if (progress != null) {
+                    // Downloading: a thin progress bar along the cover's bottom
+                    // edge. The card recomposes as chapters complete (the
+                    // repository writes downloadProgress per chapter).
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth()
+                            .height(4.dp)
+                            .clip(RoundedCornerShape(AppDimens.RadiusXs))
+                            .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(progress.coerceIn(0f, 1f))
+                                .height(4.dp)
+                                .background(MaterialTheme.colorScheme.primary)
+                        )
+                    }
+                } else {
+                    IconButton(
+                        onClick = onDownload,
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .size(32.dp)
+                            .clip(RoundedCornerShape(AppDimens.RadiusXs))
+                            .background(
+                                MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+                                shape = RoundedCornerShape(AppDimens.RadiusXs)
+                            )
+                            .testTag("unified_catalog_download_${result.key}")
+                    ) {
+                        Icon(
+                            imageVector = if (isDownloaded) Icons.Default.CloudDone else Icons.Default.CloudDownload,
+                            contentDescription = if (isDownloaded) "Завантажено" else "Завантажити",
+                            tint = if (isDownloaded) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+            }
+        }
         Spacer(modifier = Modifier.height(6.dp))
         Text(
             text = result.title,

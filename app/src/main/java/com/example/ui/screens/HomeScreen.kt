@@ -64,6 +64,15 @@ fun HomeScreen(
     // Spec-10 T4: aggregated global search across all verified sources.
     val globalResults by viewModel.globalSearchResults.collectAsState()
     val isGlobalSearchLoading by viewModel.isGlobalSearchLoading.collectAsState()
+    // Spec-15 T1: the deduplicated «Увесь каталог» union (all sources, one
+    // card per Work with a badge per carried source).
+    val unifiedCatalog by viewModel.unifiedCatalog.collectAsState()
+    val isUnifiedCatalogLoading by viewModel.isUnifiedCatalogLoading.collectAsState()
+
+    // Spec-15 T1: enumerate the union once per Огляд composition; the
+    // repository caches it for the session (and re-fetches session-bound
+    // sources on every refresh).
+    androidx.compose.runtime.LaunchedEffect(Unit) { viewModel.loadUnifiedCatalog() }
 
     val genres = listOf("Усі", "Фантастика", "Cyberpunk", "Детективи", "Класика", "Антиутопія", "Завантажені")
 
@@ -382,6 +391,41 @@ fun HomeScreen(
                                 onClick = { viewModel.openGenre(genre.title, genre.url) }
                             )
                         }
+                    }
+                }
+            }
+
+            // Spec-15 T1: the deduplicated «Увесь каталог» union — every
+            // source's catalogue in one Netflix-style row, one card per Work
+            // with a badge per carried source. Tapping a card imports from the
+            // found source and plays (playFromSource); ephemeral, cached for
+            // the session.
+            if (unifiedCatalog.isNotEmpty()) {
+                item {
+                    CatalogRowHeader(title = "Увесь каталог")
+                }
+                item {
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        items(unifiedCatalog, key = { it.key }) { result ->
+                            UnifiedCatalogCard(
+                                result = result,
+                                onClick = { viewModel.playGlobalSearchResult(result) }
+                            )
+                        }
+                    }
+                }
+            } else if (isUnifiedCatalogLoading) {
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(24.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
                     }
                 }
             }

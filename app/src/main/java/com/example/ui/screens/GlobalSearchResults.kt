@@ -24,6 +24,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.testTag
@@ -117,5 +118,65 @@ fun SourceBadgePill(
             style = MaterialTheme.typography.labelSmall,
             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
         )
+    }
+}
+
+/**
+ * Spec-15 T1 — one cover-first card of the deduplicated «Увесь каталог»
+ * union: a Work with a badge per source that carries it. Tapping imports from
+ * the first found source and plays (same behaviour as the global-search
+ * cards). Pure `@Composable` (no ViewModel) so the snapshot seam can pin it
+ * from fixture data.
+ */
+@Composable
+fun UnifiedCatalogCard(
+    result: GlobalSearchResult,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .width(120.dp)
+            .clickable(onClick = onClick)
+            .testTag("unified_catalog_${result.key}"),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        CatalogCoverImage(
+            coverImageUrl = result.coverImageUrl,
+            title = result.title,
+            modifier = Modifier
+                .width(120.dp)
+                .height(168.dp)
+                .clip(RoundedCornerShape(AppDimens.RadiusCardLg))
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = result.title,
+            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth()
+        )
+        if (result.author.isNotBlank()) {
+            Text(
+                text = result.author,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+        if (result.sources.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(4.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(AppDimens.SpaceXs)) {
+                result.sources.forEach { source ->
+                    SourceBadgePill(label = source.sourceName)
+                }
+            }
+        }
     }
 }

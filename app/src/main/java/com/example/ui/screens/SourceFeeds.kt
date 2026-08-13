@@ -32,6 +32,20 @@ import com.example.ui.components.AppSectionHeader
 import com.example.ui.theme.AppDimens
 
 /**
+ * Spec-15 T2 — the «Нове з джерела» rows actually shown on the Listen tab.
+ * Pure JVM so the debug-gating rule is pinned by a unit test: a session-bound
+ * source (WebView pattern — it needs the in-app browser to refresh its
+ * challenge session) is hidden entirely when there is no browser surface
+ * (release builds), because its stale-session CTA would be a dead end.
+ */
+fun visibleSourceFeeds(
+    feeds: List<SourceNewFeed>,
+    hasBrowserSurface: Boolean
+): List<SourceNewFeed> = feeds.filter { feed ->
+    !feed.sessionBound || hasBrowserSurface
+}
+
+/**
  * Spec-10 T5 — one «Нове з <джерела>» feed row: the section header plus a
  * horizontal row of book cards, same shape as the existing «Нове на 4read»
  * rows. Extracted as a pure `@Composable` (no ViewModel) so the snapshot seam

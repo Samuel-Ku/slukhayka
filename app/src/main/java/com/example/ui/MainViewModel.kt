@@ -512,6 +512,37 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    // Spec-15 T3: the WebView catalogue hydration tool. Debug-only by
+    // construction (the browser surface that exposes it is debug-gated, T2):
+    // crawls a WebView source's catalogue through the live session and
+    // imports every found book into Room via the shared MergeKey path. The
+    // result counts surface in the browser surface so the tool reports, never
+    // silently no-ops.
+    private val _hydration = MutableStateFlow<AudiobookRepository.HydrationResult?>(null)
+    val hydrationResult: StateFlow<AudiobookRepository.HydrationResult?> = _hydration.asStateFlow()
+
+    private val _isHydrating = MutableStateFlow(false)
+    val isHydrating: StateFlow<Boolean> = _isHydrating.asStateFlow()
+
+    fun hydrateWebSourceCatalog(sourceId: String) {
+        if (_isHydrating.value) return
+        _isHydrating.value = true
+        _hydration.value = null
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val result = repository.hydrateWebSourceCatalog(sourceId)
+                _hydration.value = result
+                // The unified «Увесь каталог» union is re-computed after a
+                // hydration so the fresh imported books surface immediately.
+                repository.refreshUnifiedCatalog()
+            } catch (e: Exception) {
+                _hydration.value = AudiobookRepository.HydrationResult(sourceId, found = 0, imported = 0, failed = 0)
+            } finally {
+                _isHydrating.value = false
+            }
+        }
+    }
+
     // Spec-15 T1: the deduplicated «Увесь каталог» union — every verified
     // source's catalogue enumeration merged into one Work card per book, with
     // a badge per carried source. Ephemeral (nothing imported until a card is

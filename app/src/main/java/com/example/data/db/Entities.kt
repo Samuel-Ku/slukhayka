@@ -178,6 +178,21 @@ object PlaybackEventKind {
  * logcat was captured. Written on the IO dispatcher; never thrown back into
  * the player path — observability must not break playback.
  */
+/**
+ * Durable tombstone of a deleted library book (wayfinder #55 Q8, stage-2 S1).
+ * The 4read catalogue re-lists deleted books on every sync, so without a
+ * durable marker the next homepage/series sync would resurrect a book the
+ * user removed. This table replaces the in-memory `deletedCatalogBookIds`
+ * set — a delete survives restarts. A tombstone is removed only when the
+ * user explicitly imports the book again (search, WebView, local import) —
+ * never by a catalogue sync.
+ */
+@Entity(tableName = "tombstones")
+data class TombstoneEntity(
+    @PrimaryKey val bookId: String,
+    val deletedAt: Long = System.currentTimeMillis()
+)
+
 @Entity(tableName = "playback_failures", indices = [Index("bookId")])
 data class PlaybackFailureEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,

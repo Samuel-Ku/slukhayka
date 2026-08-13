@@ -464,6 +464,69 @@ class AudiobookRepositoryRoomTest {
     }
 
     // ---------------------------------------------------------------------
+    // wayfinder #55 Q8 / stage-2 S1: schema migration 10 -> 11 (tombstones)
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `migration 10 to 11 adds the tombstones table and preserves all existing rows`() {
+        val factory = FrameworkSQLiteOpenHelperFactory()
+        val config = SupportSQLiteOpenHelper.Configuration.builder(context)
+            .name("migration-10-test.db")
+            .callback(object : SupportSQLiteOpenHelper.Callback(10) {
+                override fun onCreate(db: SupportSQLiteDatabase) {
+                    // Minimal v10 schema: a book and its local source row.
+                    db.execSQL(
+                        "CREATE TABLE audiobooks (id TEXT NOT NULL PRIMARY KEY, title TEXT NOT NULL, " +
+                            "author TEXT NOT NULL, narrator TEXT NOT NULL, description TEXT NOT NULL, " +
+                            "coverDrawableRes INTEGER NOT NULL, coverImageUrl TEXT, genre TEXT NOT NULL, " +
+                            "sourceUrl TEXT NOT NULL, isDownloaded INTEGER NOT NULL DEFAULT 0, " +
+                            "downloadProgress REAL NOT NULL DEFAULT 0, totalDurationSeconds INTEGER NOT NULL DEFAULT 0, " +
+                            "totalChapters INTEGER NOT NULL DEFAULT 0, rating REAL NOT NULL DEFAULT 4.9, " +
+                            "isFavorite INTEGER NOT NULL DEFAULT 0, seriesTitle TEXT, seriesUrl TEXT, seriesIndex INTEGER, " +
+                            "preferredSpeed REAL, createdAt INTEGER NOT NULL DEFAULT 0, sourceTreeUri TEXT, " +
+                            "mergeKey TEXT NOT NULL DEFAULT '')"
+                    )
+                    db.execSQL(
+                        "INSERT INTO audiobooks (id, title, author, narrator, description, coverDrawableRes, genre, " +
+                            "sourceUrl, totalDurationSeconds, totalChapters) VALUES " +
+                            "('b1', 'Кобзар', 'Автор', 'Читець', '', 0, '', '', 3600, 3)"
+                    )
+                    db.execSQL(
+                        "CREATE TABLE sources (id TEXT NOT NULL PRIMARY KEY, bookId TEXT NOT NULL, " +
+                            "type TEXT NOT NULL, url TEXT NOT NULL, streamOnly INTEGER NOT NULL DEFAULT 0, " +
+                            "addedAt INTEGER NOT NULL DEFAULT 0, lastScanFingerprint TEXT)"
+                    )
+                }
+
+                override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) {}
+            })
+            .build()
+        val helper = factory.create(config)
+        val db = helper.writableDatabase
+
+        AudiobookDatabase.MIGRATION_10_11.migrate(db)
+
+        assertTrue("tombstones table must exist", tableExists(db, "tombstones"))
+        assertEquals(
+            setOf("bookId", "deletedAt"),
+            tableColumns(db, "tombstones").toSet()
+        )
+        // The new table accepts a tombstone with the entity defaults.
+        db.execSQL("INSERT INTO tombstones (bookId, deletedAt) VALUES ('b1', 1700000000000)")
+        db.query("SELECT COUNT(*) FROM tombstones").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals(1, cursor.getInt(0))
+        }
+        // Every v10 row survives untouched.
+        db.query("SELECT title, totalDurationSeconds FROM audiobooks WHERE id = 'b1'").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals("Кобзар", cursor.getString(0))
+            assertEquals(3600L, cursor.getLong(1))
+        }
+        db.close()
+    }
+
+    // ---------------------------------------------------------------------
     // spec-10 T2: multi-source merge and per-source position
     // ---------------------------------------------------------------------
 
@@ -1441,5 +1504,85 @@ class AudiobookRepositoryRoomTest {
         // The original book survives the takedown; the re-import adds a second,
         // playable copy next to it.
         assertEquals(2, dao.getAllAudiobooks().first().size)
+    }
+
+    // ---------------------------------------------------------------------
+    // wayfinder #55 Q8 / stage-2 S1: durable tombstones
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `deleteBook writes a durable tombstone`() = runBlocking {
+        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+        val book = TestDataFactory.dataBooks()[0]
+        dao.insertAudiobooks(listOf(book))
+        dao.insertChapters(TestDataFactory.chaptersFor(book))
+
+        repo.deleteBook(book.id)
+
+        assertTrue("deleted book id must be tombstoned", dao.getTombstoneBookIds().contains(book.id))
+    }
+
+    @Test
+    fun `removeFromLibrary writes a durable tombstone too`() = runBlocking {
+        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+        val book = TestDataFactory.dataBooks()[0]
+        dao.insertAudiobooks(listOf(book))
+
+        repo.removeFromLibrary(book.id)
+
+        assertTrue("removed book id must be tombstoned", dao.getTombstoneBookIds().contains(book.id))
+    }
+
+    @Test
+    fun `an explicit re-import clears the tombstone`() = runBlocking {
+        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+        // A catalogue book has a STABLE id derived from its URL (4read-<slug>),
+        // so a re-import of the same book lands on the same id.
+        val book = TestDataFactory.dataBooks()[0].copy(
+            id = "4read-kobzar",
+            sourceUrl = "https://4read.org/kobzar.html"
+        )
+        dao.insertAudiobooks(listOf(book))
+        dao.insertChapters(
+            TestDataFactory.chaptersFor(TestDataFactory.dataBooks()[0]).map { it.copy(id = "4read-kobzar-ch-${it.chapterIndex + 1}", bookId = "4read-kobzar") }
+        )
+        repo.deleteBook(book.id)
+        assertTrue(dao.getTombstoneBookIds().contains(book.id))
+
+        // The user explicitly re-adds the book from search — the tombstone
+        // must clear so the book is visible again.
+        val detail = com.example.data.source.SourceBookDetail(
+            title = book.title,
+            author = book.author,
+            narrator = book.narrator,
+            url = book.sourceUrl,
+            chapters = listOf(
+                com.example.data.source.SourceChapter("Розділ 1", "https://fixtures.invalid/1.mp3")
+            )
+        )
+        repo.importBookFromSource(sourceId = "4read", detail = detail)
+
+        assertFalse("tombstone must clear on explicit import", dao.getTombstoneBookIds().contains(book.id))
+    }
+
+    @Test
+    fun `a local re-import after delete creates a fresh visible book`() = runBlocking {
+        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+        val bytes = ByteArray(16) { it.toByte() }
+        repo.importAudioEntries(
+            listOf(LocalAudioEntry("01.mp3", "Сага") { ByteArrayInputStream(bytes) })
+        )
+        val first = dao.getAllAudiobooks().first().first()
+        repo.deleteBook(first.id)
+        assertTrue(dao.getTombstoneBookIds().contains(first.id))
+
+        // Local ids are time-stamped, so the re-import is a NEW book with a
+        // fresh id — never suppressed by the old tombstone, never a duplicate.
+        repo.importAudioEntries(
+            listOf(LocalAudioEntry("01.mp3", "Сага") { ByteArrayInputStream(bytes) })
+        )
+        val after = dao.getAllAudiobooks().first()
+        assertEquals(1, after.size)
+        assertTrue("the fresh book must be visible", after.first().id != first.id)
     }
 }

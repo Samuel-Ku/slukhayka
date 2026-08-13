@@ -182,6 +182,9 @@ class AudiobookRepository(
                     }
                 )
                 dao.insertSources(listOf(sourceRow(sourceId, bookId, detail.url)))
+                // An explicit import is a user action: any tombstone of the
+                // work is cleared so a re-added book never stays hidden.
+                dao.deleteTombstone(bookId)
                 book
             } else {
                 // Merge: attach the new source unless it is already known.
@@ -189,6 +192,7 @@ class AudiobookRepository(
                 if (!known) {
                     dao.insertSources(listOf(sourceRow(sourceId, existing.id, detail.url)))
                 }
+                dao.deleteTombstone(existing.id)
                 existing
             }
         }
@@ -608,11 +612,14 @@ class AudiobookRepository(
     val isCatalogLoading: StateFlow<Boolean> = _isCatalogLoading.asStateFlow()
 
     /**
-     * Book ids deleted this session (spec #8 T3). The 4read homepage re-lists
+     * Book ids deleted by the user (spec #8 T3). The 4read homepage re-lists
      * deleted books, so without a tombstone the next catalogue sync would
      * resurrect them in Room and in the Explore rows (code-review MEDIUM).
+     * Since v11 (wayfinder #55 Q8) the tombstone is the durable `tombstones`
+     * table — a delete survives restarts and is cleared only when the user
+     * explicitly imports the book again.
      */
-    private val deletedCatalogBookIds = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private suspend fun tombstonedBookIds(): Set<String> = dao.getTombstoneBookIds().toSet()
 
     init {
         if (autoSyncOnInit) {
@@ -637,9 +644,10 @@ class AudiobookRepository(
             val html = fourReadFetcher.getText("https://4read.org/")
             if (html.isBlank()) return@withContext emptyList()
             _catalogGenres.value = CatalogParser.parseGenreNav(html)
+            val tombstones = tombstonedBookIds()
             val sections = CatalogParser.parseHomepage(html)
                 .map { section ->
-                    section.copy(books = section.books.filter { it.id !in deletedCatalogBookIds })
+                    section.copy(books = section.books.filter { it.id !in tombstones })
                 }
                 .filter { it.books.isNotEmpty() || it.series.isNotEmpty() }
             sections.forEach { section ->
@@ -667,7 +675,7 @@ class AudiobookRepository(
         val html = fourReadFetcher.getText(seriesUrl)
         if (html.isBlank()) return@withContext emptyList()
         val books = CatalogParser.parseSeriesPage(html)
-            .filter { it.id !in deletedCatalogBookIds }
+            .filter { it.id !in tombstonedBookIds() }
             .map { book -> upsertCatalogBook(book) }
         seriesBooksCache[seriesUrl] = books
         books
@@ -709,7 +717,7 @@ class AudiobookRepository(
         val html = fourReadFetcher.getText("https://4read.org/top-100.html")
         if (html.isBlank()) return@withContext emptyList()
         val books = CatalogParser.parseTop100(html)
-            .filter { it.id !in deletedCatalogBookIds }
+            .filter { it.id !in tombstonedBookIds() }
             .map { upsertCatalogBook(it) }
         top100Cache = books
         books
@@ -760,7 +768,7 @@ class AudiobookRepository(
                     coverImageUrl = related.coverImageUrl
                 )
             }
-            .filter { it.id !in deletedCatalogBookIds }
+            .filter { it.id !in tombstonedBookIds() }
             .map { upsertCatalogBook(it) }
     }
 
@@ -847,7 +855,10 @@ class AudiobookRepository(
      * coordinated here.
      */
     suspend fun deleteBook(bookId: String) = withContext(Dispatchers.IO) {
-        deletedCatalogBookIds.add(bookId)
+        // Durable tombstone (v11, wayfinder #55 Q8): the 4read catalogue re-
+        // lists deleted books on every sync, so without a durable marker the
+        // next sync would resurrect the deleted book after a restart.
+        dao.insertTombstone(TombstoneEntity(bookId = bookId))
         dao.getChaptersListForBook(bookId).forEach { chapter ->
             chapter.localFilePath?.let { path ->
                 try {
@@ -873,7 +884,7 @@ class AudiobookRepository(
      * re-added from the catalogue.
      */
     suspend fun removeFromLibrary(bookId: String) = withContext(Dispatchers.IO) {
-        deletedCatalogBookIds.add(bookId)
+        dao.insertTombstone(TombstoneEntity(bookId = bookId))
         dao.deleteChaptersForBook(bookId)
         dao.deleteBookmarksForBook(bookId)
         dao.deletePlaybackProgressForBook(bookId)
@@ -1367,6 +1378,9 @@ class AudiobookRepository(
                 )
             )
         )
+        // An explicit local import is a user action: any tombstone of the
+        // work is cleared so a re-added book never stays hidden.
+        dao.deleteTombstone(bookId)
         return book
     }
 

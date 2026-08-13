@@ -29,6 +29,7 @@ import com.example.ui.MainViewModel
 import com.example.ui.components.AppSectionHeader
 import com.example.ui.components.EmptyState
 import com.example.ui.displayAuthor
+import com.example.ui.library.ListenComposer
 import com.example.ui.theme.*
 
 /**
@@ -52,10 +53,12 @@ fun ListenScreen(
     onOpenWebSource: (() -> Unit)? = null
 ) {
     val allBooks by viewModel.allBooks.collectAsState()
-    val downloadedBooks by viewModel.downloadedBooks.collectAsState()
-    val recentProgress by viewModel.recentProgress.collectAsState()
     val sections by viewModel.catalogSections.collectAsState()
-    val nextInSeries by viewModel.nextInSeries.collectAsState()
+    // Wayfinder #62: the rule-based block list — every block carries its
+    // eligibility and a reason line; hidden blocks stay computed but are
+    // unrendered here.
+    val listenBlocks by viewModel.listenBlocks.collectAsState()
+    val hiddenBlocks by viewModel.hiddenListenBlocks.collectAsState()
     // Spec-10 T5: per-source «Нове з кожного джерела» rows.
     val sourceFeeds by viewModel.sourceFeeds.collectAsState()
     val isFeedsLoading by viewModel.isFeedsLoading.collectAsState()
@@ -67,12 +70,9 @@ fun ListenScreen(
         viewModel.loadSourceFeeds()
     }
 
-    val heroBook = recentProgress.firstOrNull()?.let { mostRecent ->
-        allBooks.find { it.id == mostRecent.bookId }
-    }
-
     // Refresh the "continue the series" suggestion whenever the hero book
     // changes (keyed on its id so position updates don't refetch).
+    val heroBook = listenBlocks.firstOrNull { it.id == ListenComposer.BlockId.HERO }?.books?.firstOrNull()?.book
     LaunchedEffect(heroBook?.id) {
         viewModel.loadNextInSeries(heroBook)
     }
@@ -94,67 +94,88 @@ fun ListenScreen(
             return@LazyColumn
         }
 
-        // Hero: Продовжити слухати.
-        if (recentProgress.isNotEmpty()) {
-            val mostRecent = recentProgress.first()
-            val recentBook = allBooks.find { it.id == mostRecent.bookId }
-            if (recentBook != null) {
-                item {
-                    ListenHeroCard(
-                        book = recentBook,
-                        progress = mostRecent,
-                        onResumeClick = { onPlayClick(recentBook) },
-                        onBookClick = { onBookClick(recentBook.id) }
-                    )
+        // Wayfinder #62 — the rule-based block list. Every eligible block
+        // renders with its reason; hidden blocks are skipped (still computed).
+        val visibleBlocks = listenBlocks.filter { it.id !in hiddenBlocks }
+        for (block in visibleBlocks) {
+            when (block.id) {
+                ListenComposer.BlockId.HERO -> {
+                    val hero = block.books.first()
+                    item(key = "block-hero") {
+                        ListenHeroCard(
+                            book = hero.book,
+                            progress = hero.progress!!,
+                            onResumeClick = { onPlayClick(hero.book) },
+                            onBookClick = { onBookClick(hero.book.id) }
+                        )
+                    }
+                }
+                ListenComposer.BlockId.NEXT_IN_SERIES -> {
+                    val nextBook = block.books.first().book
+                    item(key = "block-next-series") {
+                        ListenBlockHeader(
+                            title = block.title,
+                            reason = block.reason,
+                            blockId = block.id,
+                            onMoveUp = { viewModel.moveListenBlockUp(block.id) },
+                            onMoveDown = { viewModel.moveListenBlockDown(block.id) },
+                            onHide = { viewModel.hideListenBlock(block.id) }
+                        )
+                    }
+                    item(key = "block-next-series-row") {
+                        ContinueSeriesRow(
+                            seriesTitle = nextBook.seriesTitle.orEmpty(),
+                            book = nextBook,
+                            onClick = { onBookClick(nextBook.id) },
+                            onPlayClick = { onPlayClick(nextBook) }
+                        )
+                    }
+                }
+                ListenComposer.BlockId.ALMOST_DONE,
+                ListenComposer.BlockId.RETURN,
+                ListenComposer.BlockId.TRAVEL,
+                ListenComposer.BlockId.SHORT,
+                ListenComposer.BlockId.FAVORITE_AUTHORS,
+                ListenComposer.BlockId.RECENTLY_ADDED -> {
+                    item(key = "block-${block.id.name}") {
+                        ListenBlockHeader(
+                            title = block.title,
+                            reason = block.reason,
+                            blockId = block.id,
+                            onMoveUp = { viewModel.moveListenBlockUp(block.id) },
+                            onMoveDown = { viewModel.moveListenBlockDown(block.id) },
+                            onHide = { viewModel.hideListenBlock(block.id) }
+                        )
+                    }
+                    block.books.forEach { entry ->
+                        item(key = "block-${block.id.name}-${entry.book.id}") {
+                            ListenBlockBookRow(
+                                book = entry.book,
+                                progress = entry.progress,
+                                onClick = { onBookClick(entry.book.id) },
+                                onPlayClick = { onPlayClick(entry.book) },
+                                onNotInterested = { viewModel.dismissListenBook(entry.book.id) }
+                            )
+                        }
+                    }
                 }
             }
         }
 
-        // Continue-the-series (spec-9 T4): the next volume of the hero book's
-        // cycle. Hidden when there is none or the lookup failed.
-        val continueSeriesBook = heroBook?.let { hb -> nextInSeries?.takeIf { it.id != hb.id } }
-        if (continueSeriesBook != null) {
-            item { AppSectionHeader(title = "Продовжити серію") }
-            item {
-                ContinueSeriesRow(
-                    seriesTitle = heroBook.seriesTitle.orEmpty(),
-                    book = continueSeriesBook,
-                    onClick = { onBookClick(continueSeriesBook.id) },
-                    onPlayClick = { onPlayClick(continueSeriesBook) }
-                )
-            }
-        }
-
-        // Нещодавно слухали.
-        val recentItems = recentProgress
-            .take(6)
-            .mapNotNull { p -> allBooks.find { it.id == p.bookId }?.let { it to p } }
-        if (recentItems.isNotEmpty()) {
-            item { AppSectionHeader(title = "Нещодавно слухали") }
-            // Keys are prefixed per section: LazyColumn keys must be unique
-            // across the WHOLE list, and the same book can legitimately appear
-            // in both "Нещодавно слухали" and "Завантажено" (observed
-            // on-device: duplicate key "..." crashed the Listen tab for any
-            // downloaded-and-listened book).
-            items(recentItems, key = { "recent-${it.first.id}" }) { (book, progress) ->
-                RecentlyListenedRow(
-                    book = book,
-                    progress = progress,
-                    onClick = { onBookClick(book.id) },
-                    onPlayClick = { onPlayClick(book) }
-                )
-            }
-        }
-
-        // Завантажено.
-        if (downloadedBooks.isNotEmpty()) {
-            item { AppSectionHeader(title = "Завантажено") }
-            items(downloadedBooks, key = { "downloaded-${it.id}" }) { book ->
-                AudiobookListItem(
-                    book = book,
-                    onClick = { onBookClick(book.id) },
-                    onPlayClick = { onPlayClick(book) }
-                )
+        // Every eligible block hidden — one restore row instead of a dead screen.
+        if (visibleBlocks.isEmpty() && listenBlocks.isNotEmpty()) {
+            item(key = "block-restore") {
+                TextButton(
+                    onClick = { viewModel.restoreHiddenListenBlocks() },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .testTag("restore_listen_blocks")
+                ) {
+                    Icon(Icons.Default.SettingsBackupRestore, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Повернути приховані блоки")
+                }
             }
         }
 
@@ -266,6 +287,177 @@ fun OpenWebSourceRow(
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant
             )
+        }
+    }
+}
+
+/**
+ * One block header (wayfinder #62): the section title, its reason line
+ * («чому це тут?») and the block menu — move up/down (user's order wins) and
+ * hide (restorable from the restore row).
+ */
+@Composable
+fun ListenBlockHeader(
+    title: String,
+    reason: String?,
+    blockId: ListenComposer.BlockId,
+    onMoveUp: () -> Unit,
+    onMoveDown: () -> Unit,
+    onHide: () -> Unit
+) {
+    var menuOpen by remember { mutableStateOf(false) }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 16.dp, end = 8.dp, top = 10.dp, bottom = 2.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            reason?.let {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.secondary
+                )
+            }
+        }
+        Box {
+            IconButton(
+                onClick = { menuOpen = true },
+                modifier = Modifier
+                    .size(AppDimens.TouchTarget)
+                    .testTag("listen_block_menu_${blockId.name}")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.MoreVert,
+                    contentDescription = "Опції блоку",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                DropdownMenuItem(
+                    text = { Text("Перемістити вище") },
+                    onClick = {
+                        menuOpen = false
+                        onMoveUp()
+                    },
+                    leadingIcon = { Icon(Icons.Default.ArrowUpward, contentDescription = null) }
+                )
+                DropdownMenuItem(
+                    text = { Text("Перемістити нижче") },
+                    onClick = {
+                        menuOpen = false
+                        onMoveDown()
+                    },
+                    leadingIcon = { Icon(Icons.Default.ArrowDownward, contentDescription = null) }
+                )
+                HorizontalDivider()
+                DropdownMenuItem(
+                    text = { Text("Сховати цей блок") },
+                    onClick = {
+                        menuOpen = false
+                        onHide()
+                    },
+                    leadingIcon = { Icon(Icons.Default.VisibilityOff, contentDescription = null) }
+                )
+            }
+        }
+    }
+}
+
+/**
+ * One book row inside a Listen block (wayfinder #62): cover, title, author,
+ * optional progress, a play button and a «Не цікаво» action that dismisses
+ * the Work from every block (reversible).
+ */
+@Composable
+fun ListenBlockBookRow(
+    book: AudiobookEntity,
+    progress: PlaybackProgressEntity?,
+    onClick: () -> Unit,
+    onPlayClick: () -> Unit,
+    onNotInterested: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 5.dp)
+            .clip(RoundedCornerShape(AppDimens.RadiusCardLg))
+            .clickable { onClick() }
+            .testTag("listen_block_row_${book.id}"),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 10.dp, top = 10.dp, bottom = 10.dp, end = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            com.example.ui.components.BookCoverImage(
+                book = book,
+                contentDescription = book.title,
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(RoundedCornerShape(AppDimens.RadiusInner)),
+                contentScale = ContentScale.Crop
+            )
+            Spacer(modifier = Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = book.title,
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = book.displayAuthor,
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                progress?.let {
+                    Text(
+                        text = "Розділ ${it.currentChapterIndex + 1} · ${MainViewModel.formatTime(it.currentPositionSeconds)}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.secondary
+                    )
+                }
+            }
+            IconButton(
+                onClick = onPlayClick,
+                modifier = Modifier
+                    .size(AppDimens.TouchTarget)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primaryContainer)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.PlayArrow,
+                    contentDescription = "Play",
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
+            IconButton(
+                onClick = onNotInterested,
+                modifier = Modifier
+                    .size(AppDimens.TouchTarget)
+                    .testTag("not_interested_${book.id}")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "Не цікаво",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
         }
     }
 }

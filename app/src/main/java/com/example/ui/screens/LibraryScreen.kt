@@ -115,6 +115,7 @@ fun LibraryScreen(
         filterAndSortLibrary(libraryBooks, filter, sort, query)
     }
     val offlineCount = remember(libraryBooks) { libraryBooks.count { it.book.isDownloaded } }
+    val hasLocalBooks = remember(libraryBooks) { libraryBooks.any { it.isLocal } }
 
     Box(modifier = Modifier.fillMaxSize()) {
         Column(
@@ -286,6 +287,19 @@ fun LibraryScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.weight(1f)
                     )
+                    if (hasLocalBooks) {
+                        TextButton(
+                            onClick = { viewModel.rescanLocalFolders() },
+                            contentPadding = PaddingValues(horizontal = 8.dp),
+                            modifier = Modifier.testTag("rescan_folders_button")
+                        ) {
+                            Text(
+                                text = "Пересканувати",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
                     TextButton(
                         onClick = { viewModel.clearAllAudioCache() },
                         contentPadding = PaddingValues(horizontal = 8.dp)

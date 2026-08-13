@@ -197,10 +197,45 @@ class SluhayuaAdapter(
     private fun firstArrayElement(obj: String, name: String): String? =
         Regex(""""$name"\s*:\s*\[\s*"((?:[^"\\]|\\.)*)""").find(obj)?.groupValues?.get(1)?.let(::unescape)?.trim()
 
-    private fun unescape(s: String): String = s
-        .replace("\\\"", "\"")
-        .replace("\\\\", "\\")
-        .replace("\\/", "/")
+    /**
+     * Unescapes a JSON string value: `\"`, `\\`, `\/`, `\n`/`\t`/`\r` and
+     * `\uXXXX` (the live allcards JSON escapes every non-ASCII char — found
+     * on-device during #88: titles rendered as literal `\u041a\u043e…`).
+     * Single pass so a literal `\\u` (escaped backslash + `u`) is not
+     * double-decoded into a unicode char.
+     */
+    private fun unescape(s: String): String {
+        val out = StringBuilder(s.length)
+        var i = 0
+        while (i < s.length) {
+            val c = s[i]
+            if (c != '\\' || i + 1 >= s.length) {
+                out.append(c)
+                i++
+                continue
+            }
+            when (val next = s[i + 1]) {
+                'u' -> {
+                    val hex = if (i + 5 < s.length) s.substring(i + 2, i + 6) else ""
+                    if (hex.length == 4 && hex.all { it.isDigit() || it in 'a'..'f' || it in 'A'..'F' }) {
+                        out.append(hex.toInt(16).toChar())
+                        i += 6
+                    } else {
+                        out.append(c)
+                        i++
+                    }
+                }
+                '\\' -> { out.append('\\'); i += 2 }
+                '"' -> { out.append('"'); i += 2 }
+                '/' -> { out.append('/'); i += 2 }
+                'n' -> { out.append('\n'); i += 2 }
+                't' -> { out.append('\t'); i += 2 }
+                'r' -> { out.append('\r'); i += 2 }
+                else -> { out.append(next); i += 2 }
+            }
+        }
+        return out.toString()
+    }
 
     /**
      * Returns the substring from [start] (an [open] bracket) through its

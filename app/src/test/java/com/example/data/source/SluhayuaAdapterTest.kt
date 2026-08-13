@@ -106,6 +106,29 @@ class SluhayuaAdapterTest {
     }
 
     @Test
+    fun `new feed unescapes uXXXX cyrillic titles from the live json`() = runBlocking {
+        // Live `sort=time&order=desc` response (2026-08-13, #88): the site
+        // escapes EVERY non-ASCII char as `\uXXXX` — a literal title like
+        // «Колобок» arrives as `\u041a\u043e\u043b\u043e\u0431\u043e\u043a`.
+        val escapedNewJson = """
+            {"cards":[
+              {"_id":9991001,"slug":"kolobok","title":"\u041a\u043e\u043b\u043e\u0431\u043e\u043a","bookName":"\u041a\u043e\u043b\u043e\u0431\u043e\u043a","bookAuthor":["\u0423\u043a\u0440\u0430\u0457\u043d\u0441\u044c\u043a\u0430 \u043d\u0430\u0440\u043e\u0434\u043d\u0430 \u043a\u0430\u0437\u043a\u0430"],"audioAuthor":[" "],"kindSrc":"/uploads/kolobok.jpeg"}
+            ],"pageCount":1}
+        """.trimIndent()
+        val adapter = SluhayuaAdapter(
+            FakeFetcher(
+                mapOf("https://sluhay.com.ua/find/allcards?sort=time&order=desc&page=1" to escapedNewJson)
+            )
+        )
+
+        val books = adapter.fetchNew(limit = 1)
+
+        assertEquals(1, books.size)
+        assertEquals("Колобок", books[0].title)
+        assertEquals("Українська народна казка", books[0].author)
+    }
+
+    @Test
     fun `book page follows the inline playlist to per-file play urls`() = runBlocking {
         val fetcher = FakeFetcher(
             buildMap {

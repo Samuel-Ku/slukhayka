@@ -9,6 +9,7 @@ import com.example.data.db.PlaybackEventEntity
 import com.example.data.db.PlaybackFailureEntity
 import com.example.data.db.PlaybackProgressEntity
 import com.example.data.db.SourceEntity
+import com.example.data.db.TombstoneEntity
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.map
@@ -40,6 +41,7 @@ class FakeAudiobookDao(
     private val statsState = MutableStateFlow(emptyList<ListeningStatEntity>())
     private val failuresState = MutableStateFlow(emptyList<PlaybackFailureEntity>())
     private val eventsState = MutableStateFlow(emptyList<PlaybackEventEntity>())
+    private val tombstonesState = MutableStateFlow(emptyList<TombstoneEntity>())
 
     /** Snapshot of the recorded playback failures, for assertions. */
     val savedFailures: List<PlaybackFailureEntity> get() = failuresState.value
@@ -58,6 +60,9 @@ class FakeAudiobookDao(
 
     /** Snapshot of the persisted playback events, for assertions. */
     val savedPlaybackEvents: List<PlaybackEventEntity> get() = eventsState.value
+
+    /** Snapshot of the persisted tombstones, for assertions. */
+    val savedTombstones: List<TombstoneEntity> get() = tombstonesState.value
 
     // --- Audiobooks -------------------------------------------------------
 
@@ -396,5 +401,18 @@ class FakeAudiobookDao(
 
     override suspend fun deletePlaybackEventsForBook(bookId: String) {
         eventsState.update { current -> current.filterNot { it.bookId == bookId } }
+    }
+
+    // --- Tombstones (wayfinder #55 Q8, stage-2 S1) --------------------------
+
+    override suspend fun insertTombstone(tombstone: TombstoneEntity) {
+        tombstonesState.update { current -> current.filterNot { it.bookId == tombstone.bookId } + tombstone }
+    }
+
+    override suspend fun getTombstoneBookIds(): List<String> =
+        tombstonesState.value.map { it.bookId }
+
+    override suspend fun deleteTombstone(bookId: String) {
+        tombstonesState.update { current -> current.filterNot { it.bookId == bookId } }
     }
 }

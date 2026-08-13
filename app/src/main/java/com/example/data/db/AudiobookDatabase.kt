@@ -16,9 +16,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         PlaybackProgressEntity::class,
         ListeningStatEntity::class,
         PlaybackFailureEntity::class,
-        PlaybackEventEntity::class
+        PlaybackEventEntity::class,
+        TombstoneEntity::class
     ],
-    version = 10,
+    version = 11,
     exportSchema = true
 )
 abstract class AudiobookDatabase : RoomDatabase() {
@@ -42,7 +43,7 @@ abstract class AudiobookDatabase : RoomDatabase() {
                     // upgrades, so a schema change fails loudly at runtime
                     // instead of silently dropping the database.
                     .addMigrations(
-                        MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10
+                        MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11
                     )
                     .build()
                 INSTANCE = instance
@@ -204,6 +205,24 @@ abstract class AudiobookDatabase : RoomDatabase() {
         internal val MIGRATION_9_10 = object : Migration(9, 10) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE sources ADD COLUMN lastScanFingerprint TEXT")
+            }
+        }
+
+        /**
+         * v10 -> v11 (wayfinder #55 Q8, stage-2 S1): the durable tombstone
+         * table. Additive only — one new table, no existing table is touched,
+         * so every v10 row survives untouched. The in-memory
+         * `deletedCatalogBookIds` set becomes this table: a deleted book stays
+         * deleted across restarts until the user explicitly imports it again.
+         */
+        internal val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS tombstones (" +
+                        "bookId TEXT NOT NULL, " +
+                        "deletedAt INTEGER NOT NULL, " +
+                        "PRIMARY KEY(bookId))"
+                )
             }
         }
     }

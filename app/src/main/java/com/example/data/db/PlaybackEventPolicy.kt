@@ -42,6 +42,29 @@ object PlaybackEventPolicy {
     }
 
     /**
+     * Whether an undo candidate is too old to still be offered (undoing
+     * yesterday's jump is noise). Only seek-like kinds can be stale; ordinary
+     * history (RESUME, PAUSE, …) is never pruned by age.
+     */
+    fun isStaleUndoCandidate(
+        event: PlaybackEventEntity,
+        nowMs: Long,
+        maxAgeMs: Long = UNDO_CANDIDATE_MAX_AGE_MS
+    ): Boolean = isUndoCandidateKind(event.kind) && nowMs - event.timestamp > maxAgeMs
+
+    /**
+     * Whether the listener is still where the jump landed: current position
+     * within [toleranceSeconds] of the candidate's to-position. The restart
+     * offer uses this so a consumed (undone) jump never re-offers — the
+     * listener has moved away from the landing point.
+     */
+    fun isAtUndoPosition(
+        event: PlaybackEventEntity,
+        positionSeconds: Long,
+        toleranceSeconds: Long = 60L
+    ): Boolean = abs(event.positionSeconds - positionSeconds) <= toleranceSeconds
+
+    /**
      * The ids to prune for one (book, source): everything beyond the newest
      * [cap] (FIFO by timestamp, then id) plus any undo-candidate older than
      * [maxAgeMs]. [events] is the bucket newest-first, as the DAO returns it.
@@ -55,7 +78,7 @@ object PlaybackEventPolicy {
     ): List<Long> {
         val ordered = events.sortedWith(compareByDescending<PlaybackEventEntity> { it.timestamp }.thenByDescending { it.id })
         val beyondCap = ordered.drop(cap).map { it.id }
-        val stale = ordered.filter { isUndoCandidateKind(it.kind) && nowMs - it.timestamp > maxAgeMs }.map { it.id }
+        val stale = ordered.filter { isStaleUndoCandidate(it, nowMs, maxAgeMs) }.map { it.id }
         return (beyondCap + stale).distinct()
     }
 }

@@ -177,8 +177,13 @@ fun ListenScreen(
         // Spec-10 T5: «Нове з кожного джерела» — one row per verified source
         // (4read is excluded: its «Нове на 4read» rows above already carry its
         // new arrivals). A source that fails to load contributes no row.
-        if (sourceFeeds.isNotEmpty()) {
-            sourceFeeds.forEach { feed ->
+        //
+        // Spec-15 T2: a session-bound source (WebView pattern) is hidden when
+        // there is no browser surface to refresh it (release builds) — its
+        // stale-session CTA would be a dead end without the in-app browser.
+        val visibleFeeds = visibleSourceFeeds(sourceFeeds, hasBrowserSurface = onOpenWebSource != null)
+        if (visibleFeeds.isNotEmpty()) {
+            visibleFeeds.forEach { feed ->
                 item {
                     SourceFeedRow(
                         feed = feed,

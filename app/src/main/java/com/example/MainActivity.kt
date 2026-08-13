@@ -30,7 +30,6 @@ import com.example.ui.MainViewModel
 import com.example.ui.SelectedTab
 import com.example.ui.components.MiniPlayerBar
 import com.example.ui.screens.BookDetailScreen
-import com.example.ui.screens.FourReadWebScreen
 import com.example.ui.screens.GenreScreen
 import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.LibraryScreen
@@ -86,7 +85,6 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
         }
     }
 
-    val webFallbackUrl by viewModel.webFallbackUrl.collectAsState()
     val selectedWebSource by viewModel.selectedWebSource.collectAsState()
     val selectedSeries by viewModel.selectedSeries.collectAsState()
     val selectedGenre by viewModel.selectedGenre.collectAsState()
@@ -95,13 +93,11 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     val selectedPerson by viewModel.selectedPerson.collectAsState()
 
     // Handle system back press
-    BackHandler(enabled = showFullPlayer || selectedBookId != null || webFallbackUrl != null ||
+    BackHandler(enabled = showFullPlayer || selectedBookId != null ||
         selectedWebSource != null || selectedSeries != null || selectedGenre != null || selectedTop100 ||
         selectedPeopleKind != null || selectedPerson != null) {
         if (showFullPlayer) {
             viewModel.setShowFullPlayer(false)
-        } else if (webFallbackUrl != null) {
-            viewModel.closeWebFallback()
         } else if (selectedWebSource != null) {
             viewModel.closeWebSource()
         } else if (selectedSeries != null) {
@@ -150,22 +146,16 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
             ) {
                 when {
                     // Spec-13 T3: a WebView-pattern source's browser surface
-                    // (sluhay.com first). Fullscreen pushed destination.
-                    selectedWebSource != null -> WebSourceBrowserScreen(
+                    // (sluhay.com first). Fullscreen pushed destination,
+                    // debug-only (spec-15 T2): a release build routes the same
+                    // action to the system browser in the ViewModel, so this
+                    // surface is never reachable there.
+                    BuildConfig.DEBUG && selectedWebSource != null -> WebSourceBrowserScreen(
                         viewModel = viewModel,
                         sourceId = selectedWebSource!!.sourceId,
                         homeUrl = selectedWebSource!!.homeUrl,
                         displayName = selectedWebSource!!.displayName,
                         onClose = { viewModel.closeWebSource() }
-                    )
-
-                    // "Open on site" WebView fallback (spec #8 ticket T4): no
-                    // longer a tab, only reachable from the book page.
-                    webFallbackUrl != null -> FourReadWebScreen(
-                        viewModel = viewModel,
-                        onBookImported = {
-                            viewModel.setShowFullPlayer(true)
-                        }
                     )
 
                     // Series (cycle) page (spec #8 ticket T8).
@@ -220,14 +210,21 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                             },
                             onBrowseClick = { viewModel.selectTab(SelectedTab.EXPLORE) },
                             onImportClick = { viewModel.selectTab(SelectedTab.LIBRARY) },
-                            // Spec-13 T3: the WebView-source browser entry point
-                            // (sluhay.com first; sluhayknigi joins later).
-                            onOpenWebSource = {
-                                viewModel.openWebSource(
-                                    sourceId = "sluhay",
-                                    homeUrl = "https://sluhay.com/",
-                                    displayName = "Sluhay"
-                                )
+                            // Spec-13 T3 + spec-15 T2: the WebView-source
+                            // browser entry point (sluhay.com first;
+                            // sluhayknigi joins later) renders only in debug
+                            // builds — in release the same row would open an
+                            // in-app browser that cannot exist.
+                            onOpenWebSource = if (BuildConfig.DEBUG) {
+                                {
+                                    viewModel.openWebSource(
+                                        sourceId = "sluhay",
+                                        homeUrl = "https://sluhay.com/",
+                                        displayName = "Sluhay"
+                                    )
+                                }
+                            } else {
+                                null
                             }
                         )
                         SelectedTab.EXPLORE -> HomeScreen(

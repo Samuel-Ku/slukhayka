@@ -609,6 +609,82 @@ class AudioPlayerManagerTest {
         }
     }
 
+    // ---------------------------------------------------------------------
+    // Spec-16 T3: persistent undo — the «Повернутися» offer survives a restart
+    // (SeekHistory is a thin facade over the event log)
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `the undo offer survives a restart via the event log`() {
+        val clock = TestClock()
+        // Session 1: a 9-minute seek leaves a SEEK candidate in the log
+        // (a non-autoplay load records no RESUME).
+        playerTest(clock = clock) { manager, factory ->
+            manager.loadAndPlayBook(book, chapters, initialChapterIndex = 0, initialPositionSeconds = 60L, autoPlay = false)
+            factory.current.simulateReady(chapters[0].durationSeconds * MILLIS_PER_SECOND)
+            manager.seekTo(600_000L)
+            awaitEvents(1) // the SEEK
+            assertEquals(60L, dao.savedPlaybackEvents.single().fromPositionSeconds)
+            assertEquals(600L, dao.savedPlaybackEvents.single().positionSeconds)
+        }
+        // Session 2 (process death): same repository, listener still where the
+        // jump landed → the pre-jump position is offered again.
+        playerTest(clock = clock) { manager, factory ->
+            manager.loadAndPlayBook(book, chapters, initialChapterIndex = 0, initialPositionSeconds = 600L, autoPlay = false)
+            factory.current.simulateReady(chapters[0].durationSeconds * MILLIS_PER_SECOND)
+            awaitTrue("restart must re-offer the pre-jump position") { manager.playerState.value.canUndoSeek }
+            assertEquals(60_000L, manager.playerState.value.undoFromPositionMs)
+        }
+    }
+
+    @Test
+    fun `undo logs the jump back and a restart never re-offers it`() {
+        val clock = TestClock()
+        playerTest(clock = clock) { manager, factory ->
+            manager.loadAndPlayBook(book, chapters, initialChapterIndex = 0, initialPositionSeconds = 60L, autoPlay = false)
+            factory.current.simulateReady(chapters[0].durationSeconds * MILLIS_PER_SECOND)
+            manager.seekTo(600_000L)
+            awaitEvents(1)
+            assertTrue(manager.playerState.value.canUndoSeek)
+
+            manager.undoLastSeek()
+            assertFalse(manager.playerState.value.canUndoSeek)
+            awaitEvents(2) // SEEK + the undo-back SEEK
+
+            // The jump back is itself a SEEK, logged with its from-position
+            // withheld so it can never become the next undo candidate.
+            val undoBack = dao.savedPlaybackEvents.last { it.kind == PlaybackEventKind.SEEK }
+            assertEquals(60L, undoBack.positionSeconds)
+            assertNull("undo-back must not carry a from-position", undoBack.fromPositionSeconds)
+        }
+        // A restart at the undone position must NOT re-offer the consumed jump.
+        playerTest(clock = clock) { manager, factory ->
+            manager.loadAndPlayBook(book, chapters, initialChapterIndex = 0, initialPositionSeconds = 60L, autoPlay = false)
+            factory.current.simulateReady(chapters[0].durationSeconds * MILLIS_PER_SECOND)
+            settle()
+            assertFalse("a consumed undo must never re-offer", manager.playerState.value.canUndoSeek)
+        }
+    }
+
+    @Test
+    fun `restart away from the landing position does not re-offer`() {
+        val clock = TestClock()
+        playerTest(clock = clock) { manager, factory ->
+            manager.loadAndPlayBook(book, chapters, initialChapterIndex = 0, initialPositionSeconds = 60L, autoPlay = false)
+            factory.current.simulateReady(chapters[0].durationSeconds * MILLIS_PER_SECOND)
+            manager.seekTo(600_000L)
+            awaitEvents(1)
+        }
+        // The listener has moved on — far from the landing point, so the stale
+        // candidate must stay silent.
+        playerTest(clock = clock) { manager, factory ->
+            manager.loadAndPlayBook(book, chapters, initialChapterIndex = 0, initialPositionSeconds = 1_800L, autoPlay = false)
+            factory.current.simulateReady(chapters[0].durationSeconds * MILLIS_PER_SECOND)
+            settle()
+            assertFalse(manager.playerState.value.canUndoSeek)
+        }
+    }
+
     /**
      * Builds a manager wired to a [RecordingPlayerFactory], runs [body] on the
      * shared test scheduler, and always releases the manager so its
@@ -662,6 +738,26 @@ class AudioPlayerManagerTest {
             delay(5)
         }
         assertEquals("event log must stay at $expected rows", expected, dao.savedPlaybackEvents.size)
+    }
+
+    /** Polls [predicate] with a real-time budget (the async IO writes do not
+     *  advance with the test scheduler). */
+    private suspend fun TestScope.awaitTrue(message: String, predicate: () -> Boolean) {
+        val deadline = System.currentTimeMillis() + 5_000
+        while (!predicate() && System.currentTimeMillis() < deadline) {
+            runCurrent()
+            delay(10)
+        }
+        assertTrue(message, predicate())
+    }
+
+    /** Bounded real-time settle so a negative assertion sees the async IO land. */
+    private suspend fun TestScope.settle(ms: Long = 250L) {
+        val deadline = System.currentTimeMillis() + ms
+        while (System.currentTimeMillis() < deadline) {
+            runCurrent()
+            delay(5)
+        }
     }
 
     /**

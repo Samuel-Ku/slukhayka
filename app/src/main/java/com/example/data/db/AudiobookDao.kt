@@ -251,4 +251,22 @@ interface AudiobookDao {
     /** Cascade: removing a book removes its event trail too. */
     @Query("DELETE FROM playback_events WHERE bookId = :bookId")
     suspend fun deletePlaybackEventsForBook(bookId: String)
+
+    // --- Tombstones (wayfinder #55 Q8, stage-2 S1) -------------------------
+
+    /**
+     * Marks a book as deleted. Written on delete/remove-from-library so the
+     * 4read catalogue sync can never resurrect it; removed only when the user
+     * explicitly imports the book again.
+     */
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertTombstone(tombstone: TombstoneEntity)
+
+    /** Every deleted book id — the durable replacement of the in-memory set. */
+    @Query("SELECT bookId FROM tombstones")
+    suspend fun getTombstoneBookIds(): List<String>
+
+    /** Clears the tombstone when the user explicitly re-imports the book. */
+    @Query("DELETE FROM tombstones WHERE bookId = :bookId")
+    suspend fun deleteTombstone(bookId: String)
 }

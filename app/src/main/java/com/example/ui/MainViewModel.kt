@@ -133,6 +133,62 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         com.example.ui.library.buildLibraryBooks(books, progress, chapters.groupBy { it.bookId })
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    // Wayfinder #62 — the rule-based personalized Listen: local-only prefs
+    // (order / hidden / dismissed) feed the pure ListenComposer, whose output
+    // is the ordered, eligible block list with reasons. The version counter
+    // re-runs the composer whenever the user reorders/hides/dismisses.
+    //
+    // Declared BEFORE listenBlocks: the composer reads nextInSeries, and a
+    // property initializer must never reference a field initialized later
+    // (it would read the JVM default null).
+    private val listenPrefs = com.example.ui.library.ListenPrefsStore(getApplication())
+    private val _listenPrefsVersion = MutableStateFlow(0)
+    private val _nextInSeries = MutableStateFlow<AudiobookEntity?>(null)
+    val nextInSeries: StateFlow<AudiobookEntity?> = _nextInSeries.asStateFlow()
+
+    val listenBlocks: StateFlow<List<com.example.ui.library.ListenComposer.Block>> = combine(
+        libraryBooks,
+        nextInSeries,
+        _listenPrefsVersion
+    ) { books, seriesBook, _ ->
+        com.example.ui.library.ListenComposer.compose(
+            library = books,
+            nextInSeries = seriesBook,
+            prefs = listenPrefs
+        )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** The blocks the user hid — the UI shows a restore row when all are hidden. */
+    val hiddenListenBlocks: StateFlow<Set<com.example.ui.library.ListenComposer.BlockId>> =
+        _listenPrefsVersion.map { listenPrefs.hiddenBlockIds }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
+
+    fun moveListenBlockUp(id: com.example.ui.library.ListenComposer.BlockId) {
+        listenPrefs.moveBlockUp(id)
+        _listenPrefsVersion.value++
+    }
+
+    fun moveListenBlockDown(id: com.example.ui.library.ListenComposer.BlockId) {
+        listenPrefs.moveBlockDown(id)
+        _listenPrefsVersion.value++
+    }
+
+    fun hideListenBlock(id: com.example.ui.library.ListenComposer.BlockId) {
+        listenPrefs.hideBlock(id)
+        _listenPrefsVersion.value++
+    }
+
+    fun restoreHiddenListenBlocks() {
+        listenPrefs.restoreHiddenBlocks()
+        _listenPrefsVersion.value++
+    }
+
+    /** «Не цікаво» on a Listen card — local taste preference, reversible. */
+    fun dismissListenBook(bookId: String) {
+        listenPrefs.dismissBook(bookId)
+        _listenPrefsVersion.value++
+    }
+
     // Spec-10 T2: positions are stored per source, so the raw flow can hold
     // several rows per book; the UI wants one card per Work — the latest.
     val recentProgress: StateFlow<List<PlaybackProgressEntity>> = repository.recentProgress
@@ -398,8 +454,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // listened book's cycle, resolved on demand from the series page and
     // cached by the repository. The block hides when there is no next volume
     // or the network fails — the screen never blocks on it.
-    private val _nextInSeries = MutableStateFlow<AudiobookEntity?>(null)
-    val nextInSeries: StateFlow<AudiobookEntity?> = _nextInSeries.asStateFlow()
+    // (State declaration lives above, next to listenBlocks — see there.)
 
     // Written on the main thread, read inside the IO coroutine — the guard is
     // best-effort, but make the visibility contract real.

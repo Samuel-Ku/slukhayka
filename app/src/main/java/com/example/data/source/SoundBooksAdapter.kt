@@ -64,6 +64,37 @@ class SoundBooksAdapter(
     override suspend fun fetchNew(limit: Int): List<SourceBook> {
         val html = fetcher.getText("https://sound-books.net/")
         if (html.isEmpty()) return emptyList()
+        return parseTiles(html, limit)
+    }
+
+    /**
+     * Spec-15 T1 — catalogue enumeration: the homepage's category sections
+     * (`https://sound-books.net/<category>/`) are the source's full catalogue;
+     * each category page carries the same tile markup as the homepage feed, so
+     * the union parses a few category pages and dedupes by url.
+     */
+    override suspend fun fetchCatalog(limit: Int): List<SourceBook> {
+        val home = fetcher.getText("https://sound-books.net/")
+        if (home.isEmpty()) return emptyList()
+        val categories = CATEGORY_LINK.findAll(home)
+            .map { it.groupValues[1] }
+            .distinct()
+            .take(6)
+        val seen = mutableSetOf<String>()
+        val books = mutableListOf<SourceBook>()
+        for (category in categories) {
+            if (books.size >= limit) break
+            val html = fetcher.getText(category)
+            if (html.isEmpty()) continue
+            for (book in parseTiles(html, limit - books.size)) {
+                if (seen.add(book.url)) books += book
+            }
+        }
+        return books
+    }
+
+    /** Parses one page's cover tiles + text anchors into [SourceBook] rows. */
+    private fun parseTiles(html: String, limit: Int): List<SourceBook> {
         // The cover tile carries the poster: <a class="short-img" href="…">
         // <img data-src="/uploads/posts/…"></a> — a relative path on this site.
         val covers = mutableMapOf<String, String>()
@@ -74,7 +105,7 @@ class SoundBooksAdapter(
                 covers[url] = if (img.startsWith("http")) img else "https://sound-books.net$img"
             }
         }
-        // Each entry renders twice on the homepage: a cover tile with a bare
+        // Each entry renders twice on a listing page: a cover tile with a bare
         // title plus a «Назва - Автор» tile. Keep one row per url, preferring
         // the author-bearing anchor so the Work-level merge can form.
         val best = mutableMapOf<String, Pair<String, Boolean>>() // url -> (anchor, hasSeparator)
@@ -123,6 +154,8 @@ class SoundBooksAdapter(
         // so the anchor tag is matched loosely.
         val BOOK_LINK = Regex("""<a\s+[^>]*href="(https://sound-books\.net/[^"]+\.html)"[^>]*>(.*?)</a>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
         val COVER_TILE = Regex("""<a\s+class="short-img[^"]*"\s+href="(https://sound-books\.net/[^"]+\.html)"[^>]*>\s*<img[^>]*(?:data-src|src)="([^"]+)"""", RegexOption.IGNORE_CASE)
+        // Category sections of the full catalogue (`https://sound-books.net/<slug>/`).
+        val CATEGORY_LINK = Regex("""href="(https://sound-books\.net/[a-z-]+/)"""", RegexOption.IGNORE_CASE)
         val AUTHOR_MARK = Regex("""Автор:\s*([^.<]{2,80})""", RegexOption.IGNORE_CASE)
         val NARRATOR_MARK = Regex("""Читає:\s*([^.<]{2,80})""", RegexOption.IGNORE_CASE)
         val JSONLD_AUTHOR = Regex(""""author"\s*:\s*"([^"]+)"""", RegexOption.IGNORE_CASE)

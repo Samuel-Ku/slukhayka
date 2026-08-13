@@ -89,4 +89,53 @@ class AudiobookMp3AdapterTest {
         assertEquals(null, books[1].coverImageUrl)
         assertEquals("Дім твоєї мрії", books[2].title)
     }
+
+    // Spec-15 T1: catalogue enumeration walks the /uk homepage's genre links
+    // and parses each genre page (same tile markup as the feed).
+    private val homeWithGenres = """
+        <html><body>
+        <a href="/uk-genre-1-ukrayinska-literatura">Українська література</a>
+        <a href="/uk-genre-3-roman">Роман</a>
+        <a href="/uk-genre-13-fantastika">Фантастика</a>
+        </body></html>
+    """.trimIndent()
+
+    private val ukrLitPage = """
+        <html><body>
+        <article class="abook-item">
+        <a class="image-abook" href="/uk-audio-7001-taras-shevchenko-kobzar" title="Слухати аудіокнигу Кобзар онлайн">
+            <img class="b-showshort__cover_image" src="https://cdn.audiobook-mp3.com/audiobooks/uk/7/0/0/1/kobzar.webp" alt="Аудіокнига Кобзар">
+        </a>
+        </article>
+        <a href="/uk-audio-7001-taras-shevchenko-kobzar">Тарас Шевченко - Кобзар</a>
+        <a href="/uk-audio-7002-lesja-ukrajinka-lisova-pisnja">Леся Українка - Лісова пісня</a>
+        </body></html>
+    """.trimIndent()
+
+    @Test
+    fun `catalogue enumerates genre pages into books with covers`() = runBlocking {
+        val adapter = AudiobookMp3Adapter(
+            FakeFetcher(
+                mapOf(
+                    "https://audiobook-mp3.com/uk" to homeWithGenres,
+                    "https://audiobook-mp3.com/uk-genre-1-ukrayinska-literatura" to ukrLitPage,
+                    "https://audiobook-mp3.com/uk-genre-3-roman" to ""
+                ),
+                fallback = "<html><body></body></html>"
+            )
+        )
+
+        val books = adapter.fetchCatalog(limit = 40)
+
+        assertEquals(2, books.size)
+        assertEquals("Кобзар", books[0].title)
+        assertEquals("Тарас Шевченко", books[0].author)
+        assertEquals("https://audiobook-mp3.com/uk-audio-7001-taras-shevchenko-kobzar", books[0].url)
+        assertEquals(
+            "https://cdn.audiobook-mp3.com/audiobooks/uk/7/0/0/1/kobzar.webp",
+            books[0].coverImageUrl
+        )
+        assertEquals("Лісова пісня", books[1].title)
+        assertEquals("Леся Українка", books[1].author)
+    }
 }

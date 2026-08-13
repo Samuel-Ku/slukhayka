@@ -260,6 +260,23 @@ class FakeAudiobookDao(
     override suspend fun findByMergeKey(mergeKey: String): AudiobookEntity? =
         booksState.value.firstOrNull { it.mergeKey == mergeKey && it.mergeKey.isNotEmpty() }
 
+    // Wayfinder #42: re-scan diff queries.
+    override suspend fun getAudiobooksBySourceTree(treeUri: String): List<AudiobookEntity> =
+        booksState.value.filter { it.sourceTreeUri == treeUri }
+
+    override suspend fun getImportedSourceTrees(): List<String> =
+        booksState.value.mapNotNull { it.sourceTreeUri }
+            .filter { it.isNotBlank() }
+            .distinct()
+
+    override suspend fun updateSourceFingerprint(sourceId: String, fingerprint: String?) {
+        sourcesState.update { current ->
+            current.map { source ->
+                if (source.id == sourceId) source.copy(lastScanFingerprint = fingerprint) else source
+            }
+        }
+    }
+
     override fun getSourcesForBook(bookId: String): Flow<List<SourceEntity>> =
         sourcesState.map { sources -> sources.filter { it.bookId == bookId }.sortedBy { it.addedAt } }
 

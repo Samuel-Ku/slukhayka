@@ -53,7 +53,11 @@ object TestDataFactory {
      */
     private const val PER_BOOK_SECONDS_STEP: Long = 300L
     private const val PER_CHAPTER_SECONDS_STEP: Long = 60L
-    private const val FIXTURE_HOST: String = "https://fixtures.4read.invalid"
+    // The host still ends in `.invalid` (RFC 2606 — unroutable, fails fast on
+    // accidental real I/O) but contains `4read.org` so the library model's
+    // `sourceIdForUrl` badges these 4read-catalogue fixtures honestly as
+    // «4read» instead of «unknown» (spec-15 T6).
+    private const val FIXTURE_HOST: String = "https://fixtures.4read.org.invalid"
 
     private data class BookSpec(
         val id: String,

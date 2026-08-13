@@ -142,7 +142,9 @@ fun LibraryScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Локальні книги та 4read — в одному місці",
+                        // Spec-15 T6: one library for local files and every
+                        // online source, not just 4read.
+                        text = "Всі книги — в одному місці",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.weight(1f)
@@ -304,7 +306,7 @@ fun LibraryScreen(
                             EmptyState(
                                 icon = Icons.Default.MenuBook,
                                 title = "Медіатека порожня",
-                                body = "Додайте власні аудіокниги з пристрою або знайдіть нові на 4read."
+                                body = "Додайте власні аудіокниги з пристрою або знайдіть нові в каталозі."
                             ) {
                                 Button(
                                     onClick = { importLauncher.launch(arrayOf("audio/*", "application/ogg", "application/mpeg")) },
@@ -582,7 +584,11 @@ private fun LibraryBookGridContent(book: LibraryBook) {
     }
 }
 
-/** Small unobtrusive source badge: «Локальна» or «4read». */
+/**
+ * Small unobtrusive source badge: «Локальна» for local imports, else the
+ * book's real source (4read, Sluhay, Sound-Books, …) — spec-15 T6, one badge
+ * for the whole multi-source library.
+ */
 @Composable
 private fun SourceBadge(book: LibraryBook) {
     Surface(
@@ -591,7 +597,7 @@ private fun SourceBadge(book: LibraryBook) {
         shape = RoundedCornerShape(AppDimens.RadiusXs)
     ) {
         Text(
-            text = if (book.isLocal) "Локальна" else "4read",
+            text = book.sourceName,
             style = MaterialTheme.typography.labelSmall,
             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
         )

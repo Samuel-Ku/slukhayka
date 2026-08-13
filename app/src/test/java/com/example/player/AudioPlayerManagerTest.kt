@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.db.AudiobookEntity
 import com.example.data.db.ChapterEntity
+import com.example.data.db.PlaybackEventKind
 import com.example.data.repository.AudiobookRepository
 import com.example.testing.FakeAudiobookDao
 import com.example.testing.TestDataFactory
@@ -469,21 +470,198 @@ class AudioPlayerManagerTest {
         assertNotEquals(1.0f, engine.appliedSpeed)
     }
 
+    // ---------------------------------------------------------------------
+    // Spec-16 T2: the playback event trail — captured through the repository
+    // seam, with noise (ticks, sub-threshold seeks, quick toggles) filtered
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `a listening session leaves the expected event trail`() {
+        val clock = TestClock()
+        playerTest(clock = clock) { manager, factory ->
+            // Fresh autoplay start → RESUME at the beginning.
+            manager.loadAndPlayBook(book, chapters, initialChapterIndex = 0, autoPlay = true)
+            factory.current.simulateReady(chapters[0].durationSeconds * MILLIS_PER_SECOND)
+            awaitEvents(1)
+            assertEquals(listOf(PlaybackEventKind.RESUME), dao.savedPlaybackEvents.map { it.kind })
+            assertEquals(0L, dao.savedPlaybackEvents.single().positionSeconds)
+
+            // A 6-minute seek is a SEEK transition with from → to.
+            manager.seekTo(6 * 60 * MILLIS_PER_SECOND)
+            awaitEvents(2)
+            val seek = dao.savedPlaybackEvents.first { it.kind == PlaybackEventKind.SEEK }
+            assertEquals(0L, seek.fromPositionSeconds)
+            assertEquals(360L, seek.positionSeconds)
+
+            // Pause after a 61-second segment is recorded.
+            clock.ms += 61_000L
+            manager.pause()
+            awaitEvents(3)
+            assertTrue(dao.savedPlaybackEvents.any { it.kind == PlaybackEventKind.PAUSE })
+
+            // Resume after a 61-second break is recorded (second RESUME).
+            clock.ms += 61_000L
+            manager.play()
+            awaitEvents(4)
+            assertEquals(2, dao.savedPlaybackEvents.count { it.kind == PlaybackEventKind.RESUME })
+
+            // Deliberate chapter changes and the final completion.
+            manager.nextChapter()
+            factory.current.simulateReady(chapters[1].durationSeconds * MILLIS_PER_SECOND)
+            awaitEvents(5)
+            manager.nextChapter()
+            factory.current.simulateReady(chapters[2].durationSeconds * MILLIS_PER_SECOND)
+            awaitEvents(6)
+            factory.current.simulateEnded()
+            awaitEvents(7)
+
+            val kinds = dao.savedPlaybackEvents.map { it.kind }
+            assertEquals(
+                listOf(
+                    PlaybackEventKind.RESUME, PlaybackEventKind.SEEK, PlaybackEventKind.PAUSE,
+                    PlaybackEventKind.RESUME, PlaybackEventKind.CHAPTER_CHANGE, PlaybackEventKind.CHAPTER_CHANGE,
+                    PlaybackEventKind.COMPLETED
+                ),
+                kinds
+            )
+            val completed = dao.savedPlaybackEvents.first { it.kind == PlaybackEventKind.COMPLETED }
+            assertEquals(chapters.lastIndex, completed.chapterIndex)
+        }
+    }
+
+    @Test
+    fun `sub-threshold seeks never land in the log`() {
+        val clock = TestClock()
+        playerTest(clock = clock) { manager, factory ->
+            manager.loadAndPlayBook(book, chapters, initialChapterIndex = 0, autoPlay = true)
+            factory.current.simulateReady(chapters[0].durationSeconds * MILLIS_PER_SECOND)
+            awaitEvents(1)
+
+            manager.seekTo(30_000L)
+            manager.seekTo(45_000L)
+
+            assertEventCountStays(1)
+            assertEquals(PlaybackEventKind.RESUME, dao.savedPlaybackEvents.single().kind)
+        }
+    }
+
+    @Test
+    fun `quick pause and resume toggles are noise`() {
+        val clock = TestClock()
+        playerTest(clock = clock) { manager, factory ->
+            manager.loadAndPlayBook(book, chapters, initialChapterIndex = 0, autoPlay = true)
+            factory.current.simulateReady(chapters[0].durationSeconds * MILLIS_PER_SECOND)
+            awaitEvents(1)
+
+            clock.ms += 5_000L
+            manager.pause()
+            clock.ms += 5_000L
+            manager.play()
+
+            assertEventCountStays(1)
+            assertEquals(PlaybackEventKind.RESUME, dao.savedPlaybackEvents.single().kind)
+        }
+    }
+
+    @Test
+    fun `loading the same book from another source records a source switch`() {
+        val clock = TestClock()
+        playerTest(clock = clock) { manager, _ ->
+            manager.loadAndPlayBook(book, chapters, initialChapterIndex = 0, autoPlay = true)
+            awaitEvents(1)
+            assertEquals(listOf(PlaybackEventKind.RESUME), dao.savedPlaybackEvents.map { it.kind })
+
+            val soundBooksBook = book.copy(sourceUrl = "https://sound-books.net/books/kobzar.html")
+            manager.loadAndPlayBook(soundBooksBook, chapters, initialChapterIndex = 0, autoPlay = true)
+            awaitEvents(3)
+
+            // The switch and its fresh RESUME are separate IO writes — assert
+            // the multiset, not the interleaving of the two coroutines.
+            val kinds = dao.savedPlaybackEvents.map { it.kind }
+            assertEquals(3, kinds.size)
+            assertEquals(2, kinds.count { it == PlaybackEventKind.RESUME })
+            assertEquals(1, kinds.count { it == PlaybackEventKind.SOURCE_SWITCH })
+            assertEquals("soundbooks", dao.savedPlaybackEvents.first { it.kind == PlaybackEventKind.SOURCE_SWITCH }.sourceKey)
+        }
+    }
+
+    @Test
+    fun `reaching the end of the book records completion exactly once`() {
+        val clock = TestClock()
+        playerTest(clock = clock) { manager, factory ->
+            manager.loadAndPlayBook(book, chapters, initialChapterIndex = chapters.lastIndex, autoPlay = true)
+            factory.current.simulateReady(chapters.last().durationSeconds * MILLIS_PER_SECOND)
+            awaitEvents(1)
+
+            factory.current.simulateEnded()
+            awaitEvents(2)
+            // A duplicate ENDED observation must not re-record the completion.
+            factory.current.simulateEnded()
+            assertEventCountStays(2)
+
+            assertEquals(
+                listOf(PlaybackEventKind.RESUME, PlaybackEventKind.COMPLETED),
+                dao.savedPlaybackEvents.map { it.kind }
+            )
+            val completed = dao.savedPlaybackEvents.first { it.kind == PlaybackEventKind.COMPLETED }
+            assertEquals(chapters.lastIndex, completed.chapterIndex)
+            assertEquals(chapters.last().durationSeconds, completed.positionSeconds)
+        }
+    }
+
     /**
      * Builds a manager wired to a [RecordingPlayerFactory], runs [body] on the
      * shared test scheduler, and always releases the manager so its
      * progress-tracker loop cannot outlive the test.
+     *
+     * Spec-16 T2: [clock] injects the manager's wall clock so the event
+     * capture filter (1-minute segments, 5-minute seeks) is deterministic.
      */
     private fun playerTest(
+        clock: TestClock? = null,
         body: suspend TestScope.(AudioPlayerManager, RecordingPlayerFactory) -> Unit
     ) = runTest(dispatcher) {
         val factory = RecordingPlayerFactory()
-        val manager = AudioPlayerManager(context, repository, factory)
+        val manager = AudioPlayerManager(
+            context, repository, factory,
+            now = { clock?.ms ?: System.currentTimeMillis() }
+        )
         try {
             body(manager, factory)
         } finally {
             manager.release()
         }
+    }
+
+    /**
+     * Waits until the event log holds at least [expected] rows. The write
+     * crosses the real IO dispatcher inside the repository, so a virtual-time
+     * drain cannot observe it deterministically; this polls the in-memory fake
+     * with a real-time budget (same pattern as [awaitLedgerRows]).
+     */
+    private suspend fun TestScope.awaitEvents(expected: Int) {
+        val deadline = System.currentTimeMillis() + 5_000
+        while (dao.savedPlaybackEvents.size < expected && System.currentTimeMillis() < deadline) {
+            runCurrent()
+            delay(10)
+        }
+        assertTrue(
+            "event log must hold at least $expected rows, got ${dao.savedPlaybackEvents.size}",
+            dao.savedPlaybackEvents.size >= expected
+        )
+    }
+
+    /**
+     * Proves a negative: after a bounded real-time settle, the event log still
+     * holds exactly [expected] rows (no spurious transitions leaked in).
+     */
+    private suspend fun TestScope.assertEventCountStays(expected: Int, settleMs: Long = 200L) {
+        val deadline = System.currentTimeMillis() + settleMs
+        while (System.currentTimeMillis() < deadline) {
+            runCurrent()
+            delay(5)
+        }
+        assertEquals("event log must stay at $expected rows", expected, dao.savedPlaybackEvents.size)
     }
 
     /**
@@ -499,6 +677,11 @@ class AudioPlayerManagerTest {
             delay(10)
         }
         assertTrue("ledger must hold $expected rows, got ${dao.savedFailures.size}", dao.savedFailures.size >= expected)
+    }
+
+    /** Mutable wall clock for the spec-16 T2 capture-filter tests. */
+    private class TestClock {
+        var ms: Long = 0L
     }
 
     private companion object {

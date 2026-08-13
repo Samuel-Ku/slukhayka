@@ -27,6 +27,8 @@ import androidx.media3.session.SessionToken
 import com.example.data.db.AudiobookEntity
 import com.example.data.db.BookmarkEntity
 import com.example.data.db.ChapterEntity
+import com.example.data.db.PlaybackEventFilter
+import com.example.data.db.PlaybackEventKind
 import com.example.data.repository.AudiobookRepository
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -268,6 +270,22 @@ class AudioPlayerManager(
     /** Wall-clock epoch of the last in-session pause (wayfinder #25). */
     private var pausedAtEpochMs: Long? = null
 
+    // --- Spec-16 T2: listening-segment bookkeeping for the capture filter ---
+    // The player asks PlaybackEventFilter before recording a transition; these
+    // three markers answer its questions without touching the wall clock twice.
+
+    /** When the current listening segment started (load/resume); null while paused. */
+    private var playbackSegmentStartMs: Long? = null
+
+    /** The last prepared chapter index; null before the first prepare. */
+    private var lastPreparedChapterIndex: Int? = null
+
+    /** Guards the end-of-book completion so the trail records it exactly once. */
+    private var completionLogged = false
+
+    /** (bookId, sourceKey) of the last loaded book — detects a source switch. */
+    private var lastLoadedBookKey: Pair<String, String>? = null
+
     /** Position history for the "Повернутися" undo action (wayfinder #25). */
     private val seekHistory = SeekHistory()
 
@@ -355,6 +373,12 @@ class AudioPlayerManager(
         autoPlay: Boolean = true
     ) {
         val chapterIdx = initialChapterIndex.coerceIn(0, (chapters.size - 1).coerceAtLeast(0))
+        // Spec-16 T2: loading the same book from a different source is a source
+        // switch — recorded as a discrete transition (audit trail for undo and
+        // sync; cross-source undo semantics land with the persistent undo, T3).
+        val newBookKey = book.id to repository.sourceKeyFor(book)
+        val switchingSource = lastLoadedBookKey?.let { it.first == book.id && it.second != newBookKey.second } == true
+        lastLoadedBookKey = newBookKey
         _playerState.value = _playerState.value.copy(
             currentBook = book,
             chapters = chapters,
@@ -369,6 +393,17 @@ class AudioPlayerManager(
             canUndoSeek = false,
             undoFromPositionMs = 0L
         )
+        // A fresh load starts a new listening cycle: completion resets, chapter
+        // history resets, and — when autoplaying — the resume + segment begin.
+        completionLogged = false
+        lastPreparedChapterIndex = null
+        if (switchingSource) {
+            recordPlaybackEvent(PlaybackEventKind.SOURCE_SWITCH, positionSeconds = initialPositionSeconds)
+        }
+        if (autoPlay) {
+            playbackSegmentStartMs = now()
+            recordPlaybackEvent(PlaybackEventKind.RESUME, positionSeconds = initialPositionSeconds)
+        }
 
         prepareChapter(chapterIdx, initialPositionSeconds * 1000L, autoPlay)
     }
@@ -376,6 +411,20 @@ class AudioPlayerManager(
     fun prepareChapter(chapterIndex: Int, startPositionMs: Long = 0L, autoPlay: Boolean = true) {
         val chapters = _playerState.value.chapters
         if (chapters.isEmpty() || chapterIndex !in chapters.indices) return
+
+        // Spec-16 T2: a deliberate chapter change (next/previous/select or the
+        // auto-advance after a chapter ends) is a discrete transition. The
+        // initial load and re-prepares of the same chapter are not — the load
+        // records a RESUME instead.
+        val previousIndex = lastPreparedChapterIndex
+        lastPreparedChapterIndex = chapterIndex
+        if (previousIndex != null && previousIndex != chapterIndex) {
+            recordPlaybackEvent(
+                kind = PlaybackEventKind.CHAPTER_CHANGE,
+                chapterIndex = chapterIndex,
+                positionSeconds = startPositionMs / 1000L
+            )
+        }
 
         val chapter = chapters[chapterIndex]
         val durationMs = chapter.durationSeconds * 1000L
@@ -606,11 +655,23 @@ class AudioPlayerManager(
     }
 
     fun play() {
+        val wasPlaying = _playerState.value.isPlaying
+        // Spec-16 T2: the resume is recorded only when playback actually
+        // starts again, and only after a break long enough to matter (or with
+        // no break at all — a fresh start). Read the gap before the smart
+        // rewind consumes the pause marker.
+        val resumeGapMs = if (wasPlaying) null else pausedAtEpochMs?.let { now() - it }
         _playerState.value = _playerState.value.copy(isPlaying = true)
         ensurePlaybackServiceStarted()
         // Smart rewind (wayfinder #25): coming back from a pause rewinds a few
         // seconds to a few tens of seconds depending on how long the break was.
         applySmartRewindIfNeeded()
+        if (!wasPlaying) {
+            if (PlaybackEventFilter.shouldRecordResume(resumeGapMs, now())) {
+                recordPlaybackEvent(PlaybackEventKind.RESUME)
+            }
+            playbackSegmentStartMs = now()
+        }
         if (_playerState.value.isBuffering) return
 
         val mp = mediaPlayer
@@ -640,6 +701,12 @@ class AudioPlayerManager(
         // restart can rewind too.
         pausedAtEpochMs = now()
         persistPausedAt(pausedAtEpochMs)
+        // Spec-16 T2: record the pause only after a listening segment of at
+        // least a minute — quick toggles are noise.
+        if (PlaybackEventFilter.shouldRecordPause(playbackSegmentStartMs, now())) {
+            recordPlaybackEvent(PlaybackEventKind.PAUSE)
+        }
+        playbackSegmentStartMs = null
         if (_playerState.value.isBuffering) return
 
         mediaPlayer?.let { mp ->
@@ -675,6 +742,17 @@ class AudioPlayerManager(
                 canUndoSeek = jump != null,
                 undoFromPositionMs = jump?.fromPositionMs ?: 0L
             )
+            // Spec-16 T2: a big seek is a discrete transition (from → to);
+            // sub-threshold seeks and programmatic seeks (recordInHistory =
+            // false) are noise and stay out of the log, matching SeekHistory.
+            if (PlaybackEventFilter.shouldRecordSeek(prevPos, targetMs)) {
+                recordPlaybackEvent(
+                    kind = PlaybackEventKind.SEEK,
+                    chapterIndex = chapterIdx,
+                    positionSeconds = targetMs / 1000L,
+                    fromPositionSeconds = prevPos / 1000L
+                )
+            }
         } else {
             _playerState.value = _playerState.value.copy(currentPositionMs = targetMs)
         }
@@ -874,6 +952,14 @@ class AudioPlayerManager(
                 }
 
                 pause()
+                // Spec-16 T2: the timer stop itself is a discrete transition
+                // (the pause above records a PAUSE only when the segment was
+                // long enough to matter).
+                recordPlaybackEvent(
+                    kind = PlaybackEventKind.TIMER_STOP,
+                    chapterIndex = chapterIdx,
+                    positionSeconds = posSec
+                )
                 try { mediaPlayer?.volume = 1.0f } catch (_: Exception) {}
                 _playerState.value = _playerState.value.copy(
                     sleepTimerMinutes = 0,
@@ -890,6 +976,17 @@ class AudioPlayerManager(
             prepareChapter(nextIdx, startPositionMs = 0L, autoPlay = true)
         } else {
             _playerState.value = _playerState.value.copy(isPlaying = false, currentPositionMs = _playerState.value.durationMs)
+            // Spec-16 T2: reaching the end of the book is a completion — one
+            // discrete event per listening cycle (the listener and the progress
+            // tracker can both observe the end; completionLogged dedupes).
+            if (!completionLogged) {
+                completionLogged = true
+                recordPlaybackEvent(
+                    kind = PlaybackEventKind.COMPLETED,
+                    chapterIndex = _playerState.value.chapters.lastIndex.coerceAtLeast(0),
+                    positionSeconds = _playerState.value.durationMs / 1000L
+                )
+            }
             saveCurrentProgressToDb()
         }
     }
@@ -961,6 +1058,35 @@ class AudioPlayerManager(
         }
     }
 
+    /**
+     * Appends a discrete transition to the event log through the repository
+     * seam (spec-16 T2). The player never touches the DAO for events — every
+     * capture funnels through [AudiobookRepository.recordPlaybackEvent], which
+     * writes the row and compacts the (book, source) bucket. The timestamp is
+     * the manager's injectable clock so tests stay free of the wall clock.
+     */
+    private fun recordPlaybackEvent(
+        kind: String,
+        chapterIndex: Int = _playerState.value.currentChapterIndex,
+        positionSeconds: Long = _playerState.value.currentPositionMs / 1000L,
+        fromPositionSeconds: Long? = null
+    ) {
+        val book = _playerState.value.currentBook ?: return
+        val bookId = book.id
+        val sourceKey = repository.sourceKeyFor(book)
+        scope.launch(Dispatchers.IO) {
+            repository.recordPlaybackEvent(
+                bookId = bookId,
+                kind = kind,
+                chapterIndex = chapterIndex,
+                positionSeconds = positionSeconds,
+                sourceKey = sourceKey,
+                fromPositionSeconds = fromPositionSeconds,
+                timestampMs = now()
+            )
+        }
+    }
+
     fun release() {
         sleepTimer?.cancel()
         updateProgressJob?.cancel()
@@ -1006,6 +1132,12 @@ class AudioPlayerManager(
         currentChapter = null
         shouldAutoPlay = false
         pendingResumeSeekMs = -1L
+        // Spec-16 T2: a cleared session has no segment, no source history and
+        // no pending completion — the next load starts a fresh trail.
+        playbackSegmentStartMs = null
+        lastPreparedChapterIndex = null
+        completionLogged = false
+        lastLoadedBookKey = null
         _playerState.value = PlayerState()
     }
 

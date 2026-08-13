@@ -153,6 +153,50 @@ class LibraryModelTest {
         assertFalse(online.isLocal)
     }
 
+    // --- spec-15 T6: the multi-source badge and the online chip -------------
+
+    @Test
+    fun `source badge shows the real source not a hardcoded 4read`() {
+        val sluhay = buildLibraryBooks(
+            listOf(book("s", "Пасажир", sourceUrl = "https://sluhay.com/pasazhir.html")), emptyList(), emptyMap()
+        ).single()
+        val soundbooks = buildLibraryBooks(
+            listOf(book("sb", "Темна матерія", sourceUrl = "https://sound-books.net/x.html")), emptyList(), emptyMap()
+        ).single()
+        val fourRead = buildLibraryBooks(
+            listOf(book("4", "Кобзар")), emptyList(), emptyMap()
+        ).single()
+        val local = buildLibraryBooks(
+            listOf(book("l", "Локальна", sourceUrl = "")), emptyList(), emptyMap()
+        ).single()
+
+        assertEquals("Sluhay", sluhay.sourceName)
+        assertEquals("Sound-Books", soundbooks.sourceName)
+        assertEquals("4read", fourRead.sourceName)
+        assertEquals("Локальна", local.sourceName)
+    }
+
+    @Test
+    fun `online filter means any source and its chip label says so`() {
+        // The filter selects every non-local book regardless of the source.
+        val items = buildLibraryBooks(
+            listOf(
+                book("local", "Локальна", sourceUrl = ""),
+                book("sluhay", "Пасажир", sourceUrl = "https://sluhay.com/pasazhir.html"),
+                book("soundbooks", "Темна матерія", sourceUrl = "https://sound-books.net/x.html"),
+                book("lihtar", "Слово", sourceUrl = "https://lihtar.in.ua/biblioteka/slovo")
+            ),
+            emptyList(), emptyMap()
+        )
+
+        assertEquals(
+            setOf("sluhay", "soundbooks", "lihtar"),
+            idSet(filterAndSortLibrary(items, LibraryFilter.ONLINE, LibrarySort.TITLE, ""))
+        )
+        // Spec-15 T6: the chip says «Онлайн», not the dated «4read».
+        assertEquals("Онлайн", LibraryFilter.ONLINE.label)
+    }
+
     @Test
     fun `series label combines title and volume`() {
         val withVolume = buildLibraryBooks(

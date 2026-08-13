@@ -36,6 +36,9 @@ class WebViewHtmlParser {
         val totalDurationSeconds = parsePageDuration(html)
         val author = parsePmovieText(html, "Автор") ?: ""
         val narrator = parsePmovieText(html, "Читає") ?: ""
+        // Spec-15 T5: the page's og:description is the book's own blurb (a
+        // real description, unlike lihtar where og:description is the author).
+        val description = parseOgDescription(html)
         val genres = parsePmovieGenres(html)
         val rating = parseRatingScore(html)
         val series = parsePmovieCycle(html)
@@ -132,9 +135,18 @@ class WebViewHtmlParser {
             rating = rating,
             genres = genres,
             series = series,
-            related = related
+            related = related,
+            description = description
         )
     }
+
+    /** The page's og:description blurb, trimmed; absent when not present. */
+    private fun parseOgDescription(html: String): String =
+        Regex("""<meta\s+property="og:description"\s+content="([^"]+)"\s*/?>""", RegexOption.IGNORE_CASE)
+            .find(html)?.groupValues?.get(1)
+            ?: Regex("""<meta\s+content="([^"]+)"\s+property="og:description"\s*/?>""", RegexOption.IGNORE_CASE)
+            .find(html)?.groupValues?.get(1)
+            ?.trim().orEmpty()
 
     /** The book page's real total duration (formats `10:57:18` / `53:42`). */
     private fun parsePageDuration(html: String): Long? {

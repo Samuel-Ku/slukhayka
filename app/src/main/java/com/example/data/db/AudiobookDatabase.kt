@@ -18,7 +18,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         PlaybackFailureEntity::class,
         PlaybackEventEntity::class
     ],
-    version = 9,
+    version = 10,
     exportSchema = true
 )
 abstract class AudiobookDatabase : RoomDatabase() {
@@ -42,7 +42,7 @@ abstract class AudiobookDatabase : RoomDatabase() {
                     // upgrades, so a schema change fails loudly at runtime
                     // instead of silently dropping the database.
                     .addMigrations(
-                        MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9
+                        MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10
                     )
                     .build()
                 INSTANCE = instance
@@ -193,6 +193,17 @@ abstract class AudiobookDatabase : RoomDatabase() {
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_playback_events_bookId ON playback_events(bookId)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_playback_events_sourceKey ON playback_events(sourceKey)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_playback_events_timestamp ON playback_events(timestamp)")
+            }
+        }
+
+        /**
+         * v9 -> v10 (wayfinder #42): the re-scan fingerprint of a local
+         * source. Additive only — one nullable column on `sources`, no
+         * existing row is touched, so every v9 row survives untouched.
+         */
+        internal val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE sources ADD COLUMN lastScanFingerprint TEXT")
             }
         }
     }

@@ -84,7 +84,11 @@ data class SourceEntity(
     val type: String,
     val url: String,
     val streamOnly: Boolean = false,
-    val addedAt: Long = System.currentTimeMillis()
+    val addedAt: Long = System.currentTimeMillis(),
+    // wayfinder #42: the folder-scan baseline of a local source — a hash over
+    // its chapters' (name, contentHash) pairs. Null until the folder has been
+    // scanned once; a re-scan diffs the live tree against this fingerprint.
+    val lastScanFingerprint: String? = null
 )
 
 @Entity(tableName = "bookmarks", indices = [Index("bookId")])

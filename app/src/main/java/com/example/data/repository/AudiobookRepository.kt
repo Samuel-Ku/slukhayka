@@ -11,6 +11,8 @@ import com.example.data.catalog.CatalogParser
 import com.example.data.catalog.CatalogPerson
 import com.example.data.catalog.CatalogSection
 import com.example.data.db.*
+import com.example.data.contentHashOf
+import com.example.data.imports.FolderRescan
 import com.example.data.imports.LocalAudioEntry
 import com.example.data.imports.LocalFolderScanner
 import com.example.data.merge.MergeKey
@@ -1124,6 +1126,193 @@ class AudiobookRepository(
     }
 
     /** Creates one local book with the given chapters (title, localFilePath). */
+    // ---------------------------------------------------------------------
+    // Wayfinder #42: re-scanning a previously imported local folder
+    // ---------------------------------------------------------------------
+
+    /** Outcome of one [rescanLocalFolder] run — what changed in the tree. */
+    data class RescanReport(
+        val treeUri: String,
+        val newChapters: Int = 0,
+        val newBooks: Int = 0,
+        val missingFiles: Int = 0,
+        val movedFiles: Int = 0,
+        val duplicateFiles: Int = 0
+    )
+
+    /**
+     * Re-scans one previously imported SAF tree (wayfinder #42): walks it,
+     * hashes every stream (no copies — files the library already knows never
+     * touch disk), diffs against the stored chapters by content hash, applies
+     * new files as chapters/books, and reports missing/moved/duplicate files.
+     * The library entry and its private copies survive every outcome
+     * (wayfinder #59): nothing here ever deletes a row or a file.
+     */
+    suspend fun rescanLocalFolder(treeUri: String): RescanReport = withContext(Dispatchers.IO) {
+        val ctx = context ?: return@withContext RescanReport(treeUri)
+        val entries = runCatching { LocalFolderScanner.scan(ctx, Uri.parse(treeUri)) }.getOrElse {
+            Log.w("AudiobookRepo", "Re-scan could not open tree $treeUri", it)
+            return@withContext RescanReport(treeUri)
+        }
+        if (entries.isEmpty()) return@withContext RescanReport(treeUri)
+        rescanAudioEntries(entries, treeUri)
+    }
+
+    /**
+     * Testable core of the re-scan (wayfinder #42): hashes every stream (no
+     * copies — files the library already knows never touch disk), diffs
+     * against the stored chapters by content hash, applies new files as
+     * chapters/books, and reports missing/moved/duplicate files. The library
+     * entry and its private copies survive every outcome (wayfinder #59):
+     * nothing here ever deletes a row or a file.
+     */
+    suspend fun rescanAudioEntries(entries: List<LocalAudioEntry>, treeUri: String): RescanReport =
+        withContext(Dispatchers.IO) {
+        // Hash every file once — pure stream read, the re-scan baseline.
+        val scanned = entries.mapNotNull { entry ->
+            val hash = runCatching { contentHashOf(entry.openStream()) }.getOrNull()
+            if (hash.isNullOrBlank()) null else FolderRescan.RescanFile(entry.fileName, entry.parentFolder, hash)
+        }
+        if (scanned.isEmpty()) return@withContext RescanReport(treeUri)
+
+        val libraryHashSet = allChapters.first().mapNotNull { it.contentHash }.toSet()
+        val existingBooks = dao.getAudiobooksBySourceTree(treeUri)
+        var report = RescanReport(treeUri)
+
+        // Same grouping as the import: root files are single-chapter books,
+        // each sub-folder is one multi-chapter book by its last path segment.
+        val groups = scanned.groupBy { file ->
+            file.parentFolder?.let { "folder:$it" } ?: "root:${sanitizeLocalBaseName(file.fileName)}"
+        }
+        for ((groupKey, files) in groups) {
+            val isRoot = groupKey.startsWith("root:")
+            val title = if (isRoot) groupKey.removePrefix("root:")
+            else files.first().parentFolder?.substringAfterLast('/')?.let { sanitizeLocalBaseName(it) }.orEmpty()
+            val book = existingBooks.firstOrNull { it.title == title }
+
+            if (book == null) {
+                // A book the library doesn't know from this tree yet: copy its
+                // files through the shared dedupe core, then create the book.
+                val newInputs = mutableListOf<LocalChapterInput>()
+                for (file in files) {
+                    val entry = entries.first { it.fileName == file.fileName && it.parentFolder == file.parentFolder }
+                    copyNewLocalChapter(entry, sanitizeLocalBaseName(file.fileName), file.contentHash)?.let { newInputs.add(it) }
+                }
+                if (newInputs.isEmpty()) {
+                    report = report.copy(duplicateFiles = report.duplicateFiles + files.size)
+                    continue
+                }
+                val created = insertLocalBook(
+                    title = title,
+                    author = LOCAL_FOLDER_AUTHOR,
+                    description = "Імпортовано з папки «${files.first().parentFolder ?: title}» — ${newInputs.size} файл(ів)",
+                    chapters = newInputs,
+                    sourceTreeUri = treeUri
+                )
+                report = report.copy(
+                    newBooks = report.newBooks + 1,
+                    newChapters = report.newChapters + newInputs.size,
+                    duplicateFiles = report.duplicateFiles + (files.size - newInputs.size)
+                )
+                updateFingerprintFor(created.id)
+                continue
+            }
+
+            // Known book: diff its chapters against this group's live files.
+            val chapters = dao.getChaptersListForBook(book.id)
+            val diff = FolderRescan.computeDiff(chapters, libraryHashSet, files)
+            report = report.copy(
+                missingFiles = report.missingFiles + diff.missingChapters.size,
+                movedFiles = report.movedFiles + diff.movedFiles.size,
+                duplicateFiles = report.duplicateFiles + diff.duplicateFiles.size
+            )
+            if (diff.newFiles.isNotEmpty()) {
+                val newInputs = mutableListOf<LocalChapterInput>()
+                for (file in diff.newFiles) {
+                    val entry = entries.first { it.fileName == file.fileName && it.parentFolder == file.parentFolder }
+                    copyNewLocalChapter(entry, sanitizeLocalBaseName(file.fileName), file.contentHash)?.let { newInputs.add(it) }
+                }
+                if (newInputs.isNotEmpty()) {
+                    val merged = chapters.map { ch ->
+                        LocalChapterInput(title = ch.title, filePath = ch.localFilePath ?: ch.streamUrl, contentHash = ch.contentHash.orEmpty())
+                    } + newInputs
+                    rewriteBookChapters(book.id, merged)
+                    report = report.copy(newChapters = report.newChapters + newInputs.size)
+                    updateFingerprintFor(book.id)
+                } else {
+                    report = report.copy(duplicateFiles = report.duplicateFiles + diff.newFiles.size)
+                }
+            }
+        }
+        report
+    }
+
+    /**
+     * Re-scans every previously imported local tree, best-effort per tree:
+     * one dead SAF grant (moved folder) fails that tree alone, never the rest.
+     */
+    suspend fun rescanAllLocalFolders(): List<RescanReport> = withContext(Dispatchers.IO) {
+        dao.getImportedSourceTrees().map { tree ->
+            runCatching { rescanLocalFolder(tree) }.getOrElse {
+                Log.w("AudiobookRepo", "Re-scan failed for $tree", it)
+                RescanReport(tree)
+            }
+        }
+    }
+
+    /** Copies a NEW local file to private storage, deduped against the library. */
+    private suspend fun copyNewLocalChapter(
+        entry: LocalAudioEntry,
+        chapterTitle: String,
+        contentHash: String
+    ): LocalChapterInput? {
+        // The diff classified it new, but a concurrent import may have landed
+        // the same bytes — never copy twice.
+        if (dao.getChapterByContentHash(contentHash) != null) return null
+        val base = sanitizeLocalBaseName(entry.fileName)
+        val dest = try {
+            copyLocalAudioStream("$base-re${localImportSeq.incrementAndGet()}", localFileExtension(entry.fileName), entry.openStream())
+        } catch (e: Exception) {
+            Log.w("AudiobookRepo", "Re-scan copy failed for ${entry.fileName}", e)
+            return null
+        }
+        return LocalChapterInput(title = chapterTitle, filePath = dest.path, contentHash = dest.sha256Hex)
+    }
+
+    /** Re-indexes a local book's chapters naturally (deletes + reinserts the list). */
+    private suspend fun rewriteBookChapters(bookId: String, chapters: List<LocalChapterInput>) {
+        val sorted = chapters.sortedWith(Comparator { a, b -> compareNatural(a.title, b.title) })
+        dao.deleteChaptersForBook(bookId)
+        dao.insertChapters(
+            sorted.mapIndexed { index, ch ->
+                ChapterEntity(
+                    id = "${bookId}_ch${index + 1}",
+                    bookId = bookId,
+                    chapterIndex = index,
+                    title = ch.title,
+                    durationSeconds = 0L,
+                    streamUrl = ch.filePath,
+                    localFilePath = ch.filePath,
+                    isDownloaded = true,
+                    contentHash = ch.contentHash.ifBlank { null }
+                )
+            }
+        )
+        dao.updateBookStats(bookId, sorted.size, 0L)
+    }
+
+    /** Refreshes the local source's re-scan fingerprint from its stored chapters. */
+    private suspend fun updateFingerprintFor(bookId: String) {
+        val chapters = dao.getChaptersListForBook(bookId)
+        val fingerprint = chapters
+            .map { "${it.title.lowercase()}|${it.contentHash.orEmpty()}" }
+            .sorted()
+            .joinToString("\n")
+            .ifBlank { null }
+            ?.let { sha256Hex(it.toByteArray()) }
+        dao.updateSourceFingerprint("$bookId-local", fingerprint)
+    }
+
     private suspend fun insertLocalBook(
         title: String,
         author: String,

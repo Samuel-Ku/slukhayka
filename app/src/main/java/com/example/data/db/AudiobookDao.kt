@@ -204,4 +204,39 @@ interface AudiobookDao {
 
     @Query("DELETE FROM playback_failures WHERE id = :id")
     suspend fun deletePlaybackFailure(id: Long)
+
+    // --- Playback events (spec-16): the capped transition log --------------
+
+    @Insert
+    suspend fun insertPlaybackEvent(event: PlaybackEventEntity)
+
+    /**
+     * The latest possible undo candidate for (book, source): the newest
+     * SEEK / SOURCE_SWITCH carrying a from-position. The ≥ 5-min jump policy
+     * is applied by the repository (PlaybackEventPolicy.isUndoCandidate) —
+     * this query only narrows the kind.
+     */
+    @Query(
+        "SELECT * FROM playback_events WHERE bookId = :bookId AND sourceKey = :sourceKey " +
+            "AND kind IN ('SEEK', 'SOURCE_SWITCH') AND fromPositionSeconds IS NOT NULL " +
+            "ORDER BY timestamp DESC, id DESC LIMIT 1"
+    )
+    suspend fun getLatestUndoCandidate(bookId: String, sourceKey: String): PlaybackEventEntity?
+
+    /**
+     * All events of one (book, source), newest first — the input of the pure
+     * compaction policy (PlaybackEventPolicy.pruneIds).
+     */
+    @Query(
+        "SELECT * FROM playback_events WHERE bookId = :bookId AND sourceKey = :sourceKey " +
+            "ORDER BY timestamp DESC, id DESC"
+    )
+    suspend fun getPlaybackEventsForBookSource(bookId: String, sourceKey: String): List<PlaybackEventEntity>
+
+    @Query("DELETE FROM playback_events WHERE id IN (:ids)")
+    suspend fun deletePlaybackEvents(ids: List<Long>)
+
+    /** Cascade: removing a book removes its event trail too. */
+    @Query("DELETE FROM playback_events WHERE bookId = :bookId")
+    suspend fun deletePlaybackEventsForBook(bookId: String)
 }

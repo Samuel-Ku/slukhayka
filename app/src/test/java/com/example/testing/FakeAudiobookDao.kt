@@ -5,6 +5,7 @@ import com.example.data.db.AudiobookEntity
 import com.example.data.db.BookmarkEntity
 import com.example.data.db.ChapterEntity
 import com.example.data.db.ListeningStatEntity
+import com.example.data.db.PlaybackEventEntity
 import com.example.data.db.PlaybackFailureEntity
 import com.example.data.db.PlaybackProgressEntity
 import com.example.data.db.SourceEntity
@@ -38,6 +39,7 @@ class FakeAudiobookDao(
     private val sourcesState = MutableStateFlow(emptyList<SourceEntity>())
     private val statsState = MutableStateFlow(emptyList<ListeningStatEntity>())
     private val failuresState = MutableStateFlow(emptyList<PlaybackFailureEntity>())
+    private val eventsState = MutableStateFlow(emptyList<PlaybackEventEntity>())
 
     /** Snapshot of the recorded playback failures, for assertions. */
     val savedFailures: List<PlaybackFailureEntity> get() = failuresState.value
@@ -53,6 +55,9 @@ class FakeAudiobookDao(
 
     /** Snapshot of the persisted source rows, for assertions. */
     val savedSources: List<SourceEntity> get() = sourcesState.value
+
+    /** Snapshot of the persisted playback events, for assertions. */
+    val savedPlaybackEvents: List<PlaybackEventEntity> get() = eventsState.value
 
     // --- Audiobooks -------------------------------------------------------
 
@@ -341,5 +346,38 @@ class FakeAudiobookDao(
 
     override suspend fun deletePlaybackFailure(id: Long) {
         failuresState.update { current -> current.filterNot { it.id == id } }
+    }
+
+    // --- Playback events (spec-16) -----------------------------------------
+
+    override suspend fun insertPlaybackEvent(event: PlaybackEventEntity) {
+        eventsState.update { current ->
+            val assigned = if (event.id == 0L) {
+                event.copy(id = (current.maxOfOrNull { it.id } ?: 0L) + 1L)
+            } else {
+                event
+            }
+            current + assigned
+        }
+    }
+
+    override suspend fun getLatestUndoCandidate(bookId: String, sourceKey: String): PlaybackEventEntity? =
+        eventsState.value
+            .filter { it.bookId == bookId && it.sourceKey == sourceKey &&
+                (it.kind == "SEEK" || it.kind == "SOURCE_SWITCH") && it.fromPositionSeconds != null }
+            .sortedWith(compareByDescending<PlaybackEventEntity> { it.timestamp }.thenByDescending { it.id })
+            .firstOrNull()
+
+    override suspend fun getPlaybackEventsForBookSource(bookId: String, sourceKey: String): List<PlaybackEventEntity> =
+        eventsState.value
+            .filter { it.bookId == bookId && it.sourceKey == sourceKey }
+            .sortedWith(compareByDescending<PlaybackEventEntity> { it.timestamp }.thenByDescending { it.id })
+
+    override suspend fun deletePlaybackEvents(ids: List<Long>) {
+        eventsState.update { current -> current.filterNot { it.id in ids } }
+    }
+
+    override suspend fun deletePlaybackEventsForBook(bookId: String) {
+        eventsState.update { current -> current.filterNot { it.bookId == bookId } }
     }
 }

@@ -29,6 +29,7 @@ import com.example.data.db.BookmarkEntity
 import com.example.data.db.ChapterEntity
 import com.example.data.db.PlaybackEventFilter
 import com.example.data.db.PlaybackEventKind
+import com.example.data.db.PlaybackEventPolicy
 import com.example.data.repository.AudiobookRepository
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -397,12 +398,38 @@ class AudioPlayerManager(
         // history resets, and — when autoplaying — the resume + segment begin.
         completionLogged = false
         lastPreparedChapterIndex = null
+        seekHistory.clear()
         if (switchingSource) {
             recordPlaybackEvent(PlaybackEventKind.SOURCE_SWITCH, positionSeconds = initialPositionSeconds)
         }
         if (autoPlay) {
             playbackSegmentStartMs = now()
             recordPlaybackEvent(PlaybackEventKind.RESUME, positionSeconds = initialPositionSeconds)
+        }
+
+        // Spec-16 T3: a persisted undo candidate from a previous process is
+        // restored when the listener is still where the jump landed — the
+        // «Повернутися» offer survives a restart. Seeded asynchronously from
+        // the event log; skipped if the session already recorded a newer jump
+        // (latest candidate wins) or the candidate is stale or far away.
+        val restoredPositionSeconds = initialPositionSeconds
+        val restoredSourceKey = newBookKey.second
+        scope.launch(Dispatchers.IO) {
+            val candidate = repository.lastUndoCandidate(book.id, restoredSourceKey)
+            if (candidate != null &&
+                !seekHistory.canUndo() &&
+                !PlaybackEventPolicy.isStaleUndoCandidate(candidate, now()) &&
+                PlaybackEventPolicy.isAtUndoPosition(candidate, restoredPositionSeconds)
+            ) {
+                val from = candidate.fromPositionSeconds ?: return@launch
+                seekHistory.restore(
+                    SeekJump(from * 1000L, candidate.positionSeconds * 1000L, candidate.chapterIndex)
+                )
+                _playerState.value = _playerState.value.copy(
+                    canUndoSeek = true,
+                    undoFromPositionMs = from * 1000L
+                )
+            }
         }
 
         prepareChapter(chapterIdx, initialPositionSeconds * 1000L, autoPlay)
@@ -839,13 +866,24 @@ class AudioPlayerManager(
             canUndoSeek = false,
             undoFromPositionMs = 0L
         )
+        // Spec-16 T3: the jump back is itself a transition — logged as a SEEK
+        // event so the log tells the truth. Its from-position is deliberately
+        // withheld: with one-undo semantics an undo target must never become
+        // the next candidate (that would re-offer the accident on restart).
+        recordPlaybackEvent(
+            kind = PlaybackEventKind.SEEK,
+            chapterIndex = jump.chapterIndex,
+            positionSeconds = jump.fromPositionMs / 1000L,
+            fromPositionSeconds = null
+        )
         if (jump.fromPositionMs == jump.toPositionMs) return
         if (jump.chapterIndex != _playerState.value.currentChapterIndex &&
             jump.chapterIndex in _playerState.value.chapters.indices
         ) {
             prepareChapter(jump.chapterIndex, jump.fromPositionMs, autoPlay = _playerState.value.isPlaying)
         } else {
-            // recordInHistory = false: undoing must not record a new jump back.
+            // recordInHistory = false: the jump back is not a new candidate
+            // (it was just logged explicitly above).
             seekTo(jump.fromPositionMs, recordInHistory = false)
         }
     }

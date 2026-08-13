@@ -131,6 +131,30 @@ class PlaybackEventPolicyTest {
         assertEquals((1L..5L).toList(), prune.sorted())
     }
 
+    // --- Restart offer (spec-16 T3) ----------------------------------------
+
+    @Test
+    fun `undo candidate is stale only when seek-like and older than a day`() {
+        val now = 100_000L
+        val oldSeek = event(1, PlaybackEventKind.SEEK, timestamp = now - 25 * 60 * 60 * 1000L)
+        val freshSeek = event(2, PlaybackEventKind.SEEK, timestamp = now - 60_000L)
+        val oldResume = event(3, PlaybackEventKind.RESUME, timestamp = now - 10 * 24 * 60 * 60 * 1000L)
+
+        assertTrue(PlaybackEventPolicy.isStaleUndoCandidate(oldSeek, now))
+        assertFalse(PlaybackEventPolicy.isStaleUndoCandidate(freshSeek, now))
+        assertFalse("non-candidate kinds are never stale", PlaybackEventPolicy.isStaleUndoCandidate(oldResume, now))
+    }
+
+    @Test
+    fun `listener is at the landing position within the tolerance`() {
+        val jump = event(1, PlaybackEventKind.SEEK, positionSeconds = 360L, fromPositionSeconds = 0L)
+
+        assertTrue(PlaybackEventPolicy.isAtUndoPosition(jump, positionSeconds = 360L))
+        assertTrue(PlaybackEventPolicy.isAtUndoPosition(jump, positionSeconds = 400L)) // within 60 s
+        assertFalse(PlaybackEventPolicy.isAtUndoPosition(jump, positionSeconds = 0L))
+        assertFalse(PlaybackEventPolicy.isAtUndoPosition(jump, positionSeconds = 1_800L))
+    }
+
     @Test
     fun `sorted input or not the newest cap is kept by timestamp then id`() {
         // Two events share a timestamp; the higher id wins the newest slot.

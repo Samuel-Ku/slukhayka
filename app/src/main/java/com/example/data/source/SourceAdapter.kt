@@ -90,6 +90,16 @@ interface SourceAdapter {
     suspend fun fetchNew(limit: Int = 20): List<SourceBook>
 
     /**
+     * Spec-15 T1 — catalogue enumeration: a broad sample of the source's full
+     * catalogue (category/genre pages where the source has them), feeding the
+     * unified «Увесь каталог» union on Огляд. Defaults to [fetchNew] so
+     * sources without dedicated category enumeration still participate; 4read
+     * is not part of the union (its catalogue is natively browsed — spec #8
+     * sections).
+     */
+    suspend fun fetchCatalog(limit: Int = 40): List<SourceBook> = fetchNew(limit)
+
+    /**
      * WebView-pattern sources (spec-13): discovery only works through the
      * live browser session (Cloudflare). The feed pipeline turns an
      * absent/stale session into a «відкрити джерело, щоб оновити» CTA row

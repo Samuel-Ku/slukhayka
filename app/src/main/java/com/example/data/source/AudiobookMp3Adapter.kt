@@ -67,6 +67,37 @@ class AudiobookMp3Adapter(
     override suspend fun fetchNew(limit: Int): List<SourceBook> {
         val html = fetcher.getText("https://audiobook-mp3.com/uk")
         if (html.isEmpty()) return emptyList()
+        return parseTiles(html, limit)
+    }
+
+    /**
+     * Spec-15 T1 — catalogue enumeration: the /uk genre pages
+     * (`/uk-genre-<id>-<slug>`) are the source's full catalogue; each genre
+     * page carries the same tiles as the homepage feed, so the union parses a
+     * few genre pages and dedupes by url.
+     */
+    override suspend fun fetchCatalog(limit: Int): List<SourceBook> {
+        val home = fetcher.getText("https://audiobook-mp3.com/uk")
+        if (home.isEmpty()) return emptyList()
+        val genres = GENRE_LINK.findAll(home)
+            .map { it.groupValues[1] }
+            .distinct()
+            .take(6)
+        val seen = mutableSetOf<String>()
+        val books = mutableListOf<SourceBook>()
+        for (genre in genres) {
+            if (books.size >= limit) break
+            val html = fetcher.getText("https://audiobook-mp3.com$genre")
+            if (html.isEmpty()) continue
+            for (book in parseTiles(html, limit - books.size)) {
+                if (seen.add(book.url)) books += book
+            }
+        }
+        return books
+    }
+
+    /** Parses one listing page's cover tiles + text anchors into [SourceBook] rows. */
+    private fun parseTiles(html: String, limit: Int): List<SourceBook> {
         // Each entry's cover rides in its own tile: <a class="image-abook"
         // href="/uk-audio-…"><img class="b-showshort__cover_image"
         // src="https://cdn.audiobook-mp3.com/audiobooks/uk/…"></a>.
@@ -125,6 +156,8 @@ class AudiobookMp3Adapter(
         val PLAYLIST_URL = Regex("""(https://[a-z0-9]+\.redirectto\.cc/[^"'<> ]+\.pl\.txt)""", RegexOption.IGNORE_CASE)
         val BOOK_LINK = Regex("""href="(/uk-audio-\d+-[^"]+)"[^>]*>([^<]*)""", RegexOption.IGNORE_CASE)
         val COVER_TILE = Regex("""<a\s+class="image-abook"\s+href="([^"]+)"[^>]*>\s*<img[^>]*src="([^"]+)"""", RegexOption.IGNORE_CASE)
+        // Genre (category) pages of the full catalogue — `/uk-genre-<id>-<slug>`.
+        val GENRE_LINK = Regex("""href="(/uk-genre-\d+-[^"]+)"""", RegexOption.IGNORE_CASE)
         val AUTHOR_LINK = Regex("""Автор:\s*<a[^>]*>([^<]+)</a>""", RegexOption.IGNORE_CASE)
         val JSONLD_AUTHOR = Regex(""""author"\s*:\s*"([^"]+)"""", RegexOption.IGNORE_CASE)
     }

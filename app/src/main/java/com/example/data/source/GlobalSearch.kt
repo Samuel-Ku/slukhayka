@@ -39,6 +39,16 @@ data class GlobalSearchResult(
     val key: String get() = mergeKey.ifBlank { sources.firstOrNull()?.url ?: title }
 }
 
+/**
+ * Spec-15 T4 — whether a catalogue card may offer one-tap download: its
+ * primary (first) source is not stream-only. The card plays from that same
+ * first source, so the download gate and the play source always agree (a
+ * card whose first source is lihtar — ToS forbids reproduction — hides the
+ * affordance, exactly as the detail screen does for the same book).
+ */
+fun catalogCardDownloadAllowed(result: GlobalSearchResult): Boolean =
+    result.sources.firstOrNull()?.let { !streamOnlyFor(it.sourceId) } ?: false
+
 /** Human-readable source label for badges. */
 fun sourceDisplayName(sourceId: String): String = when (sourceId) {
     "4read" -> "4read"

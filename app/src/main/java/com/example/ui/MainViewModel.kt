@@ -11,6 +11,7 @@ import com.example.data.db.*
 import com.example.data.imports.ImportGrantStore
 import com.example.data.repository.AudiobookRepository
 import com.example.data.source.GlobalSearchResult
+import com.example.data.source.catalogCardDownloadAllowed
 import com.example.player.AudioPlayerManager
 import com.example.player.PlayerState
 import com.example.player.SmartRewind
@@ -716,6 +717,76 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Spec-10 T6: whether the book's primary source is stream-only. */
     fun isStreamOnly(book: AudiobookEntity): Boolean = repository.isStreamOnly(book)
+
+    // Spec-15 T4: one-tap download from a catalogue card. The card is
+    // ephemeral — nothing is in Room until the user acts — so the flow imports
+    // the book transparently from its primary source, then runs the shared
+    // offline-download loop. Progress is keyed by the card key and derived
+    // from the imported book's Room row (the repository writes downloadProgress
+    // per chapter, so the card recomposes as chapters complete).
+    private val _catalogDownloadingKeys = MutableStateFlow<Set<String>>(emptySet())
+    val catalogDownloadingKeys: StateFlow<Set<String>> = _catalogDownloadingKeys.asStateFlow()
+
+    /**
+     * Per-card download progress (card key → 0..1). A card whose book is not
+     * yet in Room reports 0.02 so the affordance visibly turns into a
+     * progress indicator the moment the tap lands (the import happens first,
+     * then the loop starts writing real progress).
+     */
+    val catalogDownloadProgress: StateFlow<Map<String, Float>> = combine(
+        _catalogDownloadingKeys,
+        repository.allBooks
+    ) { keys, books ->
+        keys.associateWith { key ->
+            books.firstOrNull { book ->
+                book.mergeKey == key || book.sourceUrl == key
+            }?.downloadProgress?.coerceIn(0f, 1f) ?: 0.02f
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
+    /**
+     * Card keys whose book is already downloaded offline (so the card shows
+     * CloudDone instead of the download affordance). Matched on the same
+     * identity the union cards use — merge key, else source url.
+     */
+    val catalogDownloadedKeys: StateFlow<Set<String>> = repository.allBooks
+        .map { books ->
+            books.asSequence()
+                .filter { it.isDownloaded }
+                .mapNotNull { it.mergeKey.ifBlank { it.sourceUrl } }
+                .filter { it.isNotBlank() }
+                .toSet()
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
+
+    /**
+     * Spec-15 T4 — one-tap download from a catalogue card: import the book
+     * from its primary source (transparent merge into the Work) and download
+     * the whole book offline. Stream-only sources never reach this — the card
+     * hides the affordance via [catalogCardDownloadAllowed] and the repository
+     * refuses in depth.
+     */
+    fun downloadCatalogBook(result: GlobalSearchResult) {
+        val source = result.sources.firstOrNull() ?: return
+        val key = result.key
+        if (_catalogDownloadingKeys.value.contains(key)) return
+        if (_downloadingBookId.value != null) return
+        _catalogDownloadingKeys.update { it + key }
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val book = repository.importFromSourceUrl(source.sourceId, source.url)
+                if (book != null) {
+                    _downloadingBookId.value = book.id
+                    repository.downloadAudiobookOffline(book.id)
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("MainViewModel", "Catalog download failed", e)
+            } finally {
+                _downloadingBookId.value = null
+                _catalogDownloadingKeys.update { it - key }
+            }
+        }
+    }
 
     fun downloadBookOffline(bookId: String) {
         if (_downloadingBookId.value != null) return

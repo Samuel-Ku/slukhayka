@@ -317,6 +317,86 @@ class AudiobookRepositoryRoomTest {
     }
 
     // ---------------------------------------------------------------------
+    // spec-16 T1: schema migration 8 -> 9 (the playback event log)
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `migration 8 to 9 adds playback_events and preserves all existing rows`() {
+        val factory = FrameworkSQLiteOpenHelperFactory()
+        val config = SupportSQLiteOpenHelper.Configuration.builder(context)
+            .name("migration-8-test.db")
+            .callback(object : SupportSQLiteOpenHelper.Callback(8) {
+                override fun onCreate(db: SupportSQLiteDatabase) {
+                    // Minimal v8 schema: a book, its progress row and the
+                    // multi-source tables the 7->8 migration produced.
+                    db.execSQL(
+                        "CREATE TABLE audiobooks (id TEXT NOT NULL PRIMARY KEY, title TEXT NOT NULL, " +
+                            "author TEXT NOT NULL, narrator TEXT NOT NULL, description TEXT NOT NULL, " +
+                            "coverDrawableRes INTEGER NOT NULL, coverImageUrl TEXT, genre TEXT NOT NULL, " +
+                            "sourceUrl TEXT NOT NULL, isDownloaded INTEGER NOT NULL DEFAULT 0, " +
+                            "downloadProgress REAL NOT NULL DEFAULT 0, totalDurationSeconds INTEGER NOT NULL DEFAULT 0, " +
+                            "totalChapters INTEGER NOT NULL DEFAULT 0, rating REAL NOT NULL DEFAULT 4.9, " +
+                            "isFavorite INTEGER NOT NULL DEFAULT 0, seriesTitle TEXT, seriesUrl TEXT, seriesIndex INTEGER, " +
+                            "preferredSpeed REAL, createdAt INTEGER NOT NULL DEFAULT 0, sourceTreeUri TEXT, " +
+                            "mergeKey TEXT NOT NULL DEFAULT '')"
+                    )
+                    db.execSQL(
+                        "INSERT INTO audiobooks (id, title, author, narrator, description, coverDrawableRes, genre, " +
+                            "sourceUrl, totalDurationSeconds, totalChapters) VALUES " +
+                            "('b1', 'Книга', 'Автор', 'Читець', '', 0, '', 'https://4read.org/b1.html', 3600, 3)"
+                    )
+                    db.execSQL(
+                        "CREATE TABLE playback_progress (bookId TEXT NOT NULL, sourceKey TEXT NOT NULL, " +
+                            "currentChapterIndex INTEGER NOT NULL, currentPositionSeconds INTEGER NOT NULL, " +
+                            "lastListenedAt INTEGER NOT NULL, isCompleted INTEGER NOT NULL, " +
+                            "lastPausedAtEpochMs INTEGER, PRIMARY KEY(bookId, sourceKey))"
+                    )
+                    db.execSQL(
+                        "INSERT INTO playback_progress (bookId, sourceKey, currentChapterIndex, " +
+                            "currentPositionSeconds, lastListenedAt, isCompleted) VALUES " +
+                            "('b1', '', 1, 300, 1700000000000, 0)"
+                    )
+                }
+
+                override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) {}
+            })
+            .build()
+        val helper = factory.create(config)
+        val db = helper.writableDatabase
+
+        AudiobookDatabase.MIGRATION_8_9.migrate(db)
+
+        val eventColumns = tableColumns(db, "playback_events")
+        assertTrue(
+            "playback_events table must carry the spec-16 columns",
+            eventColumns.containsAll(
+                setOf("id", "bookId", "sourceKey", "kind", "chapterIndex", "positionSeconds", "fromPositionSeconds", "timestamp", "deviceId")
+            )
+        )
+        // The new log accepts an event with the entity defaults.
+        db.execSQL(
+            "INSERT INTO playback_events (bookId, sourceKey, kind, chapterIndex, positionSeconds, timestamp) " +
+                "VALUES ('b1', '', 'RESUME', 0, 0, 1700000000000)"
+        )
+        db.query("SELECT COUNT(*) FROM playback_events").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals(1, cursor.getInt(0))
+        }
+        // Every v8 row survives untouched.
+        db.query("SELECT title, totalDurationSeconds FROM audiobooks WHERE id = 'b1'").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals("Книга", cursor.getString(0))
+            assertEquals(3600L, cursor.getLong(1))
+        }
+        db.query("SELECT currentChapterIndex, currentPositionSeconds FROM playback_progress WHERE bookId = 'b1'").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals(1, cursor.getInt(0))
+            assertEquals(300, cursor.getInt(1))
+        }
+        db.close()
+    }
+
+    // ---------------------------------------------------------------------
     // spec-10 T2: multi-source merge and per-source position
     // ---------------------------------------------------------------------
 

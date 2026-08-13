@@ -937,6 +937,44 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * Re-scans every previously imported local folder (wayfinder #42): walks
+     * the SAF trees, diffs by content hash, adds new chapters/books, and
+     * reports missing/moved/duplicate files. Nothing is ever deleted.
+     */
+    fun rescanLocalFolders() {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val reports = repository.rescanAllLocalFolders()
+                val totals = reports.fold(AudiobookRepository.RescanReport("")) { acc, r ->
+                    acc.copy(
+                        newChapters = acc.newChapters + r.newChapters,
+                        newBooks = acc.newBooks + r.newBooks,
+                        missingFiles = acc.missingFiles + r.missingFiles,
+                        movedFiles = acc.movedFiles + r.movedFiles,
+                        duplicateFiles = acc.duplicateFiles + r.duplicateFiles
+                    )
+                }
+                _importMessage.value = buildString {
+                    append("Пересканування завершено")
+                    when {
+                        totals.newChapters > 0 || totals.newBooks > 0 -> {
+                            append(": +${totals.newChapters} глав")
+                            if (totals.newBooks > 0) append(" (${totals.newBooks} нових книг)")
+                        }
+                        else -> append(" — змін не знайдено")
+                    }
+                    if (totals.missingFiles > 0) append(" · ${totals.missingFiles} файлів зникло")
+                    if (totals.movedFiles > 0) append(" · ${totals.movedFiles} перейменовано")
+                    if (totals.duplicateFiles > 0) append(" · ${totals.duplicateFiles} дублікатів пропущено")
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("MainViewModel", "Re-scan failed", e)
+                _importMessage.value = "Не вдалося пересканувати папки"
+            }
+        }
+    }
+
     /** One-shot user-facing message for import outcomes (consumed by the UI). */
     private val _importMessage = MutableStateFlow<String?>(null)
     val importMessage: StateFlow<String?> = _importMessage.asStateFlow()

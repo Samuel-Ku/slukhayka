@@ -35,6 +35,18 @@ interface AudiobookDao {
     @Query("DELETE FROM sources WHERE bookId = :bookId")
     suspend fun deleteSourcesForBook(bookId: String)
 
+    // Wayfinder #42: every local book imported from one SAF tree — the re-scan
+    // diff groups the live tree against these books' chapters.
+    @Query("SELECT * FROM audiobooks WHERE sourceTreeUri = :treeUri")
+    suspend fun getAudiobooksBySourceTree(treeUri: String): List<AudiobookEntity>
+
+    // Wayfinder #42: the distinct trees ever imported — the re-scan-all entry.
+    @Query("SELECT DISTINCT sourceTreeUri FROM audiobooks WHERE sourceTreeUri IS NOT NULL AND sourceTreeUri != ''")
+    suspend fun getImportedSourceTrees(): List<String>
+
+    @Query("UPDATE sources SET lastScanFingerprint = :fingerprint WHERE id = :sourceId")
+    suspend fun updateSourceFingerprint(sourceId: String, fingerprint: String?)
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAudiobooks(books: List<AudiobookEntity>)
 

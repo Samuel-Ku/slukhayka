@@ -397,6 +397,73 @@ class AudiobookRepositoryRoomTest {
     }
 
     // ---------------------------------------------------------------------
+    // wayfinder #42: schema migration 9 -> 10 (the re-scan fingerprint)
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `migration 9 to 10 adds lastScanFingerprint and preserves all existing rows`() {
+        val factory = FrameworkSQLiteOpenHelperFactory()
+        val config = SupportSQLiteOpenHelper.Configuration.builder(context)
+            .name("migration-9-test.db")
+            .callback(object : SupportSQLiteOpenHelper.Callback(9) {
+                override fun onCreate(db: SupportSQLiteDatabase) {
+                    // Minimal v9 schema: a book, its local source row (no
+                    // fingerprint yet) and a progress row.
+                    db.execSQL(
+                        "CREATE TABLE audiobooks (id TEXT NOT NULL PRIMARY KEY, title TEXT NOT NULL, " +
+                            "author TEXT NOT NULL, narrator TEXT NOT NULL, description TEXT NOT NULL, " +
+                            "coverDrawableRes INTEGER NOT NULL, coverImageUrl TEXT, genre TEXT NOT NULL, " +
+                            "sourceUrl TEXT NOT NULL, isDownloaded INTEGER NOT NULL DEFAULT 0, " +
+                            "downloadProgress REAL NOT NULL DEFAULT 0, totalDurationSeconds INTEGER NOT NULL DEFAULT 0, " +
+                            "totalChapters INTEGER NOT NULL DEFAULT 0, rating REAL NOT NULL DEFAULT 4.9, " +
+                            "isFavorite INTEGER NOT NULL DEFAULT 0, seriesTitle TEXT, seriesUrl TEXT, seriesIndex INTEGER, " +
+                            "preferredSpeed REAL, createdAt INTEGER NOT NULL DEFAULT 0, sourceTreeUri TEXT, " +
+                            "mergeKey TEXT NOT NULL DEFAULT '')"
+                    )
+                    db.execSQL(
+                        "INSERT INTO audiobooks (id, title, author, narrator, description, coverDrawableRes, genre, " +
+                            "sourceUrl, totalDurationSeconds, totalChapters) VALUES " +
+                            "('b1', 'Кобзар', 'Автор', 'Читець', '', 0, '', '', 3600, 3)"
+                    )
+                    db.execSQL(
+                        "CREATE TABLE sources (id TEXT NOT NULL PRIMARY KEY, bookId TEXT NOT NULL, " +
+                            "type TEXT NOT NULL, url TEXT NOT NULL, streamOnly INTEGER NOT NULL DEFAULT 0, " +
+                            "addedAt INTEGER NOT NULL DEFAULT 0)"
+                    )
+                    db.execSQL(
+                        "INSERT INTO sources (id, bookId, type, url, streamOnly, addedAt) VALUES " +
+                            "('b1-local', 'b1', 'local', '', 0, 1700000000000)"
+                    )
+                }
+
+                override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) {}
+            })
+            .build()
+        val helper = factory.create(config)
+        val db = helper.writableDatabase
+
+        AudiobookDatabase.MIGRATION_9_10.migrate(db)
+
+        val sourceColumns = tableColumns(db, "sources")
+        assertTrue("lastScanFingerprint column must exist", sourceColumns.contains("lastScanFingerprint"))
+        // Every v9 row survives untouched — the additive column changes nothing.
+        db.query("SELECT id, bookId, type FROM sources WHERE id = 'b1-local'").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals("b1-local", cursor.getString(0))
+            assertEquals("b1", cursor.getString(1))
+            assertEquals("local", cursor.getString(2))
+        }
+        db.query("SELECT title, totalDurationSeconds FROM audiobooks WHERE id = 'b1'").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals("Кобзар", cursor.getString(0))
+            assertEquals(3600L, cursor.getLong(1))
+        }
+        // The new column is nullable and accepts a fingerprint value.
+        db.execSQL("UPDATE sources SET lastScanFingerprint = 'abc' WHERE id = 'b1-local'")
+        db.close()
+    }
+
+    // ---------------------------------------------------------------------
     // spec-10 T2: multi-source merge and per-source position
     // ---------------------------------------------------------------------
 
@@ -1104,6 +1171,135 @@ class AudiobookRepositoryRoomTest {
         val paths = dao.getChaptersListForBook(book.id).mapNotNull { it.localFilePath }
         assertTrue(paths.any { it.endsWith(".ogg") })
         assertTrue(paths.any { it.endsWith(".m4a") })
+    }
+
+    // ---------------------------------------------------------------------
+    // wayfinder #42: re-scan of a previously imported folder (hash diff)
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `rescanAudioEntries adds newly added files to the known folder book`() = runBlocking {
+        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+        repo.importAudioEntries(
+            listOf(
+                LocalAudioEntry("01.mp3", "Кобзар") { ByteArrayInputStream(ByteArray(16)) },
+                LocalAudioEntry("02.mp3", "Кобзар") { ByteArrayInputStream(ByteArray(17)) }
+            ),
+            sourceTreeUri = "content://tree/books"
+        )
+
+        // The user drops 03.mp3 into the same folder, then re-scans.
+        val report = repo.rescanAudioEntries(
+            listOf(
+                LocalAudioEntry("01.mp3", "Кобзар") { ByteArrayInputStream(ByteArray(16)) },
+                LocalAudioEntry("02.mp3", "Кобзар") { ByteArrayInputStream(ByteArray(17)) },
+                LocalAudioEntry("03.mp3", "Кобзар") { ByteArrayInputStream(ByteArray(18)) }
+            ),
+            treeUri = "content://tree/books"
+        )
+
+        assertEquals(1, report.newChapters)
+        assertEquals(0, report.missingFiles)
+        assertEquals(0, report.newBooks)
+
+        val book = dao.getAllAudiobooks().first().first { it.title == "Кобзар" }
+        val chapters = dao.getChaptersListForBook(book.id)
+        assertEquals(3, chapters.size)
+        assertTrue(chapters.all { it.isDownloaded && it.localFilePath != null })
+        assertTrue(chapters.all { File(it.localFilePath!!).exists() })
+    }
+
+    @Test
+    fun `rescanAudioEntries reports files gone from the tree as missing without deleting anything`() = runBlocking {
+        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+        repo.importAudioEntries(
+            listOf(
+                LocalAudioEntry("01.mp3", "Кобзар") { ByteArrayInputStream(ByteArray(16)) },
+                LocalAudioEntry("02.mp3", "Кобзар") { ByteArrayInputStream(ByteArray(17)) }
+            ),
+            sourceTreeUri = "content://tree/books"
+        )
+        val book = dao.getAllAudiobooks().first().first { it.title == "Кобзар" }
+        val storedChapterIds = dao.getChaptersListForBook(book.id).map { it.id }
+
+        // 01.mp3 was deleted on the device; the folder still has 02.mp3.
+        val report = repo.rescanAudioEntries(
+            listOf(LocalAudioEntry("02.mp3", "Кобзар") { ByteArrayInputStream(ByteArray(17)) }),
+            treeUri = "content://tree/books"
+        )
+
+        assertEquals(1, report.missingFiles)
+        // wayfinder #59: the library entry and its private copy survive.
+        val after = dao.getAllAudiobooks().first()
+        assertEquals(1, after.size)
+        assertEquals(2, dao.getChaptersListForBook(book.id).size)
+        assertEquals(storedChapterIds, dao.getChaptersListForBook(book.id).map { it.id })
+    }
+
+    @Test
+    fun `rescanAudioEntries reports a renamed file as moved and skips bytes already in the library`() = runBlocking {
+        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+        repo.importAudioEntries(
+            listOf(
+                LocalAudioEntry("01.mp3", "Кобзар") { ByteArrayInputStream(ByteArray(16)) },
+                LocalAudioEntry("02.mp3", "Кобзар") { ByteArrayInputStream(ByteArray(17)) }
+            ),
+            sourceTreeUri = "content://tree/books"
+        )
+
+        // Same bytes as 02.mp3 but under a new name — moved, not new.
+        val report = repo.rescanAudioEntries(
+            listOf(
+                LocalAudioEntry("01.mp3", "Кобзар") { ByteArrayInputStream(ByteArray(16)) },
+                LocalAudioEntry("глава-2.mp3", "Кобзар") { ByteArrayInputStream(ByteArray(17)) }
+            ),
+            treeUri = "content://tree/books"
+        )
+
+        assertEquals(1, report.movedFiles)
+        assertEquals(0, report.newChapters)
+        assertEquals(2, dao.getChaptersListForBook(dao.getAllAudiobooks().first().first { it.title == "Кобзар" }.id).size)
+    }
+
+    @Test
+    fun `rescanAudioEntries of a new tree imports root files as new single-chapter books`() = runBlocking {
+        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+
+        val report = repo.rescanAudioEntries(
+            listOf(
+                LocalAudioEntry("Лісова пісня.mp3", null) { ByteArrayInputStream(ByteArray(18)) }
+            ),
+            treeUri = "content://tree/new"
+        )
+
+        assertEquals(1, report.newBooks)
+        assertEquals(1, report.newChapters)
+        val books = dao.getAllAudiobooks().first()
+        assertEquals(1, books.size)
+        assertEquals("Лісова пісня", books.first().title)
+    }
+
+    @Test
+    fun `rescanAudioEntries never duplicates bytes already stored elsewhere in the library`() = runBlocking {
+        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+        repo.importAudioEntries(
+            listOf(LocalAudioEntry("01.mp3", "Кобзар") { ByteArrayInputStream(ByteArray(16)) }),
+            sourceTreeUri = "content://tree/books"
+        )
+        val knownBookId = dao.getAllAudiobooks().first().first().id
+        val knownChapters = dao.getChaptersListForBook(knownBookId).size
+
+        // A different folder now contains a byte-identical copy of 01.mp3.
+        val report = repo.rescanAudioEntries(
+            listOf(LocalAudioEntry("01.mp3", "Дублікати") { ByteArrayInputStream(ByteArray(16)) }),
+            treeUri = "content://tree/dupes"
+        )
+
+        assertEquals(1, report.duplicateFiles)
+        assertEquals(0, report.newBooks)
+        // Still exactly one book, one chapter — no copy was made.
+        assertEquals(1, dao.getAllAudiobooks().first().size)
+        assertEquals(knownChapters, dao.getChaptersListForBook(knownBookId).size)
     }
 
     // ---------------------------------------------------------------------

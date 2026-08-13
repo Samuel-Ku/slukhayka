@@ -44,6 +44,20 @@ class SeekHistory(
         return found
     }
 
+    /**
+     * Seeds a jump from the persisted event log (spec-16 T3): a restart finds
+     * its undo candidate again. Unconditional — the caller (the player) has
+     * already vetted the candidate (threshold, staleness, landing position).
+     */
+    fun restore(jump: SeekJump) {
+        this.jump = jump
+    }
+
+    /** Drops any remembered jump — a fresh listening cycle starts clean. */
+    fun clear() {
+        jump = null
+    }
+
     companion object {
         /** A seek of 5+ minutes is treated as a potentially accidental jump. */
         const val DEFAULT_JUMP_THRESHOLD_MS: Long = 5 * 60 * 1000L

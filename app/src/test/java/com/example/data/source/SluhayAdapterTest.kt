@@ -97,6 +97,8 @@ class SluhayAdapterTest {
         assertEquals("Джо Аберкромбі", detail.author)
         // Measured negative finding (T1): no narrator anywhere on the page.
         assertEquals("", detail.narrator)
+        // Spec-15 T5: og:description is the book's own blurb.
+        assertEquals("Над Адуа зависочіли промислові труби, тож світ закипає, бо зароджується нова ера.", detail.description)
         // Relative data-src → absolute, no og:image exists.
         assertEquals("https://sluhay.com/uploads/posts/books/6150/dzho-aberkrombi-trohi-nenavisti.webp", detail.coverImageUrl)
         assertEquals(16 * 3600L + 41 * 60L + 11L, detail.totalDurationSeconds)

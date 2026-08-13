@@ -575,8 +575,36 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             viewModelScope.launch(Dispatchers.IO) {
                 repository.refreshBookCoverAndDetails(bookId)
             }
+            // Spec-15 T5: load what every source carrying the Work says about
+            // it (description, rating, narrator, genres) — best-effort per
+            // source, a failing source degrades to the remaining blocks.
+            loadSourceProfiles(bookId)
         } else {
             _relatedBooks.value = emptyList()
+            _sourceProfiles.value = emptyList()
+        }
+    }
+
+    // Spec-15 T5: the labelled per-source detail blocks of the selected book.
+    private val _sourceProfiles = MutableStateFlow<List<AudiobookRepository.SourceProfile>>(emptyList())
+    val sourceProfiles: StateFlow<List<AudiobookRepository.SourceProfile>> = _sourceProfiles.asStateFlow()
+
+    private val _isSourceProfilesLoading = MutableStateFlow(false)
+    val isSourceProfilesLoading: StateFlow<Boolean> = _isSourceProfilesLoading.asStateFlow()
+
+    fun loadSourceProfiles(bookId: String) {
+        _isSourceProfilesLoading.value = true
+        viewModelScope.launch(Dispatchers.IO) {
+            val profiles = try {
+                repository.fetchSourceProfiles(bookId)
+            } catch (e: Exception) {
+                emptyList()
+            }
+            // Stale-result guard: only apply while the user is still on this book.
+            if (_selectedBookId.value == bookId) {
+                _sourceProfiles.value = profiles
+                _isSourceProfilesLoading.value = false
+            }
         }
     }
 

@@ -33,12 +33,18 @@ class SoundBooksAdapter(
             ?: ""
         val narrator = NARRATOR_MARK.find(html)?.groupValues?.get(1)?.trim() ?: ""
 
+        // Spec-15 T5: og:description is a real blurb here (unlike the author
+        // line, which lives in «Автор: X. Читає: Y.») — carry it for the
+        // per-source detail blocks.
+        val description = ogMeta(html, "og:description")?.trim().orEmpty()
+
         val m3uUrl = PLAYLIST_URL.find(html)?.groupValues?.get(1) ?: return SourceBookDetail(
             title = title,
             author = author,
             narrator = narrator,
             url = url,
-            chapters = emptyList()
+            chapters = emptyList(),
+            description = description
         )
 
         val playlist = fetcher.getText(m3uUrl)
@@ -57,7 +63,8 @@ class SoundBooksAdapter(
             author = author,
             narrator = narrator,
             url = url,
-            chapters = chapters
+            chapters = chapters,
+            description = description
         )
     }
 

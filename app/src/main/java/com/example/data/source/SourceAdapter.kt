@@ -65,7 +65,14 @@ data class SourceBookDetail(
     val rating: Double? = null,
     val genres: List<String> = emptyList(),
     val series: SeriesRef? = null,
-    val related: List<RelatedBook> = emptyList()
+    val related: List<RelatedBook> = emptyList(),
+    /**
+     * Spec-15 T5 — the page's own description blurb (og:description), for the
+     * per-source detail blocks. Absent when the page carries none (or when the
+     * og:description is not a description — lihtar renders its AUTHOR there,
+     * so lihtar stays empty). Never fabricated.
+     */
+    val description: String = ""
 )
 
 /**

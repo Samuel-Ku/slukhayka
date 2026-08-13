@@ -51,6 +51,9 @@ fun BookDetailScreen(
     val playerState by viewModel.playerState.collectAsState()
     val downloadingBookId by viewModel.downloadingBookId.collectAsState()
     val downloadMessage by viewModel.downloadMessage.collectAsState()
+    // Spec-15 T5: what every source carrying the Work says about it.
+    val sourceProfiles by viewModel.sourceProfiles.collectAsState()
+    val isSourceProfilesLoading by viewModel.isSourceProfilesLoading.collectAsState()
 
     var activeTab by remember { mutableStateOf(0) } // 0 = Chapters, 1 = Bookmarks
     var showAddBookmarkDialog by remember { mutableStateOf(false) }
@@ -322,6 +325,37 @@ fun BookDetailScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(horizontal = 8.dp)
                         )
+                    }
+
+                    // Spec-15 T5: what every source carrying this Work says
+                    // about it — one labelled block per source (description,
+                    // rating, narrator, genres), loaded through the source's
+                    // own adapter. A source whose page fails degrades to the
+                    // remaining blocks, never a blank page.
+                    if (sourceProfiles.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(20.dp))
+                        Text(
+                            text = "Що кажуть джерела",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.padding(horizontal = 8.dp)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        sourceProfiles.forEach { profile ->
+                            SourceProfileBlock(profile = profile)
+                        }
+                    } else if (isSourceProfilesLoading) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(20.dp))
@@ -717,6 +751,74 @@ private fun TagPill(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
         )
+    }
+}
+
+/**
+ * Spec-15 T5 — one labelled per-source block of the book detail page: what a
+ * single source carrying the Work says about it (description, rating,
+ * narrator, genres), loaded through that source's own adapter. Only the
+ * fields the source's page actually carried render — a source with no
+ * description contributes its rating/narrator/genres, never filler. Pure
+ * `@Composable` (no ViewModel) so the snapshot seam can pin it from fixture
+ * data.
+ */
+@Composable
+fun SourceProfileBlock(
+    profile: com.example.data.repository.AudiobookRepository.SourceProfile,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 6.dp)
+            .testTag("source_profile_${profile.sourceId}"),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                SourceBadgePill(label = profile.sourceName)
+                Spacer(modifier = Modifier.width(8.dp))
+                if (profile.rating != null) {
+                    Text(
+                        text = "★ ${profile.rating}",
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.secondary
+                    )
+                }
+            }
+            if (profile.narrator.isNotBlank()) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "Читає: ${profile.narrator}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            if (profile.description.isNotBlank()) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = profile.description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 6,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            if (profile.genres.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    profile.genres.take(3).forEach { genre ->
+                        TagPill(
+                            text = genre,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            container = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 

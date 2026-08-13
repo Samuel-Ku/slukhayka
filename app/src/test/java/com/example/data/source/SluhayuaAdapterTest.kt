@@ -146,6 +146,8 @@ class SluhayuaAdapterTest {
         assertEquals("Григорій Квітка-Основяненко", detail.author)
         assertEquals("Діана Гончаренко", detail.narrator)
         assertEquals("https://sluhay.com.ua/uploads/kvitka2.png", detail.coverImageUrl)
+        // Spec-15 T5: og:description is the book's own blurb.
+        assertEquals("Аудіокнигу онлайн Сердешна Оксана, читає Діана Гончаренко. Цей твір був високо оцінений Т. Шевченком.", detail.description)
         assertEquals(7, detail.chapters.size)
         assertEquals("https://mp3.sluhay.com.ua/Serdeshna/03.mp3", detail.chapters[2].streamUrl)
         assertEquals("Глава 3", detail.chapters[2].title)

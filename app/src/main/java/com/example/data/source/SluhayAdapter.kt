@@ -178,7 +178,8 @@ class SluhayAdapter(
                 url = url,
                 coverImageUrl = page.coverImageUrl,
                 totalDurationSeconds = page.totalDurationSeconds,
-                chapters = emptyList()
+                chapters = emptyList(),
+                description = page.description
             )
         val chapters = parsePlaylist(fetcher.getText(playlistUrl))
         return SourceBookDetail(
@@ -187,7 +188,8 @@ class SluhayAdapter(
             url = url,
             coverImageUrl = page.coverImageUrl,
             totalDurationSeconds = page.totalDurationSeconds,
-            chapters = chapters
+            chapters = chapters,
+            description = page.description
         )
     }
 
@@ -219,7 +221,8 @@ class SluhayAdapter(
             coverImageUrl = cover,
             playlistUrl = PLAYLIST_URL.find(html)?.groupValues?.get(1),
             totalDurationSeconds = metaRow(html, "Тривалість")
-                .let(::parseDurationSeconds)
+                .let(::parseDurationSeconds),
+            description = ogMeta(html, "og:description")?.trim().orEmpty()
         )
     }
 
@@ -302,5 +305,6 @@ internal data class SluhayBookPage(
     val url: String,
     val coverImageUrl: String? = null,
     val playlistUrl: String? = null,
-    val totalDurationSeconds: Long? = null
+    val totalDurationSeconds: Long? = null,
+    val description: String = ""
 )

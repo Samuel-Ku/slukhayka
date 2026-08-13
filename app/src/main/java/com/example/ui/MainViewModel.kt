@@ -190,16 +190,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val catalogGenres: StateFlow<List<CatalogGenre>> = repository.catalogGenres
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    // "Open on site" WebView fallback (spec #8 ticket T4).
-    private val _webFallbackUrl = MutableStateFlow<String?>(null)
-    val webFallbackUrl: StateFlow<String?> = _webFallbackUrl.asStateFlow()
-
+    // Spec-15 T2: «Відкрити на сайті» leaves the app. The 4read legacy
+    // browser is removed from the UI entirely, so the book page's open-on-site
+    // action always launches the system browser (ACTION_VIEW) — never an
+    // in-app WebView.
     fun openWebFallback(url: String) {
-        _webFallbackUrl.value = url
+        openInSystemBrowser(url)
     }
 
-    fun closeWebFallback() {
-        _webFallbackUrl.value = null
+    private fun openInSystemBrowser(url: String) {
+        if (url.isBlank()) return
+        try {
+            val intent = android.content.Intent(
+                android.content.Intent.ACTION_VIEW,
+                android.net.Uri.parse(url)
+            )
+            intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            getApplication<Application>().startActivity(intent)
+        } catch (e: Exception) {
+            android.util.Log.w("MainViewModel", "No browser for $url", e)
+        }
     }
 
     // Spec-13 T3: a WebView-pattern source's browser surface (sluhay.com
@@ -210,8 +220,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _selectedWebSource = MutableStateFlow<SelectedWebSource?>(null)
     val selectedWebSource: StateFlow<SelectedWebSource?> = _selectedWebSource.asStateFlow()
 
+    /**
+     * Spec-15 T2 — a WebView-source browser surface is debug-only: a debug
+     * build pushes the in-app surface ([selectedWebSource]); a release build
+     * opens the source in the system browser instead. The same decision
+     * function gates the UI entry points (see [browserDestinationFor]).
+     */
     fun openWebSource(sourceId: String, homeUrl: String, displayName: String) {
-        _selectedWebSource.value = SelectedWebSource(sourceId, homeUrl, displayName)
+        when (browserDestinationFor(com.example.BuildConfig.DEBUG, sourceId)) {
+            BrowserDestination.IN_APP_BROWSER ->
+                _selectedWebSource.value = SelectedWebSource(sourceId, homeUrl, displayName)
+            BrowserDestination.SYSTEM_BROWSER -> openInSystemBrowser(homeUrl)
+        }
     }
 
     fun closeWebSource() {
@@ -795,33 +815,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _importMessage.value = null
     }
 
-    fun importAndPlay4ReadHtml(url: String, html: String) {
-        viewModelScope.launch(Dispatchers.IO) {
-            // Spec-14 T5: an unplayable captured page surfaces as absent — no
-            // forged fallback; nothing to play in that case.
-            val importedBook = repository.importAudiobookFromHtml(url, html)
-            if (importedBook == null) return@launch
-            viewModelScope.launch(Dispatchers.Main) {
-                playAudiobook(importedBook, chapterIndex = 0, autoPlay = true)
-                _showFullPlayer.value = true
-            }
-        }
-    }
-
-    fun importAndPlay4ReadUrl(urlOrSlug: String) {
-        if (urlOrSlug.isBlank()) return
-        viewModelScope.launch(Dispatchers.IO) {
-            // Spec-14 T5: a missing book surfaces as absent — the door is
-            // nullable, no fabricated fallback card. The UI simply has nothing
-            // to play in that case.
-            val importedBook = repository.importAudiobookFrom4ReadUrl(urlOrSlug)
-            if (importedBook == null) return@launch
-            viewModelScope.launch(Dispatchers.Main) {
-                playAudiobook(importedBook, chapterIndex = 0, autoPlay = true)
-                _showFullPlayer.value = true
-            }
-        }
-    }
+    // Spec-15 T2: the 4read legacy browser (the only caller of the two
+    // import-and-play doors below) is removed from the UI. The seam-tested
+    // import doors themselves stay behind the repository seam (spec-14 T2–T4:
+    // importAudiobookFromHtml / importAudiobookFrom4ReadUrl) for fixtures.
 
     // NOTE: we intentionally do NOT release the player in onCleared(). The
     // AudioPlayerManager is application-scoped (App.kt) and must keep playing

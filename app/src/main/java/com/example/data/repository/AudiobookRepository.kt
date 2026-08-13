@@ -486,6 +486,64 @@ class AudiobookRepository(
             }
         }
 
+    /**
+     * Spec-15 T3 — the WebView catalogue hydration tool (debug-only by
+     * construction: the browser surface that exposes it is debug-gated, T2).
+     * Crawls a WebView-source's catalogue through the live session
+     * ([SourceAdapter.fetchCatalog] — session cookies past Cloudflare),
+     * fetches each book page with the same session and imports through the
+     * shared [importBookFromSource] path (MergeKey dedup — re-hydration adds
+     * new books without duplicating existing Works). Best-effort per book: a
+     * failing book simply counts as failed, never aborts the crawl.
+     */
+    suspend fun hydrateWebSourceCatalog(sourceId: String, limit: Int = 40): HydrationResult =
+        withContext(Dispatchers.IO) {
+            val adapter = sourceAdapters.firstOrNull { it.sourceId == sourceId }
+                ?: return@withContext HydrationResult(sourceId, found = 0, imported = 0, merged = 0, failed = 0)
+            val catalog = try {
+                adapter.fetchCatalog(limit)
+            } catch (e: Exception) {
+                emptyList()
+            }
+            var imported = 0
+            var merged = 0
+            var failed = 0
+            for (book in catalog) {
+                try {
+                    val detail = adapter.fetchBookPage(book.url)
+                    if (detail.title.isBlank() && detail.chapters.isEmpty()) {
+                        failed++
+                        continue
+                    }
+                    // Count honestly: a book whose Work already exists (same
+                    // merge key) is a merge — the new source is attached to
+                    // the existing card, never a duplicate Work.
+                    val mergeKey = MergeKey.keyFor(detail.title, detail.author, detail.narrator)
+                    val alreadyKnown = mergeKey.isNotBlank() && dao.findByMergeKey(mergeKey) != null
+                    importBookFromSource(sourceId, detail)
+                    if (alreadyKnown) merged++ else imported++
+                } catch (e: Exception) {
+                    failed++
+                }
+            }
+            HydrationResult(sourceId, found = catalog.size, imported = imported, merged = merged, failed = failed)
+        }
+
+    /**
+     * Outcome of a [hydrateWebSourceCatalog] run: how many books the crawl
+     * found, how many were imported as NEW Works, how many merged into
+     * existing Works (same merge key — the new source was attached, no
+     * duplicate), and how many failed to fetch/parse. The UI surfaces these
+     * counts so the debug tool reports, never silently no-ops.
+     */
+    data class HydrationResult(
+        val sourceId: String,
+        val found: Int,
+        val imported: Int,
+        val merged: Int = 0,
+        val failed: Int
+    )
+
     // ---------------------------------------------------------------------
     // Catalogue sections (spec #8 tickets T5/T6): rows for the Explore
     // screen, parsed from the 4read.org homepage and cached in memory.

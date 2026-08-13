@@ -106,8 +106,62 @@ class SluhayAdapter(
     }
 
     override suspend fun fetchBookPage(url: String): SourceBookDetail {
-        val html = fetcher.getText(url)
+        // The book page HTML sits behind Cloudflare like the homepage — send
+        // the live session cookies when present (server-fetch 200 with the
+        // session, per the T1 verdict); without a session the fetch 403s and
+        // the parse stays absent (empty detail), which the import doors treat
+        // as "nothing playable". The playlist fetch inside [detailFromCapturedHtml]
+        // only needs the source Referer (the fetcher always sends it).
+        val cookies = cookieProvider().trim()
+        val html = if (cookies.isBlank()) {
+            fetcher.getText(url)
+        } else {
+            fetcher.getText(url, mapOf("Cookie" to cookies))
+        }
         return detailFromCapturedHtml(html, url)
+    }
+
+    /**
+     * Spec-15 T3 — catalogue enumeration for the hydration tool: a breadth
+     * sample of the source's full catalogue through the live session. The
+     * homepage's category sections (`/fantastyka/`, `/roman/`, … — the first
+     * path segment of the poster book URLs) are the catalogue; each category
+     * page reuses the same poster-row markup as the homepage, so the union
+     * walks a few of them and dedupes by url. Without a live session
+     * (Cloudflare 403) there is nothing to crawl — empty, as [fetchNew].
+     */
+    override suspend fun fetchCatalog(limit: Int): List<SourceBook> {
+        val cookies = cookieProvider().trim()
+        if (cookies.isBlank()) return emptyList()
+        val home = fetcher.getText(HOME_URL, mapOf("Cookie" to cookies))
+        if (home.isEmpty()) return emptyList()
+        val seen = mutableSetOf<String>()
+        val books = mutableListOf<SourceBook>()
+        // Seed the crawl with the homepage rows themselves.
+        for (book in parsePosterRows(home, limit)) {
+            if (seen.add(book.url)) books += book
+        }
+        // Category sections: the first path segment of the poster book URLs
+        // (`https://sluhay.com/<category>/<id>-<slug>.html`). Each category
+        // page reuses the same poster-row markup, so walk a few and dedupe.
+        val categories = POSTER_HREF.findAll(home)
+            .mapNotNull { m ->
+                m.groupValues[1]
+                    .substringAfter("https://sluhay.com/")
+                    .substringBefore('/')
+                    .takeIf { it.isNotBlank() }
+            }
+            .distinct()
+            .take(MAX_CATEGORIES)
+        for (category in categories) {
+            if (books.size >= limit) break
+            val html = fetcher.getText("https://sluhay.com/$category/", mapOf("Cookie" to cookies))
+            if (html.isEmpty()) continue
+            for (book in parsePosterRows(html, limit - books.size)) {
+                if (seen.add(book.url)) books += book
+            }
+        }
+        return books
     }
 
     /**
@@ -218,6 +272,9 @@ class SluhayAdapter(
 
     private companion object {
         const val HOME_URL = "https://sluhay.com/"
+
+        // Spec-15 T3: how many category pages the hydration crawl samples.
+        const val MAX_CATEGORIES = 6
 
         // The homepage poster rows (T1 spike): each block starts at
         // `<a class="poster-item grid-item" href=…>`, the title/meta live in

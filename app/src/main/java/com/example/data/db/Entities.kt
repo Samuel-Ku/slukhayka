@@ -121,6 +121,53 @@ data class PlaybackProgressEntity(
 )
 
 /**
+ * One discrete listening transition (spec-16, wayfinder #53). The
+ * [PlaybackProgressEntity] row stays the authoritative "where am I now"
+ * read model; this log is history for undo, future sync and listening
+ * intelligence. Append-only and capped (see PlaybackEventPolicy) — the state
+ * row is never reconstructed from it.
+ *
+ * Only discrete transitions are recorded (RESUME, PAUSE, SEEK ≥ 5 min,
+ * CHAPTER_CHANGE, TIMER_STOP, COMPLETED, RELISTEN, SOURCE_SWITCH); periodic
+ * position ticks and sub-threshold seeks are noise and never land here.
+ * `fromPositionSeconds` is set only for SEEK / SOURCE_SWITCH — the
+ * pre-jump position an undo returns to. `deviceId` stays "" until sync
+ * (wayfinder #56) lands.
+ */
+@Entity(
+    tableName = "playback_events",
+    indices = [Index("bookId"), Index("sourceKey"), Index("timestamp")]
+)
+data class PlaybackEventEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val bookId: String,
+    // Which source the transition belongs to; "" = the book's primary source
+    // (same convention as PlaybackProgressEntity.sourceKey).
+    val sourceKey: String = "",
+    // Stable String kind — see PlaybackEventKind. Strings, not enum ordinals,
+    // so a future sync does not depend on enum declaration order.
+    val kind: String,
+    val chapterIndex: Int = 0,
+    val positionSeconds: Long = 0L,
+    // The pre-transition position, only for SEEK / SOURCE_SWITCH (undo).
+    val fromPositionSeconds: Long? = null,
+    val timestamp: Long = System.currentTimeMillis(),
+    val deviceId: String = ""
+)
+
+/** Stable String kinds of [PlaybackEventEntity] (spec-16). */
+object PlaybackEventKind {
+    const val RESUME = "RESUME"
+    const val PAUSE = "PAUSE"
+    const val SEEK = "SEEK"
+    const val CHAPTER_CHANGE = "CHAPTER_CHANGE"
+    const val TIMER_STOP = "TIMER_STOP"
+    const val COMPLETED = "COMPLETED"
+    const val RELISTEN = "RELISTEN"
+    const val SOURCE_SWITCH = "SOURCE_SWITCH"
+}
+
+/**
  * Durable ledger of playback failures (wayfinder #52). Appended from
  * [com.example.player.AudioPlayerManager.reportPlaybackFailure] so support
  * can see error codes, hosts and audio engine modes per book even if no

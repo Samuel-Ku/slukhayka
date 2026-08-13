@@ -860,6 +860,7 @@ class AudiobookRepository(
         dao.deleteBookmarksForBook(bookId)
         dao.deletePlaybackProgressForBook(bookId)
         dao.deleteSourcesForBook(bookId)
+        dao.deletePlaybackEventsForBook(bookId)
         dao.deleteAudiobook(bookId)
     }
 
@@ -875,6 +876,7 @@ class AudiobookRepository(
         dao.deleteBookmarksForBook(bookId)
         dao.deletePlaybackProgressForBook(bookId)
         dao.deleteSourcesForBook(bookId)
+        dao.deletePlaybackEventsForBook(bookId)
         dao.deleteAudiobook(bookId)
     }
 
@@ -1323,6 +1325,62 @@ class AudiobookRepository(
             lastListenedAt = System.currentTimeMillis()
         )
         dao.savePlaybackProgress(progress)
+    }
+
+    // --- Playback event log (spec-16, wayfinder #53) -----------------------
+    // The seam the player uses to record discrete listening transitions. The
+    // state row above stays the authoritative "where am I now"; the log is
+    // history for undo, future sync and listening intelligence. Every write
+    // funnels through recordPlaybackEvent, which also compacts the bucket.
+
+    /**
+     * Appends one discrete transition to the log and runs the bucket's
+     * compaction. [timestampMs] is injectable so tests stay free of the wall
+     * clock. The player calls this from its transition points (T2); nothing
+     * else here changes behaviour yet.
+     */
+    suspend fun recordPlaybackEvent(
+        bookId: String,
+        kind: String,
+        chapterIndex: Int,
+        positionSeconds: Long,
+        sourceKey: String = "",
+        fromPositionSeconds: Long? = null,
+        timestampMs: Long = System.currentTimeMillis()
+    ) {
+        dao.insertPlaybackEvent(
+            PlaybackEventEntity(
+                bookId = bookId,
+                sourceKey = sourceKey,
+                kind = kind,
+                chapterIndex = chapterIndex,
+                positionSeconds = positionSeconds,
+                fromPositionSeconds = fromPositionSeconds,
+                timestamp = timestampMs,
+                deviceId = ""
+            )
+        )
+        compactPlaybackEvents(bookId, sourceKey, nowMs = timestampMs)
+    }
+
+    /**
+     * The undo candidate for (book, source): the latest SEEK / SOURCE_SWITCH
+     * event whose jump met the threshold (pure policy). Null when there is
+     * nothing undoable — the caller shows no «Повернутися» offer.
+     */
+    suspend fun lastUndoCandidate(bookId: String, sourceKey: String = ""): PlaybackEventEntity? {
+        val latest = dao.getLatestUndoCandidate(bookId, sourceKey) ?: return null
+        return if (PlaybackEventPolicy.isUndoCandidate(latest)) latest else null
+    }
+
+    /**
+     * Prunes one (book, source) bucket to the policy: newest [cap] events
+     * kept, stale undo candidates dropped. The state row is never touched.
+     */
+    suspend fun compactPlaybackEvents(bookId: String, sourceKey: String = "", nowMs: Long = System.currentTimeMillis()) {
+        val events = dao.getPlaybackEventsForBookSource(bookId, sourceKey)
+        val prune = PlaybackEventPolicy.pruneIds(events, nowMs = nowMs)
+        if (prune.isNotEmpty()) dao.deletePlaybackEvents(prune)
     }
 
     /**

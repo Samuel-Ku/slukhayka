@@ -15,9 +15,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         BookmarkEntity::class,
         PlaybackProgressEntity::class,
         ListeningStatEntity::class,
-        PlaybackFailureEntity::class
+        PlaybackFailureEntity::class,
+        PlaybackEventEntity::class
     ],
-    version = 8,
+    version = 9,
     exportSchema = true
 )
 abstract class AudiobookDatabase : RoomDatabase() {
@@ -40,7 +41,9 @@ abstract class AudiobookDatabase : RoomDatabase() {
                     // Schema v8 (wayfinder #47): a user's library must survive
                     // upgrades, so a schema change fails loudly at runtime
                     // instead of silently dropping the database.
-                    .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
+                    .addMigrations(
+                        MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9
+                    )
                     .build()
                 INSTANCE = instance
                 instance
@@ -163,6 +166,33 @@ abstract class AudiobookDatabase : RoomDatabase() {
                 db.execSQL("DROP TABLE playback_progress")
                 db.execSQL("ALTER TABLE playback_progress_new RENAME TO playback_progress")
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_playback_progress_bookId ON playback_progress(bookId)")
+            }
+        }
+
+        /**
+         * v8 -> v9 (spec-16, wayfinder #53): the capped append-only playback
+         * event log. Additive only — one new table, no existing table is
+         * touched, so every v8 row survives untouched. Internal (not private)
+         * so the JVM test suite can verify the upgrade path against a real v8
+         * database.
+         */
+        internal val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS playback_events (" +
+                        "id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "bookId TEXT NOT NULL, " +
+                        "sourceKey TEXT NOT NULL DEFAULT '', " +
+                        "kind TEXT NOT NULL, " +
+                        "chapterIndex INTEGER NOT NULL DEFAULT 0, " +
+                        "positionSeconds INTEGER NOT NULL DEFAULT 0, " +
+                        "fromPositionSeconds INTEGER, " +
+                        "timestamp INTEGER NOT NULL, " +
+                        "deviceId TEXT NOT NULL DEFAULT '')"
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_playback_events_bookId ON playback_events(bookId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_playback_events_sourceKey ON playback_events(sourceKey)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_playback_events_timestamp ON playback_events(timestamp)")
             }
         }
     }

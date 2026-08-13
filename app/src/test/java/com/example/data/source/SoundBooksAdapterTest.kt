@@ -16,6 +16,7 @@ class SoundBooksAdapterTest {
     private val bookPage = """
         <html><head>
         <meta property="og:title" content="Темна матерія">
+        <meta property="og:description" content="Роман Блейка Крауча про квантову фізику, паралельні світи та ціну вибору.">
         </head><body>
         <p>Автор: Блейк Крауч. Читає: Pik CAH4E3. Триває: 09:28:09</p>
         <script>
@@ -57,6 +58,8 @@ class SoundBooksAdapterTest {
         assertEquals("Темна матерія", detail.title)
         assertEquals("Блейк Крауч", detail.author)
         assertEquals("Pik CAH4E3", detail.narrator)
+        // Spec-15 T5: og:description is the book's own blurb.
+        assertEquals("Роман Блейка Крауча про квантову фізику, паралельні світи та ціну вибору.", detail.description)
         assertEquals(2, detail.chapters.size)
         assertEquals("https://arch.sound-books.net/4111/Темна матерія-01.mp3", detail.chapters[0].streamUrl)
         assertEquals("https://arch.sound-books.net/4111/Темна матерія-02.mp3", detail.chapters[1].streamUrl)

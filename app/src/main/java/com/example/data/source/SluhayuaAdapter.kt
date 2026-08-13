@@ -54,7 +54,8 @@ class SluhayuaAdapter(
                 author = authorFromPage(html),
                 narrator = narratorFromPage(html),
                 url = url,
-                chapters = emptyList()
+                chapters = emptyList(),
+                description = ogMeta(html, "og:description")?.trim().orEmpty()
             )
         }
 
@@ -72,7 +73,8 @@ class SluhayuaAdapter(
             url = url,
             coverImageUrl = ogMeta(html, "og:image")
                 ?.replace("//uploads", "/uploads"),
-            chapters = chapters
+            chapters = chapters,
+            description = ogMeta(html, "og:description")?.trim().orEmpty()
         )
     }
 

@@ -238,6 +238,55 @@ class AudiobookRepository(
         return "$sourceId-$slug"
     }
 
+    /**
+     * Spec-15 T5 — what ONE source says about a Work, for the labelled
+     * per-source blocks on the book detail page. Built from that source's own
+     * page through its adapter ([SourceBookDetail]); the aggregate profile of
+     * the Work stays on the primary [AudiobookEntity].
+     */
+    data class SourceProfile(
+        val sourceId: String,
+        val sourceName: String,
+        val url: String,
+        val description: String = "",
+        val rating: Double? = null,
+        val narrator: String = "",
+        val genres: List<String> = emptyList()
+    )
+
+    /**
+     * Spec-15 T5 — the per-source aggregation of a Work's detail: for every
+     * Source row carrying the book, fetch that source's page through its own
+     * adapter and render what IT says (description, rating, narrator, genres).
+     * Best-effort per source — a failing source simply contributes no block,
+     * never a blank page. Uses the existing adapter seam, no third parser.
+     */
+    suspend fun fetchSourceProfiles(bookId: String): List<SourceProfile> =
+        withContext(Dispatchers.IO) {
+            val sources = dao.getSourcesForBookSync(bookId)
+            sources.mapNotNull { source ->
+                val adapter = sourceAdapters.firstOrNull { it.sourceId == source.type }
+                    ?: return@mapNotNull null
+                try {
+                    val detail = adapter.fetchBookPage(source.url)
+                    // A page that yielded nothing (blank title AND no chapters)
+                    // is a failure, not an empty block.
+                    if (detail.title.isBlank() && detail.chapters.isEmpty()) return@mapNotNull null
+                    SourceProfile(
+                        sourceId = source.type,
+                        sourceName = sourceDisplayName(source.type),
+                        url = source.url,
+                        description = detail.description,
+                        rating = detail.rating,
+                        narrator = detail.narrator,
+                        genres = detail.genres
+                    )
+                } catch (e: Exception) {
+                    null
+                }
+            }
+        }
+
     // ---------------------------------------------------------------------
     // Global search (spec-10 T4)
     // ---------------------------------------------------------------------

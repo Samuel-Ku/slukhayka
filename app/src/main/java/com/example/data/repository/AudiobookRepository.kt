@@ -29,6 +29,7 @@ import com.example.data.source.SourceBookDetail
 import com.example.data.source.headersFor
 import com.example.data.source.mergeGlobalSearchResults
 import com.example.data.source.sourceDisplayName
+import com.example.data.source.sourceIdForUrl
 import com.example.data.source.streamOnlyFor
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.Flow
@@ -106,22 +107,10 @@ class AudiobookRepository(
 
     /**
      * Maps a book URL to its stable source id (the `type` of the `sources`
-     * table). Blank URL = a local import.
+     * table). Blank URL = a local import. Spec-15 T6: delegates to the pure
+     * [sourceIdForUrl] so the library model badges its cards with the same id.
      */
-    fun sourceTypeOfUrl(url: String): String = when {
-        url.isBlank() -> "local"
-        url.contains("4read.org") -> "4read"
-        url.contains("sound-books.net") -> "soundbooks"
-        url.contains("audiobook-mp3.com") -> "audiobookmp3"
-        url.contains("lihtar.in.ua") -> "lihtar"
-        // sluhay.com.ua is checked before sluhay.com (it contains it);
-        // sluhayknigi.com before sluhay.com (the CDN is shared, the Referer
-        // differs).
-        url.contains("sluhay.com.ua") -> "sluhayua"
-        url.contains("sluhayknigi.com") -> "sluhayknigi"
-        url.contains("sluhay.com") -> "sluhay"
-        else -> "unknown"
-    }
+    fun sourceTypeOfUrl(url: String): String = sourceIdForUrl(url)
 
     /**
      * Spec-13 T2 — per-source stream headers for a book's chapter URL (the

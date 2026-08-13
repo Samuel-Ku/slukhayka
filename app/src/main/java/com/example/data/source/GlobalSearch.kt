@@ -49,6 +49,26 @@ data class GlobalSearchResult(
 fun catalogCardDownloadAllowed(result: GlobalSearchResult): Boolean =
     result.sources.firstOrNull()?.let { !streamOnlyFor(it.sourceId) } ?: false
 
+/**
+ * Spec-15 T6 — the stable source id of a book URL, as a pure function (the
+ * repository's `sourceTypeOfUrl` delegates here; the library model uses it to
+ * badge its cards without depending on the repository). Blank URL = a local
+ * import. `sluhay.com.ua` is checked before `sluhay.com` (it contains it) and
+ * `sluhayknigi.com` before `sluhay.com` (the CDN is shared, the Referer
+ * differs).
+ */
+fun sourceIdForUrl(url: String): String = when {
+    url.isBlank() -> "local"
+    url.contains("4read.org") -> "4read"
+    url.contains("sound-books.net") -> "soundbooks"
+    url.contains("audiobook-mp3.com") -> "audiobookmp3"
+    url.contains("lihtar.in.ua") -> "lihtar"
+    url.contains("sluhay.com.ua") -> "sluhayua"
+    url.contains("sluhayknigi.com") -> "sluhayknigi"
+    url.contains("sluhay.com") -> "sluhay"
+    else -> "unknown"
+}
+
 /** Human-readable source label for badges. */
 fun sourceDisplayName(sourceId: String): String = when (sourceId) {
     "4read" -> "4read"

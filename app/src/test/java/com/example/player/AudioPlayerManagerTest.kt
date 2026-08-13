@@ -346,7 +346,7 @@ class AudioPlayerManagerTest {
         assertTrue(state.lastErrorMsg.isNotBlank())
         // wayfinder #52: the error message names the code and the failing host.
         assertTrue(state.lastErrorMsg.contains("ERROR_CODE_IO_NETWORK_CONNECTION_FAILED"))
-        assertTrue(state.lastErrorMsg.contains("fixtures.4read.invalid"))
+        assertTrue(state.lastErrorMsg.contains("fixtures.4read.org.invalid"))
         // The shared engine survives the failure (see timeout test above).
         assertFalse(engine.isReleased)
         assertEquals("no replacement engine may be built", 1, factory.engines.size)
@@ -447,7 +447,7 @@ class AudioPlayerManagerTest {
 
     @Test
     fun `plain-get sources apply no stream headers`() = playerTest { manager, _ ->
-        // The fixture book points at fixtures.4read.invalid — a plain-GET host.
+        // The fixture book points at fixtures.4read.org.invalid — a plain-GET host.
         manager.loadAndPlayBook(book, chapters, initialChapterIndex = 0, autoPlay = false)
 
         assertTrue("no Referer may leak onto plain-GET hosts", manager.lastAppliedStreamHeaders.isEmpty())

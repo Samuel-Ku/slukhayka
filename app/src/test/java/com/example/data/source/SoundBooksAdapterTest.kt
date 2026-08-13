@@ -97,4 +97,51 @@ class SoundBooksAdapterTest {
         assertEquals("", books[1].author)
         assertEquals(null, books[1].coverImageUrl)
     }
+
+    // Spec-15 T1: catalogue enumeration walks the homepage's category
+    // sections and parses each category page (same tile markup as the feed).
+    private val homeWithCategories = """
+        <html><body>
+        <a href="https://sound-books.net/fantastyka/">Фантастика</a>
+        <a href="https://sound-books.net/roman/">Роман</a>
+        <a href="https://sound-books.net/zhakhy/">Жахи</a>
+        </body></html>
+    """.trimIndent()
+
+    private val fantastykaPage = """
+        <html><body>
+        <a class="short-img img-fit" href="https://sound-books.net/fantastyka/3001-soniachna-mashyna.html"><img data-src="/uploads/posts/2026-07/soniachna-mashyna.webp" alt="Сонячна машина"></a>
+        <a class="short-title" href="https://sound-books.net/fantastyka/3001-soniachna-mashyna.html">Сонячна машина - Володимир Винниченко</a>
+        <a class="short-title" href="https://sound-books.net/fantastyka/3002-tyha-planeta.html">Тиха планета</a>
+        </body></html>
+    """.trimIndent()
+
+    @Test
+    fun `catalogue enumerates category pages into books with covers`() = runBlocking {
+        val adapter = SoundBooksAdapter(
+            FakeFetcher(
+                mapOf(
+                    "https://sound-books.net/" to homeWithCategories,
+                    "https://sound-books.net/fantastyka/" to fantastykaPage,
+                    "https://sound-books.net/roman/" to ""
+                ),
+                fallback = "<html><body></body></html>"
+            )
+        )
+
+        val books = adapter.fetchCatalog(limit = 40)
+
+        // The only populated category yields its two books; the empty category
+        // contributes nothing; books are deduped by url.
+        assertEquals(2, books.size)
+        assertEquals("Сонячна машина", books[0].title)
+        assertEquals("Володимир Винниченко", books[0].author)
+        assertEquals("https://sound-books.net/fantastyka/3001-soniachna-mashyna.html", books[0].url)
+        assertEquals(
+            "https://sound-books.net/uploads/posts/2026-07/soniachna-mashyna.webp",
+            books[0].coverImageUrl
+        )
+        assertEquals("Тиха планета", books[1].title)
+        assertEquals("", books[1].author)
+    }
 }

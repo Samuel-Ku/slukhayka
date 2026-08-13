@@ -220,6 +220,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // Cloudflare session — re-hydrate the session-bound feeds («Нове з
         // Sluhay») immediately so a fresh challenge shows the row, not the CTA.
         loadSourceFeeds()
+        // Spec-15 T1: same session re-hydration applies to the unified
+        // catalogue union — a fresh challenge must surface the source's books
+        // in «Увесь каталог» on the next Огляд visit.
+        loadUnifiedCatalog()
     }
 
     /**
@@ -485,6 +489,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun loadSourceFeeds() {
         viewModelScope.launch(Dispatchers.IO) {
             repository.refreshSourceFeeds()
+        }
+    }
+
+    // Spec-15 T1: the deduplicated «Увесь каталог» union — every verified
+    // source's catalogue enumeration merged into one Work card per book, with
+    // a badge per carried source. Ephemeral (nothing imported until a card is
+    // tapped → playFromSource); cached in the repository for the session.
+    val unifiedCatalog: StateFlow<List<GlobalSearchResult>> = repository.unifiedCatalog
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val isUnifiedCatalogLoading: StateFlow<Boolean> = repository.isUnifiedCatalogLoading
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    fun loadUnifiedCatalog() {
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.refreshUnifiedCatalog()
         }
     }
 

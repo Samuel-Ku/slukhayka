@@ -268,6 +268,69 @@ class AudiobookRepository(
     // richer curated sections (incl. series) from the homepage parse.
     private val feedAdapters: List<SourceAdapter> = sourceAdapters.filterNot { it.sourceId == "4read" }
 
+    // Spec-15 T1: the unified catalogue union. 4read is excluded the same way
+    // as the feeds — its full catalogue is natively browsed through the Огляд
+    // sections (spec #8), so the union covers the other verified sources and
+    // merges their catalogue enumeration into Work cards via MergeKey.
+    private val catalogueAdapters: List<SourceAdapter> = feedAdapters
+
+    private val _unifiedCatalog = MutableStateFlow<List<GlobalSearchResult>>(emptyList())
+    val unifiedCatalog: StateFlow<List<GlobalSearchResult>> = _unifiedCatalog.asStateFlow()
+
+    private val _isUnifiedCatalogLoading = MutableStateFlow(false)
+    val isUnifiedCatalogLoading: StateFlow<Boolean> = _isUnifiedCatalogLoading.asStateFlow()
+
+    // Per-adapter catalogue enumeration cache (same shape/TTL as the new-feed
+    // cache): repeated Огляд visits reuse the session's enumeration instead of
+    // re-walking every category page. The merged union is recomputed from the
+    // cached lists (cheap in-memory merge), never re-fetched.
+    private val adapterCatalogCache = java.util.concurrent.ConcurrentHashMap<String, CachedFeed>()
+
+    /**
+     * Spec-15 T1 — the deduplicated «Увесь каталог» union: every verified
+     * source's catalogue enumeration (category/genre pages) merged into one
+     * Work card per book via [mergeGlobalSearchResults] (the same MergeKey
+     * rule import and search use). Ephemeral — nothing is imported until the
+     * user taps a card. Per-adapter results are cached for the session like
+     * the feeds; a session-bound adapter (WebView pattern) always re-enumerates
+     * so a fresh challenge session surfaces in the union immediately — never
+     * a stale empty cache.
+     */
+    suspend fun refreshUnifiedCatalog(limit: Int = 60): List<GlobalSearchResult> =
+        withContext(Dispatchers.IO) {
+            _isUnifiedCatalogLoading.value = true
+            try {
+                val books = mutableListOf<SourceBook>()
+                for (adapter in catalogueAdapters) {
+                    books += catalogueFor(adapter, limit)
+                }
+                val merged = mergeGlobalSearchResults(books)
+                _unifiedCatalog.value = merged
+                merged
+            } finally {
+                _isUnifiedCatalogLoading.value = false
+            }
+        }
+
+    /** TTL-cached catalogue enumeration for one adapter (mirrors newFeedFor). */
+    private suspend fun catalogueFor(adapter: SourceAdapter, limit: Int): List<SourceBook> {
+        // Session-bound sources re-enumerate on every refresh: a fresh
+        // challenge session must surface immediately, never a stale cache.
+        if (!adapter.sessionBound) {
+            val now = System.currentTimeMillis()
+            adapterCatalogCache[adapter.sourceId]?.let { cached ->
+                if (now - cached.fetchedAt < NEW_FEED_TTL_MS) return cached.books
+            }
+        }
+        val books = try {
+            adapter.fetchCatalog(limit)
+        } catch (e: Exception) {
+            emptyList()
+        }
+        adapterCatalogCache[adapter.sourceId] = CachedFeed(System.currentTimeMillis(), books)
+        return books
+    }
+
     private val _sourceFeeds = MutableStateFlow<List<SourceNewFeed>>(emptyList())
     val sourceFeeds: StateFlow<List<SourceNewFeed>> = _sourceFeeds.asStateFlow()
 

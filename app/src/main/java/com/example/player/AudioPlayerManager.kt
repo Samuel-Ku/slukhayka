@@ -373,7 +373,20 @@ class AudioPlayerManager(
         initialPositionSeconds: Long = 0L,
         autoPlay: Boolean = true
     ) {
-        val chapterIdx = initialChapterIndex.coerceIn(0, (chapters.size - 1).coerceAtLeast(0))
+        var chapterIdx = initialChapterIndex.coerceIn(0, (chapters.size - 1).coerceAtLeast(0))
+        var positionSeconds = initialPositionSeconds
+        // Spec-16 T4: starting playback of a finished book is a re-listen — it
+        // resets to the beginning (chapter 0, position 0) and logs RELISTEN
+        // instead of RESUME. Completion is derived from position, the same rule
+        // the library card uses (AC4): only a start at/after the very end of
+        // the book triggers it, so explicit chapter or bookmark navigation
+        // (which never asks to start at the end) is untouched.
+        val totalDurationSeconds = chapters.sumOf { it.durationSeconds }
+        val relisten = autoPlay && totalDurationSeconds > 0L && positionSeconds >= totalDurationSeconds
+        if (relisten) {
+            chapterIdx = 0
+            positionSeconds = 0L
+        }
         // Spec-16 T2: loading the same book from a different source is a source
         // switch — recorded as a discrete transition (audit trail for undo and
         // sync; cross-source undo semantics land with the persistent undo, T3).
@@ -384,7 +397,7 @@ class AudioPlayerManager(
             currentBook = book,
             chapters = chapters,
             currentChapterIndex = chapterIdx,
-            currentPositionMs = initialPositionSeconds * 1000L,
+            currentPositionMs = positionSeconds * 1000L,
             durationMs = if (chapters.isNotEmpty()) chapters[chapterIdx].durationSeconds * 1000L else 1000L,
             isOfflineMode = book.isDownloaded,
             // Per-book speed memory (wayfinder #26): the book's own speed if it
@@ -400,19 +413,24 @@ class AudioPlayerManager(
         lastPreparedChapterIndex = null
         seekHistory.clear()
         if (switchingSource) {
-            recordPlaybackEvent(PlaybackEventKind.SOURCE_SWITCH, positionSeconds = initialPositionSeconds)
+            recordPlaybackEvent(PlaybackEventKind.SOURCE_SWITCH, positionSeconds = positionSeconds)
         }
-        if (autoPlay) {
+        if (relisten) {
             playbackSegmentStartMs = now()
-            recordPlaybackEvent(PlaybackEventKind.RESUME, positionSeconds = initialPositionSeconds)
+            recordPlaybackEvent(PlaybackEventKind.RELISTEN, positionSeconds = 0L)
+        } else if (autoPlay) {
+            playbackSegmentStartMs = now()
+            recordPlaybackEvent(PlaybackEventKind.RESUME, positionSeconds = positionSeconds)
         }
 
         // Spec-16 T3: a persisted undo candidate from a previous process is
         // restored when the listener is still where the jump landed — the
         // «Повернутися» offer survives a restart. Seeded asynchronously from
         // the event log; skipped if the session already recorded a newer jump
-        // (latest candidate wins) or the candidate is stale or far away.
-        val restoredPositionSeconds = initialPositionSeconds
+        // (latest candidate wins) or the candidate is stale or far away. The
+        // position used is the post-relisten one (0), so a finished book's
+        // stale candidate never re-offers.
+        val restoredPositionSeconds = positionSeconds
         val restoredSourceKey = newBookKey.second
         scope.launch(Dispatchers.IO) {
             val candidate = repository.lastUndoCandidate(book.id, restoredSourceKey)
@@ -432,7 +450,7 @@ class AudioPlayerManager(
             }
         }
 
-        prepareChapter(chapterIdx, initialPositionSeconds * 1000L, autoPlay)
+        prepareChapter(chapterIdx, positionSeconds * 1000L, autoPlay)
     }
 
     fun prepareChapter(chapterIndex: Int, startPositionMs: Long = 0L, autoPlay: Boolean = true) {

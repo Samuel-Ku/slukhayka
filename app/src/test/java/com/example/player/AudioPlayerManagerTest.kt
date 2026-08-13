@@ -685,6 +685,110 @@ class AudioPlayerManagerTest {
         }
     }
 
+    // ---------------------------------------------------------------------
+    // Spec-16 T4: re-listen cycle — finishing logs COMPLETED once, starting a
+    // finished book again resets to the beginning and logs RELISTEN
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `finishing a book then starting it again logs the finish to relisten cycle`() {
+        val clock = TestClock()
+        // Session 1: play the last chapter to the very end → COMPLETED.
+        playerTest(clock = clock) { manager, factory ->
+            manager.loadAndPlayBook(book, chapters, initialChapterIndex = chapters.lastIndex, autoPlay = true)
+            factory.current.simulateReady(chapters.last().durationSeconds * MILLIS_PER_SECOND)
+            awaitEvents(1) // RESUME
+            factory.current.simulateEnded()
+            awaitEvents(2) // + COMPLETED
+            assertEquals(
+                listOf(PlaybackEventKind.RESUME, PlaybackEventKind.COMPLETED),
+                dao.savedPlaybackEvents.map { it.kind }
+            )
+        }
+        // Session 2: starting the finished book again (its saved end position)
+        // resets to chapter 0 / position 0 and logs RELISTEN — the history
+        // now shows the honest finish → re-listen cycle.
+        playerTest(clock = clock) { manager, factory ->
+            val totalSeconds = chapters.sumOf { it.durationSeconds }
+            manager.loadAndPlayBook(
+                book, chapters,
+                initialChapterIndex = chapters.lastIndex,
+                initialPositionSeconds = totalSeconds,
+                autoPlay = true
+            )
+            factory.current.simulateReady(chapters[0].durationSeconds * MILLIS_PER_SECOND)
+            awaitEvents(3) // RESUME + COMPLETED + RELISTEN
+
+            assertEquals(
+                listOf(
+                    PlaybackEventKind.RESUME, PlaybackEventKind.COMPLETED, PlaybackEventKind.RELISTEN
+                ),
+                dao.savedPlaybackEvents.map { it.kind }
+            )
+            assertEquals(0, manager.playerState.value.currentChapterIndex)
+            assertEquals(0L, manager.playerState.value.currentPositionMs)
+            assertEquals(chapters[0].streamUrl, factory.current.lastMediaItemUri)
+        }
+    }
+
+    @Test
+    fun `an explicit chapter tap at position zero never relistens`() {
+        val clock = TestClock()
+        playerTest(clock = clock) { manager, factory ->
+            // Deliberate navigation: an explicit chapter at position 0, even
+            // though the book may be finished — the rule only fires for a
+            // start at/after the very end of the book.
+            manager.loadAndPlayBook(book, chapters, initialChapterIndex = 2, initialPositionSeconds = 0L, autoPlay = true)
+            factory.current.simulateReady(chapters[2].durationSeconds * MILLIS_PER_SECOND)
+            awaitEvents(1)
+
+            assertEquals(listOf(PlaybackEventKind.RESUME), dao.savedPlaybackEvents.map { it.kind })
+            assertEquals(2, manager.playerState.value.currentChapterIndex)
+            assertEquals(0L, manager.playerState.value.currentPositionMs)
+        }
+    }
+
+    @Test
+    fun `resuming a nearly finished book keeps its position`() {
+        val clock = TestClock()
+        playerTest(clock = clock) { manager, factory ->
+            // 60 s before the end — not finished, so no reset and no RELISTEN.
+            val resumePosition = chapters.sumOf { it.durationSeconds } - 60L
+            manager.loadAndPlayBook(
+                book, chapters,
+                initialChapterIndex = chapters.lastIndex,
+                initialPositionSeconds = resumePosition,
+                autoPlay = true
+            )
+            factory.current.simulateReady(chapters.last().durationSeconds * MILLIS_PER_SECOND)
+            awaitEvents(1)
+
+            assertEquals(listOf(PlaybackEventKind.RESUME), dao.savedPlaybackEvents.map { it.kind })
+            assertEquals(chapters.lastIndex, manager.playerState.value.currentChapterIndex)
+            assertEquals(resumePosition * 1000L, manager.playerState.value.currentPositionMs)
+        }
+    }
+
+    @Test
+    fun `opening a finished book without playing does not relisten`() {
+        val clock = TestClock()
+        playerTest(clock = clock) { manager, factory ->
+            val totalSeconds = chapters.sumOf { it.durationSeconds }
+            manager.loadAndPlayBook(
+                book, chapters,
+                initialChapterIndex = chapters.lastIndex,
+                initialPositionSeconds = totalSeconds,
+                autoPlay = false
+            )
+            factory.current.simulateReady(chapters.last().durationSeconds * MILLIS_PER_SECOND)
+            settle()
+
+            assertTrue("no playback started → no events at all", dao.savedPlaybackEvents.isEmpty())
+            assertEquals(chapters.lastIndex, manager.playerState.value.currentChapterIndex)
+            assertEquals(totalSeconds * 1000L, manager.playerState.value.currentPositionMs)
+        }
+    }
+
     /**
      * Builds a manager wired to a [RecordingPlayerFactory], runs [body] on the
      * shared test scheduler, and always releases the manager so its

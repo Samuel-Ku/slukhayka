@@ -16,6 +16,7 @@ class AudiobookMp3AdapterTest {
     private val bookPage = """
         <html><head>
         <meta property="og:title" content="Клуб боягузів">
+        <meta property="og:description" content="Студентські страшилки обертаються справжньою грою на виживання.">
         </head><body>
         <p>Автор: <a href="/uk-avtor-6163-andrij-kokotjuha">Андрій Кокотюха</a>.</p>
         <script src="/js/playerjs-ua.js?v=1.1"></script>
@@ -53,6 +54,8 @@ class AudiobookMp3AdapterTest {
 
         assertEquals("Клуб боягузів", detail.title)
         assertEquals("Андрій Кокотюха", detail.author)
+        // Spec-15 T5: og:description is the book's own blurb.
+        assertEquals("Студентські страшилки обертаються справжньою грою на виживання.", detail.description)
         assertEquals(2, detail.chapters.size)
         assertEquals("https://9giiu0g54k8c.redirectto.cc/s05/2/6/7/2/0/track-0.mp3", detail.chapters[0].streamUrl)
         assertEquals("002.mp3", detail.chapters[1].title)

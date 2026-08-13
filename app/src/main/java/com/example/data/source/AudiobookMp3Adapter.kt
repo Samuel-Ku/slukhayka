@@ -33,8 +33,12 @@ class AudiobookMp3Adapter(
             ?: JSONLD_AUTHOR.find(html)?.groupValues?.get(1)?.trim()
             ?: ""
 
+        // Spec-15 T5: og:description is the book's own blurb — carry it for
+        // the per-source detail blocks.
+        val description = ogMeta(html, "og:description")?.trim().orEmpty()
+
         val playlistUrl = PLAYLIST_URL.find(html)?.groupValues?.get(1)
-            ?: return SourceBookDetail(title = title, author = author, url = url, chapters = emptyList())
+            ?: return SourceBookDetail(title = title, author = author, url = url, chapters = emptyList(), description = description)
 
         val playlistJson = fetcher.getText(playlistUrl)
         val chapters = mutableListOf<SourceChapter>()
@@ -60,7 +64,8 @@ class AudiobookMp3Adapter(
             title = title,
             author = author,
             url = url,
-            chapters = chapters
+            chapters = chapters,
+            description = description
         )
     }
 

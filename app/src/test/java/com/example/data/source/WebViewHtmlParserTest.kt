@@ -18,6 +18,7 @@ class WebViewHtmlParserTest {
     private val fullBookPage = """
         <html><head>
         <meta property="og:title" content="Неостанній бій">
+        <meta property="og:description" content="Максим Темний повертається. Його чекає найважчий бій — бій з власним минулим.">
         <meta property="og:image" content="https://4read.org/uploads/posts/2026-06/medium/neostannij-bij.webp">
         </head><body>
         <script>var player = new Playerjs({file:"https://4read.org/m3u/7589.txt"});</script>
@@ -61,6 +62,8 @@ class WebViewHtmlParserTest {
         assertEquals("Валерій Завалко", detail.narrator)
         assertEquals(39438L, detail.totalDurationSeconds)
         assertEquals(4.9, detail.rating)
+        // Spec-15 T5: og:description is the book's own blurb.
+        assertEquals("Максим Темний повертається. Його чекає найважчий бій — бій з власним минулим.", detail.description)
         assertEquals(listOf("Пригоди", "Фентезі"), detail.genres)
         assertEquals("Максим Темний", detail.series?.name)
         assertEquals(7, detail.series?.position)
@@ -102,6 +105,7 @@ class WebViewHtmlParserTest {
         assertNull(bare.series)
         assertTrue(bare.related.isEmpty())
         assertNull(bare.totalDurationSeconds)
+        assertEquals("", bare.description)
     }
 
     @Test

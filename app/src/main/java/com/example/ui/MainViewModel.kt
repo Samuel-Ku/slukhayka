@@ -9,6 +9,8 @@ import com.example.data.catalog.CatalogPerson
 import com.example.data.catalog.CatalogSection
 import com.example.data.db.*
 import com.example.data.imports.ImportGrantStore
+import com.example.data.imports.ImportPlan
+import com.example.data.imports.ImportPlanner
 import com.example.data.repository.AudiobookRepository
 import com.example.data.source.GlobalSearchResult
 import com.example.data.source.catalogCardDownloadAllowed
@@ -964,16 +966,42 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /** Imports a whole folder of local audiobooks (spec #8 Block 4, SAF tree). */
+    /**
+     * Imports a whole folder of local audiobooks (spec #8 Block 4, SAF tree).
+     *
+     * wayfinder #29: the import now runs scan → plan → confirm → apply. The
+     * folder is scanned into a previewable [ImportPlan] (grouping, natural
+     * sort, merge suggestions) and shown to the user; only
+     * [confirmImportPreview] writes to Room.
+     */
     fun importLocalAudioFolder(uri: android.net.Uri) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val result = repository.importLocalAudioFolder(uri)
-                if (result.booksImported > 0 || result.duplicateFiles > 0) {
-                    // wayfinder #48: remember the tree so a future rescan can
-                    // re-open it without asking the user to pick again.
-                    ImportGrantStore(getApplication()).addTreeUri(uri.toString())
+                val plan = repository.planLocalAudioFolder(uri)
+                if (plan.books.isEmpty()) {
+                    _importMessage.value = "У вибраній папці не знайдено аудіофайлів (mp3/m4a/ogg)"
+                    return@launch
                 }
+                _importPreview.value = ImportPreviewState(plan = plan, treeUri = uri.toString())
+            } catch (e: Exception) {
+                android.util.Log.w("MainViewModel", "Folder import failed", e)
+                _importMessage.value = "Не вдалося імпортувати папку"
+            }
+        }
+    }
+
+    /** The user confirmed the preview — apply the plan (the only writer). */
+    fun confirmImportPreview() {
+        val preview = _importPreview.value ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val result = repository.applyImportPlan(preview.plan, preview.treeUri)
+                // wayfinder #48: remember the tree so a future rescan can
+                // re-open it without asking the user to pick again.
+                if (result.booksImported > 0 || result.duplicateFiles > 0) {
+                    ImportGrantStore(getApplication()).addTreeUri(preview.treeUri)
+                }
+                _importPreview.value = null
                 _importMessage.value = if (result.booksImported > 0) {
                     buildString {
                         append("Імпортовано ${result.booksImported} книг (${result.filesImported} файлів)")
@@ -983,13 +1011,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 } else if (result.duplicateFiles > 0) {
                     "Всі файли вже в бібліотеці (${result.duplicateFiles} дублікатів пропущено)"
                 } else {
-                    "У вибраній папці не знайдено аудіофайлів (mp3/m4a/ogg)"
+                    "Імпорт завершено"
                 }
             } catch (e: Exception) {
-                android.util.Log.w("MainViewModel", "Folder import failed", e)
+                android.util.Log.w("MainViewModel", "Preview import failed", e)
                 _importMessage.value = "Не вдалося імпортувати папку"
             }
         }
+    }
+
+    /** Dismisses the preview without applying — zero trace left (wayfinder #29). */
+    fun dismissImportPreview() {
+        _importPreview.value = null
+    }
+
+    /** Accepts a T0/T2 merge suggestion in the preview. */
+    fun acceptMergeInPreview(bookId: String) {
+        val preview = _importPreview.value ?: return
+        _importPreview.value = preview.copy(plan = ImportPlanner.acceptMerge(preview.plan, bookId))
+    }
+
+    /** Rejects a suggestion — the pair becomes a remembered NEVER_MATCH. */
+    fun rejectMergeInPreview(bookId: String) {
+        val preview = _importPreview.value ?: return
+        _importPreview.value = preview.copy(plan = ImportPlanner.rejectMerge(preview.plan, bookId))
     }
 
     /**
@@ -1034,6 +1079,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _importMessage = MutableStateFlow<String?>(null)
     val importMessage: StateFlow<String?> = _importMessage.asStateFlow()
 
+    /** The pending smart-import preview (wayfinder #29), null when none. */
+    private val _importPreview = MutableStateFlow<ImportPreviewState?>(null)
+    val importPreview: StateFlow<ImportPreviewState?> = _importPreview.asStateFlow()
+
     fun consumeImportMessage() {
         _importMessage.value = null
     }
@@ -1046,6 +1095,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // NOTE: we intentionally do NOT release the player in onCleared(). The
     // AudioPlayerManager is application-scoped (App.kt) and must keep playing
     // after the Activity is destroyed so background playback works.
+
+    /** The pending smart-import preview (wayfinder #29) plus its tree uri. */
+    data class ImportPreviewState(
+        val plan: ImportPlan,
+        val treeUri: String
+    )
 
     companion object {
         fun formatTime(seconds: Long): String {

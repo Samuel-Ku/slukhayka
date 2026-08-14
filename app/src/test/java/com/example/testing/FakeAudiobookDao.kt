@@ -4,6 +4,7 @@ import com.example.data.db.AudiobookDao
 import com.example.data.db.AudiobookEntity
 import com.example.data.db.BookmarkEntity
 import com.example.data.db.ChapterEntity
+import com.example.data.db.CorrectionEntity
 import com.example.data.db.ListeningStatEntity
 import com.example.data.db.PlaybackEventEntity
 import com.example.data.db.PlaybackFailureEntity
@@ -42,6 +43,7 @@ class FakeAudiobookDao(
     private val failuresState = MutableStateFlow(emptyList<PlaybackFailureEntity>())
     private val eventsState = MutableStateFlow(emptyList<PlaybackEventEntity>())
     private val tombstonesState = MutableStateFlow(emptyList<TombstoneEntity>())
+    private val correctionsState = MutableStateFlow(emptyList<CorrectionEntity>())
 
     /** Snapshot of the recorded playback failures, for assertions. */
     val savedFailures: List<PlaybackFailureEntity> get() = failuresState.value
@@ -64,10 +66,15 @@ class FakeAudiobookDao(
     /** Snapshot of the persisted tombstones, for assertions. */
     val savedTombstones: List<TombstoneEntity> get() = tombstonesState.value
 
+    /** Snapshot of the persisted correction memory, for assertions. */
+    val savedCorrections: List<CorrectionEntity> get() = correctionsState.value
+
     // --- Audiobooks -------------------------------------------------------
 
     override fun getAllAudiobooks(): Flow<List<AudiobookEntity>> =
         booksState.map { books -> books.sortedBy { it.title } }
+
+    override suspend fun getAllAudiobooksOnce(): List<AudiobookEntity> = booksState.value
 
     override fun getDownloadedAudiobooks(): Flow<List<AudiobookEntity>> =
         booksState.map { books -> books.filter { it.isDownloaded }.sortedBy { it.title } }
@@ -415,4 +422,20 @@ class FakeAudiobookDao(
     override suspend fun deleteTombstone(bookId: String) {
         tombstonesState.update { current -> current.filterNot { it.bookId == bookId } }
     }
+
+    // --- Corrections (wayfinder #54 Q9, stage-2 S1) ------------------------
+
+    override suspend fun upsertCorrection(correction: CorrectionEntity) {
+        correctionsState.update { current ->
+            current.filterNot { it.mergeKey == correction.mergeKey && it.kind == correction.kind && it.value == correction.value } + correction
+        }
+    }
+
+    override suspend fun getCorrectionsForMergeKey(mergeKey: String): List<CorrectionEntity> =
+        correctionsState.value.filter { it.mergeKey == mergeKey }.sortedByDescending { it.updatedAt }
+
+    override suspend fun getNeverMatchPairs(mergeKey: String): List<CorrectionEntity> =
+        correctionsState.value
+            .filter { it.kind == "NEVER_MATCH" && (it.mergeKey == mergeKey || it.value == mergeKey) }
+            .sortedByDescending { it.updatedAt }
 }

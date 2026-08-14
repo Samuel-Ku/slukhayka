@@ -14,7 +14,9 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
@@ -103,6 +105,20 @@ fun LibraryScreen(
             snackbarHostState.showSnackbar(message)
             viewModel.consumeImportMessage()
         }
+    }
+
+    // wayfinder #29: the smart-import preview — scan → plan → confirm → apply.
+    // The plan is pure data; confirming calls apply, dismissing leaves zero
+    // trace. Merge suggestions render as review rows, never silent merges.
+    val importPreview by viewModel.importPreview.collectAsState()
+    if (importPreview != null) {
+        ImportPreviewDialog(
+            preview = importPreview!!,
+            onAcceptMerge = viewModel::acceptMergeInPreview,
+            onRejectMerge = viewModel::rejectMergeInPreview,
+            onConfirm = viewModel::confirmImportPreview,
+            onDismiss = viewModel::dismissImportPreview
+        )
     }
 
     var activeTab by remember { mutableStateOf(0) } // 0 = Книги, 1 = Закладки, 2 = Статистика
@@ -850,4 +866,102 @@ fun GlobalBookmarkItem(
             }
         }
     }
+}
+
+/**
+ * The smart-import preview dialog (wayfinder #29): scan → plan → confirm →
+ * apply. Shows the planned books (grouping + natural order) and the #54
+ * merge suggestions as review rows — the plan is pure data, nothing is
+ * written until [onConfirm]. Dismissing leaves zero trace.
+ */
+@Composable
+fun ImportPreviewDialog(
+    preview: com.example.ui.MainViewModel.ImportPreviewState,
+    onAcceptMerge: (String) -> Unit,
+    onRejectMerge: (String) -> Unit,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val mergedCount = preview.plan.books.count { it.mergedIntoBookId != null }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Перед імпортом") },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 420.dp)
+                    .verticalScroll(rememberScrollState())
+            ) {
+                Text(
+                    text = "Знайдено ${preview.plan.books.size} книг — нічого не записано, поки не підтвердите.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                preview.plan.books.forEach { book ->
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = book.title.ifBlank { "Без назви" },
+                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Text(
+                                    text = "${book.chapters.size} файл(ів)",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            val suggestion = book.suggestion
+                            if (suggestion != null && book.mergedIntoBookId == null) {
+                                Text(
+                                    text = "Схоже на «${suggestion.existingTitle}» (${suggestion.reason})",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    TextButton(onClick = { onAcceptMerge(book.id) }) {
+                                        Text("З'єднати")
+                                    }
+                                    TextButton(onClick = { onRejectMerge(book.id) }) {
+                                        Text("Не це")
+                                    }
+                                }
+                            } else if (book.mergedIntoBookId != null) {
+                                Text(
+                                    text = "Буде з'єднано з «${suggestion?.existingTitle ?: "книгою в бібліотеці"}»",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.tertiary
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text(
+                    if (mergedCount > 0) {
+                        "Імпортувати (${preview.plan.books.size - mergedCount} нових, $mergedCount з'єднати)"
+                    } else {
+                        "Імпортувати ${preview.plan.books.size}"
+                    }
+                )
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Скасувати")
+            }
+        }
+    )
 }

@@ -13,8 +13,11 @@ import com.example.data.catalog.CatalogSection
 import com.example.data.db.*
 import com.example.data.contentHashOf
 import com.example.data.imports.FolderRescan
+import com.example.data.imports.ImportPlan
+import com.example.data.imports.ImportPlanner
 import com.example.data.imports.LocalAudioEntry
 import com.example.data.imports.LocalFolderScanner
+import com.example.data.imports.SourceRef
 import com.example.data.merge.MergeKey
 import com.example.data.sha256Hex
 import com.example.data.source.AudiobookMp3Adapter
@@ -1002,6 +1005,147 @@ class AudiobookRepository(
         val entries = LocalFolderScanner.scan(ctx, treeUri)
         importAudioEntries(entries, treeUri.toString())
     }
+
+    /**
+     * Step 2 of the smart import (wayfinder #29): scans a picked SAF tree and
+     * builds the pure [ImportPlan] — grouping, natural sort and T0 merge
+     * suggestions against the existing library — WITHOUT touching disk or
+     * Room. The user reviews and edits this plan; only [applyImportPlan]
+     * writes.
+     */
+    suspend fun planLocalAudioFolder(treeUri: Uri): ImportPlan = withContext(Dispatchers.IO) {
+        val ctx = context ?: throw IllegalStateException("planLocalAudioFolder called without Context")
+        val entries = LocalFolderScanner.scan(ctx, treeUri)
+        val works = dao.getAllAudiobooksOnce().map { ImportPlanner.ExistingWork(id = it.id, title = it.title, mergeKey = it.mergeKey) }
+        ImportPlanner.buildPlan(
+            source = SourceRef.Folder(treeUri.toString()),
+            entries = entries,
+            existingWorks = works
+        )
+    }
+
+    /**
+     * Step 4 of the smart import (wayfinder #29): applies a confirmed
+     * [ImportPlan] — the ONLY writer of the smart import. Reuses the same
+     * copy-then-hash + [insertLocalBook] core as the direct import, so a
+     * plan confirmed without edits behaves exactly like [importAudioEntries].
+     *
+     * A book with `mergedIntoBookId` set attaches its chapters to the
+     * existing Work instead of creating a new card (the #54 merge path, the
+     * user's explicit choice). The plan's corrections are persisted to the
+     * `corrections` store at apply time — one write path, no orphan decisions.
+     */
+    suspend fun applyImportPlan(plan: ImportPlan, sourceTreeUri: String? = null): LocalImportResult =
+        withContext(Dispatchers.IO) {
+            var booksImported = 0
+            var filesImported = 0
+            var skippedFiles = 0
+            var duplicateFiles = 0
+            val seenHashes = mutableSetOf<String>()
+
+            suspend fun copyUnlessDuplicate(
+                baseName: String,
+                chapterTitle: String,
+                extension: String,
+                openStream: () -> java.io.InputStream
+            ): LocalChapterInput? {
+                val dest = try {
+                    copyLocalAudioStream(baseName, extension, openStream())
+                } catch (e: Exception) {
+                    Log.w("AudiobookRepo", "Plan import failed", e)
+                    skippedFiles++
+                    return null
+                }
+                if (!seenHashes.add(dest.sha256Hex) || dao.getChapterByContentHash(dest.sha256Hex) != null) {
+                    File(dest.path).delete()
+                    duplicateFiles++
+                    return null
+                }
+                return LocalChapterInput(title = chapterTitle, filePath = dest.path, contentHash = dest.sha256Hex)
+            }
+
+            for (book in plan.books) {
+                val targetBookId = book.mergedIntoBookId
+                val chapters = mutableListOf<LocalChapterInput>()
+                for (chapter in book.chapters) {
+                    val chapterTitle = chapter.title.ifBlank { "Розділ ${chapters.size + 1}" }
+                    val base = sanitizeLocalBaseName(chapter.file.fileName)
+                    val copied = copyUnlessDuplicate(
+                        if (targetBookId != null) "$targetBookId-$base" else "${book.title}-$base",
+                        chapterTitle,
+                        localFileExtension(chapter.file.fileName),
+                        chapter.file.openStream
+                    ) ?: continue
+                    chapters += copied
+                    filesImported++
+                }
+                if (chapters.isEmpty()) continue
+
+                if (targetBookId != null) {
+                    // #54 merge: attach the source to the existing Work — no
+                    // new card, chapters join the existing book's chapter list.
+                    dao.insertChapters(
+                        chapters.mapIndexed { index, chapter ->
+                            val existing = dao.getAudiobookById(targetBookId)
+                            val baseIndex = existing?.totalChapters ?: 0
+                            ChapterEntity(
+                                id = "$targetBookId-ch${baseIndex + index + 1}",
+                                bookId = targetBookId,
+                                chapterIndex = baseIndex + index,
+                                title = chapter.title,
+                                durationSeconds = 0L,
+                                streamUrl = chapter.filePath,
+                                localFilePath = chapter.filePath,
+                                isDownloaded = true,
+                                contentHash = chapter.contentHash
+                            )
+                        }
+                    )
+                    dao.insertSources(
+                        listOf(
+                            SourceEntity(
+                                id = "$targetBookId-local-${System.currentTimeMillis()}",
+                                bookId = targetBookId,
+                                type = "local",
+                                url = "",
+                                streamOnly = false,
+                                addedAt = System.currentTimeMillis()
+                            )
+                        )
+                    )
+                } else {
+                    insertLocalBook(
+                        title = book.title.ifBlank { "Аудіокнига" },
+                        author = book.author.ifBlank { LOCAL_FILE_AUTHOR },
+                        description = "Імпортовано через прев'ю — ${chapters.size} файл(ів)",
+                        chapters = chapters,
+                        sourceTreeUri = sourceTreeUri
+                    )
+                    booksImported++
+                }
+            }
+
+            // Persist the plan's corrections (MERGE / SPLIT / NEVER_MATCH /
+            // FIELD) — the preview decisions become remembered, synced memory.
+            for (correction in plan.corrections) {
+                if (correction.mergeKey.isBlank()) continue
+                dao.upsertCorrection(
+                    CorrectionEntity(
+                        mergeKey = correction.mergeKey,
+                        kind = correction.kind,
+                        value = correction.value,
+                        origin = correction.origin
+                    )
+                )
+            }
+
+            LocalImportResult(
+                booksImported = booksImported,
+                filesImported = filesImported,
+                skippedFiles = skippedFiles,
+                duplicateFiles = duplicateFiles
+            )
+        }
 
     /**
      * Core of the local import (T7 single-file + Block 4 folder): groups the

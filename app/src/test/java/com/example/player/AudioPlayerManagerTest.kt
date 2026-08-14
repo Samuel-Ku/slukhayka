@@ -136,6 +136,8 @@ class AudioPlayerManagerTest {
         awaitLedgerRows(1)
         assertEquals(1, dao.savedFailures.size)
         assertEquals("PREPARE_TIMEOUT", dao.savedFailures.first().errorCodeName)
+        // wayfinder #61 Q1: the synthetic code maps to its own category.
+        assertEquals("START_FAILED", dao.savedFailures.first().category)
     }
 
     @Test
@@ -364,6 +366,8 @@ class AudioPlayerManagerTest {
         assertEquals(1, dao.savedFailures.size)
         assertEquals("ERROR_CODE_IO_NETWORK_CONNECTION_FAILED", dao.savedFailures.first().errorCodeName)
         assertEquals(chapters[0].streamUrl, dao.savedFailures.first().streamUrl)
+        // wayfinder #61 Q1: the Media3 IO code classifies as SOURCE_LOST.
+        assertEquals("SOURCE_LOST", dao.savedFailures.first().category)
     }
 
     @Test

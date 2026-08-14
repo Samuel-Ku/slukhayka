@@ -790,6 +790,31 @@ Screenshots: `docs/phone-test/screenshots/folder_import_{01_launch,02_playing,03
    now requires real anchor text. Verified on device: «Часовий легіон» /
    «Дім твоєї мрії» in Cyrillic; `screenshots/spec14_covers_fixed.png`.
 
+## spec-14 T6 — follow-up (2026-08-14): missing-book via search + sluhay doors
+
+> Executed against `main` HEAD (`806d122` unescape fix + `9b79f89`
+> Referer/HTTP logging, both already in the tree above). Device: OnePlus 8
+> Pro (IN2023), Android 14, wireless ADB. This run closes the two ⏸ rows
+> from the 2026-08-12 session: the missing-book door through **search** and
+> the sluhay WebView door **S01–S09** with the in-session Cloudflare
+> Turnstile tap.
+
+| # | Step | Result | Evidence |
+|---|------|--------|----------|
+| Missing | Search a nonexistent title → no card, no player, no fabricated fallback; DB stays clean | ✅ PASS | `screenshots/spec14_t6_missing_01_search.png`; DB dump: `audiobooks`/`sources` have 0 rows for the fake id (`SELECT COUNT(*) … WHERE id LIKE '4read-99999999%'` → 0) |
+| S01 | Слухати → «Більше книг на Sluhay →» → browser surface loads `sluhay.com`, **Cloudflare Turnstile passed in-session (tester's tap)** | ✅ PASS | `screenshots/spec14_t6_sluhay_01_challenge_passed.png`; logcat `WebSource` |
+| S02 | Browse in-session, open a book page (ads/trackers blocked) | ✅ PASS | session log |
+| S03 | «Додати до медіатеки» → card in Медіатека with **badge «Sluhay»**, author present, chapters from the inline Playerjs playlist, cover from `data-src` | ✅ PASS | session log + Медіатека check |
+| S04 | Tap card → playback from `*.redirectto.cc` **with `Referer: https://sluhay.com/`** — 206 `audio/mpeg`, position advances, no 403 | ✅ PASS | `screenshots/spec14_t6_sluhay_04_playing.png`; logcat `AudioPlayer: HTTP 206 … Referer=https://sluhay.com/` (`9b79f89`) |
+| S05 | Pause → resume: position remembered per source (`sourceKey = "sluhay"`) | ✅ PASS | session log |
+| S06 | Close the browser surface → **«Нове з Sluhay» row appears on Слухати** (fresh session cookies → server-fetch 200) | ✅ PASS | `screenshots/spec14_t6_sluhay_06_row.png` |
+| S07–S09 | Row card plays with the sluhay Referer; merge across 4read/Sluhay; download (sluhay is **allowed**, not stream-only) | ✅ PASS | session log |
+
+Also verified on this run: the `\uXXXX`-unescape fix (`806d122`) on live
+WebView captures and feed rows, and the feed covers (`02e07f9`) —
+`spec14_covers_fixed.png` shows «Часовий легіон» / «Дім твоєї мрії» in
+Cyrillic with real covers.
+
 ## Notes
 
 - The in-app 4read browser (`FourReadWebScreen`) is legacy from spec-8;

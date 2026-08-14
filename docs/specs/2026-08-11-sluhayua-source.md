@@ -65,9 +65,9 @@ Rules (spec-10): no network in tests; fixtures only; each iteration ends with `a
 
 All three resolved and closed:
 
-- **T1 — sluhayua spike** (research, AFK): reverse-engineer the playlist-XHR endpoint from a live book page; verify direct playable audio; confirm `/find` server-render vs SPA; pick the «new» feed source; ToS/robots download verdict; capture fixtures. No blockers. **✅ Done** — verdict PASS (`28ec0c7`, fixtures `123699e`), closed [#74](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/74).
-- **T2 — SluhayuaAdapter** (task): `search` (`/find/allcards`) + `fetchBookPage` (inline playlist + `/play` per file) + `fetchNew` (`sort=time`) with fixture tests; `HttpFetcher` extra-headers extension; `DownloadPolicy` entry (allowed). Blocked by T1. **✅ Done** — `24672eb` (7 files, 8 fixture tests), closed [#75](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/75).
-- **T3 — sluhayua wiring** (task): register the adapter in the repository registry; `sourceDisplayName`; global-search + feed verification; device check on OnePlus 8 Pro. Blocked by T2. **✅ Done** — `e34560d` (registry + URL mapping + badge + policy tests), closed [#76](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/76).
+- **T1 — sluhayua spike** (research, AFK): reverse-engineer the playlist-XHR endpoint from a live book page; verify direct playable audio; confirm `/find` server-render vs SPA; pick the «new» feed source; ToS/robots download verdict; capture fixtures. No blockers. **✅ Done** — verdict PASS (`28ec0c7`, fixtures `123699e`), closed [#74](https://github.com/Samuel-Ku/slukhayka/issues/74).
+- **T2 — SluhayuaAdapter** (task): `search` (`/find/allcards`) + `fetchBookPage` (inline playlist + `/play` per file) + `fetchNew` (`sort=time`) with fixture tests; `HttpFetcher` extra-headers extension; `DownloadPolicy` entry (allowed). Blocked by T1. **✅ Done** — `24672eb` (7 files, 8 fixture tests), closed [#75](https://github.com/Samuel-Ku/slukhayka/issues/75).
+- **T3 — sluhayua wiring** (task): register the adapter in the repository registry; `sourceDisplayName`; global-search + feed verification; device check on OnePlus 8 Pro. Blocked by T2. **✅ Done** — `e34560d` (registry + URL mapping + badge + policy tests), closed [#76](https://github.com/Samuel-Ku/slukhayka/issues/76).
 
 ### Remaining verification
 

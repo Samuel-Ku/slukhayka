@@ -11,6 +11,7 @@ import com.example.testing.TestDataFactory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
@@ -820,10 +821,10 @@ class AudioPlayerManagerTest {
      * with a real-time budget (same pattern as [awaitLedgerRows]).
      */
     private suspend fun TestScope.awaitEvents(expected: Int) {
-        val deadline = System.currentTimeMillis() + 5_000
+        val deadline = System.currentTimeMillis() + 10_000
         while (dao.savedPlaybackEvents.size < expected && System.currentTimeMillis() < deadline) {
             runCurrent()
-            delay(10)
+            realDelay(20)
         }
         assertTrue(
             "event log must hold at least $expected rows, got ${dao.savedPlaybackEvents.size}",
@@ -835,11 +836,11 @@ class AudioPlayerManagerTest {
      * Proves a negative: after a bounded real-time settle, the event log still
      * holds exactly [expected] rows (no spurious transitions leaked in).
      */
-    private suspend fun TestScope.assertEventCountStays(expected: Int, settleMs: Long = 200L) {
+    private suspend fun TestScope.assertEventCountStays(expected: Int, settleMs: Long = 400L) {
         val deadline = System.currentTimeMillis() + settleMs
         while (System.currentTimeMillis() < deadline) {
             runCurrent()
-            delay(5)
+            realDelay(10)
         }
         assertEquals("event log must stay at $expected rows", expected, dao.savedPlaybackEvents.size)
     }
@@ -847,20 +848,20 @@ class AudioPlayerManagerTest {
     /** Polls [predicate] with a real-time budget (the async IO writes do not
      *  advance with the test scheduler). */
     private suspend fun TestScope.awaitTrue(message: String, predicate: () -> Boolean) {
-        val deadline = System.currentTimeMillis() + 5_000
+        val deadline = System.currentTimeMillis() + 10_000
         while (!predicate() && System.currentTimeMillis() < deadline) {
             runCurrent()
-            delay(10)
+            realDelay(20)
         }
         assertTrue(message, predicate())
     }
 
     /** Bounded real-time settle so a negative assertion sees the async IO land. */
-    private suspend fun TestScope.settle(ms: Long = 250L) {
+    private suspend fun TestScope.settle(ms: Long = 500L) {
         val deadline = System.currentTimeMillis() + ms
         while (System.currentTimeMillis() < deadline) {
             runCurrent()
-            delay(5)
+            realDelay(10)
         }
     }
 
@@ -871,13 +872,21 @@ class AudioPlayerManagerTest {
      * in-memory fake with a real-time budget instead.
      */
     private suspend fun TestScope.awaitLedgerRows(expected: Int) {
-        val deadline = System.currentTimeMillis() + 5_000
+        val deadline = System.currentTimeMillis() + 10_000
         while (dao.savedFailures.size < expected && System.currentTimeMillis() < deadline) {
             runCurrent()
-            delay(10)
+            realDelay(20)
         }
         assertTrue("ledger must hold $expected rows, got ${dao.savedFailures.size}", dao.savedFailures.size >= expected)
     }
+
+    /**
+     * Real-time sleep for poll loops. [delay] inside `runTest` is virtual and
+     * advances the test scheduler, so a poll loop built on it busy-spins and
+     * starves the real IO thread that writes the fake DAO (a wall-clock flake
+     * under CI load). Sleeping on a real dispatcher yields the CPU.
+     */
+    private suspend fun realDelay(ms: Long) = withContext(Dispatchers.Default) { delay(ms) }
 
     /** Mutable wall clock for the spec-16 T2 capture-filter tests. */
     private class TestClock {

@@ -1,6 +1,6 @@
 # WebView sessions and Cloudflare challenge persistence (T3 research)
 
-**Ticket:** [#72 — T3 Cloudflare challenge and WebView session persistence](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/72) (wayfinder map #70)
+**Ticket:** [#72 — T3 Cloudflare challenge and WebView session persistence](https://github.com/Samuel-Ku/slukhayka/issues/72) (wayfinder map #70)
 **Date:** 2026-08-11 · **AFK** — Android/WebView/Cloudflare documentation only, no emulator.
 
 ## Verdict

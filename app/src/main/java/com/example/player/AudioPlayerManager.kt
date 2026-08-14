@@ -96,7 +96,14 @@ class AudioPlayerManager(
     /** Wall clock, injectable for deterministic smart-rewind tests. */
     private val now: () -> Long = System::currentTimeMillis,
     /** Global playback preferences; defaults to the real SharedPreferences store. */
-    settings: PlaybackSettings? = null
+    settings: PlaybackSettings? = null,
+    /**
+     * Dispatcher for the undo-candidate restore seeded on load (spec-16 T3,
+     * flake #101). Tests inject the test scheduler so the restore lands
+     * deterministically; production keeps the real IO pool. Other speculative
+     * writes (event-log rows, bookmarks, progress) stay on Dispatchers.IO.
+     */
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
 ) {
 
     private val _playerState = MutableStateFlow(PlayerState())
@@ -432,7 +439,7 @@ class AudioPlayerManager(
         // stale candidate never re-offers.
         val restoredPositionSeconds = positionSeconds
         val restoredSourceKey = newBookKey.second
-        scope.launch(Dispatchers.IO) {
+        scope.launch(ioDispatcher) {
             val candidate = repository.lastUndoCandidate(book.id, restoredSourceKey)
             if (candidate != null &&
                 !seekHistory.canUndo() &&

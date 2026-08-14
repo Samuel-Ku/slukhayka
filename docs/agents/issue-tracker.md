@@ -1,7 +1,7 @@
 # Issue tracker: GitHub
 
 Issues and PRDs for this repo live as GitHub issues in
-`Samuel-Ku/4read-audiobooks-player`. Use the `gh` CLI for all operations
+`Samuel-Ku/slukhayka`. Use the `gh` CLI for all operations
 (run inside the clone; `gh` infers the repo from `git remote -v`).
 
 ## Conventions
@@ -31,8 +31,8 @@ Run `gh issue view <number> --comments`.
 Used by `/wayfinder`. The **map** is a single issue with **child** issues as tickets.
 
 - **Map**: create one issue labelled `wayfinder:map`; its body holds Destination, Notes, Decisions so far, Not yet specified, and Out of scope.
-- **Child ticket**: create an issue labelled `wayfinder:<type>`, then attach it with `gh api --method POST repos/Samuel-Ku/4read-audiobooks-player/issues/<map>/sub_issues -F sub_issue_id=<ticket-db-id>`. Obtain the numeric database id with `gh api repos/Samuel-Ku/4read-audiobooks-player/issues/<ticket> --jq .id`.
-- **Blocking**: use GitHub's native issue dependencies: `gh api --method POST repos/Samuel-Ku/4read-audiobooks-player/issues/<ticket>/dependencies/blocked_by -F issue_id=<blocker-db-id>`. The id is the blocker's numeric database id, not its issue number or GraphQL node id.
+- **Child ticket**: create an issue labelled `wayfinder:<type>`, then attach it with `gh api --method POST repos/Samuel-Ku/slukhayka/issues/<map>/sub_issues -F sub_issue_id=<ticket-db-id>`. Obtain the numeric database id with `gh api repos/Samuel-Ku/slukhayka/issues/<ticket> --jq .id`.
+- **Blocking**: use GitHub's native issue dependencies: `gh api --method POST repos/Samuel-Ku/slukhayka/issues/<ticket>/dependencies/blocked_by -F issue_id=<blocker-db-id>`. The id is the blocker's numeric database id, not its issue number or GraphQL node id.
 - **Frontier query**: list the map's open sub-issues, then discard tickets with an assignee or a non-zero `issue_dependencies_summary.blocked_by` count. Preserve the map's sub-issue order.
 - **Claim**: `gh issue edit <ticket> --add-assignee @me` before doing any ticket work.
 - **Resolve**: comment with the answer, close the ticket, then append one linked gist to the map's Decisions-so-far section.

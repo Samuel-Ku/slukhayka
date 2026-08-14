@@ -33,6 +33,7 @@ import coil.request.ImageRequest
 import com.example.data.catalog.CatalogBook
 import com.example.data.catalog.CatalogSection
 import com.example.data.catalog.CatalogSeries
+import com.example.data.collection.MatchedCollection
 import com.example.data.db.AudiobookEntity
 import com.example.data.source.catalogCardDownloadAllowed
 import com.example.ui.MainViewModel
@@ -77,6 +78,9 @@ fun HomeScreen(
     // spec-18 T3: the «За тривалістю» rows (already bucketed by the ViewModel
     // through the pure module — the screen never re-buckets).
     val durationBooks by viewModel.durationBooks.collectAsState()
+    // spec-16 T3: the «Колекції» rows — already matched by the repository;
+    // the screen only renders what matched.
+    val smartCollections by viewModel.smartCollections.collectAsState()
 
     // Spec-15 T1: enumerate the union once per Огляд composition; the
     // repository caches it for the session (and re-fetches session-bound
@@ -458,6 +462,17 @@ fun HomeScreen(
                 )
             }
 
+            // spec-16 T3: «Колекції» — one row per matched curated list
+            // (Нобелівські лауреати, Шевченківська премія, Букер), uniform
+            // with the other rows. Empty collections are absent from the flow,
+            // so the block disappears entirely when nothing matched.
+            item {
+                CollectionsSection(
+                    collections = smartCollections,
+                    onBookClick = onBookClick
+                )
+            }
+
             // Catalogue rows parsed from the 4read.org homepage. Spec-9: the
             // Continue-Listening card moved to the Слухати tab.
             sections.forEach { section ->
@@ -557,6 +572,37 @@ fun DurationSection(
                 modifier = Modifier.testTag("duration_long_row")
             ) {
                 items(longBooks, key = { it.id }) { book ->
+                    CatalogBookCard(book = book, onClick = { onBookClick(book.id) })
+                }
+            }
+        }
+    }
+}
+
+/**
+ * spec-16 T3 (#109) — the Огляд «Колекції» block: one horizontal cover row
+ * per matched curated list, uniform with the other Огляд rows. The matching
+ * is the pure [com.example.data.collection.SmartCollectionMatcher] done by
+ * the repository on catalog syncs; this composable only renders what it is
+ * handed, so the snapshot seam pins it from fixture data. An empty input
+ * hides the whole block — Огляд never shows an empty row.
+ */
+@Composable
+fun CollectionsSection(
+    collections: List<MatchedCollection>,
+    onBookClick: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    if (collections.isEmpty()) return
+    Column(modifier = modifier.testTag("collections_section")) {
+        collections.forEach { collection ->
+            CatalogRowHeader(title = collection.displayName)
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.testTag("collection_row_${collection.id}")
+            ) {
+                items(collection.books, key = { it.id }) { book ->
                     CatalogBookCard(book = book, onClick = { onBookClick(book.id) })
                 }
             }

@@ -1,8 +1,8 @@
 # [Spec] One 4read parser behind a complete source seam — 2026-08-11
 
-> **Status:** Approved (2026-08-11) — synthesized from the architecture review (three explore agents: data/source, player, UI; vocabulary: codebase-design). Top recommendation (#1); follow-ups #2-#8 tracked separately. **T1 implemented (2026-08-12)** — `082ab1c`, closed [#83](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/83).
+> **Status:** Approved (2026-08-11) — synthesized from the architecture review (three explore agents: data/source, player, UI; vocabulary: codebase-design). Top recommendation (#1); follow-ups #2-#8 tracked separately. **T1 implemented (2026-08-12)** — `082ab1c`, closed [#83](https://github.com/Samuel-Ku/slukhayka/issues/83).
 > **Source:** architecture review of `data/source`, `player`, `ui` — the repository's private 4read parser fork bypassing the `SourceAdapter` seam.
-> **Tracker:** filed as issue [#82](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/82) (labels `spec-14`, `ready-for-agent`) + tickets #83–#88.
+> **Tracker:** filed as issue [#82](https://github.com/Samuel-Ku/slukhayka/issues/82) (labels `spec-14`, `ready-for-agent`) + tickets #83–#88.
 
 ## Problem Statement
 

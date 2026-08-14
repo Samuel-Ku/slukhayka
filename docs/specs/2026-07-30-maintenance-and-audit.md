@@ -1,4 +1,4 @@
-# Maintenance and Audit Cycle for `4read-audiobooks-player`
+# Maintenance and Audit Cycle for `slukhayka`
 
 **Date:** 2026-07-30
 **Type:** Maintenance initiative (no new features)
@@ -8,7 +8,7 @@
 
 ## Problem Statement
 
-I (the maintainer) have an Android audiobooks player project (`4read-audiobooks-player`) that I personally maintain. After a recent ExoPlayer migration (commit `ef90563 feat(audio): migrate to ExoPlayer and add HTML import`), the project's state is unclear:
+I (the maintainer) have an Android audiobooks player project (`slukhayka`) that I personally maintain. After a recent ExoPlayer migration (commit `ef90563 feat(audio): migrate to ExoPlayer and add HTML import`), the project's state is unclear:
 
 - 24 Kotlin source files, 5 test files, ~50 root migration scripts (mostly leftover one-shot fix tools from the migration)
 - No documentation explaining what any of this code does

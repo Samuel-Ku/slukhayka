@@ -939,7 +939,10 @@ class AudiobookRepository(
                 chapterIndex = chapterIndex,
                 errorCodeName = errorCodeName,
                 streamUrl = streamUrl,
-                audioEngineMode = audioEngineMode
+                audioEngineMode = audioEngineMode,
+                // wayfinder #61 Q1: the coarse diagnosability bucket, derived
+                // from the error code by a pure function (stage-2 S1).
+                category = FailureCategory.fromErrorCodeName(errorCodeName)
             )
         )
     }

@@ -13,7 +13,11 @@ import com.example.data.db.AudiobookDatabase
 import com.example.data.db.BookmarkEntity
 import com.example.data.db.ChapterEntity
 import com.example.data.db.PlaybackProgressEntity
+import com.example.data.imports.ImportPlan
+import com.example.data.imports.ImportPlanner
 import com.example.data.imports.LocalAudioEntry
+import com.example.data.imports.SourceRef
+import com.example.data.merge.MergeKey
 import com.example.testing.TestDataFactory
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -1353,6 +1357,103 @@ class AudiobookRepositoryRoomTest {
         val paths = dao.getChaptersListForBook(book.id).mapNotNull { it.localFilePath }
         assertTrue(paths.any { it.endsWith(".ogg") })
         assertTrue(paths.any { it.endsWith(".m4a") })
+    }
+
+    // ---------------------------------------------------------------------
+    // wayfinder #29: smart import — plan (preview) then apply
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `applyImportPlan without edits behaves exactly like the direct import`() = runBlocking {
+        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+        val entries = listOf(
+            LocalAudioEntry("01.mp3", "Кобзар") { ByteArrayInputStream(ByteArray(16)) },
+            LocalAudioEntry("02.mp3", "Кобзар") { ByteArrayInputStream(ByteArray(17)) },
+            LocalAudioEntry("Лісова пісня.mp3", null) { ByteArrayInputStream(ByteArray(18)) }
+        )
+
+        val plan = ImportPlanner.buildPlan(SourceRef.Folder("content://tree"), entries)
+        val result = repo.applyImportPlan(plan, sourceTreeUri = "content://tree")
+
+        assertEquals(2, result.booksImported)
+        assertEquals(3, result.filesImported)
+        assertEquals(0, result.skippedFiles)
+        assertEquals(0, result.duplicateFiles)
+
+        val books = dao.getAllAudiobooks().first()
+        val folderBook = books.first { it.title == "Кобзар" }
+        assertEquals(2, dao.getChaptersListForBook(folderBook.id).size)
+        assertEquals(1, dao.getChaptersListForBook(books.first { it.title == "Лісова пісня" }.id).size)
+        // Preview left zero trace: no corrections were persisted.
+        assertEquals(0, dao.getCorrectionsForMergeKey("").size)
+    }
+
+    @Test
+    fun `applyImportPlan attaches an accepted merge to the existing work`() = runBlocking {
+        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+        // Seed the library with an existing Work whose key matches.
+        val existingKey = MergeKey.keyFor("Кобзар", "Тарас Шевченко", "")
+        val existing = com.example.data.db.AudiobookEntity(
+            id = "b1",
+            title = "Кобзар",
+            author = "Тарас Шевченко",
+            narrator = "",
+            description = "",
+            coverDrawableRes = 0,
+            genre = "Класика",
+            sourceUrl = "http://4read.org/book/1",
+            mergeKey = existingKey
+        )
+        dao.insertAudiobooks(listOf(existing))
+
+        val entries = listOf(LocalAudioEntry("01.mp3", "Кобзар") { ByteArrayInputStream(ByteArray(16)) })
+        val plan = ImportPlanner.buildPlan(
+            SourceRef.Folder("content://tree"),
+            entries,
+            existingWorks = listOf(ImportPlanner.ExistingWork(id = "b1", title = "Кобзар", mergeKey = existingKey))
+        )
+        val accepted = ImportPlanner.acceptMerge(plan, plan.books.first().id)
+        val result = repo.applyImportPlan(accepted, sourceTreeUri = "content://tree")
+
+        // No new card — the chapter joined the existing Work.
+        assertEquals(0, result.booksImported)
+        assertEquals(1, result.filesImported)
+        assertEquals(1, dao.getChaptersListForBook("b1").size)
+        assertTrue(
+            "a local source must attach to the existing Work",
+            dao.getSourcesForBookSync("b1").any { it.type == "local" }
+        )
+    }
+
+    @Test
+    fun `applyImportPlan persists the plan's corrections as remembered memory`() = runBlocking {
+        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+        // Seed a same-title Work so the planned book carries a T2 suggestion
+        // that can be rejected into a NEVER_MATCH memory.
+        val existingKey = MergeKey.keyFor("Книга", "Хтось", "")
+        dao.insertAudiobooks(
+            listOf(
+                com.example.data.db.AudiobookEntity(
+                    id = "b1", title = "Книга", author = "Хтось", narrator = "",
+                    description = "", coverDrawableRes = 0, genre = "", sourceUrl = "", mergeKey = existingKey
+                )
+            )
+        )
+        val entries = listOf(LocalAudioEntry("01.mp3", "Книга") { ByteArrayInputStream(ByteArray(16)) })
+        var plan = ImportPlanner.buildPlan(
+            SourceRef.Folder("content://tree"),
+            entries,
+            existingWorks = listOf(ImportPlanner.ExistingWork(id = "b1", title = "Книга", mergeKey = existingKey))
+        )
+        plan = ImportPlanner.rejectMerge(plan, plan.books.first().id)
+        plan = ImportPlanner.editBook(plan, plan.books.first().id, title = "Кобзар", author = "Тарас Шевченко")
+
+        repo.applyImportPlan(plan, sourceTreeUri = "content://tree")
+
+        val all = dao.getCorrectionsForMergeKey("книга|локальна папка")
+        val kinds = all.map { it.kind }.toSet()
+        assertTrue("NEVER_MATCH must be remembered", "NEVER_MATCH" in kinds)
+        assertTrue("FIELD edits must be remembered", "FIELD" in kinds)
     }
 
     // ---------------------------------------------------------------------

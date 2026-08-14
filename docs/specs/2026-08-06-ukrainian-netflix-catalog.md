@@ -1,6 +1,6 @@
 # [Spec] Ukrainian Netflix-style Catalog & Library — 2026-08-06
 
-> **Status:** Fully implemented. Blocks 1–3 landed in commit `afd6db3` (tickets T1–T8, GitHub issues #9–#16, closed); Block 4 (local folder import) is implemented in the working tree (commit pending). One commit per block, single branch `main`.
+> **Status:** Ready for execution. Three iterations (Block 1 → Block 2+3 → Block 4), one commit per block, single branch `main`.
 > **Source:** Synthesized from grilling session on 2026-08-06 (10 resolved decisions).
 > **Tracker:** GitHub issue — this document is the canonical spec.
 
@@ -21,9 +21,9 @@ A three-iteration program that turns the app into a native Ukrainian audiobook p
 - **Block 1 — Cleanup (this spec's immediate scope):** remove the fake seed books from auto-start, add cascade book deletion (with confirmation dialog), stop playback when a playing book is deleted, and collapse navigation from four tabs to two (Explore · Library; Bookmarks becomes a Library sub-tab). No WebView tab.
 - **Block 2 — Native catalog:** parse the 4read.org main page into Netflix-style rows (series + latest), rework Explore into those rows, add loading spinner → catalog-or-empty-state-with-CTA flow, add SAF single-file import, keep a hidden "open on site" WebView fallback on the book detail page.
 - **Block 3 — Genre pages:** tapping a series row opens a full-screen list of that series' books (parses the series page). Same parser architecture, different source page.
-- **Block 4 — Local folder import (implemented):** recursive SAF tree picker (`OpenDocumentTree`) that scans the picked folder for audio files and turns them into local books — one book per sub-folder, one book per loose root file (see Implementation Decisions).
+- **Block 4 (not in this spec's scope):** local folder import (SAF tree picker).
 
-Iteration split chosen by the maintainer: Block 1 → Block 2+3 → Block 4; all blocks are now implemented.
+Iteration split chosen by the maintainer: Block 1 now, then Block 2+3, then Block 4.
 
 ## User Stories
 
@@ -44,7 +44,6 @@ Iteration split chosen by the maintainer: Block 1 → Block 2+3 → Block 4; all
 15. As a listener, I want to open a series row and see all books of that series, so that I can discover complete cycles.
 16. As a listener, I want the book detail page to offer an "open on site" fallback, so that if native parsing misses something I can still reach the source.
 17. As a maintainer, I want each iteration to end with a green build + green unit tests + a device check, so that regressions are caught early.
-18. As a listener, I want to import a whole folder of local audiobooks at once, so that I can add many mp3/m4a/ogg files I already own without picking them one by one.
 
 ## Implementation Decisions
 
@@ -62,19 +61,11 @@ Iteration split chosen by the maintainer: Block 1 → Block 2+3 → Block 4; all
 - **Section parsing:** parse `https://4read.org/` (already fetched by `fetchCatalogFrom4Read`) into sections: series rows (from `/xfsearch/cikl/...` links with decoded Ukrainian titles) + a «Новинки» row (latest book detail links). Reuse the existing HTML-fetch + regex utilities in the repository; introduce a small data class `CatalogSection(title, books)` returned alongside `fetchCatalogFrom4Read`.
 - **Explore rework:** Netflix-style rows of `BookCoverImage` cards; «Continue listening» from `recentProgress`; search stays at top (existing `searchAudiobooksOn4Read`).
 - **Loading / empty states:** catalog loading flag on the repository/ViewModel; spinner while fetching; empty state with «Шукати» + «Імпортувати файл» CTAs.
-- **SAF import:** Activity-Result `OpenDocument` (audio/*) → copy picked file into `filesDir/local_imports` → insert one `AudiobookEntity` (title = file name without extension, genre «Локальні», `isDownloaded=true`) + one `ChapterEntity` pointing at the copied file.
+- **SAF import:** Activity-Result `OpenDocument` (audio/*) → copy picked file into `filesDir/audiobooks` → insert one `AudiobookEntity` (title = file name without extension, genre «Локальні файли», `isDownloaded=true`) + one `ChapterEntity` pointing at the copied file.
 
 ### Block 3 — Genre pages (later iteration, summarized)
 
 - Tap a series row → parse `/xfsearch/cikl/<slug>/` → list of books in that series, rendered as a full-screen list. Same `fetch4ReadPageDetails`-style parsing; new repository method `fetchSeriesBooks(slug)`.
-
-### Block 4 — Local folder import (implemented)
-
-- **SAF tree picker:** `LibraryScreen` gains a «Папку» button (`LocalFolderImportButton`, outlined, next to «Додати аудіо») launching `ActivityResultContracts.OpenDocumentTree()`. No permission needed — SAF grants temporary read access to the picked tree; files are copied into private storage immediately.
-- **Recursive scan:** new `LocalFolderScanner` (`app/src/main/java/com/example/data/imports/LocalFolderScanner.kt`) walks the tree depth-first via `androidx.documentfile:documentfile:1.0.1` (`DocumentFile.fromTreeUri`) and collects audio files by extension: mp3, m4a, ogg (+ m4b, aac). Each discovered file becomes a `LocalAudioEntry(fileName, parentFolder, openStream)` whose stream is opened lazily, so the grouping core never touches a ContentResolver.
-- **Grouping core:** `AudiobookRepository.importAudioEntries(entries)` — pure Kotlin over the DAO. Rule: files at the root of the picked tree become one single-chapter book each (same as the single-file import); every sub-folder becomes one multi-chapter book whose chapters are its audio files sorted *naturally* by file name (`track1` → `track2` → … → `track10`). The grouping key is the **full relative path** (`SeriesA/Кобзар`), so two same-named folders in different branches never merge; the book title is the last path segment.
-- **File handling:** each file is copied into `filesDir/local_imports` **preserving its original extension** (so ExoPlayer detects the container — no silent `.mp3` renaming), with a counter-based unique suffix. Books are `genre = «Локальні»`, `isDownloaded = true`, one chapter per file pointing at the copied path. Unreadable files are skipped without failing the import; the outcome (`LocalImportResult(booksImported, filesImported, skippedFiles)`) is surfaced via a Snackbar in Library («Імпортовано N книг (M файлів) · K пропущено»).
-- **Shared code:** the single-file import (`importLocalAudioStream`, T7) was refactored onto the same helpers (`sanitizeLocalBaseName`, `copyLocalAudioStream`, `insertLocalBook`), so both flows behave identically.
 
 ### Cross-cutting
 
@@ -90,10 +81,11 @@ Iteration split chosen by the maintainer: Block 1 → Block 2+3 → Block 4; all
 - **Navigation (two tabs)** is covered by the existing Robolectric setup (`ButtonTesting` style) and/or Compose snapshot tests (prior art: `LibraryComponentsSnapshotTest`), asserting the WebView tab is gone and Library shows bookmarks sub-tab.
 - **Parsing** (Block 2) is tested JVM-only against a saved HTML fixture (prior art: `AudioParsingTest`): fixture → sections/books extracted.
 - **No network in tests.** Catalog-fetch tests use fixtures or empty responses; import tests copy a local file.
-- **Folder import (Block 4) is tested at two levels.** The grouping/insertion core (`importAudioEntries`) is exercised against in-memory Room in `AudiobookRepositoryRoomTest` (grouping by relative path, natural chapter order, skipped unreadable files, extension preservation, same-named folders staying distinct). The recursive walk itself is covered by `LocalFolderScannerTest`, which drives `LocalFolderScanner.scan(root, resolver)` with an in-memory `FakeDocumentFile` tree (the fake lives in package `androidx.documentfile.provider` because `DocumentFile`'s constructor is package-private); streams are never opened during a scan.
 
 ## Out of Scope
 
+- Folder import (SAF tree picker) — later iteration.
+- Genre/series full-screen pages — Block 3, later.
 - YouTube import (aradia feature) — not planned.
 - Chromecast — not planned.
 - Cloud/backend catalog — out; 4read.org HTML remains the source.

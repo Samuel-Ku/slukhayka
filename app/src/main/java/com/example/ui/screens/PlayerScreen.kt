@@ -45,7 +45,7 @@ import com.example.ui.components.PlayerDebugOverlay
 import com.example.ui.components.SleepTimerSheet
 import com.example.ui.components.SpeedSheet
 import com.example.ui.displayAuthor
-import com.example.ui.library.effectiveChapterDurations
+import com.example.ui.effectiveChapterDurations
 import com.example.ui.theme.AppDimens
 
 /** Values shared by the visual progress treatment and its unit tests. */
@@ -293,12 +293,18 @@ fun PlayerScreen(
     if (showSleepTimerSheet) {
         SleepTimerSheet(
             currentTimerMinutes = playerState.sleepTimerMinutes,
+            isEndOfChapter = playerState.isSleepTimerEndOfChapter,
+            remainingSeconds = playerState.sleepTimerRemainingSeconds,
             // Close-on-select: previously the sheet stayed open until the user
             // dismissed it; the chip already reflects the new value, so closing
             // immediately feels tighter and the Snackbar confirms the change.
             onSelectTimer = { minutes ->
                 viewModel.playerManager.setSleepTimer(minutes)
-                if (minutes > 0) pendingFeedback = "Таймер на $minutes хв"
+                pendingFeedback = when {
+                    minutes == -1 -> "Таймер: до кінця розділу"
+                    minutes > 0 -> "Таймер на $minutes хв"
+                    else -> "Таймер вимкнено"
+                }
                 showSleepTimerSheet = false
             },
             onDismiss = { showSleepTimerSheet = false }
@@ -528,6 +534,7 @@ fun PlayerScreenContent(
                 QuickTools(
                     speed = playerState.playbackSpeed,
                     timerMinutes = playerState.sleepTimerMinutes,
+                    isEndOfChapter = playerState.isSleepTimerEndOfChapter,
                     onSpeed = onSpeed,
                     onTimer = onTimer,
                     onBookmark = onBookmark,
@@ -749,6 +756,7 @@ private fun Rewind15Button(onClick: () -> Unit) {
 private fun QuickTools(
     speed: Float,
     timerMinutes: Int,
+    isEndOfChapter: Boolean,
     onSpeed: () -> Unit,
     onTimer: () -> Unit,
     onBookmark: () -> Unit,
@@ -756,7 +764,17 @@ private fun QuickTools(
 ) {
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
         QuickTool(Icons.Default.Speed, "Швидкість", "${speed}×", "speed_chip", onSpeed)
-        QuickTool(Icons.Default.Bedtime, "Таймер", if (timerMinutes > 0) "$timerMinutes хв" else null, "sleep_timer_chip", onTimer)
+        QuickTool(
+            icon = Icons.Default.Bedtime,
+            label = "Таймер",
+            value = when {
+                isEndOfChapter -> "Розділ"
+                timerMinutes > 0 -> "$timerMinutes хв"
+                else -> null
+            },
+            testTag = "sleep_timer_chip",
+            onClick = onTimer
+        )
         QuickTool(Icons.Default.BookmarkAdd, "Закладка", null, "add_bookmark_chip", onBookmark)
         QuickTool(Icons.Default.FormatListNumbered, "Розділи", null, "chapters_chip", onChapters)
     }

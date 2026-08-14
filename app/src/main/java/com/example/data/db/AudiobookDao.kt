@@ -8,6 +8,10 @@ interface AudiobookDao {
     @Query("SELECT * FROM audiobooks ORDER BY title ASC")
     fun getAllAudiobooks(): Flow<List<AudiobookEntity>>
 
+    /** One-shot read of every book — the #54 merge-suggestion pool. */
+    @Query("SELECT * FROM audiobooks")
+    suspend fun getAllAudiobooksOnce(): List<AudiobookEntity>
+
     @Query("SELECT * FROM audiobooks WHERE isDownloaded = 1 ORDER BY title ASC")
     fun getDownloadedAudiobooks(): Flow<List<AudiobookEntity>>
 
@@ -269,4 +273,25 @@ interface AudiobookDao {
     /** Clears the tombstone when the user explicitly re-imports the book. */
     @Query("DELETE FROM tombstones WHERE bookId = :bookId")
     suspend fun deleteTombstone(bookId: String)
+
+    // --- Corrections (wayfinder #54 Q9, stage-2 S1) ------------------------
+
+    /**
+     * Upserts one synced correction-memory row (MERGE / SPLIT / NEVER_MATCH /
+     * FIELD). PK is (mergeKey, kind, value) — re-answering the same question
+     * overwrites, never duplicates.
+     */
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertCorrection(correction: CorrectionEntity)
+
+    /** Every correction pinned to one Work, for the #54 review pipeline. */
+    @Query("SELECT * FROM corrections WHERE mergeKey = :mergeKey ORDER BY updatedAt DESC")
+    suspend fun getCorrectionsForMergeKey(mergeKey: String): List<CorrectionEntity>
+
+    /** The NEVER_MATCH pairs involving one Work, newest first. */
+    @Query(
+        "SELECT * FROM corrections WHERE kind = 'NEVER_MATCH' AND (mergeKey = :mergeKey OR value = :mergeKey) " +
+            "ORDER BY updatedAt DESC"
+    )
+    suspend fun getNeverMatchPairs(mergeKey: String): List<CorrectionEntity>
 }

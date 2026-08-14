@@ -450,7 +450,8 @@ fun HomeScreen(
 
             // Spec-19 Track A: «Рекомендовано для вас» — on-device, local
             // only. Each card carries a reason chip («схоже на X»); tapping
-            // plays from the first found source.
+            // opens the book page through the same identity resolution as
+            // any other Огляд row (import the Work, then the native page).
             if (recommendedBooks.isNotEmpty()) {
                 item {
                     CatalogRowHeader(title = "Рекомендовано для вас")
@@ -463,7 +464,7 @@ fun HomeScreen(
                         items(recommendedBooks, key = { it.candidate.id }) { rec ->
                             RecommendedBookCard(
                                 rec = rec,
-                                onClick = { viewModel.playRecommended(rec.candidate.id) }
+                                onClick = { viewModel.openRecommendedBook(rec.candidate.id) }
                             )
                         }
                     }

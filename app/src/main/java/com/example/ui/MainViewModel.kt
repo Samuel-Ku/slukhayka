@@ -635,52 +635,85 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val catalogVectors: StateFlow<Map<String, FloatArray>> =
         _catalogVectors.asStateFlow()
 
+    /** Single-flight guard: a running embedding pass is never re-launched. */
+    private val _embeddingPassInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
+
     fun refreshEmbeddingVectors() {
+        if (!_embeddingPassInFlight.compareAndSet(false, true)) return
         viewModelScope.launch(Dispatchers.IO) {
-            val catalog = unifiedCatalog.value
-            val embedder = com.example.data.recommend.KeywordEmbedder()
-            val candidates = catalog.map { result ->
-                com.example.data.recommend.RecommendationEngine.Candidate(
-                    id = result.key,
-                    title = result.title,
-                    author = result.author
-                )
+            try {
+                val catalog = unifiedCatalog.value
+                val library = libraryBooks.value
+                val candidates = catalog.map { result ->
+                    com.example.data.recommend.RecommendationEngine.Candidate(
+                        id = result.key,
+                        title = result.title,
+                        author = result.author
+                    )
+                }
+                if (candidates.isEmpty()) {
+                    _catalogVectors.value = emptyMap()
+                    return@launch
+                }
+                // Catalogue vectors go through the versioned file cache; the
+                // few library signal vectors embed right here on IO too (T4:
+                // never on the UI thread). The combine only reads the
+                // published map.
+                val vectors = embeddingService.vectorsFor(candidates, embedder).toMutableMap()
+                for (signal in currentSignals(library)) {
+                    if (signal.id !in vectors) vectors[signal.id] = embedder.embed(signal.text)
+                }
+                _catalogVectors.value = vectors
+            } finally {
+                _embeddingPassInFlight.set(false)
             }
-            if (candidates.isEmpty()) {
-                _catalogVectors.value = emptyMap()
-                return@launch
-            }
-            _catalogVectors.value = embeddingService.vectorsFor(candidates, embedder)
         }
     }
 
     // Spec-19 Track A (on-device recommendations): the «Рекомендовано для
     // вас» row in Огляд. Signals = favourite (1.0) + completed (0.8) +
     // recently listened (0.6); candidates = the unified catalogue;
-    // already-known books are excluded. Pure JVM engine, local keyword
-    // baseline embedder behind the TextEmbedder seam — no network, no
-    // telemetry (Q2/Q8).
+    // already-known books are excluded. Pure JVM engine behind the
+    // TextEmbedder seam — no network, no telemetry (Q2/Q8).
     //
     // Q7: catalogue vectors come from the file cache keyed by catalogue
     // version (CatalogEmbeddingService) — the background pass recomputes
-    // only on a version change; the row reads the cached map. Signal vectors
-    // are few (library books), so they embed inline.
+    // only on a version change; the row reads the cached map.
     private val embeddingCache = com.example.data.recommend.EmbeddingCache(
         File(application.filesDir, "embeddings")
     )
     private val embeddingService = com.example.data.recommend.CatalogEmbeddingService(embeddingCache)
 
-    val recommendedBooks: StateFlow<List<com.example.data.recommend.RecommendationEngine.Recommendation>> = combine(
-        libraryBooks,
-        unifiedCatalog,
-        catalogVectors
-    ) { library, catalog, vectors ->
-        // T2: an empty (or not-yet-computed) vector map means the background
-        // pass has not finished — degrade to an empty row, never compute on
-        // the UI thread and never crash.
-        if (vectors.isEmpty()) return@combine emptyList()
-        val embedder = com.example.data.recommend.KeywordEmbedder()
-        val signals = library.flatMap { lb ->
+    /**
+     * The production embedder (spec-19 T3/T4): the ONNX multilingual-e5-small
+     * model under assets/models/e5 (fetched by the downloadE5Model Gradle
+     * task — never committed). Created lazily, so the first — and only — load
+     * happens on the IO dispatcher inside the background pass, never on the
+     * UI thread. When the asset is absent or fails to load, the keyword
+     * baseline takes over (T2 contract: the row degrades, never crashes).
+     */
+    private val embedder: com.example.data.recommend.TextEmbedder by lazy {
+        val fromAssets = try {
+            val model = application.assets.open("models/e5/model.onnx").use { it.readBytes() }
+            val tokenizer = application.assets.open("models/e5/tokenizer.json").use { it.readBytes() }
+            com.example.data.recommend.OnnxEmbedder.fromBytes(
+                ai.onnxruntime.OrtEnvironment.getEnvironment(), model, tokenizer
+            )
+        } catch (e: Exception) {
+            null
+        }
+        fromAssets ?: com.example.data.recommend.KeywordEmbedder()
+    }
+
+    /**
+     * The weighted listening signals (Q3): favourite 1.0 > completed 0.8 >
+     * recently listened 0.6 — shared by the background pass (which embeds
+     * them) and the recommendation combine (which ranks against them).
+     */
+    private fun currentSignals(
+        library: List<com.example.ui.library.LibraryBook>
+    ): List<com.example.data.recommend.RecommendationEngine.Signal> {
+        val weighted = library.flatMap { lb ->
             val weight = when {
                 lb.book.isFavorite -> 1.0
                 lb.isCompleted -> 0.8
@@ -712,11 +745,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 }
             }
-        val allSignals = signals + recentlyListened
+        return weighted + recentlyListened
+    }
+
+    val recommendedBooks: StateFlow<List<com.example.data.recommend.RecommendationEngine.Recommendation>> = combine(
+        libraryBooks,
+        unifiedCatalog,
+        catalogVectors
+    ) { library, catalog, vectors ->
+        // T2: an empty (or not-yet-computed) vector map means the background
+        // pass has not finished — degrade to an empty row, never compute on
+        // the UI thread and never crash.
+        if (vectors.isEmpty()) return@combine emptyList()
+        val allSignals = currentSignals(library)
         // Candidates are catalogue cards only: every library book is excluded
         // anyway, and the row's job is to surface books the user does not
-        // know yet. The card id is the Work key, so tapping plays from the
-        // found source (playRecommended).
+        // know yet. The card id is the Work key, so tapping opens the book
+        // page through the same identity resolution as any other Огляд row
+        // (openRecommendedBook).
         val candidates = catalog.map { result ->
             com.example.data.recommend.RecommendationEngine.Candidate(
                 id = result.key,
@@ -726,12 +772,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         val knownIds = library.map { it.book.id }.toSet()
         if (candidates.isEmpty() || allSignals.isEmpty()) return@combine emptyList()
-        // Catalogue vectors come from the background pass (T2). Signal
-        // vectors: the few library signals embed inline (cheap, already on
-        // the reading thread of this combine) and merge into the map.
+        // Catalogue vectors come from the background pass (T2), signal
+        // vectors too (T4) — nothing embeds on the UI thread. With the ONNX
+        // embedder a not-yet-embedded signal is skipped for this emission
+        // and the pass is kicked so the row catches up; the keyword baseline
+        // is cheap enough to embed the few missing signals inline.
         val merged = vectors.toMutableMap()
-        for (signal in allSignals) {
-            if (signal.id !in merged) merged[signal.id] = embedder.embed(signal.text)
+        val missing = allSignals.filter { it.id !in merged }
+        if (missing.isNotEmpty()) {
+            if (embedder is com.example.data.recommend.OnnxEmbedder) {
+                refreshEmbeddingVectors()
+            } else {
+                for (signal in missing) merged[signal.id] = embedder.embed(signal.text)
+            }
         }
         com.example.data.recommend.RecommendationEngine.recommendWithVectors(
             candidates = candidates,
@@ -742,10 +795,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    /** Plays a recommended catalogue card from its first found source. */
-    fun playRecommended(candidateId: String) {
+    /**
+     * Spec-19 T4 — tapping a recommended card opens that book's page. The
+     * identity resolution is the same as any other Огляд row: the Work is
+     * imported from its first found source (merge-aware, shared with
+     * playGlobalSearchResult) and the native book page opens — where the
+     * user reads the description, chapters and reviews before deciding to
+     * listen.
+     */
+    fun openRecommendedBook(candidateId: String) {
         val result = unifiedCatalog.value.firstOrNull { it.key == candidateId } ?: return
-        playGlobalSearchResult(result)
+        val source = result.sources.firstOrNull() ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            val book = try {
+                repository.importFromSourceUrl(source.sourceId, source.url)
+            } catch (e: Exception) {
+                null
+            }
+            if (book != null) {
+                selectBook(book.id)
+            }
+        }
     }
 
     fun selectGenreFilter(genre: String) {

@@ -10,6 +10,10 @@ import com.example.data.catalog.CatalogGenre
 import com.example.data.catalog.CatalogParser
 import com.example.data.catalog.CatalogPerson
 import com.example.data.catalog.CatalogSection
+import com.example.data.collection.CollectionSpec
+import com.example.data.collection.MatchedCollection
+import com.example.data.collection.SmartCollectionAssets
+import com.example.data.collection.SmartCollectionMatcher
 import com.example.data.db.*
 import com.example.data.contentHashOf
 import com.example.data.imports.FolderRescan
@@ -76,7 +80,13 @@ class AudiobookRepository(
                 android.webkit.CookieManager.getInstance().getCookie("https://sluhay.com/")
             }.getOrNull().orEmpty()
         })
-    )
+    ),
+    // Spec-16 T2: injectable curated-list loader (default = the bundled JSON
+    // assets; tests hand a fixture list so the recompute is pinned without
+    // an asset pipeline). The lists are static per process — loaded once.
+    private val collectionLoader: () -> List<CollectionSpec> = {
+        context?.let(SmartCollectionAssets::load) ?: emptyList()
+    }
 ) {
 
     val allBooks: Flow<List<AudiobookEntity>> = dao.getAllAudiobooks()
@@ -357,6 +367,9 @@ class AudiobookRepository(
                 }
                 val merged = mergeGlobalSearchResults(books)
                 _unifiedCatalog.value = merged
+                // Spec-16 T2: the same trigger that recomputes the union
+                // recomputes the collection match sets against the stored rows.
+                recomputeSmartCollections()
                 merged
             } finally {
                 _isUnifiedCatalogLoading.value = false
@@ -615,6 +628,14 @@ class AudiobookRepository(
     private val _catalogGenres = MutableStateFlow<List<CatalogGenre>>(emptyList())
     val catalogGenres: StateFlow<List<CatalogGenre>> = _catalogGenres.asStateFlow()
 
+    // Spec-16 T2: the smart-collection rows («Колекції» in Огляд) — curated
+    // external lists matched against the stored catalog. Computed, never
+    // persisted; empty match sets are absent from the flow.
+    private val collectionSpecs: List<CollectionSpec> by lazy { collectionLoader() }
+
+    private val _smartCollections = MutableStateFlow<List<MatchedCollection>>(emptyList())
+    val smartCollections: StateFlow<List<MatchedCollection>> = _smartCollections.asStateFlow()
+
     private val _isCatalogLoading = MutableStateFlow(false)
     val isCatalogLoading: StateFlow<Boolean> = _isCatalogLoading.asStateFlow()
 
@@ -666,6 +687,9 @@ class AudiobookRepository(
                 section.books.forEach { book -> upsertCatalogBook(book) }
             }
             _catalogSections.value = sections
+            // Spec-16 T2: a catalog sync surfaces new books in their
+            // collections immediately (user story 9 of #106).
+            recomputeSmartCollections()
             // spec-18 T2: once the catalogue is visible (published above),
             // one throttled, bounded duration-enrichment pass is detached so
             // it never delays browsing OR sync completion — the pass owns its
@@ -678,6 +702,32 @@ class AudiobookRepository(
         } finally {
             _isCatalogLoading.value = false
         }
+    }
+
+    // ---------------------------------------------------------------------
+    // Spec-16 T2 — smart collections: matched on every catalog sync
+    // ---------------------------------------------------------------------
+
+    /**
+     * Recomputes the smart-collection match sets against the stored catalog —
+     * every book in Room is the playable multi-source union, so a book just
+     * imported (any source) surfaces in its collections on the next sync.
+     * Called from the same triggers that recompute the union itself. Purely
+     * in-memory: nothing is persisted, an empty match set contributes
+     * nothing. The matcher is the pure [SmartCollectionMatcher] module, so
+     * this recompute is a two-liner: read rows, run the rules.
+     */
+    private suspend fun recomputeSmartCollections() {
+        val books = dao.getAllAudiobooksOnce().map { book ->
+            CatalogBook(
+                id = book.id,
+                title = book.title,
+                author = book.author,
+                url = book.sourceUrl,
+                coverImageUrl = book.coverImageUrl
+            )
+        }
+        _smartCollections.value = SmartCollectionMatcher.matchCollections(collectionSpecs, books)
     }
 
     // ---------------------------------------------------------------------

@@ -48,8 +48,7 @@ data class SelectedSeries(
 /** A WebView-pattern source's browser surface (spec-13 T3). */
 data class SelectedWebSource(
     val sourceId: String,
-    val homeUrl: String,
-    val displayName: String
+    val homeUrl: String
 )
 
 /** A genre (category) opened from the Explore "Жанри" chips row. */
@@ -322,10 +321,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * opens the source in the system browser instead. The same decision
      * function gates the UI entry points (see [browserDestinationFor]).
      */
-    fun openWebSource(sourceId: String, homeUrl: String, displayName: String) {
+    fun openWebSource(sourceId: String, homeUrl: String) {
         when (browserDestinationFor(com.example.BuildConfig.DEBUG, sourceId)) {
             BrowserDestination.IN_APP_BROWSER ->
-                _selectedWebSource.value = SelectedWebSource(sourceId, homeUrl, displayName)
+                _selectedWebSource.value = SelectedWebSource(sourceId, homeUrl)
             BrowserDestination.SYSTEM_BROWSER -> openInSystemBrowser(homeUrl)
         }
     }

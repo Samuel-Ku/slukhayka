@@ -45,6 +45,7 @@ import com.example.ui.components.PlayerDebugOverlay
 import com.example.ui.components.SleepTimerSheet
 import com.example.ui.components.SpeedSheet
 import com.example.ui.displayAuthor
+import com.example.ui.displayNarrator
 import com.example.ui.library.effectiveChapterDurations
 import com.example.ui.theme.AppDimens
 
@@ -473,9 +474,12 @@ fun PlayerScreenContent(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                if (book.narrator.isNotBlank()) {
+                // Spec-20 T2: narrator renders only when real — the fabricated
+                // "4read Voice Narrator" placeholder is scrubbed away.
+                val playerNarrator = book.displayNarrator
+                if (playerNarrator.isNotBlank()) {
                     Text(
-                        text = "Читає ${book.narrator}",
+                        text = "Читає $playerNarrator",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,

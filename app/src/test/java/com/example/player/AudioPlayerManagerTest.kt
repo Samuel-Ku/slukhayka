@@ -98,7 +98,7 @@ class AudioPlayerManagerTest {
         // Assert
         val state = manager.playerState.value
         assertFalse(state.isBuffering)
-        assertEquals("4read Direct Stream", state.audioEngineMode)
+        assertEquals("Direct Stream", state.audioEngineMode)
         assertEquals(resolvedDurationMs, state.durationMs)
         assertEquals(chapters[0].streamUrl, state.currentStreamUrl)
         assertFalse("autoPlay was false", state.isPlaying)
@@ -317,7 +317,7 @@ class AudioPlayerManagerTest {
             manager.nextChapter()
             assertEquals(mixedChapters[1].streamUrl, engine.lastMediaItemUri)
             engine.simulateReady(mixedChapters[1].durationSeconds * MILLIS_PER_SECOND)
-            assertEquals("4read Direct Stream", manager.playerState.value.audioEngineMode)
+            assertEquals("Direct Stream", manager.playerState.value.audioEngineMode)
 
             // Chapter 2 — local file again.
             manager.nextChapter()

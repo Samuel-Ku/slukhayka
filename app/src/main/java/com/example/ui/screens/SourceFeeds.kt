@@ -72,7 +72,10 @@ fun SourceFeedRow(
         return
     }
     Column(modifier = modifier) {
-        AppSectionHeader(title = "Нове з ${feed.sourceName}")
+        // Spec-20 T2: feed headers are brand-neutral — the source is never
+        // named («Що кажуть джерела» blocks keep their pills; the headers
+        // of the Огляд rows do not).
+        AppSectionHeader(title = "Нове з джерела")
         LazyRow(
             contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -101,7 +104,7 @@ fun StaleSessionRow(
     modifier: Modifier = Modifier
 ) {
     Column(modifier = modifier) {
-        AppSectionHeader(title = "Нове з $sourceName")
+        AppSectionHeader(title = "Нове з джерела")
         Card(
             modifier = Modifier
                 .fillMaxWidth()
@@ -113,7 +116,8 @@ fun StaleSessionRow(
         ) {
             Column(modifier = Modifier.padding(14.dp)) {
                 Text(
-                    text = "Щоб бачити новинки $sourceName, відкрийте джерело — це оновить сесію.",
+                    // Spec-20 T2: the stale-session copy is brand-neutral too.
+                    text = "Щоб бачити новинки, відкрийте джерело — це оновить сесію.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -129,7 +133,9 @@ fun StaleSessionRow(
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Відкрити $sourceName", style = MaterialTheme.typography.labelMedium)
+                        // Spec-20 T2: the open affordance is brand-neutral —
+                        // «Відкрити оригінал», never the source's name.
+                        Text("Відкрити оригінал", style = MaterialTheme.typography.labelMedium)
                     }
                 }
             }

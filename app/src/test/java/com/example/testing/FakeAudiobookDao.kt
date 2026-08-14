@@ -33,6 +33,25 @@ class FakeAudiobookDao(
     chapters: List<ChapterEntity> = emptyList()
 ) : AudiobookDao {
 
+    /**
+     * spec-20 T3: the legacy placeholder cleanup, mirrored in memory for the
+     * JVM seams (the real rule set lives in PlaceholderScrub, pinned by its
+     * own pure test; this keeps FakeAudiobookDao honest when a repository
+     * test drives the scrub path).
+     */
+    override suspend fun scrubLegacyPlaceholders() {
+        booksState.update { rows ->
+            rows.map { row ->
+                row.copy(
+                    author = com.example.data.rebrand.PlaceholderScrub.author(row.author),
+                    narrator = com.example.data.rebrand.PlaceholderScrub.narrator(row.narrator),
+                    genre = com.example.data.rebrand.PlaceholderScrub.genre(row.genre),
+                    description = com.example.data.rebrand.PlaceholderScrub.description(row.description)
+                )
+            }
+        }
+    }
+
     private val booksState = MutableStateFlow(books)
     private val chaptersState = MutableStateFlow(chapters)
     private val bookmarksState = MutableStateFlow(emptyList<BookmarkEntity>())

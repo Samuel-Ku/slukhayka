@@ -48,7 +48,7 @@ data class PlayerState(
     val sleepTimerRemainingSeconds: Int = 0,
     val isBuffering: Boolean = false,
     val isOfflineMode: Boolean = false,
-    val audioEngineMode: String = "4read Audio Engine",
+    val audioEngineMode: String = "Playback Engine",
     val currentStreamUrl: String = "",
     val lastErrorMsg: String = "",
     // Position-history undo (wayfinder #25): true while a big accidental seek
@@ -329,7 +329,7 @@ class AudioPlayerManager(
                 _playerState.value = _playerState.value.copy(
                     isBuffering = false,
                     durationMs = if (mp.duration > 0) mp.duration else _playerState.value.durationMs,
-                    audioEngineMode = if (isLocal) "Offline Local File" else "4read Direct Stream"
+                    audioEngineMode = if (isLocal) "Offline Local File" else "Direct Stream"
                 )
                 // Persist the real chapter duration once the stream reports it,
                 // so the book's total duration is honest instead of a seeded

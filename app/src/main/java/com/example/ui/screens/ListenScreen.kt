@@ -230,27 +230,25 @@ fun ListenScreen(
         }
 
         // Spec-13 T3: the WebView-source browser entry point — a compact
-        // "more books on Sluhay →" row (per #73 decisions, NOT a tab). Shown
-        // only when the host surface provided the callback.
+        // "more books →" row (per #73 decisions, NOT a tab). Shown
+        // only when the host surface provided the callback. Spec-20 T2:
+        // brand-neutral — the source's name never appears in the label.
         if (onOpenWebSource != null) {
             item {
-                OpenWebSourceRow(
-                    displayName = "Sluhay",
-                    onClick = onOpenWebSource
-                )
+                OpenWebSourceRow(onClick = onOpenWebSource)
             }
         }
     }
 }
 
 /**
- * Spec-13 T3 — compact «більше книг на Sluhay →» entry row to the source's
+ * Spec-13 T3 — compact «більше книг →» entry row to the source's
  * browser surface. One line, not a storefront: the WebView is a secondary
- * discovery surface, not a tab (#73).
+ * discovery surface, not a tab (#73). Spec-20 T2: the row never names the
+ * source — the rebrand hides source brands from the UI.
  */
 @Composable
 fun OpenWebSourceRow(
-    displayName: String,
     onClick: () -> Unit
 ) {
     Card(
@@ -259,7 +257,7 @@ fun OpenWebSourceRow(
             .padding(horizontal = 16.dp, vertical = 5.dp)
             .clip(RoundedCornerShape(AppDimens.RadiusCardLg))
             .clickable { onClick() }
-            .testTag("open_web_source_sluhay"),
+            .testTag("open_web_source"),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
@@ -277,7 +275,7 @@ fun OpenWebSourceRow(
             )
             Spacer(modifier = Modifier.width(10.dp))
             Text(
-                text = "Більше книг на $displayName",
+                text = "Більше книг",
                 style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.weight(1f)

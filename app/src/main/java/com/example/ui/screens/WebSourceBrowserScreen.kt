@@ -54,7 +54,6 @@ fun WebSourceBrowserScreen(
     viewModel: MainViewModel,
     sourceId: String,
     homeUrl: String,
-    displayName: String,
     onClose: () -> Unit
 ) {
     val context = LocalContext.current
@@ -90,7 +89,8 @@ fun WebSourceBrowserScreen(
         }.getOrNull() ?: return
         val actualHost = runCatching { pageUrl.toUri().host?.lowercase()?.removePrefix("www.") }.getOrNull() ?: ""
         if (actualHost != allowedHost) {
-            importResult = "Це не сторінка $displayName — додавання доступне лише з книг джерела"
+            // Spec-20 T2: brand-neutral — the source is never named here.
+            importResult = "Це не сторінка книги — додавання доступне лише зі сторінок книг джерела"
             return
         }
         isImporting = true

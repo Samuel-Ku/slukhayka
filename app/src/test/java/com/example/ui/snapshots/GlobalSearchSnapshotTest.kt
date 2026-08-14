@@ -27,9 +27,10 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
 /**
- * Snapshot tests for the spec-10 T4 global-search result card: one Work with
- * a badge per matching source. Pure-`@Composable` inputs — no `MainViewModel`,
- * no network.
+ * Snapshot tests for the spec-10 T4 global-search result card + the
+ * SourceBadgePill (which survives for the «Що кажуть джерела» blocks,
+ * spec-20 T2 — it just no longer appears on search/library cards).
+ * Pure-`@Composable` inputs — no `MainViewModel`, no network.
  */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)

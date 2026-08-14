@@ -34,6 +34,7 @@ import com.example.data.catalog.CatalogPerson
 import com.example.data.db.AudiobookEntity
 import com.example.data.db.BookmarkEntity
 import com.example.data.db.ChapterEntity
+import com.example.data.rebrand.PlaceholderScrub
 import com.example.ui.MainViewModel
 import com.example.ui.bookPersonPath
 import com.example.ui.components.BookmarkDialog
@@ -136,12 +137,14 @@ fun BookDetailScreen(
                         onToggle = { viewModel.toggleFavorite(currentBook.id, !isFavoriteThis) }
                     )
                     // Spec #8 ticket T4: the WebView is no longer a tab — a
-                    // book page keeps an "open on site" escape hatch instead.
+                    // book page keeps an "open the original" escape hatch.
+                    // Spec-20 T2: the affordance is brand-neutral — the source
+                    // itself is never named in the label.
                     if (currentBook.sourceUrl.contains("4read.org")) {
                         IconButton(onClick = { viewModel.openWebFallback(currentBook.sourceUrl) }) {
                             Icon(
                                 imageVector = Icons.AutoMirrored.Filled.OpenInNew,
-                                contentDescription = "Відкрити на сайті",
+                                contentDescription = "Відкрити оригінал",
                                 tint = MaterialTheme.colorScheme.primary
                             )
                         }
@@ -155,14 +158,13 @@ fun BookDetailScreen(
                             onClick = {
                                 viewModel.openWebSource(
                                     sourceId = "sluhay",
-                                    homeUrl = "https://sluhay.com/",
-                                    displayName = "Sluhay"
+                                    homeUrl = "https://sluhay.com/"
                                 )
                             }
                         ) {
                             Icon(
                                 imageVector = Icons.AutoMirrored.Filled.OpenInNew,
-                                contentDescription = "Відкрити на Sluhay",
+                                contentDescription = "Відкрити оригінал",
                                 tint = MaterialTheme.colorScheme.primary
                             )
                         }
@@ -255,10 +257,10 @@ fun BookDetailScreen(
 
                     Spacer(modifier = Modifier.height(4.dp))
 
-                    // "4read.org" is a placeholder author, not a real one — the
-                    // Source pill below already names the catalog. #40: a real
-                    // author's name opens their catalogue page
-                    // (`/xfsearch/avtor/…`), a placeholder renders as text.
+                    // "4read.org" is a placeholder author, not a real one —
+                    // displayAuthor blanks it rather than showing the source
+                    // brand. #40: a real author's name opens their catalogue
+                    // page (`/xfsearch/avtor/…`), a blank renders nothing.
                     if (currentBook.displayAuthor.isNotBlank()) {
                         Text(
                             text = "By ${currentBook.displayAuthor}",
@@ -279,35 +281,32 @@ fun BookDetailScreen(
                     }
 
                     // #40: a real narrator is a tappable person link
-                    // (`/xfsearch/chitaet/…`); the repository's fabricated
-                    // "4read Voice Narrator" placeholder stays plain text.
+                    // (`/xfsearch/chitaet/…`); spec-20 T2/T3: the fabricated
+                    // "4read Voice Narrator" placeholder is scrubbed away
+                    // entirely (display and data), never rendered as text.
                     val narratorName = currentBook.displayNarrator
-                    Text(
-                        text = "Narrated by ${currentBook.narrator}",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .then(
-                                if (narratorName.isNotBlank()) {
-                                    Modifier.clickable {
-                                        viewModel.openPersonBooks(
-                                            CatalogPerson(
-                                                name = narratorName,
-                                                path = bookPersonPath("chitaet", narratorName),
-                                                bookCount = 0
-                                            )
+                    if (narratorName.isNotBlank()) {
+                        Text(
+                            text = "Narrated by $narratorName",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    viewModel.openPersonBooks(
+                                        CatalogPerson(
+                                            name = narratorName,
+                                            path = bookPersonPath("chitaet", narratorName),
+                                            bookCount = 0
                                         )
-                                    }
-                                } else {
-                                    Modifier
+                                    )
                                 }
-                            )
-                            .testTag("book_detail_narrator_link"),
-                        textAlign = TextAlign.Center
-                    )
+                                .testTag("book_detail_narrator_link"),
+                            textAlign = TextAlign.Center
+                        )
+                    }
 
                     Spacer(modifier = Modifier.height(12.dp))
 
@@ -318,9 +317,10 @@ fun BookDetailScreen(
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         // "4read Каталог" is the placeholder genre for catalog
-                        // books — the Source pill below already says it.
+                        // books — never rendered (spec-20 T3 cleans the data;
+                        // this guard is the display-side belt).
                         if (currentBook.genre.isNotBlank() &&
-                            !currentBook.genre.contains("4read", ignoreCase = true)
+                            !PlaceholderScrub.containsBrand(currentBook.genre)
                         ) {
                             TagPill(
                                 text = currentBook.genre,
@@ -363,16 +363,9 @@ fun BookDetailScreen(
                             )
                         }
 
-                        // The one canonical source label — only for books that
-                        // actually came from the catalog, never for local imports.
-                        if (currentBook.sourceUrl.contains("4read.org")) {
-                            TagPill(
-                                text = "4read.org Source",
-                                color = MaterialTheme.colorScheme.secondary,
-                                container = MaterialTheme.colorScheme.secondary.copy(alpha = 0.2f),
-                                border = null
-                            )
-                        }
+                        // Spec-20 T2: the «4read.org Source» pill is gone —
+                        // the rebrand hides the source brand from the UI
+                        // entirely; the rows themselves say enough.
 
                         // #40 decision 1: the book's series names its neighbours —
                         // the pill opens the series page (spec-9 T1), where the
@@ -393,17 +386,13 @@ fun BookDetailScreen(
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // Description — the Source pill above already names the
-                    // catalog, so strip the repeated domain/prefix from the
-                    // stored template and keep only the meaningful part.
+                    // Description — the stored template may still carry the
+                    // legacy branded prefix/domain (spec-20 T3 cleans the data
+                    // at startup; this scrub is the display-side belt for rows
+                    // written before that pass ran). Same rules as the stored
+                    // row — one source of truth.
                     val displayDescription = remember(currentBook.description) {
-                        currentBook.description
-                            .replace("Аудіокнига з каталогу 4read.org. ", "")
-                            .replace("Аудиокнига с портала 4read.org. ", "")
-                            .replace("Книга знайдена на порталі 4read.org за запитом \"", "")
-                            .replace("\". Джерело: ", ". Джерело: ")
-                            .replace(Regex("""https?://4read\.org/"""), "")
-                            .trim()
+                        PlaceholderScrub.description(currentBook.description)
                     }
                     if (displayDescription.isNotBlank()) {
                         Text(

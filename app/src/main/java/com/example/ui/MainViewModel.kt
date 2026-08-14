@@ -592,8 +592,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val result = repository.hydrateWebSourceCatalog(sourceId)
                 _hydration.value = result
                 // The unified «Увесь каталог» union is re-computed after a
-                // hydration so the fresh imported books surface immediately.
+                // hydration so the fresh imported books surface immediately;
+                // the embedding pass follows so the recommendation row sees
+                // the new catalogue (spec-19 T2).
                 repository.refreshUnifiedCatalog()
+                refreshEmbeddingVectors()
             } catch (e: Exception) {
                 _hydration.value = AudiobookRepository.HydrationResult(sourceId, found = 0, imported = 0, failed = 0)
             } finally {
@@ -615,6 +618,39 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun loadUnifiedCatalog() {
         viewModelScope.launch(Dispatchers.IO) {
             repository.refreshUnifiedCatalog()
+            // Spec-19 T2: the embedding pass runs right after the catalogue
+            // sync, on the background dispatcher — never on the UI thread.
+            refreshEmbeddingVectors()
+        }
+    }
+
+    // Spec-19 T2 — the background embedding pass. Embeds every catalogue
+    // book's text through the [TextEmbedder] seam on an idle (IO) dispatcher
+    // and publishes the id → vector map for the recommendation row. Cache
+    // hits (same catalogue version) are a file read; misses compute and
+    // persist. Never throws: CatalogEmbeddingService degrades failures to a
+    // smaller (or empty) map, so the row just goes quiet — no crash.
+    private val _catalogVectors =
+        MutableStateFlow<Map<String, FloatArray>>(emptyMap())
+    val catalogVectors: StateFlow<Map<String, FloatArray>> =
+        _catalogVectors.asStateFlow()
+
+    fun refreshEmbeddingVectors() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val catalog = unifiedCatalog.value
+            val embedder = com.example.data.recommend.KeywordEmbedder()
+            val candidates = catalog.map { result ->
+                com.example.data.recommend.RecommendationEngine.Candidate(
+                    id = result.key,
+                    title = result.title,
+                    author = result.author
+                )
+            }
+            if (candidates.isEmpty()) {
+                _catalogVectors.value = emptyMap()
+                return@launch
+            }
+            _catalogVectors.value = embeddingService.vectorsFor(candidates, embedder)
         }
     }
 
@@ -636,8 +672,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     val recommendedBooks: StateFlow<List<com.example.data.recommend.RecommendationEngine.Recommendation>> = combine(
         libraryBooks,
-        unifiedCatalog
-    ) { library, catalog ->
+        unifiedCatalog,
+        catalogVectors
+    ) { library, catalog, vectors ->
+        // T2: an empty (or not-yet-computed) vector map means the background
+        // pass has not finished — degrade to an empty row, never compute on
+        // the UI thread and never crash.
+        if (vectors.isEmpty()) return@combine emptyList()
         val embedder = com.example.data.recommend.KeywordEmbedder()
         val signals = library.flatMap { lb ->
             val weight = when {
@@ -685,16 +726,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         val knownIds = library.map { it.book.id }.toSet()
         if (candidates.isEmpty() || allSignals.isEmpty()) return@combine emptyList()
-        // Catalogue vectors: cached per version (Q7). Signal vectors: embed
-        // the few library signals inline and merge them into the map.
-        val vectors = embeddingService.vectorsFor(candidates, embedder).toMutableMap()
+        // Catalogue vectors come from the background pass (T2). Signal
+        // vectors: the few library signals embed inline (cheap, already on
+        // the reading thread of this combine) and merge into the map.
+        val merged = vectors.toMutableMap()
         for (signal in allSignals) {
-            if (signal.id !in vectors) vectors[signal.id] = embedder.embed(signal.text)
+            if (signal.id !in merged) merged[signal.id] = embedder.embed(signal.text)
         }
         com.example.data.recommend.RecommendationEngine.recommendWithVectors(
             candidates = candidates,
             signals = allSignals,
-            vectors = vectors,
+            vectors = merged,
             excludeIds = knownIds,
             topN = 10
         )

@@ -527,6 +527,125 @@ class AudiobookRepositoryRoomTest {
     }
 
     // ---------------------------------------------------------------------
+    // stage-2 S1: schema migration 11 -> 12 (identity columns, corrections,
+    // series, edition_settings, failures.category — the #55/#54/#57/#60/#61
+    // unified-library bump; additive only)
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `migration 11 to 12 backfills identity and creates the memory tables`() {
+        val factory = FrameworkSQLiteOpenHelperFactory()
+        val config = SupportSQLiteOpenHelper.Configuration.builder(context)
+            .name("migration-11-test.db")
+            .callback(object : SupportSQLiteOpenHelper.Callback(11) {
+                override fun onCreate(db: SupportSQLiteDatabase) {
+                    // Minimal v11 schema: a merged book (has a merge key), a
+                    // legacy book (no key), its chapters, a local source row,
+                    // a failure ledger row and a tombstone.
+                    db.execSQL(
+                        "CREATE TABLE audiobooks (id TEXT NOT NULL PRIMARY KEY, title TEXT NOT NULL, " +
+                            "author TEXT NOT NULL, narrator TEXT NOT NULL, description TEXT NOT NULL, " +
+                            "coverDrawableRes INTEGER NOT NULL, coverImageUrl TEXT, genre TEXT NOT NULL, " +
+                            "sourceUrl TEXT NOT NULL, isDownloaded INTEGER NOT NULL DEFAULT 0, " +
+                            "downloadProgress REAL NOT NULL DEFAULT 0, totalDurationSeconds INTEGER NOT NULL DEFAULT 0, " +
+                            "totalChapters INTEGER NOT NULL DEFAULT 0, rating REAL NOT NULL DEFAULT 4.9, " +
+                            "isFavorite INTEGER NOT NULL DEFAULT 0, seriesTitle TEXT, seriesUrl TEXT, seriesIndex INTEGER, " +
+                            "preferredSpeed REAL, createdAt INTEGER NOT NULL DEFAULT 0, sourceTreeUri TEXT, " +
+                            "mergeKey TEXT NOT NULL DEFAULT '')"
+                    )
+                    db.execSQL(
+                        "INSERT INTO audiobooks (id, title, author, narrator, description, coverDrawableRes, genre, " +
+                            "sourceUrl, totalDurationSeconds, totalChapters, mergeKey) VALUES " +
+                            "('b1', 'Кобзар', 'Автор', 'Читець', '', 0, '', '', 3600, 3, 'кобзар|автор|читець'), " +
+                            "('b2', 'Лісова пісня', 'Автор', 'Читець', '', 0, '', '', 1800, 1, '')"
+                    )
+                    db.execSQL(
+                        "CREATE TABLE chapters (id TEXT NOT NULL PRIMARY KEY, bookId TEXT NOT NULL, " +
+                            "chapterIndex INTEGER NOT NULL, title TEXT NOT NULL, durationSeconds INTEGER NOT NULL, " +
+                            "streamUrl TEXT NOT NULL, localFilePath TEXT, isDownloaded INTEGER NOT NULL DEFAULT 0, " +
+                            "contentHash TEXT)"
+                    )
+                    db.execSQL(
+                        "INSERT INTO chapters (id, bookId, chapterIndex, title, durationSeconds, streamUrl) VALUES " +
+                            "('c1', 'b1', 0, 'Розділ 1', 1200, 'http://x/1.mp3'), " +
+                            "('c2', 'b2', 0, 'Розділ 1', 1800, 'http://y/1.mp3')"
+                    )
+                    db.execSQL(
+                        "CREATE TABLE sources (id TEXT NOT NULL PRIMARY KEY, bookId TEXT NOT NULL, " +
+                            "type TEXT NOT NULL, url TEXT NOT NULL, streamOnly INTEGER NOT NULL DEFAULT 0, " +
+                            "addedAt INTEGER NOT NULL DEFAULT 0, lastScanFingerprint TEXT)"
+                    )
+                    db.execSQL(
+                        "INSERT INTO sources (id, bookId, type, url) VALUES ('b1-local', 'b1', 'local', '')"
+                    )
+                    db.execSQL(
+                        "CREATE TABLE playback_failures (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                            "timestamp INTEGER NOT NULL, bookId TEXT NOT NULL, chapterIndex INTEGER NOT NULL, " +
+                            "errorCodeName TEXT NOT NULL, streamUrl TEXT NOT NULL, audioEngineMode TEXT NOT NULL)"
+                    )
+                    db.execSQL(
+                        "INSERT INTO playback_failures (timestamp, bookId, chapterIndex, errorCodeName, streamUrl, " +
+                            "audioEngineMode) VALUES (1700000000000, 'b1', 0, 'ERROR_CODE_IO_UNSPECIFIED', 'http://x/1.mp3', 'READY')"
+                    )
+                    db.execSQL(
+                        "CREATE TABLE tombstones (bookId TEXT NOT NULL PRIMARY KEY, deletedAt INTEGER NOT NULL)"
+                    )
+                    db.execSQL("INSERT INTO tombstones (bookId, deletedAt) VALUES ('b2', 1700000000000)")
+                }
+
+                override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) {}
+            })
+            .build()
+        val helper = factory.create(config)
+        val db = helper.writableDatabase
+
+        AudiobookDatabase.MIGRATION_11_12.migrate(db)
+
+        // Identity columns exist and are back-filled: workId = mergeKey for
+        // merged books, null for legacy; chapter editionId = bookId.
+        assertTrue("workId column must exist", tableColumns(db, "audiobooks").contains("workId"))
+        db.query("SELECT workId FROM audiobooks WHERE id = 'b1'").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals("кобзар|автор|читець", cursor.getString(0))
+        }
+        db.query("SELECT workId FROM audiobooks WHERE id = 'b2'").use { cursor ->
+            cursor.moveToFirst()
+            assertNull("legacy rows keep a null workId", cursor.getString(0))
+        }
+        assertTrue("editionId column must exist", tableColumns(db, "chapters").contains("editionId"))
+        db.query("SELECT editionId FROM chapters WHERE id = 'c1'").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals("b1", cursor.getString(0))
+        }
+        // failures.category is nullable until the S7 classifier lands.
+        assertTrue("category column must exist", tableColumns(db, "playback_failures").contains("category"))
+        // New memory tables exist with their expected columns.
+        assertEquals(setOf("mergeKey", "kind", "value", "origin", "updatedAt", "updatedBy"), tableColumns(db, "corrections").toSet())
+        assertEquals(setOf("id", "title", "url"), tableColumns(db, "series").toSet())
+        assertEquals(setOf("workId", "seriesId", "position"), tableColumns(db, "series_members").toSet())
+        assertEquals(
+            setOf("bookId", "sourceKey", "rewindSeconds", "sleepTimerDefaultSeconds", "volumeBoostEnabled", "silenceSkipEnabled", "updatedAt"),
+            tableColumns(db, "edition_settings").toSet()
+        )
+        // The new tables accept rows with the entity defaults (PK semantics).
+        db.execSQL("INSERT INTO corrections (mergeKey, kind, value, origin, updatedAt) VALUES ('кобзар|автор|читець', 'NEVER_MATCH', 'b2', 'USER_MADE', 1700000000000)")
+        db.execSQL("INSERT INTO series (id, title, url) VALUES ('s1', 'Цикл', 'http://4read.org/series/s1')")
+        db.execSQL("INSERT INTO series_members (workId, seriesId, position) VALUES ('кобзар|автор|читець', 's1', 1)")
+        db.execSQL("INSERT INTO edition_settings (bookId, sourceKey, volumeBoostEnabled, silenceSkipEnabled, updatedAt) VALUES ('b1', '', 0, 0, 1700000000000)")
+        // Every v11 row survives untouched.
+        db.query("SELECT title, totalDurationSeconds FROM audiobooks WHERE id = 'b1'").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals("Кобзар", cursor.getString(0))
+            assertEquals(3600L, cursor.getLong(1))
+        }
+        db.query("SELECT COUNT(*) FROM tombstones").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals(1, cursor.getInt(0))
+        }
+        db.close()
+    }
+
+    // ---------------------------------------------------------------------
     // spec-10 T2: multi-source merge and per-source position
     // ---------------------------------------------------------------------
 

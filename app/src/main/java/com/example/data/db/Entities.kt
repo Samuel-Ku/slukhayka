@@ -46,7 +46,12 @@ data class AudiobookEntity(
     // rows that predate the merge (migration 7->8 leaves them unmatched until
     // re-import).
     @ColumnInfo(defaultValue = "")
-    val mergeKey: String = ""
+    val mergeKey: String = "",
+    // Unified-library identity (wayfinder #55 Q2, stage-2 S1): the Work id.
+    // Pinned to `mergeKey` (the #54 identity); null only for rows imported
+    // before merge keys existed. `audiobooks.id` stays the row id — all
+    // existing FKs are untouched.
+    val workId: String? = null
 )
 
 @Entity(tableName = "listening_stats")
@@ -68,7 +73,12 @@ data class ChapterEntity(
     // SHA-256 of the copied local file (wayfinder #48): lets re-imports of the
     // same file be detected and skipped without duplicating storage. Null for
     // streamed 4read chapters.
-    val contentHash: String? = null
+    val contentHash: String? = null,
+    // Unified-library identity (wayfinder #55 Q2, stage-2 S1): the Edition id
+    // this chapter belongs to. Back-filled = bookId for legacy rows (one
+    // edition per book before multi-source); new editions stamp their source
+    // row id.
+    val editionId: String? = null
 )
 
 /**
@@ -205,5 +215,105 @@ data class PlaybackFailureEntity(
     // The stream URL or local file path being played when the failure hit.
     val streamUrl: String,
     // Player state mode snapshot at failure time (IDLE/BUFFERING/READY/ENDED).
-    val audioEngineMode: String
+    val audioEngineMode: String,
+    // Diagnosability category (wayfinder #61 Q1, stage-2 S1): a stable
+    // coarse bucket derived from the Media3 error code by a pure function
+    // (START_FAILED / FILE_UNAVAILABLE / FILE_CORRUPT / SAF_LOST /
+    // DURATION_MISMATCH / INTERRUPTED / SYNC_CONFLICT /
+    // DOWNLOAD_INTERRUPTED / SOURCE_LOST). Null until the derived classifier
+    // lands (S7); additive so the ledger keeps accepting pre-category rows.
+    val category: String? = null
+)
+
+/** Stable String kinds of a [CorrectionEntity] (wayfinder #54 Q9, stage-2 S1). */
+object CorrectionKind {
+    const val MERGE = "MERGE"
+    const val SPLIT = "SPLIT"
+    const val NEVER_MATCH = "NEVER_MATCH"
+    const val FIELD = "FIELD"
+}
+
+/** Origin of a [CorrectionEntity] (wayfinder #54 Q9) — user-made outranks derived. */
+object CorrectionOrigin {
+    const val USER_MADE = "USER_MADE"
+    const val DERIVED = "DERIVED"
+}
+
+/**
+ * Synced correction memory (wayfinder #54 Q9, stage-2 S1). The strongest
+ * identity memory: a user's explicit merge / split / never-match / field
+ * override outranks any machine evidence, survives re-imports, and syncs
+ * with the account (LWW per #53/#56). NEVER_MATCH suppresses candidate
+ * generation and auto-linking between the pair even on an exact key match.
+ * Keyed per Work (`mergeKey`), one row per (kind, value) pair.
+ */
+@Entity(
+    tableName = "corrections",
+    indices = [Index("mergeKey"), Index("updatedAt")],
+    primaryKeys = ["mergeKey", "kind", "value"]
+)
+data class CorrectionEntity(
+    // The Work this correction pins (a MergeKey — the pinned identity, #54).
+    val mergeKey: String,
+    // CorrectionKind: MERGE / SPLIT / NEVER_MATCH / FIELD.
+    val kind: String,
+    // NEVER_MATCH: the other mergeKey of the forbidden pair; MERGE: the
+    // target mergeKey; FIELD: a `field=value` edit. Empty where not needed.
+    val value: String = "",
+    // CorrectionOrigin: USER_MADE outranks DERIVED regardless of timestamp.
+    val origin: String = CorrectionOrigin.USER_MADE,
+    val updatedAt: Long = System.currentTimeMillis(),
+    // Device/user that made the edit; "" until sync (wayfinder #56) lands.
+    val updatedBy: String = ""
+)
+
+/**
+ * A book series / cycle (wayfinder #57 Q1, stage-2 S1). First-class Work-level
+ * entity: a series owns an ordered membership (`series_members`), the poster
+ * parse of 4read keeps writing the card fields, and the import path upserts
+ * the series + membership. `nextInSeries` generalizes over this table.
+ */
+@Entity(tableName = "series")
+data class SeriesEntity(
+    @PrimaryKey val id: String,
+    val title: String,
+    // The catalogue series page (4read poster `poster__series` link); null
+    // for local/user-created series.
+    val url: String? = null
+)
+
+/** Membership of a Work in a [SeriesEntity] at an ordered [position] (stage-2 S1). */
+@Entity(
+    tableName = "series_members",
+    indices = [Index("seriesId")],
+    primaryKeys = ["workId", "seriesId"]
+)
+data class SeriesMemberEntity(
+    // The Work's id (mergeKey — the pinned identity, #54).
+    val workId: String,
+    val seriesId: String,
+    // Authoritative ordering; edited via a FIELD correction (synced).
+    val position: Int
+)
+
+/**
+ * Per-Edition playback settings (wayfinder #60 Q2, stage-2 S1). Keyed
+ * (bookId, sourceKey) so the same Work on two sources keeps independent
+ * preferences. Additive: nulls mean "use the global default" from
+ * PlaybackSettings. The experimental toggles (volume boost, silence
+ * skipping) ship OFF by policy — pauses are part of the narration.
+ */
+@Entity(tableName = "edition_settings", primaryKeys = ["bookId", "sourceKey"])
+data class EditionSettingsEntity(
+    val bookId: String,
+    // Same convention as PlaybackProgressEntity.sourceKey; "" = primary source.
+    val sourceKey: String = "",
+    // The seek-back amount offered by the rewind preset, in seconds.
+    val rewindSeconds: Int? = null,
+    // The sleep timer default for this edition, in seconds.
+    val sleepTimerDefaultSeconds: Int? = null,
+    // Experimental loudness features — OFF by policy until S6 enables them.
+    val volumeBoostEnabled: Boolean = false,
+    val silenceSkipEnabled: Boolean = false,
+    val updatedAt: Long = System.currentTimeMillis()
 )

@@ -74,6 +74,10 @@ fun HomeScreen(
     val catalogDownloadingKeys by viewModel.catalogDownloadingKeys.collectAsState()
     val catalogDownloadProgress by viewModel.catalogDownloadProgress.collectAsState()
     val catalogDownloadedKeys by viewModel.catalogDownloadedKeys.collectAsState()
+    // Spec-19 Track A: the on-device «Рекомендовано для вас» row — semantic
+    // similarity of catalogue descriptions to favourite/completed/recent
+    // signals, computed locally, with a per-card reason chip.
+    val recommendedBooks by viewModel.recommendedBooks.collectAsState()
 
     // Spec-15 T1: enumerate the union once per Огляд composition; the
     // repository caches it for the session (and re-fetches session-bound
@@ -444,6 +448,28 @@ fun HomeScreen(
                 }
             }
 
+            // Spec-19 Track A: «Рекомендовано для вас» — on-device, local
+            // only. Each card carries a reason chip («схоже на X»); tapping
+            // plays from the first found source.
+            if (recommendedBooks.isNotEmpty()) {
+                item {
+                    CatalogRowHeader(title = "Рекомендовано для вас")
+                }
+                item {
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        items(recommendedBooks, key = { it.candidate.id }) { rec ->
+                            RecommendedBookCard(
+                                rec = rec,
+                                onClick = { viewModel.playRecommended(rec.candidate.id) }
+                            )
+                        }
+                    }
+                }
+            }
+
             // Catalogue rows parsed from the 4read.org homepage. Spec-9: the
             // Continue-Listening card moved to the Слухати tab.
             sections.forEach { section ->
@@ -540,6 +566,61 @@ fun CatalogBookCard(
             textAlign = TextAlign.Center,
             modifier = Modifier.fillMaxWidth()
         )
+    }
+}
+
+/**
+ * Card of the on-device «Рекомендовано для вас» row (spec-19 Track A):
+ * title + author, with the reason chip («схоже на X») underneath — the
+ * engine explains every pick (Q3).
+ */
+@Composable
+fun RecommendedBookCard(
+    rec: com.example.data.recommend.RecommendationEngine.Recommendation,
+    onClick: () -> Unit
+) {
+    Card(
+        onClick = onClick,
+        modifier = Modifier
+            .width(200.dp)
+            .testTag("recommended_${rec.candidate.id}"),
+        shape = RoundedCornerShape(AppDimens.RadiusCardLg),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+        )
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text(
+                text = rec.candidate.title,
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (rec.candidate.author.isNotBlank()) {
+                Text(
+                    text = rec.candidate.author,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Spacer(modifier = Modifier.height(6.dp))
+            Surface(
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Text(
+                    text = "Схоже на «${rec.reasonTitle}»",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                )
+            }
+        }
     }
 }
 

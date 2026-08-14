@@ -17,9 +17,13 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ListeningStatEntity::class,
         PlaybackFailureEntity::class,
         PlaybackEventEntity::class,
-        TombstoneEntity::class
+        TombstoneEntity::class,
+        CorrectionEntity::class,
+        SeriesEntity::class,
+        SeriesMemberEntity::class,
+        EditionSettingsEntity::class
     ],
-    version = 11,
+    version = 12,
     exportSchema = true
 )
 abstract class AudiobookDatabase : RoomDatabase() {
@@ -43,7 +47,7 @@ abstract class AudiobookDatabase : RoomDatabase() {
                     // upgrades, so a schema change fails loudly at runtime
                     // instead of silently dropping the database.
                     .addMigrations(
-                        MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11
+                        MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12
                     )
                     .build()
                 INSTANCE = instance
@@ -222,6 +226,72 @@ abstract class AudiobookDatabase : RoomDatabase() {
                         "bookId TEXT NOT NULL, " +
                         "deletedAt INTEGER NOT NULL, " +
                         "PRIMARY KEY(bookId))"
+                )
+            }
+        }
+
+        /**
+         * v11 -> v12 (stage-2 S1, the unified-library identity & memory
+         * bump): additive only — nullable identity columns and new tables,
+         * no existing row is touched. Carries the #55 Q2 work/edition ids
+         * (back-filled: `workId` = `mergeKey`, `chapters.editionId` =
+         * `bookId` for legacy rows), the #54 Q9 `corrections` memory, the
+         * #57 Q1 `series` + `series_members` membership, the #60 Q2
+         * `edition_settings`, and the #61 Q1 `playback_failures.category`
+         * column (null until the S7 classifier lands).
+         */
+        internal val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // #55 Q2: Work id pinned to the merge key. Rows without a key
+                // (pre-spec-10 imports) stay null until re-import.
+                db.execSQL("ALTER TABLE audiobooks ADD COLUMN workId TEXT")
+                db.execSQL("UPDATE audiobooks SET workId = mergeKey WHERE workId IS NULL AND mergeKey != ''")
+                // #55 Q2: Edition id on chapters — legacy rows had one edition
+                // per book, so their edition is the book row itself.
+                db.execSQL("ALTER TABLE chapters ADD COLUMN editionId TEXT")
+                db.execSQL("UPDATE chapters SET editionId = bookId WHERE editionId IS NULL")
+                // #61 Q1: diagnosability bucket; null until the classifier (S7).
+                db.execSQL("ALTER TABLE playback_failures ADD COLUMN category TEXT")
+                // #54 Q9: synced correction memory (merge/split/never-match/field).
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS corrections (" +
+                        "mergeKey TEXT NOT NULL, " +
+                        "kind TEXT NOT NULL, " +
+                        "value TEXT NOT NULL DEFAULT '', " +
+                        "origin TEXT NOT NULL DEFAULT 'USER_MADE', " +
+                        "updatedAt INTEGER NOT NULL, " +
+                        "updatedBy TEXT NOT NULL DEFAULT '', " +
+                        "PRIMARY KEY(mergeKey, kind, value))"
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_corrections_mergeKey ON corrections(mergeKey)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_corrections_updatedAt ON corrections(updatedAt)")
+                // #57 Q1: series + ordered membership.
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS series (" +
+                        "id TEXT NOT NULL, " +
+                        "title TEXT NOT NULL, " +
+                        "url TEXT, " +
+                        "PRIMARY KEY(id))"
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS series_members (" +
+                        "workId TEXT NOT NULL, " +
+                        "seriesId TEXT NOT NULL, " +
+                        "position INTEGER NOT NULL, " +
+                        "PRIMARY KEY(workId, seriesId))"
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_series_members_seriesId ON series_members(seriesId)")
+                // #60 Q2: per-edition playback settings, experimental toggles OFF.
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS edition_settings (" +
+                        "bookId TEXT NOT NULL, " +
+                        "sourceKey TEXT NOT NULL DEFAULT '', " +
+                        "rewindSeconds INTEGER, " +
+                        "sleepTimerDefaultSeconds INTEGER, " +
+                        "volumeBoostEnabled INTEGER NOT NULL DEFAULT 0, " +
+                        "silenceSkipEnabled INTEGER NOT NULL DEFAULT 0, " +
+                        "updatedAt INTEGER NOT NULL, " +
+                        "PRIMARY KEY(bookId, sourceKey))"
                 )
             }
         }

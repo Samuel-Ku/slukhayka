@@ -1,4 +1,4 @@
-# 4read Audiobook Library
+# Слухайка — Audiobook Library
 
 The domain describes a personal audiobook library that unifies works, audiobook renditions, available sources, and a listener's state across devices.
 

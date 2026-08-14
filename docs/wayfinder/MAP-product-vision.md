@@ -4,7 +4,7 @@ label: wayfinder:map
 created: 2026-08-07
 status: active
 tracker: github-issues
-map_issue: https://github.com/Samuel-Ku/4read-audiobooks-player/issues/22
+map_issue: https://github.com/Samuel-Ku/slukhayka/issues/22
 ---
 
 # Wayfinder Mirror — `mature-audiobook-library-vision`
@@ -13,7 +13,7 @@ map_issue: https://github.com/Samuel-Ku/4read-audiobooks-player/issues/22
 > This file is a local pointer so a checkout without network access
 > still shows the destination and current frontier.
 >
-> Map issue: [#22](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/22)
+> Map issue: [#22](https://github.com/Samuel-Ku/slukhayka/issues/22)
 
 ## Destination
 
@@ -34,20 +34,20 @@ Standing preferences:
 
 ## Decisions so far
 
-- [Listen-first IA (spec-9)](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/17) — 3 tabs Слухати/Огляд/Медіатека, landing on Слухати, series metadata from 4read posters, continue-the-series block, empty-state CTAs.
-- [Ukrainian Netflix-style Catalog & Library (spec-8)](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/8) — native Explore rows, series pages, SAF import (file + folder), WebView only as "open on site", local-file playback.
-- [Empty states audit](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/24) — house standard: icon + title + explanation + 1–2 CTAs in two sizes; ListenScreen is the reference; Медіатека sub-tabs, search-empty in Огляд, SeriesScreen retry are the gaps. Becomes composables under the Design-system ticket.
-- [4read catalog data audit](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/31) — book page carries rating+votes, multi-genre, narrator, total duration, full per-series list; poster only title/author/cover/series. Category/author landing URLs unconfirmed. Duration/narrator browsing needs per-book enrichment. Feeds Browse tab expansion.
-- [Enrichment data spike](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/30) — ~65–75 % of the catalog externally matchable; source order Google Books API (free key) → OpenLibrary (keyless) → Wikipedia (disambiguation needed) → Goodreads (tags). Smart collections GO with per-book fallback hiding non-matches. Feeds Smart collections design.
-- [Android Auto: MediaLibraryService](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/32) — GO: migrate MediaSessionService → MediaLibraryService (adds browse tree), maps onto Room books/chapters, no auto-start paths. Stage-4 work.
-- [Cast feasibility](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/33) — GO but last: media3-cast CastPlayer + Default Media Receiver (no fee/registration); custom receiver only for TV chapter UI. Back of stage 4.
-- [Backup & sync approach](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/35) — Auto Backup (dataExtractionRules) covers the Room DB free; manual SAF export/import for a full backup; audio excluded (over the ~25 MB cap); re-pick + re-scan after reinstall. Cloud sync ruled OUT of scope.
-- [Adaptive two-pane layout](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/36) — GO: stable material3-adaptive `ListDetailPaneScaffold` for Медіатека; `selectedBookId` maps onto the scaffold content key; gated on Library rework.
-- [Design system](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/23) — graphite-navy dark (primary) + warm-paper light schemes, one amber accent, editorial type scale, spacing/radius/≥48 dp touch tokens, cards 10–14 dp with minimal shadows, no card-in-card, animation budget decided; primitives `AppSectionHeader`/`EmptyState`/`EmptyStateRow` (empty-states house standard); Слухати migrated as the reference; legacy `Cyber*` aliases remain for other screens. Unblocks themes/player/library/book-page/accessibility.
-- [Smart rewind & position history](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/25) — tiered rewind on resume (0/3/12/25 s by pause length), in-memory + persisted pause markers (cross-restart), SeekHistory 5-min threshold + one-tap «Повернутися» undo in the player.
-- [Speed: per-book memory & defaults](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/26) — per-book preferredSpeed (Room 5→6) + PlaybackSettings global default; SpeedSheet presets 0.5–3.0 + slider + save-for-book/set-default; applied on book load.
-- [Three-level deletion](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/28) — removeFromLibrary (rows only, files kept) / delete downloaded copy / delete book + files behind explicit confirm; tombstones prevent catalogue resurrection.
-- [Light and dark themes](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/37) — `AudiobookTheme` follows the system setting (dark graphite-navy stays primary); all ~300 legacy `Cyber*` usages across 12 screens/components migrated to `MaterialTheme.colorScheme` roles; tests pin `darkTheme` explicitly; light-scheme hero-card snapshot as the light-mode guard.
+- [Listen-first IA (spec-9)](https://github.com/Samuel-Ku/slukhayka/issues/17) — 3 tabs Слухати/Огляд/Медіатека, landing on Слухати, series metadata from 4read posters, continue-the-series block, empty-state CTAs.
+- [Ukrainian Netflix-style Catalog & Library (spec-8)](https://github.com/Samuel-Ku/slukhayka/issues/8) — native Explore rows, series pages, SAF import (file + folder), WebView only as "open on site", local-file playback.
+- [Empty states audit](https://github.com/Samuel-Ku/slukhayka/issues/24) — house standard: icon + title + explanation + 1–2 CTAs in two sizes; ListenScreen is the reference; Медіатека sub-tabs, search-empty in Огляд, SeriesScreen retry are the gaps. Becomes composables under the Design-system ticket.
+- [4read catalog data audit](https://github.com/Samuel-Ku/slukhayka/issues/31) — book page carries rating+votes, multi-genre, narrator, total duration, full per-series list; poster only title/author/cover/series. Category/author landing URLs unconfirmed. Duration/narrator browsing needs per-book enrichment. Feeds Browse tab expansion.
+- [Enrichment data spike](https://github.com/Samuel-Ku/slukhayka/issues/30) — ~65–75 % of the catalog externally matchable; source order Google Books API (free key) → OpenLibrary (keyless) → Wikipedia (disambiguation needed) → Goodreads (tags). Smart collections GO with per-book fallback hiding non-matches. Feeds Smart collections design.
+- [Android Auto: MediaLibraryService](https://github.com/Samuel-Ku/slukhayka/issues/32) — GO: migrate MediaSessionService → MediaLibraryService (adds browse tree), maps onto Room books/chapters, no auto-start paths. Stage-4 work.
+- [Cast feasibility](https://github.com/Samuel-Ku/slukhayka/issues/33) — GO but last: media3-cast CastPlayer + Default Media Receiver (no fee/registration); custom receiver only for TV chapter UI. Back of stage 4.
+- [Backup & sync approach](https://github.com/Samuel-Ku/slukhayka/issues/35) — Auto Backup (dataExtractionRules) covers the Room DB free; manual SAF export/import for a full backup; audio excluded (over the ~25 MB cap); re-pick + re-scan after reinstall. Cloud sync ruled OUT of scope.
+- [Adaptive two-pane layout](https://github.com/Samuel-Ku/slukhayka/issues/36) — GO: stable material3-adaptive `ListDetailPaneScaffold` for Медіатека; `selectedBookId` maps onto the scaffold content key; gated on Library rework.
+- [Design system](https://github.com/Samuel-Ku/slukhayka/issues/23) — graphite-navy dark (primary) + warm-paper light schemes, one amber accent, editorial type scale, spacing/radius/≥48 dp touch tokens, cards 10–14 dp with minimal shadows, no card-in-card, animation budget decided; primitives `AppSectionHeader`/`EmptyState`/`EmptyStateRow` (empty-states house standard); Слухати migrated as the reference; legacy `Cyber*` aliases remain for other screens. Unblocks themes/player/library/book-page/accessibility.
+- [Smart rewind & position history](https://github.com/Samuel-Ku/slukhayka/issues/25) — tiered rewind on resume (0/3/12/25 s by pause length), in-memory + persisted pause markers (cross-restart), SeekHistory 5-min threshold + one-tap «Повернутися» undo in the player.
+- [Speed: per-book memory & defaults](https://github.com/Samuel-Ku/slukhayka/issues/26) — per-book preferredSpeed (Room 5→6) + PlaybackSettings global default; SpeedSheet presets 0.5–3.0 + slider + save-for-book/set-default; applied on book load.
+- [Three-level deletion](https://github.com/Samuel-Ku/slukhayka/issues/28) — removeFromLibrary (rows only, files kept) / delete downloaded copy / delete book + files behind explicit confirm; tombstones prevent catalogue resurrection.
+- [Light and dark themes](https://github.com/Samuel-Ku/slukhayka/issues/37) — `AudiobookTheme` follows the system setting (dark graphite-navy stays primary); all ~300 legacy `Cyber*` usages across 12 screens/components migrated to `MaterialTheme.colorScheme` roles; tests pin `darkTheme` explicitly; light-scheme hero-card snapshot as the light-mode guard.
 
 ## Tickets (children of map #22)
 

@@ -8,6 +8,8 @@ import com.example.data.catalog.CatalogGenre
 import com.example.data.catalog.CatalogPerson
 import com.example.data.catalog.CatalogSection
 import com.example.data.db.*
+import com.example.data.duration.DurationBook
+import com.example.data.duration.DurationBuckets
 import com.example.data.imports.ImportGrantStore
 import com.example.data.repository.AudiobookRepository
 import com.example.data.source.GlobalSearchResult
@@ -68,6 +70,33 @@ data class SelectedPerson(
     val path: String
 )
 
+/**
+ * spec-18 T3 (#114) — the Огляд «За тривалістю» rows, already bucketed by the
+ * pure [DurationBuckets] module into full book entities for the cards.
+ */
+data class DurationBooks(
+    val short: List<AudiobookEntity>,
+    val long: List<AudiobookEntity>
+)
+
+/**
+ * spec-18 T3 (#114) — the bucketing-and-join glue between the library and the
+ * UI rows: feed every book to the pure [DurationBuckets] module, then map the
+ * bucketed ids back to the full entities the cards render. Extracted from the
+ * ViewModel flow so the render contract ("rows show exactly the bucketed
+ * books") is pinned by a JVM test.
+ */
+fun durationBooksFrom(books: List<AudiobookEntity>): DurationBooks {
+    val byId = books.associateBy { it.id }
+    val (short, long) = DurationBuckets.splitByDuration(
+        books.map { DurationBook(it.id, it.totalDurationSeconds) }
+    )
+    return DurationBooks(
+        short = short.mapNotNull { byId[it.id] },
+        long = long.mapNotNull { byId[it.id] }
+    )
+}
+
 // Phase 2.5 hotfix: flatMapLatest is @ExperimentalCoroutinesApi.
 @OptIn(ExperimentalCoroutinesApi::class)
 class MainViewModel(application: Application) : AndroidViewModel(application) {
@@ -121,6 +150,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     val allBookmarks: StateFlow<List<BookmarkEntity>> = repository.allBookmarks
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // spec-18 T3: the Огляд «За тривалістю» rows, derived live from the
+    // library through the pure DurationBuckets module — only books with a
+    // known duration surface, never guesses. Rows grow by themselves as
+    // listing pages, opened book pages and the background enrichment pass
+    // store real durations. The bucketing-and-join itself is the pure
+    // [durationBooksFrom] function, pinned by a JVM test.
+    val durationBooks: StateFlow<DurationBooks> = allBooks
+        .map { books -> durationBooksFrom(books) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), DurationBooks(emptyList(), emptyList()))
 
     // Wayfinder #39: the unified Медіатека list — every book with its playback
     // state and chapter-derived metrics. Filtering and sorting happen in the

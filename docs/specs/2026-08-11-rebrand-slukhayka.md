@@ -28,7 +28,7 @@ Rebrand the app to a neutral, source-independent identity: **«Слухайка�
 - **New app name: «Слухайка»** — chosen by the user over «Оповідь» / «Моя аудіокнига» / «Камертон»; short, Ukrainian, calm, and deliberately NOT sharing the root «слух-» with the sluhay/sluhayua *sources* was considered, but the user's choice stands. Known UI footnote: the source badge «Sluhay» and the name «Слухайка» both contain «слух/слух» — acceptable; if it ever feels confusing, a follow-up can disambiguate badge copy.
 - **Single brand surface.** The app name is one string resource consumed by the launcher label, the app attribution and the media notification — no other user-facing copy mentions the brand (all UI text is hardcoded in Compose and carries no «4read»). Legacy placeholder authors («4read.org», «Аудиокнига 4read.org») are already filtered from display and stay untouched.
 - **Icon: new vector art, generated in-repo.** «Book + sound wave» glyph in the brand accent `#E9A13B` (warm amber — the single design-system accent) on the dark graphite background, matching the dark-primary design direction (wayfinder #23). Adaptive foreground/background (API 26+) plus legacy raster webps for API 24–25 regenerated from the same art with PIL + cwebp at the standard densities (mdpi–xxxhdpi, 48–192 px, round included).
-- **Non-goals (locked in the grilling):** applicationId stays `com.aistudio.audiobook.read` (already neutral — changing it pre-release adds risk for zero user value); repo name `4read-audiobooks-player` stays (GitHub history); source id `4read`, `FourReadAdapter`, `FourReadWebScreen`, all `4read.org` URLs stay (functional); the «4read» source badge stays (factual site label); the source-badge display-name mapping is untouched.
+- **Non-goals (locked in the grilling):** applicationId stays `com.aistudio.audiobook.read` (already neutral — changing it pre-release adds risk for zero user value); repo name `slukhayka` stays (GitHub history); source id `4read`, `FourReadAdapter`, `FourReadWebScreen`, all `4read.org` URLs stay (functional); the «4read» source badge stays (factual site label); the source-badge display-name mapping is untouched.
 - **English name:** deferred — added when a store listing exists; the code ships Ukrainian-only today.
 
 ## Testing Decisions
@@ -40,7 +40,7 @@ Rebrand the app to a neutral, source-independent identity: **«Слухайка�
 ## Out of Scope
 
 - **Application id change** — stays `com.aistudio.audiobook.read`.
-- **Repo rename** — stays `4read-audiobooks-player`.
+- **Repo rename** — stays `slukhayka`.
 - **Source badge copy** — «4read» badge in search results and the `sourceDisplayName` mapping stay.
 - **Legacy placeholder cleanup** — DB rows with «4read.org» placeholder authors stay (already display-filtered).
 - **English/localized app name** — deferred to store listing.

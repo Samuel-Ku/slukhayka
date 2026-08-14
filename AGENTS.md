@@ -4,7 +4,7 @@
 
 ### Issue tracker
 
-Issues live as GitHub issues in `Samuel-Ku/4read-audiobooks-player`; use the `gh` CLI.
+Issues live as GitHub issues in `Samuel-Ku/slukhayka`; use the `gh` CLI.
 External PRs are not a triage surface. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels

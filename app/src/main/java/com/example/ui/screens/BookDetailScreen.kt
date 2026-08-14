@@ -30,12 +30,19 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.catalog.CatalogBook
+import com.example.data.catalog.CatalogPerson
 import com.example.data.db.AudiobookEntity
 import com.example.data.db.BookmarkEntity
 import com.example.data.db.ChapterEntity
 import com.example.ui.MainViewModel
+import com.example.ui.bookPersonPath
 import com.example.ui.components.BookmarkDialog
 import com.example.ui.displayAuthor
+import com.example.ui.displayNarrator
+import com.example.ui.library.BookPlayState
+import com.example.ui.library.bookPlayLabel
+import com.example.ui.library.bookPlayState
+import com.example.ui.library.bookPositionAndTotal
 import com.example.ui.theme.*
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -51,6 +58,9 @@ fun BookDetailScreen(
     val playerState by viewModel.playerState.collectAsState()
     val downloadingBookId by viewModel.downloadingBookId.collectAsState()
     val downloadMessage by viewModel.downloadMessage.collectAsState()
+    val favoriteBooks by viewModel.favoriteBooks.collectAsState()
+    val recentProgress by viewModel.recentProgress.collectAsState()
+    val inSeriesBooks by viewModel.inSeriesBooks.collectAsState()
     // Spec-15 T5: what every source carrying the Work says about it.
     val sourceProfiles by viewModel.sourceProfiles.collectAsState()
     val isSourceProfilesLoading by viewModel.isSourceProfilesLoading.collectAsState()
@@ -66,6 +76,23 @@ fun BookDetailScreen(
     // hide the download action; the repository refuses anyway, in depth.
     val streamOnly = viewModel.isStreamOnly(currentBook)
 
+    // #40 decision 1: the main button reflects the book's real state — plain
+    // start, resume-with-position, re-listen of a finished book, or the live
+    // Playing label while this book is on the player. Position and total run
+    // on the same rule as the library card (spec-16 T4).
+    val progress = recentProgress.firstOrNull { it.bookId == currentBook.id }
+    val (cumulativePosition, totalDuration) = bookPositionAndTotal(
+        chapters = chapters,
+        progress = progress,
+        bookTotalDurationSeconds = currentBook.totalDurationSeconds
+    )
+    val playState = bookPlayState(
+        isPlayingThisBook = playerState.currentBook?.id == currentBook.id,
+        progress = progress,
+        cumulativePositionSeconds = cumulativePosition,
+        totalDurationSeconds = totalDuration
+    )
+
     // Offline-download outcome feedback: the repository may find no audio for
     // a catalogue book whose page could not be fetched — surface that instead
     // of the button silently doing nothing.
@@ -77,10 +104,12 @@ fun BookDetailScreen(
         }
     }
 
-    // Related books ("Можливо, Тебе зацікавить:") — load once per opened book;
-    // navigating to a related book re-triggers this via the new book id.
+    // Related books ("Можливо, Тебе зацікавить:") and the book's series
+    // volumes ("У серії") — load once per opened book; navigating to a
+    // related book re-triggers both via the new book id.
     LaunchedEffect(currentBook.id) {
         viewModel.loadRelatedBooks(currentBook.id)
+        viewModel.loadInSeriesBooks(currentBook.id)
     }
 
     Scaffold(
@@ -98,6 +127,14 @@ fun BookDetailScreen(
                     }
                 },
                 actions = {
+                    // #40 decision 1: the favourite toggle lives on the book
+                    // page itself — the place where the user decides a book is
+                    // worth keeping at hand.
+                    val isFavoriteThis = favoriteBooks.any { it.id == currentBook.id }
+                    FavoriteButton(
+                        isFavorite = isFavoriteThis,
+                        onToggle = { viewModel.toggleFavorite(currentBook.id, !isFavoriteThis) }
+                    )
                     // Spec #8 ticket T4: the WebView is no longer a tab — a
                     // book page keeps an "open on site" escape hatch instead.
                     if (currentBook.sourceUrl.contains("4read.org")) {
@@ -219,22 +256,56 @@ fun BookDetailScreen(
                     Spacer(modifier = Modifier.height(4.dp))
 
                     // "4read.org" is a placeholder author, not a real one — the
-                    // Source pill below already names the catalog.
+                    // Source pill below already names the catalog. #40: a real
+                    // author's name opens their catalogue page
+                    // (`/xfsearch/avtor/…`), a placeholder renders as text.
                     if (currentBook.displayAuthor.isNotBlank()) {
                         Text(
                             text = "By ${currentBook.displayAuthor}",
                             style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.primary
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier
+                                .testTag("book_detail_author_link")
+                                .clickable {
+                                    viewModel.openPersonBooks(
+                                        CatalogPerson(
+                                            name = currentBook.displayAuthor,
+                                            path = bookPersonPath("avtor", currentBook.displayAuthor),
+                                            bookCount = 0
+                                        )
+                                    )
+                                }
                         )
                     }
 
+                    // #40: a real narrator is a tappable person link
+                    // (`/xfsearch/chitaet/…`); the repository's fabricated
+                    // "4read Voice Narrator" placeholder stays plain text.
+                    val narratorName = currentBook.displayNarrator
                     Text(
                         text = "Narrated by ${currentBook.narrator}",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .then(
+                                if (narratorName.isNotBlank()) {
+                                    Modifier.clickable {
+                                        viewModel.openPersonBooks(
+                                            CatalogPerson(
+                                                name = narratorName,
+                                                path = bookPersonPath("chitaet", narratorName),
+                                                bookCount = 0
+                                            )
+                                        )
+                                    }
+                                } else {
+                                    Modifier
+                                }
+                            )
+                            .testTag("book_detail_narrator_link"),
                         textAlign = TextAlign.Center
                     )
 
@@ -302,6 +373,22 @@ fun BookDetailScreen(
                                 border = null
                             )
                         }
+
+                        // #40 decision 1: the book's series names its neighbours —
+                        // the pill opens the series page (spec-9 T1), where the
+                        // volume order and the next-unread CTA live.
+                        val seriesTitle = currentBook.seriesTitle.orEmpty()
+                        if (seriesTitle.isNotBlank()) {
+                            SeriesPill(
+                                seriesTitle = seriesTitle,
+                                seriesIndex = currentBook.seriesIndex ?: 0,
+                                onClick = {
+                                    currentBook.seriesUrl?.takeIf { it.isNotBlank() }?.let { url ->
+                                        viewModel.openSeries(seriesTitle, url)
+                                    }
+                                }
+                            )
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(16.dp))
@@ -367,7 +454,13 @@ fun BookDetailScreen(
                     ) {
                         Button(
                             onClick = {
-                                viewModel.playAudiobook(currentBook)
+                                // #40 decision 1: a finished book asks to
+                                // restart from the top (RELISTEN); everything
+                                // else starts or resumes.
+                                when (playState) {
+                                    BookPlayState.Finished -> viewModel.relistenBook(currentBook)
+                                    else -> viewModel.playAudiobook(currentBook)
+                                }
                                 viewModel.setShowFullPlayer(true)
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
@@ -382,9 +475,11 @@ fun BookDetailScreen(
                             Icon(imageVector = Icons.Default.PlayArrow, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary)
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = if (playerState.currentBook?.id == currentBook.id && playerState.isPlaying) "Playing" else "Play",
+                                text = bookPlayLabel(playState) { MainViewModel.formatTime(it) },
                                 fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onPrimary
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
 
@@ -569,6 +664,39 @@ fun BookDetailScreen(
                     }
                 }
             }
+
+            // #40 decision 1: the other volumes of the book's series ("У
+            // серії"), the book itself excluded. The series fetch is session-
+            // cached, so this row costs nothing once the series page loaded.
+            if (inSeriesBooks.isNotEmpty()) {
+                item {
+                    Text(
+                        text = "У серії",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 20.dp, bottom = 8.dp)
+                    )
+                }
+                item {
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        items(inSeriesBooks, key = { it.id }) { seriesBook ->
+                            CatalogBookCard(
+                                book = CatalogBook(
+                                    id = seriesBook.id,
+                                    title = seriesBook.title,
+                                    author = seriesBook.author,
+                                    url = seriesBook.sourceUrl,
+                                    coverImageUrl = seriesBook.coverImageUrl
+                                ),
+                                onClick = { viewModel.selectBook(seriesBook.id) }
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -747,6 +875,59 @@ private fun TagPill(
             text = text,
             style = MaterialTheme.typography.labelSmall,
             color = color,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+        )
+    }
+}
+
+/**
+ * #40 decision 1 — the book page's favourite toggle: a filled heart when the
+ * book is in «Улюблені», an outlined one otherwise. Public so the snapshot
+ * seam can pin both states and the toggle from fixture data.
+ */
+@Composable
+fun FavoriteButton(
+    isFavorite: Boolean,
+    onToggle: () -> Unit
+) {
+    IconButton(onClick = onToggle, modifier = Modifier.testTag("favorite_toggle_button")) {
+        Icon(
+            imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+            contentDescription = if (isFavorite) "Прибрати з улюблених" else "Додати в улюблені",
+            tint = if (isFavorite) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
+        )
+    }
+}
+
+/**
+ * #40 decision 1 — the book's series as a tappable pill on the book page:
+ * "«Чаклун» • Кн. 2". Opens the series catalogue page (spec-9 T1
+ * SeriesScreen), which holds the volume order and the next-unread-volume
+ * CTA. Public (not private) so the snapshot seam can pin the pill's
+ * presence and tap through it with fixture data.
+ */
+@Composable
+fun SeriesPill(
+    seriesTitle: String,
+    seriesIndex: Int,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+        shape = RoundedCornerShape(AppDimens.RadiusCard),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
+        ),
+        modifier = Modifier.testTag("book_detail_series_pill")
+    ) {
+        Text(
+            text = if (seriesIndex > 0) "«$seriesTitle» • Кн. $seriesIndex" else "«$seriesTitle»",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.primary,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)

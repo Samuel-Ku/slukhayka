@@ -637,6 +637,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         } else {
             _relatedBooks.value = emptyList()
             _sourceProfiles.value = emptyList()
+            _inSeriesBooks.value = emptyList()
         }
     }
 
@@ -676,11 +677,42 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    // #40 decision 1: the book page's «У серії» row — every other volume of
+    // the book's series. Same clear-first / stale-guard discipline as
+    // [loadRelatedBooks].
+    private val _inSeriesBooks = MutableStateFlow<List<AudiobookEntity>>(emptyList())
+    val inSeriesBooks: StateFlow<List<AudiobookEntity>> = _inSeriesBooks.asStateFlow()
+
+    fun loadInSeriesBooks(bookId: String) {
+        _inSeriesBooks.value = emptyList()
+        viewModelScope.launch(Dispatchers.IO) {
+            val books = repository.fetchInSeriesBooks(bookId)
+            if (_selectedBookId.value == bookId) {
+                _inSeriesBooks.value = books
+            }
+        }
+    }
+
     fun setShowFullPlayer(show: Boolean) {
         _showFullPlayer.value = show
     }
 
     fun playAudiobook(book: AudiobookEntity, chapterIndex: Int? = null, autoPlay: Boolean = true) {
+        startAudiobookPlayback(book, chapterIndex = chapterIndex, autoPlay = autoPlay, forceRelisten = false)
+    }
+
+    // #40 decision 1: the book page's «Почати спочатку» — always chapter 0 /
+    // position 0, logged as RELISTEN, no smart-rewind of a stale pause marker.
+    fun relistenBook(book: AudiobookEntity) {
+        startAudiobookPlayback(book, chapterIndex = null, autoPlay = true, forceRelisten = true)
+    }
+
+    private fun startAudiobookPlayback(
+        book: AudiobookEntity,
+        chapterIndex: Int?,
+        autoPlay: Boolean,
+        forceRelisten: Boolean
+    ) {
         viewModelScope.launch(Dispatchers.IO) {
             val updatedBook = repository.getBookSync(book.id) ?: book
             val chapters = repository.getChaptersList(updatedBook.id)
@@ -689,11 +721,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             // playback for it.
             if (repository.getBookSync(updatedBook.id) == null) return@launch
             val progress = repository.getProgressSync(updatedBook.id)
-            
+
             val startChapter: Int
             var startPositionSec: Long
 
-            if (chapterIndex != null) {
+            if (forceRelisten) {
+                startChapter = 0
+                startPositionSec = 0L
+            } else if (chapterIndex != null) {
                 // User explicitly selected a specific chapter
                 startChapter = chapterIndex
                 startPositionSec = if (progress != null && progress.currentChapterIndex == chapterIndex) {
@@ -709,14 +744,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
             // Smart rewind across restarts (wayfinder #25): the resume position
             // is rewound by how long ago the book was paused, and the marker is
-            // cleared so the same pause never rewinds twice.
-            progress?.lastPausedAtEpochMs?.let { pausedAt ->
-                val rewindSec = SmartRewind.computeRewindSeconds(System.currentTimeMillis() - pausedAt)
-                if (rewindSec > 0L && startPositionSec > rewindSec) {
-                    startPositionSec -= rewindSec
+            // cleared so the same pause never rewinds twice. A forced re-listen
+            // starts at zero and has nothing to rewind.
+            if (!forceRelisten) {
+                progress?.lastPausedAtEpochMs?.let { pausedAt ->
+                    val rewindSec = SmartRewind.computeRewindSeconds(System.currentTimeMillis() - pausedAt)
+                    if (rewindSec > 0L && startPositionSec > rewindSec) {
+                        startPositionSec -= rewindSec
+                    }
+                    // Spec-10 T2: the marker lives on the source's progress row.
+                    repository.updatePausedAt(updatedBook.id, null, sourceKey = progress.sourceKey)
                 }
-                // Spec-10 T2: the marker lives on the source's progress row.
-                repository.updatePausedAt(updatedBook.id, null, sourceKey = progress.sourceKey)
             }
 
             withContext(Dispatchers.Main) {
@@ -725,7 +763,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     chapters = chapters,
                     initialChapterIndex = startChapter,
                     initialPositionSeconds = startPositionSec,
-                    autoPlay = autoPlay
+                    autoPlay = autoPlay,
+                    forceRelisten = forceRelisten
                 )
             }
 

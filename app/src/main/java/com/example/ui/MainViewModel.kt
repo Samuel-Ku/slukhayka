@@ -617,6 +617,78 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    // Spec-19 Track A (on-device recommendations): the «Рекомендовано для
+    // вас» row in Огляд. Signals = favourite (1.0) + completed (0.8) +
+    // recently listened (0.6); candidates = the unified catalogue plus the
+    // library; already-known books are excluded. Pure JVM engine, local
+    // keyword baseline embedder behind the TextEmbedder seam — no network,
+    // no telemetry (Q2/Q8). The engine is recomputed on every signal change;
+    // cheap for a few-thousand-book catalogue (brute-force cosine, Q4).
+    val recommendedBooks: StateFlow<List<com.example.data.recommend.RecommendationEngine.Recommendation>> = combine(
+        libraryBooks,
+        unifiedCatalog
+    ) { library, catalog ->
+        val embedder = com.example.data.recommend.KeywordEmbedder()
+        val signals = library.flatMap { lb ->
+            val weight = when {
+                lb.book.isFavorite -> 1.0
+                lb.isCompleted -> 0.8
+                else -> 0.0
+            }
+            if (weight > 0.0) {
+                listOf(
+                    com.example.data.recommend.RecommendationEngine.Signal(
+                        id = lb.book.id,
+                        title = lb.book.title,
+                        author = lb.book.author,
+                        genre = lb.book.genre,
+                        weight = weight
+                    )
+                )
+            } else emptyList()
+        }
+        val recentlyListened = recentProgress.value
+            .sortedByDescending { it.lastListenedAt }
+            .take(5)
+            .mapNotNull { row ->
+                library.firstOrNull { it.book.id == row.bookId }?.let { lb ->
+                    com.example.data.recommend.RecommendationEngine.Signal(
+                        id = lb.book.id,
+                        title = lb.book.title,
+                        author = lb.book.author,
+                        genre = lb.book.genre,
+                        weight = 0.6
+                    )
+                }
+            }
+        val allSignals = signals + recentlyListened
+        // Candidates are catalogue cards only: every library book is excluded
+        // anyway, and the row's job is to surface books the user does not
+        // know yet. The card id is the Work key, so tapping plays from the
+        // found source (playRecommended).
+        val candidates = catalog.map { result ->
+            com.example.data.recommend.RecommendationEngine.Candidate(
+                id = result.key,
+                title = result.title,
+                author = result.author
+            )
+        }
+        val knownIds = library.map { it.book.id }.toSet()
+        com.example.data.recommend.RecommendationEngine.recommend(
+            candidates = candidates,
+            signals = allSignals,
+            embedder = embedder,
+            excludeIds = knownIds,
+            topN = 10
+        )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** Plays a recommended catalogue card from its first found source. */
+    fun playRecommended(candidateId: String) {
+        val result = unifiedCatalog.value.firstOrNull { it.key == candidateId } ?: return
+        playGlobalSearchResult(result)
+    }
+
     fun selectGenreFilter(genre: String) {
         _selectedGenreFilter.value = genre
     }

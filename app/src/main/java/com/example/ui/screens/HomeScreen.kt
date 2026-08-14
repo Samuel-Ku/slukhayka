@@ -143,7 +143,7 @@ fun HomeScreen(
                         }
                         Spacer(modifier = Modifier.width(10.dp))
                         Text(
-                            text = "4Read Audio",
+                            text = "Слухайка",
                             style = MaterialTheme.typography.titleLarge.copy(
                                 fontWeight = FontWeight.ExtraBold,
                                 letterSpacing = 1.sp

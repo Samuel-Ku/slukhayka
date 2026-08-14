@@ -116,6 +116,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val favoriteBooks: StateFlow<List<AudiobookEntity>> = repository.getFavoriteAudiobooks()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    // spec-16 T2: the «Колекції» rows — matched collections recomputed by the
+    // repository on every catalog sync; the UI renders only what matched.
+    val smartCollections: StateFlow<List<com.example.data.collection.MatchedCollection>> =
+        repository.smartCollections
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     val listeningStats: StateFlow<List<ListeningStatEntity>> = repository.getAllListeningStats()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 

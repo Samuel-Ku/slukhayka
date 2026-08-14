@@ -23,6 +23,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.util.Locale
 
 // Spec #8 ticket T4: the WebView is no longer a tab — it survives only as the
@@ -619,11 +620,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     // Spec-19 Track A (on-device recommendations): the «Рекомендовано для
     // вас» row in Огляд. Signals = favourite (1.0) + completed (0.8) +
-    // recently listened (0.6); candidates = the unified catalogue plus the
-    // library; already-known books are excluded. Pure JVM engine, local
-    // keyword baseline embedder behind the TextEmbedder seam — no network,
-    // no telemetry (Q2/Q8). The engine is recomputed on every signal change;
-    // cheap for a few-thousand-book catalogue (brute-force cosine, Q4).
+    // recently listened (0.6); candidates = the unified catalogue;
+    // already-known books are excluded. Pure JVM engine, local keyword
+    // baseline embedder behind the TextEmbedder seam — no network, no
+    // telemetry (Q2/Q8).
+    //
+    // Q7: catalogue vectors come from the file cache keyed by catalogue
+    // version (CatalogEmbeddingService) — the background pass recomputes
+    // only on a version change; the row reads the cached map. Signal vectors
+    // are few (library books), so they embed inline.
+    private val embeddingCache = com.example.data.recommend.EmbeddingCache(
+        File(application.filesDir, "embeddings")
+    )
+    private val embeddingService = com.example.data.recommend.CatalogEmbeddingService(embeddingCache)
+
     val recommendedBooks: StateFlow<List<com.example.data.recommend.RecommendationEngine.Recommendation>> = combine(
         libraryBooks,
         unifiedCatalog
@@ -674,10 +684,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
         val knownIds = library.map { it.book.id }.toSet()
-        com.example.data.recommend.RecommendationEngine.recommend(
+        if (candidates.isEmpty() || allSignals.isEmpty()) return@combine emptyList()
+        // Catalogue vectors: cached per version (Q7). Signal vectors: embed
+        // the few library signals inline and merge them into the map.
+        val vectors = embeddingService.vectorsFor(candidates, embedder).toMutableMap()
+        for (signal in allSignals) {
+            if (signal.id !in vectors) vectors[signal.id] = embedder.embed(signal.text)
+        }
+        com.example.data.recommend.RecommendationEngine.recommendWithVectors(
             candidates = candidates,
             signals = allSignals,
-            embedder = embedder,
+            vectors = vectors,
             excludeIds = knownIds,
             topN = 10
         )

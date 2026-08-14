@@ -4,26 +4,26 @@ How the engineering skills should consume this repo's domain documentation when 
 
 ## Before exploring, read these
 
-- **`CONTEXT.md`** at the repo root — the domain's ubiquitous language (Work, Edition, Source, Chapter, Series, Metadata Assertion/Override, Library Entry, Listening State, Tombstone) with explicit _Avoid_ terms. The primary domain reference.
-- **`docs/adr/`** — past architectural decisions (ADR-0001: separate Work / Edition / Source / listener state, the repo's identity backbone).
-- **`docs/CODEMAPS/`** — per-module codemaps (audio-player, book-library, ui-system, webview-bridge, app-entry, build-config, tests, migration-artefacts). Module-level reference for where code lives.
+- **`CONTEXT.md`** at the repo root — **does not exist yet**; proceed silently. The `/domain-modeling` skill creates it lazily when terms get resolved.
+- **`docs/wayfinder/`** — contains ADR-001 (Compose snapshot infra) and ADR-002 (emulator audio scenario), plus the coverage map mirror.
+- **`docs/CODEMAPS/`** — per-module codemaps (audio-player, book-library, ui-system, webview-bridge, app-entry, build-config, tests, migration-artefacts). These are the de-facto module reference until CONTEXT.md exists.
 
 ## File structure
 
-Single-context repo: one Android app module (`app/`), no monorepo split. One `CONTEXT.md` + `docs/adr/` at the repo root.
+Single-context repo: one Android app module (`app/`), no monorepo split.
 
-## Glossary (current vocabulary, from CONTEXT.md + code)
+## Glossary (current vocabulary, from codemaps + code)
 
-- **Work** — `AudiobookEntity` family's abstract identity: the authored book, independent of narration/source. Owns bibliographic identity and series membership, not progress.
-- **Edition** — one rendition of a Work (language, narrator, chapter topology); `EditionEntity`.
-- **Source** — a provenance-bearing origin/copy through which an Edition is played (local folder, M4B, 4read stream, downloaded copy); `SourceEntity`, `sourceId` like `4read`.
-- **Source Binding** — a device's locator/permission/availability for a Source; `SourceBindingEntity`.
-- **Chapter** — an ordered logical subdivision of an Edition; `ChapterEntity` (streamUrl, duration, download state).
-- **Series** — a named bibliographic sequence; `SeriesEntity`.
-- **Listening State** — listener progress/bookmarks/completion for one Edition; `PlaybackProgressEntity`, `BookmarkEntity`, `ListeningStatEntity`.
-- **Tombstone** — durable removal record preventing silent re-imports.
-- **Каталог (catalog)** — multi-source aggregation via the `SourceAdapter` seam (`SourceBook`, `SourceBookDetail`) — one parser per source, repository persists.
+- **Книга (book)** — `AudiobookEntity`: catalog metadata (id, title, author, narrator, cover, genre, sourceUrl, download state, rating).
+- **Глава (chapter)** — `ChapterEntity`: per-book chapter with `streamUrl`, duration, download state.
+- **Закладка (bookmark)** — `BookmarkEntity`: user bookmark at (chapterIndex, timestampSeconds).
+- **Прогрес (progress)** — `PlaybackProgressEntity`: last listened position per book.
+- **Статистика (listening stats)** — `ListeningStatEntity`: daily listened-seconds rollup.
+- **Каталог (catalog)** — the 4read.org book list fetched via HTML parsing (`fetchCatalogFrom4Read`, `searchAudiobooksOn4Read`).
+- **Офлайн (offline download)** — per-chapter audio files under `filesDir/audiobooks`.
+- **Плеєр (player manager)** — `AudioPlayerManager`, app-scoped, wraps one long-lived ExoPlayer + MediaSession.
+- **Бібліотека (library)** — the personal shelf screen (downloaded / favorites / bookmarks / stats sub-tabs).
 
 ## Flag ADR conflicts
 
-If your output contradicts an existing ADR (in `docs/adr/`), surface it explicitly rather than silently overriding.
+If your output contradicts an existing ADR (in `docs/wayfinder/`), surface it explicitly rather than silently overriding.

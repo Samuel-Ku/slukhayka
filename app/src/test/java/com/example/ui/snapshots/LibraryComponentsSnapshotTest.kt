@@ -32,7 +32,8 @@ import org.robolectric.annotation.GraphicsMode
  * `MainViewModel` instance; we exercise the building blocks instead:
  *
  * - [LibraryBookCard] in list and grid modes — the unified book card that
- *   now powers the whole Медіатека (progress, remaining time, source badge).
+ *   powers the whole Медіатека (progress, remaining time). The source badge
+ *   is gone (spec-20 T2 hides source brands from the UI).
  * - [ListeningStatsCard] — the Статистика tab body.
  *
  * Every fixture comes from `TestDataFactory`; the card input is a
@@ -50,20 +51,6 @@ class LibraryComponentsSnapshotTest {
     private val chapters = TestDataFactory.dataChapters(books)
     private val progress = TestDataFactory.seedPlaybackProgress(books, chapterIndex = 1, positionSeconds = 300L)
     private val libraryBooks = buildLibraryBooks(books, progress, chapters.groupBy { it.bookId })
-
-    // Spec-15 T6: a book from a non-4read source, so the card's badge shows
-    // the real source («Sluhay»), not a hardcoded «4read».
-    private val sluhayBook = buildLibraryBooks(
-        listOf(
-            TestDataFactory.dataBooks()[0].copy(
-                id = "sluhay-pasazhir",
-                title = "Пасажир",
-                sourceUrl = "https://sluhay.com/svitova-literatura/6177-pasazhir.html"
-            )
-        ),
-        emptyList(),
-        emptyMap()
-    ).single()
 
     @Test
     fun book_card_list_mode() {
@@ -90,20 +77,6 @@ class LibraryComponentsSnapshotTest {
         }
         composeTestRule.onRoot().captureRoboImage(
             filePath = "src/test/snapshots/library_book_card_grid.png"
-        )
-    }
-
-    @Test
-    fun book_card_sluhay_source_badge() {
-        composeTestRule.setContent {
-            AudiobookTheme(darkTheme = true) {
-                LibrarySurface {
-                    LibraryBookCard(book = sluhayBook, grid = false, onClick = {})
-                }
-            }
-        }
-        composeTestRule.onRoot().captureRoboImage(
-            filePath = "src/test/snapshots/library_book_card_sluhay_badge.png"
         )
     }
 

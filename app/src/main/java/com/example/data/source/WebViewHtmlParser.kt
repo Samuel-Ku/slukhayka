@@ -228,7 +228,7 @@ class WebViewHtmlParser {
             .joinToString(" ") { word ->
                 word.replaceFirstChar { if (it.isLowerCase()) it.titlecase(java.util.Locale.getDefault()) else it.toString() }
             }
-            .ifBlank { "Аудиокнига 4read" }
+            .ifBlank { "Аудиокнига" }
     }
 
     /**

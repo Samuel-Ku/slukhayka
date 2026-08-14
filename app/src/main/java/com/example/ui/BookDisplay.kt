@@ -1,17 +1,18 @@
 package com.example.ui
 
 import com.example.data.db.AudiobookEntity
+import com.example.data.rebrand.PlaceholderScrub
 
 /**
  * Author label for the UI. The repository seeds several placeholder authors
  * for books without a real one ("4read.org", "Аудиокнига 4read.org");
  * rendering them under every title makes screens repeat "4read" over and
  * over. Blank any of them here — the source badge / pill already tells the
- * user where the book came from. Safe to match on "4read": no real author
- * name contains it.
+ * user where the book came from. Safe to match on the brand token: no real
+ * author name contains it.
  */
 val AudiobookEntity.displayAuthor: String
-    get() = author.takeUnless { it.contains("4read", ignoreCase = true) }.orEmpty()
+    get() = author.takeUnless { PlaceholderScrub.containsBrand(it) }.orEmpty()
 
 /**
  * Narrator label for the UI. Same scrub as [displayAuthor]: the repository
@@ -29,7 +30,7 @@ val AudiobookEntity.displayNarrator: String
  * shows the line as plain text. Mirrors the scrub of [displayAuthor].
  */
 fun isRealPersonName(name: String): Boolean =
-    name.isNotBlank() && !name.contains("4read", ignoreCase = true)
+    name.isNotBlank() && !PlaceholderScrub.containsBrand(name)
 
 /**
  * #40: the fresh person-books path mirrors the site's own URL shape —

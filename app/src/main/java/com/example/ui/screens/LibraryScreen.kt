@@ -507,7 +507,6 @@ private fun LibraryBookRowContent(book: LibraryBook) {
                 } else {
                     Spacer(modifier = Modifier.weight(1f))
                 }
-                SourceBadge(book)
                 if (book.book.isDownloaded) {
                     Spacer(modifier = Modifier.width(6.dp))
                     Icon(
@@ -583,7 +582,6 @@ private fun LibraryBookGridContent(book: LibraryBook) {
                 } else {
                     Spacer(modifier = Modifier.weight(1f))
                 }
-                SourceBadge(book)
                 if (book.book.isDownloaded) {
                     Spacer(modifier = Modifier.width(6.dp))
                     Icon(
@@ -595,26 +593,6 @@ private fun LibraryBookGridContent(book: LibraryBook) {
                 }
             }
         }
-    }
-}
-
-/**
- * Small unobtrusive source badge: «Локальна» for local imports, else the
- * book's real source (4read, Sluhay, Sound-Books, …) — spec-15 T6, one badge
- * for the whole multi-source library.
- */
-@Composable
-private fun SourceBadge(book: LibraryBook) {
-    Surface(
-        color = MaterialTheme.colorScheme.primaryContainer,
-        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-        shape = RoundedCornerShape(AppDimens.RadiusXs)
-    ) {
-        Text(
-            text = book.sourceName,
-            style = MaterialTheme.typography.labelSmall,
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-        )
     }
 }
 

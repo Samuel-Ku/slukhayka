@@ -16,6 +16,7 @@ import com.example.data.imports.FolderRescan
 import com.example.data.imports.LocalAudioEntry
 import com.example.data.imports.LocalFolderScanner
 import com.example.data.merge.MergeKey
+import com.example.data.rebrand.PlaceholderScrub
 import com.example.data.sha256Hex
 import com.example.data.source.AudiobookMp3Adapter
 import com.example.data.source.FourReadAdapter
@@ -148,12 +149,18 @@ class AudiobookRepository(
                 // Spec-14 T2/T3: the shared import path persists the enriched
                 // profile the seam now provides (genres → genre, rating,
                 // series) — every import door's card agrees with the source.
+                // spec-20 T3: placeholder fields pass through PlaceholderScrub
+                // so a 4read import never writes the brand into author,
+                // narrator or the provenance description; other sources are
+                // untouched by the rules.
                 val book = AudiobookEntity(
                     id = bookId,
                     title = detail.title,
-                    author = detail.author.ifBlank { sourceId },
-                    narrator = detail.narrator.ifBlank { "$sourceId narrator" },
-                    description = "Аудіокнига з джерела $sourceId. Джерело: ${detail.url}",
+                    author = PlaceholderScrub.author(detail.author.ifBlank { sourceId }),
+                    narrator = PlaceholderScrub.narrator(detail.narrator.ifBlank { "$sourceId narrator" }),
+                    description = PlaceholderScrub.description(
+                        "Аудіокнига з джерела $sourceId. Джерело: ${detail.url}"
+                    ),
                     coverDrawableRes = R.drawable.img_neuromancer_cover_1785247475170,
                     coverImageUrl = detail.coverImageUrl,
                     genre = detail.genres.joinToString(" · ").ifBlank { "Каталог" },
@@ -628,6 +635,11 @@ class AudiobookRepository(
                 // catalogue (the mock seed books are gone); the catalogue
                 // fills from the live 4read.org homepage.
                 fetchCatalogSections()
+                // spec-20 T3: the one-time legacy placeholder cleanup runs
+                // after the sync (new inserts are already brand-neutral, so
+                // the pass only ever touches rows written by older versions).
+                // Idempotent — after the first run no brand-bearing row exists.
+                dao.scrubLegacyPlaceholders()
             }
         }
     }
@@ -902,15 +914,19 @@ class AudiobookRepository(
             // crash the whole catalogue sync.
             return updated
         }
+        // spec-20 T3: new catalogue inserts are brand-neutral — no branded
+        // placeholder author/narrator/genre/description anymore (the old
+        // «4read.org» / «4read Voice Narrator» / «4read Каталог» seeds were
+        // exactly the legacy junk the startup cleanup now scrubs).
         val newBook = AudiobookEntity(
             id = book.id,
             title = book.title,
-            author = book.author.ifBlank { "4read.org" },
-            narrator = "4read Voice Narrator",
-            description = "Аудіокнига з каталогу 4read.org. Джерело: ${book.url}",
+            author = book.author.ifBlank { "" },
+            narrator = "",
+            description = "",
             coverDrawableRes = R.drawable.img_neuromancer_cover_1785247475170,
             coverImageUrl = book.coverImageUrl,
-            genre = "4read Каталог",
+            genre = "",
             sourceUrl = book.url,
             isDownloaded = false,
             downloadProgress = 0f,
@@ -1522,7 +1538,10 @@ class AudiobookRepository(
                         id = "${bookId}_ch_${index + 1}",
                         bookId = bookId,
                         chapterIndex = index,
-                        title = "Глава ${index + 1} (${book?.title ?: "4read"})",
+                        // spec-20 T4: the chapter-title fallback is brand-neutral — the
+                        // book title is always known here (the row was just
+                        // loaded), so this only guards an impossible null.
+                        title = "Глава ${index + 1} (${book?.title ?: "Книга"})",
                         durationSeconds = 0L, // unknown until the stream is actually played
                         streamUrl = chapter.streamUrl
                     )

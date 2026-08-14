@@ -142,14 +142,12 @@ class ListenScreenBlocksSnapshotTest {
 
     @Test
     fun open_web_source_row() {
-        // Spec-13 T3: the compact «більше книг на Sluhay →» entry row.
+        // Spec-13 T3: the compact «більше книг →» entry row; spec-20 T2:
+        // brand-neutral, the source's name never appears.
         composeTestRule.setContent {
             AudiobookTheme(darkTheme = true) {
                 ListenSurface {
-                    OpenWebSourceRow(
-                        displayName = "Sluhay",
-                        onClick = {}
-                    )
+                    OpenWebSourceRow(onClick = {})
                 }
             }
         }

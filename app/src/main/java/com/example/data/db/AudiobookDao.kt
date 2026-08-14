@@ -67,6 +67,38 @@ interface AudiobookDao {
     @Query("UPDATE audiobooks SET preferredSpeed = :speed WHERE id = :bookId")
     suspend fun updatePreferredSpeed(bookId: String, speed: Float?)
 
+    /**
+     * spec-20 T3 (#124) — the one-time legacy placeholder cleanup (no schema
+     * change, idempotent). Mirrors [com.example.data.rebrand.PlaceholderScrub]
+     * exactly, in SQL: any brand-bearing author/narrator/genre becomes empty,
+     * and the branded description templates plus 4read.org URLs are stripped.
+     * After the first run no row matches the WHERE clause, so later runs are
+     * no-ops. The display-side scrub stays as an extra belt.
+     */
+    @Query(
+        """UPDATE audiobooks SET
+            author = CASE WHEN author LIKE '%4read%' THEN '' ELSE author END,
+            narrator = CASE WHEN narrator LIKE '%4read%' THEN '' ELSE narrator END,
+            genre = CASE WHEN genre LIKE '%4read%' THEN '' ELSE genre END,
+            description = TRIM(REPLACE(
+                REPLACE(
+                    REPLACE(
+                        REPLACE(
+                            REPLACE(
+                                REPLACE(
+                                    REPLACE(description,
+                                        'Аудіокнига з каталогу 4read.org. ', ''),
+                                    'Аудиокнига с портала 4read.org. ', ''),
+                                'Аудіокнига з джерела 4read. ', ''),
+                            'Книга знайдена на порталі 4read.org за запитом "', ''),
+                        '". Джерело: ', '. Джерело: '),
+                    'https://4read.org/', ''),
+                'http://4read.org/', ''))
+          WHERE author LIKE '%4read%' OR narrator LIKE '%4read%'
+             OR genre LIKE '%4read%' OR description LIKE '%4read%'"""
+    )
+    suspend fun scrubLegacyPlaceholders()
+
     @Query("SELECT * FROM chapters WHERE bookId = :bookId ORDER BY chapterIndex ASC")
     fun getChaptersForBook(bookId: String): Flow<List<ChapterEntity>>
 

@@ -35,10 +35,11 @@ import com.example.data.source.GlobalSearchResult
 import com.example.ui.theme.AppDimens
 
 /**
- * Spec-10 T4 — one global-search result card: a Work with a badge per source
- * that matched. Tapping imports from the found source and plays. Extracted as
- * a pure `@Composable` (no ViewModel) so the snapshot seam can pin the layout
- * and badges without a network or a database.
+ * Spec-10 T4 — one global-search result card: a Work that matched. Tapping
+ * imports from the found source and plays. Extracted as a pure `@Composable`
+ * (no ViewModel) so the snapshot seam can pin the layout without a network
+ * or a database. Spec-20 T2: per-source badges are gone — the rebrand hides
+ * the source brands from the UI.
  */
 @Composable
 fun GlobalSearchResultCard(
@@ -86,14 +87,6 @@ fun GlobalSearchResultCard(
                     overflow = TextOverflow.Ellipsis
                 )
             }
-            if (result.sources.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(AppDimens.SpaceXs))
-                Row(horizontalArrangement = Arrangement.spacedBy(AppDimens.SpaceXs)) {
-                    result.sources.forEach { source ->
-                        SourceBadgePill(label = source.sourceName)
-                    }
-                }
-            }
         }
         Icon(
             imageVector = Icons.Default.PlayArrow,
@@ -126,10 +119,10 @@ fun SourceBadgePill(
 
 /**
  * Spec-15 T1 — one cover-first card of the deduplicated «Увесь каталог»
- * union: a Work with a badge per source that carries it. Tapping imports from
- * the first found source and plays (same behaviour as the global-search
- * cards). Pure `@Composable` (no ViewModel) so the snapshot seam can pin it
- * from fixture data.
+ * union: a Work. Tapping imports from the first found source and plays (same
+ * behaviour as the global-search cards). Pure `@Composable` (no ViewModel)
+ * so the snapshot seam can pin it from fixture data. Spec-20 T2: per-source
+ * badges are gone — the rebrand hides the source brands from the UI.
  *
  * Spec-15 T4 — the card also carries a one-tap download affordance (a small
  * icon on the cover). [downloadAllowed] hides it for stream-only sources;
@@ -226,14 +219,6 @@ fun UnifiedCatalogCard(
                 textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth()
             )
-        }
-        if (result.sources.isNotEmpty()) {
-            Spacer(modifier = Modifier.height(4.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(AppDimens.SpaceXs)) {
-                result.sources.forEach { source ->
-                    SourceBadgePill(label = source.sourceName)
-                }
-            }
         }
     }
 }

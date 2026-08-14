@@ -3,8 +3,6 @@ package com.example.ui.library
 import com.example.data.db.AudiobookEntity
 import com.example.data.db.ChapterEntity
 import com.example.data.db.PlaybackProgressEntity
-import com.example.data.source.sourceDisplayName
-import com.example.data.source.sourceIdForUrl
 import java.util.Locale
 
 /**
@@ -75,14 +73,6 @@ data class LibraryBook(
     /** Local imports carry a blank [AudiobookEntity.sourceUrl]; 4read books carry a URL. */
     val isLocal: Boolean
         get() = book.sourceUrl.isBlank()
-
-    /**
-     * Spec-15 T6 — the small source badge of the card: «Локальна» for local
-     * imports, else the source's display name (4read, Sluhay, Sound-Books, …)
-     * from the URL — never the hardcoded «4read» for a multi-source library.
-     */
-    val sourceName: String
-        get() = sourceDisplayName(sourceIdForUrl(book.sourceUrl))
 
     /** «Сага про Дріззта · Книга 2» — or just the series title, or null. */
     val seriesLabel: String?

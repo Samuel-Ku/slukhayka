@@ -628,11 +628,14 @@ class AudioPlayerManagerTest {
             assertEquals(600L, dao.savedPlaybackEvents.single().positionSeconds)
         }
         // Session 2 (process death): same repository, listener still where the
-        // jump landed → the pre-jump position is offered again.
+        // jump landed → the pre-jump position is offered again. The restore
+        // runs on the injected test scheduler (#101), so runCurrent() drains
+        // it deterministically — no wall-clock budget to flake under load.
         playerTest(clock = clock) { manager, factory ->
             manager.loadAndPlayBook(book, chapters, initialChapterIndex = 0, initialPositionSeconds = 600L, autoPlay = false)
             factory.current.simulateReady(chapters[0].durationSeconds * MILLIS_PER_SECOND)
-            awaitTrue("restart must re-offer the pre-jump position") { manager.playerState.value.canUndoSeek }
+            runCurrent()
+            assertTrue("restart must re-offer the pre-jump position", manager.playerState.value.canUndoSeek)
             assertEquals(60_000L, manager.playerState.value.undoFromPositionMs)
         }
     }
@@ -661,7 +664,7 @@ class AudioPlayerManagerTest {
         playerTest(clock = clock) { manager, factory ->
             manager.loadAndPlayBook(book, chapters, initialChapterIndex = 0, initialPositionSeconds = 60L, autoPlay = false)
             factory.current.simulateReady(chapters[0].durationSeconds * MILLIS_PER_SECOND)
-            settle()
+            runCurrent()
             assertFalse("a consumed undo must never re-offer", manager.playerState.value.canUndoSeek)
         }
     }
@@ -680,7 +683,7 @@ class AudioPlayerManagerTest {
         playerTest(clock = clock) { manager, factory ->
             manager.loadAndPlayBook(book, chapters, initialChapterIndex = 0, initialPositionSeconds = 1_800L, autoPlay = false)
             factory.current.simulateReady(chapters[0].durationSeconds * MILLIS_PER_SECOND)
-            settle()
+            runCurrent()
             assertFalse(manager.playerState.value.canUndoSeek)
         }
     }
@@ -804,7 +807,11 @@ class AudioPlayerManagerTest {
         val factory = RecordingPlayerFactory()
         val manager = AudioPlayerManager(
             context, repository, factory,
-            now = { clock?.ms ?: System.currentTimeMillis() }
+            now = { clock?.ms ?: System.currentTimeMillis() },
+            // Spec-16 T3 flake (#101): the undo-candidate restore runs on the
+            // test scheduler, so runCurrent() observes it instead of a
+            // wall-clock awaitTrue budget that flakes under full-suite load.
+            ioDispatcher = dispatcher
         )
         try {
             body(manager, factory)
@@ -842,17 +849,6 @@ class AudioPlayerManagerTest {
             delay(5)
         }
         assertEquals("event log must stay at $expected rows", expected, dao.savedPlaybackEvents.size)
-    }
-
-    /** Polls [predicate] with a real-time budget (the async IO writes do not
-     *  advance with the test scheduler). */
-    private suspend fun TestScope.awaitTrue(message: String, predicate: () -> Boolean) {
-        val deadline = System.currentTimeMillis() + 5_000
-        while (!predicate() && System.currentTimeMillis() < deadline) {
-            runCurrent()
-            delay(10)
-        }
-        assertTrue(message, predicate())
     }
 
     /** Bounded real-time settle so a negative assertion sees the async IO land. */

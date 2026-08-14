@@ -2,7 +2,7 @@
 
 <!-- Generated: 2026-07-30 | Modules: 8 | Token estimate: ~400 -->
 
-Token-lean architecture documentation for the `4read-audiobooks-player` Android app.
+Token-lean architecture documentation for the `slukhayka` Android app.
 Each file covers one bounded area of the codebase. Read them in this order for a complete mental model.
 
 ## Modules

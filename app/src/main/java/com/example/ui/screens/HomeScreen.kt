@@ -74,6 +74,9 @@ fun HomeScreen(
     val catalogDownloadingKeys by viewModel.catalogDownloadingKeys.collectAsState()
     val catalogDownloadProgress by viewModel.catalogDownloadProgress.collectAsState()
     val catalogDownloadedKeys by viewModel.catalogDownloadedKeys.collectAsState()
+    // spec-18 T3: the «За тривалістю» rows (already bucketed by the ViewModel
+    // through the pure module — the screen never re-buckets).
+    val durationBooks by viewModel.durationBooks.collectAsState()
 
     // Spec-15 T1: enumerate the union once per Огляд composition; the
     // repository caches it for the session (and re-fetches session-bound
@@ -444,6 +447,17 @@ fun HomeScreen(
                 }
             }
 
+            // spec-18 T3: «За тривалістю» — «Короткі» and «Довгі» cover rows
+            // fed by the bucketed duration rows. Hidden entirely when no book
+            // has a known duration yet; the rows grow as durations arrive.
+            item {
+                DurationSection(
+                    shortBooks = durationBooks.short.map { it.asCatalogBook() },
+                    longBooks = durationBooks.long.map { it.asCatalogBook() },
+                    onBookClick = onBookClick
+                )
+            }
+
             // Catalogue rows parsed from the 4read.org homepage. Spec-9: the
             // Continue-Listening card moved to the Слухати tab.
             sections.forEach { section ->
@@ -504,6 +518,60 @@ fun CatalogRowHeader(title: String) {
         modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 8.dp)
     )
 }
+
+/**
+ * spec-18 T3 (#114) — the Огляд «За тривалістю» section: two horizontal
+ * cover rows — «Короткі» (under 5 h) and «Довгі» (10 h and up). The
+ * bucketing itself is the pure [DurationBuckets] module; this composable
+ * only renders what it is handed, so the snapshot seam pins it from fixture
+ * data. Hidden entirely when both rows are empty. Cards are the same
+ * cover-first [CatalogBookCard] as every Огляд row; tapping opens the book
+ * page.
+ */
+@Composable
+fun DurationSection(
+    shortBooks: List<CatalogBook>,
+    longBooks: List<CatalogBook>,
+    onBookClick: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    if (shortBooks.isEmpty() && longBooks.isEmpty()) return
+    Column(modifier = modifier.testTag("duration_section")) {
+        if (shortBooks.isNotEmpty()) {
+            CatalogRowHeader(title = "Короткі")
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.testTag("duration_short_row")
+            ) {
+                items(shortBooks, key = { it.id }) { book ->
+                    CatalogBookCard(book = book, onClick = { onBookClick(book.id) })
+                }
+            }
+        }
+        if (longBooks.isNotEmpty()) {
+            CatalogRowHeader(title = "Довгі")
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.testTag("duration_long_row")
+            ) {
+                items(longBooks, key = { it.id }) { book ->
+                    CatalogBookCard(book = book, onClick = { onBookClick(book.id) })
+                }
+            }
+        }
+    }
+}
+
+/** The card shape the Огляд rows render for a real book row. */
+private fun AudiobookEntity.asCatalogBook() = CatalogBook(
+    id = id,
+    title = title,
+    author = author,
+    url = sourceUrl,
+    coverImageUrl = coverImageUrl
+)
 
 /**
  * Cover-first card for the horizontal catalogue rows: a portrait cover with

@@ -654,6 +654,11 @@ class AudiobookRepository(
                 section.books.forEach { book -> upsertCatalogBook(book) }
             }
             _catalogSections.value = sections
+            // spec-18 T2: once the catalogue is visible (published above),
+            // one throttled, bounded duration-enrichment pass is detached so
+            // it never delays browsing OR sync completion — the pass owns its
+            // own IO coroutine and the throttle/batch live inside it.
+            CoroutineScope(Dispatchers.IO).launch { enrichUnknownDurations() }
             sections
         } catch (e: Exception) {
             Log.w("AudiobookRepo", "Catalogue sync failed", e)
@@ -661,6 +666,67 @@ class AudiobookRepository(
         } finally {
             _isCatalogLoading.value = false
         }
+    }
+
+    // ---------------------------------------------------------------------
+    // spec-18 T2 — background duration enrichment
+    // ---------------------------------------------------------------------
+
+    /**
+     * Timestamp of the last completed enrichment pass, as an atomic gate.
+     * The CAS below both throttles the pass and collapses overlapping runs
+     * (the pass is detached from sync and may be triggered from several
+     * places), so at most one pass can be in flight per interval. Kept in
+     * memory only (the spec explicitly bans an enrichment state table), so
+     * the throttle is per app process — each launch gets its passes again.
+     */
+    private val lastEnrichmentRunEpochMs = java.util.concurrent.atomic.AtomicLong(0L)
+
+    /**
+     * Fills the duration column for books that lack one: bounded batch, one
+     * pass per [MIN_ENRICHMENT_INTERVAL_MS], on the IO dispatcher. Each
+     * candidate's page is fetched through the 4read source adapter (the same
+     * seam every other door uses — no new parsing or transport code), then
+     * only the real total duration is written to the existing stats column
+     * (no schema change). A failing fetch or a page without a duration leaves
+     * the row untouched and never aborts the batch. Local imports (blank
+     * source URL) are skipped — there is no page to fetch for them.
+     *
+     * @return how many books received a duration this pass.
+     */
+    suspend fun enrichUnknownDurations(
+        batchLimit: Int = DEFAULT_ENRICHMENT_BATCH,
+        now: () -> Long = System::currentTimeMillis
+    ): Int = withContext(Dispatchers.IO) {
+        val runAt = now()
+        val lastRun = lastEnrichmentRunEpochMs.get()
+        if (runAt - lastRun < MIN_ENRICHMENT_INTERVAL_MS) return@withContext 0
+        // Reserve the pass atomically: a concurrent trigger loses the CAS and
+        // backs off, so overlapping passes can never fetch the same batch twice.
+        if (!lastEnrichmentRunEpochMs.compareAndSet(lastRun, runAt)) return@withContext 0
+        val candidates = dao.getAllAudiobooksOnce()
+            .filter { book ->
+                !com.example.data.duration.DurationBuckets.hasKnownDuration(book.totalDurationSeconds) &&
+                    book.sourceUrl.isNotBlank()
+            }
+            .take(batchLimit.coerceAtLeast(1))
+        var enriched = 0
+        for (book in candidates) {
+            try {
+                val detail = fourReadAdapter.fetchBookPage(book.sourceUrl)
+                val duration = detail.totalDurationSeconds
+                // Mirrors upsertCatalogBook's listing enrichment: any positive
+                // page-reported duration is real and written; the honest-data
+                // row gate (DurationBuckets.hasKnownDuration) filters later.
+                if (duration != null && duration > 0L) {
+                    dao.updateBookStats(book.id, book.totalChapters, duration)
+                    enriched++
+                }
+            } catch (e: Exception) {
+                Log.w("AudiobookRepo", "Duration enrichment failed for ${book.id}", e)
+            }
+        }
+        enriched
     }
 
     /**
@@ -1918,6 +1984,12 @@ class AudiobookRepository(
     companion object {
         /** TTL of the in-memory per-source «new arrivals» feed cache (spec-10 T4). */
         private const val NEW_FEED_TTL_MS = 15 * 60 * 1000L
+
+        /** spec-18 T2 — minimum time between duration-enrichment passes. */
+        const val MIN_ENRICHMENT_INTERVAL_MS = 6L * 60 * 60 * 1000
+
+        /** spec-18 T2 — max book pages fetched per enrichment pass. */
+        const val DEFAULT_ENRICHMENT_BATCH = 5
 
         /** Single source of truth for the offline-audio directory name. */
         const val OFFLINE_AUDIO_DIR = "audiobooks"

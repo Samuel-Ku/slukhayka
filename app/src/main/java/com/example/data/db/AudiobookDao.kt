@@ -5,9 +5,17 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface AudiobookDao {
-    @Query("SELECT * FROM audiobooks ORDER BY title ASC")
+
+    private companion object {
+        const val ALL_BOOKS_ORDERED = "SELECT * FROM audiobooks ORDER BY title ASC"
+    }
+
+    @Query(ALL_BOOKS_ORDERED)
     fun getAllAudiobooks(): Flow<List<AudiobookEntity>>
 
+    /** One-shot snapshot of every book row (spec-18 T2 duration enrichment). */
+    @Query(ALL_BOOKS_ORDERED)
+    suspend fun getAllAudiobooksOnce(): List<AudiobookEntity>
     @Query("SELECT * FROM audiobooks WHERE isDownloaded = 1 ORDER BY title ASC")
     fun getDownloadedAudiobooks(): Flow<List<AudiobookEntity>>
 

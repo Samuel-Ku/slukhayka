@@ -378,7 +378,13 @@ class AudioPlayerManager(
         chapters: List<ChapterEntity>,
         initialChapterIndex: Int = 0,
         initialPositionSeconds: Long = 0L,
-        autoPlay: Boolean = true
+        autoPlay: Boolean = true,
+        // #40 decision 1: the book page's «Почати спочатку» asks for a
+        // deterministic re-listen — reset to chapter 0 / position 0 and log
+        // RELISTEN even when the stored end position alone would not trip the
+        // position-based rule (e.g. a multi-chapter book whose saved position
+        // is the last chapter's in-chapter seconds, below the book total).
+        forceRelisten: Boolean = false
     ) {
         var chapterIdx = initialChapterIndex.coerceIn(0, (chapters.size - 1).coerceAtLeast(0))
         var positionSeconds = initialPositionSeconds
@@ -389,7 +395,8 @@ class AudioPlayerManager(
         // the book triggers it, so explicit chapter or bookmark navigation
         // (which never asks to start at the end) is untouched.
         val totalDurationSeconds = chapters.sumOf { it.durationSeconds }
-        val relisten = autoPlay && totalDurationSeconds > 0L && positionSeconds >= totalDurationSeconds
+        val relisten = forceRelisten ||
+            (autoPlay && totalDurationSeconds > 0L && positionSeconds >= totalDurationSeconds)
         if (relisten) {
             chapterIdx = 0
             positionSeconds = 0L

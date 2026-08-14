@@ -1,6 +1,7 @@
 package com.example.data.recommend
 
 import java.io.File
+import kotlin.system.exitProcess
 
 /**
  * The reproducible spec-19 T3 eval gate (US11 / Q6): leave-one-out on saved
@@ -17,7 +18,9 @@ import java.io.File
  *
  * A NO-GO (semantic fails to beat the baseline) is a legitimate outcome —
  * the finding is reported with the numbers and the UI ticket (#120) simply
- * does not start; it never blocks the T1/T2 outputs.
+ * does not start; it never blocks the T1/T2 outputs. In CI the workflow sets
+ * `FAIL_ON_NO_GO=true` so a NO-GO exits non-zero and fails the gate step;
+ * local runs keep the report-only behaviour.
  */
 object RunRecommendationEval {
 
@@ -53,6 +56,18 @@ object RunRecommendationEval {
             ?: error("failed to load the ONNX embedder from $model")
         val baseline = KeywordEmbedder()
 
+        // Production-path sanity (the CI gate's first line of defence): the
+        // embedder must emit real L2-normalized vectors. A degenerate output
+        // (zero mean-pooling or a broken tokenizer) would silently zero every
+        // score and could fake a GO on a broken model — fail fast with a
+        // clear message instead.
+        val probe = semantic.embed("Кобзар Тарас Шевченко")
+        val probeNorm = kotlin.math.sqrt(probe.sumOf { (it * it).toDouble() })
+        require(probe.isNotEmpty() && probeNorm > 0.9) {
+            "embedder produced a degenerate vector (dim=${probe.size}, norm=$probeNorm) — model or tokenizer broken"
+        }
+        println("embedder sanity: dim=${probe.size}, l2norm=${fmt(probeNorm)}")
+
         println("=== spec-19 T3 eval gate ===")
         println("fixtures: ${catalog.size} catalogue books, ${COMPLETIONS.size} completions")
         println("pool: $distractorCount distractors/fold, k=$k, seed=42")
@@ -79,6 +94,14 @@ object RunRecommendationEval {
             println("The semantic row beats the genre+author baseline — the UI ticket (#120) may start.")
         } else {
             println("The semantic row does NOT beat the baseline — #120 waits; finding reported with numbers.")
+        }
+        // CI gate: with FAIL_ON_NO_GO=true the run exits non-zero on NO-GO so
+        // the workflow step is a real gate, not a print. Local runs keep the
+        // informative report-only behaviour (the finding never blocks T1/T2
+        // outputs by construction).
+        if (!report.semanticWins && System.getenv("FAIL_ON_NO_GO") == "true") {
+            System.err.println("GATE FAILED: NO-GO — semantic ranking does not beat the baseline (CI gate, FAIL_ON_NO_GO=true).")
+            exitProcess(1)
         }
 
         writeReport(report, decision, catalog.size, distractorCount, k)

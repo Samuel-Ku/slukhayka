@@ -69,6 +69,9 @@ class FakeAudiobookDao(
     override fun getAllAudiobooks(): Flow<List<AudiobookEntity>> =
         booksState.map { books -> books.sortedBy { it.title } }
 
+    override suspend fun getAllAudiobooksOnce(): List<AudiobookEntity> =
+        booksState.value.sortedBy { it.title }
+
     override fun getDownloadedAudiobooks(): Flow<List<AudiobookEntity>> =
         booksState.map { books -> books.filter { it.isDownloaded }.sortedBy { it.title } }
 

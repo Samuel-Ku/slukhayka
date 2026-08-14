@@ -700,12 +700,28 @@ class AudiobookRepository(
     }
 
     /**
+     * Every other volume of the book's series, for the book page's "У серії"
+     * row (#40). Reuses the session-cached series-page fetch; the current
+     * book itself is excluded. Degrades to an empty list, never an exception.
+     */
+    suspend fun fetchInSeriesBooks(bookId: String): List<AudiobookEntity> = withContext(Dispatchers.IO) {
+        val book = dao.getAudiobookById(bookId) ?: return@withContext emptyList()
+        val url = book.seriesUrl ?: return@withContext emptyList()
+        if (url.isBlank()) return@withContext emptyList()
+        try {
+            fetchSeriesBooks(url).filterNot { it.id == bookId }
+        } catch (e: Exception) {
+            Log.w("AudiobookRepo", "In-series lookup failed for ${book.id}", e)
+            emptyList()
+        }
+    }
+
+    /**
      * All books of a genre (category) page — `4read.org/<genre>/` — e.g.
      * `https://4read.org/fentezi/`. Genre pages reuse the poster markup of the
      * homepage, so the series-page parser and cache apply unchanged.
      */
     suspend fun fetchGenreBooks(genreUrl: String): List<AudiobookEntity> = fetchSeriesBooks(genreUrl)
-
     /**
      * ТОП 100 АудіоКниг (`/top-100.html`): ranked `linek` cards, not posters.
      * Upserted into Room (like series/genre pages) so every entry is playable

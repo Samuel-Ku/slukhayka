@@ -47,7 +47,7 @@ jobs:
   test:
     name: JVM tests + Kover gate
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
 
     steps:
       - name: Checkout
@@ -85,6 +85,24 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
+      # spec-19 T3: the ONNX embedder (multilingual-e5-small int8, ~118 MB) is
+      # a build-time asset — over GitHub's file limit, never committed — fetched
+      # by the downloadE5Model task into app/src/main/assets/models/e5. Restore
+      # it from the cache when present; the Gradle task is a no-op then. On a
+      # miss the task downloads, and the cache action saves it at job end so
+      # warm runs skip the ~118 MB fetch.
+      - name: Cache e5 model (restore; save on miss)
+        uses: actions/cache@v4
+        with:
+          path: app/src/main/assets/models/e5
+          key: e5-model-v1
+
+      # The model must be present BEFORE the tests: assembleDebug bundles it
+      # into the APK (the production embedder path) and runRecommendationEval
+      # below gates against it instead of the keyword baseline.
+      - name: Download e5 model (production embedder + eval gate)
+        run: ./gradlew :app:downloadE5Model --no-daemon
+
       # assembleDebug pulls in the Hilt/KSP/Room codegen pipeline; without it
       # we get false negatives on tests that depend on generated code.
       # testDebugUnitTest runs JVM-side Robolectric + JUnit4 + Roborazzi tests.
@@ -96,6 +114,16 @@ jobs:
       # regressions with ~1pp headroom. Bump as coverage grows.
       - name: Kover threshold gate
         run: ./gradlew :app:koverVerify --no-daemon -Pkover.instructionThreshold=15 -Pkover.branchThreshold=9
+
+      # spec-19 T3 eval gate with the REAL ONNX model: leave-one-out
+      # recall@20/NDCG@20, semantic vs the genre+author baseline. Exercises the
+      # production OnnxEmbedder end-to-end (tokenize → ONNX → mean-pool → rank)
+      # plus an embedder sanity probe. FAIL_ON_NO_GO=true turns a regression
+      # into a failed step, so the gate is enforced in CI.
+      - name: Recommendation eval gate (real ONNX model)
+        run: ./gradlew :app:runRecommendationEval --no-daemon
+        env:
+          FAIL_ON_NO_GO: "true"
 
       # Upload HTML report so reviewers can drill into per-class coverage from
       # the PR page. XML goes to artifact for any downstream tool that wants

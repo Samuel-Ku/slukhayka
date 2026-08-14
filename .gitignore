@@ -18,3 +18,10 @@ local.properties
 debug.keystore
 .audit/
 .freebuff/
+
+# spec-19 T3: the ONNX embedding model + its 250k-piece tokenizer are
+# fetched at build time by the `downloadE5Model` Gradle task (118 MB int8
+# model — over GitHub's 100 MB file limit), never committed. The tokenizer
+# unit tests use an inline mini fixture; the real tokenizer only loads
+# together with the model at runtime / in the eval gate.
+/app/src/main/assets/models/e5/

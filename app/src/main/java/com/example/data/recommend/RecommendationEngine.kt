@@ -32,7 +32,10 @@ object RecommendationEngine {
         val author: String = "",
         val genre: String = "",
         val weight: Double
-    )
+    ) {
+        /** The text the signal's vector is computed over. */
+        val text: String get() = listOf(title, author, genre).joinToString(" ")
+    }
 
     /** One recommendation: a candidate + similarity score + why. */
     data class Recommendation(
@@ -43,10 +46,9 @@ object RecommendationEngine {
     )
 
     /**
-     * Ranks [candidates] against [signals]: each candidate scores the
-     * weighted max cosine over the signals, the already-known
-     * [excludeIds] are dropped, and the top [topN] come back with the
-     * signal that explained the pick. Cosine over the [embedder] vectors.
+     * Ranks [candidates] against [signals] by embedding each text on the
+     * fly through [embedder]. Prefer [recommendWithVectors] when the
+     * vectors are cached (spec-19 Q7): it skips re-embedding entirely.
      */
     fun recommend(
         candidates: List<Candidate>,
@@ -55,13 +57,35 @@ object RecommendationEngine {
         excludeIds: Set<String>,
         topN: Int = 10
     ): List<Recommendation> {
+        val vectors = (candidates.map { it.id to it.text } + signals.map { it.id to it.text })
+            .toMap()
+            .mapValues { (_, text) -> embedder.embed(text) }
+        return recommendWithVectors(candidates, signals, vectors, excludeIds, topN)
+    }
+
+    /**
+     * Ranks [candidates] against [signals] using a cached id → vector map
+     * (spec-19 Q7: the catalogue-versioned embedding cache). Candidates and
+     * signals missing from [vectors] are skipped — a missing vector never
+     * fabricates a score. Pure: no embedder, no I/O.
+     */
+    fun recommendWithVectors(
+        candidates: List<Candidate>,
+        signals: List<Signal>,
+        vectors: Map<String, FloatArray>,
+        excludeIds: Set<String>,
+        topN: Int = 10
+    ): List<Recommendation> {
         if (signals.isEmpty()) return emptyList()
-        val signalVectors = signals.map { it to embedder.embed(it.toSignalText()) }
+        val signalVectors = signals.mapNotNull { signal ->
+            vectors[signal.id]?.let { signal to it }
+        }
+        if (signalVectors.isEmpty()) return emptyList()
         return candidates
             .asSequence()
             .filter { it.id !in excludeIds }
             .mapNotNull { candidate ->
-                val vector = embedder.embed(candidate.text)
+                val vector = vectors[candidate.id] ?: return@mapNotNull null
                 val best = signalVectors
                     .map { (signal, sVec) -> cosine(vector, sVec) to signal }
                     .maxByOrNull { it.first }
@@ -93,5 +117,5 @@ object RecommendationEngine {
         return dot / (kotlin.math.sqrt(normA) * kotlin.math.sqrt(normB))
     }
 
-    private fun Signal.toSignalText(): String = listOf(title, author, genre).joinToString(" ")
 }
+

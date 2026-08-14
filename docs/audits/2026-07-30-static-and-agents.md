@@ -2,7 +2,7 @@
 
 - **Date:** 2026-07-30
 - **Source commit:** `55b8be2 docs: phase 1 add codemaps for 8 modules` (+2 ahead of origin)
-- **Repository:** `slukhayka`
+- **Repository:** `4read-audiobooks-player`
 - **Auditors:** local Gradle + 4 parallel review agents (code-reviewer, security-reviewer, silent-failure-hunter, performance-optimizer)
 - **Spec:** `docs/specs/2026-07-30-maintenance-and-audit.md` — issue #1
 

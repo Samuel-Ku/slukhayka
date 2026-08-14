@@ -3,10 +3,8 @@ package com.example.audio
 import android.app.Application
 import android.graphics.Bitmap
 import androidx.compose.ui.graphics.asAndroidBitmap
-import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.captureToImage
-import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onFirst
@@ -15,8 +13,6 @@ import androidx.compose.ui.test.performClick
 import androidx.lifecycle.ViewModelProvider
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import androidx.test.platform.app.InstrumentationRegistry
-import androidx.test.rule.GrantPermissionRule
 import com.example.MainActivity
 import com.example.data.db.AudiobookDatabase
 import com.example.data.db.AudiobookEntity
@@ -82,15 +78,6 @@ import java.io.File
 @RunWith(AndroidJUnit4::class)
 class AudioPlaybackEspressoTest {
 
-    // Declared BEFORE the compose rule so the grant happens before
-    // MainActivity launches. A fresh install shows the Android 13+
-    // POST_NOTIFICATIONS dialog on first launch, and the system window races
-    // the Compose root registration — observed on-device as an intermittent
-    // "No compose hierarchies found" failure on a cold start.
-    @get:Rule
-    val notificationPermission: GrantPermissionRule =
-        GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
-
     @get:Rule
     val composeTestRule = createAndroidComposeRule<MainActivity>()
 
@@ -112,29 +99,14 @@ class AudioPlaybackEspressoTest {
     @Before
     fun seedDeterministicLibrary() {
         val target = File(app.filesDir, "fixture_short.mp3")
-        // Always re-copy the fixture from the test APK's assets: the asset is
-        // the source of truth, and a stale on-device copy (e.g. from a build
-        // whose fixture was corrupted) must not survive an upgrade. The asset
-        // lives in the *test* APK, not the app APK, so it must be read through
-        // the instrumentation context's AssetManager
-        // (`ApplicationProvider.getApplicationContext()` returns the target
-        // app, whose assets do NOT include test-only files).
-        InstrumentationRegistry.getInstrumentation()
-            .context
-            .assets
-            .open("fixture_short.mp3")
-            .use { input ->
+        if (!target.exists() || target.length() < 100L) {
+            app.assets.open("fixture_short.mp3").use { input ->
                 target.outputStream().use { output -> input.copyTo(output) }
             }
+        }
 
         runBlocking {
             val dao = AudiobookDatabase.getDatabase(app).audiobookDao()
-            // Re-runs on a device that already played the fixture would leave a
-            // playback-progress row behind, which turns the Listen tab's
-            // "Нещодавно слухали" section on for the fixture book and changes
-            // the UI the test asserts against. Clean the fixture's session data
-            // so every run starts from the same state.
-            dao.deletePlaybackProgressForBook(fixtureBookId)
             val book = AudiobookEntity(
                 id = fixtureBookId,
                 title = fixtureBookTitle,
@@ -173,24 +145,12 @@ class AudioPlaybackEspressoTest {
     }
 
     @Test
-    @OptIn(ExperimentalTestApi::class)
     fun taps_library_to_player_and_asserts_isPlaying_within_three_seconds() {
         // 1. Switch to the Library tab (default landing tab is Explore).
-        // A fresh cold start on a physical device can outpace Compose's first
-        // frame registration ("No compose hierarchies found"), so wait for
-        // each node explicitly instead of assuming it exists after idle.
-        composeTestRule.waitUntilExactlyOneExists(
-            hasTestTag("tab_library"),
-            timeoutMillis = NAV_TIMEOUT_MS
-        )
         composeTestRule.onNodeWithTag("tab_library").performClick()
         composeTestRule.waitForIdle()
 
         // 2. Tap the seeded fixture book; navigates into BookDetailScreen.
-        composeTestRule.waitUntilExactlyOneExists(
-            hasTestTag("library_book_item_$fixtureBookId"),
-            timeoutMillis = NAV_TIMEOUT_MS
-        )
         composeTestRule
             .onNodeWithTag("library_book_item_$fixtureBookId")
             .performClick()
@@ -199,20 +159,12 @@ class AudioPlaybackEspressoTest {
         // 3. Tap the chapter row; this fires `playAudiobook(...)` AND
         //    `setShowFullPlayer(true)` in `BookDetailScreen.kt`, which opens
         //    the PlayerScreen overlay (animated).
-        composeTestRule.waitUntilExactlyOneExists(
-            hasTestTag("book_detail_chapter_$fixtureChapterId"),
-            timeoutMillis = NAV_TIMEOUT_MS
-        )
         composeTestRule
             .onNodeWithTag("book_detail_chapter_$fixtureChapterId")
             .performClick()
         composeTestRule.waitForIdle()
 
         // 4. Sanity: the Player scaffold is on screen.
-        composeTestRule.waitUntilExactlyOneExists(
-            hasTestTag("full_player_screen"),
-            timeoutMillis = NAV_TIMEOUT_MS
-        )
         composeTestRule
             .onNodeWithTag("full_player_screen")
             .assertIsDisplayed()
@@ -274,8 +226,5 @@ class AudioPlaybackEspressoTest {
     companion object {
         /** Budget for `playerState.isPlaying == true` after chapter tap. */
         private const val PLAY_TIMEOUT_MS: Long = 3_000L
-
-        /** Budget for navigation nodes to appear after launch/navigation. */
-        private const val NAV_TIMEOUT_MS: Long = 15_000L
     }
 }

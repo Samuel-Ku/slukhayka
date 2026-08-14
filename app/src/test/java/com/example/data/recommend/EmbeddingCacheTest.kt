@@ -1,5 +1,6 @@
 package com.example.data.recommend
 
+import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -82,5 +83,50 @@ class EmbeddingCacheTest {
     fun `empty catalogue yields empty vectors without touching the cache`() {
         val service = CatalogEmbeddingService(EmbeddingCache(tmp.newFolder()))
         assertEquals(0, service.vectorsFor(emptyList(), KeywordEmbedder()).size)
+    }
+
+    // Spec-19 T2 — the pass is failure-safe by contract: a throwing
+    // embedder or an unwritable cache must degrade, never throw.
+
+    @Test
+    fun `a throwing embedder degrades to empty vectors, never throws`() {
+        val service = CatalogEmbeddingService(EmbeddingCache(tmp.newFolder()))
+        val catalog = listOf(candidate("c1", "Кобзар"), candidate("c2", "Гайдамаки"))
+        val throwing = object : TextEmbedder {
+            override fun embed(text: String): FloatArray = throw RuntimeException("embedder down")
+        }
+        // The pass must not crash; the row simply goes quiet.
+        val result = service.vectorsFor(catalog, throwing)
+        assertEquals(0, result.size)
+    }
+
+    @Test
+    fun `a partially failing embedder skips only the broken books`() {
+        val service = CatalogEmbeddingService(EmbeddingCache(tmp.newFolder()))
+        val catalog = listOf(candidate("c1", "Кобзар"), candidate("c2", "Гайдамаки"))
+        val flaky = object : TextEmbedder {
+            override fun embed(text: String): FloatArray =
+                if (text.contains("Кобзар")) throw RuntimeException("c1 broken")
+                else floatArrayOf(1f, 0f)
+        }
+        val result = service.vectorsFor(catalog, flaky)
+        // c1 is dropped (missing vector → ranking drops it), c2 survives.
+        assertEquals(listOf("c2"), result.keys.toList())
+        // The healthy book still round-trips through the cache on a re-run.
+        val again = CatalogEmbeddingService(EmbeddingCache(tmp.newFolder())).vectorsFor(catalog, flaky)
+        assertTrue(again["c2"]!!.contentEquals(floatArrayOf(1f, 0f)))
+    }
+
+    @Test
+    fun `an unwritable cache degrades to the computed in-memory map`() {
+        // Point the cache at a path that cannot be created (a file where a
+        // dir is expected) — save must not throw or lose the result.
+        val blocking = tmp.newFile()
+        val cache = EmbeddingCache(File(blocking, "sub"))
+        val service = CatalogEmbeddingService(cache)
+        val catalog = listOf(candidate("c1", "Кобзар"))
+        val result = service.vectorsFor(catalog, KeywordEmbedder())
+        assertEquals(1, result.size)
+        assertTrue(result.containsKey("c1"))
     }
 }

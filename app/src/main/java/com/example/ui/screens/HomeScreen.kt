@@ -52,8 +52,6 @@ import com.example.data.catalog.CatalogBook
 import com.example.data.catalog.CatalogSection
 import com.example.data.catalog.CatalogSeries
 import com.example.data.catalog.SourceCatalog
-import com.example.data.collection.MatchedCollection
-import com.example.data.collection.SmartCollections
 import com.example.data.db.AudiobookEntity
 import com.example.data.duration.DurationEnrichment
 import com.example.data.entries.LibraryEntries
@@ -86,7 +84,6 @@ fun HomeScreen(
     // and navigation orchestration stay on the ViewModel.
     libraryEntries: LibraryEntries,
     sourceCatalog: SourceCatalog,
-    smartCollections: SmartCollections,
     durationEnrichment: DurationEnrichment,
     onBookClick: (String) -> Unit,
     onPlayClick: (AudiobookEntity) -> Unit
@@ -116,6 +113,12 @@ fun HomeScreen(
     // signals, computed locally, with a per-card reason chip.
     val recommendedBooks by viewModel.recommendedBooks.collectAsState()
 
+    // Spec-16 T2: the «Колекції» block — curated lists matched against the
+    // union, recomputed on every union refresh (same trigger). The flow
+    // already excludes empty collections; the block itself hides when all are
+    // empty.
+    val collections by sourceCatalog.smartCollections.collectAsState()
+
     // Spec-15 T1: refresh the ephemeral union once per Огляд composition —
     // the ViewModel still needs it for the recommendation enrichment, even
     // though the browse surface is now the spec-23 T4 persisted feed.
@@ -125,9 +128,6 @@ fun HomeScreen(
     LaunchedEffect(Unit) {
         sourceCatalog.refreshUnifiedCatalog()
         viewModel.refreshEmbeddingVectors()
-        // Spec-16 T2: the «Колекції» rows recompute from the stored catalog
-        // on the same trigger that recomputes the union itself.
-        smartCollections.recompute()
         // spec-18 T2: one throttled, bounded duration-enrichment pass is
         // detached so it never delays browsing or catalogue completion. The
         // module's own atomic throttle collapses overlapping triggers.
@@ -138,10 +138,6 @@ fun HomeScreen(
     // through the pure DurationBuckets module — only books with a known
     // duration surface, never guesses.
     val durationBooks: DurationBooks = remember(allBooks) { durationBooksFrom(allBooks) }
-
-    // spec-16 T3: the «Колекції» rows — already matched by the module; the
-    // screen only renders what matched.
-    val matchedCollections by smartCollections.matched.collectAsState()
 
     // Spec-22 T3: the search bar and filter chips are collapsible — the
     // header shows brand + [🔍] + [🔄], and the field + chips expand on
@@ -373,6 +369,34 @@ fun HomeScreen(
                 }
             }
 
+            // Spec-16: «Колекції» — one horizontal cover row per matched
+            // curated collection (Нобелівські лауреати, Шевченківська
+            // премія, Букер), reusing the uniform cover-card look of the
+            // other Огляд rows. Tapping a card resolves the Work like any
+            // other global-search card (import-and-play). Empty collections
+            // are already absent from the flow; when all are empty the whole
+            // block disappears.
+            if (collections.isNotEmpty()) {
+                collections.forEach { collection ->
+                    item {
+                        CatalogRowHeader(title = collection.name)
+                    }
+                    item {
+                        LazyRow(
+                            contentPadding = PaddingValues(horizontal = 16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            items(collection.books, key = { it.key }) { result ->
+                                CollectionBookCard(
+                                    result = result,
+                                    onClick = { viewModel.playGlobalSearchResult(result) }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
             // Spec-23 T4: the endless merged feed — every Work in the
             // persisted catalogue, paged via Paging 3. It supersedes the
             // spec-15 T1 ephemeral union: the same merge key / one card per
@@ -475,17 +499,6 @@ fun HomeScreen(
                 DurationSection(
                     shortBooks = durationBooks.short.map { it.asCatalogBook() },
                     longBooks = durationBooks.long.map { it.asCatalogBook() },
-                    onBookClick = onBookClick
-                )
-            }
-
-            // spec-16 T3: «Колекції» — one row per matched curated list
-            // (Нобелівські лауреати, Шевченківська премія, Букер), uniform
-            // with the other rows. Empty collections are absent from the flow,
-            // so the block disappears entirely when nothing matched.
-            item {
-                CollectionsSection(
-                    collections = matchedCollections,
                     onBookClick = onBookClick
                 )
             }
@@ -744,36 +757,6 @@ fun DurationSection(
     }
 }
 
-/**
- * spec-16 T3 (#109) — the Огляд «Колекції» block: one horizontal cover row
- * per matched curated list, uniform with the other Огляд rows. The matching
- * is the pure [com.example.data.collection.SmartCollectionMatcher] done by
- * the module on catalog syncs; this composable only renders what it is
- * handed, so the snapshot seam pins it from fixture data. An empty input
- * hides the whole block — Огляд never shows an empty row.
- */
-@Composable
-fun CollectionsSection(
-    collections: List<MatchedCollection>,
-    onBookClick: (String) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    if (collections.isEmpty()) return
-    Column(modifier = modifier.testTag("collections_section")) {
-        collections.forEach { collection ->
-            CatalogRowHeader(title = collection.displayName)
-            LazyRow(
-                contentPadding = PaddingValues(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.testTag("collection_row_${collection.id}")
-            ) {
-                items(collection.books, key = { it.id }) { book ->
-                    CatalogBookCard(book = book, onClick = { onBookClick(book.id) })
-                }
-            }
-        }
-    }
-}
 
 /**
  * Cover-first card for the horizontal catalogue rows: a portrait cover with
@@ -803,6 +786,46 @@ fun CatalogBookCard(
         Spacer(modifier = Modifier.height(6.dp))
         Text(
             text = book.title,
+            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth()
+        )
+    }
+}
+
+/**
+ * Spec-16 — cover-first card of a smart-collection row: the union card
+ * (Work) with its cover and title, uniform with the other Огляд cover cards.
+ * Tapping resolves the Work through the same identity as any global-search
+ * card (import-and-play).
+ */
+@Composable
+fun CollectionBookCard(
+    result: com.example.data.source.GlobalSearchResult,
+    onClick: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .width(120.dp)
+            .clickable { onClick() }
+            .testTag("collection_book_${result.key.hashCode()}"),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        CatalogCoverImage(
+            coverImageUrl = result.coverImageUrl,
+            title = result.title,
+            modifier = Modifier
+                .width(120.dp)
+                .height(168.dp)
+                .clip(RoundedCornerShape(AppDimens.RadiusCardLg))
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(AppDimens.RadiusCardLg))
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = result.title,
             style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
             color = MaterialTheme.colorScheme.onSurface,
             maxLines = 2,

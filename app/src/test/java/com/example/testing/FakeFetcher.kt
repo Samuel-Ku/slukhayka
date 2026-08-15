@@ -23,8 +23,10 @@ class FakeFetcher(
     private val streamResponses: Map<String, ByteArray> = emptyMap()
 ) : HttpFetcher() {
 
-    /** Extra headers of each headerful request, in call order. */
-    val recordedHeaders = mutableListOf<Map<String, String>>()
+    /** Extra headers of each headerful request, in call order. Thread-safe:
+     *  the offline download loop records from several async workers at once,
+     *  and a plain mutable list would lose appends under that race. */
+    val recordedHeaders = java.util.concurrent.CopyOnWriteArrayList<Map<String, String>>()
 
     override fun getText(url: String): String = responses[url] ?: fallback
 

@@ -427,6 +427,12 @@ class FakeAudiobookDao(
     override suspend fun findByMergeKey(mergeKey: String): BookRow? =
         booksState.value.firstOrNull { it.mergeKey == mergeKey && it.mergeKey.isNotEmpty() }?.toBookRow()
 
+    // ADR-0011: the card of a rendition — resolve the edition's owner book.
+    override suspend fun findBookByEditionId(editionId: String): BookRow? {
+        val bookId = editionsState.value.firstOrNull { it.id == editionId }?.workId ?: return null
+        return booksState.value.firstOrNull { it.id == bookId }?.toBookRow()
+    }
+
     // Wayfinder #42: re-scan diff queries.
     override suspend fun getAudiobooksBySourceTree(treeUri: String): List<BookRow> =
         booksState.value.filter { it.sourceTreeUri == treeUri }.map { it.toBookRow() }

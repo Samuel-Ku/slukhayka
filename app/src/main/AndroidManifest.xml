@@ -53,5 +53,18 @@
                 <action android:name="android.intent.action.MEDIA_BUTTON" />
             </intent-filter>
         </receiver>
+
+        <!-- Spec-17 (#110): home-screen widget (session-backed, glance). -->
+        <receiver
+            android:name=".widget.HomeScreenWidgetReceiver"
+            android:exported="true"
+            android:label="@string/app_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/home_screen_widget_info" />
+        </receiver>
     </application>
 </manifest>

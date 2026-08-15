@@ -200,6 +200,9 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                         // parameters from the composition root.
                         listeningState = viewModel.listeningState,
                         offlineDownloads = viewModel.offlineDownloads,
+                        // ADR-0011: the «Інші начитки» block reads the Work's
+                        // other rendition cards from the module.
+                        libraryEntries = viewModel.libraryEntries,
                         onBackClick = { viewModel.selectBook(null) }
                     )
 

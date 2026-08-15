@@ -7,6 +7,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import com.example.data.catalog.CatalogBook
 import com.example.data.catalog.CatalogSeries
@@ -73,6 +74,40 @@ class CatalogRowsSnapshotTest {
         }
         composeTestRule.onRoot().captureRoboImage(
             filePath = "src/test/snapshots/catalog_book_card.png"
+        )
+    }
+
+    // Spec-24 T1: the cover card shows the full book duration (Ч:ММ:СС)
+    // under the title, and only when the duration is really known.
+    @Test
+    fun book_card_with_duration() {
+        val withDuration = book.copy(totalDurationSeconds = 2_548L) // 42 min 28 s
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                CatalogSurface {
+                    CatalogBookCard(book = withDuration, onClick = {})
+                }
+            }
+        }
+        composeTestRule.onNodeWithText("42:28").assertExists()
+        composeTestRule.onRoot().captureRoboImage(
+            filePath = "src/test/snapshots/catalog_book_card_with_duration.png"
+        )
+    }
+
+    @Test
+    fun book_card_unknown_duration_renders_nothing() {
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                CatalogSurface {
+                    CatalogBookCard(book = book, onClick = {})
+                }
+            }
+        }
+        // No duration known — no time line under the title.
+        composeTestRule.onNodeWithText("42:28").assertDoesNotExist()
+        composeTestRule.onRoot().captureRoboImage(
+            filePath = "src/test/snapshots/catalog_book_card_no_duration.png"
         )
     }
 

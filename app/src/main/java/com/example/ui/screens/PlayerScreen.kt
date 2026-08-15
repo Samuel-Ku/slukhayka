@@ -8,10 +8,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.*
@@ -47,6 +45,7 @@ import com.example.ui.components.PlayerDebugOverlay
 import com.example.ui.components.SleepTimerSheet
 import com.example.ui.components.SpeedSheet
 import com.example.ui.displayAuthor
+import com.example.ui.displayNarrator
 import com.example.ui.library.effectiveChapterDurations
 import com.example.ui.theme.AppDimens
 import com.example.ui.theme.TabularTimerStyle
@@ -416,15 +415,25 @@ fun PlayerScreenContent(
                 onToggleDebug = onToggleDebug
             )
 
+            // Spec-24 T1: the player fits ONE screen — the scroll wrapper is
+            // gone and the cover block is the flexible element (weight-based,
+            // aspect preserved, capped), so every control below stays visible.
             Column(
                 modifier = Modifier
                     .weight(1f)
-                    .verticalScroll(rememberScrollState())
+                    .fillMaxWidth()
                     .padding(horizontal = AppDimens.PageSides),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Spacer(Modifier.height(AppDimens.SpaceSm))
-                Box(contentAlignment = Alignment.Center) {
+                // The cover absorbs the leftover vertical space: when it is
+                // tight the cover shrinks (the aspect-ratio sizing honours the
+                // bounded height), never pushing the transport row off-screen.
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                    contentAlignment = Alignment.Center
+                ) {
                     // Soft glow behind the cover — tinted with the artwork accent
                     // (or the brand accent before the cover loads) so the shadow
                     // hue matches the scene instead of reading as flat black.
@@ -432,9 +441,10 @@ fun PlayerScreenContent(
                     val glowRadiusPx = with(androidx.compose.ui.platform.LocalDensity.current) { 300.dp.toPx() }
                     // The glow mirrors the cover's (real) aspect ratio instead
                     // of a hard-coded square, so the halo hugs the artwork.
-                    // aspectRatio honours the heightIn cap and shrinks the
-                    // WIDTH to match, so a tall cover is scaled (never
-                    // cropped) and the transport row stays on screen.
+                    // aspectRatio honours the heightIn cap (so the cover can
+                    // never blow up on tablets) and shrinks the WIDTH to match
+                    // when vertical space is tight — a tall cover is scaled
+                    // (never cropped), and the whole column always fits.
                     val coverAspect = artworkAspect.coerceIn(0.6f, 1.6f)
                     Box(
                         modifier = Modifier
@@ -472,7 +482,7 @@ fun PlayerScreenContent(
                     }
                 }
 
-                Spacer(Modifier.height(AppDimens.SpaceXl))
+                Spacer(Modifier.height(AppDimens.SpaceSm))
                 Text(
                     text = book.title,
                     style = MaterialTheme.typography.headlineSmall,
@@ -490,9 +500,13 @@ fun PlayerScreenContent(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                if (book.narrator.isNotBlank()) {
+                // Spec-20 T2: narrator renders only when real — the fabricated
+                // "4read Voice Narrator" placeholder is scrubbed away. The
+                // real narrator lands once the book page fetch back-fills it.
+                val playerNarrator = book.displayNarrator
+                if (playerNarrator.isNotBlank()) {
                     Text(
-                        text = "Читає ${book.narrator}",
+                        text = "Читає $playerNarrator",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,

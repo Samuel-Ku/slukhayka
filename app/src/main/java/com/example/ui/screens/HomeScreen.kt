@@ -793,6 +793,18 @@ fun CatalogBookCard(
             textAlign = TextAlign.Center,
             modifier = Modifier.fillMaxWidth()
         )
+        // Spec-24 T1: the full book duration under the title (the cover card
+        // shows no author today) — only when the duration is really known.
+        if (book.totalDurationSeconds > 0L) {
+            Text(
+                text = MainViewModel.formatTime(book.totalDurationSeconds),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
     }
 }
 
@@ -1250,6 +1262,19 @@ fun WorkFeedCard(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            // Spec-24 T1: the full book duration under the author — always
+            // with seconds (Ч:ММ:СС), and only when the Edition's total is
+            // really known (never a fabricated «0:00»).
+            val feedDuration = row.durationSeconds?.takeIf { it > 0L }
+            if (feedDuration != null) {
+                Text(
+                    text = MainViewModel.formatTime(feedDuration),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
             // Spec-23 T5: the «N джерел» badge appears only when more than one

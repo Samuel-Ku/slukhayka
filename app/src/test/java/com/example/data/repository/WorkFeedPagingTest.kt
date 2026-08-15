@@ -10,12 +10,14 @@ import com.example.data.catalog.SourceCatalog
 import com.example.data.db.AudiobookDao
 import com.example.data.db.AudiobookDatabase
 import com.example.data.db.AudiobookEntity
+import com.example.data.db.EditionEntity
 import com.example.data.db.WorkFeedRow
 import com.example.data.imports.LibraryImport
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -213,6 +215,76 @@ class WorkFeedPagingTest {
         // and the module accessor is the same PagingSource the Pager uses.
         val recent = collectAll(catalog.pagedWorkFeedRecent(null, null))
         assertEquals(titles.size, recent.map { it.workId }.toSet().size)
+    }
+
+    @Test
+    fun `feed row carries its Work's duration from the Edition`() = runBlocking {
+        // Spec-24 T1: the feed card shows the full book duration, and the
+        // duration is the Edition's listening total (ADR-0010) — joined for
+        // Works whose library copy has an Edition; null for browse-only Works.
+        val catalog = catalog()
+        catalog.writeWorkEdition(
+            sourceId = "4read",
+            title = "Пасажир",
+            author = "Жан-Крістоф Гранже",
+            narrator = "",
+            sourceUrl = "https://4read.org/pasazhir.html"
+        )
+        catalog.writeWorkEdition(
+            sourceId = "sluhay",
+            title = "Інша книга",
+            author = "Інший автор",
+            narrator = "",
+            sourceUrl = "https://sluhay.com/insha.html"
+        )
+
+        // Link «Пасажир» into the library and give its Edition a real total
+        // — the same shape importBookFromSource produces.
+        val work = dao.observeWorks().first().first { it.title == "Пасажир" }
+        dao.insertAudiobooks(
+            listOf(
+                AudiobookEntity(
+                    id = "lib-pasazhir",
+                    title = work.title,
+                    author = work.author,
+                    narrator = "",
+                    description = "",
+                    coverDrawableRes = 0,
+                    coverImageUrl = null,
+                    genre = "Детектив",
+                    sourceUrl = "https://4read.org/pasazhir.html",
+                    isDownloaded = false,
+                    totalDurationSeconds = 60_061L,
+                    totalChapters = 0,
+                    rating = 0f
+                )
+            )
+        )
+        dao.upsertLibraryEntry(
+            id = "lib-pasazhir",
+            workId = work.id,
+            isFavorite = false,
+            createdAt = 0L,
+            downloadProgress = 0f
+        )
+        dao.insertEdition(
+            EditionEntity(
+                id = "ed-pasazhir",
+                workId = "lib-pasazhir",
+                narrator = "",
+                totalChapters = 0,
+                totalDurationSeconds = 60_061L
+            )
+        )
+
+        val rows = collectAll(dao.pagedWorksFeedRecent(null, null))
+
+        val pasazhir = rows.first { it.title == "Пасажир" }
+        val insha = rows.first { it.title == "Інша книга" }
+        // The linked Work carries its Edition's total; the browse-only Work
+        // has no Edition yet — null, never a fabricated duration.
+        assertEquals(60_061L, pasazhir.durationSeconds)
+        assertNull(insha.durationSeconds)
     }
 
     @Test

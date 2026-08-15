@@ -643,7 +643,10 @@ class SourceCatalog(
             WorkEntity(
                 id = mergeKey,
                 mergeKey = mergeKey,
-                title = title.trim(),
+                // Spec-24 T1: the Work row stores the scrubbed title — the
+                // merge key keeps the RAW claim so stored identities never
+                // churn under the SEO-suffix scrub.
+                title = MetadataAssertions.normalizeTitle(title),
                 author = author.trim(),
                 seriesTitle = seriesTitle,
                 seriesIndex = seriesIndex,
@@ -655,7 +658,7 @@ class SourceCatalog(
             WorkEntity(
                 id = id,
                 mergeKey = "",
-                title = title.trim(),
+                title = MetadataAssertions.normalizeTitle(title),
                 author = author.trim(),
                 seriesTitle = seriesTitle,
                 seriesIndex = seriesIndex,

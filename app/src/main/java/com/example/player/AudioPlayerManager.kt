@@ -969,10 +969,13 @@ class AudioPlayerManager(
     }
 
     /**
-     * Applies the smart rewind once when resuming from a pause (wayfinder #25).
-     * The rewind is written straight into the player state so it also takes
-     * effect on a buffering resume (the READY listener seeks to the state
-     * position); a ready engine is seeked directly.
+     * Applies the smart rewind once when resuming from a pause (wayfinder #25,
+     * ADR-0003). The rewind is written straight into the player state so it
+     * also takes effect on a buffering resume (the READY listener seeks to the
+     * state position); a ready engine is seeked directly. The target comes
+     * from the ONE pure rule ([SmartRewind.rewoundPositionMs]) shared with the
+     * across-restart resume path — no tiers or boundary behavior re-derived
+     * here. Unchanged target (short pause / nothing to rewind) skips the seek.
      */
     private fun applySmartRewindIfNeeded() {
         val pausedAt = pausedAtEpochMs ?: return
@@ -982,10 +985,8 @@ class AudioPlayerManager(
         pausedAtEpochMs = null
         persistPausedAt(null)
         val currentPos = _playerState.value.currentPositionMs
-        if (currentPos <= 0L) return
-        val rewindSec = SmartRewind.computeRewindSeconds(now() - pausedAt)
-        if (rewindSec <= 0L) return
-        val targetMs = (currentPos - rewindSec * 1000L).coerceAtLeast(0L)
+        val targetMs = SmartRewind.rewoundPositionMs(currentPos, now() - pausedAt)
+        if (targetMs == currentPos) return
         _playerState.value = _playerState.value.copy(currentPositionMs = targetMs)
         mediaPlayer?.let { mp ->
             try {

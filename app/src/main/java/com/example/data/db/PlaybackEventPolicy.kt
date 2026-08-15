@@ -1,6 +1,5 @@
 package com.example.data.db
 
-import com.example.player.SeekHistory
 import kotlin.math.abs
 
 /**
@@ -21,10 +20,11 @@ object PlaybackEventPolicy {
     const val UNDO_CANDIDATE_MAX_AGE_MS: Long = 24 * 60 * 60 * 1000L
 
     /**
-     * A seek is undoable only if it jumped at least this far. Reuses the
-     * SeekHistory threshold (wayfinder #25) — one constant, no divergence.
+     * A seek is undoable only if it jumped at least this far. ADR-0003: this
+     * is the CANONICAL home of the jump threshold — the player's seek history
+     * ([SeekHistory]) reads it downward. One constant, no divergence.
      */
-    val SEEK_JUMP_THRESHOLD_MS: Long = SeekHistory.DEFAULT_JUMP_THRESHOLD_MS
+    const val SEEK_JUMP_THRESHOLD_MS: Long = 5 * 60 * 1000L
 
     /** Kinds that carry a from-position and may therefore be undo candidates. */
     fun isUndoCandidateKind(kind: String): Boolean =

@@ -1,6 +1,5 @@
 package com.example.data.db
 
-import com.example.player.SeekHistory
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -9,7 +8,7 @@ import org.junit.Test
 /** Pure JVM tests for the playback-event log policy (spec-16 T1, wayfinder #53). */
 class PlaybackEventPolicyTest {
 
-    private val fiveMinMs = SeekHistory.DEFAULT_JUMP_THRESHOLD_MS
+    private val fiveMinMs = PlaybackEventPolicy.SEEK_JUMP_THRESHOLD_MS
     private val fiveMinSec = fiveMinMs / 1000L
 
     private fun event(

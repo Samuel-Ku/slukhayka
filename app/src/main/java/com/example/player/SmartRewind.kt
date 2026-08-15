@@ -33,4 +33,19 @@ object SmartRewind {
         pauseDurationMs < DAY_MS -> REWIND_MEDIUM_SECONDS
         else -> REWIND_LONG_SECONDS
     }
+
+    /**
+     * ADR-0003 — THE rewind rule, shared by both resume paths (in-session
+     * live engine and across-restart persisted Listening State). Given the
+     * position playback resumes from and how long the pause lasted, return
+     * the rewound position — same tiers as [computeRewindSeconds], same
+     * boundary semantics: a position smaller than the rewind rewinds to zero
+     * (clamp-at-zero; the former restart path skipped the rewind there). A
+     * pause too short to rewind (or a future-dated pause — clock skew) leaves
+     * the position unchanged. Pure and deterministic — table-tested directly.
+     */
+    fun rewoundPositionMs(positionMs: Long, pauseDurationMs: Long): Long {
+        val rewindSec = computeRewindSeconds(pauseDurationMs)
+        return (positionMs - rewindSec * 1000L).coerceAtLeast(0L)
+    }
 }

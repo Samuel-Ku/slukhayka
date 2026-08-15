@@ -55,3 +55,9 @@ _Avoid_: Library Entry, playback progress
 **Tombstone**:
 A durable record that a listener intentionally removed or rejected a relationship, preventing imports, catalog refreshes, or sync from silently recreating it.
 _Avoid_: Missing Source, unavailable file
+
+## Playback
+
+**Smart Rewind**:
+One pure rule (`SmartRewind.rewoundPositionMs`): the longer the pause, the further back playback resumes (tiers of 3/12/25 s), clamped at zero. It serves both the in-session resume (live engine position) and the across-restart resume (persisted Listening State), so the two paths can never drift (ADR-0003).
+_Avoid_: per-path rewind logic

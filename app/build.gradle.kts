@@ -112,6 +112,8 @@ dependencies {
   implementation(libs.androidx.documentfile)
   implementation(libs.androidx.media3.exoplayer)
   implementation(libs.androidx.media3.session)
+  // Home-screen widget (spec-17 #110): Glance renderer over the MediaSession.
+  implementation(libs.androidx.glance.appwidget)
   // implementation(libs.androidx.datastore.preferences)
   implementation(libs.androidx.lifecycle.runtime.compose)
   implementation(libs.androidx.lifecycle.runtime.ktx)
@@ -135,6 +137,8 @@ dependencies {
   implementation(libs.firebase.appcheck.recaptcha)
   implementation(libs.kotlinx.coroutines.android)
   implementation(libs.kotlinx.coroutines.core)
+  // Suspend await() on media3's ListenableFuture (widget session connection).
+  implementation(libs.kotlinx.coroutines.guava)
   implementation(libs.logging.interceptor)
   implementation(libs.moshi.kotlin)
   implementation(libs.okhttp)
@@ -149,6 +153,7 @@ dependencies {
   testImplementation(libs.roborazzi)
   testImplementation(libs.roborazzi.compose)
   testImplementation(libs.roborazzi.junit.rule)
+  testImplementation(libs.androidx.glance.appwidget.testing)
   androidTestImplementation(platform(libs.androidx.compose.bom))
   androidTestImplementation(libs.androidx.compose.ui.test.junit4)
   androidTestImplementation(libs.androidx.compose.ui.test.manifest)

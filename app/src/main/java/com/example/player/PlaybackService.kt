@@ -7,6 +7,12 @@ import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.example.App
 import com.example.MainActivity
+import com.example.widget.HomeScreenWidget
+import androidx.glance.appwidget.updateAll
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 /**
  * Background playback host (audit CRITICAL finding PERF-002 / PERF-021:
@@ -48,6 +54,7 @@ class PlaybackService : MediaSessionService() {
         mediaSession = MediaSession.Builder(this, App.instance.playerManager.player)
             .setSessionActivity(sessionActivity)
             .build()
+        refreshWidget(this)
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? =
@@ -63,6 +70,20 @@ class PlaybackService : MediaSessionService() {
     }
 
     companion object {
+        private val widgetRefreshScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+
+        /**
+         * Spec-17 (#110): re-render the home-screen widget on session (re)start.
+         * The widget's composition is alive only while this process lives; if
+         * the process was killed while paused, the widget would otherwise show
+         * stale state forever after playback resumes. The service starts on
+         * every play path ([AudioPlayerManager.ensurePlaybackServiceStarted]),
+         * so this hook keeps the widget fresh with no state duplication.
+         */
+        private fun refreshWidget(context: Context) {
+            widgetRefreshScope.launch { HomeScreenWidget().updateAll(context.applicationContext) }
+        }
+
         /**
          * Intent that starts this service and makes Media3 attach the session
          * (the default `onStartCommand` treats `Intent.ACTION_PLAY` as a media

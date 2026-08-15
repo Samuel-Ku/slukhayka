@@ -9,7 +9,9 @@ import androidx.paging.PagingData
 import androidx.paging.cachedIn
 import com.example.App
 import com.example.data.catalog.CatalogPerson
+import com.example.data.collection.SmartCollections
 import com.example.data.db.*
+import com.example.data.duration.DurationEnrichment
 import com.example.data.imports.ImportGrantStore
 import com.example.data.imports.ImportPlan
 import com.example.data.catalog.SourceCatalog
@@ -22,6 +24,7 @@ import com.example.data.source.GlobalSearchResult
 import com.example.player.AudioPlayerManager
 import com.example.player.PlayerState
 import com.example.ui.library.OutcomeMessages
+import com.example.ui.library.ResumeStart
 import com.example.ui.library.computeResumeStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -90,6 +93,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val sourceCatalog: SourceCatalog = App.instance.sourceCatalog
     val offlineDownloads: OfflineDownloads = App.instance.offlineDownloads
     val libraryEntries: LibraryEntries = App.instance.libraryEntries
+    val durationEnrichment: DurationEnrichment = App.instance.durationEnrichment
+    val smartCollections: SmartCollections = App.instance.smartCollections
     val playerManager: AudioPlayerManager = App.instance.playerManager
 
     val playerState: StateFlow<PlayerState> = playerManager.playerState
@@ -930,6 +935,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun playAudiobook(book: AudiobookEntity, chapterIndex: Int? = null, autoPlay: Boolean = true) {
+        startAudiobookPlayback(book, chapterIndex = chapterIndex, autoPlay = autoPlay, forceRelisten = false)
+    }
+
+    // #40 decision 1: the book page's «Почати спочатку» — always chapter 0 /
+    // position 0, logged as RELISTEN, no smart-rewind of a stale pause marker.
+    fun relistenBook(book: AudiobookEntity) {
+        startAudiobookPlayback(book, chapterIndex = null, autoPlay = true, forceRelisten = true)
+    }
+
+    private fun startAudiobookPlayback(
+        book: AudiobookEntity,
+        chapterIndex: Int?,
+        autoPlay: Boolean,
+        forceRelisten: Boolean
+    ) {
         viewModelScope.launch(Dispatchers.IO) {
             val updatedBook = libraryEntries.getBookSync(book.id) ?: book
             // ADR-0007: the chapter→track pairing rides the same fetch — the
@@ -944,12 +964,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
             // ADR-0008: the ONE pure resume decision — an explicit chapter
             // request vs. the saved progress, then the ADR-0003 smart rewind
-            // (same tiers, same clamp-at-zero as the in-session path).
-            val resume = computeResumeStart(
-                requestedChapter = chapterIndex,
-                progress = progress,
-                nowEpochMs = System.currentTimeMillis()
-            )
+            // (same tiers, same clamp-at-zero as the in-session path). A
+            // forced re-listen skips the resume decision entirely: chapter 0,
+            // position 0, no smart-rewind of a stale pause marker.
+            val resume = if (forceRelisten) {
+                ResumeStart(chapterIndex = 0, positionSeconds = 0L)
+            } else {
+                computeResumeStart(
+                    requestedChapter = chapterIndex,
+                    progress = progress,
+                    nowEpochMs = System.currentTimeMillis()
+                )
+            }
             // ADR-0007: the pause marker lives on the Edition's progress row;
             // cleared so the same pause never rewinds twice.
             if (progress?.lastPausedAtEpochMs != null) {
@@ -963,7 +989,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     playable = playable,
                     initialChapterIndex = resume.chapterIndex,
                     initialPositionSeconds = resume.positionSeconds,
-                    autoPlay = autoPlay
+                    autoPlay = autoPlay,
+                    forceRelisten = forceRelisten
                 )
             }
 

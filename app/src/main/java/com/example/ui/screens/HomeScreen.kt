@@ -52,14 +52,19 @@ import com.example.data.catalog.CatalogBook
 import com.example.data.catalog.CatalogSection
 import com.example.data.catalog.CatalogSeries
 import com.example.data.catalog.SourceCatalog
+import com.example.data.collection.MatchedCollection
+import com.example.data.collection.SmartCollections
 import com.example.data.db.AudiobookEntity
+import com.example.data.duration.DurationEnrichment
 import com.example.data.entries.LibraryEntries
 import com.example.data.db.WorkFeedRow
 import com.example.data.source.sourceDisplayName
+import com.example.ui.DurationBooks
 import com.example.ui.MainViewModel
 import com.example.ui.components.EmptyState
 import com.example.ui.components.genreAccentColor
 import com.example.ui.displayAuthor
+import com.example.ui.durationBooksFrom
 import com.example.ui.theme.*
 
 /**
@@ -81,6 +86,8 @@ fun HomeScreen(
     // and navigation orchestration stay on the ViewModel.
     libraryEntries: LibraryEntries,
     sourceCatalog: SourceCatalog,
+    smartCollections: SmartCollections,
+    durationEnrichment: DurationEnrichment,
     onBookClick: (String) -> Unit,
     onPlayClick: (AudiobookEntity) -> Unit
 ) {
@@ -118,7 +125,23 @@ fun HomeScreen(
     LaunchedEffect(Unit) {
         sourceCatalog.refreshUnifiedCatalog()
         viewModel.refreshEmbeddingVectors()
+        // Spec-16 T2: the «Колекції» rows recompute from the stored catalog
+        // on the same trigger that recomputes the union itself.
+        smartCollections.recompute()
+        // spec-18 T2: one throttled, bounded duration-enrichment pass is
+        // detached so it never delays browsing or catalogue completion. The
+        // module's own atomic throttle collapses overlapping triggers.
+        durationEnrichment.enrichUnknownDurations()
     }
+
+    // spec-18 T3: the «За тривалістю» rows, derived live from the library
+    // through the pure DurationBuckets module — only books with a known
+    // duration surface, never guesses.
+    val durationBooks: DurationBooks = remember(allBooks) { durationBooksFrom(allBooks) }
+
+    // spec-16 T3: the «Колекції» rows — already matched by the module; the
+    // screen only renders what matched.
+    val matchedCollections by smartCollections.matched.collectAsState()
 
     // Spec-22 T3: the search bar and filter chips are collapsible — the
     // header shows brand + [🔍] + [🔄], and the field + chips expand on
@@ -445,6 +468,28 @@ fun HomeScreen(
                 }
             }
 
+            // spec-18 T3: «За тривалістю» — «Короткі» and «Довгі» cover rows
+            // fed by the bucketed duration rows. Hidden entirely when no book
+            // has a known duration yet; the rows grow as durations arrive.
+            item {
+                DurationSection(
+                    shortBooks = durationBooks.short.map { it.asCatalogBook() },
+                    longBooks = durationBooks.long.map { it.asCatalogBook() },
+                    onBookClick = onBookClick
+                )
+            }
+
+            // spec-16 T3: «Колекції» — one row per matched curated list
+            // (Нобелівські лауреати, Шевченківська премія, Букер), uniform
+            // with the other rows. Empty collections are absent from the flow,
+            // so the block disappears entirely when nothing matched.
+            item {
+                CollectionsSection(
+                    collections = matchedCollections,
+                    onBookClick = onBookClick
+                )
+            }
+
             // Catalogue rows parsed from the 4read.org homepage. Spec-9: the
             // Continue-Listening card moved to the Слухати tab.
             sections.forEach { section ->
@@ -652,6 +697,82 @@ fun CatalogRowHeader(title: String) {
         color = MaterialTheme.colorScheme.onSurface,
         modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 8.dp)
     )
+}
+
+/**
+ * spec-18 T3 (#114) — the Огляд «За тривалістю» section: two horizontal
+ * cover rows — «Короткі» (under 5 h) and «Довгі» (10 h and up). The
+ * bucketing itself is the pure [com.example.data.duration.DurationBuckets]
+ * module; this composable only renders what it is handed, so the snapshot
+ * seam pins it from fixture data. Hidden entirely when both rows are empty.
+ * Cards are the same cover-first [CatalogBookCard] as every Огляд row;
+ * tapping opens the book page.
+ */
+@Composable
+fun DurationSection(
+    shortBooks: List<CatalogBook>,
+    longBooks: List<CatalogBook>,
+    onBookClick: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    if (shortBooks.isEmpty() && longBooks.isEmpty()) return
+    Column(modifier = modifier.testTag("duration_section")) {
+        if (shortBooks.isNotEmpty()) {
+            CatalogRowHeader(title = "Короткі")
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.testTag("duration_short_row")
+            ) {
+                items(shortBooks, key = { it.id }) { book ->
+                    CatalogBookCard(book = book, onClick = { onBookClick(book.id) })
+                }
+            }
+        }
+        if (longBooks.isNotEmpty()) {
+            CatalogRowHeader(title = "Довгі")
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.testTag("duration_long_row")
+            ) {
+                items(longBooks, key = { it.id }) { book ->
+                    CatalogBookCard(book = book, onClick = { onBookClick(book.id) })
+                }
+            }
+        }
+    }
+}
+
+/**
+ * spec-16 T3 (#109) — the Огляд «Колекції» block: one horizontal cover row
+ * per matched curated list, uniform with the other Огляд rows. The matching
+ * is the pure [com.example.data.collection.SmartCollectionMatcher] done by
+ * the module on catalog syncs; this composable only renders what it is
+ * handed, so the snapshot seam pins it from fixture data. An empty input
+ * hides the whole block — Огляд never shows an empty row.
+ */
+@Composable
+fun CollectionsSection(
+    collections: List<MatchedCollection>,
+    onBookClick: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    if (collections.isEmpty()) return
+    Column(modifier = modifier.testTag("collections_section")) {
+        collections.forEach { collection ->
+            CatalogRowHeader(title = collection.displayName)
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.testTag("collection_row_${collection.id}")
+            ) {
+                items(collection.books, key = { it.id }) { book ->
+                    CatalogBookCard(book = book, onClick = { onBookClick(book.id) })
+                }
+            }
+        }
+    }
 }
 
 /**
@@ -1208,3 +1329,12 @@ fun WorkFeedFilters(
         }
     }
 }
+
+/** The card shape the Огляд rows render for a real library book row. */
+private fun AudiobookEntity.asCatalogBook() = CatalogBook(
+    id = id,
+    title = title,
+    author = author,
+    url = sourceUrl,
+    coverImageUrl = coverImageUrl
+)

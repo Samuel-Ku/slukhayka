@@ -42,8 +42,8 @@ fun streamOnlyFor(sourceId: String): Boolean = when (sourceId) {
  *
  * [streamUrl] is kept in the signature because the policy may later want to
  * scope a Referer to specific CDN paths; today it is only a documentation
- * hook. Callers derive [sourceId] from the book's primary source URL (see
- * `AudiobookRepository.sourceTypeOfUrl`).
+ * hook. Callers derive [sourceId] from the book's primary source URL via the
+ * pure [sourceIdForUrl] function in this package.
  */
 fun headersFor(sourceId: String, streamUrl: String): Map<String, String> = when (sourceId) {
     "sluhay" -> mapOf("Referer" to "https://sluhay.com/")

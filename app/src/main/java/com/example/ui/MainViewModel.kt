@@ -14,6 +14,8 @@ import com.example.data.imports.ImportPlanner
 import com.example.data.repository.AudiobookRepository
 import com.example.data.source.GlobalSearchResult
 import com.example.data.source.catalogCardDownloadAllowed
+import com.example.data.source.sourceIdForUrl
+import com.example.data.source.streamOnlyFor
 import com.example.player.AudioPlayerManager
 import com.example.player.PlayerState
 import com.example.player.SmartRewind
@@ -1002,7 +1004,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val downloadMessage: StateFlow<String?> = _downloadMessage.asStateFlow()
 
     /** Spec-10 T6: whether the book's primary source is stream-only. */
-    fun isStreamOnly(book: AudiobookEntity): Boolean = repository.isStreamOnly(book)
+    fun isStreamOnly(book: AudiobookEntity): Boolean = streamOnlyFor(sourceIdForUrl(book.sourceUrl))
 
     // Spec-15 T4: one-tap download from a catalogue card. The card is
     // ephemeral — nothing is in Room until the user acts — so the flow imports

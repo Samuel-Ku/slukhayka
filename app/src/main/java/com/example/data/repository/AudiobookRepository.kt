@@ -110,27 +110,6 @@ class AudiobookRepository(
     // Multi-source helpers (spec-10 T2)
     // ---------------------------------------------------------------------
 
-    /**
-     * Maps a book URL to its stable source id (the `type` of the `sources`
-     * table). Blank URL = a local import. Spec-15 T6: delegates to the pure
-     * [sourceIdForUrl] so the library model badges its cards with the same id.
-     */
-    fun sourceTypeOfUrl(url: String): String = sourceIdForUrl(url)
-
-    /**
-     * Spec-13 T2 — per-source stream headers for a book's chapter URL (the
-     * player attaches these to the MediaItem so the CDN Referer gate is met
-     * per book, never globally). Empty for sources that serve plain GETs.
-     */
-    fun streamHeadersFor(book: AudiobookEntity, streamUrl: String): Map<String, String> =
-        headersFor(sourceTypeOfUrl(book.sourceUrl), streamUrl)
-
-    /**
-     * The playback-position key of a book: its current (primary) source type.
-     * Local imports have a blank sourceUrl, hence key "local".
-     */
-    fun sourceKeyFor(book: AudiobookEntity): String = sourceTypeOfUrl(book.sourceUrl)
-
     fun observeSources(bookId: String): Flow<List<SourceEntity>> = dao.getSourcesForBook(bookId)
     suspend fun getSourcesForBook(bookId: String): List<SourceEntity> = dao.getSourcesForBookSync(bookId)
 
@@ -208,14 +187,6 @@ class AudiobookRepository(
         streamOnly = streamOnlyFor(sourceId),
         addedAt = System.currentTimeMillis()
     )
-
-    /**
-     * Spec-10 T6 — whether the book's primary source is stream-only (its ToS
-     * permits streaming but not downloading). The gate is derived from the
-     * book's primary [AudiobookEntity.sourceUrl] so it covers every book,
-     * including those imported before the `sources` table existed.
-     */
-    fun isStreamOnly(book: AudiobookEntity): Boolean = streamOnlyFor(sourceTypeOfUrl(book.sourceUrl))
 
     /**
      * Spec-14 T5 — the book id for an import door: the source's adapter owns
@@ -1748,13 +1719,13 @@ class AudiobookRepository(
         // any state change or network I/O. The UI hides the action too; this
         // guard is defence in depth.
         val streamOnlyBook = dao.getAudiobookById(bookId)
-        if (streamOnlyBook != null && isStreamOnly(streamOnlyBook)) {
+        if (streamOnlyBook != null && streamOnlyFor(sourceIdForUrl(streamOnlyBook.sourceUrl))) {
             Log.w("AudiobookRepo", "downloadAudiobookOffline refused: book $bookId is stream-only")
             return OfflineDownloadResult(0, 0)
         }
         // Spec-13 T2: the track CDNs (shared `redirectto.cc`) 403 without the
         // owning source's Referer — derive it from the book, not the URL host.
-        val sourceId = streamOnlyBook?.let { sourceTypeOfUrl(it.sourceUrl) } ?: "unknown"
+        val sourceId = streamOnlyBook?.let { sourceIdForUrl(it.sourceUrl) } ?: "unknown"
 
         // Use the fallback-fetching [getChaptersList], NOT a raw Room read: a
         // catalogue book's chapters live on its 4read page and are materialised

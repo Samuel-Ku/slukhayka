@@ -30,6 +30,65 @@ class MetadataAssertionsTest {
         }
     }
 
+    // --- SEO title scrub (spec-24 T1) -------------------------------------
+
+    @Test
+    fun `title scrub strips the curated SEO phrases from the end across every separator`() {
+        val cases = listOf<Pair<String, String>>(
+            // ` - `
+            "Тіні забутих предків - аудіокнига слухати онлайн" to "Тіні забутих предків",
+            // ` — `
+            "Кобзар — слухати онлайн" to "Кобзар",
+            // ` (`
+            "Пасажир (аудіокнига онлайн)" to "Пасажир",
+            // `, `
+            "Нейромант, слухати онлайн безкоштовно" to "Нейромант",
+            // `|`
+            "1984 | аудіокнига українською" to "1984",
+            // Nested phrases — the longer «аудіокнига слухати онлайн» wins
+            // over «слухати онлайн», so the whole suffix is gone in one pass.
+            "Книга - аудіокнига слухати онлайн" to "Книга",
+            // Case-insensitive.
+            "Кобзар - АУДІОКНИГА СЛУХАТИ ОНЛАЙН" to "Кобзар"
+        )
+        cases.forEach { (claimed, expected) ->
+            assertEquals("normalizeTitle($claimed)", expected, MetadataAssertions.normalizeTitle(claimed))
+        }
+    }
+
+    @Test
+    fun `title scrub keeps clean titles untouched`() {
+        val cases = listOf(
+            "Тіні забутих предків",
+            "Кобзар",
+            "Нейромант",
+            "  Пасажир  ",
+            "Книга про аудіокниги",
+            // The phrase in the MIDDLE is not a suffix — untouched.
+            "Слухати онлайн: гід по аудіокнигах",
+            // A title that ends in a phrase-infix but is not the phrase.
+            "Аудіокнига"
+        )
+        cases.forEach { claimed ->
+            assertEquals("normalizeTitle($claimed)", claimed.trim(), MetadataAssertions.normalizeTitle(claimed))
+        }
+    }
+
+    @Test
+    fun `title scrub never blanks a title and is idempotent`() {
+        // The whole title is the phrase — keep the original, never blank.
+        assertEquals("слухати онлайн", MetadataAssertions.normalizeTitle("слухати онлайн"))
+        assertEquals("аудіокнига українською", MetadataAssertions.normalizeTitle("аудіокнига українською"))
+
+        // Idempotent: a second pass matches nothing (the startup cleanup
+        // relies on this — a second run reports zero changes).
+        val dirty = "Тіні забутих предків — аудіокнига слухати онлайн"
+        val once = MetadataAssertions.normalizeTitle(dirty)
+        val twice = MetadataAssertions.normalizeTitle(once)
+        assertEquals(once, twice)
+        assertEquals("Тіні забутих предків", twice)
+    }
+
     // --- Brand-scrub ------------------------------------------------------
 
     @Test

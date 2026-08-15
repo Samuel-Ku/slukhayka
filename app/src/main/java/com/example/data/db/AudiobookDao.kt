@@ -294,4 +294,32 @@ interface AudiobookDao {
             "ORDER BY updatedAt DESC"
     )
     suspend fun getNeverMatchPairs(mergeKey: String): List<CorrectionEntity>
+
+    // --- Persisted catalogue: Works + Editions (spec-23 T1) ----------------
+
+    /** One Work per normalized merge key — the merge-on-write lookup. */
+    @Query("SELECT * FROM works WHERE mergeKey = :mergeKey AND mergeKey != '' LIMIT 1")
+    suspend fun findWorkByMergeKey(mergeKey: String): WorkEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertWork(work: WorkEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertEdition(edition: EditionEntity)
+
+    /** Every source carrying a Work, for the «Джерела» section (spec-23 T5). */
+    @Query("SELECT * FROM editions WHERE workId = :workId ORDER BY addedAt ASC")
+    fun observeEditionsForWork(workId: String): Flow<List<EditionEntity>>
+
+    @Query("SELECT * FROM editions WHERE workId = :workId ORDER BY addedAt ASC")
+    suspend fun getEditionsForWorkSync(workId: String): List<EditionEntity>
+
+    @Query("SELECT * FROM works ORDER BY addedAt DESC")
+    fun observeWorks(): Flow<List<WorkEntity>>
+
+    @Query("SELECT COUNT(*) FROM works")
+    suspend fun countWorks(): Int
+
+    @Query("SELECT COUNT(*) FROM editions")
+    suspend fun countEditions(): Int
 }

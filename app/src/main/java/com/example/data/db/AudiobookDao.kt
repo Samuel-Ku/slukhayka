@@ -1,5 +1,6 @@
 package com.example.data.db
 
+import androidx.paging.PagingSource
 import androidx.room.*
 import kotlinx.coroutines.flow.Flow
 
@@ -322,4 +323,45 @@ interface AudiobookDao {
 
     @Query("SELECT COUNT(*) FROM editions")
     suspend fun countEditions(): Int
+
+    // --- Endless merged feed (spec-23 T4) --------------------------------
+
+    /**
+     * The endless feed's paging source: one row per Work with its edition
+     * count, newest first. Filters compose with paging: `sourceId` keeps only
+     * Works carried by that source (EXISTS on editions); `genre` keeps only
+     * Works whose library row carries the genre (LEFT JOIN — null until the
+     * Work is linked into audiobooks). Dedup is inherited from merge-on-write
+     * — the feed never re-implements it at read time.
+     */
+    @Query(
+        """
+        SELECT w.id AS workId, w.mergeKey, w.title, w.author, w.narrator, w.seriesTitle, w.seriesIndex,
+               w.coverImageUrl, w.addedAt,
+               (SELECT COUNT(*) FROM editions e WHERE e.workId = w.id) AS editionCount,
+               a.genre AS genre
+        FROM works w
+        LEFT JOIN audiobooks a ON a.workId = w.id
+        WHERE (:sourceId IS NULL OR EXISTS (SELECT 1 FROM editions e WHERE e.workId = w.id AND e.sourceId = :sourceId))
+          AND (:genre IS NULL OR a.genre LIKE '%' || :genre || '%')
+        ORDER BY w.addedAt DESC, w.id ASC
+        """
+    )
+    fun pagedWorksFeedRecent(sourceId: String?, genre: String?): PagingSource<Int, WorkFeedRow>
+
+    /** Same feed, sorted by title (stable tiebreak: addedAt DESC). */
+    @Query(
+        """
+        SELECT w.id AS workId, w.mergeKey, w.title, w.author, w.narrator, w.seriesTitle, w.seriesIndex,
+               w.coverImageUrl, w.addedAt,
+               (SELECT COUNT(*) FROM editions e WHERE e.workId = w.id) AS editionCount,
+               a.genre AS genre
+        FROM works w
+        LEFT JOIN audiobooks a ON a.workId = w.id
+        WHERE (:sourceId IS NULL OR EXISTS (SELECT 1 FROM editions e WHERE e.workId = w.id AND e.sourceId = :sourceId))
+          AND (:genre IS NULL OR a.genre LIKE '%' || :genre || '%')
+        ORDER BY w.title COLLATE NOCASE ASC, w.addedAt DESC, w.id ASC
+        """
+    )
+    fun pagedWorksFeedByTitle(sourceId: String?, genre: String?): PagingSource<Int, WorkFeedRow>
 }

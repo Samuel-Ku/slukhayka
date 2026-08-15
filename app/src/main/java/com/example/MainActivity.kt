@@ -200,6 +200,9 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                         // parameters from the composition root.
                         listeningState = viewModel.listeningState,
                         offlineDownloads = viewModel.offlineDownloads,
+                        // ADR-0011: the «Інші начитки» block reads the Work's
+                        // other rendition cards from the module.
+                        libraryEntries = viewModel.libraryEntries,
                         onBackClick = { viewModel.selectBook(null) }
                     )
 
@@ -236,7 +239,6 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                             }
                         )
                         SelectedTab.EXPLORE ->                        HomeScreen(
-                            smartCollections = viewModel.smartCollections,
                             durationEnrichment = viewModel.durationEnrichment,
                             viewModel = viewModel,
                             // ADR-0008 batches 2 + contract (#156, #160): the
@@ -266,7 +268,6 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                             onBrowseClick = { viewModel.selectTab(SelectedTab.EXPLORE) }
                         )
                         else ->                        HomeScreen(
-                            smartCollections = viewModel.smartCollections,
                             durationEnrichment = viewModel.durationEnrichment,
                             viewModel = viewModel,
                             // ADR-0008 batches 2 + contract (#156, #160): the

@@ -9,7 +9,6 @@ import androidx.paging.PagingData
 import androidx.paging.cachedIn
 import com.example.App
 import com.example.data.catalog.CatalogPerson
-import com.example.data.collection.SmartCollections
 import com.example.data.db.*
 import com.example.data.duration.DurationEnrichment
 import com.example.data.imports.ImportGrantStore
@@ -94,7 +93,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val offlineDownloads: OfflineDownloads = App.instance.offlineDownloads
     val libraryEntries: LibraryEntries = App.instance.libraryEntries
     val durationEnrichment: DurationEnrichment = App.instance.durationEnrichment
-    val smartCollections: SmartCollections = App.instance.smartCollections
     val playerManager: AudioPlayerManager = App.instance.playerManager
 
     val playerState: StateFlow<PlayerState> = playerManager.playerState

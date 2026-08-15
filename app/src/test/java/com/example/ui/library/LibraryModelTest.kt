@@ -18,18 +18,20 @@ class LibraryModelTest {
         id: String,
         title: String,
         author: String = "Автор",
+        narrator: String = "Читець",
         sourceUrl: String = "https://4read.org/$id.html",
         isDownloaded: Boolean = false,
         isFavorite: Boolean = false,
         seriesTitle: String? = null,
         seriesIndex: Int? = null,
         totalDurationSeconds: Long = 0L,
-        createdAt: Long = 0L
+        createdAt: Long = 0L,
+        mergeKey: String = ""
     ) = AudiobookEntity(
         id = id,
         title = title,
         author = author,
-        narrator = "Читець",
+        narrator = narrator,
         description = "",
         coverDrawableRes = 0,
         genre = "",
@@ -42,6 +44,8 @@ class LibraryModelTest {
         it.seriesTitle = seriesTitle
         it.seriesIndex = seriesIndex
         it.createdAt = createdAt
+        // ADR-0010: @Ignore projection; blank = local import with no Work.
+        it.mergeKey = mergeKey
     }
 
     private fun chapter(bookId: String, index: Int, duration: Long) = ChapterEntity(
@@ -364,6 +368,52 @@ class LibraryModelTest {
         // The card reflects the latest-listened rendition row.
         assertEquals(400L, cards.single().progress?.currentPositionSeconds)
         assertEquals(300L, cards.single().lastListenedAt)
+    }
+
+    // --- ADR-0011: siblingNarrations — the other rendition cards of a Work ---
+
+    @Test
+    fun `siblings are the other cards sharing the same work merge key`() {
+        val self = book("self", "Книга", narrator = "Читець", mergeKey = "книга|автор")
+        val other = book("other", "Книга", narrator = "Інший", mergeKey = "книга|автор")
+        val foreign = book("foreign", "Інша книга", narrator = "Читець", mergeKey = "інша|автор")
+        val local = book("local", "Книга", narrator = "Читець", mergeKey = "")
+
+        val siblings = siblingNarrations(listOf(self, other, foreign, local), self.id, "книга|автор")
+
+        assertEquals(listOf("other"), siblings.map { it.id })
+    }
+
+    @Test
+    fun `siblings exclude the card itself and blank-key rows`() {
+        val a = book("a", "Книга", narrator = "Читець", mergeKey = "книга|автор")
+        val b = book("b", "Книга", narrator = "Другий", mergeKey = "книга|автор")
+
+        val fromA = siblingNarrations(listOf(a, b), a.id, "книга|автор")
+        val fromB = siblingNarrations(listOf(a, b), b.id, "книга|автор")
+
+        assertEquals(listOf("b"), fromA.map { it.id })
+        assertEquals(listOf("a"), fromB.map { it.id })
+    }
+
+    @Test
+    fun `siblings are sorted by narrator case-insensitively`() {
+        val self = book("self", "Книга", narrator = "Читець", mergeKey = "книга|автор")
+        val z = book("z", "Книга", narrator = "Зоя", mergeKey = "книга|автор")
+        val a = book("a", "Книга", narrator = "Анна", mergeKey = "книга|автор")
+        val b = book("b", "Книга", narrator = "богдан", mergeKey = "книга|автор")
+
+        val siblings = siblingNarrations(listOf(self, z, a, b), self.id, "книга|автор")
+
+        assertEquals(listOf("a", "b", "z"), siblings.map { it.id })
+    }
+
+    @Test
+    fun `a work with one rendition has no siblings`() {
+        val solo = book("solo", "Книга", mergeKey = "книга|автор")
+        val foreign = book("foreign", "Інша", mergeKey = "інша|автор")
+
+        assertTrue(siblingNarrations(listOf(solo, foreign), solo.id, "книга|автор").isEmpty())
     }
 
     // --- helpers ------------------------------------------------------------

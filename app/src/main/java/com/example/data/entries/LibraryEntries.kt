@@ -306,7 +306,9 @@ class LibraryEntries(
             // `ch`/`ch_` format used to duplicate the whole chapter list).
             if (chapters.isEmpty() && detail.chapters.isNotEmpty()) {
                 val edition = dao.getEditionForWork(bookId)
-                val editionId = edition?.id ?: com.example.data.EditionId.forBook(book.mergeKey ?: "", bookId)
+                val editionId = edition?.id ?: com.example.data.EditionId.forBook(
+                    book.mergeKey ?: "", bookId, book.narrator
+                )
                 if (edition == null) {
                     dao.insertEdition(
                         com.example.data.db.EditionEntity(

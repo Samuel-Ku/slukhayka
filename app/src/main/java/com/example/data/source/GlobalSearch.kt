@@ -90,7 +90,9 @@ fun sourceDisplayName(sourceId: String): String = when (sourceId) {
 fun mergeGlobalSearchResults(results: List<SourceBook>): List<GlobalSearchResult> {
     val usable = results.filter { it.title.isNotBlank() && it.url.isNotBlank() }
     val grouped = usable.groupBy { book ->
-        MergeKey.keyFor(book.title, book.author, book.narrator)
+        // ADR-0010: cards merge on the bibliographic Work key — the narrator
+        // distinguishes Editions of one card, not separate cards.
+        MergeKey.keyFor(book.title, book.author)
             .ifBlank { "${book.sourceId}|${book.url}" }
     }
     return grouped.values
@@ -100,7 +102,7 @@ fun mergeGlobalSearchResults(results: List<SourceBook>): List<GlobalSearchResult
                 title = first.title,
                 author = first.author,
                 narrator = first.narrator,
-                mergeKey = MergeKey.keyFor(first.title, first.author, first.narrator),
+                mergeKey = MergeKey.keyFor(first.title, first.author),
                 coverImageUrl = first.coverImageUrl,
                 // One badge per source, whatever urls it returned; the first
                 // url is the one the card plays from.

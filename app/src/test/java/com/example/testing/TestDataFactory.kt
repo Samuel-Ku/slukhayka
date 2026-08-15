@@ -186,7 +186,7 @@ object TestDataFactory {
         PlaybackProgressEntity(
             // ADR-0007: progress is keyed by the Edition (deterministic id
             // from the book's identity — the same id the import writes).
-            editionId = com.example.data.EditionId.forBook(book.mergeKey, book.id),
+            editionId = com.example.data.EditionId.forBook(book.mergeKey, book.id, book.narrator),
             bookId = book.id,
             currentChapterIndex = chapterIndex,
             currentPositionSeconds = positionSeconds,

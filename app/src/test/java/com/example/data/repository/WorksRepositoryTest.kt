@@ -154,7 +154,7 @@ class WorksRepositoryTest {
     }
 
     @Test
-    fun `different narrators stay separate Works`() = runBlocking {
+    fun `different narrators attach to one Work`() = runBlocking {
         val catalog = catalog()
 
         catalog.writeWorkEdition(
@@ -172,11 +172,11 @@ class WorksRepositoryTest {
             sourceUrl = "https://sluhay.com/kobzar-2.html"
         )
 
-        // Narrator is part of the merge key when known (ADR-0001: incompatible
-        // narrations must not share a card) — two distinct Works.
-        assertEquals(2, dao.countWorks())
-        val works = dao.observeWorks().first()
-        // Each distinct Work carries exactly its own source row.
-        assertEquals(setOf(1), works.map { dao.getWorkSourcesForWorkSync(it.id).size }.toSet())
+        // ADR-0010: the narrator is an Edition property, never a Work key —
+        // both narrations are ONE bibliographic Work carrying both sources
+        // (the rendition id still separates them, ADR-0001).
+        assertEquals(1, dao.countWorks())
+        val work = dao.observeWorks().first().single()
+        assertEquals(2, dao.getWorkSourcesForWorkSync(work.id).size)
     }
 }

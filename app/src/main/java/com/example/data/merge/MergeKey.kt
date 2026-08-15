@@ -3,14 +3,16 @@ package com.example.data.merge
 import java.util.Locale
 
 /**
- * Spec-10 T2 — the Work-level dedup key of the multi-source catalog.
+ * Spec-10 T2 + ADR-0010 — the Work-level dedup key of the multi-source
+ * catalog.
  *
  * A book imported from two different sources is the same Work when its
- * normalized (title + author + narrator) key matches. The narrator is part of
- * the key only when known, so two genuinely different narrations of the same
- * text stay separate cards, while books with no narrator on either side merge
- * on title + author alone (ADR-0001: incompatible narrations must not share
- * timestamps; a blank narrator is "unknown", never "different").
+ * normalized (title + author) key matches. The narrator is NOT part of the
+ * Work identity: it distinguishes EDITIONS (renditions) of the same Work, so
+ * two different narrations of the same text are ONE Work with TWO Editions,
+ * never two Works (ADR-0010). The Edition id carries the narrator
+ * ([EditionId.forBook]), so incompatible narrations still never share
+ * listening state (ADR-0001) even though they share the Work.
  *
  * The normalization reuses the approach validated in the enrichment spike
  * (wayfinder #43 / Google Books + OpenLibrary matcher): lowercase, strip
@@ -32,15 +34,16 @@ object MergeKey {
     fun normalizePerson(name: String): String = normalize(name)
 
     /**
-     * The merge key of a book: `normalizedTitle|normalizedAuthor[|normalizedNarrator]`.
+     * The merge key of a book: `normalizedTitle|normalizedAuthor`. The
+     * narrator is deliberately NOT here — it is an Edition property
+     * (ADR-0010), so every narration of the same text shares this Work key.
      * Blank when nothing usable is present (never merged).
      */
-    fun keyFor(title: String, author: String, narrator: String): String {
+    fun keyFor(title: String, author: String): String {
         val base = listOf(normalizeTitle(title), normalizePerson(author))
             .filter { it.isNotBlank() }
         if (base.size < 2) return ""
-        val parts = if (narrator.isNotBlank()) base + normalizePerson(narrator) else base
-        return parts.joinToString("|")
+        return base.joinToString("|")
     }
 
     private fun normalize(input: String): String {

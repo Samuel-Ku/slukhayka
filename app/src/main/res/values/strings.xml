@@ -1,4 +1,13 @@
 <resources>
     <string name="app_name">Слухайка</string>
     <string name="empty_tag"></string>
+
+    <!-- Spec-17 (#110): home-screen widget -->
+    <string name="widget_description">Слухайка: слухайте свою книжку прямо з робочого столу</string>
+    <string name="widget_play">Грати</string>
+    <string name="widget_pause">Пауза</string>
+    <string name="widget_previous">Попередній розділ</string>
+    <string name="widget_next">Наступний розділ</string>
+    <string name="widget_open_player">Відкрити програвач</string>
+    <string name="widget_nothing_playing">Нічого не грає</string>
 </resources>

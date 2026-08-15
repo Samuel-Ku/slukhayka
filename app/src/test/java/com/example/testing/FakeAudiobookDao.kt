@@ -426,6 +426,49 @@ class FakeAudiobookDao(
     override suspend fun getTombstoneBookIds(): List<String> =
         tombstonesState.value.map { it.bookId }
 
+    override suspend fun isBookTombstoned(bookId: String): Boolean =
+        tombstonesState.value.any { it.bookId == bookId }
+
+    // ADR-0005 mirror: the catalog insert is a no-op for a tombstoned Work.
+    override suspend fun insertCatalogBookIfNotTombstoned(
+        id: String,
+        title: String,
+        author: String,
+        narrator: String,
+        description: String,
+        coverDrawableRes: Int,
+        coverImageUrl: String?,
+        genre: String,
+        sourceUrl: String,
+        isDownloaded: Boolean,
+        downloadProgress: Float,
+        totalDurationSeconds: Long,
+        totalChapters: Int,
+        rating: Float,
+        isFavorite: Boolean,
+        seriesTitle: String?,
+        seriesUrl: String?,
+        seriesIndex: Int?,
+        preferredSpeed: Float?,
+        createdAt: Long,
+        sourceTreeUri: String?,
+        mergeKey: String,
+        workId: String?
+    ): Long {
+        if (tombstonesState.value.any { it.bookId == id }) return 0L
+        val book = AudiobookEntity(
+            id = id, title = title, author = author, narrator = narrator, description = description,
+            coverDrawableRes = coverDrawableRes, coverImageUrl = coverImageUrl, genre = genre,
+            sourceUrl = sourceUrl, isDownloaded = isDownloaded, downloadProgress = downloadProgress,
+            totalDurationSeconds = totalDurationSeconds, totalChapters = totalChapters, rating = rating,
+            isFavorite = isFavorite, seriesTitle = seriesTitle, seriesUrl = seriesUrl, seriesIndex = seriesIndex,
+            preferredSpeed = preferredSpeed, createdAt = createdAt, sourceTreeUri = sourceTreeUri,
+            mergeKey = mergeKey, workId = workId
+        )
+        booksState.update { current -> current.filterNot { it.id == book.id } + book }
+        return 1L
+    }
+
     override suspend fun deleteTombstone(bookId: String) {
         tombstonesState.update { current -> current.filterNot { it.bookId == bookId } }
     }

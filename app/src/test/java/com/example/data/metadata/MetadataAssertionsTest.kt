@@ -57,6 +57,20 @@ class MetadataAssertionsTest {
     }
 
     @Test
+    fun `title scrub strips every phrase from the end across every separator`() {
+        // The full phrase x separator matrix (#162 AC-1): every curated phrase
+        // behind every separator variant comes out clean.
+        val separators = listOf(" - ", " — ", " (", ", ", "|")
+        for (phrase in MetadataAssertions.SEO_TITLE_PHRASES) {
+            for (sep in separators) {
+                // The ` (` separator closes the phrase in parens.
+                val claimed = if (sep == " (") "Кобзар (${phrase})" else "Кобзар$sep$phrase"
+                assertEquals("normalizeTitle($claimed)", "Кобзар", MetadataAssertions.normalizeTitle(claimed))
+            }
+        }
+    }
+
+    @Test
     fun `title scrub keeps clean titles untouched`() {
         val cases = listOf(
             "Тіні забутих предків",
@@ -67,7 +81,12 @@ class MetadataAssertionsTest {
             // The phrase in the MIDDLE is not a suffix — untouched.
             "Слухати онлайн: гід по аудіокнигах",
             // A title that ends in a phrase-infix but is not the phrase.
-            "Аудіокнига"
+            "Аудіокнига",
+            // Case variants of real words that are NOT the multi-word phrase:
+            // the suffix is a single dictionary word, so nothing is cut.
+            "АУДІОКНИГА",
+            "Кобзар - аудіокнига",
+            "Нейромант. Аудіокнига українською мовою"
         )
         cases.forEach { claimed ->
             assertEquals("normalizeTitle($claimed)", claimed.trim(), MetadataAssertions.normalizeTitle(claimed))

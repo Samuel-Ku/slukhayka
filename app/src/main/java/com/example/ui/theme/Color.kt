@@ -35,6 +35,14 @@ val AppOnAccentLight = Color(0xFFFFFFFF)
 val AppAccentContainerLight = Color(0xFFF7E6C3)
 val AppOnAccentContainerLight = Color(0xFF4A3200)
 
+// ── Cover-badge scrims (spec-22 T1/T2, ported from the reverted 2026-08-15
+// typography spec) ────────────────────────────────────────────────────────────
+// Solid high-contrast pill backgrounds for rating badges and genre tags laid
+// over cover art, so they stay WCAG AA regardless of the artwork's luminance.
+// Border keeps the pill separable from busy covers.
+val AppBadgeScrim = Color(0xFF1A1721)      // solid scrim — never translucent
+val AppBadgeScrimBorder = Color(0xFF3A3444)
+
 // ── Semantic stat colours (listening stats cards) ──────────────────────────
 // Named tokens so screens never hardcode literal Color() values; decorative
 // accents for stat tiles, not brand colours.

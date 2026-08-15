@@ -109,6 +109,12 @@ fun HomeScreen(
     // signals, computed locally, with a per-card reason chip.
     val recommendedBooks by viewModel.recommendedBooks.collectAsState()
 
+    // Spec-16 T2: the «Колекції» block — curated lists matched against the
+    // union, recomputed on every union refresh (same trigger). The flow
+    // already excludes empty collections; the block itself hides when all are
+    // empty.
+    val collections by sourceCatalog.smartCollections.collectAsState()
+
     // Spec-15 T1: refresh the ephemeral union once per Огляд composition —
     // the ViewModel still needs it for the recommendation enrichment, even
     // though the browse surface is now the spec-23 T4 persisted feed.
@@ -345,6 +351,34 @@ fun HomeScreen(
                                 title = genre.title,
                                 onClick = { viewModel.openGenre(genre.title, genre.url) }
                             )
+                        }
+                    }
+                }
+            }
+
+            // Spec-16: «Колекції» — one horizontal cover row per matched
+            // curated collection (Нобелівські лауреати, Шевченківська
+            // премія, Букер), reusing the uniform cover-card look of the
+            // other Огляд rows. Tapping a card resolves the Work like any
+            // other global-search card (import-and-play). Empty collections
+            // are already absent from the flow; when all are empty the whole
+            // block disappears.
+            if (collections.isNotEmpty()) {
+                collections.forEach { collection ->
+                    item {
+                        CatalogRowHeader(title = collection.name)
+                    }
+                    item {
+                        LazyRow(
+                            contentPadding = PaddingValues(horizontal = 16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            items(collection.books, key = { it.key }) { result ->
+                                CollectionBookCard(
+                                    result = result,
+                                    onClick = { viewModel.playGlobalSearchResult(result) }
+                                )
+                            }
                         }
                     }
                 }
@@ -682,6 +716,46 @@ fun CatalogBookCard(
         Spacer(modifier = Modifier.height(6.dp))
         Text(
             text = book.title,
+            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth()
+        )
+    }
+}
+
+/**
+ * Spec-16 — cover-first card of a smart-collection row: the union card
+ * (Work) with its cover and title, uniform with the other Огляд cover cards.
+ * Tapping resolves the Work through the same identity as any global-search
+ * card (import-and-play).
+ */
+@Composable
+fun CollectionBookCard(
+    result: com.example.data.source.GlobalSearchResult,
+    onClick: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .width(120.dp)
+            .clickable { onClick() }
+            .testTag("collection_book_${result.key.hashCode()}"),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        CatalogCoverImage(
+            coverImageUrl = result.coverImageUrl,
+            title = result.title,
+            modifier = Modifier
+                .width(120.dp)
+                .height(168.dp)
+                .clip(RoundedCornerShape(AppDimens.RadiusCardLg))
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(AppDimens.RadiusCardLg))
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = result.title,
             style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
             color = MaterialTheme.colorScheme.onSurface,
             maxLines = 2,

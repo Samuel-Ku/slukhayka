@@ -3,8 +3,10 @@ package com.example.data.repository
 import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
+import com.example.data.catalog.SourceCatalog
 import com.example.data.db.AudiobookDao
 import com.example.data.db.AudiobookDatabase
+import com.example.data.imports.LibraryImport
 import com.example.data.source.SourceAdapter
 import com.example.data.source.SourceBook
 import com.example.data.source.SourceBookDetail
@@ -66,8 +68,10 @@ class UnifiedCatalogRepositoryTest {
         override suspend fun fetchCatalog(limit: Int): List<SourceBook> = catalogBooks
     }
 
+    // ADR-0002 (#138): the catalog tests construct the Source Catalog module
+    // directly — no god module, no auto-sync on construction.
     private fun repo(vararg adapters: SourceAdapter) =
-        AudiobookRepository(dao, context, autoSyncOnInit = false, sourceAdapters = adapters.toList())
+        SourceCatalog(dao, adapters.toList(), LibraryImport(dao, context, adapters.toList()))
 
     private fun book(title: String, author: String, sourceId: String) =
         SourceBook(title = title, author = author, url = "https://$sourceId.example/$title", sourceId = sourceId)

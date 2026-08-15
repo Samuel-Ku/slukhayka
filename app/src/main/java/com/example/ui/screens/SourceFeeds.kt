@@ -26,7 +26,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.example.data.catalog.CatalogBook
-import com.example.data.repository.AudiobookRepository.SourceNewFeed
+import com.example.data.catalog.SourceCatalog.SourceNewFeed
 import com.example.data.source.SourceBook
 import com.example.ui.components.AppSectionHeader
 import com.example.ui.theme.AppDimens

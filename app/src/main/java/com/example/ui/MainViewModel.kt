@@ -561,7 +561,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     // Spec-10 T5: per-source «Нове з кожного джерела» rows on the Listen tab.
-    val sourceFeeds: StateFlow<List<com.example.data.repository.AudiobookRepository.SourceNewFeed>> =
+    val sourceFeeds: StateFlow<List<com.example.data.catalog.SourceCatalog.SourceNewFeed>> =
         repository.sourceFeeds
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -580,8 +580,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // imports every found book into Room via the shared MergeKey path. The
     // result counts surface in the browser surface so the tool reports, never
     // silently no-ops.
-    private val _hydration = MutableStateFlow<AudiobookRepository.HydrationResult?>(null)
-    val hydrationResult: StateFlow<AudiobookRepository.HydrationResult?> = _hydration.asStateFlow()
+    private val _hydration = MutableStateFlow<com.example.data.catalog.SourceCatalog.HydrationResult?>(null)
+    val hydrationResult: StateFlow<com.example.data.catalog.SourceCatalog.HydrationResult?> = _hydration.asStateFlow()
 
     private val _isHydrating = MutableStateFlow(false)
     val isHydrating: StateFlow<Boolean> = _isHydrating.asStateFlow()
@@ -601,7 +601,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 repository.refreshUnifiedCatalog()
                 refreshEmbeddingVectors()
             } catch (e: Exception) {
-                _hydration.value = AudiobookRepository.HydrationResult(sourceId, found = 0, imported = 0, failed = 0)
+                _hydration.value = com.example.data.catalog.SourceCatalog.HydrationResult(sourceId, found = 0, imported = 0, failed = 0)
             } finally {
                 _isHydrating.value = false
             }

@@ -3,6 +3,10 @@ package com.example.ui
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.paging.Pager
+import androidx.paging.PagingConfig
+import androidx.paging.PagingData
+import androidx.paging.cachedIn
 import com.example.App
 import com.example.data.catalog.CatalogGenre
 import com.example.data.catalog.CatalogPerson
@@ -566,6 +570,60 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (book != null) {
                 playAudiobook(book)
             }
+        }
+    }
+
+    // Spec-23 T4: the endless merged feed (Paging 3) over the persisted
+    // Works/Editions catalogue — one card per Work, dedup inherited from
+    // merge-on-write (never re-implemented at read time). Filters live at the
+    // SQL level (source / genre) so they compose with paging; the Pager is
+    // rebuilt when a filter or the sort changes. `null` source = all sources,
+    // `null` genre = all genres, sort = newest-first unless by title.
+    private val _feedSourceFilter = MutableStateFlow<String?>(null)
+    val feedSourceFilter: StateFlow<String?> = _feedSourceFilter.asStateFlow()
+
+    private val _feedGenreFilter = MutableStateFlow<String?>(null)
+    val feedGenreFilter: StateFlow<String?> = _feedGenreFilter.asStateFlow()
+
+    private val _feedSortByTitle = MutableStateFlow(false)
+    val feedSortByTitle: StateFlow<Boolean> = _feedSortByTitle.asStateFlow()
+
+    val workFeed: Flow<PagingData<WorkFeedRow>> =
+        combine(_feedSourceFilter, _feedGenreFilter, _feedSortByTitle) { sourceId, genre, byTitle ->
+            Triple(sourceId, genre, byTitle)
+        }.flatMapLatest { (sourceId, genre, byTitle) ->
+            Pager(
+                config = PagingConfig(pageSize = 30, prefetchDistance = 15, enablePlaceholders = false)
+            ) {
+                if (byTitle) {
+                    sourceCatalog.pagedWorkFeedByTitle(sourceId, genre)
+                } else {
+                    sourceCatalog.pagedWorkFeedRecent(sourceId, genre)
+                }
+            }.flow
+        }.cachedIn(viewModelScope)
+
+    fun setFeedSourceFilter(sourceId: String?) {
+        _feedSourceFilter.value = sourceId
+    }
+
+    fun setFeedGenreFilter(genre: String?) {
+        _feedGenreFilter.value = genre
+    }
+
+    fun setFeedSortByTitle(byTitle: Boolean) {
+        _feedSortByTitle.value = byTitle
+    }
+
+    /**
+     * Spec-23 T4 — tap a feed card: resolve the Work's first Edition and
+     * import-and-play from that source (the same path as the global-search
+     * cards, so the Work merges into the library on the merge key).
+     */
+    fun openWorkFeedRow(row: WorkFeedRow) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val edition = sourceCatalog.editionsForWork(row.workId).firstOrNull() ?: return@launch
+            playFromSource(edition.sourceId, edition.sourceUrl)
         }
     }
 

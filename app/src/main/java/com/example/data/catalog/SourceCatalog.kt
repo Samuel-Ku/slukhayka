@@ -1,11 +1,13 @@
 package com.example.data.catalog
 
 import android.util.Log
+import androidx.paging.PagingSource
 import com.example.data.db.AudiobookDao
 import com.example.data.db.AudiobookEntity
 import com.example.data.db.ChapterEntity
 import com.example.data.db.EditionEntity
 import com.example.data.db.WorkEntity
+import com.example.data.db.WorkFeedRow
 import com.example.data.imports.LibraryImport
 import com.example.data.merge.MergeKey
 import com.example.data.source.FourReadAdapter
@@ -619,6 +621,27 @@ class SourceCatalog(
 
         HydrationResult(sourceId, found = found, imported = imported, merged = merged, failed = failed)
     }
+
+    // ---------------------------------------------------------------------
+    // Endless merged feed (spec-23 T4): Paging 3 over the persisted Works/
+    // Editions catalogue. One row per Work (dedup inherited from
+    // merge-on-write, never re-implemented at read time), filtered by source
+    // and genre at the SQL level so filters compose with paging. Sort is
+    // either newest-first or by title — two thin DAO queries, no in-memory
+    // sorting of paged slices.
+    // ---------------------------------------------------------------------
+
+    /** Endless feed, newest Works first. */
+    fun pagedWorkFeedRecent(sourceId: String? = null, genre: String? = null): PagingSource<Int, WorkFeedRow> =
+        dao.pagedWorksFeedRecent(sourceId, genre)
+
+    /** Endless feed, sorted by title (stable tiebreak: newest first). */
+    fun pagedWorkFeedByTitle(sourceId: String? = null, genre: String? = null): PagingSource<Int, WorkFeedRow> =
+        dao.pagedWorksFeedByTitle(sourceId, genre)
+
+    /** The Editions carrying one Work — the feed card resolves its first
+     *  source through these (spec-23 T4 open action). */
+    suspend fun editionsForWork(workId: String): List<EditionEntity> = dao.getEditionsForWorkSync(workId)
 
     // ---------------------------------------------------------------------
     // Catalogue sections (spec #8 tickets T5/T6): rows for the Explore

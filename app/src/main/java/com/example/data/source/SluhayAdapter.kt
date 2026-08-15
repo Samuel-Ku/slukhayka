@@ -118,7 +118,7 @@ class SluhayAdapter(
         } else {
             fetcher.getText(url, mapOf("Cookie" to cookies))
         }
-        return detailFromCapturedHtml(html, url)
+        return parseCapturedPage(html, url) ?: SourceBookDetail("", "", url = url, chapters = emptyList())
     }
 
     /**
@@ -165,11 +165,14 @@ class SluhayAdapter(
     }
 
     /**
-     * The T3 interception seam: builds the detail from HTML captured in the
-     * live WebView session (the page HTML needs the session cookies past
-     * Cloudflare; the playlist/track fetch only needs the Referer).
+     * ADR-0006 — the T3 interception seam under the ONE captured-page name:
+     * builds the detail from HTML captured in the live WebView session (the
+     * page HTML needs the session cookies past Cloudflare; the playlist/track
+     * fetch only needs the Referer). Never null here — an unparseable page
+     * yields an empty detail, which the import doors surface as "nothing
+     * playable".
      */
-    suspend fun detailFromCapturedHtml(html: String, url: String): SourceBookDetail {
+    override suspend fun parseCapturedPage(html: String, url: String): SourceBookDetail {
         val page = parsePage(html, url)
         val playlistUrl = page.playlistUrl
             ?: return SourceBookDetail(

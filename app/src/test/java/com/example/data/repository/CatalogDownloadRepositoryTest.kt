@@ -8,10 +8,12 @@ import com.example.data.db.AudiobookDao
 import com.example.data.db.AudiobookDatabase
 import com.example.data.downloads.OfflineDownloads
 import com.example.data.imports.LibraryImport
+import com.example.data.source.HttpFetcher
 import com.example.data.source.SourceAdapter
 import com.example.data.source.SourceBook
 import com.example.data.source.SourceBookDetail
 import com.example.data.source.SourceChapter
+import com.example.testing.FakeFetcher
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -60,7 +62,11 @@ class CatalogDownloadRepositoryTest {
 
     private class FakeAdapter(
         override val sourceId: String,
-        private val book: SourceBook
+        private val book: SourceBook,
+        // Chapter stream URL scheme: non-http by default so the download loop
+        // skips the fetch entirely (existing tests stay network-free); the
+        // ADR-0006 stream test injects real http URLs served in-memory.
+        private val streamUrl: (Int) -> String = { "chapter-$it" }
     ) : SourceAdapter {
         override val sessionBound: Boolean get() = false
 
@@ -73,7 +79,7 @@ class CatalogDownloadRepositoryTest {
             author = book.author,
             url = url,
             chapters = (0 until 2).map { i ->
-                SourceChapter(title = "${book.title} ${i + 1}", streamUrl = "chapter-$i")
+                SourceChapter(title = "${book.title} ${i + 1}", streamUrl = streamUrl(i))
             }
         )
     }
@@ -86,11 +92,11 @@ class CatalogDownloadRepositoryTest {
         val downloads: OfflineDownloads
     )
 
-    private fun harness(vararg adapters: SourceAdapter): Harness {
+    private fun harness(vararg adapters: SourceAdapter, fetcher: HttpFetcher = HttpFetcher()): Harness {
         val adaptersList = adapters.toList()
         val imports = LibraryImport(dao, context, adaptersList)
         val catalog = SourceCatalog(dao, adaptersList, imports)
-        return Harness(imports, catalog, OfflineDownloads(dao, context, catalog))
+        return Harness(imports, catalog, OfflineDownloads(dao, context, catalog, fetcher))
     }
 
     private fun book(sourceId: String, url: String) =
@@ -134,6 +140,37 @@ class CatalogDownloadRepositoryTest {
         assertEquals(0f, dao.getAudiobookById(imported.id)!!.downloadProgress)
         // ADR-0007: download state lives on the TRACK rows.
         assertTrue(dao.getTracksForBookSync(imported.id).none { it.isDownloaded })
+    }
+
+    @Test
+    fun `download loop consumes the shared fetcher stream with per-source headers - no network`() = runBlocking {
+        // ADR-0006: the download path performs no HTTP of its own — it
+        // consumes the fetcher's binary stream method; the fixture fake serves
+        // in-memory bytes, and the per-source Referer rides along.
+        val url = "https://sluhay.com/svitova-literatura/6177-pasazhir.html"
+        val track0 = "https://j3wccg4mgjcw.redirectto.cc/s05/2/6/5/4/4/track-0.mp3"
+        val track1 = "https://j3wccg4mgjcw.redirectto.cc/s05/2/6/5/4/4/track-1.mp3"
+        // In-memory "audio" — large enough to pass the >100-byte check.
+        val audio = ByteArray(1024) { 0x42 }
+        val fetcher = FakeFetcher(streamResponses = mapOf(track0 to audio, track1 to audio))
+        val harness = harness(
+            FakeAdapter("sluhay", book("sluhay", url)) { i -> if (i == 0) track0 else track1 },
+            fetcher = fetcher
+        )
+
+        val imported = harness.imports.importFromSourceUrl("sluhay", url)!!
+
+        val outcome = harness.downloads.downloadAudiobookOffline(imported.id)
+
+        assertEquals(2, outcome.totalChapters)
+        assertEquals(2, outcome.downloadedChapters)
+        assertTrue(dao.getAudiobookById(imported.id)!!.isDownloaded)
+        // ADR-0006: every stream fetch carried the owning source's Referer
+        // (the playerjs CDN 403s without it), not the fetcher's defaults.
+        assertEquals(
+            listOf(mapOf("Referer" to "https://sluhay.com/"), mapOf("Referer" to "https://sluhay.com/")),
+            fetcher.recordedHeaders
+        )
     }
 
     @Test

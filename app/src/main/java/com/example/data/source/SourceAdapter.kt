@@ -115,6 +115,19 @@ interface SourceAdapter {
     val sessionBound: Boolean get() = false
 
     /**
+     * ADR-0006 — captured-page import capability: builds the book detail from
+     * HTML captured in the live WebView session (past the Cloudflare
+     * challenge), resolving playlist/iframe content through the adapter's own
+     * transport. The default is "not mine" — null — so only WebView-pattern
+     * sources support the door and NO import door has to downcast to a
+     * concrete adapter: a future WebView-pattern source works through the
+     * same door with no changes outside its adapter. One name across
+     * adapters (4read + sluhay override it); null also covers an unparseable
+     * page — the doors surface "nothing playable".
+     */
+    suspend fun parseCapturedPage(html: String, url: String): SourceBookDetail? = null
+
+    /**
      * The stable Work id for [url], produced in exactly this one place
      * (spec-14 T5): no import door derives ids itself. The default is the
      * generic "<sourceId>-<slug>" scheme; sources with a catalogue slug

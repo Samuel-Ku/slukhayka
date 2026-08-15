@@ -3,6 +3,7 @@ package com.example.data.source
 import com.example.testing.FakeFetcher
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -114,11 +115,14 @@ class SluhayAdapterTest {
             "Playerjs({id:\"playerjs1\",file:\"https://9giiu0g54k8c.redirectto.cc/s05/2/6/5/4/4/26544.pl.txt\"});",
             "// no player"
         )
-        val adapter = SluhayAdapter(FakeFetcher(emptyMap()))
+        // ADR-0006: the door works through the SourceAdapter INTERFACE under
+        // the ONE captured-page name.
+        val adapter: SourceAdapter = SluhayAdapter(FakeFetcher(emptyMap()))
 
-        val detail = adapter.detailFromCapturedHtml(pageWithoutPlayer, bookUrl)
+        val detail = adapter.parseCapturedPage(pageWithoutPlayer, bookUrl)
 
-        assertEquals("Трохи ненависті", detail.title)
+        assertNotNull(detail)
+        assertEquals("Трохи ненависті", detail!!.title)
         assertEquals("Джо Аберкромбі", detail.author)
         assertTrue(detail.chapters.isEmpty())
     }
@@ -135,7 +139,7 @@ class SluhayAdapterTest {
         """.trimIndent()
 
         val detail = SluhayAdapter(FakeFetcher(emptyMap()))
-            .detailFromCapturedHtml(minimalPage, "https://sluhay.com/svitova-literatura/6066-x.html")
+            .parseCapturedPage(minimalPage, "https://sluhay.com/svitova-literatura/6066-x.html")
 
         assertEquals("Метаморфоза Землі", detail.title)
         assertEquals("Кларк Ештон Сміт", detail.author)
@@ -147,9 +151,10 @@ class SluhayAdapterTest {
     @Test
     fun `blank html never throws and stays absent`() = runBlocking {
         val detail = SluhayAdapter(FakeFetcher(emptyMap()))
-            .detailFromCapturedHtml("", bookUrl)
+            .parseCapturedPage("", bookUrl)
 
-        assertEquals("", detail.title)
+        assertNotNull(detail)
+        assertEquals("", detail!!.title)
         assertEquals("", detail.author)
         assertTrue(detail.chapters.isEmpty())
     }

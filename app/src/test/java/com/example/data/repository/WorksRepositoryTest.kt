@@ -74,15 +74,17 @@ class WorksRepositoryTest {
 
         // One Work — the merge key is reused for the id (the pinned identity).
         assertEquals(1, dao.countWorks())
-        assertEquals(first.id, second.id)
+        assertEquals(first.work.id, second.work.id)
+        assertEquals(true, first.workCreated)
+        assertEquals(false, second.workCreated)
         // The validated MergeKey normalization (punctuation stripped): the
         // hyphen in "Жан-Крістоф" is dropped, so the key is "жанкрістоф".
-        assertEquals("пасажир|жанкрістоф гранже", first.mergeKey)
+        assertEquals("пасажир|жанкрістоф гранже", first.work.mergeKey)
         // Two Editions — one per source, both pointing at the same Work.
-        val editions = dao.getEditionsForWorkSync(first.id)
+        val editions = dao.getEditionsForWorkSync(first.work.id)
         assertEquals(2, editions.size)
         assertEquals(setOf("sluhay", "4read"), editions.map { it.sourceId }.toSet())
-        assertEquals(setOf(first.id), editions.map { it.workId }.toSet())
+        assertEquals(setOf(first.work.id), editions.map { it.workId }.toSet())
     }
 
     @Test

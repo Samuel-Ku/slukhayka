@@ -4,6 +4,8 @@ import android.content.Context
 import android.util.Log
 import com.example.data.catalog.SourceCatalog
 import com.example.data.db.AudiobookDao
+import com.example.data.source.HttpFetcher
+import com.example.data.source.OFFLINE_USER_AGENT
 import com.example.data.source.headersFor
 import com.example.data.source.sourceIdForUrl
 import com.example.data.source.streamOnlyFor
@@ -15,8 +17,6 @@ import kotlinx.coroutines.withContext
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
 import java.io.File
-import java.net.HttpURLConnection
-import java.net.URL
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -36,7 +36,12 @@ import java.util.concurrent.atomic.AtomicInteger
 class OfflineDownloads(
     private val dao: AudiobookDao,
     private val context: Context? = null,
-    private val sourceCatalog: SourceCatalog
+    private val sourceCatalog: SourceCatalog,
+    // ADR-0006: the download path performs no HTTP of its own — it consumes
+    // the shared fetcher's stream method, constructed with the offline user
+    // agent from the download policy. Injectable so fixture tests serve
+    // in-memory bytes with no network.
+    private val fetcher: HttpFetcher = HttpFetcher(userAgent = OFFLINE_USER_AGENT)
 ) {
 
     /**
@@ -114,24 +119,17 @@ class OfflineDownloads(
                         } else if (!localFile.exists() || localFile.length() < 100) {
                             val streamUrl = track.url
                             if (streamUrl.startsWith("http")) {
-                                val url = URL(streamUrl)
-                                val connection = (url.openConnection() as HttpURLConnection).apply {
-                                    connectTimeout = 10000
-                                    readTimeout = 20000
-                                    requestMethod = "GET"
-                                    setRequestProperty("User-Agent", OFFLINE_USER_AGENT)
-                                    // Spec-10 T6 + spec-13 T2: the playerjs CDN
-                                    // (redirectto.cc) 403s without the owning
-                                    // source's Referer (audiobookmp3, sluhay,
-                                    // sluhayknigi); other CDNs need none.
-                                    headersFor(sourceId, streamUrl).forEach { (k, v) ->
-                                        setRequestProperty(k, v)
-                                    }
-                                    instanceFollowRedirects = true
-                                }
-
-                                if (connection.responseCode == HttpURLConnection.HTTP_OK) {
-                                    BufferedInputStream(connection.inputStream, 65536).use { input ->
+                                // ADR-0006: the download loop consumes the
+                                // shared fetcher's stream method (null on
+                                // failure, degrade-never-throw). The fetcher
+                                // sends the offline user agent; the per-source
+                                // Referer rules (spec-10 T6 + spec-13 T2: the
+                                // playerjs CDN 403s without the owning
+                                // source's Referer) ride along as extra
+                                // headers. Closing the stream disconnects.
+                                val stream = fetcher.getStream(streamUrl, headersFor(sourceId, streamUrl))
+                                if (stream != null) {
+                                    BufferedInputStream(stream, 65536).use { input ->
                                         BufferedOutputStream(localFile.outputStream(), 65536).use { output ->
                                             val buffer = ByteArray(65536)
                                             var read: Int
@@ -143,7 +141,6 @@ class OfflineDownloads(
                                     }
                                     chapterOk = localFile.length() > 100
                                 }
-                                connection.disconnect()
                             }
                         } else if (localFile.length() > 100) {
                             // Already downloaded.
@@ -240,7 +237,5 @@ class OfflineDownloads(
     companion object {
         /** Single source of truth for the offline-audio directory name. */
         const val OFFLINE_AUDIO_DIR = "audiobooks"
-        /** User-Agent used by the offline-download HttpURLConnection. */
-        const val OFFLINE_USER_AGENT = "Mozilla/5.0 (Android; 4read-Audio-Engine/1.0)"
     }
 }

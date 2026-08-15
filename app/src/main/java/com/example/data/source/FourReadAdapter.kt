@@ -76,12 +76,12 @@ class FourReadAdapter(
     }
 
     /**
-     * Spec-14 T5 — the WebView door's captured page, parsed by the same
-     * shared [WebViewHtmlParser] with this adapter's transport resolving
-     * playlist/iframe content. The repository performs no 4read parsing or
-     * transport — it hands the captured DOM straight to the seam.
+     * Spec-14 T5 / ADR-0006 — the WebView door's captured page, parsed by
+     * the same shared [WebViewHtmlParser] with this adapter's transport
+     * resolving playlist/iframe content. The repository performs no 4read
+     * parsing or transport — it hands the captured DOM straight to the seam.
      */
-    fun parseCapturedPage(html: String, url: String): SourceBookDetail =
+    override suspend fun parseCapturedPage(html: String, url: String): SourceBookDetail =
         WebViewHtmlParser().parse(html, url, resolveContent = { fetcher.getText(it) })
 
     override suspend fun fetchNew(limit: Int): List<SourceBook> {

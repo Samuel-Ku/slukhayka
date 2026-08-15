@@ -12,6 +12,7 @@ import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.dp
@@ -92,7 +93,24 @@ class PlayerScreenSnapshotTest {
     @Test
     fun full_player_dark() {
         setPlayerContent()
+        // Spec-24 T7 (#168): the fixture narrator is a real name, so the
+        // «Читає …» line renders — self-verifying on top of the image.
+        composeTestRule.onNodeWithText("Читає Олександр Завальський").assertExists()
         composeTestRule.onRoot().captureRoboImage(filePath = "src/test/snapshots/player_redesign_dark.png")
+    }
+
+    // Spec-24 T7 (#168): the player never renders a fabricated narrator. The
+    // seeded «4read Voice Narrator» placeholder is scrubbed by displayNarrator
+    // (same rule as the book page), so no «Читає …» line exists until the book
+    // page fetch back-fills a real narrator.
+    @Test
+    fun fabricated_narrator_renders_no_reader_line() {
+        setPlayerContent(narrator = "4read Voice Narrator")
+        // Self-verifying on top of the image: no «Читає …» line anywhere.
+        composeTestRule.onNodeWithText("Читає ", substring = true).assertDoesNotExist()
+        composeTestRule.onRoot().captureRoboImage(
+            filePath = "src/test/snapshots/player_no_narrator.png"
+        )
     }
 
     // Spec-24 T6 (#167): the player fits ONE screen. In a viewport far shorter
@@ -152,13 +170,14 @@ class PlayerScreenSnapshotTest {
     }
 
     private fun setPlayerContent(
+        narrator: String = book.narrator,
         onPlayPause: () -> Unit = {},
         onSpeed: () -> Unit = {}
     ) {
         composeTestRule.setContent {
             AudiobookTheme(darkTheme = true) {
                 Surface(modifier = Modifier, color = MaterialTheme.colorScheme.background) {
-                    PlayerContent(onPlayPause = onPlayPause, onSpeed = onSpeed)
+                    PlayerContent(narrator = narrator, onPlayPause = onPlayPause, onSpeed = onSpeed)
                 }
             }
         }
@@ -167,12 +186,14 @@ class PlayerScreenSnapshotTest {
     /** The pure player surface with the fixed snapshot fixture. */
     @Composable
     private fun PlayerContent(
+        narrator: String = book.narrator,
         onPlayPause: () -> Unit = {},
         onSpeed: () -> Unit = {}
     ) {
+        val fixtureBook = if (narrator == book.narrator) book else book.copy(narrator = narrator)
         PlayerScreenContent(
-            playerState = state,
-            book = book,
+            playerState = if (fixtureBook === book) state else state.copy(currentBook = fixtureBook),
+            book = fixtureBook,
             currentChapterTitle = chapters[1].title,
             progress = progress,
             // Simulates the muted tint emitted after a real cover loads.

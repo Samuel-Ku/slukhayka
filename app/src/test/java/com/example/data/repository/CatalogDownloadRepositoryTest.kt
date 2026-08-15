@@ -14,6 +14,7 @@ import com.example.data.source.SourceBook
 import com.example.data.source.SourceBookDetail
 import com.example.data.source.SourceChapter
 import com.example.testing.FakeFetcher
+import java.io.File
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -49,6 +50,12 @@ class CatalogDownloadRepositoryTest {
     @Before
     fun setUp() {
         context = ApplicationProvider.getApplicationContext()
+        // The download loop skips a fetch whose local file already exists
+        // ("already downloaded"), and chapter ids are deterministic — a stale
+        // Robolectric filesDir from an earlier run would make the ADR-0006
+        // header-count test flaky. Start every test from an empty audio dir.
+        File(context.filesDir, com.example.data.downloads.OfflineDownloads.OFFLINE_AUDIO_DIR)
+            .deleteRecursively()
         db = Room.inMemoryDatabaseBuilder(context, AudiobookDatabase::class.java)
             .allowMainThreadQueries()
             .build()

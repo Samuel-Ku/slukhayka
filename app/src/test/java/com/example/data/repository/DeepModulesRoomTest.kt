@@ -7,6 +7,11 @@ import androidx.sqlite.db.SupportSQLiteOpenHelper
 import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.catalog.CatalogBook
+import com.example.data.catalog.SourceCatalog
+import com.example.data.downloads.OfflineDownloads
+import com.example.data.entries.LibraryEntries
+import com.example.data.imports.LibraryImport
+import com.example.data.listening.ListeningStateStore
 import com.example.data.contentHashOf
 import com.example.data.db.AudiobookDao
 import com.example.data.db.AudiobookDatabase
@@ -46,7 +51,7 @@ import java.io.File
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
-class AudiobookRepositoryRoomTest {
+class DeepModulesRoomTest {
 
     private lateinit var context: Context
     private lateinit var db: AudiobookDatabase
@@ -66,17 +71,39 @@ class AudiobookRepositoryRoomTest {
         db.close()
     }
 
+    // ADR-0002 (#140): the god module is gone — the Room tests compose the
+    // five deep modules directly. This holder is a construction convenience,
+    // not a facade: every test reaches the module it exercises.
+    private class Modules(
+        val listening: ListeningStateStore,
+        val imports: LibraryImport,
+        val catalog: SourceCatalog,
+        val downloads: OfflineDownloads,
+        val entries: LibraryEntries
+    )
+
+    private fun modules(sourceAdapters: List<com.example.data.source.SourceAdapter> = emptyList()): Modules {
+        val imports = LibraryImport(dao, context, sourceAdapters)
+        val catalog = SourceCatalog(dao, sourceAdapters, imports)
+        return Modules(
+            listening = ListeningStateStore(dao),
+            imports = imports,
+            catalog = catalog,
+            downloads = OfflineDownloads(dao, context, catalog),
+            entries = LibraryEntries(dao, sourceAdapters)
+        )
+    }
+
     // ---------------------------------------------------------------------
     // T1: empty-catalog start
     // ---------------------------------------------------------------------
 
     @Test
     fun `fresh database starts empty of mock seed books`() = runBlocking {
-        // autoSyncOnInit = true is the fresh-install path. In the test
-        // environment the homepage fetch fails (or yields real catalogue
-        // rows), but in no case may the old mock seed ids appear.
-        AudiobookRepository(dao, context, autoSyncOnInit = true)
-        Thread.sleep(1500) // give the background init coroutine time to run
+        // ADR-0002 (#138): module construction performs NO network I/O and no
+        // seeding — the catalogue sync is an explicit composition-root call.
+        // In no case may the old mock seed ids appear.
+        modules()
 
         val books = dao.getAllAudiobooks().first()
         assertTrue(
@@ -90,7 +117,7 @@ class AudiobookRepositoryRoomTest {
 
     @Test
     fun `repository constructed without sync leaves database empty`() = runBlocking {
-        AudiobookRepository(dao, context, autoSyncOnInit = false)
+        modules()
         assertTrue(dao.getAllAudiobooks().first().isEmpty())
     }
 
@@ -100,7 +127,7 @@ class AudiobookRepositoryRoomTest {
 
     @Test
     fun `deleteBook cascades chapters bookmarks progress and local files`() = runBlocking {
-        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+        val mods = modules()
         val book = TestDataFactory.dataBooks()[0]
         val localFile = File(context.filesDir, "cascade-${book.id}.mp3")
         localFile.writeBytes(ByteArray(64))
@@ -129,7 +156,7 @@ class AudiobookRepositoryRoomTest {
             )
         )
 
-        repo.deleteBook(book.id)
+        mods.entries.deleteBook(book.id)
 
         assertNull(dao.getAudiobookById(book.id))
         assertTrue(dao.getChaptersListForBook(book.id).isEmpty())
@@ -140,12 +167,12 @@ class AudiobookRepositoryRoomTest {
 
     @Test
     fun `deleteBook leaves other books untouched`() = runBlocking {
-        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+        val mods = modules()
         val books = TestDataFactory.dataBooks()
         dao.insertAudiobooks(books)
         dao.insertChapters(TestDataFactory.dataChapters(books))
 
-        repo.deleteBook(books[0].id)
+        mods.entries.deleteBook(books[0].id)
 
         val remaining = dao.getAllAudiobooks().first()
         assertEquals(books.size - 1, remaining.size)
@@ -655,7 +682,7 @@ class AudiobookRepositoryRoomTest {
 
     @Test
     fun `importBookFromSource merges the same book from two sources into one Work`() = runBlocking {
-        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+        val mods = modules()
         val detail1 = com.example.data.source.SourceBookDetail(
             title = "Кобзар",
             author = "Тарас Шевченко",
@@ -671,8 +698,8 @@ class AudiobookRepositoryRoomTest {
             chapters = listOf(com.example.data.source.SourceChapter("01.mp3", "https://cdn.audiobook-mp3.com/kobzar/track-0.mp3"))
         )
 
-        val first = repo.importBookFromSource("soundbooks", detail1)
-        val second = repo.importBookFromSource("audiobookmp3", detail2)
+        val first = mods.imports.importBookFromSource("soundbooks", detail1)
+        val second = mods.imports.importBookFromSource("audiobookmp3", detail2)
 
         // One Work card, two sources.
         assertEquals(first.id, second.id)
@@ -684,7 +711,7 @@ class AudiobookRepositoryRoomTest {
 
     @Test
     fun `importBookFromSource keeps different narrations separate`() = runBlocking {
-        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+        val mods = modules()
         val base = com.example.data.source.SourceBookDetail(
             title = "Кобзар",
             author = "Тарас Шевченко",
@@ -694,8 +721,8 @@ class AudiobookRepositoryRoomTest {
         val narratorA = base.copy(narrator = "Валерій Завалко", url = "https://sound-books.net/a.html")
         val narratorB = base.copy(narrator = "Богдан Бенюк", url = "https://sound-books.net/b.html")
 
-        val a = repo.importBookFromSource("soundbooks", narratorA)
-        val b = repo.importBookFromSource("soundbooks", narratorB)
+        val a = mods.imports.importBookFromSource("soundbooks", narratorA)
+        val b = mods.imports.importBookFromSource("soundbooks", narratorB)
 
         assertTrue(a.id != b.id)
         assertEquals(2, dao.getAllAudiobooks().first().size)
@@ -703,12 +730,12 @@ class AudiobookRepositoryRoomTest {
 
     @Test
     fun `playback positions are isolated per source`() = runBlocking {
-        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+        val mods = modules()
         val book = TestDataFactory.dataBooks()[0]
         dao.insertAudiobooks(listOf(book))
 
-        repo.updateProgress(book.id, 0, 100L, sourceKey = "soundbooks")
-        repo.updateProgress(book.id, 1, 200L, sourceKey = "audiobookmp3")
+        mods.listening.updateProgress(book.id, 0, 100L, sourceKey = "soundbooks")
+        mods.listening.updateProgress(book.id, 1, 200L, sourceKey = "audiobookmp3")
 
         // Each source keeps its own position.
         assertEquals(100L, dao.getPlaybackProgressSync(book.id, "soundbooks")?.currentPositionSeconds)
@@ -716,7 +743,7 @@ class AudiobookRepositoryRoomTest {
         // The bookId-only read returns the latest row.
         assertEquals(200L, dao.getPlaybackProgressSync(book.id)?.currentPositionSeconds)
         // Writing one source's position does not touch the other.
-        repo.updateProgress(book.id, 0, 150L, sourceKey = "soundbooks")
+        mods.listening.updateProgress(book.id, 0, 150L, sourceKey = "soundbooks")
         assertEquals(150L, dao.getPlaybackProgressSync(book.id, "soundbooks")?.currentPositionSeconds)
         assertEquals(200L, dao.getPlaybackProgressSync(book.id, "audiobookmp3")?.currentPositionSeconds)
     }
@@ -761,29 +788,27 @@ class AudiobookRepositoryRoomTest {
 
     private val fourReadPlaylist = """[{"title":"Глава 1","file":"https://4read.org/uploads/audio/7589/01.mp3"}]"""
 
-    private fun fourReadRepo(): AudiobookRepository {
+    private fun fourReadRepo(): Modules {
         val fetcher = com.example.testing.FakeFetcher(
             mapOf(
                 "https://4read.org/7589-neostannij-bij.html" to fourReadPage(),
                 "https://4read.org/m3u/7589.txt" to fourReadPlaylist
             )
         )
-        return AudiobookRepository(
-            dao, context, autoSyncOnInit = false,
-            sourceAdapters = listOf(com.example.data.source.FourReadAdapter(fetcher))
+        return modules(listOf(com.example.data.source.FourReadAdapter(fetcher))
         )
     }
 
     @Test
     fun `getChaptersList on a chapter-less 4read book fetches through the adapter seam`() = runBlocking {
-        val repo = fourReadRepo()
+        val mods = fourReadRepo()
         val book = TestDataFactory.dataBooks()[0].copy(
             id = "4read-7589-neostannij-bij",
             sourceUrl = "https://4read.org/7589-neostannij-bij.html"
         )
         dao.insertAudiobooks(listOf(book))
 
-        val chapters = repo.getChaptersList(book.id)
+        val chapters = mods.catalog.getChaptersList(book.id)
 
         // Chapters came from the adapter's playlist expansion, not new repo parsing.
         assertTrue(chapters.isNotEmpty())
@@ -808,9 +833,9 @@ class AudiobookRepositoryRoomTest {
 
     @Test
     fun `importAudiobookFrom4ReadUrl imports through the adapter with the enriched profile`() = runBlocking {
-        val repo = fourReadRepo()
+        val mods = fourReadRepo()
 
-        val book = repo.importAudiobookFrom4ReadUrl("https://4read.org/7589-neostannij-bij.html")
+        val book = mods.imports.importAudiobookFrom4ReadUrl("https://4read.org/7589-neostannij-bij.html")
 
         // Extracted by the adapter: real title/author/narrator/chapters.
         assertNotNull(book)
@@ -831,15 +856,13 @@ class AudiobookRepositoryRoomTest {
     @Test
     fun `importAudiobookFrom4ReadUrl returns null when the page yields nothing playable - missing stays absent`() = runBlocking {
         val fetcher = com.example.testing.FakeFetcher(emptyMap())
-        val repo = AudiobookRepository(
-            dao, context, autoSyncOnInit = false,
-            sourceAdapters = listOf(com.example.data.source.FourReadAdapter(fetcher))
+        val mods = modules(listOf(com.example.data.source.FourReadAdapter(fetcher))
         )
 
         // A slug with no fixture returns an empty page → the adapter finds no
         // chapters → the door surfaces the absence as null (spec-14 T5: no
         // forged fallback card; a missing book never appears in the library).
-        val book = repo.importAudiobookFrom4ReadUrl("https://4read.org/unknown-book.html")
+        val book = mods.imports.importAudiobookFrom4ReadUrl("https://4read.org/unknown-book.html")
 
         assertNull(book)
         assertEquals(0, dao.getAllAudiobooks().first().size)
@@ -848,14 +871,14 @@ class AudiobookRepositoryRoomTest {
 
     @Test
     fun `fetchRelatedBooks upserts related posters through the adapter seam`() = runBlocking {
-        val repo = fourReadRepo()
+        val mods = fourReadRepo()
         val book = TestDataFactory.dataBooks()[0].copy(
             id = "4read-7589-neostannij-bij",
             sourceUrl = "https://4read.org/7589-neostannij-bij.html"
         )
         dao.insertAudiobooks(listOf(book))
 
-        val related = repo.fetchRelatedBooks(book.id)
+        val related = mods.catalog.fetchRelatedBooks(book.id)
 
         assertEquals(1, related.size)
         assertEquals("4read-7611-vkradi-mene-zaraz", related[0].id)
@@ -902,12 +925,10 @@ class AudiobookRepositoryRoomTest {
                 "https://9giiu0g54k8c.redirectto.cc/s05/2/6/5/4/4/26544.pl.txt" to sluhayPlaylist
             )
         )
-        val repo = AudiobookRepository(
-            dao, context, autoSyncOnInit = false,
-            sourceAdapters = listOf(com.example.data.source.SluhayAdapter(fetcher))
+        val mods = modules(listOf(com.example.data.source.SluhayAdapter(fetcher))
         )
 
-        val book = repo.importWebSourcePage("sluhay", sluhayBookUrl, sluhayCapturedPage())
+        val book = mods.imports.importWebSourcePage("sluhay", sluhayBookUrl, sluhayCapturedPage())
 
         assertNotNull(book)
         assertEquals("Трохи ненависті", book!!.title)
@@ -926,15 +947,13 @@ class AudiobookRepositoryRoomTest {
     @Test
     fun `importWebSourcePage returns null for unknown source unparseable page or unplayable page`() = runBlocking {
         val fetcher = com.example.testing.FakeFetcher(emptyMap())
-        val repo = AudiobookRepository(
-            dao, context, autoSyncOnInit = false,
-            sourceAdapters = listOf(com.example.data.source.SluhayAdapter(fetcher))
+        val mods = modules(listOf(com.example.data.source.SluhayAdapter(fetcher))
         )
 
         // Unknown source id.
-        assertNull(repo.importWebSourcePage("nope", sluhayBookUrl, sluhayCapturedPage()))
+        assertNull(mods.imports.importWebSourcePage("nope", sluhayBookUrl, sluhayCapturedPage()))
         // Captured HTML with no playlist and no chapters.
-        assertNull(repo.importWebSourcePage("sluhay", sluhayBookUrl, "<html><body>nope</body></html>"))
+        assertNull(mods.imports.importWebSourcePage("sluhay", sluhayBookUrl, "<html><body>nope</body></html>"))
         assertEquals(0, dao.getAllAudiobooks().first().size)
     }
 
@@ -945,13 +964,11 @@ class AudiobookRepositoryRoomTest {
                 "https://9giiu0g54k8c.redirectto.cc/s05/2/6/5/4/4/26544.pl.txt" to sluhayPlaylist
             )
         )
-        val repo = AudiobookRepository(
-            dao, context, autoSyncOnInit = false,
-            sourceAdapters = listOf(com.example.data.source.SluhayAdapter(fetcher))
+        val mods = modules(listOf(com.example.data.source.SluhayAdapter(fetcher))
         )
         // A same-narration 4read copy already in the library (merge key
         // = normalized title|author, narrator empty on both).
-        val existing = repo.importBookFromSource(
+        val existing = mods.imports.importBookFromSource(
             "4read",
             com.example.data.source.SourceBookDetail(
                 title = "Трохи ненависті",
@@ -961,7 +978,7 @@ class AudiobookRepositoryRoomTest {
             )
         )
 
-        val merged = repo.importWebSourcePage("sluhay", sluhayBookUrl, sluhayCapturedPage())
+        val merged = mods.imports.importWebSourcePage("sluhay", sluhayBookUrl, sluhayCapturedPage())
 
         // One Work card, two sources.
         assertEquals(existing.id, merged!!.id)
@@ -977,7 +994,7 @@ class AudiobookRepositoryRoomTest {
 
     @Test
     fun `download is refused for a stream-only book without touching the network`() = runBlocking {
-        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+        val mods = modules()
         val book = TestDataFactory.dataBooks()[0].copy(
             sourceUrl = "https://lihtar.in.ua/biblioteka/khudozhnja-literatura/slovo",
             // The first fixture book is downloaded by default; the refusal
@@ -988,7 +1005,7 @@ class AudiobookRepositoryRoomTest {
         dao.insertAudiobooks(listOf(book))
         dao.insertChapters(TestDataFactory.chaptersFor(book))
 
-        val result = repo.downloadAudiobookOffline(book.id)
+        val result = mods.downloads.downloadAudiobookOffline(book.id)
 
         // Stream-only: refused up front, no files, no state change.
         assertEquals(0, result.downloadedChapters)
@@ -1001,7 +1018,7 @@ class AudiobookRepositoryRoomTest {
 
     @Test
     fun `download loop runs for a non-stream-only book and reports the outcome`() = runBlocking {
-        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+        val mods = modules()
         val book = TestDataFactory.dataBooks()[0].copy(
             sourceUrl = "https://4read.org/7589-neostannij-bij.html",
             isDownloaded = false,
@@ -1018,7 +1035,7 @@ class AudiobookRepositoryRoomTest {
             )
         )
 
-        val result = repo.downloadAudiobookOffline(book.id)
+        val result = mods.downloads.downloadAudiobookOffline(book.id)
 
         assertEquals(2, result.totalChapters)
         assertEquals(0, result.downloadedChapters)
@@ -1028,9 +1045,9 @@ class AudiobookRepositoryRoomTest {
 
     @Test
     fun `local import records a LOCAL source row`() = runBlocking {
-        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+        val mods = modules()
 
-        val book = repo.importLocalAudioStream("Моя книга.mp3", ByteArrayInputStream(ByteArray(32)))
+        val book = mods.imports.importLocalAudioStream("Моя книга.mp3", ByteArrayInputStream(ByteArray(32)))
 
         val sources = dao.getSourcesForBookSync(book.id)
         assertEquals(1, sources.size)
@@ -1062,15 +1079,15 @@ class AudiobookRepositoryRoomTest {
 
     @Test
     fun `preferred speed round-trips through the repository`() = runBlocking {
-        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+        val mods = modules()
         val book = TestDataFactory.dataBooks()[0]
         dao.insertAudiobooks(listOf(book))
 
-        repo.setPreferredSpeed(book.id, 1.5f)
+        mods.listening.setPreferredSpeed(book.id, 1.5f)
 
         assertEquals(1.5f, dao.getAudiobookById(book.id)?.preferredSpeed ?: 0f, 0.001f)
 
-        repo.setPreferredSpeed(book.id, null)
+        mods.listening.setPreferredSpeed(book.id, null)
         assertNull(dao.getAudiobookById(book.id)?.preferredSpeed)
     }
 
@@ -1080,7 +1097,7 @@ class AudiobookRepositoryRoomTest {
 
     @Test
     fun `pause marker round-trips through the repository`() = runBlocking {
-        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+        val mods = modules()
         val book = TestDataFactory.dataBooks()[0]
         dao.insertAudiobooks(listOf(book))
         // Frozen timestamp — the default lastListenedAt is wall clock and
@@ -1089,11 +1106,11 @@ class AudiobookRepositoryRoomTest {
             PlaybackProgressEntity(bookId = book.id, lastListenedAt = TestDataFactory.FIXED_CLOCK_MS)
         )
 
-        repo.updatePausedAt(book.id, 1_700_000_000_000L)
+        mods.listening.updatePausedAt(book.id, 1_700_000_000_000L)
 
         assertEquals(1_700_000_000_000L, dao.getPlaybackProgressSync(book.id)?.lastPausedAtEpochMs)
 
-        repo.updatePausedAt(book.id, null)
+        mods.listening.updatePausedAt(book.id, null)
         assertNull(dao.getPlaybackProgressSync(book.id)?.lastPausedAtEpochMs)
     }
 
@@ -1103,7 +1120,7 @@ class AudiobookRepositoryRoomTest {
 
     @Test
     fun `removeFromLibrary deletes rows but keeps local files`() = runBlocking {
-        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+        val mods = modules()
         val book = TestDataFactory.dataBooks()[0]
         val localFile = File(context.filesDir, "keep-${book.id}.mp3")
         localFile.writeBytes(ByteArray(64))
@@ -1117,7 +1134,7 @@ class AudiobookRepositoryRoomTest {
             PlaybackProgressEntity(bookId = book.id, lastListenedAt = TestDataFactory.FIXED_CLOCK_MS)
         )
 
-        repo.removeFromLibrary(book.id)
+        mods.entries.removeFromLibrary(book.id)
 
         assertNull(dao.getAudiobookById(book.id))
         assertTrue(dao.getChaptersListForBook(book.id).isEmpty())
@@ -1133,9 +1150,9 @@ class AudiobookRepositoryRoomTest {
 
     @Test
     fun `upserting a catalog book persists its series metadata`() = runBlocking {
-        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+        val mods = modules()
 
-        repo.upsertCatalogBook(
+        mods.catalog.upsertCatalogBook(
             CatalogBook(
                 id = "4read-7589-neostannij-bij",
                 title = "Неостанній бій",
@@ -1157,12 +1174,12 @@ class AudiobookRepositoryRoomTest {
 
     @Test
     fun `re-upserting a known book back-fills its series metadata without losing user state`() = runBlocking {
-        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+        val mods = modules()
         val book = TestDataFactory.dataBooks()[0]
         // Insert a book that predates series metadata (e.g. from an earlier sync).
         dao.insertAudiobooks(listOf(book.copy(isFavorite = true, isDownloaded = true)))
 
-        repo.upsertCatalogBook(
+        mods.catalog.upsertCatalogBook(
             CatalogBook(
                 id = book.id,
                 title = book.title,
@@ -1187,7 +1204,7 @@ class AudiobookRepositoryRoomTest {
 
     @Test
     fun `upserting a book without series metadata leaves stored series untouched`() = runBlocking {
-        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+        val mods = modules()
         dao.insertAudiobooks(
             listOf(
                 TestDataFactory.dataBooks()[1].copy(
@@ -1198,7 +1215,7 @@ class AudiobookRepositoryRoomTest {
             )
         )
 
-        repo.upsertCatalogBook(
+        mods.catalog.upsertCatalogBook(
             CatalogBook(
                 id = TestDataFactory.dataBooks()[1].id,
                 title = "1984",
@@ -1222,9 +1239,9 @@ class AudiobookRepositoryRoomTest {
 
     @Test
     fun `importLocalAudioStream creates a downloadable single-chapter book`() = runBlocking {
-        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+        val mods = modules()
 
-        val book = repo.importLocalAudioStream("Моя книга.mp3", ByteArrayInputStream(ByteArray(32)))
+        val book = mods.imports.importLocalAudioStream("Моя книга.mp3", ByteArrayInputStream(ByteArray(32)))
 
         assertEquals("Моя книга", book.title)
         assertEquals("Локальний файл", book.author)
@@ -1250,9 +1267,9 @@ class AudiobookRepositoryRoomTest {
 
     @Test
     fun `importAudioEntries groups each folder into one book and root files into individual books`() = runBlocking {
-        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+        val mods = modules()
 
-        val result = repo.importAudioEntries(
+        val result = mods.imports.importAudioEntries(
             listOf(
                 LocalAudioEntry("01.mp3", "Кобзар") { ByteArrayInputStream(ByteArray(16)) },
                 LocalAudioEntry("02.mp3", "Кобзар") { ByteArrayInputStream(ByteArray(17)) },
@@ -1283,9 +1300,9 @@ class AudiobookRepositoryRoomTest {
 
     @Test
     fun `importAudioEntries sorts folder chapters by natural file name order`() = runBlocking {
-        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+        val mods = modules()
 
-        repo.importAudioEntries(
+        mods.imports.importAudioEntries(
             listOf(
                 LocalAudioEntry("track10.mp3", "Сага") { ByteArrayInputStream(ByteArray(10)) },
                 LocalAudioEntry("track2.mp3", "Сага") { ByteArrayInputStream(ByteArray(8)) },
@@ -1303,9 +1320,9 @@ class AudiobookRepositoryRoomTest {
 
     @Test
     fun `importAudioEntries skips unreadable files without crashing and skips empty folders`() = runBlocking {
-        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+        val mods = modules()
 
-        val result = repo.importAudioEntries(
+        val result = mods.imports.importAudioEntries(
             listOf(
                 LocalAudioEntry("broken.mp3", "Поламана") { throw java.io.IOException("no access") },
                 LocalAudioEntry("good.mp3", "Поламана") { ByteArrayInputStream(ByteArray(8)) },
@@ -1325,9 +1342,9 @@ class AudiobookRepositoryRoomTest {
 
     @Test
     fun `importAudioEntries keeps same-named folders from different branches separate`() = runBlocking {
-        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+        val mods = modules()
 
-        repo.importAudioEntries(
+        mods.imports.importAudioEntries(
             listOf(
                 LocalAudioEntry("01.mp3", "SeriesA/Кобзар") { ByteArrayInputStream(ByteArray(8)) },
                 LocalAudioEntry("01.mp3", "SeriesB/Кобзар") { ByteArrayInputStream(ByteArray(9)) }
@@ -1344,9 +1361,9 @@ class AudiobookRepositoryRoomTest {
 
     @Test
     fun `importAudioEntries preserves the original file extension`() = runBlocking {
-        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+        val mods = modules()
 
-        repo.importAudioEntries(
+        mods.imports.importAudioEntries(
             listOf(
                 LocalAudioEntry("Розділ.ogg", "Книга") { ByteArrayInputStream(ByteArray(8)) },
                 LocalAudioEntry("Глава.m4a", "Книга") { ByteArrayInputStream(ByteArray(9)) }
@@ -1365,7 +1382,7 @@ class AudiobookRepositoryRoomTest {
 
     @Test
     fun `applyImportPlan without edits behaves exactly like the direct import`() = runBlocking {
-        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+        val mods = modules()
         val entries = listOf(
             LocalAudioEntry("01.mp3", "Кобзар") { ByteArrayInputStream(ByteArray(16)) },
             LocalAudioEntry("02.mp3", "Кобзар") { ByteArrayInputStream(ByteArray(17)) },
@@ -1373,7 +1390,7 @@ class AudiobookRepositoryRoomTest {
         )
 
         val plan = ImportPlanner.buildPlan(SourceRef.Folder("content://tree"), entries)
-        val result = repo.applyImportPlan(plan, sourceTreeUri = "content://tree")
+        val result = mods.imports.applyImportPlan(plan, sourceTreeUri = "content://tree")
 
         assertEquals(2, result.booksImported)
         assertEquals(3, result.filesImported)
@@ -1390,7 +1407,7 @@ class AudiobookRepositoryRoomTest {
 
     @Test
     fun `applyImportPlan attaches an accepted merge to the existing work`() = runBlocking {
-        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+        val mods = modules()
         // Seed the library with an existing Work whose key matches.
         val existingKey = MergeKey.keyFor("Кобзар", "Тарас Шевченко", "")
         val existing = com.example.data.db.AudiobookEntity(
@@ -1413,7 +1430,7 @@ class AudiobookRepositoryRoomTest {
             existingWorks = listOf(ImportPlanner.ExistingWork(id = "b1", title = "Кобзар", mergeKey = existingKey))
         )
         val accepted = ImportPlanner.acceptMerge(plan, plan.books.first().id)
-        val result = repo.applyImportPlan(accepted, sourceTreeUri = "content://tree")
+        val result = mods.imports.applyImportPlan(accepted, sourceTreeUri = "content://tree")
 
         // No new card — the chapter joined the existing Work.
         assertEquals(0, result.booksImported)
@@ -1427,7 +1444,7 @@ class AudiobookRepositoryRoomTest {
 
     @Test
     fun `applyImportPlan persists the plan's corrections as remembered memory`() = runBlocking {
-        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+        val mods = modules()
         // Seed a same-title Work so the planned book carries a T2 suggestion
         // that can be rejected into a NEVER_MATCH memory.
         val existingKey = MergeKey.keyFor("Книга", "Хтось", "")
@@ -1448,7 +1465,7 @@ class AudiobookRepositoryRoomTest {
         plan = ImportPlanner.rejectMerge(plan, plan.books.first().id)
         plan = ImportPlanner.editBook(plan, plan.books.first().id, title = "Кобзар", author = "Тарас Шевченко")
 
-        repo.applyImportPlan(plan, sourceTreeUri = "content://tree")
+        mods.imports.applyImportPlan(plan, sourceTreeUri = "content://tree")
 
         val all = dao.getCorrectionsForMergeKey("книга|локальна папка")
         val kinds = all.map { it.kind }.toSet()
@@ -1462,8 +1479,8 @@ class AudiobookRepositoryRoomTest {
 
     @Test
     fun `rescanAudioEntries adds newly added files to the known folder book`() = runBlocking {
-        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
-        repo.importAudioEntries(
+        val mods = modules()
+        mods.imports.importAudioEntries(
             listOf(
                 LocalAudioEntry("01.mp3", "Кобзар") { ByteArrayInputStream(ByteArray(16)) },
                 LocalAudioEntry("02.mp3", "Кобзар") { ByteArrayInputStream(ByteArray(17)) }
@@ -1472,7 +1489,7 @@ class AudiobookRepositoryRoomTest {
         )
 
         // The user drops 03.mp3 into the same folder, then re-scans.
-        val report = repo.rescanAudioEntries(
+        val report = mods.imports.rescanAudioEntries(
             listOf(
                 LocalAudioEntry("01.mp3", "Кобзар") { ByteArrayInputStream(ByteArray(16)) },
                 LocalAudioEntry("02.mp3", "Кобзар") { ByteArrayInputStream(ByteArray(17)) },
@@ -1494,8 +1511,8 @@ class AudiobookRepositoryRoomTest {
 
     @Test
     fun `rescanAudioEntries reports files gone from the tree as missing without deleting anything`() = runBlocking {
-        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
-        repo.importAudioEntries(
+        val mods = modules()
+        mods.imports.importAudioEntries(
             listOf(
                 LocalAudioEntry("01.mp3", "Кобзар") { ByteArrayInputStream(ByteArray(16)) },
                 LocalAudioEntry("02.mp3", "Кобзар") { ByteArrayInputStream(ByteArray(17)) }
@@ -1506,7 +1523,7 @@ class AudiobookRepositoryRoomTest {
         val storedChapterIds = dao.getChaptersListForBook(book.id).map { it.id }
 
         // 01.mp3 was deleted on the device; the folder still has 02.mp3.
-        val report = repo.rescanAudioEntries(
+        val report = mods.imports.rescanAudioEntries(
             listOf(LocalAudioEntry("02.mp3", "Кобзар") { ByteArrayInputStream(ByteArray(17)) }),
             treeUri = "content://tree/books"
         )
@@ -1521,8 +1538,8 @@ class AudiobookRepositoryRoomTest {
 
     @Test
     fun `rescanAudioEntries reports a renamed file as moved and skips bytes already in the library`() = runBlocking {
-        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
-        repo.importAudioEntries(
+        val mods = modules()
+        mods.imports.importAudioEntries(
             listOf(
                 LocalAudioEntry("01.mp3", "Кобзар") { ByteArrayInputStream(ByteArray(16)) },
                 LocalAudioEntry("02.mp3", "Кобзар") { ByteArrayInputStream(ByteArray(17)) }
@@ -1531,7 +1548,7 @@ class AudiobookRepositoryRoomTest {
         )
 
         // Same bytes as 02.mp3 but under a new name — moved, not new.
-        val report = repo.rescanAudioEntries(
+        val report = mods.imports.rescanAudioEntries(
             listOf(
                 LocalAudioEntry("01.mp3", "Кобзар") { ByteArrayInputStream(ByteArray(16)) },
                 LocalAudioEntry("глава-2.mp3", "Кобзар") { ByteArrayInputStream(ByteArray(17)) }
@@ -1546,9 +1563,9 @@ class AudiobookRepositoryRoomTest {
 
     @Test
     fun `rescanAudioEntries of a new tree imports root files as new single-chapter books`() = runBlocking {
-        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+        val mods = modules()
 
-        val report = repo.rescanAudioEntries(
+        val report = mods.imports.rescanAudioEntries(
             listOf(
                 LocalAudioEntry("Лісова пісня.mp3", null) { ByteArrayInputStream(ByteArray(18)) }
             ),
@@ -1564,8 +1581,8 @@ class AudiobookRepositoryRoomTest {
 
     @Test
     fun `rescanAudioEntries never duplicates bytes already stored elsewhere in the library`() = runBlocking {
-        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
-        repo.importAudioEntries(
+        val mods = modules()
+        mods.imports.importAudioEntries(
             listOf(LocalAudioEntry("01.mp3", "Кобзар") { ByteArrayInputStream(ByteArray(16)) }),
             sourceTreeUri = "content://tree/books"
         )
@@ -1573,7 +1590,7 @@ class AudiobookRepositoryRoomTest {
         val knownChapters = dao.getChaptersListForBook(knownBookId).size
 
         // A different folder now contains a byte-identical copy of 01.mp3.
-        val report = repo.rescanAudioEntries(
+        val report = mods.imports.rescanAudioEntries(
             listOf(LocalAudioEntry("01.mp3", "Дублікати") { ByteArrayInputStream(ByteArray(16)) }),
             treeUri = "content://tree/dupes"
         )
@@ -1591,11 +1608,11 @@ class AudiobookRepositoryRoomTest {
 
     @Test
     fun `importLocalAudioStream twice with identical bytes returns the existing book and copies once`() = runBlocking {
-        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+        val mods = modules()
         val filesDir = File(context.filesDir, "local_imports")
 
-        val first = repo.importLocalAudioStream("Книга.mp3", ByteArrayInputStream(ByteArray(32)))
-        val second = repo.importLocalAudioStream("Книга.mp3", ByteArrayInputStream(ByteArray(32)))
+        val first = mods.imports.importLocalAudioStream("Книга.mp3", ByteArrayInputStream(ByteArray(32)))
+        val second = mods.imports.importLocalAudioStream("Книга.mp3", ByteArrayInputStream(ByteArray(32)))
 
         assertEquals("duplicate import must return the same book", first.id, second.id)
         assertEquals(1, dao.getAllAudiobooks().first().size)
@@ -1605,17 +1622,17 @@ class AudiobookRepositoryRoomTest {
 
     @Test
     fun `importLocalAudioStream with different bytes creates a second book`() = runBlocking {
-        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+        val mods = modules()
 
-        repo.importLocalAudioStream("Книга.mp3", ByteArrayInputStream(ByteArray(32)))
-        repo.importLocalAudioStream("Книга.mp3", ByteArrayInputStream(ByteArray(33)))
+        mods.imports.importLocalAudioStream("Книга.mp3", ByteArrayInputStream(ByteArray(32)))
+        mods.imports.importLocalAudioStream("Книга.mp3", ByteArrayInputStream(ByteArray(33)))
 
         assertEquals(2, dao.getAllAudiobooks().first().size)
     }
 
     @Test
     fun `importAudioEntries re-import of the same folder is fully deduplicated`() = runBlocking {
-        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+        val mods = modules()
         val bytes = ByteArray(16) { it.toByte() }
         val entries = listOf(
             LocalAudioEntry("01.mp3", "Сага") { ByteArrayInputStream(bytes) },
@@ -1623,9 +1640,9 @@ class AudiobookRepositoryRoomTest {
         )
         val filesDir = File(context.filesDir, "local_imports")
 
-        val first = repo.importAudioEntries(entries)
+        val first = mods.imports.importAudioEntries(entries)
         val filesAfterFirst = filesDir.listFiles()?.size ?: 0
-        val second = repo.importAudioEntries(entries)
+        val second = mods.imports.importAudioEntries(entries)
 
         assertEquals(1, first.booksImported)
         assertEquals(2, first.filesImported)
@@ -1640,10 +1657,10 @@ class AudiobookRepositoryRoomTest {
 
     @Test
     fun `importAudioEntries persists the chapter content hash`() = runBlocking {
-        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+        val mods = modules()
         val bytes = ByteArray(64) { it.toByte() }
 
-        repo.importAudioEntries(
+        mods.imports.importAudioEntries(
             listOf(LocalAudioEntry("Розділ.mp3", "Книга") { ByteArrayInputStream(bytes) })
         )
 
@@ -1654,9 +1671,9 @@ class AudiobookRepositoryRoomTest {
 
     @Test
     fun `folder import stamps the source tree uri on the book`() = runBlocking {
-        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+        val mods = modules()
 
-        repo.importAudioEntries(
+        mods.imports.importAudioEntries(
             listOf(LocalAudioEntry("Розділ.mp3", "Книга") { ByteArrayInputStream(ByteArray(8)) }),
             sourceTreeUri = "content://com.android.externalstorage.documents/tree/primary%3AAudioBooks"
         )
@@ -1675,7 +1692,7 @@ class AudiobookRepositoryRoomTest {
 
     @Test
     fun `removeOfflineDownload deletes files clears download state and keeps the book`() = runBlocking {
-        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+        val mods = modules()
         val book = TestDataFactory.dataBooks()[0]
         val files = listOf(
             File(context.filesDir, "purge-1.mp3").apply { writeBytes(ByteArray(64)) },
@@ -1692,7 +1709,7 @@ class AudiobookRepositoryRoomTest {
             }
         )
 
-        repo.removeOfflineDownload(book.id)
+        mods.downloads.removeOfflineDownload(book.id)
 
         assertTrue("copies must be gone", files.all { !it.exists() })
         assertFalse("book must no longer be downloaded", dao.getAudiobookById(book.id)!!.isDownloaded)
@@ -1703,20 +1720,20 @@ class AudiobookRepositoryRoomTest {
 
     @Test
     fun `removeOfflineDownload clears hashes so a re-import can copy the files again`() = runBlocking {
-        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+        val mods = modules()
         val bytes = ByteArray(16) { it.toByte() }
         val entries = listOf(LocalAudioEntry("01.mp3", "Сага") { ByteArrayInputStream(bytes) })
 
-        val imported = repo.importAudioEntries(entries)
+        val imported = mods.imports.importAudioEntries(entries)
         val book = dao.getAllAudiobooks().first().first()
         assertEquals(1, imported.booksImported)
         val filesDir = File(context.filesDir, "local_imports")
         val copiesBefore = filesDir.listFiles()?.size ?: 0
 
-        repo.removeOfflineDownload(book.id)
+        mods.downloads.removeOfflineDownload(book.id)
         assertEquals(0, filesDir.listFiles()?.size ?: 0)
 
-        val reimport = repo.importAudioEntries(entries)
+        val reimport = mods.imports.importAudioEntries(entries)
 
         assertEquals("re-import must NOT be blocked by a stale hash", 1, reimport.booksImported)
         assertEquals(0, reimport.duplicateFiles)
@@ -1732,30 +1749,30 @@ class AudiobookRepositoryRoomTest {
 
     @Test
     fun `deleteBook writes a durable tombstone`() = runBlocking {
-        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+        val mods = modules()
         val book = TestDataFactory.dataBooks()[0]
         dao.insertAudiobooks(listOf(book))
         dao.insertChapters(TestDataFactory.chaptersFor(book))
 
-        repo.deleteBook(book.id)
+        mods.entries.deleteBook(book.id)
 
         assertTrue("deleted book id must be tombstoned", dao.getTombstoneBookIds().contains(book.id))
     }
 
     @Test
     fun `removeFromLibrary writes a durable tombstone too`() = runBlocking {
-        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+        val mods = modules()
         val book = TestDataFactory.dataBooks()[0]
         dao.insertAudiobooks(listOf(book))
 
-        repo.removeFromLibrary(book.id)
+        mods.entries.removeFromLibrary(book.id)
 
         assertTrue("removed book id must be tombstoned", dao.getTombstoneBookIds().contains(book.id))
     }
 
     @Test
     fun `an explicit re-import clears the tombstone`() = runBlocking {
-        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+        val mods = modules()
         // A catalogue book has a STABLE id derived from its URL (4read-<slug>),
         // so a re-import of the same book lands on the same id.
         val book = TestDataFactory.dataBooks()[0].copy(
@@ -1766,7 +1783,7 @@ class AudiobookRepositoryRoomTest {
         dao.insertChapters(
             TestDataFactory.chaptersFor(TestDataFactory.dataBooks()[0]).map { it.copy(id = "4read-kobzar-ch-${it.chapterIndex + 1}", bookId = "4read-kobzar") }
         )
-        repo.deleteBook(book.id)
+        mods.entries.deleteBook(book.id)
         assertTrue(dao.getTombstoneBookIds().contains(book.id))
 
         // The user explicitly re-adds the book from search — the tombstone
@@ -1780,25 +1797,25 @@ class AudiobookRepositoryRoomTest {
                 com.example.data.source.SourceChapter("Розділ 1", "https://fixtures.invalid/1.mp3")
             )
         )
-        repo.importBookFromSource(sourceId = "4read", detail = detail)
+        mods.imports.importBookFromSource(sourceId = "4read", detail = detail)
 
         assertFalse("tombstone must clear on explicit import", dao.getTombstoneBookIds().contains(book.id))
     }
 
     @Test
     fun `a local re-import after delete creates a fresh visible book`() = runBlocking {
-        val repo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+        val mods = modules()
         val bytes = ByteArray(16) { it.toByte() }
-        repo.importAudioEntries(
+        mods.imports.importAudioEntries(
             listOf(LocalAudioEntry("01.mp3", "Сага") { ByteArrayInputStream(bytes) })
         )
         val first = dao.getAllAudiobooks().first().first()
-        repo.deleteBook(first.id)
+        mods.entries.deleteBook(first.id)
         assertTrue(dao.getTombstoneBookIds().contains(first.id))
 
         // Local ids are time-stamped, so the re-import is a NEW book with a
         // fresh id — never suppressed by the old tombstone, never a duplicate.
-        repo.importAudioEntries(
+        mods.imports.importAudioEntries(
             listOf(LocalAudioEntry("01.mp3", "Сага") { ByteArrayInputStream(bytes) })
         )
         val after = dao.getAllAudiobooks().first()

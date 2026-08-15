@@ -767,7 +767,7 @@ private fun TagPill(
  */
 @Composable
 fun SourceProfileBlock(
-    profile: com.example.data.repository.AudiobookRepository.SourceProfile,
+    profile: com.example.data.entries.LibraryEntries.SourceProfile,
     modifier: Modifier = Modifier
 ) {
     Card(

@@ -140,7 +140,7 @@ class AudioPlayerManager(
      * attempt/failure counters, surfaced in the diagnostic overlay
      * (PlayerDebugOverlay) and the exported journal. In-memory only; failures
      * additionally land in the durable Room ledger via
-     * [AudiobookRepository.recordPlaybackFailure].
+     * [com.example.data.listening.ListeningStateStore.recordPlaybackFailure].
      */
     val playbackEventLog = PlaybackEventLog()
     val playbackMetrics = PlaybackMetrics()
@@ -1245,7 +1245,7 @@ class AudioPlayerManager(
     /**
      * Appends a discrete transition to the event log through the repository
      * seam (spec-16 T2). The player never touches the DAO for events — every
-     * capture funnels through [AudiobookRepository.recordPlaybackEvent], which
+     * capture funnels through [com.example.data.listening.ListeningStateStore.recordPlaybackEvent], which
      * writes the row and compacts the (book, source) bucket. The timestamp is
      * the manager's injectable clock so tests stay free of the wall clock.
      */

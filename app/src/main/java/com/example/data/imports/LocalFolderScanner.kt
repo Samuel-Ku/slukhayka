@@ -9,7 +9,7 @@ import java.io.InputStream
 /**
  * One audio file discovered by [LocalFolderScanner] inside a picked SAF tree
  * (spec #8 Block 4). [openStream] is lazy so the grouping/import core in
- * `AudiobookRepository.importAudioEntries` stays pure JVM-testable — it never
+ * `LibraryImport.importAudioEntries` stays pure JVM-testable — it never
  * touches a ContentResolver.
  */
 data class LocalAudioEntry(

@@ -7,6 +7,8 @@ import com.example.data.db.AudiobookDao
 import com.example.data.db.AudiobookDatabase
 import com.example.data.db.PlaybackEventKind
 import com.example.data.db.PlaybackProgressEntity
+import com.example.data.entries.LibraryEntries
+import com.example.data.listening.ListeningStateStore
 import com.example.player.SeekHistory
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -50,8 +52,9 @@ class PlaybackEventsRepositoryTest {
         db.close()
     }
 
-    private fun repository(sourceAdapters: List<com.example.data.source.SourceAdapter> = emptyList()) =
-        AudiobookRepository(dao, autoSyncOnInit = false, sourceAdapters = sourceAdapters)
+    // ADR-0002 (#140): playback events live in the Listening State module —
+    // construct it directly, no god module.
+    private fun repository() = ListeningStateStore(dao)
 
     private fun seekJump(seconds: Long): Long = SeekHistory.DEFAULT_JUMP_THRESHOLD_MS / 1000L + seconds
 
@@ -196,7 +199,9 @@ class PlaybackEventsRepositoryTest {
             positionSeconds = seekJump(10), fromPositionSeconds = 0L, timestampMs = 200L
         )
 
-        repo.deleteBook("b1")
+        // The cascade itself is the Library Entries module's job; the store
+        // only owns the event rows the cascade removes.
+        LibraryEntries(dao, emptyList()).deleteBook("b1")
 
         assertTrue(dao.getPlaybackEventsForBookSource("b1", "").isEmpty())
         assertTrue(dao.getPlaybackEventsForBookSource("b1", "soundbooks").isEmpty())

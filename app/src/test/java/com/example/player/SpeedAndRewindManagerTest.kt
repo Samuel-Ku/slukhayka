@@ -72,7 +72,8 @@ class SpeedAndRewindManagerTest {
             repository,
             factory,
             now = { clockMs },
-            settings = settings
+            settings = settings,
+            widgetSyncEnabled = false
         )
         try {
             body(manager, factory)

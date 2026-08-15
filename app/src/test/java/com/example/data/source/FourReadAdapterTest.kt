@@ -3,6 +3,7 @@ package com.example.data.source
 import com.example.testing.FakeFetcher
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -221,7 +222,9 @@ class FourReadAdapterTest {
 
     @Test
     fun `captured page parses through the shared parser with adapter transport`() = runBlocking {
-        val adapter = FourReadAdapter(
+        // ADR-0006: the door works through the SourceAdapter INTERFACE — no
+        // import door may downcast to the concrete FourReadAdapter.
+        val adapter: SourceAdapter = FourReadAdapter(
             FakeFetcher(mapOf("https://4read.org/m3u/7589.txt" to playlistJson))
         )
 
@@ -229,8 +232,25 @@ class FourReadAdapterTest {
         // content resolves through the adapter's own transport.
         val detail = adapter.parseCapturedPage(bookPage, "https://4read.org/7589-neostannij-bij.html")
 
-        assertEquals("Неостанній бій", detail.title)
+        assertNotNull(detail)
+        assertEquals("Неостанній бій", detail!!.title)
         assertEquals(1, detail.chapters.size)
         assertEquals("https://4read.org/uploads/audio/7589/01.mp3", detail.chapters.single().streamUrl)
+    }
+
+    @Test
+    fun `the captured-page capability defaults to not-mine on non-WebView adapters`() = runBlocking {
+        // ADR-0006: the interface carries the door with a default — a plain
+        // (server-fetch) adapter simply does not support it, so the door
+        // needs no cast and no per-source branching.
+        val plain: SourceAdapter = object : SourceAdapter {
+            override val sourceId = "plain"
+            override suspend fun search(query: String): List<SourceBook> = emptyList()
+            override suspend fun fetchBookPage(url: String): SourceBookDetail =
+                SourceBookDetail(title = "", author = "", url = url, chapters = emptyList())
+            override suspend fun fetchNew(limit: Int): List<SourceBook> = emptyList()
+        }
+
+        assertNull(plain.parseCapturedPage("<html></html>", "https://plain.example/book.html"))
     }
 }

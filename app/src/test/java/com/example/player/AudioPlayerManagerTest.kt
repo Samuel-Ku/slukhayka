@@ -816,7 +816,10 @@ class AudioPlayerManagerTest {
             // Spec-16 T3 flake (#101): the undo-candidate restore runs on the
             // test scheduler, so runCurrent() observes it instead of a
             // wall-clock awaitTrue budget that flakes under full-suite load.
-            ioDispatcher = dispatcher
+            ioDispatcher = dispatcher,
+            // Spec-22 T4: widget sync is a forever-running sampled collector;
+            // keep it off the test scheduler.
+            widgetSyncEnabled = false
         )
         try {
             body(manager, factory)

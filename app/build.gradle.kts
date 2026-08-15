@@ -110,6 +110,8 @@ dependencies {
   implementation(libs.androidx.compose.ui.tooling.preview)
   implementation(libs.androidx.core.ktx)
   implementation(libs.androidx.documentfile)
+  implementation(libs.androidx.glance.appwidget)
+  implementation(libs.androidx.glance.material3)
   implementation(libs.androidx.media3.exoplayer)
   implementation(libs.androidx.media3.session)
   // implementation(libs.androidx.datastore.preferences)

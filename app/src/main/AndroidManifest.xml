@@ -53,5 +53,18 @@
                 <action android:name="android.intent.action.MEDIA_BUTTON" />
             </intent-filter>
         </receiver>
+
+        <!-- Jetpack Glance Home Screen Widget (spec-21 Track B, restored as
+             spec-22 T4): cover, title/chapter, progress, play/pause, ±15 s. -->
+        <receiver
+            android:name=".widget.AudiobookGlanceWidgetReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/audiobook_widget_info" />
+        </receiver>
     </application>
 </manifest>

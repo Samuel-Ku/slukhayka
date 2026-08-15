@@ -35,6 +35,8 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.sample
 
 data class PlayerState(
     val currentBook: AudiobookEntity? = null,
@@ -103,7 +105,13 @@ class AudioPlayerManager(
      * deterministically; production keeps the real IO pool. Other speculative
      * writes (event-log rows, bookmarks, progress) stay on Dispatchers.IO.
      */
-    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    /**
+     * Spec-22 T4: whether the manager pushes sampled state to the home-screen
+     * widget. Production keeps it on; tests disable it so a forever-running
+     * widget collector cannot perturb the test scheduler.
+     */
+    private val widgetSyncEnabled: Boolean = true
 ) {
 
     private val _playerState = MutableStateFlow(PlayerState())
@@ -268,6 +276,21 @@ class AudioPlayerManager(
     private var pendingResumeSeekMs: Long = -1L
 
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+
+    // Spec-22 T4: keep the home-screen widget's progress/transport in sync
+    // with playback. Sampled to ~one update per 2 s while playing (widget
+    // updates are expensive); a pause still refreshes within the current
+    // window. Fire-and-forget — a failing widget must never break playback.
+    init {
+        if (widgetSyncEnabled) {
+            scope.launch {
+                playerState
+                    .sample(2_000)
+                    .collect { com.example.widget.AudiobookGlanceWidgetReceiver.update(context) }
+            }
+        }
+    }
+
     private var updateProgressJob: Job? = null
     private var sleepTimer: CountDownTimer? = null
     private var prepareTimeoutJob: Job? = null

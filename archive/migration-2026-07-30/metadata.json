@@ -1,6 +1,0 @@
-{
-  "name": "4Read Audiobooks",
-  "description": "Cyberpunk online audiobook platform with offline listening, bookmarking, audio progress tracking, and William Gibson Neuromancer collection.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}

@@ -32,17 +32,24 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-        <!-- MediaSessionService: hosts the MediaSession around the shared
-             app-scoped player; keeps playback alive in the background and
-             shows the media notification with transport controls. -->
+
+        <!-- MediaLibraryService: hosts the MediaLibrarySession for background
+             playback, media notifications, Bluetooth/headset controls, and
+             Android Auto automotive library browsing. -->
         <service
             android:name=".player.PlaybackService"
             android:exported="true"
             android:foregroundServiceType="mediaPlayback">
             <intent-filter>
+                <action android:name="androidx.media3.session.MediaLibraryService" />
                 <action android:name="androidx.media3.session.MediaSessionService" />
+                <action android:name="android.media.browse.MediaBrowserService" />
             </intent-filter>
         </service>
+
+        <meta-data
+            android:name="com.google.android.gms.car.application"
+            android:resource="@xml/automotive_app_desc" />
 
         <!-- Routes hardware media buttons (Bluetooth/wired headset keys) to
              the MediaSession in PlaybackService. -->
@@ -52,6 +59,18 @@
             <intent-filter>
                 <action android:name="android.intent.action.MEDIA_BUTTON" />
             </intent-filter>
+        </receiver>
+
+        <!-- Jetpack Glance Home Screen Widget (spec-21 Track B / T2) -->
+        <receiver
+            android:name=".widget.AudiobookGlanceWidgetReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/audiobook_widget_info" />
         </receiver>
     </application>
 </manifest>

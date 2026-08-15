@@ -3,7 +3,6 @@ package com.example.ui.snapshots
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -11,11 +10,11 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.unit.dp
 import com.example.testing.TestDataFactory
-import com.example.ui.library.buildLibraryBooks
-import com.example.ui.library.LibraryBook
-import com.example.ui.screens.LibraryBookCard
+import com.example.ui.screens.EmptyStateMessage
 import com.example.ui.screens.ListeningStatsCard
+import com.example.ui.screens.OfflineBookItem
 import com.example.ui.theme.AudiobookTheme
+import com.example.ui.theme.CyberBg
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
 import com.github.takahirom.roborazzi.captureRoboImage
 import org.junit.Rule
@@ -26,17 +25,26 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
 /**
- * Compose snapshot tests for the `LibraryScreen` composables (wayfinder #39).
+ * Compose snapshot tests for the `LibraryScreen` composables.
  *
- * The full `LibraryScreen` is not snapshotted because it requires a concrete
- * `MainViewModel` instance; we exercise the building blocks instead:
+ * Ticket #5 (`compose-snapshot-infra`) — picks Roborazzi (over Paparazzi)
+ * because the test code is already JUnit 4 + Robolectric, so Roborazzi
+ * hooks into the existing harness without an emulator or extra Gradle plugin.
  *
- * - [LibraryBookCard] in list and grid modes — the unified book card that
- *   now powers the whole Медіатека (progress, remaining time, source badge).
- * - [ListeningStatsCard] — the Статистика tab body.
+ * The full `LibraryScreen` is not snapshotted here because it requires a
+ * concrete `MainViewModel` instance, and constructing one in a JVM unit
+ * test would drag the real Room database + audio engine + 4read catalogue
+ * fetcher into the rendering path. We exercise the three top-level
+ * composables that make up the Library tabs instead:
  *
- * Every fixture comes from `TestDataFactory`; the card input is a
- * [LibraryBook] built through the same pure [buildLibraryBooks] the app uses.
+ * - [ListeningStatsCard] -- the Stats tab body, driven by `@Composable`
+ *   inputs only.
+ * - [OfflineBookItem]    -- one row in the Offline tab, driven by an
+ *   `AudiobookEntity` and callbacks.
+ * - [EmptyStateMessage]  -- the empty-state messaging for every tab.
+ *
+ * Every fixture comes from `TestDataFactory`, which is owned by sibling
+ * ticket #6 and stays untouched here.
  */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
@@ -46,71 +54,10 @@ class LibraryComponentsSnapshotTest {
     @get:Rule
     val composeTestRule = createComposeRule()
 
-    private val books = TestDataFactory.dataBooks()
-    private val chapters = TestDataFactory.dataChapters(books)
-    private val progress = TestDataFactory.seedPlaybackProgress(books, chapterIndex = 1, positionSeconds = 300L)
-    private val libraryBooks = buildLibraryBooks(books, progress, chapters.groupBy { it.bookId })
-
-    // Spec-15 T6: a book from a non-4read source, so the card's badge shows
-    // the real source («Sluhay»), not a hardcoded «4read».
-    private val sluhayBook = buildLibraryBooks(
-        listOf(
-            TestDataFactory.dataBooks()[0].copy(
-                id = "sluhay-pasazhir",
-                title = "Пасажир",
-                sourceUrl = "https://sluhay.com/svitova-literatura/6177-pasazhir.html"
-            )
-        ),
-        emptyList(),
-        emptyMap()
-    ).single()
-
-    @Test
-    fun book_card_list_mode() {
-        composeTestRule.setContent {
-            AudiobookTheme(darkTheme = true) {
-                LibrarySurface {
-                    LibraryBookCard(book = libraryBooks[0], grid = false, onClick = {})
-                }
-            }
-        }
-        composeTestRule.onRoot().captureRoboImage(
-            filePath = "src/test/snapshots/library_book_card_list.png"
-        )
-    }
-
-    @Test
-    fun book_card_grid_mode() {
-        composeTestRule.setContent {
-            AudiobookTheme(darkTheme = true) {
-                LibrarySurface {
-                    LibraryBookCard(book = libraryBooks[0], grid = true, onClick = {})
-                }
-            }
-        }
-        composeTestRule.onRoot().captureRoboImage(
-            filePath = "src/test/snapshots/library_book_card_grid.png"
-        )
-    }
-
-    @Test
-    fun book_card_sluhay_source_badge() {
-        composeTestRule.setContent {
-            AudiobookTheme(darkTheme = true) {
-                LibrarySurface {
-                    LibraryBookCard(book = sluhayBook, grid = false, onClick = {})
-                }
-            }
-        }
-        composeTestRule.onRoot().captureRoboImage(
-            filePath = "src/test/snapshots/library_book_card_sluhay_badge.png"
-        )
-    }
-
     @Test
     fun stats_card_empty() {
         composeTestRule.setContent {
-            AudiobookTheme(darkTheme = true) {
+            AudiobookTheme {
                 LibrarySurface {
                     ListeningStatsCard(listeningStats = emptyList(), totalBooks = 0)
                 }
@@ -124,7 +71,7 @@ class LibraryComponentsSnapshotTest {
     @Test
     fun stats_card_populated() {
         composeTestRule.setContent {
-            AudiobookTheme(darkTheme = true) {
+            AudiobookTheme {
                 LibrarySurface {
                     ListeningStatsCard(
                         listeningStats = TestDataFactory.seedListeningStats(),
@@ -137,16 +84,52 @@ class LibraryComponentsSnapshotTest {
             filePath = "src/test/snapshots/library_stats_card_populated.png"
         )
     }
+
+    @Test
+    fun empty_state_no_offline_books() {
+        composeTestRule.setContent {
+            AudiobookTheme {
+                LibrarySurface {
+                    EmptyStateMessage(
+                        message = "Завантажені аудіокниги відсутні. " +
+                            "Додайте їх для прослуховування без інтернету."
+                    )
+                }
+            }
+        }
+        composeTestRule.onRoot().captureRoboImage(
+            filePath = "src/test/snapshots/library_empty_state_no_offline_books.png"
+        )
+    }
+
+    @Test
+    fun offline_book_item_single_fixture_book() {
+        composeTestRule.setContent {
+            AudiobookTheme {
+                LibrarySurface {
+                    OfflineBookItem(
+                        book = TestDataFactory.dataBooks()[0],
+                        onClick = {},
+                        onPlayClick = {},
+                        onDeleteClick = {}
+                    )
+                }
+            }
+        }
+        composeTestRule.onRoot().captureRoboImage(
+            filePath = "src/test/snapshots/library_offline_book_item.png"
+        )
+    }
 }
 
 /**
- * Match the `LibraryScreen` chrome: scheme background, full-size column with
- * the same outer padding the screen would apply. Keeps the snapshot faithful
- * without dragging in `MainViewModel`.
+ * Match the `LibraryScreen` chrome: dark surface, full-size column with
+ * the same outer padding the screen would apply. Keeps the snapshot
+ * faithful without dragging in `MainViewModel`.
  */
 @Composable
 private fun LibrarySurface(content: @Composable () -> Unit) {
-    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+    Surface(modifier = Modifier.fillMaxSize(), color = CyberBg) {
         Column(modifier = Modifier.padding(0.dp)) { content() }
     }
 }

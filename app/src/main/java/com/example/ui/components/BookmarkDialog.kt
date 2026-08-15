@@ -10,13 +10,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import com.example.ui.theme.*
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.example.ui.MainViewModel
-import com.example.ui.theme.CyberCardBg
-import com.example.ui.theme.CyberPrimary
 
 @Composable
 fun BookmarkDialog(
@@ -33,8 +31,8 @@ fun BookmarkDialog(
                 .fillMaxWidth()
                 .padding(16.dp)
                 .testTag("bookmark_dialog"),
-            shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(containerColor = CyberCardBg)
+            shape = RoundedCornerShape(AppDimens.RadiusHero),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
         ) {
             Column(
                 modifier = Modifier
@@ -48,16 +46,13 @@ fun BookmarkDialog(
                     Icon(
                         imageVector = Icons.Default.BookmarkAdd,
                         contentDescription = null,
-                        tint = CyberPrimary,
+                        tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(28.dp)
                     )
                     Spacer(modifier = Modifier.width(10.dp))
                     Text(
                         text = "Add Bookmark Note",
-                        style = MaterialTheme.typography.titleLarge.copy(
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 18.sp
-                        ),
+                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                         color = MaterialTheme.colorScheme.onSurface
                     )
                 }
@@ -65,8 +60,9 @@ fun BookmarkDialog(
                 Spacer(modifier = Modifier.height(12.dp))
 
                 Surface(
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    shape = RoundedCornerShape(8.dp),
+                    // Inset well inside the dialog: one step above the dialog's own tone.
+                    color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    shape = RoundedCornerShape(AppDimens.RadiusInner),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(modifier = Modifier.padding(10.dp)) {
@@ -78,7 +74,7 @@ fun BookmarkDialog(
                         Text(
                             text = "Timestamp: ${MainViewModel.formatTime(timestampSeconds)}",
                             style = MaterialTheme.typography.bodySmall,
-                            color = CyberPrimary
+                            color = MaterialTheme.colorScheme.primary
                         )
                     }
                 }
@@ -93,7 +89,7 @@ fun BookmarkDialog(
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag("bookmark_note_input"),
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(AppDimens.RadiusCard),
                     maxLines = 3
                 )
 
@@ -112,7 +108,7 @@ fun BookmarkDialog(
                             onSave(noteText)
                             onDismiss()
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = CyberPrimary),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                         modifier = Modifier.testTag("save_bookmark_button")
                     ) {
                         Text("Save Bookmark", color = MaterialTheme.colorScheme.onPrimary)

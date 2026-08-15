@@ -22,6 +22,6 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "slukhayka"
+rootProject.name = "4Read Audiobooks"
 
 include(":app")

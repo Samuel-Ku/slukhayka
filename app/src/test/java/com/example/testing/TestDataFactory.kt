@@ -5,6 +5,8 @@ import com.example.data.db.BookmarkEntity
 import com.example.data.db.ChapterEntity
 import com.example.data.db.ListeningStatEntity
 import com.example.data.db.PlaybackProgressEntity
+import com.example.data.db.SourceEntity
+import com.example.data.source.streamOnlyFor
 
 /**
  * Deterministic Room-entity fixtures for JVM unit tests (GitHub issue #6).
@@ -51,7 +53,11 @@ object TestDataFactory {
      */
     private const val PER_BOOK_SECONDS_STEP: Long = 300L
     private const val PER_CHAPTER_SECONDS_STEP: Long = 60L
-    private const val FIXTURE_HOST: String = "https://fixtures.4read.invalid"
+    // The host still ends in `.invalid` (RFC 2606 — unroutable, fails fast on
+    // accidental real I/O) but contains `4read.org` so the library model's
+    // `sourceIdForUrl` badges these 4read-catalogue fixtures honestly as
+    // «4read» instead of «unknown» (spec-15 T6).
+    private const val FIXTURE_HOST: String = "https://fixtures.4read.org.invalid"
 
     private data class BookSpec(
         val id: String,
@@ -108,7 +114,11 @@ object TestDataFactory {
             totalDurationSeconds = totalDurationSecondsOf(bookIndex),
             totalChapters = CHAPTERS_PER_BOOK,
             rating = 4.5f,
-            isFavorite = bookIndex == 0
+            isFavorite = bookIndex == 0,
+            // The entity defaults createdAt to the wall clock — frozen here so
+            // the determinism self-test (and every equality/snapshot assertion
+            // downstream) stays stable, per this factory's no-wall-clock rule.
+            createdAt = FIXED_CLOCK_MS
         )
     }
 
@@ -165,6 +175,31 @@ object TestDataFactory {
             lastListenedAt = FIXED_CLOCK_MS,
             isCompleted = isCompleted
         )
+    }
+
+    /**
+     * One [SourceEntity] per book per source type, frozen at [FIXED_CLOCK_MS].
+     *
+     * Mirrors `AudiobookRepository.sourceRow` (id "`<type>-<bookId>`",
+     * `streamOnly` from the T1-verified [streamOnlyFor] policy) so repository
+     * tests can seed the `sources` table deterministically — `addedAt`
+     * otherwise defaults to the wall clock and would make any order/equality
+     * assertion over sources flaky (same class as the createdAt flake).
+     */
+    fun seedSources(
+        audiobooks: List<AudiobookEntity> = dataBooks(),
+        sourceIds: List<String> = listOf("4read", "soundbooks")
+    ): List<SourceEntity> = audiobooks.flatMap { book ->
+        sourceIds.map { sourceId ->
+            SourceEntity(
+                id = "$sourceId-${book.id}",
+                bookId = book.id,
+                type = sourceId,
+                url = "$FIXTURE_HOST/$sourceId/${book.id}",
+                streamOnly = streamOnlyFor(sourceId),
+                addedAt = FIXED_CLOCK_MS
+            )
+        }
     }
 
     /**

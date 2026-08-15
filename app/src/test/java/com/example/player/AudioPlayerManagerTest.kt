@@ -5,7 +5,7 @@ import androidx.test.core.app.ApplicationProvider
 import com.example.data.db.AudiobookEntity
 import com.example.data.db.ChapterEntity
 import com.example.data.db.PlaybackEventKind
-import com.example.data.repository.AudiobookRepository
+import com.example.data.listening.ListeningStateStore
 import com.example.testing.FakeAudiobookDao
 import com.example.testing.TestDataFactory
 import kotlinx.coroutines.Dispatchers
@@ -52,7 +52,7 @@ class AudioPlayerManagerTest {
 
     private lateinit var context: Context
     private lateinit var dao: FakeAudiobookDao
-    private lateinit var repository: AudiobookRepository
+    private lateinit var listeningState: ListeningStateStore
 
     private val book: AudiobookEntity = TestDataFactory.dataBooks()[STREAMING_BOOK_INDEX]
     private val chapters: List<ChapterEntity> = TestDataFactory.chaptersFor(book)
@@ -65,8 +65,9 @@ class AudioPlayerManagerTest {
             books = TestDataFactory.dataBooks(),
             chapters = TestDataFactory.dataChapters()
         )
-        // autoSyncOnInit = false keeps the 4read catalogue fetch out of the test.
-        repository = AudiobookRepository(dao, context, autoSyncOnInit = false)
+        // ADR-0002: the player runs on the store + a chapter fetcher — no
+        // repository graph. The fake DAO is the in-memory persistence.
+        listeningState = ListeningStateStore(dao)
     }
 
     @After
@@ -811,7 +812,7 @@ class AudioPlayerManagerTest {
     ) = runTest(dispatcher) {
         val factory = RecordingPlayerFactory()
         val manager = AudioPlayerManager(
-            context, repository, factory,
+            context, listeningState, { dao.getChaptersListForBook(it) }, factory,
             now = { clock?.ms ?: System.currentTimeMillis() },
             // Spec-16 T3 flake (#101): the undo-candidate restore runs on the
             // test scheduler, so runCurrent() observes it instead of a

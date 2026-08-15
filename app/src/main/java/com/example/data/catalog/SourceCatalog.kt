@@ -38,15 +38,16 @@ import kotlinx.coroutines.withContext
 class SourceCatalog(
     private val dao: AudiobookDao,
     private val sourceAdapters: List<SourceAdapter>,
-    private val libraryImport: LibraryImport
-) {
-
+    private val libraryImport: LibraryImport,
     // The 4read transport/parser behind the Explore doors (homepage/series/
     // top-100/people). Same HttpFetcher the adapters use; the module owns no
-    // HTTP client of its own.
+    // HTTP client of its own. Injectable so the hydration tests serve canned
+    // pages without network.
+    private val fourReadFetcher: HttpFetcher = HttpFetcher(referer = "https://4read.org/")
+) {
+
     private val fourReadAdapter: SourceAdapter =
         sourceAdapters.firstOrNull { it.sourceId == "4read" } ?: FourReadAdapter()
-    private val fourReadFetcher: HttpFetcher = HttpFetcher(referer = "https://4read.org/")
 
     // ---------------------------------------------------------------------
     // Global search (spec-10 T4)
@@ -430,6 +431,18 @@ class SourceCatalog(
     private fun stableIdOf(url: String): String = Integer.toHexString(url.hashCode())
 
     /**
+     * Outcome of one merge-on-write: the Work (existing or fresh), whether the
+     * Work row itself was created, and whether a NEW Edition was attached.
+     * Hydration uses these flags to report honest per-run counts (works added
+     * vs editions merged) instead of guessing at read time.
+     */
+    data class WorkWriteResult(
+        val work: WorkEntity,
+        val workCreated: Boolean,
+        val editionCreated: Boolean
+    )
+
+    /**
      * Merge-on-write: normalizes the identity via the validated [MergeKey]
      * (title+author+narrator), finds the Work by its merge key, and either
      * creates the Work + its first Edition or attaches a new Edition to the
@@ -450,10 +463,11 @@ class SourceCatalog(
         durationSeconds: Long? = null,
         seriesTitle: String? = null,
         seriesIndex: Int? = null
-    ): WorkEntity {
+    ): WorkWriteResult {
         val mergeKey = MergeKey.keyFor(title, author, narrator)
-        val work = if (mergeKey.isNotBlank()) {
-            dao.findWorkByMergeKey(mergeKey) ?: WorkEntity(
+        val existing = if (mergeKey.isNotBlank()) dao.findWorkByMergeKey(mergeKey) else null
+        val work = existing ?: if (mergeKey.isNotBlank()) {
+            WorkEntity(
                 id = mergeKey,
                 mergeKey = mergeKey,
                 title = title.trim(),
@@ -478,9 +492,11 @@ class SourceCatalog(
                 addedAt = System.currentTimeMillis()
             ).also { dao.upsertWork(it) }
         }
+        val editionId = "${work.id}|$sourceId|${stableIdOf(sourceUrl)}"
+        val editionAlreadyKnown = dao.getEditionsForWorkSync(work.id).any { it.id == editionId }
         dao.upsertEdition(
             EditionEntity(
-                id = "${work.id}|$sourceId|${stableIdOf(sourceUrl)}",
+                id = editionId,
                 workId = work.id,
                 sourceId = sourceId,
                 sourceUrl = sourceUrl,
@@ -490,7 +506,99 @@ class SourceCatalog(
                 addedAt = System.currentTimeMillis()
             )
         )
-        return work
+        return WorkWriteResult(work = work, workCreated = existing == null, editionCreated = !editionAlreadyKnown)
+    }
+
+    /**
+     * Spec-23 T2 — hydrates 4read's full catalogue into the persisted
+     * Works/Editions layer: the homepage (Новинки + Популярне posters), every
+     * genre/category from the sidebar nav, and the homepage's series pages.
+     * Every row lands merge-on-write ([writeWorkEdition]) with the source's
+     * real policy (4read is downloadable — streamOnly = false), so added
+     * Works are playable/downloadable and re-runs never duplicate. Best-effort
+     * per page: a failing page counts as failed, never aborts the crawl.
+     * The run reports honest counts — new Works (imported) vs writes into
+     * already-known Works (merged) vs failed pages.
+     */
+    suspend fun hydrateFourReadCatalog(): HydrationResult = withContext(Dispatchers.IO) {
+        val sourceId = "4read"
+        val homepage = try {
+            fourReadFetcher.getText("https://4read.org/")
+        } catch (e: Exception) {
+            ""
+        }
+        if (homepage.isBlank()) {
+            return@withContext HydrationResult(sourceId, found = 0, imported = 0, merged = 0, failed = 0)
+        }
+
+        // Category pages to crawl: the sidebar genre nav (plus the series
+        // pages advertised on the homepage) — the enumeration surface beyond
+        // the single default page.
+        val categoryUrls = mutableListOf<String>()
+        val homepageBooks = mutableListOf<CatalogBook>()
+        try {
+            homepageBooks += CatalogParser.parseHomepage(homepage)
+                .flatMap { section -> section.books }
+            categoryUrls += CatalogParser.parseGenreNav(homepage).map { it.url }
+            categoryUrls += CatalogParser.parseHomepage(homepage)
+                .flatMap { it.series }
+                .mapNotNull { it.url }
+        } catch (e: Exception) {
+            // Unparseable homepage degrades to an empty crawl.
+        }
+
+        var found = 0
+        var imported = 0
+        var merged = 0
+        var failed = 0
+        val seen = mutableSetOf<String>()
+
+        suspend fun write(book: CatalogBook) {
+            if (!seen.add(book.url)) return
+            found++
+            try {
+                val result = writeWorkEdition(
+                    sourceId = sourceId,
+                    title = book.title,
+                    author = book.author,
+                    narrator = "",
+                    sourceUrl = book.url,
+                    streamOnly = false,
+                    coverImageUrl = book.coverImageUrl,
+                    seriesTitle = book.seriesTitle,
+                    seriesIndex = book.seriesIndex
+                )
+                if (result.workCreated) imported++ else merged++
+            } catch (e: Exception) {
+                failed++
+            }
+        }
+
+        homepageBooks.forEach { write(it) }
+
+        for (url in categoryUrls) {
+            val html = try {
+                fourReadFetcher.getText(url)
+            } catch (e: Exception) {
+                ""
+            }
+            if (html.isBlank()) {
+                failed++
+                continue
+            }
+            val books = try {
+                CatalogParser.parseSeriesPage(html)
+            } catch (e: Exception) {
+                emptyList()
+            }
+            if (books.isEmpty()) {
+                failed++
+                continue
+            }
+            books.forEach { write(it) }
+        }
+
+        HydrationResult(sourceId, found = found, imported = imported, merged = merged, failed = failed)
     }
 
     // ---------------------------------------------------------------------

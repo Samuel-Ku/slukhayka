@@ -271,6 +271,60 @@ interface AudiobookDao {
     @Query("SELECT bookId FROM tombstones")
     suspend fun getTombstoneBookIds(): List<String>
 
+    /** Whether one book is tombstoned (ADR-0005 — the guard lives here). */
+    @Query("SELECT EXISTS(SELECT 1 FROM tombstones WHERE bookId = :bookId)")
+    suspend fun isBookTombstoned(bookId: String): Boolean
+
+    /**
+     * ADR-0005 — the catalog write guard: inserts the row ONLY when its Work
+     * is not tombstoned (a single insert-unless-tombstoned statement; the
+     * caller confirms what landed via [getAudiobookById]). The tombstone check
+     * lives here, in the persistence layer — no catalog fetch or upsert site
+     * consults a tombstone set anymore. (This is the NEW-book insert path; an
+     * existing row is guarded via [isBookTombstoned] by the caller.)
+     */
+    @Query(
+        """
+        INSERT INTO audiobooks (
+            id, title, author, narrator, description, coverDrawableRes, coverImageUrl,
+            genre, sourceUrl, isDownloaded, downloadProgress, totalDurationSeconds,
+            totalChapters, rating, isFavorite, seriesTitle, seriesUrl, seriesIndex,
+            preferredSpeed, createdAt, sourceTreeUri, mergeKey, workId
+        )
+        SELECT :id, :title, :author, :narrator, :description, :coverDrawableRes, :coverImageUrl,
+               :genre, :sourceUrl, :isDownloaded, :downloadProgress, :totalDurationSeconds,
+               :totalChapters, :rating, :isFavorite, :seriesTitle, :seriesUrl, :seriesIndex,
+               :preferredSpeed, :createdAt, :sourceTreeUri, :mergeKey, :workId
+        WHERE NOT EXISTS (SELECT 1 FROM tombstones WHERE tombstones.bookId = :id)
+        ON CONFLICT(id) DO UPDATE SET id = excluded.id
+        """
+    )
+    suspend fun insertCatalogBookIfNotTombstoned(
+        id: String,
+        title: String,
+        author: String,
+        narrator: String,
+        description: String,
+        coverDrawableRes: Int,
+        coverImageUrl: String?,
+        genre: String,
+        sourceUrl: String,
+        isDownloaded: Boolean,
+        downloadProgress: Float,
+        totalDurationSeconds: Long,
+        totalChapters: Int,
+        rating: Float,
+        isFavorite: Boolean,
+        seriesTitle: String?,
+        seriesUrl: String?,
+        seriesIndex: Int?,
+        preferredSpeed: Float?,
+        createdAt: Long,
+        sourceTreeUri: String?,
+        mergeKey: String,
+        workId: String?
+    ): Long
+
     /** Clears the tombstone when the user explicitly re-imports the book. */
     @Query("DELETE FROM tombstones WHERE bookId = :bookId")
     suspend fun deleteTombstone(bookId: String)

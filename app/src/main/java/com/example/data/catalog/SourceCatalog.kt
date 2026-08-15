@@ -52,7 +52,12 @@ class SourceCatalog(
     // top-100/people). Same HttpFetcher the adapters use; the module owns no
     // HTTP client of its own. Injectable so the hydration tests serve canned
     // pages without network.
-    private val fourReadFetcher: HttpFetcher = HttpFetcher(referer = "https://4read.org/")
+    private val fourReadFetcher: HttpFetcher = HttpFetcher(referer = "https://4read.org/"),
+    // Spec-16: the curated smart-collection lists, loaded at the composition
+    // root through the context seam (CollectionAssets). Empty in tests that
+    // don't exercise collections; a list asset is pure data — adding one is
+    // a JSON file, never a code change.
+    private val collectionLists: List<com.example.data.collections.CollectionList> = emptyList()
 ) {
 
     private val fourReadAdapter: SourceAdapter =
@@ -100,6 +105,16 @@ class SourceCatalog(
     private val _unifiedCatalog = MutableStateFlow<List<GlobalSearchResult>>(emptyList())
     val unifiedCatalog: StateFlow<List<GlobalSearchResult>> = _unifiedCatalog.asStateFlow()
 
+    // Spec-16 T2: the matched smart collections — recomputed from the union
+    // on every refreshUnifiedCatalog (the SAME trigger that recomputes the
+    // union itself), so a newly enumerated book appears in its collection
+    // after the next catalog refresh. Computed, never stored — no Room rows,
+    // no schema change. Empty collections are absent from the flow.
+    private val _smartCollections =
+        MutableStateFlow<List<com.example.data.collections.CollectionMatcher.MatchedCollection>>(emptyList())
+    val smartCollections: StateFlow<List<com.example.data.collections.CollectionMatcher.MatchedCollection>> =
+        _smartCollections.asStateFlow()
+
     private val _isUnifiedCatalogLoading = MutableStateFlow(false)
     val isUnifiedCatalogLoading: StateFlow<Boolean> = _isUnifiedCatalogLoading.asStateFlow()
 
@@ -129,6 +144,11 @@ class SourceCatalog(
                 }
                 val merged = mergeGlobalSearchResults(books)
                 _unifiedCatalog.value = merged
+                // Spec-16 T2: the collections ride the same recompute — the
+                // union is the match corpus, so a changed union changes the
+                // collections with it. matchAll drops empty collections.
+                _smartCollections.value =
+                    com.example.data.collections.CollectionMatcher.matchAll(collectionLists, merged)
                 merged
             } finally {
                 _isUnifiedCatalogLoading.value = false

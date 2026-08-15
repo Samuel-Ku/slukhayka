@@ -2,6 +2,7 @@ package com.example
 
 import android.app.Application
 import com.example.data.catalog.SourceCatalog
+import com.example.data.collections.CollectionAssets
 import com.example.data.db.AudiobookDatabase
 import com.example.data.downloads.OfflineDownloads
 import com.example.data.entries.LibraryEntries
@@ -76,7 +77,14 @@ class App : Application() {
 
     /** Source Catalog: browse/sync/search + chapter materialisation. */
     val sourceCatalog: SourceCatalog by lazy {
-        SourceCatalog(database.audiobookDao(), sourceAdapters, libraryImport)
+        // Spec-16: the curated smart-collection lists ride the context seam —
+        // one JSON file per collection, loaded once at the composition root.
+        SourceCatalog(
+            database.audiobookDao(),
+            sourceAdapters,
+            libraryImport,
+            collectionLists = CollectionAssets.load(this)
+        )
     }
 
     /** Offline Downloads: download/remove/cache-clear over the catalog's chapter fetch. */

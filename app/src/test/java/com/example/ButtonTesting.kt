@@ -39,7 +39,9 @@ class ButtonTesting {
         database = AudiobookDatabase.getDatabase(context)
         dao = database.audiobookDao()
         repository = AudiobookRepository(dao, context)
-        playerManager = AudioPlayerManager(context, repository)
+        // Spec-22 T4: the widget-sync collector is a forever-running loop on
+        // the test scheduler — disable it so runTest can finish.
+        playerManager = AudioPlayerManager(context, repository, widgetSyncEnabled = false)
     }
 
     @After

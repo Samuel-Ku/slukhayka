@@ -1090,8 +1090,12 @@ fun WorkFeedCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            Spacer(modifier = Modifier.height(4.dp))
-            SourceBadgePill(label = editionBadgeLabel(row.editionCount))
+            // Spec-23 T5: the «N джерел» badge appears only when more than one
+            // source carries the Work — a single source needs no badge.
+            if (row.editionCount > 1) {
+                Spacer(modifier = Modifier.height(4.dp))
+                SourceBadgePill(label = editionBadgeLabel(row.editionCount))
+            }
         }
         Spacer(modifier = Modifier.width(8.dp))
         Icon(

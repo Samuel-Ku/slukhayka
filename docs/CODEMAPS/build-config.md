@@ -61,16 +61,15 @@ google-services      # Firebase (warns if google-services.json missing)
 ```kotlin
 signingConfigs {
   release { ... uses KEYSTORE_PATH env or my-upload-key.jks ... }
+  debugConfig { storeFile = file("${rootDir}/debug.keystore") ... }
 }
 buildTypes {
   release { signingConfig = signingConfigs.getByName("release") }
-  debug { /* AGP default debug signing: auto-generated ~/.android/debug.keystore */ }
+  debug { signingConfig = signingConfigs.getByName("debugConfig") }
 }
 ```
 
-Note: the debug build previously pointed at a gitignored `${rootDir}/debug.keystore`
-which broke fresh checkouts and CI (`:app:validateSigningDebug`); it now uses AGP's
-auto-generated default debug keystore, so no keytool step is needed.
+Note: `debug.keystore` is gitignored. For local builds, generate one with keytool.
 
 ## Key gradle.properties
 

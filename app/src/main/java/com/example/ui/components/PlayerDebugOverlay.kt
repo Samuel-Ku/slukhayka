@@ -34,8 +34,6 @@ fun PlayerDebugOverlay(
     playerState: PlayerState,
     onClose: () -> Unit,
     onRetryPlayback: (() -> Unit)? = null,
-    // wayfinder #52 session telemetry: recent ring-buffer events, the metrics
-    // one-liner, and the full journal payload for the copy button.
     events: List<String> = emptyList(),
     metricsSummary: String = "",
     journalExport: String = "",
@@ -45,9 +43,9 @@ fun PlayerDebugOverlay(
     var isExpanded by remember { mutableStateOf(true) }
 
     Card(
-        colors = CardDefaults.cardColors(containerColor = AppDebugPanel.copy(alpha = 0.95f)),
-        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
-        shape = RoundedCornerShape(AppDimens.RadiusPanel),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF10141D).copy(alpha = 0.95f)),
+        border = androidx.compose.foundation.BorderStroke(1.dp, CyberPrimary),
+        shape = RoundedCornerShape(16.dp),
         modifier = modifier
             .fillMaxWidth()
             .testTag("player_debug_overlay")
@@ -67,7 +65,7 @@ fun PlayerDebugOverlay(
                     Icon(
                         imageVector = Icons.Default.BugReport,
                         contentDescription = "Debug Icon",
-                        tint = MaterialTheme.colorScheme.primary,
+                        tint = CyberPrimary,
                         modifier = Modifier.size(20.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
@@ -78,7 +76,7 @@ fun PlayerDebugOverlay(
                             fontFamily = FontFamily.Monospace,
                             letterSpacing = 1.sp
                         ),
-                        color = MaterialTheme.colorScheme.primary
+                        color = CyberPrimary
                     )
                 }
 
@@ -90,7 +88,7 @@ fun PlayerDebugOverlay(
                         Icon(
                             imageVector = if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
                             contentDescription = "Toggle Expand",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            tint = CyberTextSecondary
                         )
                     }
                     Spacer(modifier = Modifier.width(4.dp))
@@ -101,7 +99,7 @@ fun PlayerDebugOverlay(
                         Icon(
                             imageVector = Icons.Default.Close,
                             contentDescription = "Close Debug Overlay",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            tint = CyberTextSecondary
                         )
                     }
                 }
@@ -117,7 +115,7 @@ fun PlayerDebugOverlay(
                         .fillMaxWidth()
                         .padding(top = 10.dp)
                 ) {
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 1.dp)
+                    HorizontalDivider(color = CyberCardBorder, thickness = 1.dp)
                     Spacer(modifier = Modifier.height(10.dp))
 
                     // Status indicators grid
@@ -128,19 +126,19 @@ fun PlayerDebugOverlay(
                         DebugStatusBadge(
                             label = "STATE",
                             value = if (playerState.isPlaying) "PLAYING" else if (playerState.isBuffering) "BUFFERING" else "IDLE / PAUSED",
-                            color = if (playerState.isPlaying) AppDebugOk else if (playerState.isBuffering) AppDebugWarn else AppDebugError
+                            color = if (playerState.isPlaying) Color(0xFF00E676) else if (playerState.isBuffering) Color(0xFFFFAB00) else Color(0xFFFF5252)
                         )
 
                         DebugStatusBadge(
                             label = "BUFFERING",
                             value = if (playerState.isBuffering) "YES" else "NO",
-                            color = if (playerState.isBuffering) AppDebugWarn else AppDebugOk
+                            color = if (playerState.isBuffering) Color(0xFFFFAB00) else Color(0xFF00E676)
                         )
 
                         DebugStatusBadge(
                             label = "ENGINE",
                             value = playerState.audioEngineMode.take(16),
-                            color = MaterialTheme.colorScheme.secondary
+                            color = CyberSecondary
                         )
                     }
 
@@ -148,9 +146,9 @@ fun PlayerDebugOverlay(
 
                     // Media Source URL
                     Surface(
-                        color = AppDebugPanelInner,
-                        shape = RoundedCornerShape(AppDimens.RadiusInner),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                        color = Color(0xFF0A0D14),
+                        shape = RoundedCornerShape(8.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, CyberCardBorder),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(modifier = Modifier.padding(10.dp)) {
@@ -165,7 +163,7 @@ fun PlayerDebugOverlay(
                                         fontFamily = FontFamily.Monospace,
                                         fontWeight = FontWeight.Bold
                                     ),
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    color = CyberTextSecondary
                                 )
 
                                 IconButton(
@@ -180,7 +178,7 @@ fun PlayerDebugOverlay(
                                     Icon(
                                         imageVector = Icons.Default.ContentCopy,
                                         contentDescription = "Copy URL",
-                                        tint = MaterialTheme.colorScheme.primary,
+                                        tint = CyberPrimary,
                                         modifier = Modifier.size(14.dp)
                                     )
                                 }
@@ -194,7 +192,7 @@ fun PlayerDebugOverlay(
                                     fontFamily = FontFamily.Monospace,
                                     fontSize = 11.sp
                                 ),
-                                color = if (playerState.currentStreamUrl.isNotBlank()) MaterialTheme.colorScheme.primary else AppDebugError,
+                                color = if (playerState.currentStreamUrl.isNotBlank()) CyberPrimary else Color(0xFFFF5252),
                                 maxLines = 3,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -211,13 +209,13 @@ fun PlayerDebugOverlay(
                         Text(
                             text = "Position: ${MainViewModel.formatTime(playerState.currentPositionMs / 1000L)} / ${MainViewModel.formatTime((playerState.durationMs / 1000L).coerceAtLeast(0L))}",
                             style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-                            color = MaterialTheme.colorScheme.onSurface
+                            color = CyberTextPrimary
                         )
 
                         Text(
                             text = "Chapter: ${playerState.currentChapterIndex + 1}/${playerState.chapters.size.coerceAtLeast(1)}",
                             style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = CyberTextSecondary
                         )
                     }
 
@@ -227,77 +225,9 @@ fun PlayerDebugOverlay(
                             text = "⚠️ LOG: ${playerState.lastErrorMsg}",
                             style = MaterialTheme.typography.bodySmall.copy(
                                 fontFamily = FontFamily.Monospace,
-                                color = AppDebugError
+                                color = Color(0xFFFF5252)
                             )
                         )
-                    }
-
-                    if (events.isNotEmpty() || metricsSummary.isNotBlank()) {
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Surface(
-                            color = AppDebugPanelInner,
-                            shape = RoundedCornerShape(AppDimens.RadiusInner),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(modifier = Modifier.padding(10.dp)) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text(
-                                        text = "SESSION TELEMETRY",
-                                        style = MaterialTheme.typography.labelSmall.copy(
-                                            fontFamily = FontFamily.Monospace,
-                                            fontWeight = FontWeight.Bold
-                                        ),
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                    IconButton(
-                                        onClick = {
-                                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                            val clip = ClipData.newPlainText(
-                                                "Playback journal",
-                                                metricsSummary + "\n" + journalExport
-                                            )
-                                            clipboard.setPrimaryClip(clip)
-                                            Toast.makeText(context, "Журнал скопійовано в буфер!", Toast.LENGTH_SHORT).show()
-                                        },
-                                        modifier = Modifier.size(24.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.ContentCopy,
-                                            contentDescription = "Copy journal",
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(14.dp)
-                                        )
-                                    }
-                                }
-                                if (metricsSummary.isNotBlank()) {
-                                    Text(
-                                        text = metricsSummary,
-                                        style = MaterialTheme.typography.bodySmall.copy(
-                                            fontFamily = FontFamily.Monospace,
-                                            fontSize = 11.sp
-                                        ),
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
-                                }
-                                events.forEach { event ->
-                                    Text(
-                                        text = event,
-                                        style = MaterialTheme.typography.bodySmall.copy(
-                                            fontFamily = FontFamily.Monospace,
-                                            fontSize = 9.sp
-                                        ),
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-                            }
-                        }
                     }
 
                     Spacer(modifier = Modifier.height(12.dp))
@@ -311,8 +241,8 @@ fun PlayerDebugOverlay(
                         if (onRetryPlayback != null) {
                             Button(
                                 onClick = onRetryPlayback,
-                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                                shape = RoundedCornerShape(AppDimens.RadiusInner),
+                                colors = ButtonDefaults.buttonColors(containerColor = CyberPrimary),
+                                shape = RoundedCornerShape(8.dp),
                                 modifier = Modifier.height(34.dp)
                             ) {
                                 Icon(
@@ -340,7 +270,7 @@ private fun DebugStatusBadge(
     Surface(
         color = color.copy(alpha = 0.15f),
         border = androidx.compose.foundation.BorderStroke(1.dp, color.copy(alpha = 0.5f)),
-        shape = RoundedCornerShape(AppDimens.RadiusXs)
+        shape = RoundedCornerShape(6.dp)
     ) {
         Column(
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),

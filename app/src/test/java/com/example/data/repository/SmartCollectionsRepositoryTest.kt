@@ -70,13 +70,26 @@ class SmartCollectionsRepositoryTest {
 
     private fun repo(
         adapters: List<SourceAdapter>,
-        collections: List<CollectionList>
+        collections: List<CollectionList>,
+        liveSources: List<com.example.data.collections.LiveCollectionSource> = emptyList()
     ) = SourceCatalog(
         dao,
         adapters,
         LibraryImport(dao, context, adapters),
-        collectionLists = collections
+        collectionLists = collections,
+        liveCollectionSources = liveSources
     )
+
+    private class FakeLiveSource(
+        override val sourceId: String,
+        var lists: () -> List<CollectionList> = { emptyList() }
+    ) : com.example.data.collections.LiveCollectionSource {
+        var fetchCount = 0
+        override suspend fun fetchLiveCollections(): List<CollectionList> {
+            fetchCount++
+            return lists()
+        }
+    }
 
     private fun book(title: String, author: String, sourceId: String) =
         SourceBook(title = title, author = author, url = "https://$sourceId.example/$title", sourceId = sourceId)
@@ -151,5 +164,62 @@ class SmartCollectionsRepositoryTest {
 
         // Collections are computed, never stored.
         assertEquals(0, dao.getAllAudiobooks().first().size)
+    }
+
+    // --- Spec-16 follow-up: live collections --------------------------------
+
+    @Test
+    fun `a live collection is matched into the flow like a static one`() = runBlocking {
+        val live = FakeLiveSource("live-trending") {
+            listOf(CollectionList(id = "live-trending", name = "Популярне зараз", entries = listOf(CollectionEntry("Ернест Гемінґвей", "Старий і море"))))
+        }
+        val repository = repo(
+            listOf(FakeAdapter("sluhay", listOf(book("Старий і море", "Ернест Гемінґвей", "sluhay")))),
+            collections = emptyList(),
+            liveSources = listOf(live)
+        )
+
+        repository.refreshUnifiedCatalog()
+
+        assertEquals(listOf("live-trending"), repository.smartCollections.first().map { it.id })
+        assertEquals("Старий і море", repository.smartCollections.first().single().books.single().title)
+        // The fetched list is exposed for pinning.
+        assertEquals("live-trending", repository.liveCollections.first().single().id)
+    }
+
+    @Test
+    fun `a failing live source contributes nothing and static collections still work`() = runBlocking {
+        val live = FakeLiveSource("live-broken") { throw RuntimeException("boom") }
+        val repository = repo(
+            listOf(FakeAdapter("sluhay", listOf(book("Старий і море", "Ернест Гемінґвей", "sluhay")))),
+            collections = listOf(nobel),
+            liveSources = listOf(live)
+        )
+
+        repository.refreshUnifiedCatalog()
+
+        // The static collection still matches; the broken live source is gone.
+        assertEquals(listOf("nobel"), repository.smartCollections.first().map { it.id })
+        assertTrue(repository.liveCollections.first().isEmpty())
+    }
+
+    @Test
+    fun `live lists are TTL-cached across refreshes`() = runBlocking {
+        val live = FakeLiveSource("live-trending") {
+            listOf(CollectionList(id = "live-trending", name = "Популярне зараз", entries = listOf(CollectionEntry("Ернест Гемінґвей", "Старий і море"))))
+        }
+        val repository = repo(
+            listOf(FakeAdapter("sluhay", listOf(book("Старий і море", "Ернест Гемінґвей", "sluhay")))),
+            collections = emptyList(),
+            liveSources = listOf(live)
+        )
+
+        repository.refreshUnifiedCatalog()
+        repository.refreshUnifiedCatalog()
+        repository.refreshUnifiedCatalog()
+
+        // One fetch for the session; the TTL cache serves the rest.
+        assertEquals(1, live.fetchCount)
+        assertEquals(listOf("live-trending"), repository.smartCollections.first().map { it.id })
     }
 }

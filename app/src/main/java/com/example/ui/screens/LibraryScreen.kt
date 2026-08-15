@@ -1,15 +1,22 @@
 package com.example.ui.screens
 
+import android.content.Intent
+import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
@@ -22,7 +29,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -30,21 +36,38 @@ import androidx.compose.ui.unit.sp
 import com.example.data.db.AudiobookEntity
 import com.example.data.db.BookmarkEntity
 import com.example.ui.MainViewModel
+import com.example.ui.components.BookCoverImage
+import com.example.ui.components.EmptyState
+import com.example.ui.displayAuthor
+import com.example.ui.library.LibraryBook
+import com.example.ui.library.LibraryFilter
+import com.example.ui.library.LibrarySort
+import com.example.ui.library.filterAndSortLibrary
+import com.example.ui.library.formatRemainingTime
 import com.example.ui.theme.*
 
+/**
+ * Wayfinder #39 — Медіатека as one unified library. Local files and 4read
+ * books live side by side; quick filters (Усі · Слухаю · Завершені ·
+ * Завантажені · Локальні · 4read · Обрані), six sort modes, client-side
+ * search and a grid/list toggle sit above a single book card that always
+ * shows author, series+volume, progress, remaining time, download status and
+ * a small source badge. Закладки and Статистика remain as sub-tabs.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LibraryScreen(
     viewModel: MainViewModel,
     onBookClick: (String) -> Unit,
-    onPlayClick: (AudiobookEntity) -> Unit
+    onPlayClick: (AudiobookEntity) -> Unit,
+    onBrowseClick: () -> Unit
 ) {
-    val downloadedBooks by viewModel.downloadedBooks.collectAsState()
-    val favoriteBooks by viewModel.favoriteBooks.collectAsState()
+    val libraryBooks by viewModel.libraryBooks.collectAsState()
     val allBookmarks by viewModel.allBookmarks.collectAsState()
     val allBooks by viewModel.allBooks.collectAsState()
     val listeningStats by viewModel.listeningStats.collectAsState()
     val cacheSizeFormatted by viewModel.cacheSizeFormatted.collectAsState()
+    val context = LocalContext.current
 
     // Spec #8 ticket T7: system file picker (SAF) → one picked audio file = one book.
     val importLauncher = rememberLauncherForActivityResult(
@@ -53,201 +76,561 @@ fun LibraryScreen(
         if (uri != null) viewModel.importLocalAudioFile(uri)
     }
 
-    var activeTab by remember { mutableStateOf(0) } // 0 = Offline, 1 = Favorites, 2 = Bookmarks, 3 = Stats
+    // Spec #8 Block 4: SAF tree picker → recursively import every audio file
+    // in the picked folder (files grouped into books by their sub-folder).
+    // The persisted grant (wayfinder #48) keeps this folder re-importable on
+    // later launches without a re-pick, and the tree uri travels with the
+    // imported books as `sourceTreeUri`.
+    val folderLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        if (uri != null) {
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                )
+            } catch (e: SecurityException) {
+                Log.w("LibraryScreen", "Persistable grant refused for $uri", e)
+            }
+            viewModel.importLocalAudioFolder(uri)
+        }
+    }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .testTag("library_screen")
-    ) {
-        // Top Header
+    // Import-result feedback (Block 4): one-shot Snackbar from the ViewModel.
+    val snackbarHostState = remember { SnackbarHostState() }
+    val importMessage by viewModel.importMessage.collectAsState()
+    LaunchedEffect(importMessage) {
+        importMessage?.let { message ->
+            snackbarHostState.showSnackbar(message)
+            viewModel.consumeImportMessage()
+        }
+    }
+
+    // wayfinder #29: the smart-import preview — scan → plan → confirm → apply.
+    // The plan is pure data; confirming calls apply, dismissing leaves zero
+    // trace. Merge suggestions render as review rows, never silent merges.
+    val importPreview by viewModel.importPreview.collectAsState()
+    if (importPreview != null) {
+        ImportPreviewDialog(
+            preview = importPreview!!,
+            onAcceptMerge = viewModel::acceptMergeInPreview,
+            onRejectMerge = viewModel::rejectMergeInPreview,
+            onConfirm = viewModel::confirmImportPreview,
+            onDismiss = viewModel::dismissImportPreview
+        )
+    }
+
+    var activeTab by remember { mutableStateOf(0) } // 0 = Книги, 1 = Закладки, 2 = Статистика
+    var filter by remember { mutableStateOf(LibraryFilter.ALL) }
+    var sort by remember { mutableStateOf(LibrarySort.RECENTLY_LISTENED) }
+    var query by remember { mutableStateOf("") }
+    var gridMode by remember { mutableStateOf(false) }
+
+    val visibleBooks = remember(libraryBooks, filter, sort, query) {
+        filterAndSortLibrary(libraryBooks, filter, sort, query)
+    }
+    val offlineCount = remember(libraryBooks) { libraryBooks.count { it.book.isDownloaded } }
+    val hasLocalBooks = remember(libraryBooks) { libraryBooks.any { it.isLocal } }
+
+    Box(modifier = Modifier.fillMaxSize()) {
         Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp)
+                .fillMaxSize()
+                .testTag("library_screen")
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+            // Top Header — the title gets its own full-width line so the
+            // import buttons can never squeeze «Медіатека» into a wrap.
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
             ) {
-                Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Медіатека",
+                    style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Text(
-                        text = "Моя Бібліотека",
-                        style = MaterialTheme.typography.titleLarge.copy(
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 24.sp
-                        ),
-                        color = CyberTextPrimary
-                    )
-                    Text(
-                        text = "Завантаження, обрані, закладки, статистика",
+                        // Spec-15 T6: one library for local files and every
+                        // online source, not just 4read.
+                        text = "Всі книги — в одному місці",
                         style = MaterialTheme.typography.bodySmall,
-                        color = CyberTextSecondary
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f)
                     )
-                }
+                    Spacer(modifier = Modifier.width(12.dp))
 
-                // Import a local audio file (spec #8 ticket T7).
-                LocalAudioImportButton(
-                    onClick = {
-                        importLauncher.launch(arrayOf("audio/*", "application/ogg", "application/mpeg"))
+                    // Import a local audio file / folder (spec #8 T7 + Block 4).
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        LocalAudioImportButton(
+                            onClick = {
+                                importLauncher.launch(arrayOf("audio/*", "application/ogg", "application/mpeg"))
+                            }
+                        )
+                        LocalFolderImportButton(
+                            onClick = { folderLauncher.launch(null) }
+                        )
                     }
+                }
+            }
+
+            // Sub-tabs: the unified book list, bookmarks, listening stats.
+            ScrollableTabRow(
+                selectedTabIndex = activeTab,
+                containerColor = MaterialTheme.colorScheme.background,
+                contentColor = MaterialTheme.colorScheme.primary,
+                edgePadding = 16.dp,
+                divider = { HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant) }
+            ) {
+                Tab(
+                    selected = activeTab == 0,
+                    onClick = { activeTab = 0 },
+                    text = { Text("Книги (${libraryBooks.size})", fontWeight = FontWeight.Bold) }
+                )
+                Tab(
+                    selected = activeTab == 1,
+                    onClick = { activeTab = 1 },
+                    text = { Text("Закладки (${allBookmarks.size})", fontWeight = FontWeight.Bold) }
+                )
+                Tab(
+                    selected = activeTab == 2,
+                    onClick = { activeTab = 2 },
+                    text = { Text("Статистика", fontWeight = FontWeight.Bold) }
                 )
             }
-        }
 
-        // Tab Navigation Bar
-        ScrollableTabRow(
-            selectedTabIndex = activeTab,
-            containerColor = CyberBg,
-            contentColor = CyberPrimary,
-            edgePadding = 16.dp,
-            divider = { HorizontalDivider(color = CyberCardBorder) }
-        ) {
-            Tab(
-                selected = activeTab == 0,
-                onClick = { activeTab = 0 },
-                text = { Text("Завантажені (${downloadedBooks.size})", fontWeight = FontWeight.Bold) }
-            )
-            Tab(
-                selected = activeTab == 1,
-                onClick = { activeTab = 1 },
-                text = { Text("Обрані (${favoriteBooks.size})", fontWeight = FontWeight.Bold) }
-            )
-            Tab(
-                selected = activeTab == 2,
-                onClick = { activeTab = 2 },
-                text = { Text("Закладки (${allBookmarks.size})", fontWeight = FontWeight.Bold) }
-            )
-            Tab(
-                selected = activeTab == 3,
-                onClick = { activeTab = 3 },
-                text = { Text("Статистика", fontWeight = FontWeight.Bold) }
-            )
-        }
+            if (activeTab == 0) {
+                // Library chrome (wayfinder #39): search, quick filters, sort + view toggle.
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .testTag("library_search"),
+                    placeholder = { Text("Пошук у медіатеці…") },
+                    leadingIcon = { Icon(imageVector = Icons.Default.Search, contentDescription = null) },
+                    trailingIcon = if (query.isNotEmpty()) {
+                        {
+                            IconButton(onClick = { query = "" }) {
+                                Icon(imageVector = Icons.Default.Clear, contentDescription = "Очистити пошук")
+                            }
+                        }
+                    } else null,
+                    singleLine = true,
+                    shape = RoundedCornerShape(AppDimens.RadiusCard)
+                )
 
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(bottom = 120.dp, top = 12.dp)
-        ) {
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(horizontal = 16.dp)
+                ) {
+                    items(LibraryFilter.entries) { f ->
+                        FilterChip(
+                            selected = filter == f,
+                            onClick = { filter = f },
+                            label = { Text(f.label) },
+                            modifier = Modifier.testTag("library_filter_${f.name.lowercase()}")
+                        )
+                    }
+                }
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    var sortMenu by remember { mutableStateOf(false) }
+                    TextButton(
+                        onClick = { sortMenu = true },
+                        modifier = Modifier.testTag("library_sort_button")
+                    ) {
+                        Icon(imageVector = Icons.Default.Sort, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(sort.label)
+                        Icon(imageVector = Icons.Default.ArrowDropDown, contentDescription = null)
+                    }
+                    DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
+                        LibrarySort.entries.forEach { s ->
+                            DropdownMenuItem(
+                                text = { Text(s.label) },
+                                onClick = {
+                                    sort = s
+                                    sortMenu = false
+                                }
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.weight(1f))
+                    IconButton(
+                        onClick = { gridMode = !gridMode },
+                        modifier = Modifier.testTag("library_view_toggle")
+                    ) {
+                        Icon(
+                            imageVector = if (gridMode) Icons.Default.ViewList else Icons.Default.GridView,
+                            contentDescription = if (gridMode) "Показати списком" else "Показати сіткою"
+                        )
+                    }
+                }
+
+                // Compact storage row (cache size + clear), kept slim per the
+                // design system: no nested card, just an icon-and-text row.
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.SdCard,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Пам'ять пристрою: $cacheSizeFormatted · $offlineCount аудіокниг offline",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f)
+                    )
+                    if (hasLocalBooks) {
+                        TextButton(
+                            onClick = { viewModel.rescanLocalFolders() },
+                            contentPadding = PaddingValues(horizontal = 8.dp),
+                            modifier = Modifier.testTag("rescan_folders_button")
+                        ) {
+                            Text(
+                                text = "Пересканувати",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                    TextButton(
+                        onClick = { viewModel.clearAllAudioCache() },
+                        contentPadding = PaddingValues(horizontal = 8.dp)
+                    ) {
+                        Text(
+                            text = "Очистити",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
+            }
+
             when (activeTab) {
                 0 -> {
-                    // Offline Audio Cache & Storage Manager Card
-                    item {
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 6.dp)
-                                .clip(RoundedCornerShape(16.dp))
-                                .border(1.dp, CyberCardBorder, RoundedCornerShape(16.dp)),
-                            colors = CardDefaults.cardColors(containerColor = CyberCardBg)
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(16.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
+                    when {
+                        libraryBooks.isEmpty() -> {
+                            EmptyState(
+                                icon = Icons.Default.MenuBook,
+                                title = "Медіатека порожня",
+                                body = "Додайте власні аудіокниги з пристрою або знайдіть нові в каталозі."
                             ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(
-                                            imageVector = Icons.Default.SdCard,
-                                            contentDescription = null,
-                                            tint = CyberPrimary,
-                                            modifier = Modifier.size(24.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text(
-                                            text = "Пам'ять пристрою: $cacheSizeFormatted",
-                                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                                            color = CyberTextPrimary
-                                        )
-                                    }
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Text(
-                                        text = "${downloadedBooks.size} аудіокниг збережено offline",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = CyberTextSecondary
-                                    )
-                                }
-
                                 Button(
-                                    onClick = { viewModel.clearAllAudioCache() },
-                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.errorContainer),
-                                    shape = RoundedCornerShape(12.dp)
+                                    onClick = { importLauncher.launch(arrayOf("audio/*", "application/ogg", "application/mpeg")) },
+                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                                    shape = RoundedCornerShape(AppDimens.RadiusCard),
+                                    modifier = Modifier.height(48.dp).testTag("library_empty_import")
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Default.DeleteForever,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.error,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Очистити", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelSmall)
+                                    Text("Додати свої файли")
+                                }
+                                Spacer(modifier = Modifier.height(8.dp))
+                                OutlinedButton(
+                                    onClick = onBrowseClick,
+                                    shape = RoundedCornerShape(AppDimens.RadiusCard),
+                                    modifier = Modifier.height(48.dp)
+                                ) {
+                                    Text("Знайти книгу")
                                 }
                             }
                         }
-                        Spacer(modifier = Modifier.height(8.dp))
-                    }
 
-                    if (downloadedBooks.isEmpty()) {
-                        item {
-                            EmptyStateMessage("Завантажені аудіокниги відсутні. Додайте їх для прослуховування без інтернету.")
-                        }
-                    } else {
-                        items(downloadedBooks, key = { it.id }) { book ->
-                            OfflineBookItem(
-                                book = book,
-                                onClick = { onBookClick(book.id) },
-                                onPlayClick = { onPlayClick(book) },
-                                onDeleteClick = { viewModel.removeOfflineDownload(book.id) }
-                            )
+                        visibleBooks.isEmpty() -> EmptyState(
+                            icon = Icons.Default.Search,
+                            title = "Нічого не знайдено",
+                            body = "Спробуйте інший фільтр або змініть пошуковий запит."
+                        )
+
+                        else -> LazyVerticalGrid(
+                            columns = if (gridMode) GridCells.Fixed(2) else GridCells.Fixed(1),
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 120.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            items(visibleBooks, key = { it.book.id }) { entry ->
+                                LibraryBookCard(
+                                    book = entry,
+                                    grid = gridMode,
+                                    onClick = { onBookClick(entry.book.id) }
+                                )
+                            }
                         }
                     }
                 }
 
                 1 -> {
-                    if (favoriteBooks.isEmpty()) {
-                        item {
-                            EmptyStateMessage("У вас поки немає обраних книг. Натисніть ❤️ на сторінці книги, щоб додати.")
-                        }
+                    if (allBookmarks.isEmpty()) {
+                        EmptyState(
+                            icon = Icons.Default.BookmarkBorder,
+                            title = "Закладок немає",
+                            body = "Додавайте закладки під час прослуховування в плеєрі."
+                        )
                     } else {
-                        items(favoriteBooks, key = { it.id }) { book ->
-                            AudiobookListItem(
-                                book = book,
-                                onClick = { onBookClick(book.id) },
-                                onPlayClick = { onPlayClick(book) }
-                            )
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(bottom = 120.dp, top = 12.dp)
+                        ) {
+                            items(allBookmarks, key = { it.id }) { bookmark ->
+                                val book = allBooks.find { it.id == bookmark.bookId }
+                                GlobalBookmarkItem(
+                                    bookmark = bookmark,
+                                    bookTitle = book?.title ?: "Аудіокнига",
+                                    onJumpClick = { viewModel.jumpToBookmark(bookmark) },
+                                    onDeleteClick = { viewModel.deleteBookmark(bookmark.id) }
+                                )
+                            }
                         }
                     }
                 }
 
                 2 -> {
-                    if (allBookmarks.isEmpty()) {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(bottom = 120.dp)
+                    ) {
                         item {
-                            EmptyStateMessage("Закладки відсутні. Додавайте закладки під час прослуховування плеєра.")
+                            ListeningStatsCard(listeningStats = listeningStats, totalBooks = libraryBooks.size)
                         }
-                    } else {
-                        items(allBookmarks, key = { it.id }) { bookmark ->
-                            val book = allBooks.find { it.id == bookmark.bookId }
-                            GlobalBookmarkItem(
-                                bookmark = bookmark,
-                                bookTitle = book?.title ?: "Аудіокнига",
-                                onJumpClick = { viewModel.jumpToBookmark(bookmark) },
-                                onDeleteClick = { viewModel.deleteBookmark(bookmark.id) }
-                            )
-                        }
-                    }
-                }
-
-                3 -> {
-                    item {
-                        ListeningStatsCard(listeningStats = listeningStats, totalBooks = allBooks.size)
                     }
                 }
             }
         }
+
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(16.dp)
+        )
+    }
+}
+
+/**
+ * The unified book card (wayfinder #39): cover, title, author, series+volume,
+ * progress, remaining time, download status and a small source badge. The
+ * [grid] flag switches between the compact row (list view) and the cover-first
+ * tile (grid view) — one card for the whole library, wherever the book lives.
+ */
+@Composable
+fun LibraryBookCard(
+    book: LibraryBook,
+    grid: Boolean,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(MaterialTheme.shapes.medium)
+            .clickable(onClick = onClick)
+            .testTag("library_book_item_${book.book.id}"),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
+    ) {
+        if (grid) {
+            LibraryBookGridContent(book)
+        } else {
+            LibraryBookRowContent(book)
+        }
+    }
+}
+
+@Composable
+private fun LibraryBookRowContent(book: LibraryBook) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        BookCoverImage(
+            book = book.book,
+            contentDescription = book.book.title,
+            modifier = Modifier
+                .size(56.dp)
+                .clip(MaterialTheme.shapes.medium),
+            contentScale = ContentScale.Crop
+        )
+
+        Spacer(modifier = Modifier.width(12.dp))
+
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = book.book.title,
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (book.book.displayAuthor.isNotBlank()) {
+                Text(
+                    text = book.book.displayAuthor,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            book.seriesLabel?.let { series ->
+                Text(
+                    text = series,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Spacer(modifier = Modifier.height(6.dp))
+            LinearProgressIndicator(
+                progress = { book.percent },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(4.dp)
+                    .clip(RoundedCornerShape(AppDimens.RadiusProgress)),
+                color = MaterialTheme.colorScheme.primary,
+                trackColor = MaterialTheme.colorScheme.outlineVariant
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (book.totalDurationSeconds > 0L) {
+                    Text(
+                        text = "Залишилось ${formatRemainingTime(book.remainingSeconds)}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f)
+                    )
+                } else {
+                    Spacer(modifier = Modifier.weight(1f))
+                }
+                SourceBadge(book)
+                if (book.book.isDownloaded) {
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Icon(
+                        imageVector = Icons.Default.CloudDone,
+                        contentDescription = "Завантажено",
+                        tint = MaterialTheme.colorScheme.secondary,
+                        modifier = Modifier.size(14.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LibraryBookGridContent(book: LibraryBook) {
+    Column {
+        BookCoverImage(
+            book = book.book,
+            contentDescription = book.book.title,
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(3f / 4f),
+            contentScale = ContentScale.Crop
+        )
+        Column(modifier = Modifier.padding(10.dp)) {
+            Text(
+                text = book.book.title,
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (book.book.displayAuthor.isNotBlank()) {
+                Text(
+                    text = book.book.displayAuthor,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            book.seriesLabel?.let { series ->
+                Text(
+                    text = series,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Spacer(modifier = Modifier.height(6.dp))
+            LinearProgressIndicator(
+                progress = { book.percent },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(4.dp)
+                    .clip(RoundedCornerShape(AppDimens.RadiusProgress)),
+                color = MaterialTheme.colorScheme.primary,
+                trackColor = MaterialTheme.colorScheme.outlineVariant
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (book.totalDurationSeconds > 0L) {
+                    Text(
+                        text = formatRemainingTime(book.remainingSeconds),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                } else {
+                    Spacer(modifier = Modifier.weight(1f))
+                }
+                SourceBadge(book)
+                if (book.book.isDownloaded) {
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Icon(
+                        imageVector = Icons.Default.CloudDone,
+                        contentDescription = "Завантажено",
+                        tint = MaterialTheme.colorScheme.secondary,
+                        modifier = Modifier.size(14.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Small unobtrusive source badge: «Локальна» for local imports, else the
+ * book's real source (4read, Sluhay, Sound-Books, …) — spec-15 T6, one badge
+ * for the whole multi-source library.
+ */
+@Composable
+private fun SourceBadge(book: LibraryBook) {
+    Surface(
+        color = MaterialTheme.colorScheme.primaryContainer,
+        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        shape = RoundedCornerShape(AppDimens.RadiusXs)
+    ) {
+        Text(
+            text = book.sourceName,
+            style = MaterialTheme.typography.labelSmall,
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+        )
     }
 }
 
@@ -261,21 +644,50 @@ fun LocalAudioImportButton(
 ) {
     Button(
         onClick = onClick,
-        colors = ButtonDefaults.buttonColors(containerColor = CyberPrimary),
-        shape = RoundedCornerShape(14.dp),
+        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+        shape = RoundedCornerShape(AppDimens.RadiusCardLg),
         modifier = Modifier.testTag("import_audio_button")
     ) {
         Icon(
             imageVector = Icons.Default.FileUpload,
             contentDescription = null,
-            tint = CyberOnPrimary,
+            tint = MaterialTheme.colorScheme.onPrimary,
             modifier = Modifier.size(16.dp)
         )
         Spacer(modifier = Modifier.width(4.dp))
         Text(
             text = "Додати аудіо",
             style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-            color = CyberOnPrimary
+            color = MaterialTheme.colorScheme.onPrimary
+        )
+    }
+}
+
+/**
+ * The "Папку" button that opens the SAF tree picker (spec #8 Block 4).
+ * Extracted so the import affordance is unit-testable without a ViewModel.
+ */
+@Composable
+fun LocalFolderImportButton(
+    onClick: () -> Unit
+) {
+    OutlinedButton(
+        onClick = onClick,
+        shape = RoundedCornerShape(AppDimens.RadiusCardLg),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
+        modifier = Modifier.testTag("import_folder_button")
+    ) {
+        Icon(
+            imageVector = Icons.Default.CreateNewFolder,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(16.dp)
+        )
+        Spacer(modifier = Modifier.width(4.dp))
+        Text(
+            text = "Папку",
+            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+            color = MaterialTheme.colorScheme.primary
         )
     }
 }
@@ -299,7 +711,7 @@ fun ListeningStatsCard(listeningStats: List<com.example.data.db.ListeningStatEnt
         Text(
             text = "Статистика прослуховування",
             style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-            color = CyberTextPrimary
+            color = MaterialTheme.colorScheme.onSurface
         )
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -312,14 +724,14 @@ fun ListeningStatsCard(listeningStats: List<com.example.data.db.ListeningStatEnt
                 title = "Сьогодні",
                 value = "$todayMinutes хв",
                 icon = Icons.Default.Today,
-                color = CyberPrimary,
+                color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.weight(1f)
             )
             StatItemCard(
                 title = "За тиждень",
                 value = "$weekHours год",
                 icon = Icons.Default.DateRange,
-                color = CyberSecondary,
+                color = MaterialTheme.colorScheme.secondary,
                 modifier = Modifier.weight(1f)
             )
         }
@@ -334,14 +746,14 @@ fun ListeningStatsCard(listeningStats: List<com.example.data.db.ListeningStatEnt
                 title = "Серія днів",
                 value = "$streakDays дн поспіль",
                 icon = Icons.Default.Whatshot,
-                color = Color(0xFFFF9800),
+                color = AppStatStreak,
                 modifier = Modifier.weight(1f)
             )
             StatItemCard(
-                title = "Всього в каталозі",
+                title = "Всього в бібліотеці",
                 value = "$totalBooks книг",
                 icon = Icons.AutoMirrored.Filled.MenuBook,
-                color = Color(0xFF4CAF50),
+                color = AppStatLibrary,
                 modifier = Modifier.weight(1f)
             )
         }
@@ -358,9 +770,9 @@ fun StatItemCard(
 ) {
     Card(
         modifier = modifier
-            .clip(RoundedCornerShape(16.dp))
-            .border(1.dp, CyberCardBorder, RoundedCornerShape(16.dp)),
-        colors = CardDefaults.cardColors(containerColor = CyberCardBg)
+            .clip(RoundedCornerShape(AppDimens.RadiusPanel))
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(AppDimens.RadiusPanel)),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -375,116 +787,13 @@ fun StatItemCard(
             Spacer(modifier = Modifier.height(8.dp))
             Text(
                 text = value,
-                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, fontSize = 18.sp),
-                color = CyberTextPrimary
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.onSurface
             )
             Text(
                 text = title,
                 style = MaterialTheme.typography.bodySmall,
-                color = CyberTextSecondary
-            )
-        }
-    }
-}
-
-@Composable
-fun OfflineBookItem(
-    book: AudiobookEntity,
-    onClick: () -> Unit,
-    onPlayClick: () -> Unit,
-    onDeleteClick: () -> Unit
-) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 6.dp)
-            .clickable { onClick() }
-            // Test seam (GitHub issue #7 — emulator audio scenario): deterministic
-            // compose-test selector for the offline-tab book row. Mirrors the
-            // `book_item_<id>` convention already used by AudiobookListItem in
-            // HomeScreen. Pure UI annotation; does not change runtime behaviour.
-            .testTag("library_book_item_${book.id}")
-            .clip(RoundedCornerShape(16.dp))
-            .border(1.dp, CyberCardBorder, RoundedCornerShape(16.dp)),
-        colors = CardDefaults.cardColors(containerColor = CyberCardBg)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            com.example.ui.components.BookCoverImage(
-                book = book,
-                contentDescription = book.title,
-                modifier = Modifier
-                    .size(60.dp)
-                    .clip(RoundedCornerShape(12.dp)),
-                contentScale = ContentScale.Crop
-            )
-
-            Spacer(modifier = Modifier.width(12.dp))
-
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = book.title,
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                    color = CyberTextPrimary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = book.author,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = CyberTextSecondary
-                )
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.CloudDone,
-                        contentDescription = null,
-                        tint = CyberSecondary,
-                        modifier = Modifier.size(14.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = "Офлайн доступно",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = CyberSecondary
-                    )
-                }
-            }
-
-            IconButton(onClick = onPlayClick) {
-                Icon(imageVector = Icons.Default.PlayCircleFilled, contentDescription = "Play", tint = CyberPrimary, modifier = Modifier.size(36.dp))
-            }
-
-            IconButton(onClick = onDeleteClick) {
-                Icon(imageVector = Icons.Default.Delete, contentDescription = "Delete offline cache", tint = MaterialTheme.colorScheme.error)
-            }
-        }
-    }
-}
-
-@Composable
-fun EmptyStateMessage(message: String) {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(40.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(
-                imageVector = Icons.Default.BookmarkBorder,
-                contentDescription = null,
-                tint = CyberTextSecondary,
-                modifier = Modifier.size(48.dp)
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            Text(
-                text = message,
-                style = MaterialTheme.typography.bodyMedium,
-                color = CyberTextSecondary
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }
@@ -501,9 +810,9 @@ fun GlobalBookmarkItem(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 6.dp)
-            .clip(RoundedCornerShape(14.dp))
-            .border(1.dp, CyberCardBorder, RoundedCornerShape(14.dp)),
-        colors = CardDefaults.cardColors(containerColor = CyberCardBg)
+            .clip(RoundedCornerShape(AppDimens.RadiusCardLg))
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(AppDimens.RadiusCardLg)),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
     ) {
         Row(
             modifier = Modifier
@@ -514,7 +823,7 @@ fun GlobalBookmarkItem(
             Icon(
                 imageVector = Icons.Default.Bookmark,
                 contentDescription = null,
-                tint = CyberSecondary,
+                tint = MaterialTheme.colorScheme.secondary,
                 modifier = Modifier.size(24.dp)
             )
 
@@ -524,19 +833,19 @@ fun GlobalBookmarkItem(
                 Text(
                     text = bookTitle,
                     style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                    color = CyberPrimary,
+                    color = MaterialTheme.colorScheme.primary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
                     text = bookmark.chapterTitle,
                     style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
-                    color = CyberTextPrimary
+                    color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
                     text = "At ${MainViewModel.formatTime(bookmark.timestampSeconds)}: ${bookmark.note}",
                     style = MaterialTheme.typography.bodySmall,
-                    color = CyberTextSecondary
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
 
@@ -544,7 +853,7 @@ fun GlobalBookmarkItem(
                 Icon(
                     imageVector = Icons.Default.PlayArrow,
                     contentDescription = "Jump to bookmark",
-                    tint = CyberPrimary
+                    tint = MaterialTheme.colorScheme.primary
                 )
             }
 
@@ -557,4 +866,102 @@ fun GlobalBookmarkItem(
             }
         }
     }
+}
+
+/**
+ * The smart-import preview dialog (wayfinder #29): scan → plan → confirm →
+ * apply. Shows the planned books (grouping + natural order) and the #54
+ * merge suggestions as review rows — the plan is pure data, nothing is
+ * written until [onConfirm]. Dismissing leaves zero trace.
+ */
+@Composable
+fun ImportPreviewDialog(
+    preview: com.example.ui.MainViewModel.ImportPreviewState,
+    onAcceptMerge: (String) -> Unit,
+    onRejectMerge: (String) -> Unit,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val mergedCount = preview.plan.books.count { it.mergedIntoBookId != null }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Перед імпортом") },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 420.dp)
+                    .verticalScroll(rememberScrollState())
+            ) {
+                Text(
+                    text = "Знайдено ${preview.plan.books.size} книг — нічого не записано, поки не підтвердите.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                preview.plan.books.forEach { book ->
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = book.title.ifBlank { "Без назви" },
+                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Text(
+                                    text = "${book.chapters.size} файл(ів)",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            val suggestion = book.suggestion
+                            if (suggestion != null && book.mergedIntoBookId == null) {
+                                Text(
+                                    text = "Схоже на «${suggestion.existingTitle}» (${suggestion.reason})",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    TextButton(onClick = { onAcceptMerge(book.id) }) {
+                                        Text("З'єднати")
+                                    }
+                                    TextButton(onClick = { onRejectMerge(book.id) }) {
+                                        Text("Не це")
+                                    }
+                                }
+                            } else if (book.mergedIntoBookId != null) {
+                                Text(
+                                    text = "Буде з'єднано з «${suggestion?.existingTitle ?: "книгою в бібліотеці"}»",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.tertiary
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text(
+                    if (mergedCount > 0) {
+                        "Імпортувати (${preview.plan.books.size - mergedCount} нових, $mergedCount з'єднати)"
+                    } else {
+                        "Імпортувати ${preview.plan.books.size}"
+                    }
+                )
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Скасувати")
+            }
+        }
+    )
 }

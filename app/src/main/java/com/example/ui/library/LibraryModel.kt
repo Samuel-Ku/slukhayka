@@ -202,3 +202,18 @@ fun formatRemainingTime(totalSeconds: Long): String {
         else -> "1 хв"
     }
 }
+
+/**
+ * ADR-0011 — the OTHER rendition cards of a Work: every library card that
+ * shares the same Work merge key but is not [selfId]. A Work with several
+ * narrations therefore has several cards; the book page shows them in the
+ * «Інші начитки» block (sorted by narrator). Blank-key rows (local imports)
+ * have no Work and never produce siblings.
+ */
+fun siblingNarrations(
+    books: List<AudiobookEntity>,
+    selfId: String,
+    mergeKey: String
+): List<AudiobookEntity> =
+    books.filter { it.mergeKey.isNotBlank() && it.mergeKey == mergeKey && it.id != selfId }
+        .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.narrator })

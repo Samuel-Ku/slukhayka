@@ -4,7 +4,7 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.db.AudiobookEntity
 import com.example.data.db.ChapterEntity
-import com.example.data.repository.AudiobookRepository
+import com.example.data.listening.ListeningStateStore
 import com.example.testing.FakeAudiobookDao
 import com.example.testing.TestDataFactory
 import kotlinx.coroutines.Dispatchers
@@ -38,7 +38,7 @@ class SpeedAndRewindManagerTest {
 
     private lateinit var context: Context
     private lateinit var dao: FakeAudiobookDao
-    private lateinit var repository: AudiobookRepository
+    private lateinit var listeningState: ListeningStateStore
 
     private val book: AudiobookEntity = TestDataFactory.dataBooks()[STREAMING_BOOK_INDEX]
     private val chapters: List<ChapterEntity> = TestDataFactory.chaptersFor(book)
@@ -54,7 +54,7 @@ class SpeedAndRewindManagerTest {
             books = TestDataFactory.dataBooks(),
             chapters = TestDataFactory.dataChapters()
         )
-        repository = AudiobookRepository(dao, context, autoSyncOnInit = false)
+        listeningState = ListeningStateStore(dao)
     }
 
     @After
@@ -69,7 +69,8 @@ class SpeedAndRewindManagerTest {
         val factory = RecordingPlayerFactory()
         val manager = AudioPlayerManager(
             context,
-            repository,
+            listeningState,
+            { dao.getChaptersListForBook(it) },
             factory,
             now = { clockMs },
             settings = settings,

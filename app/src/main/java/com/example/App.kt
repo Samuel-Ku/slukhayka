@@ -2,6 +2,7 @@ package com.example
 
 import android.app.Application
 import com.example.data.db.AudiobookDatabase
+import com.example.data.listening.ListeningStateStore
 import com.example.data.repository.AudiobookRepository
 import com.example.player.AudioPlayerManager
 
@@ -26,11 +27,20 @@ class App : Application() {
 
     private val database by lazy { AudiobookDatabase.getDatabase(this) }
 
+    /** ADR-0002: one Listening State Store shared by the repository and the player. */
+    val listeningState: ListeningStateStore by lazy { ListeningStateStore(database.audiobookDao()) }
+
     /** Single repository shared by the UI and the playback stack. */
-    val repository: AudiobookRepository by lazy { AudiobookRepository(database.audiobookDao(), this) }
+    val repository: AudiobookRepository by lazy {
+        AudiobookRepository(database.audiobookDao(), this, listeningState = listeningState)
+    }
 
     /** Single player manager; created lazily on first playback/service access. */
-    val playerManager: AudioPlayerManager by lazy { AudioPlayerManager(this, repository) }
+    val playerManager: AudioPlayerManager by lazy {
+        // The player runs on the store; chapter materialisation (incl. the
+        // 4read page fallback) stays on the repository's chapter-fetch path.
+        AudioPlayerManager(this, listeningState, repository::getChaptersList)
+    }
 
     override fun onCreate() {
         super.onCreate()

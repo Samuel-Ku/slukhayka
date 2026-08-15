@@ -10,6 +10,7 @@ import com.example.data.catalog.CatalogPerson
 import com.example.data.catalog.CatalogSection
 import com.example.data.catalog.SourceCatalog
 import com.example.data.db.*
+import com.example.data.downloads.OfflineDownloads
 import com.example.data.imports.ImportPlan
 import com.example.data.imports.LibraryImport
 import com.example.data.imports.LocalAudioEntry
@@ -24,22 +25,14 @@ import com.example.data.source.SluhayuaAdapter
 import com.example.data.source.SoundBooksAdapter
 import com.example.data.source.SourceAdapter
 import com.example.data.source.SourceBookDetail
-import com.example.data.source.headersFor
 import com.example.data.source.sourceDisplayName
-import com.example.data.source.sourceIdForUrl
-import com.example.data.source.streamOnlyFor
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
-import java.io.BufferedInputStream
-import java.io.BufferedOutputStream
 import java.io.File
-import java.net.HttpURLConnection
-import java.net.URL
-import java.util.concurrent.atomic.AtomicInteger
 
 class AudiobookRepository(
     private val dao: AudiobookDao,
@@ -84,7 +77,12 @@ class AudiobookRepository(
     // god module delegates its catalog members to it (DAG edge: Source Catalog
     // → Library Import). Defaults to a fresh module over the same DAO,
     // adapters and shared import module.
-    private val sourceCatalog: SourceCatalog = SourceCatalog(dao, sourceAdapters, libraryImport)
+    private val sourceCatalog: SourceCatalog = SourceCatalog(dao, sourceAdapters, libraryImport),
+    // ADR-0002 expand phase: Offline Downloads lives in its own deep module;
+    // the god module delegates its download members to it (DAG edge: Offline
+    // Downloads → Source Catalog chapter fetch). Defaults to a fresh module
+    // over the same DAO, Context and catalog module.
+    private val offlineDownloads: OfflineDownloads = OfflineDownloads(dao, context, sourceCatalog)
 ) {
 
     val allBooks: Flow<List<AudiobookEntity>> = dao.getAllAudiobooks()
@@ -471,88 +469,14 @@ class AudiobookRepository(
     suspend fun getBookSync(bookId: String): AudiobookEntity? = dao.getAudiobookById(bookId)
 
     fun observeChapters(bookId: String): Flow<List<ChapterEntity>> = dao.getChaptersForBook(bookId)
-    suspend fun getChaptersList(bookId: String): List<ChapterEntity> {
-        var chapters = dao.getChaptersListForBook(bookId)
-        val book = dao.getAudiobookById(bookId)
-        val sourceUrl = book?.sourceUrl ?: ""
-
-        // Only fall back to the live 4read page when the book has NO chapters
-        // at all. Previously the condition was `chapters.isEmpty() || any
-        // contains archive.org` which treated the intentionally-seeded
-        // LibriVox/archive.org chapters as placeholders and re-inserted the
-        // live page's chapters on EVERY play/refresh -- observed on-device as
-        // 54 chapter rows for one 6-chapter seed book, scrambled order, and
-        // the player picking up reasd.org streams instead of the seeded ones.
-        if (chapters.isEmpty() && sourceUrl.isNotBlank() && sourceUrl.contains("4read.org")) {
-            // Spec-14 T5: the adapter owns the page parse; the repository only
-            // persists what the seam's SourceBookDetail carries.
-            val detail = fourReadAdapter.fetchBookPage(sourceUrl)
-            if (detail.chapters.isNotEmpty()) {
-                val realChapters = detail.chapters.mapIndexed { index, chapter ->
-                    ChapterEntity(
-                        id = "${bookId}_ch_${index + 1}",
-                        bookId = bookId,
-                        chapterIndex = index,
-                        title = "Глава ${index + 1} (${book?.title ?: "4read"})",
-                        durationSeconds = 0L, // unknown until the stream is actually played
-                        streamUrl = chapter.streamUrl
-                    )
-                }
-                dao.insertChapters(realChapters)
-                // Back-fill the real chapter count, the site's own total
-                // duration ("Триває:"), and the real author/narrator/genre/
-                // rating/series now that we've fetched the book page — the
-                // catalogue seed only ever had placeholders.
-                val knownDuration = detail.totalDurationSeconds ?: book?.totalDurationSeconds ?: 0L
-                dao.updateBookStats(bookId, realChapters.size, knownDuration)
-                val author = detail.author.ifBlank { null }
-                val narrator = detail.narrator.ifBlank { null }
-                val genres = detail.genres.joinToString(" · ").ifBlank { null }
-                val rating = detail.rating?.toFloat()
-                val seriesTitle = detail.series?.name
-                val seriesIndex = detail.series?.position
-                val seriesUrl = detail.series?.url
-                if (author != null || narrator != null || genres != null ||
-                    rating != null || seriesTitle != null || seriesUrl != null
-                ) {
-                    dao.updateBookMetadata(
-                        bookId,
-                        author = author,
-                        narrator = narrator,
-                        genre = genres,
-                        rating = rating,
-                        seriesTitle = seriesTitle,
-                        seriesIndex = seriesIndex,
-                        seriesUrl = seriesUrl
-                    )
-                }
-                // Cover via a targeted UPDATE, not a REPLACE insert: the row
-                // carries freshly back-filled metadata above, and a full-row
-                // re-insert with the stale seed entity would clobber it back
-                // to the placeholders ("4read.org" etc.).
-                if (!detail.coverImageUrl.isNullOrBlank()) {
-                    dao.updateCoverImageUrl(bookId, detail.coverImageUrl)
-                }
-                return realChapters
-            }
-        }
-
-        // Phase 2.5 hotfix (CR-002 / SF-003 / SF-005 / SF-006): when 4read fetch
-        // returns no streams the previous code synthesised N chapters pointing
-        // at unrelated archive.org MP3s (time_machine / war_of_the_worlds) so
-        // that the chapter list was always populated. Users heard 19th-century
-        // sci-fi while the UI showed their selected book. We refuse to fabricate
-        // audio and surface an empty chapter list — the player / UI sees the
-        // absence and shows a "no chapters available" message instead.
-        if (chapters.isEmpty()) {
-            Log.w(
-                "AudiobookRepo",
-                "No chapters for bookId=$bookId and 4read fetch returned none; " +
-                    "refusing to fabricate placeholder audio."
-            )
-        }
-        return chapters
-    }
+    /**
+     * ADR-0002 (#139): chapter materialisation now lives in the Source Catalog
+     * module — a catalogue-only Work's chapters are fetched from its source
+     * page on demand. The god module keeps the public member for call-site
+     * compatibility (player, widgets, ViewModel).
+     */
+    suspend fun getChaptersList(bookId: String): List<ChapterEntity> =
+        sourceCatalog.getChaptersList(bookId)
 
 
     fun observeBookmarks(bookId: String): Flow<List<BookmarkEntity>> = listeningState.observeBookmarks(bookId)
@@ -613,158 +537,16 @@ class AudiobookRepository(
         listeningState.compactPlaybackEvents(bookId, sourceKey, nowMs)
 
     /**
-     * Outcome of an offline download attempt. `totalChapters == 0` means no
-     * audio could be found at all (the caller shows a "no audio" message);
-     * `downloadedChapters` counts how many chapters made it to disk.
+     * ADR-0002 (#139): the download members live in the Offline Downloads
+     * module — stream-only refusal, the catalogue fallback chapter fetch
+     * (via Source Catalog), the download loop and cache clearing are all
+     * owned there. The god module keeps thin delegating stubs.
      */
-    data class OfflineDownloadResult(
-        val downloadedChapters: Int,
-        val totalChapters: Int
-    )
+    suspend fun downloadAudiobookOffline(bookId: String): OfflineDownloads.OfflineDownloadResult =
+        offlineDownloads.downloadAudiobookOffline(bookId)
 
-    suspend fun downloadAudiobookOffline(bookId: String): OfflineDownloadResult {
-        // Spec-10 T6: a stream-only source must never download — refuse before
-        // any state change or network I/O. The UI hides the action too; this
-        // guard is defence in depth.
-        val streamOnlyBook = dao.getAudiobookById(bookId)
-        if (streamOnlyBook != null && streamOnlyFor(sourceIdForUrl(streamOnlyBook.sourceUrl))) {
-            Log.w("AudiobookRepo", "downloadAudiobookOffline refused: book $bookId is stream-only")
-            return OfflineDownloadResult(0, 0)
-        }
-        // Spec-13 T2: the track CDNs (shared `redirectto.cc`) 403 without the
-        // owning source's Referer — derive it from the book, not the URL host.
-        val sourceId = streamOnlyBook?.let { sourceIdForUrl(it.sourceUrl) } ?: "unknown"
-
-        // Use the fallback-fetching [getChaptersList], NOT a raw Room read: a
-        // catalogue book's chapters live on its 4read page and are materialised
-        // on demand. Previously the raw read returned 0 chapters for any book
-        // whose page had never been opened/played, and the method silently
-        // returned — the Download button did nothing (observed on-device:
-        // 183 of 214 books had no chapters in Room).
-        val chapters = getChaptersList(bookId)
-        val total = chapters.size
-        if (total == 0) {
-            Log.w("AudiobookRepo", "downloadAudiobookOffline: no chapters found for bookId=$bookId")
-            return OfflineDownloadResult(0, 0)
-        }
-
-        // Phase 2.5 hotfix (SF-004 / SEC-008): the previous /sdcard fallback
-        // was unreachable on Android 11+ scoped storage and would have failed
-        // at runtime. The app always constructs this repository with a real
-        // Context, so fail loudly when it isn't there.
-        val ctx = context ?: run {
-            Log.e("AudiobookRepo", "downloadAudiobookOffline called without Context; aborting")
-            dao.updateDownloadState(bookId, isDownloaded = false, progress = 0f)
-            return OfflineDownloadResult(0, 0)
-        }
-        // Phase 2.5 hotfix (HI-002 / PERF-015): the cache size reader and
-        // clearer look at filesDir/audio_downloads while this method wrote
-        // to filesDir/audiobooks, so Clear Cache never cleared anything.
-        // Align every component on the same constant directory name.
-        val audioDir = File(ctx.filesDir, OFFLINE_AUDIO_DIR)
-        if (!audioDir.exists()) audioDir.mkdirs()
-
-        val completedCount = AtomicInteger(0)
-        var successCount = 0
-
-        dao.updateDownloadState(bookId, isDownloaded = false, progress = 0.05f)
-
-        coroutineScope {
-            chapters.map { chapter ->
-                async(Dispatchers.IO) {
-                    val localFile = File(audioDir, "${chapter.id}.mp3")
-                    var chapterOk = false
-
-                    try {
-                        if (!localFile.exists() || localFile.length() < 100) {
-                            val streamUrl = chapter.streamUrl
-                            if (streamUrl.startsWith("http")) {
-                                val url = URL(streamUrl)
-                                val connection = (url.openConnection() as HttpURLConnection).apply {
-                                    connectTimeout = 10000
-                                    readTimeout = 20000
-                                    requestMethod = "GET"
-                                    setRequestProperty("User-Agent", OFFLINE_USER_AGENT)
-                                    // Spec-10 T6 + spec-13 T2: the playerjs CDN
-                                    // (redirectto.cc) 403s without the owning
-                                    // source's Referer (audiobookmp3, sluhay,
-                                    // sluhayknigi); other CDNs need none.
-                                    headersFor(sourceId, streamUrl).forEach { (k, v) ->
-                                        setRequestProperty(k, v)
-                                    }
-                                    instanceFollowRedirects = true
-                                }
-
-                                if (connection.responseCode == HttpURLConnection.HTTP_OK) {
-                                    BufferedInputStream(connection.inputStream, 65536).use { input ->
-                                        BufferedOutputStream(localFile.outputStream(), 65536).use { output ->
-                                            val buffer = ByteArray(65536)
-                                            var read: Int
-                                            while (input.read(buffer).also { read = it } != -1) {
-                                                output.write(buffer, 0, read)
-                                            }
-                                            output.flush()
-                                        }
-                                    }
-                                    chapterOk = localFile.length() > 100
-                                }
-                                connection.disconnect()
-                            }
-                        } else if (localFile.length() > 100) {
-                            // Already downloaded.
-                            chapterOk = true
-                        }
-                    } catch (e: Exception) {
-                        Log.w("AudiobookRepo", "Download failed for chapter ${chapter.id}: ${e.message}")
-                        // Phase 2.5 hotfix (HI-001 / SF-001): the previous
-                        // catch wrote a literal "OFFLINE_AUDIO_<id>" text
-                        // marker into the .mp3 path and then set
-                        // chapter.isDownloaded = true. The player tried to
-                        // decode text and the user saw a "Downloaded" badge
-                        // over unplayable content. Surface the failure
-                        // instead.
-                        if (localFile.exists()) localFile.delete()
-                    }
-
-                    val finished = completedCount.incrementAndGet()
-                    val currentProgress = finished.toFloat() / total
-                    dao.updateDownloadState(bookId, isDownloaded = false, progress = currentProgress)
-                    dao.updateChapterDownloadState(
-                        chapter.id,
-                        isDownloaded = chapterOk,
-                        filePath = if (chapterOk) localFile.absolutePath else null
-                    )
-                    if (chapterOk) successCount++
-                }
-            }.awaitAll()
-        }
-
-        val allOk = successCount == total
-        dao.updateDownloadState(
-            bookId,
-            isDownloaded = allOk,
-            progress = if (allOk) 1.0f else successCount.toFloat() / total
-        )
-        return OfflineDownloadResult(successCount, total)
-    }
-
-    suspend fun removeOfflineDownload(bookId: String) {
-        val chapters = dao.getChaptersListForBook(bookId)
-        chapters.forEach { ch ->
-            ch.localFilePath?.let { path ->
-                val file = File(path)
-                if (file.exists()) {
-                    file.delete()
-                }
-            }
-            dao.updateChapterDownloadState(ch.id, isDownloaded = false, filePath = null)
-        }
-        // The copies are gone; the hashes must not pretend they still exist,
-        // otherwise a later re-import of the same files would be skipped as
-        // "duplicate" and the book would stay unplayable (wayfinder #48+#50).
-        dao.clearChapterContentHashes(bookId)
-        dao.updateDownloadState(bookId, isDownloaded = false, progress = 0f)
-    }
+    suspend fun removeOfflineDownload(bookId: String) =
+        offlineDownloads.removeOfflineDownload(bookId)
 
     suspend fun refreshBookCoverAndDetails(bookId: String) = withContext(Dispatchers.IO) {
         val book = dao.getAudiobookById(bookId) ?: return@withContext
@@ -864,37 +646,10 @@ class AudiobookRepository(
     suspend fun importAudiobookFrom4ReadUrl(urlOrSlug: String): AudiobookEntity? =
         libraryImport.importAudiobookFrom4ReadUrl(urlOrSlug)
 
-    // Cache & Download Management
-    fun getAudioCacheSizeBytes(): Long {
-        val ctx = context ?: return 0L
-        var total = 0L
-        // Phase 2.5 hotfix (HI-002 / PERF-015): previously read
-        // filesDir/audio_downloads while downloadAudiobookOffline wrote
-        // filesDir/audiobooks. Cache size was always 0 MB.
-        val audioDir = File(ctx.filesDir, OFFLINE_AUDIO_DIR)
-        if (audioDir.exists()) {
-            audioDir.walkTopDown().forEach { file ->
-                if (file.isFile) total += file.length()
-            }
-        }
-        return total
-    }
+    // Cache & Download Management (ADR-0002 #139: owned by Offline Downloads)
+    fun getAudioCacheSizeBytes(): Long = offlineDownloads.getAudioCacheSizeBytes()
 
-    suspend fun clearAllAudioCache() {
-        val ctx = context
-        withContext(Dispatchers.IO) {
-            if (ctx != null) {
-                // Phase 2.5 hotfix (HI-002 / PERF-015): same constant as
-                // getAudioCacheSizeBytes and downloadAudiobookOffline.
-                val audioDir = File(ctx.filesDir, OFFLINE_AUDIO_DIR)
-                if (audioDir.exists()) {
-                    audioDir.deleteRecursively()
-                }
-            }
-            dao.markAllNotDownloaded()
-            dao.clearAllChaptersDownloadState()
-        }
-    }
+    suspend fun clearAllAudioCache() = offlineDownloads.clearAllAudioCache()
 
     // Favorites Management
     suspend fun toggleFavorite(bookId: String, isFavorite: Boolean) {
@@ -911,11 +666,6 @@ class AudiobookRepository(
     companion object {
         /** TTL of the in-memory per-source «new arrivals» feed cache (spec-10 T4). */
         private const val NEW_FEED_TTL_MS = 15 * 60 * 1000L
-
-        /** Single source of truth for the offline-audio directory name. */
-        const val OFFLINE_AUDIO_DIR = "audiobooks"
-        /** User-Agent used by the offline-download HttpURLConnection. */
-        const val OFFLINE_USER_AGENT = "Mozilla/5.0 (Android; 4read-Audio-Engine/1.0)"
     }
 }
 

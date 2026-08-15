@@ -3,8 +3,11 @@ package com.example.data.repository
 import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
+import com.example.data.catalog.SourceCatalog
 import com.example.data.db.AudiobookDao
 import com.example.data.db.AudiobookDatabase
+import com.example.data.downloads.OfflineDownloads
+import com.example.data.imports.LibraryImport
 import com.example.data.source.SourceAdapter
 import com.example.data.source.SourceBook
 import com.example.data.source.SourceBookDetail
@@ -23,13 +26,15 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 /**
- * Repository seam (spec-15 T4): the one-tap catalogue-card download flow. The
- * card is ephemeral — the ViewModel imports the book transparently via
- * [AudiobookRepository.importFromSourceUrl] and then runs the shared
- * [AudiobookRepository.downloadAudiobookOffline] loop. These tests pin the
- * seam with fake adapters (no network): the import materialises chapters so
- * the download loop has something to run, and a stream-only source refuses
- * the download in depth even when the card would otherwise play.
+ * Repository seam (spec-15 T4 + ADR-0002 #139): the one-tap catalogue-card
+ * download flow. The card is ephemeral — the ViewModel imports the book
+ * transparently via the Library Import door and then runs the shared
+ * download loop in the Offline Downloads module. These tests pin the seam
+ * with fake adapters (no network): the import materialises chapters so the
+ * download loop has something to run, and a stream-only source refuses the
+ * download in depth even when the card would otherwise play. Per ADR-0002
+ * the download-path tests construct the Offline Downloads + Source Catalog +
+ * Library Import modules directly — never the god module.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
@@ -73,8 +78,20 @@ class CatalogDownloadRepositoryTest {
         )
     }
 
-    private fun repo(vararg adapters: SourceAdapter) =
-        AudiobookRepository(dao, context, autoSyncOnInit = false, sourceAdapters = adapters.toList())
+    // ADR-0002 (#139): download-path tests construct the deep modules
+    // directly — downloads + catalog + fake DAO, nothing else.
+    private class Harness(
+        val imports: LibraryImport,
+        val catalog: SourceCatalog,
+        val downloads: OfflineDownloads
+    )
+
+    private fun harness(vararg adapters: SourceAdapter): Harness {
+        val adaptersList = adapters.toList()
+        val imports = LibraryImport(dao, context, adaptersList)
+        val catalog = SourceCatalog(dao, adaptersList, imports)
+        return Harness(imports, catalog, OfflineDownloads(dao, context, catalog))
+    }
 
     private fun book(sourceId: String, url: String) =
         SourceBook(title = "Пасажир", author = "Жан-Крістоф Гранже", url = url, sourceId = sourceId)
@@ -82,9 +99,9 @@ class CatalogDownloadRepositoryTest {
     @Test
     fun `catalogue card import materialises chapters so the download loop runs`() = runBlocking {
         val url = "https://sluhay.com/svitova-literatura/6177-pasazhir.html"
-        val repository = repo(FakeAdapter("sluhay", book("sluhay", url)))
+        val harness = harness(FakeAdapter("sluhay", book("sluhay", url)))
 
-        val imported = repository.importFromSourceUrl("sluhay", url)
+        val imported = harness.imports.importFromSourceUrl("sluhay", url)
 
         assertNotNull(imported)
         val chapters = dao.getChaptersListForBook(imported!!.id)
@@ -92,7 +109,7 @@ class CatalogDownloadRepositoryTest {
         // The loop runs (non-http urls → the chapter fetch is skipped, so it
         // reports every chapter as failed — the whole path is exercised, no
         // network). The card's progress derives from this Room row.
-        val outcome = repository.downloadAudiobookOffline(imported.id)
+        val outcome = harness.downloads.downloadAudiobookOffline(imported.id)
         assertEquals(2, outcome.totalChapters)
         assertEquals(0, outcome.downloadedChapters)
         assertFalse(dao.getAudiobookById(imported.id)!!.isDownloaded)
@@ -101,15 +118,15 @@ class CatalogDownloadRepositoryTest {
     @Test
     fun `stream-only source refuses the download in depth even after import`() = runBlocking {
         val url = "https://lihtar.in.ua/biblioteka/pasazhir"
-        val repository = repo(FakeAdapter("lihtar", book("lihtar", url)))
+        val harness = harness(FakeAdapter("lihtar", book("lihtar", url)))
 
         // The card would play from lihtar (streaming is allowed) — but the
         // download path refuses up front, so the ViewModel's transparent
         // import + download never writes files.
-        val imported = repository.importFromSourceUrl("lihtar", url)
+        val imported = harness.imports.importFromSourceUrl("lihtar", url)
 
         assertNotNull(imported)
-        val outcome = repository.downloadAudiobookOffline(imported!!.id)
+        val outcome = harness.downloads.downloadAudiobookOffline(imported!!.id)
 
         assertEquals(0, outcome.totalChapters)
         assertEquals(0, outcome.downloadedChapters)
@@ -123,11 +140,11 @@ class CatalogDownloadRepositoryTest {
         // Non-http urls fail; nothing is written, so a re-run behaves the same
         // — the loop stays idempotent and never corrupts state.
         val url = "https://sluhay.com/svitova-literatura/6177-pasazhir.html"
-        val repository = repo(FakeAdapter("sluhay", book("sluhay", url)))
-        val imported = repository.importFromSourceUrl("sluhay", url)!!
+        val harness = harness(FakeAdapter("sluhay", book("sluhay", url)))
+        val imported = harness.imports.importFromSourceUrl("sluhay", url)!!
 
-        repository.downloadAudiobookOffline(imported.id)
-        val second = repository.downloadAudiobookOffline(imported.id)
+        harness.downloads.downloadAudiobookOffline(imported.id)
+        val second = harness.downloads.downloadAudiobookOffline(imported.id)
 
         assertEquals(2, second.totalChapters)
         assertEquals(0, second.downloadedChapters)

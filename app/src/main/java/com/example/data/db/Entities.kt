@@ -377,3 +377,25 @@ data class EditionEntity(
     val durationSeconds: Long? = null,
     val addedAt: Long = System.currentTimeMillis()
 )
+
+/**
+ * One row of the endless merged feed (spec-23 T4): a Work with the number of
+ * Editions carrying it (the «N джерел» badge input) and its optional
+ * library-side genre (LEFT JOIN — null until the Work is linked into
+ * `audiobooks`). Row shape for a Room paging query, not a stored table.
+ */
+data class WorkFeedRow(
+    val workId: String,
+    val mergeKey: String,
+    val title: String,
+    val author: String,
+    val narrator: String,
+    val seriesTitle: String? = null,
+    val seriesIndex: Int? = null,
+    val coverImageUrl: String? = null,
+    val addedAt: Long,
+    // COUNT of `editions` rows for this Work — the badge count.
+    val editionCount: Int,
+    // The library row's genre (nullable until the Work is linked/imported).
+    val genre: String? = null
+)

@@ -10,10 +10,16 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.paging.LoadState
+import androidx.paging.compose.collectAsLazyPagingItems
+import androidx.paging.compose.itemContentType
+import androidx.paging.compose.itemKey
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -45,7 +51,8 @@ import com.example.data.catalog.CatalogBook
 import com.example.data.catalog.CatalogSection
 import com.example.data.catalog.CatalogSeries
 import com.example.data.db.AudiobookEntity
-import com.example.data.source.catalogCardDownloadAllowed
+import com.example.data.db.WorkFeedRow
+import com.example.data.source.sourceDisplayName
 import com.example.ui.MainViewModel
 import com.example.ui.components.EmptyState
 import com.example.ui.components.genreAccentColor
@@ -77,23 +84,22 @@ fun HomeScreen(
     // Spec-10 T4: aggregated global search across all verified sources.
     val globalResults by viewModel.globalSearchResults.collectAsState()
     val isGlobalSearchLoading by viewModel.isGlobalSearchLoading.collectAsState()
-    // Spec-15 T1: the deduplicated «Увесь каталог» union (all sources, one
-    // card per Work with a badge per carried source).
-    val unifiedCatalog by viewModel.unifiedCatalog.collectAsState()
-    val isUnifiedCatalogLoading by viewModel.isUnifiedCatalogLoading.collectAsState()
-    // Spec-15 T4: per-card one-tap download state (progress, done keys) so the
-    // union cards can carry the affordance and its live progress.
-    val catalogDownloadingKeys by viewModel.catalogDownloadingKeys.collectAsState()
-    val catalogDownloadProgress by viewModel.catalogDownloadProgress.collectAsState()
-    val catalogDownloadedKeys by viewModel.catalogDownloadedKeys.collectAsState()
+    // Spec-23 T4: the endless merged feed (Paging 3) over the persisted
+    // Works/Editions catalogue — pages through the whole catalogue, one card
+    // per Work, dedup inherited from merge-on-write. Filter/sort states live
+    // in the ViewModel (they rebuild the Pager); the feed is collected here.
+    val workFeedItems = viewModel.workFeed.collectAsLazyPagingItems()
+    val feedSourceFilter by viewModel.feedSourceFilter.collectAsState()
+    val feedGenreFilter by viewModel.feedGenreFilter.collectAsState()
+    val feedSortByTitle by viewModel.feedSortByTitle.collectAsState()
     // Spec-19 Track A: the on-device «Рекомендовано для вас» row — semantic
     // similarity of catalogue descriptions to favourite/completed/recent
     // signals, computed locally, with a per-card reason chip.
     val recommendedBooks by viewModel.recommendedBooks.collectAsState()
 
-    // Spec-15 T1: enumerate the union once per Огляд composition; the
-    // repository caches it for the session (and re-fetches session-bound
-    // sources on every refresh).
+    // Spec-15 T1: refresh the ephemeral union once per Огляд composition —
+    // the ViewModel still needs it for the recommendation enrichment, even
+    // though the browse surface is now the spec-23 T4 persisted feed.
     androidx.compose.runtime.LaunchedEffect(Unit) { viewModel.loadUnifiedCatalog() }
 
     // Spec-22 T3: the search bar and filter chips are collapsible — the
@@ -326,37 +332,27 @@ fun HomeScreen(
                 }
             }
 
-            // Spec-15 T1: the deduplicated «Увесь каталог» union — every
-            // source's catalogue in one Netflix-style row, one card per Work
-            // with a badge per carried source. Tapping a card imports from the
-            // found source and plays (playFromSource); ephemeral, cached for
-            // the session.
-            if (unifiedCatalog.isNotEmpty()) {
-                item {
-                    CatalogRowHeader(title = "Увесь каталог")
-                }
-                item {
-                    LazyRow(
-                        contentPadding = PaddingValues(horizontal = 16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        items(unifiedCatalog, key = { it.key }) { result ->
-                            UnifiedCatalogCard(
-                                result = result,
-                                onClick = { viewModel.playGlobalSearchResult(result) },
-                                downloadAllowed = catalogCardDownloadAllowed(result),
-                                downloadProgress = if (result.key in catalogDownloadingKeys) {
-                                    catalogDownloadProgress[result.key]
-                                } else {
-                                    null
-                                },
-                                isDownloaded = result.key in catalogDownloadedKeys,
-                                onDownload = { viewModel.downloadCatalogBook(result) }
-                            )
-                        }
-                    }
-                }
-            } else if (isUnifiedCatalogLoading) {
+            // Spec-23 T4: the endless merged feed — every Work in the
+            // persisted catalogue, paged via Paging 3. It supersedes the
+            // spec-15 T1 ephemeral union: the same merge key / one card per
+            // Work, but scrolling pages through the whole catalogue instead
+            // of stopping at the session snapshot. Filters (source / genre /
+            // sort) rebuild the Pager; the row header shows the live count.
+            item {
+                CatalogRowHeader(title = "Весь каталог")
+            }
+            item {
+                WorkFeedFilters(
+                    sourceFilter = feedSourceFilter,
+                    genreFilter = feedGenreFilter,
+                    sortByTitle = feedSortByTitle,
+                    genres = catalogGenres.map { it.title },
+                    onSourceChange = viewModel::setFeedSourceFilter,
+                    onGenreChange = viewModel::setFeedGenreFilter,
+                    onSortToggle = { viewModel.setFeedSortByTitle(!feedSortByTitle) }
+                )
+            }
+            if (workFeedItems.itemCount == 0 && workFeedItems.loadState.refresh is LoadState.Loading) {
                 item {
                     Box(
                         modifier = Modifier
@@ -367,6 +363,45 @@ fun HomeScreen(
                         CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
                     }
                 }
+            }
+            // Paging-compose 3.3 removed LazyListScope.items(LazyPagingItems);
+            // iterate the paged index with the official itemKey/contentType
+            // helpers (placeholders disabled, so rows are non-null).
+            items(
+                count = workFeedItems.itemCount,
+                key = workFeedItems.itemKey { it.workId },
+                contentType = workFeedItems.itemContentType { "WorkFeedRow" }
+            ) { index ->
+                workFeedItems[index]?.let { row ->
+                    WorkFeedCard(
+                        row = row,
+                        onClick = { viewModel.openWorkFeedRow(row) }
+                    )
+                }
+            }
+            when (val append = workFeedItems.loadState.append) {
+                is LoadState.Loading -> item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(28.dp),
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+                is LoadState.Error -> item {
+                    Text(
+                        text = "Не вдалося завантажити ще: ${append.error.message.orEmpty()}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(16.dp)
+                    )
+                }
+                else -> Unit
             }
 
             // Spec-19 Track A: «Рекомендовано для вас» — on-device, local
@@ -999,6 +1034,153 @@ fun AudiobookListItem(
                     contentDescription = "Play",
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(24.dp)
+                )
+            }
+        }
+    }
+}
+
+// Spec-23 T4: the endless merged feed's source chips — the adapter source
+// ids as stored on `editions.sourceId` (must match writeWorkEdition callers).
+private val WorkFeedSources = listOf("4read", "sluhay", "sluhayua", "soundbooks", "audiobookmp3", "lihtar")
+
+/**
+ * Spec-23 T4 — one row of the endless merged feed: a Work with its
+ * «N джерел» badge (the T5 badge input). Tapping resolves the Work's first
+ * Edition and import-and-plays it (the same path as global-search cards).
+ * Pure `@Composable` — pinned by the snapshot seam from fixture rows.
+ */
+@Composable
+fun WorkFeedCard(
+    row: WorkFeedRow,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .testTag("work_feed_${row.workId}"),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        CatalogCoverImage(
+            coverImageUrl = row.coverImageUrl,
+            title = row.title,
+            modifier = Modifier
+                .width(56.dp)
+                .height(80.dp)
+                .clip(RoundedCornerShape(AppDimens.RadiusCard))
+        )
+        Spacer(modifier = Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = row.title,
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            if (row.author.isNotBlank()) {
+                Text(
+                    text = row.author,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            SourceBadgePill(label = editionBadgeLabel(row.editionCount))
+        }
+        Spacer(modifier = Modifier.width(8.dp))
+        Icon(
+            imageVector = Icons.Default.PlayArrow,
+            contentDescription = "Відтворити",
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(28.dp)
+        )
+    }
+}
+
+private fun editionBadgeLabel(count: Int): String = when {
+    count <= 1 -> "1 джерело"
+    count <= 4 -> "$count джерела"
+    else -> "$count джерел"
+}
+
+/**
+ * Spec-23 T4 — the endless feed's filter bar: source chips, genre chips and
+ * a sort toggle. Filters rebuild the Pager in the ViewModel, so this stays a
+ * pure `@Composable` over hoisted state — pinnable by the snapshot seam.
+ */
+@Composable
+fun WorkFeedFilters(
+    sourceFilter: String?,
+    genreFilter: String?,
+    sortByTitle: Boolean,
+    genres: List<String>,
+    onSourceChange: (String?) -> Unit,
+    onGenreChange: (String?) -> Unit,
+    onSortToggle: () -> Unit
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 4.dp)
+        ) {
+            FilterChip(
+                selected = !sortByTitle,
+                onClick = { if (sortByTitle) onSortToggle() },
+                label = { Text("Спочатку нові") },
+                modifier = Modifier.testTag("feed_sort_recent")
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            FilterChip(
+                selected = sortByTitle,
+                onClick = { if (!sortByTitle) onSortToggle() },
+                label = { Text("За назвою") },
+                modifier = Modifier.testTag("feed_sort_title")
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            FilterChip(
+                selected = sourceFilter == null,
+                onClick = { onSourceChange(null) },
+                label = { Text("Усі джерела") },
+                modifier = Modifier.testTag("feed_source_all")
+            )
+            WorkFeedSources.forEach { id ->
+                Spacer(modifier = Modifier.width(8.dp))
+                FilterChip(
+                    selected = sourceFilter == id,
+                    onClick = { onSourceChange(if (sourceFilter == id) null else id) },
+                    label = { Text(sourceDisplayName(id)) },
+                    modifier = Modifier.testTag("feed_source_$id")
+                )
+            }
+        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 4.dp)
+        ) {
+            FilterChip(
+                selected = genreFilter == null,
+                onClick = { onGenreChange(null) },
+                label = { Text("Усі жанри") },
+                modifier = Modifier.testTag("feed_genre_all")
+            )
+            genres.forEach { genre ->
+                Spacer(modifier = Modifier.width(8.dp))
+                FilterChip(
+                    selected = genreFilter == genre,
+                    onClick = { onGenreChange(if (genreFilter == genre) null else genre) },
+                    label = { Text(genre) },
+                    modifier = Modifier.testTag("feed_genre_$genre")
                 )
             }
         }

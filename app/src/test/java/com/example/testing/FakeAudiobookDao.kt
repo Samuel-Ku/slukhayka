@@ -13,6 +13,9 @@ import com.example.data.db.PlaybackProgressEntity
 import com.example.data.db.SourceEntity
 import com.example.data.db.TombstoneEntity
 import com.example.data.db.WorkEntity
+import com.example.data.db.WorkFeedRow
+import androidx.paging.PagingSource
+import androidx.paging.PagingState
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.map
@@ -467,6 +470,56 @@ class FakeAudiobookDao(
     override suspend fun countWorks(): Int = worksState.value.size
 
     override suspend fun countEditions(): Int = editionsState.value.size
+
+    override fun pagedWorksFeedRecent(sourceId: String?, genre: String?): PagingSource<Int, WorkFeedRow> =
+        fakeFeed(sourceId, genre, sortByTitle = false)
+
+    override fun pagedWorksFeedByTitle(sourceId: String?, genre: String?): PagingSource<Int, WorkFeedRow> =
+        fakeFeed(sourceId, genre, sortByTitle = true)
+
+    /** In-memory PagingSource over the same state the fake DAO owns. */
+    private fun fakeFeed(sourceId: String?, genre: String?, sortByTitle: Boolean): PagingSource<Int, WorkFeedRow> {
+        val rows = worksState.value.mapNotNull { work ->
+            if (sourceId != null && editionsState.value.none { it.workId == work.id && it.sourceId == sourceId }) {
+                return@mapNotNull null
+            }
+            val libraryGenre = booksState.value.firstOrNull { it.workId == work.id }?.genre
+            if (genre != null && (libraryGenre == null || !libraryGenre.contains(genre, ignoreCase = true))) {
+                return@mapNotNull null
+            }
+            WorkFeedRow(
+                workId = work.id,
+                mergeKey = work.mergeKey,
+                title = work.title,
+                author = work.author,
+                narrator = work.narrator,
+                seriesTitle = work.seriesTitle,
+                seriesIndex = work.seriesIndex,
+                coverImageUrl = work.coverImageUrl,
+                addedAt = work.addedAt,
+                editionCount = editionsState.value.count { it.workId == work.id },
+                genre = libraryGenre
+            )
+        }
+        val sorted = if (sortByTitle) {
+            rows.sortedWith(compareBy({ it.title.lowercase() }, { -it.addedAt }))
+        } else {
+            rows.sortedByDescending { it.addedAt }
+        }
+        return object : PagingSource<Int, WorkFeedRow>() {
+            override suspend fun load(params: LoadParams<Int>): LoadResult<Int, WorkFeedRow> {
+                val offset = params.key ?: 0
+                val page = sorted.drop(offset).take(params.loadSize)
+                return LoadResult.Page(
+                    data = page,
+                    prevKey = if (offset == 0) null else (offset - params.loadSize).coerceAtLeast(0),
+                    nextKey = if (offset + page.size < sorted.size) offset + page.size else null
+                )
+            }
+
+            override fun getRefreshKey(state: PagingState<Int, WorkFeedRow>): Int? = null
+        }
+    }
 
     /** Snapshot of the persisted catalogue works, for assertions. */
     val savedWorks: List<WorkEntity> get() = worksState.value

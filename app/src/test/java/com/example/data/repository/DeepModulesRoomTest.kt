@@ -677,6 +677,104 @@ class DeepModulesRoomTest {
     }
 
     // ---------------------------------------------------------------------
+    // spec-23 T1: schema migration 12 -> 13 (persisted Works/Editions
+    // catalogue; additive only)
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `migration 12 to 13 creates the catalogue tables and preserves library data`() {
+        val factory = FrameworkSQLiteOpenHelperFactory()
+        val config = SupportSQLiteOpenHelper.Configuration.builder(context)
+            .name("migration-12-test.db")
+            .callback(object : SupportSQLiteOpenHelper.Callback(12) {
+                override fun onCreate(db: SupportSQLiteDatabase) {
+                    // Minimal v12 schema: a book with its chapters and a
+                    // tombstone — the rows the migration must preserve.
+                    db.execSQL(
+                        "CREATE TABLE audiobooks (id TEXT NOT NULL PRIMARY KEY, title TEXT NOT NULL, " +
+                            "author TEXT NOT NULL, narrator TEXT NOT NULL, description TEXT NOT NULL, " +
+                            "coverDrawableRes INTEGER NOT NULL, coverImageUrl TEXT, genre TEXT NOT NULL, " +
+                            "sourceUrl TEXT NOT NULL, isDownloaded INTEGER NOT NULL DEFAULT 0, " +
+                            "downloadProgress REAL NOT NULL DEFAULT 0, totalDurationSeconds INTEGER NOT NULL DEFAULT 0, " +
+                            "totalChapters INTEGER NOT NULL DEFAULT 0, rating REAL NOT NULL DEFAULT 4.9, " +
+                            "isFavorite INTEGER NOT NULL DEFAULT 0, seriesTitle TEXT, seriesUrl TEXT, seriesIndex INTEGER, " +
+                            "preferredSpeed REAL, createdAt INTEGER NOT NULL DEFAULT 0, sourceTreeUri TEXT, " +
+                            "mergeKey TEXT NOT NULL DEFAULT '', workId TEXT)"
+                    )
+                    db.execSQL(
+                        "INSERT INTO audiobooks (id, title, author, narrator, description, coverDrawableRes, genre, " +
+                            "sourceUrl, totalDurationSeconds, totalChapters, mergeKey, workId, isDownloaded) VALUES " +
+                            "('b1', 'Кобзар', 'Автор', 'Читець', '', 0, '', '', 3600, 3, 'кобзар|автор|читець', 'кобзар|автор|читець', 1)"
+                    )
+                    db.execSQL(
+                        "CREATE TABLE chapters (id TEXT NOT NULL PRIMARY KEY, bookId TEXT NOT NULL, " +
+                            "chapterIndex INTEGER NOT NULL, title TEXT NOT NULL, durationSeconds INTEGER NOT NULL, " +
+                            "streamUrl TEXT NOT NULL, localFilePath TEXT, isDownloaded INTEGER NOT NULL DEFAULT 0, " +
+                            "contentHash TEXT, editionId TEXT)"
+                    )
+                    db.execSQL(
+                        "INSERT INTO chapters (id, bookId, chapterIndex, title, durationSeconds, streamUrl, editionId) VALUES " +
+                            "('c1', 'b1', 0, 'Розділ 1', 1200, 'http://x/1.mp3', 'b1')"
+                    )
+                    db.execSQL(
+                        "CREATE TABLE tombstones (bookId TEXT NOT NULL PRIMARY KEY, deletedAt INTEGER NOT NULL)"
+                    )
+                    db.execSQL("INSERT INTO tombstones (bookId, deletedAt) VALUES ('b2', 1700000000000)")
+                }
+
+                override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) {}
+            })
+            .build()
+        val helper = factory.create(config)
+        val db = helper.writableDatabase
+
+        AudiobookDatabase.MIGRATION_12_13.migrate(db)
+
+        // New catalogue tables exist with their expected columns.
+        assertEquals(
+            setOf("id", "mergeKey", "title", "author", "narrator", "seriesTitle", "seriesIndex", "coverImageUrl", "addedAt"),
+            tableColumns(db, "works").toSet()
+        )
+        assertEquals(
+            setOf("id", "workId", "sourceId", "sourceUrl", "streamOnly", "coverImageUrl", "durationSeconds", "addedAt"),
+            tableColumns(db, "editions").toSet()
+        )
+        // The tables accept rows: a Work + its Edition, FK intact.
+        db.execSQL(
+            "INSERT INTO works (id, mergeKey, title, author, narrator, addedAt) VALUES " +
+                "('кобзар|автор|читець', 'кобзар|автор|читець', 'Кобзар', 'Автор', 'Читець', 1700000000000)"
+        )
+        db.execSQL(
+            "INSERT INTO editions (id, workId, sourceId, sourceUrl, streamOnly, addedAt) VALUES " +
+                "('кобзар|автор|читець|4read|x', 'кобзар|автор|читець', '4read', 'http://4read.org/kobzar', 0, 1700000000000)"
+        )
+        // The FK cascade works (with SQLite foreign keys enabled, as Room does
+        // at runtime): deleting the Work removes its Edition.
+        db.execSQL("PRAGMA foreign_keys = ON")
+        db.execSQL("DELETE FROM works WHERE id = 'кобзар|автор|читець'")
+        db.query("SELECT COUNT(*) FROM editions").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals(0, cursor.getInt(0))
+        }
+        // Every v12 row survives untouched.
+        db.query("SELECT title, totalDurationSeconds, isDownloaded FROM audiobooks WHERE id = 'b1'").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals("Кобзар", cursor.getString(0))
+            assertEquals(3600L, cursor.getLong(1))
+            assertEquals(1, cursor.getInt(2))
+        }
+        db.query("SELECT COUNT(*) FROM chapters").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals(1, cursor.getInt(0))
+        }
+        db.query("SELECT COUNT(*) FROM tombstones").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals(1, cursor.getInt(0))
+        }
+        db.close()
+    }
+
+    // ---------------------------------------------------------------------
     // spec-10 T2: multi-source merge and per-source position
     // ---------------------------------------------------------------------
 

@@ -35,7 +35,6 @@ class TestDataFactoryTest {
         // Assert
         assertEquals(first, second)
         assertEquals(TestDataFactory.dataChapters(), TestDataFactory.dataChapters())
-        assertEquals(TestDataFactory.seedSources(), TestDataFactory.seedSources())
     }
 
     @Test
@@ -99,20 +98,14 @@ class TestDataFactoryTest {
         // Arrange / Act
         val progress = TestDataFactory.seedPlaybackProgress()
         val bookmarks = TestDataFactory.seedBookmarks()
-        val sources = TestDataFactory.seedSources()
         val stats = TestDataFactory.seedListeningStats()
 
         // Assert
         assertTrue(progress.all { it.lastListenedAt == TestDataFactory.FIXED_CLOCK_MS })
         assertTrue(bookmarks.all { it.createdAt == TestDataFactory.FIXED_CLOCK_MS })
-        assertTrue("sources must not carry wall-clock addedAt", sources.all { it.addedAt == TestDataFactory.FIXED_CLOCK_MS })
         assertTrue(bookmarks.none { it.id == 0L })
         assertEquals(listOf(TestDataFactory.FIXED_DATE_ISO), stats.map { it.dateIso })
         assertEquals(TestDataFactory.BOOK_COUNT, progress.size)
-        // Two types x three books, one row per type per book, ids mirror sourceRow.
-        assertEquals(6, sources.size)
-        assertEquals(listOf("4read", "soundbooks"), sources.map { it.type }.distinct())
-        assertTrue(sources.all { it.id == "${it.type}-${it.bookId}" })
     }
 
     @Test

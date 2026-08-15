@@ -19,14 +19,18 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.player.PlayerState
-import com.example.ui.theme.AppDimens
+import com.example.ui.theme.CyberCardBorder
+import com.example.ui.theme.CyberPrimary
+import com.example.ui.theme.CyberSurface
 
 @Composable
 fun MiniPlayerBar(
@@ -52,11 +56,9 @@ fun MiniPlayerBar(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 12.dp, vertical = 6.dp)
-                .clip(RoundedCornerShape(AppDimens.RadiusPanel))
-                // Floating bar: tonally elevated above the scrolling content
-                // (surfaceContainer cards) and consistent with the nav bar.
-                .background(MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.95f))
-                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(AppDimens.RadiusPanel))
+                .clip(RoundedCornerShape(16.dp))
+                .background(CyberSurface.copy(alpha = 0.95f))
+                .border(1.dp, CyberCardBorder, RoundedCornerShape(16.dp))
                 .clickable { onBarClick() }
                 .testTag("mini_player_bar")
         ) {
@@ -70,9 +72,8 @@ fun MiniPlayerBar(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(3.dp),
-                color = MaterialTheme.colorScheme.primary,
-                // Theme-aware track (MD3: never a raw white on the tonal bar).
-                trackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
+                color = CyberPrimary,
+                trackColor = Color.White.copy(alpha = 0.1f)
             )
 
             Row(
@@ -87,7 +88,7 @@ fun MiniPlayerBar(
                     contentDescription = book.title,
                     modifier = Modifier
                         .size(48.dp)
-                        .clip(RoundedCornerShape(AppDimens.RadiusInner)),
+                        .clip(RoundedCornerShape(8.dp)),
                     contentScale = ContentScale.Crop
                 )
 
@@ -100,7 +101,10 @@ fun MiniPlayerBar(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             text = book.title,
-                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp
+                            ),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             color = MaterialTheme.colorScheme.onSurface
@@ -110,7 +114,7 @@ fun MiniPlayerBar(
                             Icon(
                                 imageVector = Icons.Default.CloudDone,
                                 contentDescription = "Offline Available",
-                                tint = MaterialTheme.colorScheme.primary,
+                                tint = CyberPrimary,
                                 modifier = Modifier.size(14.dp)
                             )
                         }
@@ -122,7 +126,9 @@ fun MiniPlayerBar(
 
                     Text(
                         text = chapterTitle,
-                        style = MaterialTheme.typography.bodySmall,
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            fontSize = 12.sp
+                        ),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -135,13 +141,13 @@ fun MiniPlayerBar(
                 IconButton(
                     onClick = onPlayPauseClick,
                     modifier = Modifier
-                        .size(AppDimens.TouchTarget)
+                        .size(40.dp)
                         .testTag("mini_player_play_pause")
                 ) {
                     Icon(
                         imageVector = if (playerState.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                         contentDescription = if (playerState.isPlaying) "Pause" else "Play",
-                        tint = MaterialTheme.colorScheme.primary,
+                        tint = CyberPrimary,
                         modifier = Modifier.size(28.dp)
                     )
                 }
@@ -150,7 +156,7 @@ fun MiniPlayerBar(
                 IconButton(
                     onClick = onSkipNextClick,
                     modifier = Modifier
-                        .size(AppDimens.TouchTarget)
+                        .size(36.dp)
                         .testTag("mini_player_next")
                 ) {
                     Icon(

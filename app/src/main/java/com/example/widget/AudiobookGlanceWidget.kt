@@ -66,11 +66,11 @@ class AudiobookGlanceWidget : GlanceAppWidget() {
                 } else {
                     // Nothing loaded: resume the most recently listened book so
                     // the widget is never a dead control.
-                    val progressList = App.instance.repository.recentProgress.first()
+                    val progressList = App.instance.libraryEntries.recentProgress.first()
                     val latest = progressList.maxByOrNull { it.lastListenedAt }
                     if (latest != null) {
-                        val book = App.instance.repository.getBookSync(latest.bookId)
-                        val chapters = App.instance.repository.getChaptersList(latest.bookId)
+                        val book = App.instance.libraryEntries.getBookSync(latest.bookId)
+                        val chapters = App.instance.sourceCatalog.getChaptersList(latest.bookId)
                         WidgetStateMapper.mapFromPlayerState(
                             playerState = playerState,
                             fallbackBook = book,

@@ -29,11 +29,11 @@ class TogglePlayActionCallback : ActionCallback {
                     playerManager.togglePlayPause()
                 } else {
                     // Nothing loaded: resume the most recently listened book.
-                    val latest = App.instance.repository.recentProgress.first().maxByOrNull { it.lastListenedAt }
+                    val latest = App.instance.libraryEntries.recentProgress.first().maxByOrNull { it.lastListenedAt }
                     if (latest != null) {
-                        val book = App.instance.repository.getBookSync(latest.bookId)
+                        val book = App.instance.libraryEntries.getBookSync(latest.bookId)
                         if (book != null) {
-                            val chapters = App.instance.repository.getChaptersList(book.id)
+                            val chapters = App.instance.sourceCatalog.getChaptersList(book.id)
                             playerManager.loadAndPlayBook(
                                 book = book,
                                 chapters = chapters,

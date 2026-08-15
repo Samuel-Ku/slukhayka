@@ -3,7 +3,7 @@ package com.example.data.imports
 /**
  * The staging structure of the smart import (wayfinder #29): scan -> plan ->
  * confirm -> apply. The plan is pure data - built from scanned entries,
- * rendered by the preview, consumed by [AudiobookRepository.applyImportPlan].
+ * rendered by the preview, consumed by [LibraryImport.applyImportPlan].
  * Nothing touches disk or Room until the user confirms; `apply` is the only
  * writer.
  *

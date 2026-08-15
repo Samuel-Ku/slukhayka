@@ -223,9 +223,22 @@ class LibraryImport(
      * or updates a catalogue book row; a known row is enriched with real
      * duration/series data this source carries, never clobbered with 0.
      */
-    internal suspend fun upsertCatalogBook(book: com.example.data.catalog.CatalogBook): AudiobookEntity {
+    /**
+     * ADR-0005 — the catalog write path enforces tombstones at the
+     * persistence layer: a tombstoned Work is a no-op here. The guard is an
+     * insert-unless-tombstoned statement ([AudiobookDao.insertCatalogBookIfNotTombstoned])
+     * plus a single-row [AudiobookDao.isBookTombstoned] check for an existing
+     * row — no call site consults a tombstone set anymore. Returns null for a
+     * tombstoned Work (nothing landed), the stored row otherwise. Explicit
+     * imports remain the resurrection door (they clear the marker, unchanged).
+     */
+    internal suspend fun upsertCatalogBook(book: com.example.data.catalog.CatalogBook): AudiobookEntity? {
         val existing = dao.getAudiobookById(book.id)
         if (existing != null) {
+            // Even an existing row is not enriched while its Work is
+            // tombstoned (defensive: delete removes the row, but a stale
+            // tombstone must never silently re-enrich a deleted Work).
+            if (dao.isBookTombstoned(book.id)) return null
             var updated = existing
             // ADR-0004: the field-precedence delta comes from the one
             // MetadataAssertions module — never re-derived here.
@@ -295,8 +308,35 @@ class LibraryImport(
             seriesUrl = book.seriesUrl,
             seriesIndex = book.seriesIndex
         )
-        dao.insertAudiobooks(listOf(newBook))
-        return newBook
+        // ADR-0005: the insert-unless-tombstoned statement — a tombstoned Work
+        // is a no-op (the guarded INSERT lands nothing), confirmed by what
+        // actually exists afterwards. Never resurrects a deleted Work.
+        dao.insertCatalogBookIfNotTombstoned(
+            id = newBook.id,
+            title = newBook.title,
+            author = newBook.author,
+            narrator = newBook.narrator,
+            description = newBook.description,
+            coverDrawableRes = newBook.coverDrawableRes,
+            coverImageUrl = newBook.coverImageUrl,
+            genre = newBook.genre,
+            sourceUrl = newBook.sourceUrl,
+            isDownloaded = newBook.isDownloaded,
+            downloadProgress = newBook.downloadProgress,
+            totalDurationSeconds = newBook.totalDurationSeconds,
+            totalChapters = newBook.totalChapters,
+            rating = newBook.rating,
+            isFavorite = newBook.isFavorite,
+            seriesTitle = newBook.seriesTitle,
+            seriesUrl = newBook.seriesUrl,
+            seriesIndex = newBook.seriesIndex,
+            preferredSpeed = newBook.preferredSpeed,
+            createdAt = newBook.createdAt,
+            sourceTreeUri = newBook.sourceTreeUri,
+            mergeKey = newBook.mergeKey,
+            workId = newBook.workId
+        )
+        return if (dao.getAudiobookById(book.id) != null) newBook else null
     }
 
     // ---------------------------------------------------------------------

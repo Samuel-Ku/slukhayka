@@ -711,22 +711,17 @@ class SourceCatalog(
     val isCatalogLoading: StateFlow<Boolean> = _isCatalogLoading.asStateFlow()
 
     /**
-     * Book ids deleted by the user (spec #8 T3). The 4read homepage re-lists
-     * deleted books, so without a tombstone the next catalogue sync would
-     * resurrect them in Room and in the Explore rows (code-review MEDIUM).
-     * Since v11 (wayfinder #55 Q8) the tombstone is the durable `tombstones`
-     * table — a delete survives restarts and is cleared only when the user
-     * explicitly imports the book again.
-     */
-    private suspend fun tombstonedBookIds(): Set<String> = dao.getTombstoneBookIds().toSet()
-
-    /**
      * Syncs the Explore catalogue from the live 4read.org homepage: parses the
      * sections, upserts every book into Room (so rows stay playable even if a
      * later parse fails) and publishes the sections to [catalogSections].
      * Never throws: network/parse failures degrade to an empty catalogue.
      * This is the explicit sync call the composition root invokes when the app
      * wants catalogue sync — constructing the module performs no network I/O.
+     *
+     * ADR-0005: tombstone enforcement lives in the persistence layer — the
+     * upsert returns nothing for a tombstoned Work, so the published sections
+     * are assembled from what actually landed; sections emptied by skips are
+     * not published (matching today's behaviour).
      */
     suspend fun fetchCatalogSections(): List<CatalogSection> =
         withContext(Dispatchers.IO) {
@@ -735,14 +730,11 @@ class SourceCatalog(
                 val html = fourReadFetcher.getText("https://4read.org/")
                 if (html.isBlank()) return@withContext emptyList()
                 _catalogGenres.value = CatalogParser.parseGenreNav(html)
-                val tombstones = tombstonedBookIds()
-                val sections = CatalogParser.parseHomepage(html)
-                    .map { section ->
-                        section.copy(books = section.books.filter { it.id !in tombstones })
-                    }
-                    .filter { it.books.isNotEmpty() || it.series.isNotEmpty() }
-                sections.forEach { section ->
-                    section.books.forEach { book -> libraryImport.upsertCatalogBook(book) }
+                val sections = CatalogParser.parseHomepage(html).mapNotNull { section ->
+                    val landed = section.books.mapNotNull { book -> libraryImport.upsertCatalogBook(book) }
+                    if (landed.isEmpty() && section.series.isEmpty()) return@mapNotNull null
+                    val landedIds = landed.map { it.id }.toSet()
+                    section.copy(books = section.books.filter { it.id in landedIds })
                 }
                 _catalogSections.value = sections
                 sections
@@ -766,9 +758,10 @@ class SourceCatalog(
             seriesBooksCache[seriesUrl]?.let { return@withContext it }
             val html = fourReadFetcher.getText(seriesUrl)
             if (html.isBlank()) return@withContext emptyList()
+            // ADR-0005: the upsert's persistence-layer guard drops tombstoned
+            // Works — the published list is what actually landed.
             val books = CatalogParser.parseSeriesPage(html)
-                .filter { it.id !in tombstonedBookIds() }
-                .map { book -> libraryImport.upsertCatalogBook(book) }
+                .mapNotNull { book -> libraryImport.upsertCatalogBook(book) }
             seriesBooksCache[seriesUrl] = books
             books
         }
@@ -811,9 +804,10 @@ class SourceCatalog(
             top100Cache?.let { return@withContext it }
             val html = fourReadFetcher.getText("https://4read.org/top-100.html")
             if (html.isBlank()) return@withContext emptyList()
+            // ADR-0005: the upsert's persistence-layer guard drops tombstoned
+            // Works — the published list is what actually landed.
             val books = CatalogParser.parseTop100(html)
-                .filter { it.id !in tombstonedBookIds() }
-                .map { libraryImport.upsertCatalogBook(it) }
+                .mapNotNull { libraryImport.upsertCatalogBook(it) }
             top100Cache = books
             books
         }
@@ -864,8 +858,9 @@ class SourceCatalog(
                         coverImageUrl = related.coverImageUrl
                     )
                 }
-                .filter { it.id !in tombstonedBookIds() }
-                .map { libraryImport.upsertCatalogBook(it) }
+                // ADR-0005: the upsert's persistence-layer guard drops
+                // tombstoned Works — the published list is what actually landed.
+                .mapNotNull { libraryImport.upsertCatalogBook(it) }
         }
 
     private val seriesBooksCache = java.util.concurrent.ConcurrentHashMap<String, List<AudiobookEntity>>()
@@ -878,7 +873,11 @@ class SourceCatalog(
      * Delegates to the shared [LibraryImport.upsertCatalogBook] — the one
      * catalogue→Work write path.
      */
-    suspend fun upsertCatalogBook(book: CatalogBook): AudiobookEntity =
+    /**
+     * ADR-0005: nullable — a tombstoned Work lands nothing (null), so a
+     * caller assembling a published list knows what actually arrived.
+     */
+    suspend fun upsertCatalogBook(book: CatalogBook): AudiobookEntity? =
         libraryImport.upsertCatalogBook(book)
 }
 

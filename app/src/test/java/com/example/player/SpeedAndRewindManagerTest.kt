@@ -91,7 +91,7 @@ class SpeedAndRewindManagerTest {
 
     @Test
     fun `load applies the book's preferred speed`() = managerTest { manager, _ ->
-        val fastBook = book.copy(preferredSpeed = 1.5f)
+        val fastBook = book.copy().also { it.preferredSpeed = 1.5f }
         manager.loadAndPlayBook(fastBook, chapters, initialChapterIndex = 0, autoPlay = false)
         assertEquals(1.5f, manager.playerState.value.playbackSpeed, SPEED_TOLERANCE)
     }
@@ -200,7 +200,7 @@ class SpeedAndRewindManagerTest {
         manager.seekTo(600_000L)
         assertTrue(manager.playerState.value.canUndoSeek)
 
-        manager.loadAndPlayBook(book.copy(preferredSpeed = 1.25f), chapters, initialChapterIndex = 0, autoPlay = false)
+        manager.loadAndPlayBook(book.copy().also { it.preferredSpeed = 1.25f }, chapters, initialChapterIndex = 0, autoPlay = false)
 
         assertFalse(manager.playerState.value.canUndoSeek)
     }

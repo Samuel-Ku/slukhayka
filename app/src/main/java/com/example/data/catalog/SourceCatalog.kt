@@ -442,19 +442,20 @@ class SourceCatalog(
                 val seriesTitle = detail.series?.name
                 val seriesIndex = detail.series?.position
                 val seriesUrl = detail.series?.url
-                if (author != null || narrator != null || genres != null ||
-                    rating != null || seriesTitle != null || seriesUrl != null
-                ) {
+                if (author != null || narrator != null || genres != null || rating != null) {
                     dao.updateBookMetadata(
                         bookId,
                         author = author,
                         narrator = narrator,
                         genre = genres,
-                        rating = rating,
-                        seriesTitle = seriesTitle,
-                        seriesIndex = seriesIndex,
-                        seriesUrl = seriesUrl
+                        rating = rating
                     )
+                }
+                // ADR-0009: series belongs to the Work — applied only when the
+                // page claims the series URL (the membership signal), so an
+                // absent claim never clears the stored series.
+                if (seriesUrl != null) {
+                    dao.updateSeriesFields(bookId, seriesTitle, seriesUrl, seriesIndex)
                 }
                 // Cover via a targeted UPDATE, not a REPLACE insert: the row
                 // carries freshly back-filled metadata above, and a full-row
@@ -508,7 +509,7 @@ class SourceCatalog(
      * "local" source when the URL is blank — local imports), falling back to
      * the first source when no type matches.
      */
-    private suspend fun primarySourceOf(bookId: String, book: AudiobookEntity?): SourceEntity? {
+    private suspend fun primarySourceOf(bookId: String, book: com.example.data.db.BookRow?): SourceEntity? {
         val sources = dao.getSourcesForBookSync(bookId)
         if (sources.isEmpty()) return null
         val sourceUrl = book?.sourceUrl.orEmpty()

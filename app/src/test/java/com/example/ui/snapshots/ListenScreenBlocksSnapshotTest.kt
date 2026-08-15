@@ -101,11 +101,11 @@ class ListenScreenBlocksSnapshotTest {
 
     @Test
     fun continue_series_row() {
-        val nextVolume = book.copy(
-            title = "Наступна книга циклу",
-            seriesTitle = "Сага про Дріззта",
-            seriesIndex = 3
-        )
+        // ADR-0009: series fields are @Ignore projections — set in place.
+        val nextVolume = book.copy(title = "Наступна книга циклу").also {
+            it.seriesTitle = "Сага про Дріззта"
+            it.seriesIndex = 3
+        }
         composeTestRule.setContent {
             AudiobookTheme(darkTheme = true) {
                 ListenSurface {

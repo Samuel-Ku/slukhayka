@@ -54,29 +54,39 @@ class WorkSourcesRepositoryTest {
     // directly — no god module.
     private fun catalog() = SourceCatalog(dao, emptyList(), LibraryImport(dao, context, emptyList()))
 
-    private fun libraryBook(
+    /** Inserts the book row AND its Library Entry (ADR-0009 — the entry
+     *  carries the workId the reads join through). */
+    private suspend fun libraryBook(
         id: String,
         title: String,
         sourceUrl: String,
         workId: String? = null
-    ) = AudiobookEntity(
-        id = id,
-        title = title,
-        author = "Жан-Крістоф Гранже",
-        narrator = "",
-        description = "",
-        coverDrawableRes = 0,
-        coverImageUrl = null,
-        genre = "Детектив",
-        sourceUrl = sourceUrl,
-        isDownloaded = false,
-        downloadProgress = 0f,
-        totalDurationSeconds = 0L,
-        totalChapters = 0,
-        rating = 0f,
-        isFavorite = false,
-        workId = workId
-    )
+    ): AudiobookEntity {
+        val book = AudiobookEntity(
+            id = id,
+            title = title,
+            author = "Жан-Крістоф Гранже",
+            narrator = "",
+            description = "",
+            coverDrawableRes = 0,
+            coverImageUrl = null,
+            genre = "Детектив",
+            sourceUrl = sourceUrl,
+            isDownloaded = false,
+            totalDurationSeconds = 0L,
+            totalChapters = 0,
+            rating = 0f
+        ).also { it.workId = workId }
+        dao.insertAudiobooks(listOf(book))
+        dao.upsertLibraryEntry(
+            id = id,
+            workId = workId ?: id,
+            isFavorite = false,
+            createdAt = 0L,
+            downloadProgress = 0f
+        )
+        return book
+    }
 
     @Test
     fun `book with two sources lists both with their stream-only markers`() = runBlocking {
@@ -111,7 +121,7 @@ class WorkSourcesRepositoryTest {
                 addedAt = 0L
             )
         )
-        dao.insertAudiobooks(listOf(libraryBook("lib-1", "Пасажир", "https://4read.org/pasazhir.html", workId = work.id)))
+        libraryBook("lib-1", "Пасажир", "https://4read.org/pasazhir.html", workId = work.id)
 
         val rows = catalog.sourcesForBook("lib-1")
 
@@ -129,7 +139,7 @@ class WorkSourcesRepositoryTest {
     fun `pre-merge library row falls back to its own single source`() = runBlocking {
         val catalog = catalog()
         // No workId / no editions yet — the row predates the merge.
-        dao.insertAudiobooks(listOf(libraryBook("lib-legacy", "Стара книга", "https://4read.org/stara.html")))
+        libraryBook("lib-legacy", "Стара книга", "https://4read.org/stara.html")
 
         val rows = catalog.sourcesForBook("lib-legacy")
 
@@ -142,7 +152,7 @@ class WorkSourcesRepositoryTest {
     @Test
     fun `stream-only source policy marks a pre-merge lihtar row`() = runBlocking {
         val catalog = catalog()
-        dao.insertAudiobooks(listOf(libraryBook("lib-lihtar", "Книга", "https://lihtar.in.ua/kniga.html")))
+        libraryBook("lib-lihtar", "Книга", "https://lihtar.in.ua/kniga.html")
 
         val rows = catalog.sourcesForBook("lib-lihtar")
 

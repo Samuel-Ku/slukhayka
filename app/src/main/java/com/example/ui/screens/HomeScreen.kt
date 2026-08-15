@@ -47,10 +47,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import kotlinx.coroutines.launch
 import com.example.data.catalog.CatalogBook
 import com.example.data.catalog.CatalogSection
 import com.example.data.catalog.CatalogSeries
+import com.example.data.catalog.SourceCatalog
 import com.example.data.db.AudiobookEntity
+import com.example.data.entries.LibraryEntries
 import com.example.data.db.WorkFeedRow
 import com.example.data.source.sourceDisplayName
 import com.example.ui.MainViewModel
@@ -72,15 +75,24 @@ import com.example.ui.theme.*
 @Composable
 fun HomeScreen(
     viewModel: MainViewModel,
+    // ADR-0008 batches 2 + contract (#156, #160): the screen receives the
+    // modules it reads from as parameters, wired from the composition root —
+    // the injection idiom settled by #154. Search, the feed, recommendations
+    // and navigation orchestration stay on the ViewModel.
+    libraryEntries: LibraryEntries,
+    sourceCatalog: SourceCatalog,
     onBookClick: (String) -> Unit,
     onPlayClick: (AudiobookEntity) -> Unit
 ) {
-    val allBooks by viewModel.allBooks.collectAsState()
+    // ADR-0008: module flows are read directly — no forwarding StateFlow on
+    // the ViewModel. Cold flows need an initial value; the catalogue StateFlows
+    // carry their own.
+    val allBooks by libraryEntries.allBooks.collectAsState(initial = emptyList())
     val searchQuery by viewModel.searchQuery.collectAsState()
     val selectedGenre by viewModel.selectedGenreFilter.collectAsState()
-    val sections by viewModel.catalogSections.collectAsState()
-    val isCatalogLoading by viewModel.isCatalogLoading.collectAsState()
-    val catalogGenres by viewModel.catalogGenres.collectAsState()
+    val sections by sourceCatalog.catalogSections.collectAsState()
+    val isCatalogLoading by sourceCatalog.isCatalogLoading.collectAsState()
+    val catalogGenres by sourceCatalog.catalogGenres.collectAsState()
     // Spec-10 T4: aggregated global search across all verified sources.
     val globalResults by viewModel.globalSearchResults.collectAsState()
     val isGlobalSearchLoading by viewModel.isGlobalSearchLoading.collectAsState()
@@ -100,7 +112,13 @@ fun HomeScreen(
     // Spec-15 T1: refresh the ephemeral union once per Огляд composition —
     // the ViewModel still needs it for the recommendation enrichment, even
     // though the browse surface is now the spec-23 T4 persisted feed.
-    androidx.compose.runtime.LaunchedEffect(Unit) { viewModel.loadUnifiedCatalog() }
+    // ADR-0008: the module call is made directly from the composition scope;
+    // the embedding pass stays orchestrated by the ViewModel (single-flight).
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(Unit) {
+        sourceCatalog.refreshUnifiedCatalog()
+        viewModel.refreshEmbeddingVectors()
+    }
 
     // Spec-22 T3: the search bar and filter chips are collapsible — the
     // header shows brand + [🔍] + [🔄], and the field + chips expand on
@@ -157,7 +175,7 @@ fun HomeScreen(
                         if (selectedGenre != "Усі") viewModel.selectGenreFilter("Усі")
                     }
                 },
-                onRefresh = viewModel::refreshCatalog,
+                onRefresh = { scope.launch { sourceCatalog.fetchCatalogSections() } },
                 onSearchQueryChange = viewModel::updateSearchQuery,
                 onCloseSearch = {
                     searchExpanded = false
@@ -270,7 +288,7 @@ fun HomeScreen(
             if (!isCatalogLoading && sections.isEmpty() && allBooks.isEmpty()) {
                 item {
                     EmptyCatalogState(
-                        onRefreshClick = { viewModel.refreshCatalog() },
+                        onRefreshClick = { scope.launch { sourceCatalog.fetchCatalogSections() } },
                         onImportClick = { viewModel.selectTab(com.example.ui.SelectedTab.LIBRARY) }
                     )
                 }
@@ -1092,9 +1110,9 @@ fun WorkFeedCard(
             }
             // Spec-23 T5: the «N джерел» badge appears only when more than one
             // source carries the Work — a single source needs no badge.
-            if (row.editionCount > 1) {
+            if (row.sourceCount > 1) {
                 Spacer(modifier = Modifier.height(4.dp))
-                SourceBadgePill(label = editionBadgeLabel(row.editionCount))
+                SourceBadgePill(label = editionBadgeLabel(row.sourceCount))
             }
         }
         Spacer(modifier = Modifier.width(8.dp))

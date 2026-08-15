@@ -16,6 +16,7 @@ import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -33,6 +34,10 @@ import com.example.data.catalog.CatalogBook
 import com.example.data.db.AudiobookEntity
 import com.example.data.db.BookmarkEntity
 import com.example.data.db.ChapterEntity
+import com.example.data.downloads.OfflineDownloads
+import com.example.data.listening.ListeningStateStore
+import com.example.data.source.sourceIdForUrl
+import com.example.data.source.streamOnlyFor
 import com.example.ui.MainViewModel
 import com.example.ui.components.BookmarkDialog
 import com.example.ui.displayAuthor
@@ -42,6 +47,12 @@ import com.example.ui.theme.*
 @Composable
 fun BookDetailScreen(
     viewModel: MainViewModel,
+    // ADR-0008 batch 4 (#159): the screen receives the modules it acts on as
+    // parameters, wired from the composition root — the injection idiom
+    // settled by #154. Bookmark creation, download and the selection flow
+    // stay orchestrated by the ViewModel.
+    listeningState: ListeningStateStore,
+    offlineDownloads: OfflineDownloads,
     onBackClick: () -> Unit
 ) {
     val book by viewModel.selectedBook.collectAsState()
@@ -66,7 +77,12 @@ fun BookDetailScreen(
     val isDownloadingThis = downloadingBookId == currentBook.id
     // Spec-10 T6: stream-only sources (lihtar — its ToS forbids reproduction)
     // hide the download action; the repository refuses anyway, in depth.
-    val streamOnly = viewModel.isStreamOnly(currentBook)
+    // ADR-0008: the pure stream-only decision is read from the source helpers
+    // directly — no forwarding function on the ViewModel.
+    val streamOnly = streamOnlyFor(sourceIdForUrl(currentBook.sourceUrl))
+    // ADR-0008: suspend module calls from user actions run on the composition
+    // scope (same pattern as playerManager's call-through).
+    val scope = rememberCoroutineScope()
 
     // Offline-download outcome feedback: the repository may find no audio for
     // a catalogue book whose page could not be fetched — surface that instead
@@ -136,7 +152,7 @@ fun BookDetailScreen(
                         IconButton(
                             onClick = {
                                 if (currentBook.isDownloaded) {
-                                    viewModel.removeOfflineDownload(currentBook.id)
+                                    scope.launch { offlineDownloads.removeOfflineDownload(currentBook.id) }
                                 } else {
                                     viewModel.downloadBookOffline(currentBook.id)
                                 }
@@ -419,7 +435,7 @@ fun BookDetailScreen(
                             OutlinedButton(
                             onClick = {
                                 if (currentBook.isDownloaded) {
-                                    viewModel.removeOfflineDownload(currentBook.id)
+                                    scope.launch { offlineDownloads.removeOfflineDownload(currentBook.id) }
                                 } else {
                                     viewModel.downloadBookOffline(currentBook.id)
                                 }
@@ -560,7 +576,7 @@ fun BookDetailScreen(
                         BookmarkRowItem(
                             bookmark = bookmark,
                             onJumpClick = { viewModel.jumpToBookmark(bookmark) },
-                            onDeleteClick = { viewModel.deleteBookmark(bookmark.id) }
+                            onDeleteClick = { scope.launch { listeningState.deleteBookmark(bookmark.id) } }
                         )
                     }
                 }
@@ -669,7 +685,9 @@ fun BookDetailScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable {
-                                viewModel.removeOfflineDownload(currentBook.id)
+                                scope.launch {
+                                    offlineDownloads.removeOfflineDownload(currentBook.id)
+                                }
                                 showDeleteSheet = false
                             }
                             .padding(vertical = 12.dp)

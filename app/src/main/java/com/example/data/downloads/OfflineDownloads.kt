@@ -62,14 +62,16 @@ class OfflineDownloads(
         // owning source's Referer — derive it from the book, not the URL host.
         val sourceId = streamOnlyBook?.let { sourceIdForUrl(it.sourceUrl) } ?: "unknown"
 
-        // Use the fallback-fetching catalog chapter fetch, NOT a raw Room
-        // read: a catalogue book's chapters live on its source page and are
-        // materialised on demand. Previously the raw read returned 0 chapters
-        // for any book whose page had never been opened/played, and the method
-        // silently returned — the Download button did nothing (observed
-        // on-device: 183 of 214 books had no chapters in Room).
-        val chapters = sourceCatalog.getChaptersList(bookId)
-        val total = chapters.size
+        // Use the fallback-fetching catalog chapter fetch (chapters + their
+        // tracks), NOT a raw Room read: a catalogue book's chapters live on
+        // its source page and are materialised on demand. Previously the raw
+        // read returned 0 chapters for any book whose page had never been
+        // opened/played, and the method silently returned — the Download
+        // button did nothing (observed on-device: 183 of 214 books had no
+        // chapters in Room). ADR-0007: the download loop consumes the
+        // chapter→track pairing and writes ONLY the track rows.
+        val playable = sourceCatalog.getPlayableChapters(bookId)
+        val total = playable.size
         if (total == 0) {
             Log.w("OfflineDownloads", "downloadAudiobookOffline: no chapters found for bookId=$bookId")
             return OfflineDownloadResult(0, 0)
@@ -97,14 +99,20 @@ class OfflineDownloads(
         dao.updateDownloadState(bookId, isDownloaded = false, progress = 0.05f)
 
         coroutineScope {
-            chapters.map { chapter ->
+            playable.map { playableChapter ->
                 async(Dispatchers.IO) {
+                    val chapter = playableChapter.chapter
+                    val track = playableChapter.track
                     val localFile = File(audioDir, "${chapter.id}.mp3")
                     var chapterOk = false
 
                     try {
-                        if (!localFile.exists() || localFile.length() < 100) {
-                            val streamUrl = chapter.streamUrl
+                        // A chapter without a track (per-source topology
+                        // mismatch) has nothing to download — stays failed.
+                        if (track == null) {
+                            // No playable stream for this chapter.
+                        } else if (!localFile.exists() || localFile.length() < 100) {
+                            val streamUrl = track.url
                             if (streamUrl.startsWith("http")) {
                                 val url = URL(streamUrl)
                                 val connection = (url.openConnection() as HttpURLConnection).apply {
@@ -156,11 +164,15 @@ class OfflineDownloads(
                     val finished = completedCount.incrementAndGet()
                     val currentProgress = finished.toFloat() / total
                     dao.updateDownloadState(bookId, isDownloaded = false, progress = currentProgress)
-                    dao.updateChapterDownloadState(
-                        chapter.id,
-                        isDownloaded = chapterOk,
-                        filePath = if (chapterOk) localFile.absolutePath else null
-                    )
+                    // ADR-0007: download state lives on the TRACK rows — the
+                    // chapter rows never change on download.
+                    track?.let {
+                        dao.updateTrackDownloadState(
+                            it.id,
+                            isDownloaded = chapterOk,
+                            filePath = if (chapterOk) localFile.absolutePath else null
+                        )
+                    }
                     if (chapterOk) successCount++
                 }
             }.awaitAll()
@@ -176,20 +188,21 @@ class OfflineDownloads(
     }
 
     suspend fun removeOfflineDownload(bookId: String) {
-        val chapters = dao.getChaptersListForBook(bookId)
-        chapters.forEach { ch ->
-            ch.localFilePath?.let { path ->
+        // ADR-0007: the physical copies live on the TRACK rows.
+        val tracks = dao.getTracksForBookSync(bookId)
+        tracks.forEach { track ->
+            track.localFilePath?.let { path ->
                 val file = File(path)
                 if (file.exists()) {
                     file.delete()
                 }
             }
-            dao.updateChapterDownloadState(ch.id, isDownloaded = false, filePath = null)
+            dao.updateTrackDownloadState(track.id, isDownloaded = false, filePath = null)
         }
         // The copies are gone; the hashes must not pretend they still exist,
         // otherwise a later re-import of the same files would be skipped as
         // "duplicate" and the book would stay unplayable (wayfinder #48+#50).
-        dao.clearChapterContentHashes(bookId)
+        dao.clearTrackContentHashesForBook(bookId)
         dao.updateDownloadState(bookId, isDownloaded = false, progress = 0f)
     }
 
@@ -220,7 +233,7 @@ class OfflineDownloads(
                 }
             }
             dao.markAllNotDownloaded()
-            dao.clearAllChaptersDownloadState()
+            dao.clearAllTracksDownloadState()
         }
     }
 

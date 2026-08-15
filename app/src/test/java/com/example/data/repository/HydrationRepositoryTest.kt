@@ -178,12 +178,14 @@ class HydrationRepositoryTest {
 
         assertEquals(2, result.found)
         assertEquals(2, dao.countWorks())
-        assertEquals(2, dao.countEditions())
+        // ADR-0007: the persisted browse rows are work_sources (one SOURCE
+        // carrying a Work) — not the domain editions.
+        assertEquals(2, dao.countWorkSources())
         for (work in dao.observeWorks().first()) {
-            val edition = dao.getEditionsForWorkSync(work.id).single()
-            assertEquals("sluhay", edition.sourceId)
-            // sluhay is downloadable — the edition must not be stream-only.
-            assertEquals(false, edition.streamOnly)
+            val source = dao.getWorkSourcesForWorkSync(work.id).single()
+            assertEquals("sluhay", source.sourceId)
+            // sluhay is downloadable — the source must not be stream-only.
+            assertEquals(false, source.streamOnly)
         }
     }
 
@@ -195,10 +197,10 @@ class HydrationRepositoryTest {
         repository.hydrateWebSourceCatalog("lihtar")
 
         val work = dao.observeWorks().first().single()
-        val edition = dao.getEditionsForWorkSync(work.id).single()
-        assertEquals("lihtar", edition.sourceId)
-        // lihtar is stream-only — the edition must refuse downloads.
-        assertEquals(true, edition.streamOnly)
+        val source = dao.getWorkSourcesForWorkSync(work.id).single()
+        assertEquals("lihtar", source.sourceId)
+        // lihtar is stream-only — the source must refuse downloads.
+        assertEquals(true, source.streamOnly)
     }
 
     @Test
@@ -215,6 +217,6 @@ class HydrationRepositoryTest {
         assertEquals(0, second.imported)
         assertEquals(2, second.merged)
         assertEquals(2, dao.countWorks())
-        assertEquals(2, dao.countEditions())
+        assertEquals(2, dao.countWorkSources())
     }
 }

@@ -46,8 +46,7 @@ class AudiobookGlanceWidgetStateTest {
                 bookId = "test_book_1",
                 chapterIndex = 0,
                 title = "Думи мої, думи мої",
-                durationSeconds = 600L,
-                streamUrl = "https://example.com/ch0.mp3"
+                durationSeconds = 600L
             )
         )
         val playerState = PlayerState(
@@ -93,11 +92,12 @@ class AudiobookGlanceWidgetStateTest {
                 bookId = "fallback_book",
                 chapterIndex = 0,
                 title = "Частина 1",
-                durationSeconds = 1800L,
-                streamUrl = "https://example.com/tini1.mp3"
+                durationSeconds = 1800L
             )
         )
         val fallbackProgress = PlaybackProgressEntity(
+            // ADR-0007: progress is Edition-keyed.
+            editionId = "ed-fallback_book",
             bookId = "fallback_book",
             currentChapterIndex = 0,
             currentPositionSeconds = 300L,

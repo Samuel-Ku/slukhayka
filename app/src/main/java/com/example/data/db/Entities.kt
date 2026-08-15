@@ -61,51 +61,88 @@ data class ListeningStatEntity(
     val listenedSeconds: Long = 0L
 )
 
-@Entity(tableName = "chapters", indices = [Index("bookId")])
+/**
+ * One ordered logical subdivision of an Edition (ADR-0007). Positions and
+ * bookmarks anchor to [editionId] + [chapterIndex], independent of how any
+ * Source divides its files. The PHYSICAL playback data (stream URL, local
+ * copy, content hash) moved out of this row to [SourceTrackEntity] — a
+ * chapter row never changes on download (the track rows do).
+ *
+ * [bookId] is kept during the expand phase (the bookId columns contract in a
+ * later ticket); new code reads through [editionId].
+ */
+@Entity(tableName = "chapters", indices = [Index("bookId"), Index("editionId")])
 data class ChapterEntity(
     @PrimaryKey val id: String,
     val bookId: String,
     val chapterIndex: Int,
     val title: String,
     val durationSeconds: Long,
-    val streamUrl: String,
-    val localFilePath: String? = null,
-    val isDownloaded: Boolean = false,
-    // SHA-256 of the copied local file (wayfinder #48): lets re-imports of the
-    // same file be detected and skipped without duplicating storage. Null for
-    // streamed 4read chapters.
-    val contentHash: String? = null,
-    // Unified-library identity (wayfinder #55 Q2, stage-2 S1): the Edition id
-    // this chapter belongs to. Back-filled = bookId for legacy rows (one
-    // edition per book before multi-source); new editions stamp their source
-    // row id.
+    // The domain Edition this logical chapter belongs to (ADR-0007).
     val editionId: String? = null
 )
 
 /**
- * One playable source of a Work (spec-10 T2). The Work card is the
- * AudiobookEntity row; every source (4read, soundbooks, audiobookmp3, lihtar,
- * local, …) is a row here. `streamOnly` gates the download action per the T1
- * verdicts; local imports carry type "local" with a blank url.
+ * One physical playback track of a Source (ADR-0007). A Source owns its
+ * tracks: the concrete stream URLs / local copies through which one Edition
+ * may be played. Chapter → track is 1:1 by [trackIndex] today (all live
+ * sources); per-source chapter topology is future work (documented in
+ * ADR-0007).
  */
-@Entity(tableName = "sources", indices = [Index("bookId")])
+@Entity(tableName = "source_tracks", indices = [Index("sourceId")])
+data class SourceTrackEntity(
+    // Deterministic per (source, index): `$sourceId_tr_${index+1}` — the
+    // chapter-row analogue of the `_ch_` chapter ids.
+    @PrimaryKey val id: String,
+    // The owning [SourceEntity.id] — the primary source row of the Edition.
+    val sourceId: String,
+    val trackIndex: Int,
+    // The concrete playable URL (or the copied local file path for local
+    // sources, where it doubles as both url and localFilePath).
+    val url: String,
+    val localFilePath: String? = null,
+    // SHA-256 of the copied local file (wayfinder #48): lets re-imports of
+    // the same file be detected and skipped without duplicating storage.
+    val contentHash: String? = null,
+    val isDownloaded: Boolean = false
+)
+
+/**
+ * One playable source of an Edition (ADR-0007). The row is re-parented from
+ * `bookId` to `editionId` (the bookId column is kept during the expand
+ * phase); ids are recomputed deterministically as `$type-$editionId`.
+ * `streamOnly` gates the download action per the T1 verdicts; local imports
+ * carry type "local" with a blank url.
+ */
+@Entity(tableName = "sources", indices = [Index("bookId"), Index("editionId")])
 data class SourceEntity(
     @PrimaryKey val id: String,
     val bookId: String,
+    // The domain Edition this source can play (ADR-0007). Deterministic
+    // backfill: one edition per book, so every source of a book shares it.
+    val editionId: String? = null,
     val type: String,
     val url: String,
     val streamOnly: Boolean = false,
     val addedAt: Long = System.currentTimeMillis(),
     // wayfinder #42: the folder-scan baseline of a local source — a hash over
-    // its chapters' (name, contentHash) pairs. Null until the folder has been
+    // its tracks' (name, contentHash) pairs. Null until the folder has been
     // scanned once; a re-scan diffs the live tree against this fingerprint.
     val lastScanFingerprint: String? = null
 )
 
-@Entity(tableName = "bookmarks", indices = [Index("bookId")])
+/**
+ * A listener bookmark anchored to one Edition (ADR-0007). [bookId] is kept
+ * during the expand phase; [editionId] is the key new code reads and writes.
+ * The chapterIndex/title anchors are unchanged — the Edition's logical
+ * chapter list is the anchor, not any source's track numbering.
+ */
+@Entity(tableName = "bookmarks", indices = [Index("bookId"), Index("editionId")])
 data class BookmarkEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val bookId: String,
+    // The domain Edition this bookmark anchors to (ADR-0007).
+    val editionId: String? = null,
     val chapterIndex: Int,
     val chapterTitle: String,
     val timestampSeconds: Long,
@@ -113,18 +150,18 @@ data class BookmarkEntity(
     val createdAt: Long = System.currentTimeMillis()
 )
 
-@Entity(
-    tableName = "playback_progress",
-    indices = [Index("bookId")],
-    // Spec-10 T2: listening state is keyed per source (ADR-0001), so the
-    // position of the same book on two sources never corrupts each other.
-    primaryKeys = ["bookId", "sourceKey"]
-)
+/**
+ * Listening State of one Edition (ADR-0007). Re-keyed from (bookId,
+ * sourceKey) to [editionId]: progress belongs to the rendition, not to the
+ * source that happened to play it — switching sources mid-book keeps the
+ * position. [bookId] is kept during the expand phase so legacy book-scoped
+ * reads still resolve.
+ */
+@Entity(tableName = "playback_progress", indices = [Index("bookId")])
 data class PlaybackProgressEntity(
+    // The domain Edition id (ADR-0007) — one row per rendition.
+    @PrimaryKey val editionId: String,
     val bookId: String,
-    // Which source this position belongs to; "" = the book's primary source
-    // (legacy rows and the single-source case).
-    val sourceKey: String = "",
     val currentChapterIndex: Int = 0,
     val currentPositionSeconds: Long = 0L,
     val lastListenedAt: Long = System.currentTimeMillis(),
@@ -148,6 +185,10 @@ data class PlaybackProgressEntity(
  * `fromPositionSeconds` is set only for SEEK / SOURCE_SWITCH — the
  * pre-jump position an undo returns to. `deviceId` stays "" until sync
  * (wayfinder #56) lands.
+ *
+ * ADR-0007: the `sourceKey` column is HISTORY — it stays in the schema, but
+ * new rows write "" (progress/bookmarks re-keyed to the Edition, the source
+ * is no longer part of the listening identity).
  */
 @Entity(
     tableName = "playback_events",
@@ -156,8 +197,7 @@ data class PlaybackProgressEntity(
 data class PlaybackEventEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val bookId: String,
-    // Which source the transition belongs to; "" = the book's primary source
-    // (same convention as PlaybackProgressEntity.sourceKey).
+    // ADR-0007: kept as history; new rows write "".
     val sourceKey: String = "",
     // Stable String kind — see PlaybackEventKind. Strings, not enum ordinals,
     // so a future sync does not depend on enum declaration order.
@@ -179,16 +219,12 @@ object PlaybackEventKind {
     const val TIMER_STOP = "TIMER_STOP"
     const val COMPLETED = "COMPLETED"
     const val RELISTEN = "RELISTEN"
+    // ADR-0007: kept as a recorded KIND of the past (the player no longer
+    // emits it — progress is Edition-keyed, so switching sources is not a
+    // listening-state transition).
     const val SOURCE_SWITCH = "SOURCE_SWITCH"
 }
 
-/**
- * Durable ledger of playback failures (wayfinder #52). Appended from
- * [com.example.player.AudioPlayerManager.reportPlaybackFailure] so support
- * can see error codes, hosts and audio engine modes per book even if no
- * logcat was captured. Written on the IO dispatcher; never thrown back into
- * the player path — observability must not break playback.
- */
 /**
  * Durable tombstone of a deleted library book (wayfinder #55 Q8, stage-2 S1).
  * The 4read catalogue re-lists deleted books on every sync, so without a
@@ -197,6 +233,9 @@ object PlaybackEventKind {
  * set — a delete survives restarts. A tombstone is removed only when the
  * user explicitly imports the book again (search, WebView, local import) —
  * never by a catalogue sync.
+ *
+ * ADR-0007: tombstone identity stays WORK-keyed — deleting a Work blocks
+ * re-import of every Edition and Source of it.
  */
 @Entity(tableName = "tombstones")
 data class TombstoneEntity(
@@ -303,6 +342,8 @@ data class SeriesMemberEntity(
  * preferences. Additive: nulls mean "use the global default" from
  * PlaybackSettings. The experimental toggles (volume boost, silence
  * skipping) ship OFF by policy — pauses are part of the narration.
+ * (ADR-0007 does not re-key this table — nothing reads it yet; it follows
+ * progress re-keying when it is wired.)
  */
 @Entity(tableName = "edition_settings", primaryKeys = ["bookId", "sourceKey"])
 data class EditionSettingsEntity(
@@ -324,7 +365,7 @@ data class EditionSettingsEntity(
  * by the normalized title+author+narrator [MergeKey]. This is the browse
  * layer — distinct from [AudiobookEntity], which stays the listening/library
  * row and links to a Work only when the user adds or plays it. One card per
- * Work, however many sources carry it; the sources live in [EditionEntity].
+ * Work, however many sources carry it; the sources live in [WorkSourceEntity].
  */
 @Entity(
     tableName = "works",
@@ -348,13 +389,42 @@ data class WorkEntity(
 )
 
 /**
- * A persisted catalogue Edition (spec-23 T1): one row per source carrying a
- * [WorkEntity]. Writing the same book from two sources attaches a second
- * Edition to the same Work — the browse feed shows one card with an «N
- * джерел» badge (spec-23 T5), never duplicates.
+ * A persisted catalogue **domain Edition** (ADR-0007): one row per rendition
+ * of a Work — id deterministic (`hash(mergeKey|language)`, or
+ * `hash(bookId|language)` when the mergeKey is blank), `workId` anchored to
+ * the library row ([AudiobookEntity.id]). The Edition OWNS the logical
+ * chapter list ([ChapterEntity.editionId]) and the listening state
+ * ([PlaybackProgressEntity], [BookmarkEntity]); the physical sources that
+ * can play it are [SourceEntity] rows, whose tracks are [SourceTrackEntity].
+ *
+ * The migration creates exactly one Edition per existing book — no concept
+ * drift, since the mergeKey already includes the narrator.
+ */
+@Entity(tableName = "editions", indices = [Index("workId")])
+data class EditionEntity(
+    // Deterministic per (book identity + language), stable across processes
+    // and re-imports — see [com.example.data.EditionId].
+    @PrimaryKey val id: String,
+    // The audiobooks row id this rendition belongs to.
+    val workId: String,
+    // Spoken language of the rendition; empty = unknown.
+    val language: String = "",
+    // Mirrored narrator of the rendition (the mergeKey already carries it).
+    val narrator: String = "",
+    val totalChapters: Int = 0,
+    val totalDurationSeconds: Long = 0L
+)
+
+/**
+ * A persisted catalogue Source carrier of a Work (spec-23 T1; renamed from
+ * the misnamed `editions` table in ADR-0007). One row per source carrying a
+ * [WorkEntity] — this is the glossary **Source** of the browse layer, NOT a
+ * rendition: writing the same book from two sources attaches a second source
+ * row to the same Work (the «N джерел» badge), never a duplicate. The
+ * domain Edition (rendition) lives in [EditionEntity].
  */
 @Entity(
-    tableName = "editions",
+    tableName = "work_sources",
     foreignKeys = [
         ForeignKey(
             entity = WorkEntity::class,
@@ -365,7 +435,7 @@ data class WorkEntity(
     ],
     indices = [Index("workId"), Index("sourceId")]
 )
-data class EditionEntity(
+data class WorkSourceEntity(
     // Deterministic per (work, source, url) so re-writing is idempotent:
     // `<workId>|<sourceId>|<url-hash>` — REPLACE no-ops on the same row.
     @PrimaryKey val id: String,
@@ -380,7 +450,7 @@ data class EditionEntity(
 
 /**
  * One row of the endless merged feed (spec-23 T4): a Work with the number of
- * Editions carrying it (the «N джерел» badge input) and its optional
+ * Sources carrying it (the «N джерел» badge input) and its optional
  * library-side genre (LEFT JOIN — null until the Work is linked into
  * `audiobooks`). Row shape for a Room paging query, not a stored table.
  */
@@ -394,8 +464,8 @@ data class WorkFeedRow(
     val seriesIndex: Int? = null,
     val coverImageUrl: String? = null,
     val addedAt: Long,
-    // COUNT of `editions` rows for this Work — the badge count.
-    val editionCount: Int,
+    // COUNT of `work_sources` rows for this Work — the badge count.
+    val sourceCount: Int,
     // The library row's genre (nullable until the Work is linked/imported).
     val genre: String? = null
 )

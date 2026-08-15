@@ -24,12 +24,14 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
+import com.example.data.catalog.SourceCatalog
 import com.example.data.db.AudiobookEntity
 import com.example.data.db.BookmarkEntity
 import com.example.data.db.ChapterEntity
 import com.example.data.db.PlaybackEventFilter
 import com.example.data.db.PlaybackEventKind
 import com.example.data.db.PlaybackEventPolicy
+import com.example.data.db.SourceTrackEntity
 import com.example.data.listening.ListeningStateStore
 import com.example.data.source.headersFor
 import com.example.data.source.sourceIdForUrl
@@ -111,7 +113,10 @@ class AudioPlayerManager(
     // through [ListeningStateStore]; chapter materialisation (incl. the 4read
     // page fallback) comes in as a suspend fetcher.
     private val listeningState: ListeningStateStore,
-    private val chapterFetcher: suspend (String) -> List<ChapterEntity>,
+    // ADR-0007: the fetch path returns each logical chapter PAIRED with the
+    // physical track of the book's primary source (playback resolves chapter
+    // → track one-to-one by index: track.localFilePath ?: track.url).
+    private val chapterFetcher: suspend (String) -> List<SourceCatalog.PlayableChapter>,
     private val injectedPlayerFactory: PlayerFactory? = null,
     /** Wall clock, injectable for deterministic smart-rewind tests. */
     private val now: () -> Long = System::currentTimeMillis,
@@ -274,6 +279,12 @@ class AudioPlayerManager(
     /** Chapter currently loaded on the player; used by the single listener. */
     private var currentChapter: ChapterEntity? = null
 
+    /** The current book's chapter→track pairing (ADR-0007). */
+    private var playableChapters: List<SourceCatalog.PlayableChapter> = emptyList()
+
+    /** The physical track of the currently loaded chapter (null = no stream). */
+    private var currentTrack: SourceTrackEntity? = null
+
     /** Whether the current prepare should auto-start once READY. */
     private var shouldAutoPlay: Boolean = false
 
@@ -333,8 +344,10 @@ class AudioPlayerManager(
     /** Guards the end-of-book completion so the trail records it exactly once. */
     private var completionLogged = false
 
-    /** (bookId, sourceKey) of the last loaded book — detects a source switch. */
-    private var lastLoadedBookKey: Pair<String, String>? = null
+    // ADR-0007: source-switch tracking is gone — progress/bookmarks are keyed
+    // by the Edition, so loading the same book from another source is not a
+    // listening-state transition anymore (no SOURCE_SWITCH event).
+    private var lastLoadedBookId: String? = null
 
     /** Position history for the "Повернутися" undo action (wayfinder #25). */
     private val seekHistory = SeekHistory()
@@ -366,7 +379,7 @@ class AudioPlayerManager(
             if (playbackState == Player.STATE_READY) {
                 prepareTimeoutJob?.cancel()
                 val mp = mediaPlayer ?: return
-                val localFile = currentChapter?.localFilePath?.let { java.io.File(it) }
+                val localFile = currentTrack?.localFilePath?.let { java.io.File(it) }
                 val isLocal = localFile != null && localFile.exists() && localFile.length() > 100
                 _playerState.value = _playerState.value.copy(
                     isBuffering = false,
@@ -404,7 +417,7 @@ class AudioPlayerManager(
 
         override fun onPlayerError(error: PlaybackException) {
             prepareTimeoutJob?.cancel()
-            Log.w("AudioPlayer", "Stream playback error (${error.errorCodeName}) for URL: ${currentChapter?.streamUrl}")
+            Log.w("AudioPlayer", "Stream playback error (${error.errorCodeName}) for URL: ${currentTrack?.url}")
             _playerState.value = _playerState.value.copy(
                 lastErrorMsg = "Primary stream error (${error.errorCodeName})"
             )
@@ -418,10 +431,18 @@ class AudioPlayerManager(
     fun loadAndPlayBook(
         book: AudiobookEntity,
         chapters: List<ChapterEntity>,
+        playable: List<SourceCatalog.PlayableChapter> = emptyList(),
         initialChapterIndex: Int = 0,
         initialPositionSeconds: Long = 0L,
         autoPlay: Boolean = true
     ) {
+        // ADR-0007: keep the chapter→track pairing for prepare/build; the
+        // display list stays the logical chapters.
+        playableChapters = if (playable.isEmpty()) {
+            chapters.map { SourceCatalog.PlayableChapter(chapter = it, track = null) }
+        } else {
+            playable
+        }
         var chapterIdx = initialChapterIndex.coerceIn(0, (chapters.size - 1).coerceAtLeast(0))
         var positionSeconds = initialPositionSeconds
         // Spec-16 T4: starting playback of a finished book is a re-listen — it
@@ -436,12 +457,10 @@ class AudioPlayerManager(
             chapterIdx = 0
             positionSeconds = 0L
         }
-        // Spec-16 T2: loading the same book from a different source is a source
-        // switch — recorded as a discrete transition (audit trail for undo and
-        // sync; cross-source undo semantics land with the persistent undo, T3).
-        val newBookKey = book.id to sourceIdForUrl(book.sourceUrl)
-        val switchingSource = lastLoadedBookKey?.let { it.first == book.id && it.second != newBookKey.second } == true
-        lastLoadedBookKey = newBookKey
+        // ADR-0007: no source-switch detection — listening identity is the
+        // Edition, not the source that happens to play it. (The old code
+        // recorded a SOURCE_SWITCH transition here.)
+        lastLoadedBookId = book.id
         _playerState.value = _playerState.value.copy(
             currentBook = book,
             chapters = chapters,
@@ -471,9 +490,6 @@ class AudioPlayerManager(
         completionLogged = false
         lastPreparedChapterIndex = null
         seekHistory.clear()
-        if (switchingSource) {
-            recordPlaybackEvent(PlaybackEventKind.SOURCE_SWITCH, positionSeconds = positionSeconds)
-        }
         if (relisten) {
             playbackSegmentStartMs = now()
             recordPlaybackEvent(PlaybackEventKind.RELISTEN, positionSeconds = 0L)
@@ -490,9 +506,8 @@ class AudioPlayerManager(
         // position used is the post-relisten one (0), so a finished book's
         // stale candidate never re-offers.
         val restoredPositionSeconds = positionSeconds
-        val restoredSourceKey = newBookKey.second
         scope.launch(ioDispatcher) {
-            val candidate = listeningState.lastUndoCandidate(book.id, restoredSourceKey)
+            val candidate = listeningState.lastUndoCandidate(book.id)
             if (candidate != null &&
                 !seekHistory.canUndo() &&
                 !PlaybackEventPolicy.isStaleUndoCandidate(candidate, now()) &&
@@ -532,8 +547,10 @@ class AudioPlayerManager(
 
         val chapter = chapters[chapterIndex]
         val durationMs = chapter.durationSeconds * 1000L
+        val track = playableChapters.getOrNull(chapterIndex)?.track
 
         currentChapter = chapter
+        currentTrack = track
         shouldAutoPlay = autoPlay || _playerState.value.isPlaying
 
         _playerState.value = _playerState.value.copy(
@@ -541,7 +558,7 @@ class AudioPlayerManager(
             currentPositionMs = startPositionMs,
             durationMs = durationMs,
             isBuffering = true,
-            currentStreamUrl = chapter.streamUrl,
+            currentStreamUrl = track?.url.orEmpty(),
             lastErrorMsg = "",
             // A chapter switch is deliberate — the seek history is cleared.
             canUndoSeek = false,
@@ -576,7 +593,7 @@ class AudioPlayerManager(
         }
 
         playbackMetrics.recordAttempt()
-        playbackEventLog.record("PREPARE ch${chapterIndex} ${chapter.streamUrl}")
+        playbackEventLog.record("PREPARE ch${chapterIndex} ${track?.url}")
 
         try {
             // Spec-13 T2 — per-source stream headers: the playerjs CDN
@@ -586,7 +603,7 @@ class AudioPlayerManager(
             // covers every request of this chapter; the next chapter re-sets
             // them (empty for sources that serve plain GETs).
             val headers = _playerState.value.currentBook
-                ?.let { headersFor(sourceIdForUrl(it.sourceUrl), chapter.streamUrl) }
+                ?.let { headersFor(sourceIdForUrl(it.sourceUrl), track?.url.orEmpty()) }
                 ?: emptyMap()
             httpDataSourceFactory.setDefaultRequestProperties(headers)
             lastAppliedStreamHeaders = headers
@@ -594,7 +611,7 @@ class AudioPlayerManager(
             // setMediaItem replaces the previous playlist entry and resets the
             // player to IDLE; prepare() re-enters BUFFERING -> READY.
             val mp = ensurePlayerCreated()
-            mp.setMediaItem(buildMediaItem(chapter))
+            mp.setMediaItem(buildMediaItem(chapter, track))
             mp.prepare()
         } catch (e: Exception) {
             prepareTimeoutJob?.cancel()
@@ -631,7 +648,7 @@ class AudioPlayerManager(
     ) {
         prepareTimeoutJob?.cancel()
         val state = _playerState.value
-        val failedUrl = currentChapter?.streamUrl ?: state.currentStreamUrl
+        val failedUrl = currentTrack?.url ?: state.currentStreamUrl
         playbackMetrics.recordFailure(errorCodeName)
         playbackEventLog.record("FAIL $errorCodeName ${failedUrl}")
         // The host part turns an opaque error into an actionable one ("which
@@ -670,7 +687,7 @@ class AudioPlayerManager(
      * MediaItem with book/chapter metadata so the system media notification
      * (and Android Auto / lock screen) shows a real title instead of a URL.
      */
-    private fun buildMediaItem(chapter: ChapterEntity): MediaItem {
+    private fun buildMediaItem(chapter: ChapterEntity, track: SourceTrackEntity?): MediaItem {
         val book = _playerState.value.currentBook
         val metadata = MediaMetadata.Builder()
             .setTitle(chapter.title)
@@ -678,7 +695,10 @@ class AudioPlayerManager(
             .setAlbumTitle(book?.title)
             .setArtworkUri(book?.coverImageUrl?.toUri())
             .build()
-        val localFile = chapter.localFilePath?.let { java.io.File(it) }
+        // ADR-0007: playback resolves chapter → track one-to-one by index
+        // (track.localFilePath ?: track.url — current behavior preserved
+        // exactly).
+        val localFile = track?.localFilePath?.let { java.io.File(it) }
         return if (localFile != null && localFile.exists() && localFile.length() > 100) {
             MediaItem.Builder()
                 .setUri(Uri.fromFile(localFile))
@@ -689,7 +709,7 @@ class AudioPlayerManager(
             // shared HTTP factory by prepareChapter (spec-13 T2) — the media
             // item itself carries only the URI and metadata.
             MediaItem.Builder()
-                .setUri(chapter.streamUrl.toUri())
+                .setUri(track?.url.orEmpty().toUri())
                 .setMediaMetadata(metadata)
                 .build()
         }
@@ -1225,8 +1245,12 @@ class AudioPlayerManager(
         scope.launch(Dispatchers.IO) {
             listeningState.updateChapterDuration(chapter.id, seconds)
             val chapters = chapterFetcher(book.id)
-            if (chapters.isNotEmpty() && chapters.all { it.durationSeconds > 0L }) {
-                listeningState.updateBookStats(book.id, chapters.size, chapters.sumOf { it.durationSeconds })
+            if (chapters.isNotEmpty() && chapters.all { it.chapter.durationSeconds > 0L }) {
+                listeningState.updateBookStats(
+                    book.id,
+                    chapters.size,
+                    chapters.sumOf { it.chapter.durationSeconds }
+                )
             }
         }
     }
@@ -1236,9 +1260,8 @@ class AudioPlayerManager(
         val currentChapter = _playerState.value.currentChapterIndex
         val posSec = _playerState.value.currentPositionMs / 1000L
         scope.launch(Dispatchers.IO) {
-            // Spec-10 T2: positions are keyed per source (ADR-0001), so the
-            // player writes to the current book's source key.
-            listeningState.updateProgress(book.id, currentChapter, posSec, sourceKey = sourceIdForUrl(book.sourceUrl))
+            // ADR-0007: progress is keyed by the Edition — no source key.
+            listeningState.updateProgress(book.id, currentChapter, posSec)
             listeningState.recordListeningTime(5L)
         }
     }
@@ -1258,14 +1281,14 @@ class AudioPlayerManager(
     ) {
         val book = _playerState.value.currentBook ?: return
         val bookId = book.id
-        val sourceKey = sourceIdForUrl(book.sourceUrl)
         scope.launch(Dispatchers.IO) {
+            // ADR-0007: the event log is history — rows are written with
+            // sourceKey = "" (the store's default).
             listeningState.recordPlaybackEvent(
                 bookId = bookId,
                 kind = kind,
                 chapterIndex = chapterIndex,
                 positionSeconds = positionSeconds,
-                sourceKey = sourceKey,
                 fromPositionSeconds = fromPositionSeconds,
                 timestampMs = now()
             )
@@ -1317,6 +1340,8 @@ class AudioPlayerManager(
             }
         }
         currentChapter = null
+        currentTrack = null
+        playableChapters = emptyList()
         shouldAutoPlay = false
         pendingResumeSeekMs = -1L
         // Spec-16 T2: a cleared session has no segment, no source history and
@@ -1324,7 +1349,7 @@ class AudioPlayerManager(
         playbackSegmentStartMs = null
         lastPreparedChapterIndex = null
         completionLogged = false
-        lastLoadedBookKey = null
+        lastLoadedBookId = null
         _playerState.value = PlayerState()
     }
 

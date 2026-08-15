@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -37,6 +38,7 @@ import androidx.core.graphics.drawable.toBitmap
 import com.example.BuildConfig
 import com.example.data.db.AudiobookEntity
 import com.example.data.db.BookmarkEntity
+import com.example.data.entries.LibraryEntries
 import com.example.data.db.ChapterEntity
 import com.example.player.PlayerState
 import com.example.ui.MainViewModel
@@ -149,11 +151,21 @@ fun calculatePlayerProgress(
 @Composable
 fun PlayerScreen(
     viewModel: MainViewModel,
+    // ADR-0008 batch 4 (#159): the screen receives the module it reads from
+    // as a parameter, wired from the composition root — the injection idiom
+    // settled by #154. Player state is read from the player manager directly
+    // (already a public field); bookmark creation stays on the ViewModel.
+    libraryEntries: LibraryEntries,
     onDismiss: () -> Unit
 ) {
     val playerState by viewModel.playerState.collectAsState()
-    val allBookmarks by viewModel.allBookmarks.collectAsState()
+    // ADR-0008: module flows are read directly — no forwarding StateFlow on
+    // the ViewModel.
+    val allBookmarks by libraryEntries.allBookmarks.collectAsState(initial = emptyList())
     val book = playerState.currentBook ?: return
+    // ADR-0008: suspend module calls from user actions run on the composition
+    // scope (same pattern as playerManager's call-through).
+    val scope = rememberCoroutineScope()
     val bookmarks = remember(allBookmarks, book.id) { allBookmarks.filter { it.bookId == book.id } }
 
     var showSleepTimerSheet by rememberSaveable { mutableStateOf(false) }
@@ -227,7 +239,7 @@ fun PlayerScreen(
                 }
             },
             onDismiss = onDismiss,
-            onToggleFavorite = { viewModel.toggleFavorite(book.id, !book.isFavorite) },
+            onToggleFavorite = { scope.launch { libraryEntries.toggleFavorite(book.id, !book.isFavorite) } },
             onToggleDebug = { showDebugOverlay = !showDebugOverlay },
             onSeek = { fraction ->
                 viewModel.playerManager.seekTo((fraction * playerState.durationMs).toLong())

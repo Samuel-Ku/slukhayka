@@ -26,7 +26,7 @@ interface AudiobookDao {
     @Query("SELECT * FROM audiobooks WHERE mergeKey = :mergeKey AND mergeKey != '' LIMIT 1")
     suspend fun findByMergeKey(mergeKey: String): AudiobookEntity?
 
-    // --- Sources (spec-10 T2) ---
+    // --- Sources (spec-10 T2; re-parented to editionId in ADR-0007) ---
 
     @Query("SELECT * FROM sources WHERE bookId = :bookId ORDER BY addedAt ASC")
     fun getSourcesForBook(bookId: String): Flow<List<SourceEntity>>
@@ -34,8 +34,16 @@ interface AudiobookDao {
     @Query("SELECT * FROM sources WHERE bookId = :bookId ORDER BY addedAt ASC")
     suspend fun getSourcesForBookSync(bookId: String): List<SourceEntity>
 
+    /** Every source that can play one Edition (ADR-0007). */
+    @Query("SELECT * FROM sources WHERE editionId = :editionId ORDER BY addedAt ASC")
+    suspend fun getSourcesForEditionSync(editionId: String): List<SourceEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertSources(sources: List<SourceEntity>)
+
+    /** The book a source belongs to — the dedupe lookup of an existing track's owner. */
+    @Query("SELECT bookId FROM sources WHERE id = :sourceId LIMIT 1")
+    suspend fun getBookIdBySourceId(sourceId: String): String?
 
     @Query("DELETE FROM sources WHERE bookId = :bookId")
     suspend fun deleteSourcesForBook(bookId: String)
@@ -70,6 +78,10 @@ interface AudiobookDao {
     @Query("SELECT * FROM chapters WHERE bookId = :bookId ORDER BY chapterIndex ASC")
     suspend fun getChaptersListForBook(bookId: String): List<ChapterEntity>
 
+    /** The logical chapter list of one Edition (ADR-0007). */
+    @Query("SELECT * FROM chapters WHERE editionId = :editionId ORDER BY chapterIndex ASC")
+    suspend fun getChaptersListForEdition(editionId: String): List<ChapterEntity>
+
     // Wayfinder #39: every chapter of every book, so the library can compute
     // cumulative positions and real total durations for its cards and sorts.
     @Query("SELECT * FROM chapters")
@@ -77,25 +89,6 @@ interface AudiobookDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertChapters(chapters: List<ChapterEntity>)
-
-    @Query("UPDATE chapters SET isDownloaded = :isDownloaded, localFilePath = :filePath WHERE id = :chapterId")
-    suspend fun updateChapterDownloadState(chapterId: String, isDownloaded: Boolean, filePath: String?)
-
-    /**
-     * First chapter that already holds the given content hash (wayfinder
-     * #48): a re-import of the same file is a duplicate and must not consume
-     * storage again. NULL when no chapter has ever imported this file.
-     */
-    @Query("SELECT * FROM chapters WHERE contentHash = :hash LIMIT 1")
-    suspend fun getChapterByContentHash(hash: String): ChapterEntity?
-
-    /**
-     * Forget the content hashes of a book's chapters (wayfinder #48 + #50):
-     * when an offline copy is removed from disk, its hash must not block a
-     * future re-import — the file is gone, so copying it again is legitimate.
-     */
-    @Query("UPDATE chapters SET contentHash = NULL WHERE bookId = :bookId")
-    suspend fun clearChapterContentHashes(bookId: String)
 
     /** Real chapter duration discovered during playback (replaces placeholder 0). */
     @Query("UPDATE chapters SET durationSeconds = :durationSeconds WHERE id = :chapterId")
@@ -132,9 +125,156 @@ interface AudiobookDao {
         seriesUrl: String?
     )
 
-    // Bookmarks
+    // --- Source tracks (ADR-0007): the physical playback data of a Source ---
+
+    @Query("SELECT * FROM source_tracks WHERE sourceId = :sourceId ORDER BY trackIndex ASC")
+    fun getTracksForSource(sourceId: String): Flow<List<SourceTrackEntity>>
+
+    @Query("SELECT * FROM source_tracks WHERE sourceId = :sourceId ORDER BY trackIndex ASC")
+    suspend fun getTracksForSourceSync(sourceId: String): List<SourceTrackEntity>
+
+    /** The tracks of every source of a book — for download state reads. */
+    @Query(
+        "SELECT st.* FROM source_tracks st JOIN sources s ON s.id = st.sourceId " +
+            "WHERE s.bookId = :bookId ORDER BY st.trackIndex ASC"
+    )
+    suspend fun getTracksForBookSync(bookId: String): List<SourceTrackEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertTracks(tracks: List<SourceTrackEntity>)
+
+    /**
+     * Download state lives on the TRACK rows (ADR-0007): chapter rows never
+     * change on download.
+     */
+    @Query("UPDATE source_tracks SET isDownloaded = :isDownloaded, localFilePath = :filePath WHERE id = :trackId")
+    suspend fun updateTrackDownloadState(trackId: String, isDownloaded: Boolean, filePath: String?)
+
+    /**
+     * First track that already holds the given content hash (wayfinder #48):
+     * a re-import of the same file is a duplicate and must not consume
+     * storage again. NULL when no track has ever imported this file.
+     */
+    @Query("SELECT * FROM source_tracks WHERE contentHash = :hash LIMIT 1")
+    suspend fun getTrackByContentHash(hash: String): SourceTrackEntity?
+
+    /** Every stored content hash — the library-wide re-scan dedupe pool. */
+    @Query("SELECT contentHash FROM source_tracks WHERE contentHash IS NOT NULL")
+    suspend fun getAllTrackContentHashes(): List<String>
+
+    /**
+     * Forget the content hashes of a book's tracks (wayfinder #48 + #50):
+     * when an offline copy is removed from disk, its hash must not block a
+     * future re-import — the file is gone, so copying it again is legitimate.
+     */
+    @Query(
+        "UPDATE source_tracks SET contentHash = NULL WHERE sourceId IN " +
+            "(SELECT id FROM sources WHERE bookId = :bookId)"
+    )
+    suspend fun clearTrackContentHashesForBook(bookId: String)
+
+    @Query(
+        "UPDATE source_tracks SET isDownloaded = 0, localFilePath = NULL WHERE sourceId IN " +
+            "(SELECT id FROM sources WHERE bookId = :bookId)"
+    )
+    suspend fun clearTracksDownloadStateForBook(bookId: String)
+
+    @Query("UPDATE source_tracks SET isDownloaded = 0, localFilePath = NULL")
+    suspend fun clearAllTracksDownloadState()
+
+    @Query(
+        "DELETE FROM source_tracks WHERE sourceId IN " +
+            "(SELECT id FROM sources WHERE bookId = :bookId)"
+    )
+    suspend fun deleteTracksForBook(bookId: String)
+
+    // --- Domain Editions (ADR-0007) ---
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertEdition(edition: EditionEntity)
+
+    @Query("SELECT * FROM editions WHERE id = :editionId")
+    suspend fun getEditionById(editionId: String): EditionEntity?
+
+    /** The single rendition of a library book (one edition per book today). */
+    @Query("SELECT * FROM editions WHERE workId = :bookId LIMIT 1")
+    suspend fun getEditionForWork(bookId: String): EditionEntity?
+
+    // --- Persisted catalogue: Works + Sources (spec-23 T1, ADR-0007) -------
+
+    /** One Work per normalized merge key — the merge-on-write lookup. */
+    @Query("SELECT * FROM works WHERE mergeKey = :mergeKey AND mergeKey != '' LIMIT 1")
+    suspend fun findWorkByMergeKey(mergeKey: String): WorkEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertWork(work: WorkEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertWorkSource(workSource: WorkSourceEntity)
+
+    /** Every source carrying a Work, for the «Джерела» section (spec-23 T5). */
+    @Query("SELECT * FROM work_sources WHERE workId = :workId ORDER BY addedAt ASC")
+    fun observeWorkSourcesForWork(workId: String): Flow<List<WorkSourceEntity>>
+
+    @Query("SELECT * FROM work_sources WHERE workId = :workId ORDER BY addedAt ASC")
+    suspend fun getWorkSourcesForWorkSync(workId: String): List<WorkSourceEntity>
+
+    @Query("SELECT * FROM works ORDER BY addedAt DESC")
+    fun observeWorks(): Flow<List<WorkEntity>>
+
+    @Query("SELECT COUNT(*) FROM works")
+    suspend fun countWorks(): Int
+
+    @Query("SELECT COUNT(*) FROM work_sources")
+    suspend fun countWorkSources(): Int
+
+    // --- Endless merged feed (spec-23 T4) --------------------------------
+
+    /**
+     * The endless feed's paging source: one row per Work with its source
+     * count, newest first. Filters compose with paging: `sourceId` keeps only
+     * Works carried by that source (EXISTS on work_sources); `genre` keeps
+     * only Works whose library row carries the genre (LEFT JOIN — null until
+     * the Work is linked into audiobooks). Dedup is inherited from
+     * merge-on-write — the feed never re-implements it at read time.
+     */
+    @Query(
+        """
+        SELECT w.id AS workId, w.mergeKey, w.title, w.author, w.narrator, w.seriesTitle, w.seriesIndex,
+               w.coverImageUrl, w.addedAt,
+               (SELECT COUNT(*) FROM work_sources ws WHERE ws.workId = w.id) AS sourceCount,
+               a.genre AS genre
+        FROM works w
+        LEFT JOIN audiobooks a ON a.workId = w.id
+        WHERE (:sourceId IS NULL OR EXISTS (SELECT 1 FROM work_sources ws WHERE ws.workId = w.id AND ws.sourceId = :sourceId))
+          AND (:genre IS NULL OR a.genre LIKE '%' || :genre || '%')
+        ORDER BY w.addedAt DESC, w.id ASC
+        """
+    )
+    fun pagedWorksFeedRecent(sourceId: String?, genre: String?): PagingSource<Int, WorkFeedRow>
+
+    /** Same feed, sorted by title (stable tiebreak: addedAt DESC). */
+    @Query(
+        """
+        SELECT w.id AS workId, w.mergeKey, w.title, w.author, w.narrator, w.seriesTitle, w.seriesIndex,
+               w.coverImageUrl, w.addedAt,
+               (SELECT COUNT(*) FROM work_sources ws WHERE ws.workId = w.id) AS sourceCount,
+               a.genre AS genre
+        FROM works w
+        LEFT JOIN audiobooks a ON a.workId = w.id
+        WHERE (:sourceId IS NULL OR EXISTS (SELECT 1 FROM work_sources ws WHERE ws.workId = w.id AND ws.sourceId = :sourceId))
+          AND (:genre IS NULL OR a.genre LIKE '%' || :genre || '%')
+        ORDER BY w.title COLLATE NOCASE ASC, w.addedAt DESC, w.id ASC
+        """
+    )
+    fun pagedWorksFeedByTitle(sourceId: String?, genre: String?): PagingSource<Int, WorkFeedRow>
+
+    // Bookmarks (ADR-0007: anchored to the Edition)
     @Query("SELECT * FROM bookmarks WHERE bookId = :bookId ORDER BY timestampSeconds ASC")
     fun getBookmarksForBook(bookId: String): Flow<List<BookmarkEntity>>
+
+    @Query("SELECT * FROM bookmarks WHERE editionId = :editionId ORDER BY timestampSeconds ASC")
+    fun getBookmarksForEdition(editionId: String): Flow<List<BookmarkEntity>>
 
     @Query("SELECT * FROM bookmarks ORDER BY createdAt DESC")
     fun getAllBookmarks(): Flow<List<BookmarkEntity>>
@@ -159,28 +299,29 @@ interface AudiobookDao {
     @Query("DELETE FROM audiobooks WHERE id = :bookId")
     suspend fun deleteAudiobook(bookId: String)
 
-    // Playback Progress (spec-10 T2: position is keyed per source; the
-    // bookId-only variants return the latest row for compatibility).
+    // Playback Progress (ADR-0007: keyed by Edition; the bookId variants are
+    // book-scoped conveniences over the kept expand column).
     @Query("SELECT * FROM playback_progress WHERE bookId = :bookId ORDER BY lastListenedAt DESC LIMIT 1")
     fun getPlaybackProgress(bookId: String): Flow<PlaybackProgressEntity?>
 
-    @Query("SELECT * FROM playback_progress WHERE bookId = :bookId AND sourceKey = :sourceKey")
-    fun getPlaybackProgress(bookId: String, sourceKey: String): Flow<PlaybackProgressEntity?>
+    @Query("SELECT * FROM playback_progress WHERE editionId = :editionId")
+    fun getPlaybackProgressByEdition(editionId: String): Flow<PlaybackProgressEntity?>
 
     @Query("SELECT * FROM playback_progress WHERE bookId = :bookId ORDER BY lastListenedAt DESC LIMIT 1")
     suspend fun getPlaybackProgressSync(bookId: String): PlaybackProgressEntity?
 
-    @Query("SELECT * FROM playback_progress WHERE bookId = :bookId AND sourceKey = :sourceKey")
-    suspend fun getPlaybackProgressSync(bookId: String, sourceKey: String): PlaybackProgressEntity?
+    @Query("SELECT * FROM playback_progress WHERE editionId = :editionId")
+    suspend fun getPlaybackProgressSyncByEdition(editionId: String): PlaybackProgressEntity?
 
-    @Query("UPDATE playback_progress SET lastPausedAtEpochMs = :pausedAt WHERE bookId = :bookId AND sourceKey = :sourceKey")
-    suspend fun updatePausedAt(bookId: String, pausedAt: Long?, sourceKey: String = "")
+    @Query("UPDATE playback_progress SET lastPausedAtEpochMs = :pausedAt WHERE bookId = :bookId")
+    suspend fun updatePausedAt(bookId: String, pausedAt: Long?)
 
     @Query("SELECT * FROM playback_progress ORDER BY lastListenedAt DESC")
     fun getAllPlaybackProgress(): Flow<List<PlaybackProgressEntity>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun savePlaybackProgress(progress: PlaybackProgressEntity)
+
     @Query("SELECT * FROM audiobooks WHERE isFavorite = 1 ORDER BY title ASC")
     fun getFavoriteAudiobooks(): Flow<List<AudiobookEntity>>
 
@@ -193,14 +334,8 @@ interface AudiobookDao {
     @Query("UPDATE audiobooks SET isDownloaded = 0, downloadProgress = 0 WHERE id = :bookId")
     suspend fun markBookNotDownloaded(bookId: String)
 
-    @Query("UPDATE chapters SET isDownloaded = 0, localFilePath = NULL WHERE bookId = :bookId")
-    suspend fun clearChaptersDownloadState(bookId: String)
-
     @Query("UPDATE audiobooks SET isDownloaded = 0, downloadProgress = 0")
     suspend fun markAllNotDownloaded()
-
-    @Query("UPDATE chapters SET isDownloaded = 0, localFilePath = NULL")
-    suspend fun clearAllChaptersDownloadState()
 
     // Listening Stats
     @Query("SELECT * FROM listening_stats ORDER BY dateIso DESC")
@@ -223,12 +358,14 @@ interface AudiobookDao {
     suspend fun deletePlaybackFailure(id: Long)
 
     // --- Playback events (spec-16): the capped transition log --------------
+    // ADR-0007: the log is HISTORY — new rows write sourceKey = "". The
+    // (book, source) queries keep working over the kept column for old rows.
 
     @Insert
     suspend fun insertPlaybackEvent(event: PlaybackEventEntity)
 
     /**
-     * The latest possible undo candidate for (book, source): the newest
+     * The latest possible undo candidate for a book: the newest
      * SEEK / SOURCE_SWITCH carrying a from-position. The ≥ 5-min jump policy
      * is applied by the repository (PlaybackEventPolicy.isUndoCandidate) —
      * this query only narrows the kind.
@@ -349,73 +486,4 @@ interface AudiobookDao {
             "ORDER BY updatedAt DESC"
     )
     suspend fun getNeverMatchPairs(mergeKey: String): List<CorrectionEntity>
-
-    // --- Persisted catalogue: Works + Editions (spec-23 T1) ----------------
-
-    /** One Work per normalized merge key — the merge-on-write lookup. */
-    @Query("SELECT * FROM works WHERE mergeKey = :mergeKey AND mergeKey != '' LIMIT 1")
-    suspend fun findWorkByMergeKey(mergeKey: String): WorkEntity?
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsertWork(work: WorkEntity)
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsertEdition(edition: EditionEntity)
-
-    /** Every source carrying a Work, for the «Джерела» section (spec-23 T5). */
-    @Query("SELECT * FROM editions WHERE workId = :workId ORDER BY addedAt ASC")
-    fun observeEditionsForWork(workId: String): Flow<List<EditionEntity>>
-
-    @Query("SELECT * FROM editions WHERE workId = :workId ORDER BY addedAt ASC")
-    suspend fun getEditionsForWorkSync(workId: String): List<EditionEntity>
-
-    @Query("SELECT * FROM works ORDER BY addedAt DESC")
-    fun observeWorks(): Flow<List<WorkEntity>>
-
-    @Query("SELECT COUNT(*) FROM works")
-    suspend fun countWorks(): Int
-
-    @Query("SELECT COUNT(*) FROM editions")
-    suspend fun countEditions(): Int
-
-    // --- Endless merged feed (spec-23 T4) --------------------------------
-
-    /**
-     * The endless feed's paging source: one row per Work with its edition
-     * count, newest first. Filters compose with paging: `sourceId` keeps only
-     * Works carried by that source (EXISTS on editions); `genre` keeps only
-     * Works whose library row carries the genre (LEFT JOIN — null until the
-     * Work is linked into audiobooks). Dedup is inherited from merge-on-write
-     * — the feed never re-implements it at read time.
-     */
-    @Query(
-        """
-        SELECT w.id AS workId, w.mergeKey, w.title, w.author, w.narrator, w.seriesTitle, w.seriesIndex,
-               w.coverImageUrl, w.addedAt,
-               (SELECT COUNT(*) FROM editions e WHERE e.workId = w.id) AS editionCount,
-               a.genre AS genre
-        FROM works w
-        LEFT JOIN audiobooks a ON a.workId = w.id
-        WHERE (:sourceId IS NULL OR EXISTS (SELECT 1 FROM editions e WHERE e.workId = w.id AND e.sourceId = :sourceId))
-          AND (:genre IS NULL OR a.genre LIKE '%' || :genre || '%')
-        ORDER BY w.addedAt DESC, w.id ASC
-        """
-    )
-    fun pagedWorksFeedRecent(sourceId: String?, genre: String?): PagingSource<Int, WorkFeedRow>
-
-    /** Same feed, sorted by title (stable tiebreak: addedAt DESC). */
-    @Query(
-        """
-        SELECT w.id AS workId, w.mergeKey, w.title, w.author, w.narrator, w.seriesTitle, w.seriesIndex,
-               w.coverImageUrl, w.addedAt,
-               (SELECT COUNT(*) FROM editions e WHERE e.workId = w.id) AS editionCount,
-               a.genre AS genre
-        FROM works w
-        LEFT JOIN audiobooks a ON a.workId = w.id
-        WHERE (:sourceId IS NULL OR EXISTS (SELECT 1 FROM editions e WHERE e.workId = w.id AND e.sourceId = :sourceId))
-          AND (:genre IS NULL OR a.genre LIKE '%' || :genre || '%')
-        ORDER BY w.title COLLATE NOCASE ASC, w.addedAt DESC, w.id ASC
-        """
-    )
-    fun pagedWorksFeedByTitle(sourceId: String?, genre: String?): PagingSource<Int, WorkFeedRow>
 }

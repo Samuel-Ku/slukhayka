@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.util.Log
 import com.example.R
+import com.example.data.EditionId
 import com.example.data.HASH_BUFFER_SIZE
 import com.example.data.contentHashOf
 import com.example.data.sha256Hex
@@ -11,7 +12,9 @@ import com.example.data.db.AudiobookDao
 import com.example.data.db.AudiobookEntity
 import com.example.data.db.ChapterEntity
 import com.example.data.db.CorrectionEntity
+import com.example.data.db.EditionEntity
 import com.example.data.db.SourceEntity
+import com.example.data.db.SourceTrackEntity
 import com.example.data.merge.MergeKey
 import com.example.data.metadata.MetadataAssertions
 import com.example.data.source.FourReadAdapter
@@ -75,9 +78,11 @@ class LibraryImport(
                 // profile the seam now provides (genres → genre, rating,
                 // series) — every import door's card agrees with the source.
                 // ADR-0004: claim normalization (brand-scrub, duration
-                // sentinel) and chapter materialization come from the one
+                // sentinel) and materialization come from the one
                 // MetadataAssertions module; the door keeps only its insert
                 // defaults (id scheme, placeholder author/narrator, template).
+                // ADR-0007: one domain Edition owns the logical chapter list;
+                // the importing Source gets its physical tracks (1:1 by index).
                 val book = AudiobookEntity(
                     id = bookId,
                     title = detail.title,
@@ -101,28 +106,69 @@ class LibraryImport(
                     mergeKey = mergeKey
                 )
                 dao.insertAudiobooks(listOf(book))
-                dao.insertChapters(
-                    MetadataAssertions.materializeChapters(bookId, detail.title, detail.chapters)
+                val editionId = EditionId.forBook(mergeKey, bookId)
+                dao.insertEdition(
+                    EditionEntity(
+                        id = editionId,
+                        workId = bookId,
+                        narrator = book.narrator,
+                        totalChapters = detail.chapters.size,
+                        totalDurationSeconds = book.totalDurationSeconds
+                    )
                 )
-                dao.insertSources(listOf(sourceRow(sourceId, bookId, detail.url)))
+                val materialized = MetadataAssertions.materializeChaptersAndTracks(
+                    editionId = editionId,
+                    sourceId = sourceId,
+                    bookId = bookId,
+                    bookTitle = detail.title,
+                    chapters = detail.chapters
+                )
+                dao.insertChapters(materialized.chapters)
+                val source = sourceRow(sourceId, bookId, editionId, detail.url)
+                dao.insertSources(listOf(source))
+                dao.insertTracks(
+                    materialized.tracks.map { it.copy(sourceId = source.id, id = MetadataAssertions.trackId(source.id, it.trackIndex)) }
+                )
                 // An explicit import is a user action: any tombstone of the
                 // work is cleared so a re-added book never stays hidden.
                 dao.deleteTombstone(bookId)
                 book
             } else {
-                // Merge: attach the new source unless it is already known.
+                // Merge: attach the new source (unless it is already known)
+                // and give it its physical tracks. The Edition's logical
+                // chapter list stays the FIRST source's list (ADR-0007) —
+                // no chapter re-materialization on merge.
                 val known = dao.getSourcesForBookSync(existing.id).any { it.url == detail.url }
                 if (!known) {
-                    dao.insertSources(listOf(sourceRow(sourceId, existing.id, detail.url)))
+                    val storedEdition = dao.getEditionForWork(existing.id)
+                    val editionId = storedEdition?.id ?: EditionId.forBook(mergeKey, existing.id)
+                    if (storedEdition == null) {
+                        dao.insertEdition(
+                            EditionEntity(
+                                id = editionId,
+                                workId = existing.id,
+                                narrator = existing.narrator,
+                                totalChapters = existing.totalChapters,
+                                totalDurationSeconds = existing.totalDurationSeconds
+                            )
+                        )
+                    }
+                    val source = sourceRow(sourceId, existing.id, editionId, detail.url)
+                    dao.insertSources(listOf(source))
+                    dao.insertTracks(
+                        MetadataAssertions.materializeTracks(source.id, detail.chapters)
+                    )
                 }
                 dao.deleteTombstone(existing.id)
                 existing
             }
         }
 
-    private fun sourceRow(sourceId: String, bookId: String, url: String) = SourceEntity(
-        id = "$sourceId-$bookId",
+    private fun sourceRow(sourceId: String, bookId: String, editionId: String, url: String) = SourceEntity(
+        // ADR-0007: source ids are deterministic per (type, edition).
+        id = "$sourceId-$editionId",
         bookId = bookId,
+        editionId = editionId,
         type = sourceId,
         url = url,
         streamOnly = streamOnlyFor(sourceId),
@@ -368,10 +414,16 @@ class LibraryImport(
         withContext(Dispatchers.IO) {
             val base = sanitizeLocalBaseName(displayName)
             val dest = copyLocalAudioStream(base, localFileExtension(displayName), stream)
-            val existing = dao.getChapterByContentHash(dest.sha256Hex)
+            // ADR-0007: the content hash lives on the TRACK rows (a local
+            // import is a "local" Source whose tracks carry the copied files).
+            val existing = dao.getTrackByContentHash(dest.sha256Hex)
             if (existing != null) {
                 File(dest.path).delete()
-                return@withContext dao.getAudiobookById(existing.bookId)
+                // ADR-0007: the track's owner is its SOURCE, not a bookId on
+                // the track row — resolve the owner book through the source.
+                val ownerBookId = dao.getBookIdBySourceId(existing.sourceId)
+                    ?: throw java.io.IOException("Дублікат файлу, але книгу не знайдено")
+                return@withContext dao.getAudiobookById(ownerBookId)
                     ?: throw java.io.IOException("Дублікат файлу, але книгу не знайдено")
             }
             insertLocalBook(
@@ -444,7 +496,7 @@ class LibraryImport(
                     skippedFiles++
                     return null
                 }
-                if (!seenHashes.add(dest.sha256Hex) || dao.getChapterByContentHash(dest.sha256Hex) != null) {
+                if (!seenHashes.add(dest.sha256Hex) || dao.getTrackByContentHash(dest.sha256Hex) != null) {
                     File(dest.path).delete()
                     duplicateFiles++
                     return null
@@ -470,36 +522,62 @@ class LibraryImport(
                 if (chapters.isEmpty()) continue
 
                 if (targetBookId != null) {
-                    // #54 merge: attach the source to the existing Work — no
-                    // new card, chapters join the existing book's chapter list.
+                    // #54 merge: attach the local source to the existing Work —
+                    // no new card, chapters join the existing book's logical
+                    // chapter list, and the tracks carry the copied files
+                    // (ADR-0007: download state lives on tracks, never on
+                    // chapter rows). The Edition is the existing book's
+                    // rendition; a local source already present is reused so
+                    // the merged tracks form one contiguous track list.
+                    val existing = dao.getAudiobookById(targetBookId)
+                    val baseIndex = existing?.totalChapters ?: 0
+                    val storedEdition = dao.getEditionForWork(targetBookId)
+                    val editionId = storedEdition?.id ?: EditionId.forBook(existing?.mergeKey ?: "", targetBookId)
+                    if (storedEdition == null) {
+                        dao.insertEdition(
+                            EditionEntity(
+                                id = editionId,
+                                workId = targetBookId,
+                                narrator = existing?.narrator ?: "",
+                                totalChapters = (baseIndex + chapters.size),
+                                totalDurationSeconds = 0L
+                            )
+                        )
+                    }
+                    val localSource = dao.getSourcesForBookSync(targetBookId).firstOrNull { it.type == "local" }
+                        ?: SourceEntity(
+                            id = "local-$editionId",
+                            bookId = targetBookId,
+                            editionId = editionId,
+                            type = "local",
+                            url = "",
+                            streamOnly = false,
+                            addedAt = System.currentTimeMillis()
+                        ).also { dao.insertSources(listOf(it)) }
                     dao.insertChapters(
                         chapters.mapIndexed { index, chapter ->
-                            val existing = dao.getAudiobookById(targetBookId)
-                            val baseIndex = existing?.totalChapters ?: 0
                             ChapterEntity(
                                 id = "$targetBookId-ch${baseIndex + index + 1}",
                                 bookId = targetBookId,
+                                editionId = editionId,
                                 chapterIndex = baseIndex + index,
                                 title = chapter.title,
-                                durationSeconds = 0L,
-                                streamUrl = chapter.filePath,
-                                localFilePath = chapter.filePath,
-                                isDownloaded = true,
-                                contentHash = chapter.contentHash
+                                durationSeconds = 0L
                             )
                         }
                     )
-                    dao.insertSources(
-                        listOf(
-                            SourceEntity(
-                                id = "$targetBookId-local-${System.currentTimeMillis()}",
-                                bookId = targetBookId,
-                                type = "local",
-                                url = "",
-                                streamOnly = false,
-                                addedAt = System.currentTimeMillis()
+                    dao.insertTracks(
+                        chapters.mapIndexed { index, chapter ->
+                            SourceTrackEntity(
+                                id = MetadataAssertions.trackId(localSource.id, baseIndex + index),
+                                sourceId = localSource.id,
+                                trackIndex = baseIndex + index,
+                                url = chapter.filePath,
+                                localFilePath = chapter.filePath,
+                                contentHash = chapter.contentHash,
+                                isDownloaded = true
                             )
-                        )
+                        }
                     )
                 } else {
                     insertLocalBook(
@@ -575,7 +653,7 @@ class LibraryImport(
                     skippedFiles++
                     return null
                 }
-                if (!seenHashes.add(dest.sha256Hex) || dao.getChapterByContentHash(dest.sha256Hex) != null) {
+                if (!seenHashes.add(dest.sha256Hex) || dao.getTrackByContentHash(dest.sha256Hex) != null) {
                     File(dest.path).delete()
                     duplicateFiles++
                     return null
@@ -698,33 +776,56 @@ class LibraryImport(
             sourceTreeUri = sourceTreeUri
         )
         dao.insertAudiobooks(listOf(book))
+        // ADR-0007: a local import is a Source of type "local" whose tracks
+        // carry the copied files; the Edition owns the logical chapter list.
+        val editionId = EditionId.forBook(mergeKey = "", bookId = bookId)
+        dao.insertEdition(
+            EditionEntity(
+                id = editionId,
+                workId = bookId,
+                narrator = book.narrator,
+                totalChapters = chapters.size,
+                totalDurationSeconds = 0L
+            )
+        )
         dao.insertChapters(
             chapters.mapIndexed { index, chapter ->
                 ChapterEntity(
                     id = "${bookId}_ch${index + 1}",
                     bookId = bookId,
+                    editionId = editionId,
                     chapterIndex = index,
                     title = chapter.title,
-                    durationSeconds = 0L,
-                    streamUrl = chapter.filePath,
-                    localFilePath = chapter.filePath,
-                    isDownloaded = true,
-                    contentHash = chapter.contentHash
+                    durationSeconds = 0L
                 )
             }
         )
-        // Spec-10 T2: local imports are a LOCAL source of the Work.
+        val localSourceId = "local-$editionId"
         dao.insertSources(
             listOf(
                 SourceEntity(
-                    id = "$bookId-local",
+                    id = localSourceId,
                     bookId = bookId,
+                    editionId = editionId,
                     type = "local",
                     url = "",
                     streamOnly = false,
                     addedAt = System.currentTimeMillis()
                 )
             )
+        )
+        dao.insertTracks(
+            chapters.mapIndexed { index, chapter ->
+                SourceTrackEntity(
+                    id = MetadataAssertions.trackId(localSourceId, index),
+                    sourceId = localSourceId,
+                    trackIndex = index,
+                    url = chapter.filePath,
+                    localFilePath = chapter.filePath,
+                    contentHash = chapter.contentHash,
+                    isDownloaded = true
+                )
+            }
         )
         // An explicit local import is a user action: any tombstone of the
         // work is cleared so a re-added book never stays hidden.
@@ -810,7 +911,9 @@ class LibraryImport(
         }
         if (scanned.isEmpty()) return@withContext RescanReport(treeUri)
 
-        val libraryHashSet = dao.getAllChapters().first().mapNotNull { it.contentHash }.toSet()
+        // ADR-0007: hashes live on the track rows — the library-wide dedupe
+        // pool is every track's content hash.
+        val libraryHashSet = dao.getAllTrackContentHashes().toSet()
         val existingBooks = dao.getAudiobooksBySourceTree(treeUri)
         var report = RescanReport(treeUri)
 
@@ -853,11 +956,18 @@ class LibraryImport(
                 continue
             }
 
-            // Known book: diff its chapters against this group's live files.
+            // Known book: diff its stored tracks (chapter titles + track
+            // hashes) against this group's live files (ADR-0007: the physical
+            // playback data lives on the tracks).
             val chapters = dao.getChaptersListForBook(book.id)
-            val diff = FolderRescan.computeDiff(chapters, libraryHashSet, files)
+            val bookTracks = dao.getTracksForBookSync(book.id)
+            val storedTracks = chapters.map { ch ->
+                val track = bookTracks.firstOrNull { it.trackIndex == ch.chapterIndex }
+                FolderRescan.StoredTrack(title = ch.title, contentHash = track?.contentHash)
+            }
+            val diff = FolderRescan.computeDiff(storedTracks, libraryHashSet, files)
             report = report.copy(
-                missingFiles = report.missingFiles + diff.missingChapters.size,
+                missingFiles = report.missingFiles + diff.missingTracks.size,
                 movedFiles = report.movedFiles + diff.movedFiles.size,
                 duplicateFiles = report.duplicateFiles + diff.duplicateFiles.size
             )
@@ -869,7 +979,12 @@ class LibraryImport(
                 }
                 if (newInputs.isNotEmpty()) {
                     val merged = chapters.map { ch ->
-                        LocalChapterInput(title = ch.title, filePath = ch.localFilePath ?: ch.streamUrl, contentHash = ch.contentHash.orEmpty())
+                        val track = bookTracks.firstOrNull { it.trackIndex == ch.chapterIndex }
+                        LocalChapterInput(
+                            title = ch.title,
+                            filePath = track?.localFilePath ?: track?.url.orEmpty(),
+                            contentHash = track?.contentHash.orEmpty()
+                        )
                     } + newInputs
                     rewriteBookChapters(book.id, merged)
                     report = report.copy(newChapters = report.newChapters + newInputs.size)
@@ -902,8 +1017,9 @@ class LibraryImport(
         contentHash: String
     ): LocalChapterInput? {
         // The diff classified it new, but a concurrent import may have landed
-        // the same bytes — never copy twice.
-        if (dao.getChapterByContentHash(contentHash) != null) return null
+        // the same bytes — never copy twice (ADR-0007: the hash lives on the
+        // track rows).
+        if (dao.getTrackByContentHash(contentHash) != null) return null
         val base = sanitizeLocalBaseName(entry.fileName)
         val dest = try {
             copyLocalAudioStream("$base-re${localImportSeq.incrementAndGet()}", localFileExtension(entry.fileName), entry.openStream())
@@ -914,38 +1030,80 @@ class LibraryImport(
         return LocalChapterInput(title = chapterTitle, filePath = dest.path, contentHash = dest.sha256Hex)
     }
 
-    /** Re-indexes a local book's chapters naturally (deletes + reinserts the list). */
+    /** Re-indexes a local book's chapters + tracks naturally (rebuild). */
     private suspend fun rewriteBookChapters(bookId: String, chapters: List<LocalChapterInput>) {
         val sorted = chapters.sortedWith(Comparator { a, b -> compareNatural(a.title, b.title) })
+        val storedEdition = dao.getEditionForWork(bookId)
+        val editionId = storedEdition?.id ?: EditionId.forBook(
+            dao.getAudiobookById(bookId)?.mergeKey ?: "",
+            bookId
+        )
+        if (storedEdition == null) {
+            dao.insertEdition(
+                EditionEntity(
+                    id = editionId,
+                    workId = bookId,
+                    narrator = dao.getAudiobookById(bookId)?.narrator ?: "",
+                    totalChapters = sorted.size,
+                    totalDurationSeconds = 0L
+                )
+            )
+        }
         dao.deleteChaptersForBook(bookId)
         dao.insertChapters(
             sorted.mapIndexed { index, ch ->
                 ChapterEntity(
                     id = "${bookId}_ch${index + 1}",
                     bookId = bookId,
+                    editionId = editionId,
                     chapterIndex = index,
                     title = ch.title,
-                    durationSeconds = 0L,
-                    streamUrl = ch.filePath,
+                    durationSeconds = 0L
+                )
+            }
+        )
+        // Rebuild the local source's tracks from the new list (ADR-0007).
+        val localSource = dao.getSourcesForBookSync(bookId).firstOrNull { it.type == "local" }
+            ?: SourceEntity(
+                id = "local-$editionId",
+                bookId = bookId,
+                editionId = editionId,
+                type = "local",
+                url = "",
+                streamOnly = false,
+                addedAt = System.currentTimeMillis()
+            ).also { dao.insertSources(listOf(it)) }
+        dao.deleteTracksForBook(bookId)
+        dao.insertTracks(
+            sorted.mapIndexed { index, ch ->
+                SourceTrackEntity(
+                    id = MetadataAssertions.trackId(localSource.id, index),
+                    sourceId = localSource.id,
+                    trackIndex = index,
+                    url = ch.filePath,
                     localFilePath = ch.filePath,
-                    isDownloaded = true,
-                    contentHash = ch.contentHash.ifBlank { null }
+                    contentHash = ch.contentHash.ifBlank { null },
+                    isDownloaded = true
                 )
             }
         )
         dao.updateBookStats(bookId, sorted.size, 0L)
     }
 
-    /** Refreshes the local source's re-scan fingerprint from its stored chapters. */
+    /** Refreshes the local source's re-scan fingerprint from its stored tracks. */
     private suspend fun updateFingerprintFor(bookId: String) {
         val chapters = dao.getChaptersListForBook(bookId)
-        val fingerprint = chapters
-            .map { "${it.title.lowercase()}|${it.contentHash.orEmpty()}" }
+        val localSource = dao.getSourcesForBookSync(bookId).firstOrNull { it.type == "local" } ?: return
+        val tracks = dao.getTracksForSourceSync(localSource.id)
+        val fingerprint = chapters.mapNotNull { ch ->
+            val track = tracks.firstOrNull { it.trackIndex == ch.chapterIndex } ?: return@mapNotNull null
+            "${ch.title.lowercase()}|${track.contentHash.orEmpty()}"
+        }
             .sorted()
             .joinToString("\n")
             .ifBlank { null }
             ?.let { sha256Hex(it.toByteArray()) }
-        dao.updateSourceFingerprint("$bookId-local", fingerprint)
+        dao.updateSourceFingerprint(localSource.id, fingerprint)
     }
 
     companion object {

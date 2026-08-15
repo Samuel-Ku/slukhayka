@@ -23,8 +23,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.data.catalog.SourceCatalog
 import com.example.data.db.AudiobookEntity
 import com.example.data.db.PlaybackProgressEntity
+import com.example.data.entries.LibraryEntries
 import com.example.ui.MainViewModel
 import com.example.ui.components.AppSectionHeader
 import com.example.ui.components.EmptyState
@@ -46,28 +48,37 @@ import com.example.ui.theme.*
 @Composable
 fun ListenScreen(
     viewModel: MainViewModel,
+    // ADR-0008 batch 3 (#158): the screen receives the modules it reads from
+    // as parameters, wired from the composition root — the injection idiom
+    // settled by #154. Listen composition (blocks, prefs, hidden) and the
+    // next-in-series orchestration stay on the ViewModel.
+    libraryEntries: LibraryEntries,
+    sourceCatalog: SourceCatalog,
     onBookClick: (String) -> Unit,
     onPlayClick: (AudiobookEntity) -> Unit,
     onBrowseClick: () -> Unit,
     onImportClick: () -> Unit,
     onOpenWebSource: (() -> Unit)? = null
 ) {
-    val allBooks by viewModel.allBooks.collectAsState()
-    val sections by viewModel.catalogSections.collectAsState()
+    // ADR-0008: module flows are read directly — no forwarding StateFlow on
+    // the ViewModel. Cold flows need an initial value; the catalogue StateFlows
+    // carry their own.
+    val allBooks by libraryEntries.allBooks.collectAsState(initial = emptyList())
+    val sections by sourceCatalog.catalogSections.collectAsState()
     // Wayfinder #62: the rule-based block list — every block carries its
     // eligibility and a reason line; hidden blocks stay computed but are
     // unrendered here.
     val listenBlocks by viewModel.listenBlocks.collectAsState()
     val hiddenBlocks by viewModel.hiddenListenBlocks.collectAsState()
     // Spec-10 T5: per-source «Нове з кожного джерела» rows.
-    val sourceFeeds by viewModel.sourceFeeds.collectAsState()
-    val isFeedsLoading by viewModel.isFeedsLoading.collectAsState()
+    val sourceFeeds by sourceCatalog.sourceFeeds.collectAsState()
+    val isFeedsLoading by sourceCatalog.isFeedsLoading.collectAsState()
 
     // Load the per-source feeds once the Listen surface composes; the
     // repository's TTL cache makes re-compositions free, and a failing source
     // hides only its own row.
     LaunchedEffect(Unit) {
-        viewModel.loadSourceFeeds()
+        sourceCatalog.refreshSourceFeeds()
     }
 
     // Refresh the "continue the series" suggestion whenever the hero book

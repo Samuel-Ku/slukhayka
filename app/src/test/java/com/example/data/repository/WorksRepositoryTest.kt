@@ -80,11 +80,12 @@ class WorksRepositoryTest {
         // The validated MergeKey normalization (punctuation stripped): the
         // hyphen in "Жан-Крістоф" is dropped, so the key is "жанкрістоф".
         assertEquals("пасажир|жанкрістоф гранже", first.work.mergeKey)
-        // Two Editions — one per source, both pointing at the same Work.
-        val editions = dao.getEditionsForWorkSync(first.work.id)
-        assertEquals(2, editions.size)
-        assertEquals(setOf("sluhay", "4read"), editions.map { it.sourceId }.toSet())
-        assertEquals(setOf(first.work.id), editions.map { it.workId }.toSet())
+        // ADR-0007: two SOURCE rows (work_sources) — one per source, both
+        // pointing at the same Work.
+        val sources = dao.getWorkSourcesForWorkSync(first.work.id)
+        assertEquals(2, sources.size)
+        assertEquals(setOf("sluhay", "4read"), sources.map { it.sourceId }.toSet())
+        assertEquals(setOf(first.work.id), sources.map { it.workId }.toSet())
     }
 
     @Test
@@ -122,7 +123,7 @@ class WorksRepositoryTest {
         )
 
         assertEquals(1, dao.countWorks())
-        assertEquals(2, dao.countEditions())
+        assertEquals(2, dao.countWorkSources())
     }
 
     @Test
@@ -146,7 +147,7 @@ class WorksRepositoryTest {
         )
 
         assertEquals(2, dao.countWorks())
-        assertEquals(2, dao.countEditions())
+        assertEquals(2, dao.countWorkSources())
         // The stable per-source ids differ — never a blank-key collision.
         val works = dao.observeWorks().first()
         assertNotEquals(works[0].id, works[1].id)
@@ -175,7 +176,7 @@ class WorksRepositoryTest {
         // narrations must not share a card) — two distinct Works.
         assertEquals(2, dao.countWorks())
         val works = dao.observeWorks().first()
-        // Each distinct Work carries exactly its own Edition.
-        assertEquals(setOf(1), works.map { dao.getEditionsForWorkSync(it.id).size }.toSet())
+        // Each distinct Work carries exactly its own source row.
+        assertEquals(setOf(1), works.map { dao.getWorkSourcesForWorkSync(it.id).size }.toSet())
     }
 }

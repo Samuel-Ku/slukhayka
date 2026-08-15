@@ -55,7 +55,8 @@ class WorkFeedCardSnapshotTest {
         seriesIndex = null,
         coverImageUrl = null,
         addedAt = 0L,
-        editionCount = editionCount,
+        // ADR-0007: the badge counts the Work's SOURCE rows (work_sources).
+        sourceCount = editionCount,
         genre = null
     )
 

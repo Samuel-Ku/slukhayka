@@ -93,7 +93,9 @@ class App : Application() {
     val playerManager: AudioPlayerManager by lazy {
         // The player runs on the store; chapter materialisation (incl. the
         // 4read page fallback) stays on the catalog's chapter-fetch path.
-        AudioPlayerManager(this, listeningState, sourceCatalog::getChaptersList)
+        // ADR-0007: the fetcher yields chapter→track pairs (getPlayableChapters)
+        // — the physical stream URLs live on the Source tracks.
+        AudioPlayerManager(this, listeningState, sourceCatalog::getPlayableChapters)
     }
 
     override fun onCreate() {

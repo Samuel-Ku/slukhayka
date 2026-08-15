@@ -136,17 +136,18 @@ class FourReadHydrationRepositoryTest {
         assertEquals("4read", result.sourceId)
 
         assertEquals(5, dao.countWorks())
-        assertEquals(5, dao.countEditions())
+        // ADR-0007: the persisted browse rows are work_sources.
+        assertEquals(5, dao.countWorkSources())
         val works = dao.observeWorks().first()
         assertEquals(setOf("Вкради мене... Зараз!", "Неостанній бій", "Чарівна казка", "Магічний світ", "Наступний бій"),
             works.map { it.title }.toSet())
-        // Every edition carries the 4read source and its real policy: 4read is
-        // downloadable, so streamOnly is false — added Works are playable.
+        // Every source row carries the 4read source and its real policy: 4read
+        // is downloadable, so streamOnly is false — added Works are playable.
         for (work in works) {
-            val editions = dao.getEditionsForWorkSync(work.id)
-            assertEquals(1, editions.size)
-            assertEquals("4read", editions.single().sourceId)
-            assertEquals(false, editions.single().streamOnly)
+            val sources = dao.getWorkSourcesForWorkSync(work.id)
+            assertEquals(1, sources.size)
+            assertEquals("4read", sources.single().sourceId)
+            assertEquals(false, sources.single().streamOnly)
         }
         // Series metadata from the homepage poster survived into the Work.
         val neostannij = works.first { it.title == "Неостанній бій" }
@@ -174,7 +175,7 @@ class FourReadHydrationRepositoryTest {
         assertEquals(0, second.failed)
         // No duplicates accumulated.
         assertEquals(5, dao.countWorks())
-        assertEquals(5, dao.countEditions())
+        assertEquals(5, dao.countWorkSources())
     }
 
     @Test
@@ -193,6 +194,6 @@ class FourReadHydrationRepositoryTest {
         assertTrue("the missing category page must count as failed", result.failed >= 1)
         // The rest of the crawl still landed.
         assertTrue("books from reachable pages must land", dao.countWorks() >= 4)
-        assertTrue("works are playable (not stream-only)", dao.countEditions() >= 4)
+        assertTrue("works are playable (not stream-only)", dao.countWorkSources() >= 4)
     }
 }

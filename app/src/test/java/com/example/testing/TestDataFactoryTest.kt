@@ -82,16 +82,18 @@ class TestDataFactoryTest {
 
     @Test
     fun `stream urls are unroutable so accidental network io fails fast`() {
-        // Arrange / Act
-        val chapters = TestDataFactory.dataChapters()
+        // Arrange / Act — the physical playback fixture is the Source tracks
+        // (ADR-0007): chapter rows no longer carry stream URLs.
+        val book = TestDataFactory.dataBooks().first()
+        val tracks = TestDataFactory.tracksFor(book, "4read")
 
         // Assert
         assertTrue(
             "fixtures must not point at a resolvable host",
-            chapters.all { it.streamUrl.contains(".invalid/") }
+            tracks.all { it.url.contains(".invalid/") }
         )
-        assertEquals(chapters.size, chapters.map { it.streamUrl }.distinct().size)
-        assertTrue("fixtures must not pretend to be downloaded", chapters.none { it.isDownloaded })
+        assertEquals(tracks.size, tracks.map { it.url }.distinct().size)
+        assertTrue("fixtures must not pretend to be downloaded", tracks.none { it.isDownloaded })
     }
 
     @Test

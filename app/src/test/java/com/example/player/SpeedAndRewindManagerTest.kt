@@ -70,7 +70,9 @@ class SpeedAndRewindManagerTest {
         val manager = AudioPlayerManager(
             context,
             listeningState,
-            { dao.getChaptersListForBook(it) },
+            // ADR-0007: the fetcher yields chapter→track pairs (chapter rows
+            // carry no stream URLs); these tests only assert positions/speeds.
+            { dao.getChaptersListForBook(it).map { ch -> com.example.data.catalog.SourceCatalog.PlayableChapter(ch, null) } },
             factory,
             now = { clockMs },
             settings = settings,

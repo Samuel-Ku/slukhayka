@@ -1,5 +1,6 @@
 package com.example.data.listening
 
+import com.example.data.EditionId
 import com.example.data.db.AudiobookDao
 import com.example.data.db.BookmarkEntity
 import com.example.data.db.FailureCategory
@@ -18,43 +19,46 @@ import kotlinx.coroutines.withContext
  * repository graph, no network, no Context.
  *
  * Owned state:
- *  - playback progress, keyed by (Work, source key) — spec-10 T2 / ADR-0001;
+ *  - playback progress, keyed by the domain Edition (ADR-0007) — one row per
+ *    rendition; switching sources mid-book keeps the position;
  *  - the last-pause marker for the smart rewind (wayfinder #25);
  *  - the durable playback-event log (spec-16, wayfinder #53): append, failure
  *    ledger, undo candidate, bucket compaction;
  *  - chapter durations discovered during playback;
  *  - book-stats back-fill (real chapter count / total duration);
  *  - the per-book preferred speed (wayfinder #26);
- *  - bookmarks;
+ *  - bookmarks (anchored to the Edition, ADR-0007);
  *  - listening-time stats.
  *
- * The player and any other consumer take this store directly; the god module
- * delegates its Listening State members here during the expand phase (its
- * deletion is a later ticket).
+ * ADR-0007: progress/bookmarks are keyed by Edition; callers keep passing the
+ * book id (one Edition per book today) and the store resolves it — the
+ * sourceKey concept is gone from listening identity. New playback-event rows
+ * write sourceKey = "" (the column is history).
  */
 class ListeningStateStore(private val dao: AudiobookDao) {
 
-    // --- Progress (keyed per source, ADR-0001) ------------------------------
+    // --- Progress (keyed by Edition, ADR-0007) -----------------------------
+
+    /** The domain Edition id of a book: the stored rendition, or the
+     *  deterministic fallback the import path would have created. */
+    private suspend fun editionIdOf(bookId: String): String? =
+        dao.getEditionForWork(bookId)?.id
+            ?: dao.getAudiobookById(bookId)?.let { EditionId.forBook(it.mergeKey, bookId) }
 
     fun observeProgress(bookId: String): Flow<PlaybackProgressEntity?> = dao.getPlaybackProgress(bookId)
 
-    fun observeProgress(bookId: String, sourceKey: String): Flow<PlaybackProgressEntity?> =
-        dao.getPlaybackProgress(bookId, sourceKey)
-
     suspend fun getProgressSync(bookId: String): PlaybackProgressEntity? = dao.getPlaybackProgressSync(bookId)
 
-    suspend fun getProgressSync(bookId: String, sourceKey: String): PlaybackProgressEntity? =
-        dao.getPlaybackProgressSync(bookId, sourceKey)
-
     /**
-     * Persists the playback position keyed per source (spec-10 T2). Callers
-     * that know the source pass its key; the default "" keeps the legacy
-     * single-source behaviour.
+     * Persists the playback position of one Edition (ADR-0007). The source is
+     * no longer part of the listening identity — progress belongs to the
+     * rendition, so a source switch mid-book keeps the position.
      */
-    suspend fun updateProgress(bookId: String, chapterIndex: Int, positionSeconds: Long, sourceKey: String = "") {
+    suspend fun updateProgress(bookId: String, chapterIndex: Int, positionSeconds: Long) {
+        val editionId = editionIdOf(bookId) ?: return
         val progress = PlaybackProgressEntity(
+            editionId = editionId,
             bookId = bookId,
-            sourceKey = sourceKey,
             currentChapterIndex = chapterIndex,
             currentPositionSeconds = positionSeconds,
             lastListenedAt = System.currentTimeMillis()
@@ -63,8 +67,8 @@ class ListeningStateStore(private val dao: AudiobookDao) {
     }
 
     /** Last-pause marker for the smart rewind (wayfinder #25); null clears it. */
-    suspend fun updatePausedAt(bookId: String, pausedAt: Long?, sourceKey: String = "") =
-        dao.updatePausedAt(bookId, pausedAt, sourceKey)
+    suspend fun updatePausedAt(bookId: String, pausedAt: Long?) =
+        dao.updatePausedAt(bookId, pausedAt)
 
     // --- Playback event log (spec-16, wayfinder #53) ------------------------
     // The state row above stays the authoritative "where am I now"; the log is
@@ -86,10 +90,13 @@ class ListeningStateStore(private val dao: AudiobookDao) {
         fromPositionSeconds: Long? = null,
         timestampMs: Long = System.currentTimeMillis()
     ) {
+        // ADR-0007: the event log is HISTORY — new rows write sourceKey = ""
+        // (progress re-keyed to the Edition; the source is not part of the
+        // listening identity anymore).
         dao.insertPlaybackEvent(
             PlaybackEventEntity(
                 bookId = bookId,
-                sourceKey = sourceKey,
+                sourceKey = "",
                 kind = kind,
                 chapterIndex = chapterIndex,
                 positionSeconds = positionSeconds,
@@ -98,7 +105,7 @@ class ListeningStateStore(private val dao: AudiobookDao) {
                 deviceId = ""
             )
         )
-        compactPlaybackEvents(bookId, sourceKey, nowMs = timestampMs)
+        compactPlaybackEvents(bookId, sourceKey = "", nowMs = timestampMs)
     }
 
     /**
@@ -161,11 +168,16 @@ class ListeningStateStore(private val dao: AudiobookDao) {
     suspend fun updateBookStats(bookId: String, totalChapters: Int, totalDurationSeconds: Long) =
         dao.updateBookStats(bookId, totalChapters, totalDurationSeconds)
 
-    // --- Bookmarks ----------------------------------------------------------
+    // --- Bookmarks (anchored to the Edition, ADR-0007) ---------------------
 
     fun observeBookmarks(bookId: String): Flow<List<BookmarkEntity>> = dao.getBookmarksForBook(bookId)
 
-    suspend fun addBookmark(bookmark: BookmarkEntity) = dao.insertBookmark(bookmark)
+    /** Inserts a bookmark, filling the Edition anchor when the caller didn't. */
+    suspend fun addBookmark(bookmark: BookmarkEntity) {
+        val editionId = bookmark.editionId ?: editionIdOf(bookmark.bookId)
+        dao.insertBookmark(if (editionId != null) bookmark.copy(editionId = editionId) else bookmark)
+    }
+
     suspend fun deleteBookmark(bookmarkId: Long) = dao.deleteBookmark(bookmarkId)
 
     // --- Listening-time stats ----------------------------------------------

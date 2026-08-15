@@ -66,12 +66,14 @@ class PlaybackEventsRepositoryTest {
         repo.recordPlaybackEvent(
             bookId = "b1", kind = PlaybackEventKind.RESUME, chapterIndex = 0, positionSeconds = 0L, timestampMs = now
         )
+        // ADR-0007: the event log is HISTORY — new rows write sourceKey = "",
+        // whatever source happened to play (listening identity is the Edition).
         repo.recordPlaybackEvent(
             bookId = "b1", kind = PlaybackEventKind.SEEK, chapterIndex = 2, positionSeconds = 900L,
-            fromPositionSeconds = 100L, sourceKey = "soundbooks", timestampMs = now + 1
+            fromPositionSeconds = 100L, timestampMs = now + 1
         )
 
-        val events = dao.getPlaybackEventsForBookSource("b1", "").plus(dao.getPlaybackEventsForBookSource("b1", "soundbooks"))
+        val events = dao.getPlaybackEventsForBookSource("b1", "")
         assertEquals(2, events.size)
         val resume = events.first { it.kind == PlaybackEventKind.RESUME }
         val seek = events.first { it.kind == PlaybackEventKind.SEEK }
@@ -80,7 +82,7 @@ class PlaybackEventsRepositoryTest {
         assertEquals(0, resume.chapterIndex)
         assertEquals(900L, seek.positionSeconds)
         assertEquals(100L, seek.fromPositionSeconds)
-        assertEquals("soundbooks", seek.sourceKey)
+        assertEquals("", seek.sourceKey)
     }
 
     @Test
@@ -169,9 +171,10 @@ class PlaybackEventsRepositoryTest {
     @Test
     fun `compaction never touches the state row`() = runBlocking {
         val repo = repository()
+        // ADR-0007: progress is keyed by the Edition (one rendition per book).
         dao.savePlaybackProgress(
             PlaybackProgressEntity(
-                bookId = "b1", sourceKey = "", currentChapterIndex = 2,
+                editionId = "ed-b1", bookId = "b1", currentChapterIndex = 2,
                 currentPositionSeconds = 600L, lastListenedAt = 500L
             )
         )

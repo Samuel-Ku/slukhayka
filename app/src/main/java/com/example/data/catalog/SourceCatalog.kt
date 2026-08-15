@@ -2,12 +2,16 @@ package com.example.data.catalog
 
 import android.util.Log
 import androidx.paging.PagingSource
+import com.example.data.EditionId
 import com.example.data.db.AudiobookDao
 import com.example.data.db.AudiobookEntity
 import com.example.data.db.ChapterEntity
 import com.example.data.db.EditionEntity
+import com.example.data.db.SourceEntity
+import com.example.data.db.SourceTrackEntity
 import com.example.data.db.WorkEntity
 import com.example.data.db.WorkFeedRow
+import com.example.data.db.WorkSourceEntity
 import com.example.data.imports.LibraryImport
 import com.example.data.merge.MergeKey
 import com.example.data.metadata.MetadataAssertions
@@ -351,12 +355,25 @@ class SourceCatalog(
     // ---------------------------------------------------------------------
 
     /**
-     * Returns a book's chapters, fetching them from the live 4read page when
-     * Room holds none (catalogue Works seed chapter-less). This is the
-     * fallback chapter fetch Offline Downloads and the playback stack route
-     * through — never a raw Room read alone.
+     * One logical chapter paired with the physical track of the book's
+     * PRIMARY source (ADR-0007). Chapter → track is 1:1 by index; a null
+     * track means this source cannot play that chapter (a topology mismatch)
+     * — the player surfaces the absence instead of fabricating audio.
      */
-    suspend fun getChaptersList(bookId: String): List<ChapterEntity> {
+    data class PlayableChapter(
+        val chapter: ChapterEntity,
+        val track: SourceTrackEntity?
+    )
+
+    /**
+     * Returns a book's chapters PAIRED with the tracks of its primary source,
+     * fetching the live 4read page when Room holds none (catalogue Works seed
+     * chapter-less). The fallback materializes the Edition's logical chapters
+     * AND the primary source's physical tracks (ADR-0007). This is the seam
+     * Offline Downloads and the playback stack route through — never a raw
+     * Room read alone.
+     */
+    suspend fun getPlayableChapters(bookId: String): List<PlayableChapter> {
         var chapters = dao.getChaptersListForBook(bookId)
         val book = dao.getAudiobookById(bookId)
         val sourceUrl = book?.sourceUrl ?: ""
@@ -373,14 +390,41 @@ class SourceCatalog(
             // persists what the seam's SourceBookDetail carries.
             val detail = fourReadAdapter.fetchBookPage(sourceUrl)
             if (detail.chapters.isNotEmpty()) {
-                // ADR-0004: chapter materialization (one id format, one title
-                // fallback, duration conventions) comes from the one module.
-                val realChapters = MetadataAssertions.materializeChapters(
-                    bookId,
-                    book?.title ?: "4read",
-                    detail.chapters
+                // ADR-0004 + ADR-0007: materialization (one id format, one
+                // title fallback, duration conventions; Edition chapters +
+                // Source tracks) comes from the one module.
+                val edition = dao.getEditionForWork(bookId)
+                val editionId = edition?.id ?: EditionId.forBook(book?.mergeKey ?: "", bookId)
+                if (edition == null) {
+                    dao.insertEdition(
+                        EditionEntity(
+                            id = editionId,
+                            workId = bookId,
+                            narrator = book?.narrator ?: "",
+                            totalChapters = detail.chapters.size,
+                            totalDurationSeconds = detail.totalDurationSeconds ?: 0L
+                        )
+                    )
+                }
+                val source = dao.getSourcesForBookSync(bookId).firstOrNull { it.type == "4read" }
+                    ?: SourceEntity(
+                        id = "4read-$editionId",
+                        bookId = bookId,
+                        editionId = editionId,
+                        type = "4read",
+                        url = sourceUrl,
+                        streamOnly = streamOnlyFor("4read"),
+                        addedAt = System.currentTimeMillis()
+                    ).also { dao.insertSources(listOf(it)) }
+                val materialized = MetadataAssertions.materializeChaptersAndTracks(
+                    editionId = editionId,
+                    sourceId = source.id,
+                    bookId = bookId,
+                    bookTitle = book?.title ?: "4read",
+                    chapters = detail.chapters
                 )
-                dao.insertChapters(realChapters)
+                dao.insertChapters(materialized.chapters)
+                dao.insertTracks(materialized.tracks)
                 // Back-fill the real chapter count, the site's own total
                 // duration ("Триває:"), and the real author/narrator/genre/
                 // rating/series now that we've fetched the book page — the
@@ -390,7 +434,7 @@ class SourceCatalog(
                     book?.totalDurationSeconds ?: 0L,
                     detail.totalDurationSeconds
                 )
-                dao.updateBookStats(bookId, realChapters.size, knownDuration)
+                dao.updateBookStats(bookId, materialized.chapters.size, knownDuration)
                 val author = MetadataAssertions.normalizeClaimedText(detail.author)
                 val narrator = MetadataAssertions.normalizeClaimedText(detail.narrator)
                 val genres = detail.genres.joinToString(" · ").ifBlank { null }
@@ -420,7 +464,7 @@ class SourceCatalog(
                 MetadataAssertions.coverDelta(detail.coverImageUrl)?.let { cover ->
                     dao.updateCoverImageUrl(bookId, cover)
                 }
-                return realChapters
+                chapters = materialized.chapters
             }
         }
 
@@ -438,7 +482,38 @@ class SourceCatalog(
                     "refusing to fabricate placeholder audio."
             )
         }
-        return chapters
+
+        // Pair each logical chapter with the primary source's track (1:1 by
+        // index). The primary source is the one matching the book's sourceUrl
+        // (a local source when the URL is blank); missing tracks stay absent.
+        val primarySource = primarySourceOf(bookId, book)
+        val tracks = primarySource?.let { dao.getTracksForSourceSync(it.id) }.orEmpty()
+        return chapters.mapIndexed { index, chapter ->
+            PlayableChapter(
+                chapter = chapter,
+                track = tracks.firstOrNull { it.trackIndex == index }
+            )
+        }
+    }
+
+    /**
+     * The chapters of a book (logical list only) — the display read. The
+     * playback/download paths use [getPlayableChapters] instead.
+     */
+    suspend fun getChaptersList(bookId: String): List<ChapterEntity> =
+        getPlayableChapters(bookId).map { it.chapter }
+
+    /**
+     * The book's PRIMARY source row: the one matching its sourceUrl (a
+     * "local" source when the URL is blank — local imports), falling back to
+     * the first source when no type matches.
+     */
+    private suspend fun primarySourceOf(bookId: String, book: AudiobookEntity?): SourceEntity? {
+        val sources = dao.getSourcesForBookSync(bookId)
+        if (sources.isEmpty()) return null
+        val sourceUrl = book?.sourceUrl.orEmpty()
+        val sourceId = if (sourceUrl.isBlank()) "local" else sourceIdForUrl(sourceUrl)
+        return sources.firstOrNull { it.type == sourceId } ?: sources.first()
     }
 
     // ---------------------------------------------------------------------
@@ -517,11 +592,11 @@ class SourceCatalog(
                 addedAt = System.currentTimeMillis()
             ).also { dao.upsertWork(it) }
         }
-        val editionId = "${work.id}|$sourceId|${stableIdOf(sourceUrl)}"
-        val editionAlreadyKnown = dao.getEditionsForWorkSync(work.id).any { it.id == editionId }
-        dao.upsertEdition(
-            EditionEntity(
-                id = editionId,
+        val workSourceId = "${work.id}|$sourceId|${stableIdOf(sourceUrl)}"
+        val sourceAlreadyKnown = dao.getWorkSourcesForWorkSync(work.id).any { it.id == workSourceId }
+        dao.upsertWorkSource(
+            WorkSourceEntity(
+                id = workSourceId,
                 workId = work.id,
                 sourceId = sourceId,
                 sourceUrl = sourceUrl,
@@ -531,7 +606,7 @@ class SourceCatalog(
                 addedAt = System.currentTimeMillis()
             )
         )
-        return WorkWriteResult(work = work, workCreated = existing == null, editionCreated = !editionAlreadyKnown)
+        return WorkWriteResult(work = work, workCreated = existing == null, editionCreated = !sourceAlreadyKnown)
     }
 
     /**
@@ -643,9 +718,10 @@ class SourceCatalog(
     fun pagedWorkFeedByTitle(sourceId: String? = null, genre: String? = null): PagingSource<Int, WorkFeedRow> =
         dao.pagedWorksFeedByTitle(sourceId, genre)
 
-    /** The Editions carrying one Work — the feed card resolves its first
-     *  source through these (spec-23 T4 open action). */
-    suspend fun editionsForWork(workId: String): List<EditionEntity> = dao.getEditionsForWorkSync(workId)
+    /** The Sources carrying one Work — the feed card resolves its first
+     *  source through these (spec-23 T4 open action; ADR-0007 renamed the
+     *  spec-23 `editions` table to `work_sources`). */
+    suspend fun workSourcesForWork(workId: String): List<WorkSourceEntity> = dao.getWorkSourcesForWorkSync(workId)
 
     /**
      * Spec-23 T5 — one source carrying a Work, for the book page's
@@ -670,14 +746,14 @@ class SourceCatalog(
      */
     suspend fun sourcesForBook(bookId: String): List<WorkSourceRow> {
         val book = dao.getAudiobookById(bookId) ?: return emptyList()
-        val editions = book.workId?.let { dao.getEditionsForWorkSync(it) }.orEmpty()
-        val rows = if (editions.isNotEmpty()) {
-            editions.map { edition ->
+        val workSources = book.workId?.let { dao.getWorkSourcesForWorkSync(it) }.orEmpty()
+        val rows = if (workSources.isNotEmpty()) {
+            workSources.map { source ->
                 WorkSourceRow(
-                    sourceId = edition.sourceId,
-                    sourceName = sourceDisplayName(edition.sourceId),
-                    url = edition.sourceUrl,
-                    streamOnly = edition.streamOnly
+                    sourceId = source.sourceId,
+                    sourceName = sourceDisplayName(source.sourceId),
+                    url = source.sourceUrl,
+                    streamOnly = source.streamOnly
                 )
             }
         } else {

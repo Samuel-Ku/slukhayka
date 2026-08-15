@@ -132,7 +132,8 @@ class CatalogDownloadRepositoryTest {
         assertEquals(0, outcome.downloadedChapters)
         assertFalse(dao.getAudiobookById(imported.id)!!.isDownloaded)
         assertEquals(0f, dao.getAudiobookById(imported.id)!!.downloadProgress)
-        assertTrue(dao.getChaptersListForBook(imported.id).none { it.isDownloaded })
+        // ADR-0007: download state lives on the TRACK rows.
+        assertTrue(dao.getTracksForBookSync(imported.id).none { it.isDownloaded })
     }
 
     @Test

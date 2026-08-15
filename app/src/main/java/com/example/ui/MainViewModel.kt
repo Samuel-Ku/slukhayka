@@ -8,9 +8,7 @@ import androidx.paging.PagingConfig
 import androidx.paging.PagingData
 import androidx.paging.cachedIn
 import com.example.App
-import com.example.data.catalog.CatalogGenre
 import com.example.data.catalog.CatalogPerson
-import com.example.data.catalog.CatalogSection
 import com.example.data.db.*
 import com.example.data.imports.ImportGrantStore
 import com.example.data.imports.ImportPlan
@@ -21,12 +19,10 @@ import com.example.data.imports.LibraryImport
 import com.example.data.listening.ListeningStateStore
 import com.example.data.imports.ImportPlanner
 import com.example.data.source.GlobalSearchResult
-import com.example.data.source.catalogCardDownloadAllowed
-import com.example.data.source.sourceIdForUrl
-import com.example.data.source.streamOnlyFor
 import com.example.player.AudioPlayerManager
 import com.example.player.PlayerState
-import com.example.player.SmartRewind
+import com.example.ui.library.OutcomeMessages
+import com.example.ui.library.computeResumeStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
@@ -98,18 +94,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     val playerState: StateFlow<PlayerState> = playerManager.playerState
 
-    val allBooks: StateFlow<List<AudiobookEntity>> = libraryEntries.allBooks
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    val downloadedBooks: StateFlow<List<AudiobookEntity>> = libraryEntries.downloadedBooks
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    val favoriteBooks: StateFlow<List<AudiobookEntity>> = libraryEntries.getFavoriteAudiobooks()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    val listeningStats: StateFlow<List<ListeningStatEntity>> = listeningState.getAllListeningStats()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
     private val _cacheSizeFormatted = MutableStateFlow("0 MB")
     val cacheSizeFormatted: StateFlow<String> = _cacheSizeFormatted.asStateFlow()
 
@@ -131,15 +115,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             refreshCacheSize()
         }
     }
-
-    fun toggleFavorite(bookId: String, isFavorite: Boolean) {
-        viewModelScope.launch(Dispatchers.IO) {
-            libraryEntries.toggleFavorite(bookId, isFavorite)
-        }
-    }
-
-    val allBookmarks: StateFlow<List<BookmarkEntity>> = libraryEntries.allBookmarks
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // Wayfinder #39: the unified Медіатека list — every book with its playback
     // state and chapter-derived metrics. Filtering and sorting happen in the
@@ -253,19 +228,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    // Explore catalogue rows (spec #8 tickets T5/T6): populated by the
-    // repository's background sync of the 4read.org homepage.
-    val catalogSections: StateFlow<List<CatalogSection>> = sourceCatalog.catalogSections
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    val isCatalogLoading: StateFlow<Boolean> = sourceCatalog.isCatalogLoading
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
-
-    // Genre navigation chips, parsed from the homepage sidebar ("Аудіокниги
-    // жанру:") during the same catalogue sync that fills [catalogSections].
-    val catalogGenres: StateFlow<List<CatalogGenre>> = sourceCatalog.catalogGenres
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
     // Spec-15 T2: «Відкрити на сайті» leaves the app. The 4read legacy
     // browser is removed from the UI entirely, so the book page's open-on-site
     // action always launches the system browser (ACTION_VIEW) — never an
@@ -315,11 +277,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // Spec-13 T4: returning from the browser surface may have refreshed the
         // Cloudflare session — re-hydrate the session-bound feeds («Нове з
         // Sluhay») immediately so a fresh challenge shows the row, not the CTA.
-        loadSourceFeeds()
         // Spec-15 T1: same session re-hydration applies to the unified
         // catalogue union — a fresh challenge must surface the source's books
         // in «Увесь каталог» on the next Огляд visit.
-        loadUnifiedCatalog()
+        viewModelScope.launch(Dispatchers.IO) {
+            sourceCatalog.refreshSourceFeeds()
+            sourceCatalog.refreshUnifiedCatalog()
+            // Spec-19 T2: the embedding pass runs right after the catalogue
+            // sync, on the background dispatcher — never on the UI thread.
+            refreshEmbeddingVectors()
+        }
     }
 
     /**
@@ -500,12 +467,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun refreshCatalog() {
-        viewModelScope.launch(Dispatchers.IO) {
-            sourceCatalog.fetchCatalogSections()
-        }
-    }
-
     fun selectTab(tab: SelectedTab) {
         _selectedTab.value = tab
     }
@@ -622,22 +583,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun openWorkFeedRow(row: WorkFeedRow) {
         viewModelScope.launch(Dispatchers.IO) {
-            val edition = sourceCatalog.editionsForWork(row.workId).firstOrNull() ?: return@launch
-            playFromSource(edition.sourceId, edition.sourceUrl)
-        }
-    }
-
-    // Spec-10 T5: per-source «Нове з кожного джерела» rows on the Listen tab.
-    val sourceFeeds: StateFlow<List<com.example.data.catalog.SourceCatalog.SourceNewFeed>> =
-        sourceCatalog.sourceFeeds
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    val isFeedsLoading: StateFlow<Boolean> = sourceCatalog.isFeedsLoading
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
-
-    fun loadSourceFeeds() {
-        viewModelScope.launch(Dispatchers.IO) {
-            sourceCatalog.refreshSourceFeeds()
+            val source = sourceCatalog.workSourcesForWork(row.workId).firstOrNull() ?: return@launch
+            playFromSource(source.sourceId, source.sourceUrl)
         }
     }
 
@@ -698,25 +645,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // Spec-15 T1: the deduplicated «Увесь каталог» union — every verified
-    // source's catalogue enumeration merged into one Work card per book, with
-    // a badge per carried source. Ephemeral (nothing imported until a card is
-    // tapped → playFromSource); cached in the repository for the session.
-    val unifiedCatalog: StateFlow<List<GlobalSearchResult>> = sourceCatalog.unifiedCatalog
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    val isUnifiedCatalogLoading: StateFlow<Boolean> = sourceCatalog.isUnifiedCatalogLoading
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
-
-    fun loadUnifiedCatalog() {
-        viewModelScope.launch(Dispatchers.IO) {
-            sourceCatalog.refreshUnifiedCatalog()
-            // Spec-19 T2: the embedding pass runs right after the catalogue
-            // sync, on the background dispatcher — never on the UI thread.
-            refreshEmbeddingVectors()
-        }
-    }
-
     // Spec-19 T2 — the background embedding pass. Embeds every catalogue
     // book's text through the [TextEmbedder] seam on an idle (IO) dispatcher
     // and publishes the id → vector map for the recommendation row. Cache
@@ -735,7 +663,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (!_embeddingPassInFlight.compareAndSet(false, true)) return
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val catalog = unifiedCatalog.value
+                val catalog = sourceCatalog.unifiedCatalog.value
                 val library = libraryBooks.value
                 val candidates = catalog.map { result ->
                     com.example.data.recommend.RecommendationEngine.Candidate(
@@ -843,7 +771,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     val recommendedBooks: StateFlow<List<com.example.data.recommend.RecommendationEngine.Recommendation>> = combine(
         libraryBooks,
-        unifiedCatalog,
+        sourceCatalog.unifiedCatalog,
         catalogVectors
     ) { library, catalog, vectors ->
         // T2: an empty (or not-yet-computed) vector map means the background
@@ -897,7 +825,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * listen.
      */
     fun openRecommendedBook(candidateId: String) {
-        val result = unifiedCatalog.value.firstOrNull { it.key == candidateId } ?: return
+        val result = sourceCatalog.unifiedCatalog.value.firstOrNull { it.key == candidateId } ?: return
         val source = result.sources.firstOrNull() ?: return
         viewModelScope.launch(Dispatchers.IO) {
             val book = try {
@@ -1004,52 +932,37 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun playAudiobook(book: AudiobookEntity, chapterIndex: Int? = null, autoPlay: Boolean = true) {
         viewModelScope.launch(Dispatchers.IO) {
             val updatedBook = libraryEntries.getBookSync(book.id) ?: book
-            val chapters = sourceCatalog.getChaptersList(updatedBook.id)
+            // ADR-0007: the chapter→track pairing rides the same fetch — the
+            // player resolves chapter → track 1:1 by index.
+            val playable = sourceCatalog.getPlayableChapters(updatedBook.id)
+            val chapters = playable.map { it.chapter }
             // Code-review LOW: if the book was deleted while this IO fetch was
             // in flight (e.g. deleteBook on another screen), do not resurrect
             // playback for it.
             if (libraryEntries.getBookSync(updatedBook.id) == null) return@launch
             val progress = listeningState.getProgressSync(updatedBook.id)
-            
-            val startChapter: Int
-            var startPositionSec: Long
 
-            if (chapterIndex != null) {
-                // User explicitly selected a specific chapter
-                startChapter = chapterIndex
-                startPositionSec = if (progress != null && progress.currentChapterIndex == chapterIndex) {
-                    progress.currentPositionSeconds
-                } else {
-                    0L
-                }
-            } else {
-                // Restore from saved Room playback position or default to chapter 0
-                startChapter = progress?.currentChapterIndex ?: 0
-                startPositionSec = progress?.currentPositionSeconds ?: 0L
-            }
-
-            // Smart rewind across restarts (wayfinder #25, ADR-0003): the
-            // resume position is rewound by how long ago the book was paused
-            // through the ONE pure rule ([SmartRewind.rewoundPositionMs])
-            // shared with the in-session path — same tiers, same
-            // clamp-at-zero (a position smaller than the rewind now rewinds to
-            // zero; the former restart path skipped the rewind there). The
-            // marker is cleared so the same pause never rewinds twice.
-            progress?.lastPausedAtEpochMs?.let { pausedAt ->
-                startPositionSec = SmartRewind.rewoundPositionMs(
-                    startPositionSec * 1000L,
-                    System.currentTimeMillis() - pausedAt
-                ) / 1000L
-                // Spec-10 T2: the marker lives on the source's progress row.
-                listeningState.updatePausedAt(updatedBook.id, null, sourceKey = progress.sourceKey)
+            // ADR-0008: the ONE pure resume decision — an explicit chapter
+            // request vs. the saved progress, then the ADR-0003 smart rewind
+            // (same tiers, same clamp-at-zero as the in-session path).
+            val resume = computeResumeStart(
+                requestedChapter = chapterIndex,
+                progress = progress,
+                nowEpochMs = System.currentTimeMillis()
+            )
+            // ADR-0007: the pause marker lives on the Edition's progress row;
+            // cleared so the same pause never rewinds twice.
+            if (progress?.lastPausedAtEpochMs != null) {
+                listeningState.updatePausedAt(updatedBook.id, null)
             }
 
             withContext(Dispatchers.Main) {
                 playerManager.loadAndPlayBook(
                     book = updatedBook,
                     chapters = chapters,
-                    initialChapterIndex = startChapter,
-                    initialPositionSeconds = startPositionSec,
+                    playable = playable,
+                    initialChapterIndex = resume.chapterIndex,
+                    initialPositionSeconds = resume.positionSeconds,
                     autoPlay = autoPlay
                 )
             }
@@ -1082,22 +995,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun deleteBookmark(bookmarkId: Long) {
-        viewModelScope.launch(Dispatchers.IO) {
-            listeningState.deleteBookmark(bookmarkId)
-        }
-    }
-
     fun jumpToBookmark(bookmark: BookmarkEntity) {
         viewModelScope.launch(Dispatchers.IO) {
             val book = libraryEntries.getBookSync(bookmark.bookId) ?: return@launch
-            val chapters = sourceCatalog.getChaptersList(bookmark.bookId)
+            // ADR-0007: chapter→track pairing rides the same fetch.
+            val playable = sourceCatalog.getPlayableChapters(bookmark.bookId)
+            val chapters = playable.map { it.chapter }
 
             viewModelScope.launch(Dispatchers.Main) {
                 if (playerState.value.currentBook?.id != bookmark.bookId) {
                     playerManager.loadAndPlayBook(
                         book = book,
                         chapters = chapters,
+                        playable = playable,
                         initialChapterIndex = bookmark.chapterIndex,
                         initialPositionSeconds = bookmark.timestampSeconds,
                         autoPlay = true
@@ -1122,9 +1032,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _downloadMessage = MutableStateFlow<String?>(null)
     val downloadMessage: StateFlow<String?> = _downloadMessage.asStateFlow()
-
-    /** Spec-10 T6: whether the book's primary source is stream-only. */
-    fun isStreamOnly(book: AudiobookEntity): Boolean = streamOnlyFor(sourceIdForUrl(book.sourceUrl))
 
     // Spec-15 T4: one-tap download from a catalogue card. The card is
     // ephemeral — nothing is in Room until the user acts — so the flow imports
@@ -1171,7 +1078,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * Spec-15 T4 — one-tap download from a catalogue card: import the book
      * from its primary source (transparent merge into the Work) and download
      * the whole book offline. Stream-only sources never reach this — the card
-     * hides the affordance via [catalogCardDownloadAllowed] and the repository
+     * hides the affordance via `catalogCardDownloadAllowed` and the repository
      * refuses in depth.
      */
     fun downloadCatalogBook(result: GlobalSearchResult) {
@@ -1207,20 +1114,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 // otherwise the message would pop on whichever book screen is
                 // open next.
                 if (_selectedBookId.value == bookId) {
-                    _downloadMessage.value = when {
-                        result.totalChapters == 0 ->
-                            "Не вдалося знайти аудіо для завантаження. Перевірте з'єднання."
-                        result.downloadedChapters == 0 ->
-                            "Не вдалося завантажити книгу. Спробуйте пізніше."
-                        result.downloadedChapters < result.totalChapters ->
-                            "Завантажено ${result.downloadedChapters} з ${result.totalChapters} глав"
-                        else -> "Книгу завантажено для офлайн-прослуховування"
-                    }
+                    _downloadMessage.value = OutcomeMessages.downloadOutcome(result)
                 }
             } catch (e: Exception) {
                 android.util.Log.w("MainViewModel", "Offline download failed", e)
                 if (_selectedBookId.value == bookId) {
-                    _downloadMessage.value = "Не вдалося завантажити книгу"
+                    _downloadMessage.value = OutcomeMessages.downloadFailure()
                 }
             } finally {
                 _downloadingBookId.value = null
@@ -1230,12 +1129,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun consumeDownloadMessage() {
         _downloadMessage.value = null
-    }
-
-    fun removeOfflineDownload(bookId: String) {
-        viewModelScope.launch(Dispatchers.IO) {
-            offlineDownloads.removeOfflineDownload(bookId)
-        }
     }
 
     /**
@@ -1325,17 +1218,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     ImportGrantStore(getApplication()).addTreeUri(preview.treeUri)
                 }
                 _importPreview.value = null
-                _importMessage.value = if (result.booksImported > 0) {
-                    buildString {
-                        append("Імпортовано ${result.booksImported} книг (${result.filesImported} файлів)")
-                        if (result.duplicateFiles > 0) append(" · ${result.duplicateFiles} дублікатів пропущено")
-                        if (result.skippedFiles > 0) append(" · ${result.skippedFiles} не вдалося прочитати")
-                    }
-                } else if (result.duplicateFiles > 0) {
-                    "Всі файли вже в бібліотеці (${result.duplicateFiles} дублікатів пропущено)"
-                } else {
-                    "Імпорт завершено"
-                }
+                _importMessage.value = OutcomeMessages.importOutcome(result)
             } catch (e: Exception) {
                 android.util.Log.w("MainViewModel", "Preview import failed", e)
                 _importMessage.value = "Не вдалося імпортувати папку"
@@ -1378,19 +1261,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         duplicateFiles = acc.duplicateFiles + r.duplicateFiles
                     )
                 }
-                _importMessage.value = buildString {
-                    append("Пересканування завершено")
-                    when {
-                        totals.newChapters > 0 || totals.newBooks > 0 -> {
-                            append(": +${totals.newChapters} глав")
-                            if (totals.newBooks > 0) append(" (${totals.newBooks} нових книг)")
-                        }
-                        else -> append(" — змін не знайдено")
-                    }
-                    if (totals.missingFiles > 0) append(" · ${totals.missingFiles} файлів зникло")
-                    if (totals.movedFiles > 0) append(" · ${totals.movedFiles} перейменовано")
-                    if (totals.duplicateFiles > 0) append(" · ${totals.duplicateFiles} дублікатів пропущено")
-                }
+                _importMessage.value = OutcomeMessages.rescanOutcome(totals)
             } catch (e: Exception) {
                 android.util.Log.w("MainViewModel", "Re-scan failed", e)
                 _importMessage.value = "Не вдалося пересканувати папки"

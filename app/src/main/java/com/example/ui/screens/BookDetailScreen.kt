@@ -54,6 +54,8 @@ fun BookDetailScreen(
     // Spec-15 T5: what every source carrying the Work says about it.
     val sourceProfiles by viewModel.sourceProfiles.collectAsState()
     val isSourceProfilesLoading by viewModel.isSourceProfilesLoading.collectAsState()
+    // Spec-23 T5: every Edition carrying the Work — the «Джерела» section.
+    val bookSources by viewModel.bookSources.collectAsState()
 
     var activeTab by remember { mutableStateOf(0) } // 0 = Chapters, 1 = Bookmarks
     var showAddBookmarkDialog by remember { mutableStateOf(false) }
@@ -356,6 +358,29 @@ fun BookDetailScreen(
                                 modifier = Modifier.size(20.dp),
                                 strokeWidth = 2.dp,
                                 color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+
+                    // Spec-23 T5: «Джерела» — every Edition carrying the Work
+                    // (source name + stream-only marker), from the persisted
+                    // `editions` rows. Tapping one plays that variant through
+                    // the existing per-source policy (incl. Referer/UA). The
+                    // current book's own source is marked.
+                    if (bookSources.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(20.dp))
+                        Text(
+                            text = "Джерела",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.padding(horizontal = 8.dp)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        bookSources.forEach { source ->
+                            WorkSourceRowCard(
+                                source = source,
+                                isCurrent = source.url == currentBook.sourceUrl,
+                                onClick = { viewModel.playFromSource(source.sourceId, source.url) }
                             )
                         }
                     }
@@ -966,6 +991,67 @@ fun BookmarkRowItem(
                     contentDescription = "Delete bookmark",
                     tint = MaterialTheme.colorScheme.error
                 )
+            }
+        }
+    }
+}
+
+/**
+ * Spec-23 T5 — one row of the book page's «Джерела» section: a source that
+ * carries the Work, with its stream-only marker («Тільки стрімінг»). Tapping
+ * plays that source's variant through the existing per-source policy.
+ * [isCurrent] marks the source the library row itself came from. Pure
+ * `@Composable` — pinned by the snapshot seam from fixture rows.
+ */
+@Composable
+fun WorkSourceRowCard(
+    source: com.example.data.catalog.SourceCatalog.WorkSourceRow,
+    isCurrent: Boolean,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(AppDimens.RadiusPanel),
+        color = if (isCurrent) MaterialTheme.colorScheme.surfaceContainerHigh else MaterialTheme.colorScheme.surfaceContainer,
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            if (isCurrent) MaterialTheme.colorScheme.primary.copy(alpha = 0.5f) else MaterialTheme.colorScheme.outlineVariant
+        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp, vertical = 4.dp)
+            .testTag("work_source_${source.sourceId}")
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.PlayArrow,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(22.dp)
+            )
+            Spacer(modifier = Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = source.sourceName,
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    if (isCurrent) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        SourceBadgePill(label = "Поточна")
+                    }
+                }
+                if (source.streamOnly) {
+                    Text(
+                        text = "Тільки стрімінг",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         }
     }

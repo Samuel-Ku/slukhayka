@@ -3,9 +3,29 @@ package com.example.data.db
 import androidx.room.Entity
 import androidx.room.ColumnInfo
 import androidx.room.ForeignKey
+import androidx.room.Ignore
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
+/**
+ * ADR-0009 — the metadata row of the split book row. `audiobooks` is ONE
+ * concept now: the per-row metadata of the user's copy (title/author/narrator
+ * mirror the Work, cover, genre, durations, local-file tree). The two other
+ * concepts the row used to fuse left in the v15 contract step:
+ *  - the **Work** (mergeKey, series, workId) lives in `works`;
+ *  - the **Library Entry** (isFavorite, createdAt, downloadProgress) lives in
+ *    `library_entries`;
+ *  - the per-book **preferred speed** lives on the Listening State row
+ *    (`playback_progress`, keyed by the Edition).
+ *
+ * The moved fields stay on the Kotlin class as `@Ignore` READ-ONLY
+ * projections: every DAO read joins `works` / `library_entries` /
+ * `playback_progress` and fills them, so the UI (LibraryModel, ListenComposer,
+ * screens, the player) keeps reading the same shaped row while the persisted
+ * columns are gone. Writes never touch them here — they go to the owning
+ * tables. `narrator` stays mirrored on both rows until the Work-merge policy
+ * revisits the mergeKey (out of scope of ADR-0009).
+ */
 @Entity(tableName = "audiobooks")
 data class AudiobookEntity(
     @PrimaryKey val id: String,
@@ -18,41 +38,64 @@ data class AudiobookEntity(
     val genre: String,
     val sourceUrl: String,
     val isDownloaded: Boolean = false,
-    val downloadProgress: Float = 0f,
     val totalDurationSeconds: Long = 0L,
     val totalChapters: Int = 0,
     val rating: Float = 4.9f,
-    val isFavorite: Boolean = false,
-    // 4read series (cycle) metadata (spec-9 T1): parsed from the poster's
-    // `poster__series` chip and `poster__label--blue` volume badge.
-    val seriesTitle: String? = null,
-    val seriesUrl: String? = null,
-    val seriesIndex: Int? = null,
-    // Per-book playback speed (wayfinder #26): null means "use the global
-    // default" from PlaybackSettings.
-    val preferredSpeed: Float? = null,
-    // When the book entered the library (wayfinder #39): drives the
-    // "recently added" sort. Migration 6->7 backfills existing rows with the
-    // migration-run time; new imports stamp their own insert time.
-    @ColumnInfo(defaultValue = "0")
-    val createdAt: Long = System.currentTimeMillis(),
     // SAF tree URI of the local folder this book was imported from (wayfinder
     // #48): kept so a future rescan can re-read chapter metadata without
     // asking the user to pick the folder again. Null for streamed 4read books
     // and single-file imports.
-    val sourceTreeUri: String? = null,
-    // Multi-source catalog (spec-10 T2): the Work-level dedup key, computed as
-    // normalized title|author|narrator (see MergeKey). Books imported from
-    // different sources with the same key merge into one Work card. Empty for
-    // rows that predate the merge (migration 7->8 leaves them unmatched until
-    // re-import).
-    @ColumnInfo(defaultValue = "")
-    val mergeKey: String = "",
-    // Unified-library identity (wayfinder #55 Q2, stage-2 S1): the Work id.
-    // Pinned to `mergeKey` (the #54 identity); null only for rows imported
-    // before merge keys existed. `audiobooks.id` stays the row id — all
-    // existing FKs are untouched.
-    val workId: String? = null
+    val sourceTreeUri: String? = null
+) {
+    // --- ADR-0009 projections (columns left in the v15 contract step) -----
+    // The audiobooks ROW no longer carries these columns; every DAO read of
+    // this entity joins the owning tables (`works`, `library_entries`,
+    // `playback_progress`) and fills these @Ignore `var` projections, so the
+    // UI keeps reading one shaped row. They are never persisted here — Room
+    // needs them settable (var) to hydrate them from the join, and they are
+    // excluded from data-class equality/copy by design (they are projections,
+    // not identity).
+
+    /** 4read series (cycle) metadata (spec-9 T1) — read from `works`. */
+    @Ignore var seriesTitle: String? = null
+    @Ignore var seriesUrl: String? = null
+    @Ignore var seriesIndex: Int? = null
+    /** Per-book playback speed (wayfinder #26) — read from the Listening
+     *  State row (`playback_progress`); null means "use the global default". */
+    @Ignore var preferredSpeed: Float? = null
+    /** When the entry entered the library (wayfinder #39) — read from
+     *  `library_entries`; drives the "recently added" sort. */
+    @Ignore var createdAt: Long = System.currentTimeMillis()
+    /** The Library Entry concerns — read from `library_entries`. */
+    @Ignore var isFavorite: Boolean = false
+    @Ignore var downloadProgress: Float = 0f
+    /** The Work identity (mergeKey, workId) — read from `works` via
+     *  `library_entries.workId`. */
+    @Ignore var mergeKey: String = ""
+    @Ignore var workId: String? = null
+}
+
+/**
+ * ADR-0009 — one Library Entry row per `audiobooks` row: the user-copy
+ * concerns of the split book row (isFavorite, createdAt, downloadProgress).
+ * The Entry anchors the library row to its Work ([workId] = `works.id` for
+ * mergeable identities; the book's own id for blank-key/local books that have
+ * no Works row), so every read can join audiobooks → library_entries → works.
+ */
+@Entity(tableName = "library_entries", indices = [Index("workId")])
+data class LibraryEntryEntity(
+    // = audiobooks.id — one entry per library row.
+    @PrimaryKey val id: String,
+    // The Work id this entry belongs to: `works.id` when the book has a
+    // mergeable identity, else the book's own id (no works row exists).
+    val workId: String,
+    val isFavorite: Boolean = false,
+    // When the entry entered the library (wayfinder #39): drives the
+    // "recently added" sort. Migration 14->15 backfills existing rows with
+    // the audiobooks.createdAt they carried.
+    @ColumnInfo(defaultValue = "0")
+    val createdAt: Long = System.currentTimeMillis(),
+    val downloadProgress: Float = 0f
 )
 
 @Entity(tableName = "listening_stats")
@@ -169,7 +212,13 @@ data class PlaybackProgressEntity(
     // Wall-clock epoch of the last pause (wayfinder #25): drives the smart
     // rewind on resume — the longer the pause, the further back playback
     // rewinds. Null once the rewind has been applied.
-    val lastPausedAtEpochMs: Long? = null
+    val lastPausedAtEpochMs: Long? = null,
+    // Per-book playback speed (wayfinder #26, ADR-0009): the Listening State
+    // row carries the preference (CONTEXT.md places playback preferences in
+    // Listening State, keyed by Edition). Null means "use the global default"
+    // from PlaybackSettings. Migration 14->15 backfills it from the
+    // audiobooks.preferredSpeed it used to live on.
+    val preferredSpeed: Float? = null
 )
 
 /**
@@ -383,6 +432,10 @@ data class WorkEntity(
     val author: String,
     val narrator: String = "",
     val seriesTitle: String? = null,
+    // 4read series page URL (spec-9 T1, ADR-0009): moved here from the
+    // audiobooks row in the v15 contract step — the membership signal the
+    // next-in-series resolution reads from the Work.
+    val seriesUrl: String? = null,
     val seriesIndex: Int? = null,
     val coverImageUrl: String? = null,
     val addedAt: Long = System.currentTimeMillis()

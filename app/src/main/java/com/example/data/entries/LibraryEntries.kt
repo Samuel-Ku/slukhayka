@@ -8,6 +8,7 @@ import com.example.data.db.ChapterEntity
 import com.example.data.db.PlaybackProgressEntity
 import com.example.data.db.SourceEntity
 import com.example.data.db.TombstoneEntity
+import kotlinx.coroutines.flow.map
 import com.example.data.metadata.MetadataAssertions
 import com.example.data.source.FourReadAdapter
 import com.example.data.source.SourceAdapter
@@ -44,8 +45,12 @@ class LibraryEntries(
     // Library flows
     // ---------------------------------------------------------------------
 
-    val allBooks: Flow<List<AudiobookEntity>> = dao.getAllAudiobooks()
-    val downloadedBooks: Flow<List<AudiobookEntity>> = dao.getDownloadedAudiobooks()
+    // ADR-0009: the DAO reads return the JOINed [BookRow]; the module maps it
+    // back to the single shaped [AudiobookEntity] the UI keeps reading.
+    val allBooks: Flow<List<AudiobookEntity>> =
+        dao.getAllAudiobooks().map { rows -> rows.map { it.toAudiobookEntity() } }
+    val downloadedBooks: Flow<List<AudiobookEntity>> =
+        dao.getDownloadedAudiobooks().map { rows -> rows.map { it.toAudiobookEntity() } }
     val allBookmarks: Flow<List<BookmarkEntity>> = dao.getAllBookmarks()
     val recentProgress: Flow<List<PlaybackProgressEntity>> = dao.getAllPlaybackProgress()
 
@@ -57,8 +62,10 @@ class LibraryEntries(
     // Book reads
     // ---------------------------------------------------------------------
 
-    fun observeBook(bookId: String): Flow<AudiobookEntity?> = dao.observeAudiobookById(bookId)
-    suspend fun getBookSync(bookId: String): AudiobookEntity? = dao.getAudiobookById(bookId)
+    fun observeBook(bookId: String): Flow<AudiobookEntity?> =
+        dao.observeAudiobookById(bookId).map { it?.toAudiobookEntity() }
+    suspend fun getBookSync(bookId: String): AudiobookEntity? =
+        dao.getAudiobookById(bookId)?.toAudiobookEntity()
 
     fun observeChapters(bookId: String): Flow<List<ChapterEntity>> = dao.getChaptersForBook(bookId)
 
@@ -73,23 +80,33 @@ class LibraryEntries(
         dao.setFavorite(bookId, isFavorite)
     }
 
-    fun getFavoriteAudiobooks(): Flow<List<AudiobookEntity>> = dao.getFavoriteAudiobooks()
+    fun getFavoriteAudiobooks(): Flow<List<AudiobookEntity>> =
+        dao.getFavoriteAudiobooks().map { rows -> rows.map { it.toAudiobookEntity() } }
 
     // ---------------------------------------------------------------------
     // Metadata
     // ---------------------------------------------------------------------
 
-    /** Back-fills real page metadata (author/narrator/genre/rating/series). */
+    /**
+     * Back-fills real page metadata (author/narrator/genre/rating) onto the
+     * audiobooks row. Series is NOT part of it anymore (ADR-0009): it belongs
+     * to the Work, written through [updateSeries].
+     */
     suspend fun updateBookMetadata(
         bookId: String,
         author: String? = null,
         narrator: String? = null,
         genre: String? = null,
-        rating: Float? = null,
-        seriesTitle: String? = null,
-        seriesIndex: Int? = null,
-        seriesUrl: String? = null
-    ) = dao.updateBookMetadata(bookId, author, narrator, genre, rating, seriesTitle, seriesIndex, seriesUrl)
+        rating: Float? = null
+    ) = dao.updateBookMetadata(bookId, author, narrator, genre, rating)
+
+    /** Series belongs to the Work row (ADR-0009); the caller resolves the delta. */
+    suspend fun updateSeries(
+        bookId: String,
+        seriesTitle: String?,
+        seriesUrl: String?,
+        seriesIndex: Int?
+    ) = dao.updateSeriesFields(bookId, seriesTitle, seriesUrl, seriesIndex)
 
     /**
      * Spec-15 T5 — what ONE source says about a Work, for the labelled
@@ -175,6 +192,9 @@ class LibraryEntries(
         dao.deleteTracksForBook(bookId)
         dao.deleteSourcesForBook(bookId)
         dao.deletePlaybackEventsForBook(bookId)
+        // ADR-0009: the Library Entry row leaves with the book (the Work row
+        // stays — it is the browse layer's identity, not the user's copy).
+        dao.deleteLibraryEntry(bookId)
         dao.deleteAudiobook(bookId)
     }
 
@@ -194,6 +214,8 @@ class LibraryEntries(
         dao.deleteTracksForBook(bookId)
         dao.deleteSourcesForBook(bookId)
         dao.deletePlaybackEventsForBook(bookId)
+        // ADR-0009: the Library Entry row leaves with the book.
+        dao.deleteLibraryEntry(bookId)
         dao.deleteAudiobook(bookId)
     }
 
@@ -269,11 +291,12 @@ class LibraryEntries(
                     author = author,
                     narrator = narrator,
                     genre = genres,
-                    rating = rating,
-                    seriesTitle = series?.title,
-                    seriesIndex = series?.index,
-                    seriesUrl = series?.url
+                    rating = rating
                 )
+                // ADR-0009: series persists on the Work row, not audiobooks.
+                if (series != null) {
+                    dao.updateSeriesFields(bookId, series.title, series.url, series.index)
+                }
             }
             // Same guard as SourceCatalog.getChaptersList: never overwrite
             // existing (seeded) chapters with live-page ones -- that
@@ -283,7 +306,7 @@ class LibraryEntries(
             // `ch`/`ch_` format used to duplicate the whole chapter list).
             if (chapters.isEmpty() && detail.chapters.isNotEmpty()) {
                 val edition = dao.getEditionForWork(bookId)
-                val editionId = edition?.id ?: com.example.data.EditionId.forBook(book.mergeKey, bookId)
+                val editionId = edition?.id ?: com.example.data.EditionId.forBook(book.mergeKey ?: "", bookId)
                 if (edition == null) {
                     dao.insertEdition(
                         com.example.data.db.EditionEntity(

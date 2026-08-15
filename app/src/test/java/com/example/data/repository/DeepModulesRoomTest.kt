@@ -1188,6 +1188,18 @@ class DeepModulesRoomTest {
             sourceUrl = "https://4read.org/7589-neostannij-bij.html"
         )
         dao.insertAudiobooks(listOf(book))
+        // ADR-0009: series persists on the WORK row — seed the Works row + the
+        // entry so the page back-fill has somewhere to land.
+        dao.upsertWork(
+            com.example.data.db.WorkEntity(
+                id = book.id, mergeKey = "", title = book.title,
+                author = book.author, addedAt = 0L
+            )
+        )
+        dao.upsertLibraryEntry(
+            id = book.id, workId = book.id, isFavorite = false,
+            createdAt = 0L, downloadProgress = 0f
+        )
 
         val chapters = mods.catalog.getChaptersList(book.id)
 
@@ -1389,9 +1401,8 @@ class DeepModulesRoomTest {
             sourceUrl = "https://lihtar.in.ua/biblioteka/khudozhnja-literatura/slovo",
             // The first fixture book is downloaded by default; the refusal
             // must be observable as a book that stays un-downloaded.
-            isDownloaded = false,
-            downloadProgress = 0f
-        )
+            isDownloaded = false
+        ).also { it.downloadProgress = 0f }
         dao.insertAudiobooks(listOf(book))
         dao.insertChapters(TestDataFactory.chaptersFor(book))
 
@@ -1412,9 +1423,8 @@ class DeepModulesRoomTest {
         val mods = modules()
         val book = TestDataFactory.dataBooks()[0].copy(
             sourceUrl = "https://4read.org/7589-neostannij-bij.html",
-            isDownloaded = false,
-            downloadProgress = 0f
-        )
+            isDownloaded = false
+        ).also { it.downloadProgress = 0f }
         dao.insertAudiobooks(listOf(book))
         // Non-http stream urls: the loop executes, skips the network hop and
         // reports every chapter as failed — exercising the whole download path
@@ -1476,6 +1486,17 @@ class DeepModulesRoomTest {
         val mods = modules()
         val book = TestDataFactory.dataBooks()[0]
         dao.insertAudiobooks(listOf(book))
+        // ADR-0009: the preference lives on the Listening State row — it needs
+        // the Edition anchor + a progress row to land.
+        val editionId = com.example.data.EditionId.forBook("", book.id)
+        dao.insertEdition(com.example.data.db.EditionEntity(id = editionId, workId = book.id))
+        dao.savePlaybackProgress(
+            com.example.data.db.PlaybackProgressEntity(
+                editionId = editionId, bookId = book.id,
+                currentChapterIndex = 0, currentPositionSeconds = 10L,
+                lastListenedAt = TestDataFactory.FIXED_CLOCK_MS
+            )
+        )
 
         mods.listening.setPreferredSpeed(book.id, 1.5f)
 
@@ -1595,7 +1616,12 @@ class DeepModulesRoomTest {
         val mods = modules()
         val book = TestDataFactory.dataBooks()[0]
         // Insert a book that predates series metadata (e.g. from an earlier sync).
-        dao.insertAudiobooks(listOf(book.copy(isFavorite = true, isDownloaded = true)))
+        // ADR-0009: favourite lives on the Library Entry row — seed it.
+        dao.insertAudiobooks(listOf(book.copy(isDownloaded = true).also { it.isFavorite = true }))
+        dao.upsertLibraryEntry(
+            id = book.id, workId = book.id, isFavorite = true,
+            createdAt = TestDataFactory.FIXED_CLOCK_MS, downloadProgress = 0f
+        )
 
         mods.catalog.upsertCatalogBook(
             CatalogBook(
@@ -1623,14 +1649,20 @@ class DeepModulesRoomTest {
     @Test
     fun `upserting a book without series metadata leaves stored series untouched`() = runBlocking {
         val mods = modules()
-        dao.insertAudiobooks(
-            listOf(
-                TestDataFactory.dataBooks()[1].copy(
-                    seriesTitle = "Старий цикл",
-                    seriesUrl = "https://4read.org/xfsearch/cikl/old/",
-                    seriesIndex = 1
-                )
+        // ADR-0009: series persists on the WORK row — seed the book, its
+        // Works row (by the key the catalogue write path uses) and the entry.
+        val book = TestDataFactory.dataBooks()[1]
+        val key = MergeKey.keyFor(book.title, book.author, "")
+        dao.insertAudiobooks(listOf(book))
+        dao.upsertWork(
+            com.example.data.db.WorkEntity(
+                id = key, mergeKey = key, title = book.title, author = book.author,
+                seriesTitle = "Старий цикл", seriesUrl = "https://4read.org/xfsearch/cikl/old/",
+                seriesIndex = 1, addedAt = 0L
             )
+        )
+        dao.upsertLibraryEntry(
+            id = book.id, workId = key, isFavorite = false, createdAt = 0L, downloadProgress = 0f
         )
 
         mods.catalog.upsertCatalogBook(
@@ -1842,10 +1874,19 @@ class DeepModulesRoomTest {
             description = "",
             coverDrawableRes = 0,
             genre = "Класика",
-            sourceUrl = "http://4read.org/book/1",
-            mergeKey = existingKey
-        )
+            sourceUrl = "http://4read.org/book/1"
+        ).also { it.mergeKey = existingKey }
         dao.insertAudiobooks(listOf(existing))
+        // ADR-0009: the merge key lives on the Works row — seed it + the entry.
+        dao.upsertWork(
+            com.example.data.db.WorkEntity(
+                id = existingKey, mergeKey = existingKey, title = "Кобзар",
+                author = "Тарас Шевченко", addedAt = 0L
+            )
+        )
+        dao.upsertLibraryEntry(
+            id = "b1", workId = existingKey, isFavorite = false, createdAt = 0L, downloadProgress = 0f
+        )
 
         val entries = listOf(LocalAudioEntry("01.mp3", "Кобзар") { ByteArrayInputStream(ByteArray(16)) })
         val plan = ImportPlanner.buildPlan(
@@ -1876,9 +1917,19 @@ class DeepModulesRoomTest {
             listOf(
                 com.example.data.db.AudiobookEntity(
                     id = "b1", title = "Книга", author = "Хтось", narrator = "",
-                    description = "", coverDrawableRes = 0, genre = "", sourceUrl = "", mergeKey = existingKey
-                )
+                    description = "", coverDrawableRes = 0, genre = "", sourceUrl = ""
+                ).also { it.mergeKey = existingKey }
             )
+        )
+        // ADR-0009: the merge key lives on the Works row — seed it + the entry.
+        dao.upsertWork(
+            com.example.data.db.WorkEntity(
+                id = existingKey, mergeKey = existingKey, title = "Книга",
+                author = "Хтось", addedAt = 0L
+            )
+        )
+        dao.upsertLibraryEntry(
+            id = "b1", workId = existingKey, isFavorite = false, createdAt = 0L, downloadProgress = 0f
         )
         val entries = listOf(LocalAudioEntry("01.mp3", "Книга") { ByteArrayInputStream(ByteArray(16)) })
         var plan = ImportPlanner.buildPlan(
@@ -2127,7 +2178,7 @@ class DeepModulesRoomTest {
         )
         val editionId = com.example.data.EditionId.forBook(book.mergeKey, book.id)
         val sourceId = "4read-$editionId"
-        dao.insertAudiobooks(listOf(book.copy(isDownloaded = true, downloadProgress = 1f)))
+        dao.insertAudiobooks(listOf(book.copy(isDownloaded = true).also { it.downloadProgress = 1f }))
         dao.insertChapters(TestDataFactory.chaptersFor(book))
         dao.insertSources(
             listOf(
@@ -2305,5 +2356,248 @@ class DeepModulesRoomTest {
         val after = dao.getAllAudiobooks().first()
         assertEquals(1, after.size)
         assertTrue("the fresh book must be visible", after.first().id != first.id)
+    }
+
+    // ---------------------------------------------------------------------
+    // ADR-0009: schema migration 14 -> 15 (the book row splits into Works and
+    // Library Entries; preferredSpeed moves to the Listening State row).
+    // EXPAND: library_entries created + back-filled, works gains seriesUrl
+    // and one row per mergeable library book, playback_progress gains
+    // preferredSpeed. CONTRACT: audiobooks is rebuilt without the fused
+    // columns (mergeKey/series*/workId -> Works, isFavorite/createdAt/
+    // downloadProgress -> Library Entries, preferredSpeed -> Listening State).
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `migration 14 to 15 splits the book row into works and library entries`() {
+        val factory = FrameworkSQLiteOpenHelperFactory()
+        val config = SupportSQLiteOpenHelper.Configuration.builder(context)
+            .name("migration-14-test.db")
+            .callback(object : SupportSQLiteOpenHelper.Callback(14) {
+                override fun onCreate(db: SupportSQLiteDatabase) {
+                    // Minimal v14 schema: two library books (one mergeable, one
+                    // blank-key), a third blank-key book whose crawl Works row
+                    // already exists, the domain editions + a progress row, an
+                    // untouched tombstone and playback event.
+                    db.execSQL(
+                        "CREATE TABLE audiobooks (id TEXT NOT NULL PRIMARY KEY, title TEXT NOT NULL, " +
+                            "author TEXT NOT NULL, narrator TEXT NOT NULL, description TEXT NOT NULL, " +
+                            "coverDrawableRes INTEGER NOT NULL, coverImageUrl TEXT, genre TEXT NOT NULL, " +
+                            "sourceUrl TEXT NOT NULL, isDownloaded INTEGER NOT NULL, " +
+                            "downloadProgress REAL NOT NULL, totalDurationSeconds INTEGER NOT NULL, " +
+                            "totalChapters INTEGER NOT NULL, rating REAL NOT NULL, " +
+                            "isFavorite INTEGER NOT NULL, seriesTitle TEXT, seriesUrl TEXT, seriesIndex INTEGER, " +
+                            "preferredSpeed REAL, createdAt INTEGER NOT NULL DEFAULT 0, sourceTreeUri TEXT, " +
+                            "mergeKey TEXT NOT NULL DEFAULT '', workId TEXT)"
+                    )
+                    db.execSQL(
+                        "INSERT INTO audiobooks (id, title, author, narrator, description, coverDrawableRes, genre, " +
+                            "sourceUrl, isDownloaded, downloadProgress, totalDurationSeconds, totalChapters, rating, " +
+                            "isFavorite, seriesTitle, seriesUrl, seriesIndex, preferredSpeed, createdAt, mergeKey, workId) VALUES " +
+                            "('b1', 'Кобзар', 'Автор', 'Читець', '', 0, '', 'http://4read.org/kobzar', 1, 0.5, 3600, 3, 4.9, " +
+                            "1, 'Цикл', 'http://4read.org/xfsearch/cikl/cykl/', 2, 1.25, 1700000000000, 'кобзар|автор|читець', 'кобзар|автор|читець'), " +
+                            "('b2', 'Локальна книга', 'Локальний файл', '', '', 0, '', '', 1, 1.0, 0, 0, 0.0, " +
+                            "0, NULL, NULL, NULL, NULL, 1600000000000, '', NULL), " +
+                            "('b3', 'Війна і мир', 'Лев Толстой', 'Читець 2', '', 0, '', 'http://4read.org/vijna-i-myr', 0, 0.0, 0, 0, 0.0, " +
+                            "0, 'Цикл 2', 'http://4read.org/xfsearch/cikl/cykl-2/', 1, NULL, 1500000000000, '', NULL)"
+                    )
+                    // A crawl Works row for b3 — keyed by the narrator-less
+                    // title|author key the catalogue write path uses.
+                    db.execSQL(
+                        "CREATE TABLE works (id TEXT NOT NULL PRIMARY KEY, mergeKey TEXT NOT NULL, " +
+                            "title TEXT NOT NULL, author TEXT NOT NULL, narrator TEXT NOT NULL DEFAULT '', " +
+                            "seriesTitle TEXT, seriesIndex INTEGER, coverImageUrl TEXT, addedAt INTEGER NOT NULL)"
+                    )
+                    db.execSQL("CREATE INDEX IF NOT EXISTS index_works_mergeKey ON works(mergeKey)")
+                    db.execSQL(
+                        "INSERT INTO works (id, mergeKey, title, author, narrator, seriesTitle, seriesIndex, coverImageUrl, addedAt) VALUES " +
+                            "('війна і мир|лев толстой', 'війна і мир|лев толстой', 'Війна і мир', 'Лев Толстой', '', NULL, NULL, NULL, 1400000000000)"
+                    )
+                    db.execSQL(
+                        "CREATE TABLE editions (id TEXT NOT NULL PRIMARY KEY, workId TEXT NOT NULL, " +
+                            "language TEXT NOT NULL DEFAULT '', narrator TEXT NOT NULL DEFAULT '', " +
+                            "totalChapters INTEGER NOT NULL DEFAULT 0, totalDurationSeconds INTEGER NOT NULL DEFAULT 0)"
+                    )
+                    db.execSQL(
+                        "INSERT INTO editions (id, workId, language, narrator, totalChapters, totalDurationSeconds) VALUES " +
+                            "('ed-b1', 'b1', '', 'Читець', 3, 3600)"
+                    )
+                    db.execSQL(
+                        "CREATE TABLE playback_progress (editionId TEXT NOT NULL PRIMARY KEY, bookId TEXT NOT NULL, " +
+                            "currentChapterIndex INTEGER NOT NULL, currentPositionSeconds INTEGER NOT NULL, " +
+                            "lastListenedAt INTEGER NOT NULL, isCompleted INTEGER NOT NULL, lastPausedAtEpochMs INTEGER)"
+                    )
+                    db.execSQL(
+                        "INSERT INTO playback_progress (editionId, bookId, currentChapterIndex, currentPositionSeconds, " +
+                            "lastListenedAt, isCompleted) VALUES ('ed-b1', 'b1', 1, 300, 1700000001000, 0)"
+                    )
+                    db.execSQL(
+                        "CREATE TABLE tombstones (bookId TEXT NOT NULL PRIMARY KEY, deletedAt INTEGER NOT NULL)"
+                    )
+                    db.execSQL("INSERT INTO tombstones (bookId, deletedAt) VALUES ('b9', 1700000000000)")
+                    db.execSQL(
+                        "CREATE TABLE playback_events (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                            "bookId TEXT NOT NULL, sourceKey TEXT NOT NULL DEFAULT '', kind TEXT NOT NULL, " +
+                            "chapterIndex INTEGER NOT NULL DEFAULT 0, positionSeconds INTEGER NOT NULL DEFAULT 0, " +
+                            "fromPositionSeconds INTEGER, timestamp INTEGER NOT NULL, deviceId TEXT NOT NULL DEFAULT '')"
+                    )
+                    db.execSQL(
+                        "INSERT INTO playback_events (bookId, sourceKey, kind, chapterIndex, positionSeconds, timestamp) " +
+                            "VALUES ('b1', '', 'RESUME', 0, 0, 1000)"
+                    )
+                }
+
+                override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) {}
+            })
+            .build()
+        val helper = factory.create(config)
+        val db = helper.writableDatabase
+
+        AudiobookDatabase.MIGRATION_14_15.migrate(db)
+
+        // EXPAND 1 — library_entries: one row per book, workId = the pinned
+        // key for mergeable books, the book id for blank-key ones, and the
+        // crawl Works key for a blank-key book whose Works row exists.
+        assertEquals(
+            setOf("id", "workId", "isFavorite", "createdAt", "downloadProgress"),
+            tableColumns(db, "library_entries").toSet()
+        )
+        db.query("SELECT workId, isFavorite, createdAt, downloadProgress FROM library_entries WHERE id = 'b1'").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals("кобзар|автор|читець", cursor.getString(0))
+            assertEquals(1, cursor.getInt(1))
+            assertEquals(1700000000000L, cursor.getLong(2))
+            assertEquals(0.5f, cursor.getFloat(3))
+        }
+        db.query("SELECT workId FROM library_entries WHERE id = 'b2'").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals("b2", cursor.getString(0))
+        }
+        db.query("SELECT workId FROM library_entries WHERE id = 'b3'").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals("війна і мир|лев толстой", cursor.getString(0))
+        }
+
+        // EXPAND 2 — works gains seriesUrl; the mergeable book gets its Works
+        // row with the series, and the crawl row gains the blank-key book's.
+        assertTrue("seriesUrl column must exist", tableColumns(db, "works").contains("seriesUrl"))
+        db.query("SELECT seriesTitle, seriesUrl, seriesIndex FROM works WHERE id = 'кобзар|автор|читець'").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals("Цикл", cursor.getString(0))
+            assertEquals("http://4read.org/xfsearch/cikl/cykl/", cursor.getString(1))
+            assertEquals(2, cursor.getInt(2))
+        }
+        db.query("SELECT seriesUrl, seriesTitle, seriesIndex FROM works WHERE id = 'війна і мир|лев толстой'").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals("http://4read.org/xfsearch/cikl/cykl-2/", cursor.getString(0))
+            assertEquals("Цикл 2", cursor.getString(1))
+            assertEquals(1, cursor.getInt(2))
+        }
+
+        // EXPAND 3 — preferredSpeed moved to the Listening State row.
+        assertTrue("preferredSpeed column must exist", tableColumns(db, "playback_progress").contains("preferredSpeed"))
+        db.query("SELECT preferredSpeed FROM playback_progress WHERE editionId = 'ed-b1'").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals(1.25f, cursor.getFloat(0))
+        }
+
+        // CONTRACT — audiobooks keeps only the per-row metadata columns.
+        assertEquals(
+            setOf(
+                "id", "title", "author", "narrator", "description", "coverDrawableRes",
+                "coverImageUrl", "genre", "sourceUrl", "isDownloaded", "totalDurationSeconds",
+                "totalChapters", "rating", "sourceTreeUri"
+            ),
+            tableColumns(db, "audiobooks").toSet()
+        )
+        db.query("SELECT title, isDownloaded FROM audiobooks WHERE id = 'b1'").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals("Кобзар", cursor.getString(0))
+            assertEquals(1, cursor.getInt(1))
+        }
+        assertEquals(3, tableColumns(db, "audiobooks").let { cols -> db.query("SELECT COUNT(*) FROM audiobooks").use { it.moveToFirst(); it.getInt(0) } })
+
+        // Untouched tables keep exactly their rows.
+        db.query("SELECT COUNT(*) FROM tombstones").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals(1, cursor.getInt(0))
+        }
+        db.query("SELECT COUNT(*) FROM playback_events").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals(1, cursor.getInt(0))
+        }
+        db.close()
+    }
+
+    // ---------------------------------------------------------------------
+    // ADR-0009: the split read/write contract — Works + Library Entry rows
+    // are written alongside imports; the reads join through them; the
+    // preferred speed lives on the Listening State row.
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `import writes the work and library entry alongside and reads join through them`() = runBlocking {
+        val mods = modules()
+        val detail = com.example.data.source.SourceBookDetail(
+            title = "Кобзар",
+            author = "Тарас Шевченко",
+            narrator = "Валерій Завалко",
+            url = "https://4read.org/kobzar.html",
+            series = com.example.data.source.SeriesRef(name = "Цикл Кобзаря", url = "https://4read.org/xfsearch/cikl/kobzar/", position = 1),
+            chapters = listOf(com.example.data.source.SourceChapter("01", "https://cdn.invalid/1.mp3"))
+        )
+        val book = mods.imports.importBookFromSource("4read", detail)
+
+        // The Works row and the Library Entry row landed alongside.
+        val key = MergeKey.keyFor("Кобзар", "Тарас Шевченко", "Валерій Завалко")
+        assertNotNull("the Work row must exist", dao.findWorkByMergeKey(key))
+        assertEquals(1, dao.countLibraryEntries())
+        // The JOINed read carries the series from the Work.
+        val stored = dao.getAudiobookById(book.id)!!
+        assertEquals("Цикл Кобзаря", stored.seriesTitle)
+        assertEquals("https://4read.org/xfsearch/cikl/kobzar/", stored.seriesUrl)
+        assertEquals(1, stored.seriesIndex)
+        assertEquals(key, stored.mergeKey)
+    }
+
+    @Test
+    fun `favorite download progress and preferred speed live on their own rows`() = runBlocking {
+        val mods = modules()
+        val book = TestDataFactory.dataBooks()[0]
+        // Seed the book the way an import would: audiobooks + entry + edition
+        // (the Listening State row needs the Edition anchor).
+        dao.insertAudiobooks(listOf(book.copy(isDownloaded = true).also { it.downloadProgress = 0.5f }))
+        dao.upsertLibraryEntry(
+            id = book.id, workId = book.id, isFavorite = false,
+            createdAt = TestDataFactory.FIXED_CLOCK_MS, downloadProgress = 0.5f
+        )
+        val editionId = com.example.data.EditionId.forBook("", book.id)
+        dao.insertEdition(com.example.data.db.EditionEntity(id = editionId, workId = book.id))
+
+        // Favourite -> Library Entry row.
+        mods.entries.toggleFavorite(book.id, true)
+        // Download progress -> Library Entry row; isDownloaded stays on audiobooks.
+        dao.updateDownloadState(book.id, isDownloaded = false, progress = 0.75f)
+        // Preferred speed -> the Listening State row (keyed by the Edition) —
+        // the progress row must exist for the preference to land.
+        dao.savePlaybackProgress(
+            com.example.data.db.PlaybackProgressEntity(
+                editionId = editionId, bookId = book.id,
+                currentChapterIndex = 0, currentPositionSeconds = 10L,
+                lastListenedAt = TestDataFactory.FIXED_CLOCK_MS
+            )
+        )
+        mods.listening.setPreferredSpeed(book.id, 1.5f)
+
+        val stored = dao.getAudiobookById(book.id)!!
+        assertTrue("favourite read through the entry", stored.isFavorite)
+        assertEquals(0.75f, stored.downloadProgress)
+        assertFalse("isDownloaded stayed on audiobooks", stored.isDownloaded)
+        // The JOINed read surfaces the speed from the Listening State row.
+        assertEquals(1.5f, stored.preferredSpeed)
+        assertEquals(
+            1.5f,
+            dao.getPlaybackProgressSyncByEdition(editionId)!!.preferredSpeed
+        )
     }
 }

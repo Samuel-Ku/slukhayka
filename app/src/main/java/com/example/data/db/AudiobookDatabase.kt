@@ -25,9 +25,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         EditionSettingsEntity::class,
         WorkEntity::class,
         EditionEntity::class,
-        WorkSourceEntity::class
+        WorkSourceEntity::class,
+        LibraryEntryEntity::class
     ],
-    version = 14,
+    version = 15,
     exportSchema = true
 )
 abstract class AudiobookDatabase : RoomDatabase() {
@@ -51,7 +52,7 @@ abstract class AudiobookDatabase : RoomDatabase() {
                     // upgrades, so a schema change fails loudly at runtime
                     // instead of silently dropping the database.
                     .addMigrations(
-                        MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14
+                        MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15
                     )
                     .build()
                 INSTANCE = instance
@@ -532,6 +533,159 @@ abstract class AudiobookDatabase : RoomDatabase() {
                     "UPDATE bookmarks SET editionId = (SELECT e.id FROM editions e WHERE e.workId = bookmarks.bookId LIMIT 1)"
                 )
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_bookmarks_editionId ON bookmarks(editionId)")
+            }
+        }
+
+        /**
+         * v14 -> v15 (ADR-0009 — the book row splits into Works and Library
+         * Entries): expand–contract of `audiobooks`, which used to fuse three
+         * concepts in one row. EXPAND: a new `library_entries` table (one row
+         * per audiobooks row; isFavorite / createdAt / downloadProgress),
+         * `works.seriesUrl` (the series membership signal that lived on
+         * audiobooks), and `playback_progress.preferredSpeed` (the per-book
+         * speed moves to the Listening State row) — all back-filled from the
+         * audiobooks columns they replace, and one Works row per mergeable
+         * library book (upserted merge-on-write by the pinned key). CONTRACT:
+         * the audiobooks row is rebuilt without the fused columns (mergeKey /
+         * series* / workId → Works, isFavorite / createdAt / downloadProgress
+         * → Library Entries, preferredSpeed → Listening State); it keeps only
+         * the per-row metadata. Blank-key rows (local books, catalogue seeds
+         * without a merge key) anchor their entry to the book id itself; a
+         * crawled book whose Works row already exists is linked by the same
+         * normalized title|author key the catalogue write path uses.
+         * Internal (not private) so the JVM test suite can verify the upgrade
+         * path against a real v14 database.
+         */
+        internal val MIGRATION_14_15 = object : Migration(14, 15) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // EXPAND 1 — library_entries: one row per audiobooks row,
+                // workId = the pinned Work id for mergeable books, the book's
+                // own id otherwise (the blank-key works convention).
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS library_entries (" +
+                        "id TEXT NOT NULL, " +
+                        "workId TEXT NOT NULL, " +
+                        "isFavorite INTEGER NOT NULL DEFAULT 0, " +
+                        "createdAt INTEGER NOT NULL DEFAULT 0, " +
+                        "downloadProgress REAL NOT NULL DEFAULT 0, " +
+                        "PRIMARY KEY(id))"
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_library_entries_workId ON library_entries(workId)")
+                db.execSQL(
+                    "INSERT INTO library_entries (id, workId, isFavorite, createdAt, downloadProgress) " +
+                        "SELECT id, COALESCE(NULLIF(mergeKey, ''), id), isFavorite, createdAt, downloadProgress FROM audiobooks"
+                )
+
+                // EXPAND 2 — works gains the series URL (the membership
+                // signal), and every mergeable library book gets its Works row
+                // (upserted merge-on-write by the pinned key; an existing
+                // spec-23 row keeps its identity and only gains the series
+                // fields it is missing).
+                db.execSQL("ALTER TABLE works ADD COLUMN seriesUrl TEXT")
+                db.query(
+                    "SELECT id, mergeKey, title, author, narrator, seriesTitle, seriesUrl, seriesIndex, coverImageUrl, createdAt " +
+                        "FROM audiobooks ORDER BY id ASC"
+                ).use { cursor ->
+                    while (cursor.moveToNext()) {
+                        val bookId = cursor.getString(0)
+                        val mergeKey = cursor.getString(1) ?: ""
+                        if (mergeKey.isBlank()) continue
+                        db.execSQL(
+                            "INSERT INTO works (id, mergeKey, title, author, narrator, seriesTitle, seriesUrl, seriesIndex, coverImageUrl, addedAt) " +
+                                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) " +
+                                "ON CONFLICT(id) DO UPDATE SET " +
+                                "  seriesUrl = COALESCE(excluded.seriesUrl, works.seriesUrl), " +
+                                "  seriesTitle = COALESCE(excluded.seriesTitle, works.seriesTitle), " +
+                                "  seriesIndex = COALESCE(excluded.seriesIndex, works.seriesIndex)",
+                            arrayOf(
+                                mergeKey, mergeKey,
+                                cursor.getString(2) ?: "", cursor.getString(3) ?: "", cursor.getString(4) ?: "",
+                                cursor.getString(5), cursor.getString(6),
+                                cursor.getInt(7).takeIf { !cursor.isNull(7) },
+                                cursor.getString(8),
+                                cursor.getLong(9)
+                            )
+                        )
+                    }
+                }
+                // Blank-key rows: a crawled book whose Works row already
+                // exists (spec-23 wrote it under the normalized title|author
+                // key) is linked by that same key, and the row gains any
+                // series fields the audiobooks row carried. Everything else
+                // re-links on the next catalogue sync.
+                db.query(
+                    "SELECT id, title, author, seriesTitle, seriesUrl, seriesIndex FROM audiobooks ORDER BY id ASC"
+                ).use { cursor ->
+                    while (cursor.moveToNext()) {
+                        val bookId = cursor.getString(0)
+                        val title = cursor.getString(1) ?: ""
+                        val author = cursor.getString(2) ?: ""
+                        val key = com.example.data.merge.MergeKey.keyFor(title, author, "")
+                        if (key.isBlank()) continue
+                        // Only re-anchor when the Works row for that key
+                        // actually exists — a blank-key book with a generic
+                        // author must never be pointed at a phantom Work.
+                        // (The entry still points at itself when the book had
+                        // no pinned merge key.)
+                        db.execSQL(
+                            "UPDATE library_entries SET workId = ? WHERE id = ? AND workId = ? " +
+                                "AND EXISTS (SELECT 1 FROM works WHERE works.id = ?)",
+                            arrayOf(key, bookId, bookId, key)
+                        )
+                        db.execSQL(
+                            "UPDATE works SET seriesUrl = COALESCE(?, seriesUrl), " +
+                                "seriesTitle = COALESCE(?, seriesTitle), seriesIndex = COALESCE(?, seriesIndex) " +
+                                "WHERE id = ?",
+                            arrayOf(
+                                // Columns: id(0), title(1), author(2),
+                                // seriesTitle(3), seriesUrl(4), seriesIndex(5).
+                                cursor.getString(4),
+                                cursor.getString(3),
+                                cursor.getInt(5).takeIf { !cursor.isNull(5) },
+                                key
+                            )
+                        )
+                    }
+                }
+
+                // EXPAND 3 — the preferred speed moves to the Listening State
+                // row (playback_progress, keyed by the Edition). Back-filled
+                // BEFORE the audiobooks rebuild drops the old column.
+                db.execSQL("ALTER TABLE playback_progress ADD COLUMN preferredSpeed REAL")
+                db.execSQL(
+                    "UPDATE playback_progress SET preferredSpeed = " +
+                        "(SELECT audiobooks.preferredSpeed FROM audiobooks WHERE audiobooks.id = playback_progress.bookId)"
+                )
+
+                // CONTRACT — rebuild the audiobooks row without the fused
+                // columns (rebuilt, not DROP COLUMN, for minSdk 24
+                // compatibility — the same pattern as the v14 chapters).
+                db.execSQL(
+                    "CREATE TABLE audiobooks_new (" +
+                        "id TEXT NOT NULL, " +
+                        "title TEXT NOT NULL, " +
+                        "author TEXT NOT NULL, " +
+                        "narrator TEXT NOT NULL, " +
+                        "description TEXT NOT NULL, " +
+                        "coverDrawableRes INTEGER NOT NULL, " +
+                        "coverImageUrl TEXT, " +
+                        "genre TEXT NOT NULL, " +
+                        "sourceUrl TEXT NOT NULL, " +
+                        "isDownloaded INTEGER NOT NULL, " +
+                        "totalDurationSeconds INTEGER NOT NULL, " +
+                        "totalChapters INTEGER NOT NULL, " +
+                        "rating REAL NOT NULL, " +
+                        "sourceTreeUri TEXT, " +
+                        "PRIMARY KEY(id))"
+                )
+                db.execSQL(
+                    "INSERT INTO audiobooks_new (id, title, author, narrator, description, coverDrawableRes, " +
+                        "coverImageUrl, genre, sourceUrl, isDownloaded, totalDurationSeconds, totalChapters, rating, sourceTreeUri) " +
+                        "SELECT id, title, author, narrator, description, coverDrawableRes, coverImageUrl, " +
+                        "genre, sourceUrl, isDownloaded, totalDurationSeconds, totalChapters, rating, sourceTreeUri FROM audiobooks"
+                )
+                db.execSQL("DROP TABLE audiobooks")
+                db.execSQL("ALTER TABLE audiobooks_new RENAME TO audiobooks")
             }
         }
     }

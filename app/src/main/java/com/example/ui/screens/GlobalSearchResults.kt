@@ -1,6 +1,7 @@
 package com.example.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -32,6 +33,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.testTag
 import com.example.data.source.GlobalSearchResult
+import com.example.ui.theme.AppBadgeScrim
+import com.example.ui.theme.AppBadgeScrimBorder
 import com.example.ui.theme.AppDimens
 
 /**
@@ -190,10 +193,10 @@ fun UnifiedCatalogCard(
                             .align(Alignment.BottomEnd)
                             .size(32.dp)
                             .clip(RoundedCornerShape(AppDimens.RadiusXs))
-                            .background(
-                                MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
-                                shape = RoundedCornerShape(AppDimens.RadiusXs)
-                            )
+                            // Spec-22 T2: solid badge scrim over the cover — a
+                            // translucent wash lost contrast on light artwork.
+                            .background(AppBadgeScrim)
+                            .border(1.dp, AppBadgeScrimBorder, RoundedCornerShape(AppDimens.RadiusXs))
                             .testTag("unified_catalog_download_${result.key}")
                     ) {
                         Icon(

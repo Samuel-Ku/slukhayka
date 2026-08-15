@@ -47,6 +47,7 @@ import com.example.ui.components.SpeedSheet
 import com.example.ui.displayAuthor
 import com.example.ui.library.effectiveChapterDurations
 import com.example.ui.theme.AppDimens
+import com.example.ui.theme.TabularTimerStyle
 
 /** Values shared by the visual progress treatment and its unit tests. */
 data class PlayerProgressUi(
@@ -614,9 +615,11 @@ private fun DualProgress(
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text("Розділ", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            // Spec-22 T2: tabular (monospace) digits — the timer ticks without
+            // shifting its advance width, so the layout never jitters.
             Text(
                 "${MainViewModel.formatTime(chapterPositionSeconds)}  /  ${MainViewModel.formatTime(chapterDurationSeconds)}",
-                style = MaterialTheme.typography.labelMedium,
+                style = TabularTimerStyle,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
@@ -634,7 +637,7 @@ private fun DualProgress(
             Text("Книга", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(
                 "${MainViewModel.formatTime(progress.bookPositionSeconds)}  /  ${MainViewModel.formatTime(progress.bookDurationSeconds)}",
-                style = MaterialTheme.typography.labelMedium,
+                style = TabularTimerStyle,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
@@ -861,7 +864,9 @@ private fun ChapterBottomSheet(
                         )
                         Text(
                             MainViewModel.formatTime(chapter.durationSeconds),
-                            style = MaterialTheme.typography.bodySmall,
+                            // Spec-22 T2: tabular figures for durations — no
+                            // digit-width drift in the chapter list either.
+                            style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum"),
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }

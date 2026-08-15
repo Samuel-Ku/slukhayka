@@ -289,7 +289,8 @@ fun PlayerDebugOverlay(
                                         text = event,
                                         style = MaterialTheme.typography.bodySmall.copy(
                                             fontFamily = FontFamily.Monospace,
-                                            fontSize = 9.sp
+                                            // Spec-22 T2: no user-facing text below 11sp.
+                                            fontSize = 11.sp
                                         ),
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         maxLines = 1,
@@ -349,7 +350,8 @@ private fun DebugStatusBadge(
             Text(
                 text = label,
                 style = MaterialTheme.typography.labelSmall.copy(
-                    fontSize = 9.sp,
+                    // Spec-22 T2: no user-facing text below 11sp.
+                    fontSize = 11.sp,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold
                 ),

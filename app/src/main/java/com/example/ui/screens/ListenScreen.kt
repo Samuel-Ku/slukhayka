@@ -426,7 +426,9 @@ fun ListenBlockBookRow(
                 progress?.let {
                     Text(
                         text = "Розділ ${it.currentChapterIndex + 1} · ${MainViewModel.formatTime(it.currentPositionSeconds)}",
-                        style = MaterialTheme.typography.labelSmall,
+                        // Spec-22 T2: tabular figures — the live position ticks
+                        // without shifting the row's digit widths.
+                        style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
                         color = MaterialTheme.colorScheme.secondary
                     )
                 }
@@ -733,7 +735,9 @@ fun RecentlyListenedRow(
                     )
                     Text(
                         text = "Розділ ${progress.currentChapterIndex + 1} · ${MainViewModel.formatTime(positionSec)}",
-                        style = MaterialTheme.typography.labelSmall,
+                        // Spec-22 T2: tabular figures — the live position ticks
+                        // without shifting the row's digit widths.
+                        style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }

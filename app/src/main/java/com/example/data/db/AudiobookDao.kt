@@ -6,25 +6,55 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface AudiobookDao {
-    @Query("SELECT * FROM audiobooks ORDER BY title ASC")
-    fun getAllAudiobooks(): Flow<List<AudiobookEntity>>
+    companion object {
+        /**
+         * ADR-0009 — the read projection of the split book row. Every DAO read
+         * of [AudiobookEntity] joins the Work / Library Entry / Listening State
+         * rows and fills the @Ignore projections: series + workId + mergeKey
+         * from `works`, isFavorite/createdAt/downloadProgress from
+         * `library_entries`, preferredSpeed from `playback_progress` (the
+         * Listening State row). The scalar subquery for preferredSpeed never
+         * multiplies rows (one progress row per Edition today).
+         */
+        private const val BOOK_SELECT = """
+            SELECT a.*,
+                   w.seriesTitle AS seriesTitle, w.seriesUrl AS seriesUrl, w.seriesIndex AS seriesIndex,
+                   w.id AS workId, w.mergeKey AS mergeKey,
+                   le.isFavorite AS isFavorite, le.createdAt AS createdAt, le.downloadProgress AS downloadProgress,
+                   (SELECT pp.preferredSpeed FROM playback_progress pp
+                      JOIN editions e ON e.id = pp.editionId
+                     WHERE e.workId = a.id LIMIT 1) AS preferredSpeed
+            FROM audiobooks a
+            LEFT JOIN library_entries le ON le.id = a.id
+            LEFT JOIN works w ON w.id = le.workId
+        """
+    }
+
+    /**
+     * ADR-0009: every read returns the JOINed [BookRow] — Room does not
+     * hydrate `@Ignore` projections, so the modules map the row back to
+     * [AudiobookEntity] at their read boundary.
+     */
+    @Query(BOOK_SELECT + " ORDER BY a.title ASC")
+    fun getAllAudiobooks(): Flow<List<BookRow>>
 
     /** One-shot read of every book — the #54 merge-suggestion pool. */
-    @Query("SELECT * FROM audiobooks")
-    suspend fun getAllAudiobooksOnce(): List<AudiobookEntity>
+    @Query(BOOK_SELECT)
+    suspend fun getAllAudiobooksOnce(): List<BookRow>
 
-    @Query("SELECT * FROM audiobooks WHERE isDownloaded = 1 ORDER BY title ASC")
-    fun getDownloadedAudiobooks(): Flow<List<AudiobookEntity>>
+    @Query(BOOK_SELECT + " WHERE a.isDownloaded = 1 ORDER BY a.title ASC")
+    fun getDownloadedAudiobooks(): Flow<List<BookRow>>
 
-    @Query("SELECT * FROM audiobooks WHERE id = :id")
-    suspend fun getAudiobookById(id: String): AudiobookEntity?
+    @Query(BOOK_SELECT + " WHERE a.id = :id")
+    suspend fun getAudiobookById(id: String): BookRow?
 
-    @Query("SELECT * FROM audiobooks WHERE id = :id")
-    fun observeAudiobookById(id: String): Flow<AudiobookEntity?>
+    @Query(BOOK_SELECT + " WHERE a.id = :id")
+    fun observeAudiobookById(id: String): Flow<BookRow?>
 
-    // Spec-10 T2: Work-level dedup — one book per normalized merge key.
-    @Query("SELECT * FROM audiobooks WHERE mergeKey = :mergeKey AND mergeKey != '' LIMIT 1")
-    suspend fun findByMergeKey(mergeKey: String): AudiobookEntity?
+    // Spec-10 T2: Work-level dedup — one library row per normalized merge key
+    // (the key lives on the linked `works` row since ADR-0009).
+    @Query(BOOK_SELECT + " WHERE w.mergeKey = :mergeKey AND w.mergeKey != '' LIMIT 1")
+    suspend fun findByMergeKey(mergeKey: String): BookRow?
 
     // --- Sources (spec-10 T2; re-parented to editionId in ADR-0007) ---
 
@@ -50,8 +80,8 @@ interface AudiobookDao {
 
     // Wayfinder #42: every local book imported from one SAF tree — the re-scan
     // diff groups the live tree against these books' chapters.
-    @Query("SELECT * FROM audiobooks WHERE sourceTreeUri = :treeUri")
-    suspend fun getAudiobooksBySourceTree(treeUri: String): List<AudiobookEntity>
+    @Query(BOOK_SELECT + " WHERE a.sourceTreeUri = :treeUri")
+    suspend fun getAudiobooksBySourceTree(treeUri: String): List<BookRow>
 
     // Wayfinder #42: the distinct trees ever imported — the re-scan-all entry.
     @Query("SELECT DISTINCT sourceTreeUri FROM audiobooks WHERE sourceTreeUri IS NOT NULL AND sourceTreeUri != ''")
@@ -63,14 +93,54 @@ interface AudiobookDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAudiobooks(books: List<AudiobookEntity>)
 
-    @Query("UPDATE audiobooks SET isDownloaded = :isDownloaded, downloadProgress = :progress WHERE id = :bookId")
-    suspend fun updateDownloadState(bookId: String, isDownloaded: Boolean, progress: Float)
+    // --- Library Entry writes (ADR-0009): download state splits across the
+    // two rows — isDownloaded stays on audiobooks (metadata), downloadProgress
+    // belongs to the Library Entry row.
 
-    @Query("UPDATE audiobooks SET seriesTitle = :seriesTitle, seriesUrl = :seriesUrl, seriesIndex = :seriesIndex WHERE id = :bookId")
+    @Query("UPDATE audiobooks SET isDownloaded = :isDownloaded WHERE id = :bookId")
+    suspend fun updateBookDownloadState(bookId: String, isDownloaded: Boolean)
+
+    /** Upsert (never loses the row): the entry always exists for a stored book. */
+    @Query(
+        "INSERT INTO library_entries (id, workId, isFavorite, createdAt, downloadProgress) " +
+            "VALUES (:bookId, :bookId, 0, 0, :progress) " +
+            "ON CONFLICT(id) DO UPDATE SET downloadProgress = excluded.downloadProgress"
+    )
+    suspend fun upsertEntryDownloadProgress(bookId: String, progress: Float)
+
+    @Transaction
+    suspend fun updateDownloadState(bookId: String, isDownloaded: Boolean, progress: Float) {
+        updateBookDownloadState(bookId, isDownloaded)
+        upsertEntryDownloadProgress(bookId, progress)
+    }
+
+    /**
+     * Series belongs to the Work (ADR-0009): resolved through the book's
+     * Library Entry link so callers keep passing the book id.
+     */
+    @Query(
+        "UPDATE works SET seriesTitle = :seriesTitle, seriesUrl = :seriesUrl, seriesIndex = :seriesIndex " +
+            "WHERE id = (SELECT le.workId FROM library_entries le WHERE le.id = :bookId)"
+    )
     suspend fun updateSeriesFields(bookId: String, seriesTitle: String?, seriesUrl: String?, seriesIndex: Int?)
 
-    @Query("UPDATE audiobooks SET preferredSpeed = :speed WHERE id = :bookId")
-    suspend fun updatePreferredSpeed(bookId: String, speed: Float?)
+    @Query("SELECT id FROM editions WHERE workId = :bookId LIMIT 1")
+    suspend fun getEditionIdForBook(bookId: String): String?
+
+    @Query("UPDATE playback_progress SET preferredSpeed = :speed WHERE editionId = :editionId")
+    suspend fun setProgressPreferredSpeed(editionId: String, speed: Float?)
+
+    /**
+     * Per-book preferred speed lives on the Listening State row (ADR-0009):
+     * the Edition's progress row carries it. A no-op when the book has no
+     * progress row yet (the preference simply applies for the current session;
+     * the next save during playback persists it).
+     */
+    @Transaction
+    suspend fun updatePreferredSpeed(bookId: String, speed: Float?) {
+        val editionId = getEditionIdForBook(bookId) ?: return
+        setProgressPreferredSpeed(editionId, speed)
+    }
 
     @Query("SELECT * FROM chapters WHERE bookId = :bookId ORDER BY chapterIndex ASC")
     fun getChaptersForBook(bookId: String): Flow<List<ChapterEntity>>
@@ -99,19 +169,17 @@ interface AudiobookDao {
     suspend fun updateBookStats(bookId: String, totalChapters: Int, totalDurationSeconds: Long)
 
     /**
-     * Back-fills the real page metadata (author, narrator, genre, rating,
-     * series) onto a catalogue book once its page has been fetched, replacing
-     * the seeded placeholders. Nulls keep the stored value.
+     * Back-fills the real page metadata (author, narrator, genre, rating)
+     * onto a catalogue book once its page has been fetched, replacing the
+     * seeded placeholders. Nulls keep the stored value. Series is NOT here
+     * anymore — it belongs to the Work ([updateSeriesFields]).
      */
     @Query(
         "UPDATE audiobooks SET " +
             "author = COALESCE(:author, author), " +
             "narrator = COALESCE(:narrator, narrator), " +
             "genre = COALESCE(:genre, genre), " +
-            "rating = COALESCE(:rating, rating), " +
-            "seriesTitle = COALESCE(:seriesTitle, seriesTitle), " +
-            "seriesIndex = COALESCE(:seriesIndex, seriesIndex), " +
-            "seriesUrl = COALESCE(:seriesUrl, seriesUrl) " +
+            "rating = COALESCE(:rating, rating) " +
             "WHERE id = :bookId"
     )
     suspend fun updateBookMetadata(
@@ -119,10 +187,7 @@ interface AudiobookDao {
         author: String?,
         narrator: String?,
         genre: String?,
-        rating: Float?,
-        seriesTitle: String?,
-        seriesIndex: Int?,
-        seriesUrl: String?
+        rating: Float?
     )
 
     // --- Source tracks (ADR-0007): the physical playback data of a Source ---
@@ -245,7 +310,8 @@ interface AudiobookDao {
                (SELECT COUNT(*) FROM work_sources ws WHERE ws.workId = w.id) AS sourceCount,
                a.genre AS genre
         FROM works w
-        LEFT JOIN audiobooks a ON a.workId = w.id
+        LEFT JOIN library_entries le ON le.workId = w.id
+        LEFT JOIN audiobooks a ON a.id = le.id
         WHERE (:sourceId IS NULL OR EXISTS (SELECT 1 FROM work_sources ws WHERE ws.workId = w.id AND ws.sourceId = :sourceId))
           AND (:genre IS NULL OR a.genre LIKE '%' || :genre || '%')
         ORDER BY w.addedAt DESC, w.id ASC
@@ -261,7 +327,8 @@ interface AudiobookDao {
                (SELECT COUNT(*) FROM work_sources ws WHERE ws.workId = w.id) AS sourceCount,
                a.genre AS genre
         FROM works w
-        LEFT JOIN audiobooks a ON a.workId = w.id
+        LEFT JOIN library_entries le ON le.workId = w.id
+        LEFT JOIN audiobooks a ON a.id = le.id
         WHERE (:sourceId IS NULL OR EXISTS (SELECT 1 FROM work_sources ws WHERE ws.workId = w.id AND ws.sourceId = :sourceId))
           AND (:genre IS NULL OR a.genre LIKE '%' || :genre || '%')
         ORDER BY w.title COLLATE NOCASE ASC, w.addedAt DESC, w.id ASC
@@ -322,20 +389,61 @@ interface AudiobookDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun savePlaybackProgress(progress: PlaybackProgressEntity)
 
-    @Query("SELECT * FROM audiobooks WHERE isFavorite = 1 ORDER BY title ASC")
-    fun getFavoriteAudiobooks(): Flow<List<AudiobookEntity>>
+    @Query(BOOK_SELECT + " WHERE le.isFavorite = 1 ORDER BY a.title ASC")
+    fun getFavoriteAudiobooks(): Flow<List<BookRow>>
 
-    @Query("UPDATE audiobooks SET isFavorite = :isFavorite WHERE id = :bookId")
+    @Query("UPDATE library_entries SET isFavorite = :isFavorite WHERE id = :bookId")
     suspend fun setFavorite(bookId: String, isFavorite: Boolean)
+
+    // --- Library Entries (ADR-0009) ----------------------------------------
+
+    /**
+     * True upsert: on a fresh row everything lands; on an existing row only
+     * the link and the download progress update — the user's isFavorite and
+     * the original createdAt never reset on a re-sync.
+     */
+    @Query(
+        "INSERT INTO library_entries (id, workId, isFavorite, createdAt, downloadProgress) " +
+            "VALUES (:id, :workId, :isFavorite, :createdAt, :downloadProgress) " +
+            "ON CONFLICT(id) DO UPDATE SET workId = excluded.workId, downloadProgress = excluded.downloadProgress"
+    )
+    suspend fun upsertLibraryEntry(
+        id: String,
+        workId: String,
+        isFavorite: Boolean,
+        createdAt: Long,
+        downloadProgress: Float
+    )
+
+    @Query("DELETE FROM library_entries WHERE id = :bookId")
+    suspend fun deleteLibraryEntry(bookId: String)
+
+    @Query("SELECT COUNT(*) FROM library_entries")
+    suspend fun countLibraryEntries(): Int
 
     @Query("UPDATE audiobooks SET coverImageUrl = :coverUrl WHERE id = :bookId")
     suspend fun updateCoverImageUrl(bookId: String, coverUrl: String)
 
-    @Query("UPDATE audiobooks SET isDownloaded = 0, downloadProgress = 0 WHERE id = :bookId")
-    suspend fun markBookNotDownloaded(bookId: String)
+    @Query("UPDATE library_entries SET downloadProgress = 0 WHERE id = :bookId")
+    suspend fun resetEntryDownloadProgress(bookId: String)
 
-    @Query("UPDATE audiobooks SET isDownloaded = 0, downloadProgress = 0")
-    suspend fun markAllNotDownloaded()
+    @Query("UPDATE library_entries SET downloadProgress = 0")
+    suspend fun resetAllEntryDownloadProgress()
+
+    @Transaction
+    suspend fun markBookNotDownloaded(bookId: String) {
+        updateBookDownloadState(bookId, false)
+        resetEntryDownloadProgress(bookId)
+    }
+
+    @Query("UPDATE audiobooks SET isDownloaded = 0")
+    suspend fun clearAllBookDownloadState()
+
+    @Transaction
+    suspend fun markAllNotDownloaded() {
+        clearAllBookDownloadState()
+        resetAllEntryDownloadProgress()
+    }
 
     // Listening Stats
     @Query("SELECT * FROM listening_stats ORDER BY dateIso DESC")
@@ -420,18 +528,23 @@ interface AudiobookDao {
      * consults a tombstone set anymore. (This is the NEW-book insert path; an
      * existing row is guarded via [isBookTombstoned] by the caller.)
      */
+    /**
+     * ADR-0009: the audiobooks row is metadata only — the fused columns left
+     * the row in the v15 contract step (series/workId/mergeKey → `works`,
+     * isFavorite/createdAt/downloadProgress → `library_entries`, speed →
+     * `playback_progress`). The caller ([LibraryImport.upsertCatalogBook])
+     * writes those owning rows alongside this guarded insert.
+     */
     @Query(
         """
         INSERT INTO audiobooks (
             id, title, author, narrator, description, coverDrawableRes, coverImageUrl,
-            genre, sourceUrl, isDownloaded, downloadProgress, totalDurationSeconds,
-            totalChapters, rating, isFavorite, seriesTitle, seriesUrl, seriesIndex,
-            preferredSpeed, createdAt, sourceTreeUri, mergeKey, workId
+            genre, sourceUrl, isDownloaded, totalDurationSeconds,
+            totalChapters, rating, sourceTreeUri
         )
         SELECT :id, :title, :author, :narrator, :description, :coverDrawableRes, :coverImageUrl,
-               :genre, :sourceUrl, :isDownloaded, :downloadProgress, :totalDurationSeconds,
-               :totalChapters, :rating, :isFavorite, :seriesTitle, :seriesUrl, :seriesIndex,
-               :preferredSpeed, :createdAt, :sourceTreeUri, :mergeKey, :workId
+               :genre, :sourceUrl, :isDownloaded, :totalDurationSeconds,
+               :totalChapters, :rating, :sourceTreeUri
         WHERE NOT EXISTS (SELECT 1 FROM tombstones WHERE tombstones.bookId = :id)
         ON CONFLICT(id) DO UPDATE SET id = excluded.id
         """
@@ -447,19 +560,10 @@ interface AudiobookDao {
         genre: String,
         sourceUrl: String,
         isDownloaded: Boolean,
-        downloadProgress: Float,
         totalDurationSeconds: Long,
         totalChapters: Int,
         rating: Float,
-        isFavorite: Boolean,
-        seriesTitle: String?,
-        seriesUrl: String?,
-        seriesIndex: Int?,
-        preferredSpeed: Float?,
-        createdAt: Long,
-        sourceTreeUri: String?,
-        mergeKey: String,
-        workId: String?
+        sourceTreeUri: String?
     ): Long
 
     /** Clears the tombstone when the user explicitly re-imports the book. */

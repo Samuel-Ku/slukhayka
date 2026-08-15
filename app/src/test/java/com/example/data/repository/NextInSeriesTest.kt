@@ -16,12 +16,12 @@ class NextInSeriesTest {
     private val base = TestDataFactory.dataBooks()
 
     private fun seriesBook(id: String, seriesIndex: Int?): com.example.data.db.AudiobookEntity =
-        base.first().copy(
-            id = id,
-            seriesTitle = "Сага",
-            seriesUrl = "https://4read.org/xfsearch/cikl/saga/",
-            seriesIndex = seriesIndex
-        )
+        // ADR-0009: series fields are @Ignore projections — set in place.
+        base.first().copy(id = id).also {
+            it.seriesTitle = "Сага"
+            it.seriesUrl = "https://4read.org/xfsearch/cikl/saga/"
+            it.seriesIndex = seriesIndex
+        }
 
     private val volumes = listOf(
         seriesBook("book-1", seriesIndex = 1),

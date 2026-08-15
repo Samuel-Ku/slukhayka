@@ -284,7 +284,7 @@ class AudioPlayerManagerTest {
                 file.writeBytes(ByteArray(1024))
                 p.track!!.copy(localFilePath = file.absolutePath, isDownloaded = true)
             }
-            val offlineBook = book.copy(isDownloaded = true, downloadProgress = 1f)
+            val offlineBook = book.copy(isDownloaded = true).also { it.downloadProgress = 1f }
             val offlinePlayable = chapters.mapIndexed { index, chapter ->
                 SourceCatalog.PlayableChapter(chapter, localTracks[index])
             }
@@ -318,7 +318,7 @@ class AudioPlayerManagerTest {
                     else -> p.track!!.copy(localFilePath = file2.absolutePath, isDownloaded = true)
                 }
             }
-            val offlineBook = book.copy(isDownloaded = true, downloadProgress = 1f)
+            val offlineBook = book.copy(isDownloaded = true).also { it.downloadProgress = 1f }
             val mixedPlayable = chapters.mapIndexed { index, chapter ->
                 SourceCatalog.PlayableChapter(chapter, mixedTracks[index])
             }

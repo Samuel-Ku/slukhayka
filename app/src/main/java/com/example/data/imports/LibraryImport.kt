@@ -15,12 +15,15 @@ import com.example.data.db.CorrectionEntity
 import com.example.data.db.EditionEntity
 import com.example.data.db.SourceEntity
 import com.example.data.db.SourceTrackEntity
+import com.example.data.db.WorkEntity
+import com.example.data.db.WorkSourceEntity
 import com.example.data.merge.MergeKey
 import com.example.data.metadata.MetadataAssertions
 import com.example.data.source.FourReadAdapter
 import com.example.data.source.SluhayAdapter
 import com.example.data.source.SourceAdapter
 import com.example.data.source.SourceBookDetail
+import com.example.data.source.sourceIdForUrl
 import com.example.data.source.streamOnlyFor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -83,6 +86,9 @@ class LibraryImport(
                 // defaults (id scheme, placeholder author/narrator, template).
                 // ADR-0007: one domain Edition owns the logical chapter list;
                 // the importing Source gets its physical tracks (1:1 by index).
+                // ADR-0009: the audiobooks row carries only the persisted
+                // metadata; the fused columns (series, mergeKey) are written
+                // to the Works + Library Entry rows alongside it.
                 val book = AudiobookEntity(
                     id = bookId,
                     title = detail.title,
@@ -94,18 +100,40 @@ class LibraryImport(
                     genre = detail.genres.joinToString(" · ").ifBlank { "Каталог" },
                     sourceUrl = detail.url,
                     isDownloaded = false,
-                    downloadProgress = 0f,
                     totalDurationSeconds = MetadataAssertions.normalizeDurationSeconds(
                         detail.chapters.sumOf { it.durationSeconds }
                     ) ?: 0L,
                     totalChapters = detail.chapters.size,
-                    rating = detail.rating?.toFloat() ?: 0f,
-                    seriesTitle = detail.series?.name,
-                    seriesIndex = detail.series?.position,
-                    seriesUrl = detail.series?.url,
-                    mergeKey = mergeKey
+                    rating = detail.rating?.toFloat() ?: 0f
                 )
                 dao.insertAudiobooks(listOf(book))
+                // ADR-0009: the Works row and the Library Entry row are
+                // written ALONGSIDE the audiobooks row — series/identity reads
+                // join through the entry, so the card keeps its series and the
+                // merge key stays the dedup identity.
+                val workId = if (mergeKey.isNotBlank()) {
+                    (dao.findWorkByMergeKey(mergeKey) ?: WorkEntity(
+                        id = mergeKey,
+                        mergeKey = mergeKey,
+                        title = book.title,
+                        author = book.author,
+                        narrator = book.narrator,
+                        seriesTitle = detail.series?.name,
+                        seriesUrl = detail.series?.url,
+                        seriesIndex = detail.series?.position,
+                        coverImageUrl = book.coverImageUrl,
+                        addedAt = System.currentTimeMillis()
+                    ).also { dao.upsertWork(it) }).id
+                } else {
+                    bookId
+                }
+                dao.upsertLibraryEntry(
+                    id = bookId,
+                    workId = workId,
+                    isFavorite = false,
+                    createdAt = System.currentTimeMillis(),
+                    downloadProgress = 0f
+                )
                 val editionId = EditionId.forBook(mergeKey, bookId)
                 dao.insertEdition(
                     EditionEntity(
@@ -132,7 +160,9 @@ class LibraryImport(
                 // An explicit import is a user action: any tombstone of the
                 // work is cleared so a re-added book never stays hidden.
                 dao.deleteTombstone(bookId)
-                book
+                // The JOINed projection carries the series/mergeKey the Works
+                // row now holds, so callers get a fully shaped row.
+                dao.getAudiobookById(bookId)?.toAudiobookEntity() ?: book
             } else {
                 // Merge: attach the new source (unless it is already known)
                 // and give it its physical tracks. The Edition's logical
@@ -160,7 +190,7 @@ class LibraryImport(
                     )
                 }
                 dao.deleteTombstone(existing.id)
-                existing
+                existing.toAudiobookEntity()
             }
         }
 
@@ -309,6 +339,10 @@ class LibraryImport(
                 dao.updateBookStats(book.id, updated.totalChapters, enrichedDuration)
                 updated = updated.copy(totalDurationSeconds = enrichedDuration)
             }
+            // ADR-0009: make sure the Works row and the Library Entry row
+            // exist before the series delta — series now persists on the
+            // Work, and reads join through the entry.
+            ensureWorkAndEntry(book, book.id)
             // Series applies only when its URL changed (the membership signal).
             val series = MetadataAssertions.seriesDelta(
                 existingSeriesUrl = updated.seriesUrl,
@@ -327,8 +361,12 @@ class LibraryImport(
             // Return the known updated shape instead of re-querying: the
             // row may be deleted concurrently and `!!` on a re-query would
             // crash the whole catalogue sync.
-            return updated
+            return updated.toAudiobookEntity()
         }
+        // ADR-0009: the audiobooks row carries only the persisted metadata —
+        // the catalogue book's series lands on the Works row via
+        // ensureWorkAndEntry below, and the returned row is the JOINed
+        // projection (so the series reads resolve immediately).
         val newBook = AudiobookEntity(
             id = book.id,
             title = book.title,
@@ -340,7 +378,6 @@ class LibraryImport(
             genre = "4read Каталог",
             sourceUrl = book.url,
             isDownloaded = false,
-            downloadProgress = 0f,
             // The catalogue homepage doesn't know the chapter count or total
             // duration — they're back-filled from the real chapter list once
             // the book page is fetched (see getChaptersList). Sources that DO
@@ -349,10 +386,7 @@ class LibraryImport(
             // fabricated "5 Ch. • 4:00:00".
             totalDurationSeconds = MetadataAssertions.normalizeDurationSeconds(book.totalDurationSeconds) ?: 0L,
             totalChapters = 0,
-            rating = 0f,
-            seriesTitle = book.seriesTitle,
-            seriesUrl = book.seriesUrl,
-            seriesIndex = book.seriesIndex
+            rating = 0f
         )
         // ADR-0005: the insert-unless-tombstoned statement — a tombstoned Work
         // is a no-op (the guarded INSERT lands nothing), confirmed by what
@@ -368,21 +402,75 @@ class LibraryImport(
             genre = newBook.genre,
             sourceUrl = newBook.sourceUrl,
             isDownloaded = newBook.isDownloaded,
-            downloadProgress = newBook.downloadProgress,
             totalDurationSeconds = newBook.totalDurationSeconds,
             totalChapters = newBook.totalChapters,
             rating = newBook.rating,
-            isFavorite = newBook.isFavorite,
-            seriesTitle = newBook.seriesTitle,
-            seriesUrl = newBook.seriesUrl,
-            seriesIndex = newBook.seriesIndex,
-            preferredSpeed = newBook.preferredSpeed,
-            createdAt = newBook.createdAt,
-            sourceTreeUri = newBook.sourceTreeUri,
-            mergeKey = newBook.mergeKey,
-            workId = newBook.workId
+            sourceTreeUri = newBook.sourceTreeUri
         )
-        return if (dao.getAudiobookById(book.id) != null) newBook else null
+        // Only when the guarded insert actually landed: the Works + Library
+        // Entry rows are written alongside (ADR-0009), so a tombstoned Work
+        // gains nothing — not even a browse-row that could resurrect it.
+        return if (dao.getAudiobookById(book.id) != null) {
+            ensureWorkAndEntry(book, book.id)
+            // The JOINed projection carries the series the Works row now holds
+            // (and the entry's createdAt/favorite), so callers get a fully
+            // shaped row without a second read by them.
+            dao.getAudiobookById(book.id)?.toAudiobookEntity() ?: newBook
+        } else {
+            null
+        }
+    }
+
+    /**
+     * ADR-0009 — links a library row to its Work and writes its Library Entry
+     * alongside. The Works row is found-or-created by the same identity the
+     * browse layer uses (normalized title|author, narrator '' for the
+     * catalogue), so one Work per identity and the entry anchors to it; a
+     * blank identity anchors the entry to the book itself (no Works row). The
+     * Work also gets a work_source for the book's own URL under the
+     * deterministic (work, source, url) id [SourceCatalog.writeWorkEdition]
+     * uses, so a later crawl no-ops on the same row and the merged feed card
+     * can open the Work. Idempotent by construction.
+     */
+    private suspend fun ensureWorkAndEntry(book: com.example.data.catalog.CatalogBook, bookId: String) {
+        val mergeKey = MergeKey.keyFor(book.title, book.author, "")
+        val workId = if (mergeKey.isNotBlank()) {
+            (dao.findWorkByMergeKey(mergeKey) ?: WorkEntity(
+                id = mergeKey,
+                mergeKey = mergeKey,
+                title = book.title.trim(),
+                author = book.author.trim(),
+                narrator = "",
+                seriesTitle = book.seriesTitle,
+                seriesUrl = book.seriesUrl,
+                seriesIndex = book.seriesIndex,
+                coverImageUrl = book.coverImageUrl,
+                addedAt = System.currentTimeMillis()
+            ).also { dao.upsertWork(it) }).id
+        } else {
+            bookId
+        }
+        dao.upsertLibraryEntry(
+            id = bookId,
+            workId = workId,
+            isFavorite = false,
+            createdAt = System.currentTimeMillis(),
+            downloadProgress = 0f
+        )
+        if (workId.isNotBlank() && book.url.isNotBlank()) {
+            val sourceId = sourceIdForUrl(book.url)
+            dao.upsertWorkSource(
+                WorkSourceEntity(
+                    id = "$workId|$sourceId|${Integer.toHexString(book.url.hashCode())}",
+                    workId = workId,
+                    sourceId = sourceId,
+                    sourceUrl = book.url,
+                    streamOnly = streamOnlyFor(sourceId),
+                    coverImageUrl = book.coverImageUrl,
+                    addedAt = System.currentTimeMillis()
+                )
+            )
+        }
     }
 
     // ---------------------------------------------------------------------
@@ -423,7 +511,7 @@ class LibraryImport(
                 // the track row — resolve the owner book through the source.
                 val ownerBookId = dao.getBookIdBySourceId(existing.sourceId)
                     ?: throw java.io.IOException("Дублікат файлу, але книгу не знайдено")
-                return@withContext dao.getAudiobookById(ownerBookId)
+                return@withContext dao.getAudiobookById(ownerBookId)?.toAudiobookEntity()
                     ?: throw java.io.IOException("Дублікат файлу, але книгу не знайдено")
             }
             insertLocalBook(
@@ -456,7 +544,7 @@ class LibraryImport(
     suspend fun planLocalAudioFolder(treeUri: Uri): ImportPlan = withContext(Dispatchers.IO) {
         val ctx = context ?: throw IllegalStateException("planLocalAudioFolder called without Context")
         val entries = LocalFolderScanner.scan(ctx, treeUri)
-        val works = dao.getAllAudiobooksOnce().map { ImportPlanner.ExistingWork(id = it.id, title = it.title, mergeKey = it.mergeKey) }
+        val works = dao.getAllAudiobooksOnce().map { ImportPlanner.ExistingWork(id = it.id, title = it.title, mergeKey = it.mergeKey ?: "") }
         ImportPlanner.buildPlan(
             source = SourceRef.Folder(treeUri.toString()),
             entries = entries,
@@ -758,6 +846,8 @@ class LibraryImport(
         sourceTreeUri: String? = null
     ): AudiobookEntity {
         val bookId = "local-${System.currentTimeMillis()}-${localImportSeq.incrementAndGet()}"
+        // ADR-0009: downloadProgress is a Library Entry concern — written to
+        // the entry row below (1f — a local copy is present by definition).
         val book = AudiobookEntity(
             id = bookId,
             title = title,
@@ -769,13 +859,22 @@ class LibraryImport(
             genre = LOCAL_GENRE,
             sourceUrl = "",
             isDownloaded = true,
-            downloadProgress = 1f,
             totalDurationSeconds = 0L,
             totalChapters = chapters.size,
             rating = 0f,
             sourceTreeUri = sourceTreeUri
         )
         dao.insertAudiobooks(listOf(book))
+        // ADR-0009: a local book is a Library Entry anchored to its own id
+        // (blank identity — no Works row), carrying the download progress the
+        // audiobooks row no longer holds.
+        dao.upsertLibraryEntry(
+            id = bookId,
+            workId = bookId,
+            isFavorite = false,
+            createdAt = System.currentTimeMillis(),
+            downloadProgress = 1f
+        )
         // ADR-0007: a local import is a Source of type "local" whose tracks
         // carry the copied files; the Edition owns the logical chapter list.
         val editionId = EditionId.forBook(mergeKey = "", bookId = bookId)

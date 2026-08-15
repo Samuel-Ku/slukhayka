@@ -46,9 +46,8 @@ class PlayerScreenSnapshotTest {
         sourceUrl = "https://example.invalid/book",
         isDownloaded = true,
         totalDurationSeconds = 1_980,
-        totalChapters = 3,
-        isFavorite = true
-    )
+        totalChapters = 3
+    ).also { it.isFavorite = true }
     private val chapters = listOf(600L, 660L, 720L).mapIndexed { index, duration ->
         ChapterEntity(
             id = "chapter-$index",

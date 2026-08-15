@@ -2,11 +2,14 @@ package com.example.testing
 
 import com.example.data.db.AudiobookDao
 import com.example.data.db.AudiobookEntity
+import com.example.data.db.BookRow
 import com.example.data.db.BookmarkEntity
 import com.example.data.db.ChapterEntity
 import com.example.data.db.CorrectionEntity
 import com.example.data.db.EditionEntity
+import com.example.data.db.LibraryEntryEntity
 import com.example.data.db.ListeningStatEntity
+import com.example.data.db.toBookRow
 import com.example.data.db.PlaybackEventEntity
 import com.example.data.db.PlaybackFailureEntity
 import com.example.data.db.PlaybackProgressEntity
@@ -58,6 +61,7 @@ class FakeAudiobookDao(
     private val correctionsState = MutableStateFlow(emptyList<CorrectionEntity>())
     private val worksState = MutableStateFlow(emptyList<WorkEntity>())
     private val workSourcesState = MutableStateFlow(emptyList<WorkSourceEntity>())
+    private val libraryEntriesState = MutableStateFlow(emptyList<LibraryEntryEntity>())
 
     /** Snapshot of the recorded playback failures, for assertions. */
     val savedFailures: List<PlaybackFailureEntity> get() = failuresState.value
@@ -89,24 +93,27 @@ class FakeAudiobookDao(
     /** Snapshot of the persisted correction memory, for assertions. */
     val savedCorrections: List<CorrectionEntity> get() = correctionsState.value
 
-    // --- Audiobooks -------------------------------------------------------
+    /** Snapshot of the persisted library-entry rows (ADR-0009), for assertions. */
+    val savedLibraryEntries: List<LibraryEntryEntity> get() = libraryEntriesState.value
 
-    override fun getAllAudiobooks(): Flow<List<AudiobookEntity>> =
-        booksState.map { books -> books.sortedBy { it.title } }
+    // --- Audiobooks (ADR-0009: the fake returns the JOINed [BookRow] shape) -
 
-    override suspend fun getAllAudiobooksOnce(): List<AudiobookEntity> = booksState.value
+    override fun getAllAudiobooks(): Flow<List<BookRow>> =
+        booksState.map { books -> books.sortedBy { it.title }.map { it.toBookRow() } }
 
-    override fun getDownloadedAudiobooks(): Flow<List<AudiobookEntity>> =
-        booksState.map { books -> books.filter { it.isDownloaded }.sortedBy { it.title } }
+    override suspend fun getAllAudiobooksOnce(): List<BookRow> = booksState.value.map { it.toBookRow() }
 
-    override fun getFavoriteAudiobooks(): Flow<List<AudiobookEntity>> =
-        booksState.map { books -> books.filter { it.isFavorite }.sortedBy { it.title } }
+    override fun getDownloadedAudiobooks(): Flow<List<BookRow>> =
+        booksState.map { books -> books.filter { it.isDownloaded }.sortedBy { it.title }.map { it.toBookRow() } }
 
-    override suspend fun getAudiobookById(id: String): AudiobookEntity? =
-        booksState.value.firstOrNull { it.id == id }
+    override fun getFavoriteAudiobooks(): Flow<List<BookRow>> =
+        booksState.map { books -> books.filter { it.isFavorite }.sortedBy { it.title }.map { it.toBookRow() } }
 
-    override fun observeAudiobookById(id: String): Flow<AudiobookEntity?> =
-        booksState.map { books -> books.firstOrNull { it.id == id } }
+    override suspend fun getAudiobookById(id: String): BookRow? =
+        booksState.value.firstOrNull { it.id == id }?.toBookRow()
+
+    override fun observeAudiobookById(id: String): Flow<BookRow?> =
+        booksState.map { books -> books.firstOrNull { it.id == id }?.toBookRow() }
 
     override suspend fun insertAudiobooks(books: List<AudiobookEntity>) {
         val incomingIds = books.map { it.id }.toSet()
@@ -114,29 +121,80 @@ class FakeAudiobookDao(
     }
 
     override suspend fun updateDownloadState(bookId: String, isDownloaded: Boolean, progress: Float) {
+        // ADR-0009: isDownloaded stays on the audiobooks row, downloadProgress
+        // belongs to the Library Entry row — the fake mirrors both (the book
+        // copy keeps the projection in sync for in-memory reads).
         booksState.update { current ->
             current.map { book ->
                 if (book.id == bookId) {
-                    book.copy(isDownloaded = isDownloaded, downloadProgress = progress)
+                    // ADR-0009: downloadProgress is an @Ignore projection.
+                    book.copy(isDownloaded = isDownloaded).also { it.downloadProgress = progress }
                 } else {
                     book
                 }
             }
         }
+        upsertEntryDownloadProgress(bookId, progress)
     }
 
-    override suspend fun updateSeriesFields(bookId: String, seriesTitle: String?, seriesUrl: String?, seriesIndex: Int?) {
+    override suspend fun updateBookDownloadState(bookId: String, isDownloaded: Boolean) {
         booksState.update { current ->
-            current.map {
-                if (it.id == bookId) it.copy(seriesTitle = seriesTitle, seriesUrl = seriesUrl, seriesIndex = seriesIndex) else it
+            current.map { book -> if (book.id == bookId) book.copy(isDownloaded = isDownloaded) else book }
+        }
+    }
+
+    override suspend fun upsertEntryDownloadProgress(bookId: String, progress: Float) {
+        libraryEntriesState.update { current ->
+            val existing = current.firstOrNull { it.id == bookId }
+            if (existing != null) {
+                current.map { if (it.id == bookId) it.copy(downloadProgress = progress) else it }
+            } else {
+                current + LibraryEntryEntity(
+                    id = bookId, workId = bookId, isFavorite = false,
+                    createdAt = System.currentTimeMillis(), downloadProgress = progress
+                )
             }
         }
     }
 
-    override suspend fun updatePreferredSpeed(bookId: String, speed: Float?) {
-        booksState.update { current ->
-            current.map { if (it.id == bookId) it.copy(preferredSpeed = speed) else it }
+    override suspend fun updateSeriesFields(bookId: String, seriesTitle: String?, seriesUrl: String?, seriesIndex: Int?) {
+        // ADR-0009: series persists on the Work row; the book copy keeps the
+        // projection in sync for in-memory reads.
+        val workId = libraryEntriesState.value.firstOrNull { it.id == bookId }?.workId
+        worksState.update { current ->
+            current.map {
+                if (it.id == workId) it.copy(seriesTitle = seriesTitle, seriesUrl = seriesUrl, seriesIndex = seriesIndex) else it
+            }
         }
+        booksState.update { current ->
+            current.map {
+                // ADR-0009: series fields are @Ignore projections.
+                if (it.id == bookId) {
+                    it.copy().also { b ->
+                        b.seriesTitle = seriesTitle
+                        b.seriesUrl = seriesUrl
+                        b.seriesIndex = seriesIndex
+                    }
+                } else {
+                    it
+                }
+            }
+        }
+    }
+
+    override suspend fun getEditionIdForBook(bookId: String): String? =
+        editionsState.value.firstOrNull { it.workId == bookId }?.id
+
+    override suspend fun setProgressPreferredSpeed(editionId: String, speed: Float?) {
+        progressState.update { current ->
+            current.map { if (it.editionId == editionId) it.copy(preferredSpeed = speed) else it }
+        }
+    }
+
+    override suspend fun updatePreferredSpeed(bookId: String, speed: Float?) {
+        // ADR-0009: the preference lives on the Listening State row.
+        val editionId = getEditionIdForBook(bookId) ?: return
+        setProgressPreferredSpeed(editionId, speed)
     }
 
     override suspend fun updatePausedAt(bookId: String, pausedAt: Long?) {
@@ -146,8 +204,23 @@ class FakeAudiobookDao(
     }
 
     override suspend fun setFavorite(bookId: String, isFavorite: Boolean) {
+        // ADR-0009: favourite lives on the Library Entry row.
+        libraryEntriesState.update { current ->
+            val existing = current.firstOrNull { it.id == bookId }
+            if (existing != null) {
+                current.map { if (it.id == bookId) it.copy(isFavorite = isFavorite) else it }
+            } else {
+                current + LibraryEntryEntity(
+                    id = bookId, workId = bookId, isFavorite = isFavorite,
+                    createdAt = System.currentTimeMillis(), downloadProgress = 0f
+                )
+            }
+        }
         booksState.update { current ->
-            current.map { if (it.id == bookId) it.copy(isFavorite = isFavorite) else it }
+            current.map {
+                // ADR-0009: isFavorite is an @Ignore projection.
+                if (it.id == bookId) it.copy().also { b -> b.isFavorite = isFavorite } else it
+            }
         }
     }
 
@@ -157,14 +230,31 @@ class FakeAudiobookDao(
         }
     }
 
+    override suspend fun resetEntryDownloadProgress(bookId: String) {
+        libraryEntriesState.update { current ->
+            current.map { if (it.id == bookId) it.copy(downloadProgress = 0f) else it }
+        }
+    }
+
+    override suspend fun resetAllEntryDownloadProgress() {
+        libraryEntriesState.update { current -> current.map { it.copy(downloadProgress = 0f) } }
+    }
+
     override suspend fun markBookNotDownloaded(bookId: String) {
         updateDownloadState(bookId, isDownloaded = false, progress = 0f)
     }
 
+    override suspend fun clearAllBookDownloadState() {
+        booksState.update { current -> current.map { it.copy(isDownloaded = false) } }
+    }
+
     override suspend fun markAllNotDownloaded() {
         booksState.update { current ->
-            current.map { it.copy(isDownloaded = false, downloadProgress = 0f) }
+            current.map {
+                it.copy(isDownloaded = false).also { b -> b.downloadProgress = 0f }
+            }
         }
+        libraryEntriesState.update { current -> current.map { it.copy(downloadProgress = 0f) } }
     }
 
     // --- Chapters ---------------------------------------------------------
@@ -209,10 +299,7 @@ class FakeAudiobookDao(
         author: String?,
         narrator: String?,
         genre: String?,
-        rating: Float?,
-        seriesTitle: String?,
-        seriesIndex: Int?,
-        seriesUrl: String?
+        rating: Float?
     ) {
         booksState.update { current ->
             current.map { book ->
@@ -221,10 +308,7 @@ class FakeAudiobookDao(
                         author = author ?: book.author,
                         narrator = narrator ?: book.narrator,
                         genre = genre ?: book.genre,
-                        rating = rating ?: book.rating,
-                        seriesTitle = seriesTitle ?: book.seriesTitle,
-                        seriesIndex = seriesIndex ?: book.seriesIndex,
-                        seriesUrl = seriesUrl ?: book.seriesUrl
+                        rating = rating ?: book.rating
                     )
                 } else {
                     book
@@ -340,12 +424,12 @@ class FakeAudiobookDao(
 
     // --- Sources (spec-10 T2; re-parented to editionId in ADR-0007) --------
 
-    override suspend fun findByMergeKey(mergeKey: String): AudiobookEntity? =
-        booksState.value.firstOrNull { it.mergeKey == mergeKey && it.mergeKey.isNotEmpty() }
+    override suspend fun findByMergeKey(mergeKey: String): BookRow? =
+        booksState.value.firstOrNull { it.mergeKey == mergeKey && it.mergeKey.isNotEmpty() }?.toBookRow()
 
     // Wayfinder #42: re-scan diff queries.
-    override suspend fun getAudiobooksBySourceTree(treeUri: String): List<AudiobookEntity> =
-        booksState.value.filter { it.sourceTreeUri == treeUri }
+    override suspend fun getAudiobooksBySourceTree(treeUri: String): List<BookRow> =
+        booksState.value.filter { it.sourceTreeUri == treeUri }.map { it.toBookRow() }
 
     override suspend fun getImportedSourceTrees(): List<String> =
         booksState.value.mapNotNull { it.sourceTreeUri }
@@ -398,6 +482,36 @@ class FakeAudiobookDao(
     override suspend fun deleteAudiobook(bookId: String) {
         booksState.update { current -> current.filterNot { it.id == bookId } }
     }
+
+    override suspend fun upsertLibraryEntry(
+        id: String,
+        workId: String,
+        isFavorite: Boolean,
+        createdAt: Long,
+        downloadProgress: Float
+    ) {
+        libraryEntriesState.update { current ->
+            val existing = current.firstOrNull { it.id == id }
+            if (existing != null) {
+                // True upsert: only the link and progress update on an
+                // existing row (isFavorite/createdAt never reset on re-sync).
+                current.map {
+                    if (it.id == id) it.copy(workId = workId, downloadProgress = downloadProgress) else it
+                }
+            } else {
+                current + LibraryEntryEntity(
+                    id = id, workId = workId, isFavorite = isFavorite,
+                    createdAt = createdAt, downloadProgress = downloadProgress
+                )
+            }
+        }
+    }
+
+    override suspend fun deleteLibraryEntry(bookId: String) {
+        libraryEntriesState.update { current -> current.filterNot { it.id == bookId } }
+    }
+
+    override suspend fun countLibraryEntries(): Int = libraryEntriesState.value.size
 
     // --- Playback progress (ADR-0007: keyed by Edition) --------------------
 
@@ -502,29 +616,18 @@ class FakeAudiobookDao(
         genre: String,
         sourceUrl: String,
         isDownloaded: Boolean,
-        downloadProgress: Float,
         totalDurationSeconds: Long,
         totalChapters: Int,
         rating: Float,
-        isFavorite: Boolean,
-        seriesTitle: String?,
-        seriesUrl: String?,
-        seriesIndex: Int?,
-        preferredSpeed: Float?,
-        createdAt: Long,
-        sourceTreeUri: String?,
-        mergeKey: String,
-        workId: String?
+        sourceTreeUri: String?
     ): Long {
         if (tombstonesState.value.any { it.bookId == id }) return 0L
         val book = AudiobookEntity(
             id = id, title = title, author = author, narrator = narrator, description = description,
             coverDrawableRes = coverDrawableRes, coverImageUrl = coverImageUrl, genre = genre,
-            sourceUrl = sourceUrl, isDownloaded = isDownloaded, downloadProgress = downloadProgress,
+            sourceUrl = sourceUrl, isDownloaded = isDownloaded,
             totalDurationSeconds = totalDurationSeconds, totalChapters = totalChapters, rating = rating,
-            isFavorite = isFavorite, seriesTitle = seriesTitle, seriesUrl = seriesUrl, seriesIndex = seriesIndex,
-            preferredSpeed = preferredSpeed, createdAt = createdAt, sourceTreeUri = sourceTreeUri,
-            mergeKey = mergeKey, workId = workId
+            sourceTreeUri = sourceTreeUri
         )
         booksState.update { current -> current.filterNot { it.id == book.id } + book }
         return 1L

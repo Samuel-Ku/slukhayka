@@ -145,12 +145,12 @@ class WorkFeedPagingTest {
         }
         // Link the first five Works into the library with the genre set — the
         // feed's genre filter joins on this (LEFT JOIN: null until linked).
+        // ADR-0009: the link lives on the Library Entry row.
         val withGenre = dao.observeWorks().first().take(5)
         dao.insertAudiobooks(
             withGenre.map { work ->
                 AudiobookEntity(
                     id = "lib-${work.id}",
-                    workId = work.id,
                     title = work.title,
                     author = work.author,
                     narrator = work.narrator,
@@ -160,14 +160,21 @@ class WorkFeedPagingTest {
                     genre = "Фантастика",
                     sourceUrl = work.mergeKey.ifBlank { "https://4read.org/lib-${work.id}.html" },
                     isDownloaded = false,
-                    downloadProgress = 0f,
                     totalDurationSeconds = 0L,
                     totalChapters = 0,
-                    rating = 0f,
-                    isFavorite = false
+                    rating = 0f
                 )
             }
         )
+        withGenre.forEach { work ->
+            dao.upsertLibraryEntry(
+                id = "lib-${work.id}",
+                workId = work.id,
+                isFavorite = false,
+                createdAt = 0L,
+                downloadProgress = 0f
+            )
+        }
 
         val rows = collectAll(dao.pagedWorksFeedRecent(sourceId = null, genre = "Фантастика"))
 

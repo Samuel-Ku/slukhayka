@@ -35,12 +35,14 @@ class LibraryModelTest {
         genre = "",
         sourceUrl = sourceUrl,
         isDownloaded = isDownloaded,
-        totalDurationSeconds = totalDurationSeconds,
-        isFavorite = isFavorite,
-        seriesTitle = seriesTitle,
-        seriesIndex = seriesIndex,
-        createdAt = createdAt
-    )
+        totalDurationSeconds = totalDurationSeconds
+    ).also {
+        // ADR-0009: @Ignore projections set in place.
+        it.isFavorite = isFavorite
+        it.seriesTitle = seriesTitle
+        it.seriesIndex = seriesIndex
+        it.createdAt = createdAt
+    }
 
     private fun chapter(bookId: String, index: Int, duration: Long) = ChapterEntity(
         id = "$bookId-ch$index",

@@ -3,8 +3,10 @@ package com.example.data.repository
 import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
+import com.example.data.catalog.SourceCatalog
 import com.example.data.db.AudiobookDao
 import com.example.data.db.AudiobookDatabase
+import com.example.data.imports.LibraryImport
 import com.example.data.source.SourceAdapter
 import com.example.data.source.SourceBook
 import com.example.data.source.sourceIdForUrl
@@ -67,8 +69,14 @@ class GlobalSearchRepositoryTest {
         override suspend fun fetchNew(limit: Int): List<SourceBook> = feedBooks
     }
 
+    // ADR-0002 (#138): the catalog tests construct the Source Catalog module
+    // directly — no god module, no auto-sync on construction. The import door
+    // tests below construct the Library Import module beside it (DAG edge).
     private fun repo(vararg adapters: SourceAdapter) =
-        AudiobookRepository(dao, context, autoSyncOnInit = false, sourceAdapters = adapters.toList())
+        SourceCatalog(dao, adapters.toList(), LibraryImport(dao, context, adapters.toList()))
+
+    private fun imports(vararg adapters: SourceAdapter) =
+        LibraryImport(dao, context, adapters.toList())
 
     @Test
     fun `sluhayua urls map to the sluhayua source`() {
@@ -92,12 +100,12 @@ class GlobalSearchRepositoryTest {
     fun `default adapter registry constructs with sluhayua and sluhay registered`() {
         // The production default list (no injection) must build and know the
         // sluhayua + sluhay sources; adapter construction is inert (no network).
-        val defaultRepo = AudiobookRepository(dao, context, autoSyncOnInit = false)
+        val defaultCatalog = SourceCatalog(dao, emptyList(), LibraryImport(dao, context, emptyList()))
         assertEquals("sluhayua", sourceIdForUrl("https://sluhay.com.ua/1965454:olga-kobilyanska-priroda"))
         assertEquals("sluhay", sourceIdForUrl("https://sluhay.com/svitova-literatura/6150-dzho-aberkrombi-trohi-nenavisti.html"))
         // A WebView source has no server-fetch search — the registry still
         // holds the adapter (import path), but the feed stays empty (no row).
-        val feed = defaultRepo.sourceFeeds.value
+        val feed = defaultCatalog.sourceFeeds.value
         assertTrue(feed.none { it.sourceId == "sluhay" })
     }
 
@@ -177,9 +185,7 @@ class GlobalSearchRepositoryTest {
             url = "https://sound-books.net/kobzar.html",
             chapters = listOf(SourceChapter("Розділ 1", "https://arch.sound-books.net/100/01.mp3"))
         )
-        val repository = repo(FakeAdapter("soundbooks", detail = detail))
-
-        val book = repository.importFromSourceUrl("soundbooks", detail.url)
+        val book = imports(FakeAdapter("soundbooks", detail = detail)).importFromSourceUrl("soundbooks", detail.url)
 
         assertNotNull(book)
         assertEquals(1, dao.getAllAudiobooks().first().size)
@@ -191,10 +197,10 @@ class GlobalSearchRepositoryTest {
 
     @Test
     fun `importFromSourceUrl returns null for unknown source or unplayable page`() = runBlocking {
-        val repository = repo()
-        assertNull(repository.importFromSourceUrl("nope", "https://unknown.example/x.html"))
+        val importModule = imports()
+        assertNull(importModule.importFromSourceUrl("nope", "https://unknown.example/x.html"))
 
-        val unplayable = repo(
+        val unplayable = imports(
             FakeAdapter("soundbooks", detail = SourceBookDetail("К", "А", url = "https://u", chapters = emptyList()))
         )
         assertNull(unplayable.importFromSourceUrl("soundbooks", "https://u"))

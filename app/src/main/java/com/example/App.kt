@@ -5,6 +5,9 @@ import com.example.data.db.AudiobookDatabase
 import com.example.data.listening.ListeningStateStore
 import com.example.data.repository.AudiobookRepository
 import com.example.player.AudioPlayerManager
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 /**
  * Application-scoped dependency graph.
@@ -45,6 +48,12 @@ class App : Application() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        // ADR-0002 (#138): cold start performs no network I/O during module
+        // construction — the catalogue sync is an explicit composition-root
+        // call, kicked off here (best-effort, never blocks startup).
+        CoroutineScope(Dispatchers.IO).launch {
+            runCatching { repository.syncCatalogOnStart() }
+        }
     }
 
     companion object {

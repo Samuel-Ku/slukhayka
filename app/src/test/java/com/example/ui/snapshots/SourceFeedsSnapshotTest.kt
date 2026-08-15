@@ -7,7 +7,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onRoot
-import com.example.data.repository.AudiobookRepository.SourceNewFeed
+import com.example.data.catalog.SourceCatalog.SourceNewFeed
 import com.example.data.source.SourceBook
 import com.example.ui.screens.SourceFeedRow
 import com.example.ui.theme.AudiobookTheme

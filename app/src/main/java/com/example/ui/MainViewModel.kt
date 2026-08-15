@@ -10,6 +10,7 @@ import com.example.data.catalog.CatalogSection
 import com.example.data.db.*
 import com.example.data.imports.ImportGrantStore
 import com.example.data.imports.ImportPlan
+import com.example.data.imports.LibraryImport
 import com.example.data.imports.ImportPlanner
 import com.example.data.repository.AudiobookRepository
 import com.example.data.source.GlobalSearchResult
@@ -1249,7 +1250,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val reports = repository.rescanAllLocalFolders()
-                val totals = reports.fold(AudiobookRepository.RescanReport("")) { acc, r ->
+                val totals = reports.fold(LibraryImport.RescanReport("")) { acc, r ->
                     acc.copy(
                         newChapters = acc.newChapters + r.newChapters,
                         newBooks = acc.newBooks + r.newBooks,

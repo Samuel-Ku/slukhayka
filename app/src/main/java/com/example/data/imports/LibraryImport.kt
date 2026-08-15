@@ -1,0 +1,945 @@
+package com.example.data.imports
+
+import android.content.Context
+import android.net.Uri
+import android.util.Log
+import com.example.R
+import com.example.data.HASH_BUFFER_SIZE
+import com.example.data.contentHashOf
+import com.example.data.sha256Hex
+import com.example.data.db.AudiobookDao
+import com.example.data.db.AudiobookEntity
+import com.example.data.db.ChapterEntity
+import com.example.data.db.CorrectionEntity
+import com.example.data.db.SourceEntity
+import com.example.data.merge.MergeKey
+import com.example.data.source.FourReadAdapter
+import com.example.data.source.SluhayAdapter
+import com.example.data.source.SourceAdapter
+import com.example.data.source.SourceBookDetail
+import com.example.data.source.streamOnlyFor
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withContext
+import java.io.File
+
+/**
+ * ADR-0002 — Library Import: the deep module that owns all five import doors
+ * and the shared mapping helpers they use. Constructs over the DAO, an
+ * optional Context (local-file import/rescan), and the injected source-adapter
+ * list — no adapter is constructed here; the composition root composes them.
+ *
+ * The five doors:
+ *  1. Explicit source import — [importBookFromSource], [importFromSourceUrl],
+ *     [importAudiobookFrom4ReadUrl];
+ *  2. Captured-page import — [importWebSourcePage], [importAudiobookFromHtml];
+ *  3. Local folder import — [importLocalAudioFile], [importLocalAudioStream],
+ *     [importLocalAudioFolder], [planLocalAudioFolder], [applyImportPlan],
+ *     [importAudioEntries];
+ *  4. Rescan — [rescanLocalFolder], [rescanAudioEntries],
+ *     [rescanAllLocalFolders];
+ *  5. Catalog upsert on import — [upsertCatalogBook].
+ *
+ * Behaviour contracts kept exactly: explicit re-adds clear Tombstones, merging
+ * happens by the Work-level merge key, local files dedupe by content hash.
+ */
+class LibraryImport(
+    private val dao: AudiobookDao,
+    private val context: Context?,
+    private val sourceAdapters: List<SourceAdapter>
+) {
+
+    private val fourReadAdapter: SourceAdapter =
+        sourceAdapters.firstOrNull { it.sourceId == "4read" } ?: FourReadAdapter()
+
+    // ---------------------------------------------------------------------
+    // Door 1 + 2 core: the shared import path (explicit + captured pages)
+    // ---------------------------------------------------------------------
+
+    /**
+     * Spec-10 T2 — the multi-source import core. Turns a parsed source book
+     * (from a [SourceAdapter]) into a Work row plus a Source row. When a book
+     * with the same merge key (normalized title|author|narrator) already
+     * exists, the new source is attached to it and the existing Work is
+     * returned — one library card, several sources, no duplicates.
+     */
+    suspend fun importBookFromSource(sourceId: String, detail: SourceBookDetail): AudiobookEntity =
+        withContext(Dispatchers.IO) {
+            val mergeKey = MergeKey.keyFor(detail.title, detail.author, detail.narrator)
+            val existing = if (mergeKey.isNotBlank()) dao.findByMergeKey(mergeKey) else null
+            val bookId = existing?.id ?: adapterBookId(sourceId, detail.url)
+
+            if (existing == null) {
+                // Spec-14 T2/T3: the shared import path persists the enriched
+                // profile the seam now provides (genres → genre, rating,
+                // series) — every import door's card agrees with the source.
+                val book = AudiobookEntity(
+                    id = bookId,
+                    title = detail.title,
+                    author = detail.author.ifBlank { sourceId },
+                    narrator = detail.narrator.ifBlank { "$sourceId narrator" },
+                    description = "Аудіокнига з джерела $sourceId. Джерело: ${detail.url}",
+                    coverDrawableRes = R.drawable.img_neuromancer_cover_1785247475170,
+                    coverImageUrl = detail.coverImageUrl,
+                    genre = detail.genres.joinToString(" · ").ifBlank { "Каталог" },
+                    sourceUrl = detail.url,
+                    isDownloaded = false,
+                    downloadProgress = 0f,
+                    totalDurationSeconds = detail.chapters.sumOf { it.durationSeconds }.takeIf { it > 0L } ?: 0L,
+                    totalChapters = detail.chapters.size,
+                    rating = detail.rating?.toFloat() ?: 0f,
+                    seriesTitle = detail.series?.name,
+                    seriesIndex = detail.series?.position,
+                    seriesUrl = detail.series?.url,
+                    mergeKey = mergeKey
+                )
+                dao.insertAudiobooks(listOf(book))
+                dao.insertChapters(
+                    detail.chapters.mapIndexed { index, ch ->
+                        ChapterEntity(
+                            id = "${bookId}_ch${index + 1}",
+                            bookId = bookId,
+                            chapterIndex = index,
+                            title = ch.title.ifBlank { "Глава ${index + 1}" },
+                            durationSeconds = ch.durationSeconds,
+                            streamUrl = ch.streamUrl
+                        )
+                    }
+                )
+                dao.insertSources(listOf(sourceRow(sourceId, bookId, detail.url)))
+                // An explicit import is a user action: any tombstone of the
+                // work is cleared so a re-added book never stays hidden.
+                dao.deleteTombstone(bookId)
+                book
+            } else {
+                // Merge: attach the new source unless it is already known.
+                val known = dao.getSourcesForBookSync(existing.id).any { it.url == detail.url }
+                if (!known) {
+                    dao.insertSources(listOf(sourceRow(sourceId, existing.id, detail.url)))
+                }
+                dao.deleteTombstone(existing.id)
+                existing
+            }
+        }
+
+    private fun sourceRow(sourceId: String, bookId: String, url: String) = SourceEntity(
+        id = "$sourceId-$bookId",
+        bookId = bookId,
+        type = sourceId,
+        url = url,
+        streamOnly = streamOnlyFor(sourceId),
+        addedAt = System.currentTimeMillis()
+    )
+
+    /**
+     * Spec-14 T5 — the book id for an import door: the source's adapter owns
+     * its id scheme ([SourceAdapter.bookId]), so no import door derives ids
+     * itself and no scheme can diverge. The generic "<sourceId>-<slug>"
+     * fallback only covers a source without a registered adapter (defensive;
+     * every live source has one).
+     */
+    private fun adapterBookId(sourceId: String, url: String): String =
+        sourceAdapters.firstOrNull { it.sourceId == sourceId }?.bookId(url)
+            ?: genericSourceBookId(sourceId, url)
+
+    private fun genericSourceBookId(sourceId: String, url: String): String {
+        val slug = url.substringAfterLast('/').substringBefore('?')
+            .removeSuffix(".html")
+            .removeSuffix(".m3u")
+            .ifBlank { "book-${System.currentTimeMillis()}" }
+        return "$sourceId-$slug"
+    }
+
+    /**
+     * Spec-10 T4 — import-and-play entry point for a search result: fetch the
+     * book page from the chosen source, import the Work (merging into an
+     * existing card when the merge key matches), return the stored book. Null
+     * when the source is unknown or the page yields nothing playable.
+     */
+    suspend fun importFromSourceUrl(sourceId: String, url: String): AudiobookEntity? =
+        withContext(Dispatchers.IO) {
+            val adapter = sourceAdapters.firstOrNull { it.sourceId == sourceId }
+                ?: return@withContext null
+            try {
+                val detail = adapter.fetchBookPage(url)
+                if (detail.chapters.isEmpty()) return@withContext null
+                importBookFromSource(sourceId, detail)
+            } catch (e: Exception) {
+                null
+            }
+        }
+
+    /**
+     * Spec-13 T3 — import a WebView-source book from its CAPTURED page HTML.
+     * The page HTML comes from the live browser session (past the Cloudflare
+     * challenge — server-fetch would 403); the adapter's captured-page path
+     * parses metadata + the inline Playerjs playlist and fetches the playlist
+     * with the source Referer. Null when the source is unknown, the page is
+     * unparseable or yields nothing playable.
+     */
+    suspend fun importWebSourcePage(sourceId: String, url: String, html: String): AudiobookEntity? =
+        withContext(Dispatchers.IO) {
+            val adapter = sourceAdapters.firstOrNull { it.sourceId == sourceId } as? SluhayAdapter
+                ?: return@withContext null
+            try {
+                val detail = adapter.detailFromCapturedHtml(html, url)
+                if (detail.chapters.isEmpty()) return@withContext null
+                importBookFromSource(sourceId, detail)
+            } catch (e: Exception) {
+                null
+            }
+        }
+
+    /**
+     * Spec-14 T4/T5 — the WebView door rides the same parser + transport as
+     * every other door: the adapter owns the captured page parse (playlist
+     * content resolved through its own HttpFetcher), and the shared import
+     * path persists the Work with the same merge key / id shape. The
+     * repository performs no 4read parsing or transport. A captured page that
+     * yields nothing playable surfaces as absent (null) — never a forged card.
+     */
+    suspend fun importAudiobookFromHtml(urlOrSlug: String, html: String): AudiobookEntity? {
+        val cleanInput = urlOrSlug.trim()
+        val sourceUrl = if (cleanInput.startsWith("http")) cleanInput else "https://4read.org/$cleanInput"
+        val adapter = fourReadAdapter as? FourReadAdapter ?: return null
+        val detail = adapter.parseCapturedPage(html, sourceUrl)
+        if (detail.chapters.isEmpty()) return null
+        return importBookFromSource("4read", detail)
+    }
+
+    /**
+     * Spec-14 T3/T5 — the link-import door rides the source seam: the adapter
+     * owns fetching and extraction (fetchBookPage); the repository only
+     * persists through the shared import path (same merge key, same source row
+     * as every other door). A page that yields nothing playable surfaces as
+     * absent (null) — the fabricated fallback card is gone.
+     */
+    suspend fun importAudiobookFrom4ReadUrl(urlOrSlug: String): AudiobookEntity? {
+        val cleanInput = urlOrSlug.trim()
+        val sourceUrl = if (cleanInput.startsWith("http")) cleanInput else "https://4read.org/$cleanInput"
+        return importFromSourceUrl("4read", sourceUrl)
+    }
+
+    /**
+     * Spec-14 T1 — catalogue upsert on import (and on catalogue sync). Inserts
+     * or updates a catalogue book row; a known row is enriched with real
+     * duration/series data this source carries, never clobbered with 0.
+     */
+    internal suspend fun upsertCatalogBook(book: com.example.data.catalog.CatalogBook): AudiobookEntity {
+        val existing = dao.getAudiobookById(book.id)
+        if (existing != null) {
+            var updated = existing
+            // Legacy placeholder cleanup: catalogue books were once seeded with
+            // a fabricated 4:00:00 (14400s) and 5 chapters. Treat that exact
+            // value as unknown so it never renders as real; the real duration
+            // is back-filled from the book page (refreshBookCoverAndDetails).
+            // The stored chapter count may already be REAL (a page fetch with
+            // no parseable duration keeps 14400s but writes the true chapter
+            // count), so only the duration is reset — never the chapters.
+            if (existing.totalDurationSeconds == 14400L) {
+                dao.updateBookStats(book.id, existing.totalChapters, 0L)
+                updated = updated.copy(totalDurationSeconds = 0L)
+            }
+            // Enrich with a real duration this source carries (e.g. the ТОП 100
+            // page's "Триває:") — never clobber a known value with 0.
+            if (book.totalDurationSeconds > 0L && updated.totalDurationSeconds != book.totalDurationSeconds) {
+                dao.updateBookStats(book.id, updated.totalChapters, book.totalDurationSeconds)
+                updated = updated.copy(totalDurationSeconds = book.totalDurationSeconds)
+            }
+            if (book.seriesUrl != null &&
+                (updated.seriesUrl != book.seriesUrl ||
+                    updated.seriesTitle != book.seriesTitle ||
+                    updated.seriesIndex != book.seriesIndex)
+            ) {
+                dao.updateSeriesFields(book.id, book.seriesTitle, book.seriesUrl, book.seriesIndex)
+                updated = updated.copy(
+                    seriesTitle = book.seriesTitle,
+                    seriesUrl = book.seriesUrl,
+                    seriesIndex = book.seriesIndex
+                )
+            }
+            // Return the known updated shape instead of re-querying: the
+            // row may be deleted concurrently and `!!` on a re-query would
+            // crash the whole catalogue sync.
+            return updated
+        }
+        val newBook = AudiobookEntity(
+            id = book.id,
+            title = book.title,
+            author = book.author.ifBlank { "4read.org" },
+            narrator = "4read Voice Narrator",
+            description = "Аудіокнига з каталогу 4read.org. Джерело: ${book.url}",
+            coverDrawableRes = R.drawable.img_neuromancer_cover_1785247475170,
+            coverImageUrl = book.coverImageUrl,
+            genre = "4read Каталог",
+            sourceUrl = book.url,
+            isDownloaded = false,
+            downloadProgress = 0f,
+            // The catalogue homepage doesn't know the chapter count or total
+            // duration — they're back-filled from the real chapter list once
+            // the book page is fetched (see getChaptersList). Sources that DO
+            // carry a real duration (ТОП 100's "Триває:") keep it; unknown is
+            // 0, never a fabricated "5 Ch. • 4:00:00".
+            totalDurationSeconds = book.totalDurationSeconds,
+            totalChapters = 0,
+            rating = 0f,
+            seriesTitle = book.seriesTitle,
+            seriesUrl = book.seriesUrl,
+            seriesIndex = book.seriesIndex
+        )
+        dao.insertAudiobooks(listOf(newBook))
+        return newBook
+    }
+
+    // ---------------------------------------------------------------------
+    // Door 3: local folder/file import
+    // ---------------------------------------------------------------------
+
+    /**
+     * Copies a user-picked audio file (SAF content Uri) into private app
+     * storage and creates a single-chapter book whose chapter points at the
+     * local file.
+     */
+    suspend fun importLocalAudioFile(uri: Uri): AudiobookEntity = withContext(Dispatchers.IO) {
+        val ctx = context ?: throw IllegalStateException("importLocalAudioFile called without Context")
+        val displayName = queryDisplayName(ctx, uri) ?: "Аудіокнига"
+        val input = ctx.contentResolver.openInputStream(uri)
+            ?: throw java.io.IOException("Не вдалося відкрити файл $uri")
+        importLocalAudioStream(displayName, input)
+    }
+
+    /**
+     * Core of the single-file import, exposed as a suspend stream so JVM tests
+     * drive it without a content resolver (spec #8 ticket T7).
+     *
+     * Dedupe (wayfinder #48): if the copied bytes already exist in the
+     * library, the fresh copy is deleted and the existing book is returned —
+     * importing the same file twice never duplicates storage.
+     */
+    suspend fun importLocalAudioStream(displayName: String, stream: java.io.InputStream): AudiobookEntity =
+        withContext(Dispatchers.IO) {
+            val base = sanitizeLocalBaseName(displayName)
+            val dest = copyLocalAudioStream(base, localFileExtension(displayName), stream)
+            val existing = dao.getChapterByContentHash(dest.sha256Hex)
+            if (existing != null) {
+                File(dest.path).delete()
+                return@withContext dao.getAudiobookById(existing.bookId)
+                    ?: throw java.io.IOException("Дублікат файлу, але книгу не знайдено")
+            }
+            insertLocalBook(
+                title = base,
+                author = LOCAL_FILE_AUTHOR,
+                description = "Імпортований аудіофайл: $displayName",
+                chapters = listOf(LocalChapterInput(title = base, filePath = dest.path, contentHash = dest.sha256Hex))
+            )
+        }
+
+    /**
+     * Folder import (spec #8 Block 4): walks the SAF tree picked via
+     * `OpenDocumentTree` (recursively collecting mp3/m4a/ogg audio files) and
+     * delegates the grouping/insertion to the testable [importAudioEntries]
+     * core.
+     */
+    suspend fun importLocalAudioFolder(treeUri: Uri): LocalImportResult = withContext(Dispatchers.IO) {
+        val ctx = context ?: throw IllegalStateException("importLocalAudioFolder called without Context")
+        val entries = LocalFolderScanner.scan(ctx, treeUri)
+        importAudioEntries(entries, treeUri.toString())
+    }
+
+    /**
+     * Step 2 of the smart import (wayfinder #29): scans a picked SAF tree and
+     * builds the pure [ImportPlan] — grouping, natural sort and T0 merge
+     * suggestions against the existing library — WITHOUT touching disk or
+     * Room. The user reviews and edits this plan; only [applyImportPlan]
+     * writes.
+     */
+    suspend fun planLocalAudioFolder(treeUri: Uri): ImportPlan = withContext(Dispatchers.IO) {
+        val ctx = context ?: throw IllegalStateException("planLocalAudioFolder called without Context")
+        val entries = LocalFolderScanner.scan(ctx, treeUri)
+        val works = dao.getAllAudiobooksOnce().map { ImportPlanner.ExistingWork(id = it.id, title = it.title, mergeKey = it.mergeKey) }
+        ImportPlanner.buildPlan(
+            source = SourceRef.Folder(treeUri.toString()),
+            entries = entries,
+            existingWorks = works
+        )
+    }
+
+    /**
+     * Step 4 of the smart import (wayfinder #29): applies a confirmed
+     * [ImportPlan] — the ONLY writer of the smart import. Reuses the same
+     * copy-then-hash + [insertLocalBook] core as the direct import, so a
+     * plan confirmed without edits behaves exactly like [importAudioEntries].
+     *
+     * A book with `mergedIntoBookId` set attaches its chapters to the
+     * existing Work instead of creating a new card (the #54 merge path, the
+     * user's explicit choice). The plan's corrections are persisted to the
+     * `corrections` store at apply time — one write path, no orphan decisions.
+     */
+    suspend fun applyImportPlan(plan: ImportPlan, sourceTreeUri: String? = null): LocalImportResult =
+        withContext(Dispatchers.IO) {
+            var booksImported = 0
+            var filesImported = 0
+            var skippedFiles = 0
+            var duplicateFiles = 0
+            val seenHashes = mutableSetOf<String>()
+
+            suspend fun copyUnlessDuplicate(
+                baseName: String,
+                chapterTitle: String,
+                extension: String,
+                openStream: () -> java.io.InputStream
+            ): LocalChapterInput? {
+                val dest = try {
+                    copyLocalAudioStream(baseName, extension, openStream())
+                } catch (e: Exception) {
+                    Log.w("AudiobookRepo", "Plan import failed", e)
+                    skippedFiles++
+                    return null
+                }
+                if (!seenHashes.add(dest.sha256Hex) || dao.getChapterByContentHash(dest.sha256Hex) != null) {
+                    File(dest.path).delete()
+                    duplicateFiles++
+                    return null
+                }
+                return LocalChapterInput(title = chapterTitle, filePath = dest.path, contentHash = dest.sha256Hex)
+            }
+
+            for (book in plan.books) {
+                val targetBookId = book.mergedIntoBookId
+                val chapters = mutableListOf<LocalChapterInput>()
+                for (chapter in book.chapters) {
+                    val chapterTitle = chapter.title.ifBlank { "Розділ ${chapters.size + 1}" }
+                    val base = sanitizeLocalBaseName(chapter.file.fileName)
+                    val copied = copyUnlessDuplicate(
+                        if (targetBookId != null) "$targetBookId-$base" else "${book.title}-$base",
+                        chapterTitle,
+                        localFileExtension(chapter.file.fileName),
+                        chapter.file.openStream
+                    ) ?: continue
+                    chapters += copied
+                    filesImported++
+                }
+                if (chapters.isEmpty()) continue
+
+                if (targetBookId != null) {
+                    // #54 merge: attach the source to the existing Work — no
+                    // new card, chapters join the existing book's chapter list.
+                    dao.insertChapters(
+                        chapters.mapIndexed { index, chapter ->
+                            val existing = dao.getAudiobookById(targetBookId)
+                            val baseIndex = existing?.totalChapters ?: 0
+                            ChapterEntity(
+                                id = "$targetBookId-ch${baseIndex + index + 1}",
+                                bookId = targetBookId,
+                                chapterIndex = baseIndex + index,
+                                title = chapter.title,
+                                durationSeconds = 0L,
+                                streamUrl = chapter.filePath,
+                                localFilePath = chapter.filePath,
+                                isDownloaded = true,
+                                contentHash = chapter.contentHash
+                            )
+                        }
+                    )
+                    dao.insertSources(
+                        listOf(
+                            SourceEntity(
+                                id = "$targetBookId-local-${System.currentTimeMillis()}",
+                                bookId = targetBookId,
+                                type = "local",
+                                url = "",
+                                streamOnly = false,
+                                addedAt = System.currentTimeMillis()
+                            )
+                        )
+                    )
+                } else {
+                    insertLocalBook(
+                        title = book.title.ifBlank { "Аудіокнига" },
+                        author = book.author.ifBlank { LOCAL_FILE_AUTHOR },
+                        description = "Імпортовано через прев'ю — ${chapters.size} файл(ів)",
+                        chapters = chapters,
+                        sourceTreeUri = sourceTreeUri
+                    )
+                    booksImported++
+                }
+            }
+
+            // Persist the plan's corrections (MERGE / SPLIT / NEVER_MATCH /
+            // FIELD) — the preview decisions become remembered, synced memory.
+            for (correction in plan.corrections) {
+                if (correction.mergeKey.isBlank()) continue
+                dao.upsertCorrection(
+                    CorrectionEntity(
+                        mergeKey = correction.mergeKey,
+                        kind = correction.kind,
+                        value = correction.value,
+                        origin = correction.origin
+                    )
+                )
+            }
+
+            LocalImportResult(
+                booksImported = booksImported,
+                filesImported = filesImported,
+                skippedFiles = skippedFiles,
+                duplicateFiles = duplicateFiles
+            )
+        }
+
+    /**
+     * Core of the local import (T7 single-file + Block 4 folder): groups the
+     * scanned files and materialises them as books in Room.
+     *
+     * Grouping rule: files at the root of the picked tree become one
+     * single-chapter book each (exactly like the single-file import); every
+     * sub-folder becomes one multi-chapter book whose chapters are its audio
+     * files sorted naturally by file name (track1 → track2 → … → track10).
+     * Unreadable files are skipped without failing the whole import.
+     *
+     * Dedupe (wayfinder #48): a file whose bytes already exist in the library
+     * is never copied again — the fresh copy is deleted on the spot and
+     * counted in [LocalImportResult.duplicateFiles].
+     */
+    suspend fun importAudioEntries(entries: List<LocalAudioEntry>, sourceTreeUri: String? = null): LocalImportResult =
+        withContext(Dispatchers.IO) {
+            var booksImported = 0
+            var filesImported = 0
+            var skippedFiles = 0
+            var duplicateFiles = 0
+            // Hashes seen earlier in THIS run (same-folder repeated files), so
+            // dedupe is consistent even before the folder's chapters hit the DB.
+            val seenHashes = mutableSetOf<String>()
+
+            // Copy-then-hash; when the bytes already exist, delete the copy
+            // and report a duplicate instead of a new chapter. `baseName` is
+            // the copied-file stem; `chapterTitle` is what users see.
+            suspend fun copyUnlessDuplicate(
+                baseName: String,
+                chapterTitle: String,
+                extension: String,
+                openStream: () -> java.io.InputStream
+            ): LocalChapterInput? {
+                val dest = try {
+                    copyLocalAudioStream(baseName, extension, openStream())
+                } catch (e: Exception) {
+                    Log.w("AudiobookRepo", "Local import failed", e)
+                    skippedFiles++
+                    return null
+                }
+                if (!seenHashes.add(dest.sha256Hex) || dao.getChapterByContentHash(dest.sha256Hex) != null) {
+                    File(dest.path).delete()
+                    duplicateFiles++
+                    return null
+                }
+                return LocalChapterInput(title = chapterTitle, filePath = dest.path, contentHash = dest.sha256Hex)
+            }
+
+            // 1) Loose files at the tree root → one single-chapter book each.
+            for (entry in entries.filter { it.parentFolder.isNullOrBlank() }) {
+                val base = sanitizeLocalBaseName(entry.fileName)
+                val chapter = copyUnlessDuplicate(base, base, localFileExtension(entry.fileName), entry.openStream)
+                    ?: continue
+                insertLocalBook(
+                    title = base,
+                    author = LOCAL_FILE_AUTHOR,
+                    description = "Імпортований аудіофайл: ${entry.fileName}",
+                    chapters = listOf(chapter),
+                    sourceTreeUri = sourceTreeUri
+                )
+                booksImported++
+                filesImported++
+            }
+
+            // 2) Each sub-folder → one book; files become naturally-sorted chapters.
+            for ((folder, files) in entries.filter { !it.parentFolder.isNullOrBlank() }.groupBy { it.parentFolder }) {
+                if (folder.isNullOrBlank()) continue
+                // Title from the last path segment so a relative path like
+                // "SeriesA/Кобзар" still yields a clean "Кобзар" book name.
+                val bookTitle = sanitizeLocalBaseName(folder.substringAfterLast('/')).ifBlank { "Аудіокнига" }
+                val chapters = mutableListOf<LocalChapterInput>()
+                for (entry in files.sortedWith(Comparator { a, b -> compareNatural(a.fileName, b.fileName) })) {
+                    val chapterTitle = sanitizeLocalBaseName(entry.fileName).ifBlank { entry.fileName }
+                    val chapter = copyUnlessDuplicate("$bookTitle-$chapterTitle", chapterTitle, localFileExtension(entry.fileName), entry.openStream)
+                        ?: continue
+                    chapters.add(chapter)
+                    filesImported++
+                }
+                if (chapters.isNotEmpty()) {
+                    insertLocalBook(
+                        title = bookTitle,
+                        author = LOCAL_FOLDER_AUTHOR,
+                        description = "Імпортовано з папки «$folder» — ${chapters.size} файл(ів)",
+                        chapters = chapters,
+                        sourceTreeUri = sourceTreeUri
+                    )
+                    booksImported++
+                }
+            }
+
+            LocalImportResult(
+                booksImported = booksImported,
+                filesImported = filesImported,
+                skippedFiles = skippedFiles,
+                duplicateFiles = duplicateFiles
+            )
+        }
+
+    /** Strips the extension and unsafe characters from a file/folder display name. */
+    private fun sanitizeLocalBaseName(displayName: String): String {
+        val cleanBase = displayName.substringBeforeLast('.').trim().ifBlank { displayName }
+        return cleanBase
+            .replace(Regex("""[^\p{L}\p{N} _\-]"""), "")
+            .ifBlank { "audiobook-${System.currentTimeMillis()}" }
+    }
+
+    /** Original extension of an audio file (lowercased), defaulting to mp3. */
+    private fun localFileExtension(fileName: String): String =
+        fileName.substringAfterLast('.', "").ifBlank { "mp3" }.lowercase().take(5)
+
+    /** Copies a stream into the private local-imports dir under a unique name. */
+    private fun copyLocalAudioStream(baseName: String, extension: String, stream: java.io.InputStream): CopiedLocalFile {
+        val ctx = context ?: throw IllegalStateException("local import requires Context")
+        val audioDir = File(ctx.filesDir, LOCAL_AUDIO_DIR)
+        if (!audioDir.exists()) audioDir.mkdirs()
+        // Unique suffix (counter-based, unlike the old timestamp-only one) so
+        // rapid folder imports never collide within the same millisecond. The
+        // original extension is preserved so ExoPlayer detects the container.
+        val destFile = File(audioDir, "$baseName-${localImportSeq.incrementAndGet()}.$extension")
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+        stream.use { input ->
+            destFile.outputStream().use { output ->
+                val buffer = ByteArray(HASH_BUFFER_SIZE)
+                while (true) {
+                    val read = input.read(buffer)
+                    if (read < 0) break
+                    if (read > 0) {
+                        output.write(buffer, 0, read)
+                        digest.update(buffer, 0, read)
+                    }
+                }
+            }
+        }
+        return CopiedLocalFile(path = destFile.absolutePath, sha256Hex = sha256Hex(digest.digest()))
+    }
+
+    /** Creates one local book with the given chapters (title, localFilePath). */
+    private suspend fun insertLocalBook(
+        title: String,
+        author: String,
+        description: String,
+        chapters: List<LocalChapterInput>,
+        sourceTreeUri: String? = null
+    ): AudiobookEntity {
+        val bookId = "local-${System.currentTimeMillis()}-${localImportSeq.incrementAndGet()}"
+        val book = AudiobookEntity(
+            id = bookId,
+            title = title,
+            author = author,
+            narrator = "Локальний аудіофайл",
+            description = description,
+            coverDrawableRes = R.drawable.img_neuromancer_cover_1785247475170,
+            coverImageUrl = null,
+            genre = LOCAL_GENRE,
+            sourceUrl = "",
+            isDownloaded = true,
+            downloadProgress = 1f,
+            totalDurationSeconds = 0L,
+            totalChapters = chapters.size,
+            rating = 0f,
+            sourceTreeUri = sourceTreeUri
+        )
+        dao.insertAudiobooks(listOf(book))
+        dao.insertChapters(
+            chapters.mapIndexed { index, chapter ->
+                ChapterEntity(
+                    id = "${bookId}_ch${index + 1}",
+                    bookId = bookId,
+                    chapterIndex = index,
+                    title = chapter.title,
+                    durationSeconds = 0L,
+                    streamUrl = chapter.filePath,
+                    localFilePath = chapter.filePath,
+                    isDownloaded = true,
+                    contentHash = chapter.contentHash
+                )
+            }
+        )
+        // Spec-10 T2: local imports are a LOCAL source of the Work.
+        dao.insertSources(
+            listOf(
+                SourceEntity(
+                    id = "$bookId-local",
+                    bookId = bookId,
+                    type = "local",
+                    url = "",
+                    streamOnly = false,
+                    addedAt = System.currentTimeMillis()
+                )
+            )
+        )
+        // An explicit local import is a user action: any tombstone of the
+        // work is cleared so a re-added book never stays hidden.
+        dao.deleteTombstone(bookId)
+        return book
+    }
+
+    /** Natural (human) file-name comparison: track2 < track10. */
+    private fun compareNatural(a: String, b: String): Int {
+        val chunksA = SPLIT_CHUNKS.findAll(a.lowercase()).map { it.value }.toList()
+        val chunksB = SPLIT_CHUNKS.findAll(b.lowercase()).map { it.value }.toList()
+        for (i in 0 until minOf(chunksA.size, chunksB.size)) {
+            val ca = chunksA[i]
+            val cb = chunksB[i]
+            val cmp = if (ca.first().isDigit() && cb.first().isDigit()) {
+                (ca.toLongOrNull() ?: 0L).compareTo(cb.toLongOrNull() ?: 0L)
+            } else {
+                ca.compareTo(cb)
+            }
+            if (cmp != 0) return cmp
+        }
+        return chunksA.size - chunksB.size
+    }
+
+    private fun queryDisplayName(ctx: Context, uri: Uri): String? = try {
+        ctx.contentResolver.query(
+            uri,
+            arrayOf(android.provider.OpenableColumns.DISPLAY_NAME),
+            null, null, null
+        )?.use { cursor ->
+            if (cursor.moveToFirst()) cursor.getString(0) else null
+        }
+    } catch (e: Exception) {
+        null
+    }
+
+    // ---------------------------------------------------------------------
+    // Door 4: re-scan of previously imported local folders
+    // ---------------------------------------------------------------------
+
+    /** Outcome of one [rescanLocalFolder] run — what changed in the tree. */
+    data class RescanReport(
+        val treeUri: String,
+        val newChapters: Int = 0,
+        val newBooks: Int = 0,
+        val missingFiles: Int = 0,
+        val movedFiles: Int = 0,
+        val duplicateFiles: Int = 0
+    )
+
+    /**
+     * Re-scans one previously imported SAF tree (wayfinder #42): walks it,
+     * hashes every stream (no copies — files the library already knows never
+     * touch disk), diffs against the stored chapters by content hash, applies
+     * new files as chapters/books, and reports missing/moved/duplicate files.
+     * The library entry and its private copies survive every outcome
+     * (wayfinder #59): nothing here ever deletes a row or a file.
+     */
+    suspend fun rescanLocalFolder(treeUri: String): RescanReport = withContext(Dispatchers.IO) {
+        val ctx = context ?: return@withContext RescanReport(treeUri)
+        val entries = runCatching { LocalFolderScanner.scan(ctx, Uri.parse(treeUri)) }.getOrElse {
+            Log.w("AudiobookRepo", "Re-scan could not open tree $treeUri", it)
+            return@withContext RescanReport(treeUri)
+        }
+        if (entries.isEmpty()) return@withContext RescanReport(treeUri)
+        rescanAudioEntries(entries, treeUri)
+    }
+
+    /**
+     * Testable core of the re-scan (wayfinder #42): hashes every stream (no
+     * copies — files the library already knows never touch disk), diffs
+     * against the stored chapters by content hash, applies new files as
+     * chapters/books, and reports missing/moved/duplicate files. The library
+     * entry and its private copies survive every outcome (wayfinder #59):
+     * nothing here ever deletes a row or a file.
+     */
+    suspend fun rescanAudioEntries(entries: List<LocalAudioEntry>, treeUri: String): RescanReport =
+        withContext(Dispatchers.IO) {
+        // Hash every file once — pure stream read, the re-scan baseline.
+        val scanned = entries.mapNotNull { entry ->
+            val hash = runCatching { contentHashOf(entry.openStream()) }.getOrNull()
+            if (hash.isNullOrBlank()) null else FolderRescan.RescanFile(entry.fileName, entry.parentFolder, hash)
+        }
+        if (scanned.isEmpty()) return@withContext RescanReport(treeUri)
+
+        val libraryHashSet = dao.getAllChapters().first().mapNotNull { it.contentHash }.toSet()
+        val existingBooks = dao.getAudiobooksBySourceTree(treeUri)
+        var report = RescanReport(treeUri)
+
+        // Same grouping as the import: root files are single-chapter books,
+        // each sub-folder is one multi-chapter book by its last path segment.
+        val groups = scanned.groupBy { file ->
+            file.parentFolder?.let { "folder:$it" } ?: "root:${sanitizeLocalBaseName(file.fileName)}"
+        }
+        for ((groupKey, files) in groups) {
+            val isRoot = groupKey.startsWith("root:")
+            val title = if (isRoot) groupKey.removePrefix("root:")
+            else files.first().parentFolder?.substringAfterLast('/')?.let { sanitizeLocalBaseName(it) }.orEmpty()
+            val book = existingBooks.firstOrNull { it.title == title }
+
+            if (book == null) {
+                // A book the library doesn't know from this tree yet: copy its
+                // files through the shared dedupe core, then create the book.
+                val newInputs = mutableListOf<LocalChapterInput>()
+                for (file in files) {
+                    val entry = entries.first { it.fileName == file.fileName && it.parentFolder == file.parentFolder }
+                    copyNewLocalChapter(entry, sanitizeLocalBaseName(file.fileName), file.contentHash)?.let { newInputs.add(it) }
+                }
+                if (newInputs.isEmpty()) {
+                    report = report.copy(duplicateFiles = report.duplicateFiles + files.size)
+                    continue
+                }
+                val created = insertLocalBook(
+                    title = title,
+                    author = LOCAL_FOLDER_AUTHOR,
+                    description = "Імпортовано з папки «${files.first().parentFolder ?: title}» — ${newInputs.size} файл(ів)",
+                    chapters = newInputs,
+                    sourceTreeUri = treeUri
+                )
+                report = report.copy(
+                    newBooks = report.newBooks + 1,
+                    newChapters = report.newChapters + newInputs.size,
+                    duplicateFiles = report.duplicateFiles + (files.size - newInputs.size)
+                )
+                updateFingerprintFor(created.id)
+                continue
+            }
+
+            // Known book: diff its chapters against this group's live files.
+            val chapters = dao.getChaptersListForBook(book.id)
+            val diff = FolderRescan.computeDiff(chapters, libraryHashSet, files)
+            report = report.copy(
+                missingFiles = report.missingFiles + diff.missingChapters.size,
+                movedFiles = report.movedFiles + diff.movedFiles.size,
+                duplicateFiles = report.duplicateFiles + diff.duplicateFiles.size
+            )
+            if (diff.newFiles.isNotEmpty()) {
+                val newInputs = mutableListOf<LocalChapterInput>()
+                for (file in diff.newFiles) {
+                    val entry = entries.first { it.fileName == file.fileName && it.parentFolder == file.parentFolder }
+                    copyNewLocalChapter(entry, sanitizeLocalBaseName(file.fileName), file.contentHash)?.let { newInputs.add(it) }
+                }
+                if (newInputs.isNotEmpty()) {
+                    val merged = chapters.map { ch ->
+                        LocalChapterInput(title = ch.title, filePath = ch.localFilePath ?: ch.streamUrl, contentHash = ch.contentHash.orEmpty())
+                    } + newInputs
+                    rewriteBookChapters(book.id, merged)
+                    report = report.copy(newChapters = report.newChapters + newInputs.size)
+                    updateFingerprintFor(book.id)
+                } else {
+                    report = report.copy(duplicateFiles = report.duplicateFiles + diff.newFiles.size)
+                }
+            }
+        }
+        report
+    }
+
+    /**
+     * Re-scans every previously imported local tree, best-effort per tree:
+     * one dead SAF grant (moved folder) fails that tree alone, never the rest.
+     */
+    suspend fun rescanAllLocalFolders(): List<RescanReport> = withContext(Dispatchers.IO) {
+        dao.getImportedSourceTrees().map { tree ->
+            runCatching { rescanLocalFolder(tree) }.getOrElse {
+                Log.w("AudiobookRepo", "Re-scan failed for $tree", it)
+                RescanReport(tree)
+            }
+        }
+    }
+
+    /** Copies a NEW local file to private storage, deduped against the library. */
+    private suspend fun copyNewLocalChapter(
+        entry: LocalAudioEntry,
+        chapterTitle: String,
+        contentHash: String
+    ): LocalChapterInput? {
+        // The diff classified it new, but a concurrent import may have landed
+        // the same bytes — never copy twice.
+        if (dao.getChapterByContentHash(contentHash) != null) return null
+        val base = sanitizeLocalBaseName(entry.fileName)
+        val dest = try {
+            copyLocalAudioStream("$base-re${localImportSeq.incrementAndGet()}", localFileExtension(entry.fileName), entry.openStream())
+        } catch (e: Exception) {
+            Log.w("AudiobookRepo", "Re-scan copy failed for ${entry.fileName}", e)
+            return null
+        }
+        return LocalChapterInput(title = chapterTitle, filePath = dest.path, contentHash = dest.sha256Hex)
+    }
+
+    /** Re-indexes a local book's chapters naturally (deletes + reinserts the list). */
+    private suspend fun rewriteBookChapters(bookId: String, chapters: List<LocalChapterInput>) {
+        val sorted = chapters.sortedWith(Comparator { a, b -> compareNatural(a.title, b.title) })
+        dao.deleteChaptersForBook(bookId)
+        dao.insertChapters(
+            sorted.mapIndexed { index, ch ->
+                ChapterEntity(
+                    id = "${bookId}_ch${index + 1}",
+                    bookId = bookId,
+                    chapterIndex = index,
+                    title = ch.title,
+                    durationSeconds = 0L,
+                    streamUrl = ch.filePath,
+                    localFilePath = ch.filePath,
+                    isDownloaded = true,
+                    contentHash = ch.contentHash.ifBlank { null }
+                )
+            }
+        )
+        dao.updateBookStats(bookId, sorted.size, 0L)
+    }
+
+    /** Refreshes the local source's re-scan fingerprint from its stored chapters. */
+    private suspend fun updateFingerprintFor(bookId: String) {
+        val chapters = dao.getChaptersListForBook(bookId)
+        val fingerprint = chapters
+            .map { "${it.title.lowercase()}|${it.contentHash.orEmpty()}" }
+            .sorted()
+            .joinToString("\n")
+            .ifBlank { null }
+            ?.let { sha256Hex(it.toByteArray()) }
+        dao.updateSourceFingerprint("$bookId-local", fingerprint)
+    }
+
+    companion object {
+        /** Directory holding user-imported local audio files (spec #8 T7). */
+        const val LOCAL_AUDIO_DIR = "local_imports"
+
+        /** Author/genre labels for locally-imported books. */
+        private const val LOCAL_FILE_AUTHOR = "Локальний файл"
+        private const val LOCAL_FOLDER_AUTHOR = "Локальна папка"
+        private const val LOCAL_GENRE = "Локальні"
+
+        /** Monotonic counter guaranteeing unique local ids/names within a burst of imports. */
+        private val localImportSeq = java.util.concurrent.atomic.AtomicInteger(0)
+
+        /** Splits a file name into numeric and non-numeric chunks for natural sorting. */
+        private val SPLIT_CHUNKS = Regex("""\d+|\D+""")
+    }
+}
+
+/** Outcome of a local folder/file import (spec #8 Block 4). */
+data class LocalImportResult(
+    val booksImported: Int,
+    val filesImported: Int,
+    val skippedFiles: Int,
+    // wayfinder #48: files whose bytes already existed in the library; they
+    // were never copied, so no storage was consumed.
+    val duplicateFiles: Int = 0
+)
+
+/**
+ * A local audio file materialised into the library (wayfinder #48): the
+ * chapter title, the copied file path, and the SHA-256 that made the copy
+ * dedupe-able against earlier imports.
+ */
+data class LocalChapterInput(
+    val title: String,
+    val filePath: String,
+    val contentHash: String
+)
+
+/** A local file copied into private storage, with its content digest. */
+data class CopiedLocalFile(
+    val path: String,
+    val sha256Hex: String
+)

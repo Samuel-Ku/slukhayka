@@ -1028,14 +1028,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 startPositionSec = progress?.currentPositionSeconds ?: 0L
             }
 
-            // Smart rewind across restarts (wayfinder #25): the resume position
-            // is rewound by how long ago the book was paused, and the marker is
-            // cleared so the same pause never rewinds twice.
+            // Smart rewind across restarts (wayfinder #25, ADR-0003): the
+            // resume position is rewound by how long ago the book was paused
+            // through the ONE pure rule ([SmartRewind.rewoundPositionMs])
+            // shared with the in-session path — same tiers, same
+            // clamp-at-zero (a position smaller than the rewind now rewinds to
+            // zero; the former restart path skipped the rewind there). The
+            // marker is cleared so the same pause never rewinds twice.
             progress?.lastPausedAtEpochMs?.let { pausedAt ->
-                val rewindSec = SmartRewind.computeRewindSeconds(System.currentTimeMillis() - pausedAt)
-                if (rewindSec > 0L && startPositionSec > rewindSec) {
-                    startPositionSec -= rewindSec
-                }
+                startPositionSec = SmartRewind.rewoundPositionMs(
+                    startPositionSec * 1000L,
+                    System.currentTimeMillis() - pausedAt
+                ) / 1000L
                 // Spec-10 T2: the marker lives on the source's progress row.
                 listeningState.updatePausedAt(updatedBook.id, null, sourceKey = progress.sourceKey)
             }

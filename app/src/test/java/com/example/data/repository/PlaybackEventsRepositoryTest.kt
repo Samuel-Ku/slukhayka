@@ -6,10 +6,10 @@ import androidx.test.core.app.ApplicationProvider
 import com.example.data.db.AudiobookDao
 import com.example.data.db.AudiobookDatabase
 import com.example.data.db.PlaybackEventKind
+import com.example.data.db.PlaybackEventPolicy
 import com.example.data.db.PlaybackProgressEntity
 import com.example.data.entries.LibraryEntries
 import com.example.data.listening.ListeningStateStore
-import com.example.player.SeekHistory
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -56,7 +56,7 @@ class PlaybackEventsRepositoryTest {
     // construct it directly, no god module.
     private fun repository() = ListeningStateStore(dao)
 
-    private fun seekJump(seconds: Long): Long = SeekHistory.DEFAULT_JUMP_THRESHOLD_MS / 1000L + seconds
+    private fun seekJump(seconds: Long): Long = PlaybackEventPolicy.SEEK_JUMP_THRESHOLD_MS / 1000L + seconds
 
     @Test
     fun `recordPlaybackEvent appends a stable-kind event with empty deviceId`() = runBlocking {

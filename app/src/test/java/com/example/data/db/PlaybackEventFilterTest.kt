@@ -1,6 +1,5 @@
 package com.example.data.db
 
-import com.example.player.SeekHistory
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -8,7 +7,7 @@ import org.junit.Test
 /** Pure JVM tests for the capture-time noise filter (spec-16 T2). */
 class PlaybackEventFilterTest {
 
-    private val thresholdMs = SeekHistory.DEFAULT_JUMP_THRESHOLD_MS
+    private val thresholdMs = PlaybackEventPolicy.SEEK_JUMP_THRESHOLD_MS
     private val minuteMs = PlaybackEventFilter.MIN_LISTENING_SEGMENT_MS
 
     // --- Seeks -------------------------------------------------------------

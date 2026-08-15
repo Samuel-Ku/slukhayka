@@ -7,6 +7,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import com.example.testing.TestDataFactory
 import com.example.ui.screens.ContinueSeriesRow
@@ -59,6 +60,11 @@ class ListenScreenBlocksSnapshotTest {
                 }
             }
         }
+        // Spec-24 T5 (#166): the mid-book hero shows the CUMULATIVE percent
+        // (1680 / 1980 s = 84 %), never the in-chapter offset (420 s = 21 %)
+        // that would read as 0 % early in a long chapter.
+        composeTestRule.onNodeWithText("84% · Залишилося 5 хв").assertExists()
+        composeTestRule.onNodeWithText("21% · Залишилося 26 хв").assertDoesNotExist()
         composeTestRule.onRoot().captureRoboImage(
             filePath = "src/test/snapshots/listen_hero_card.png"
         )
@@ -101,6 +107,10 @@ class ListenScreenBlocksSnapshotTest {
                 }
             }
         }
+        // Spec-24 T5 (#166): the row shows the cumulative position (28:00 =
+        // chapters before + in-chapter offset), not the bare 07:00 offset.
+        composeTestRule.onNodeWithText("Розділ 3 · 28:00").assertExists()
+        composeTestRule.onNodeWithText("Розділ 3 · 07:00").assertDoesNotExist()
         composeTestRule.onRoot().captureRoboImage(
             filePath = "src/test/snapshots/listen_recent_row.png"
         )

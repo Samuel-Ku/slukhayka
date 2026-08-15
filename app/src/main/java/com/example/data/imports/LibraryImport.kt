@@ -13,6 +13,7 @@ import com.example.data.db.ChapterEntity
 import com.example.data.db.CorrectionEntity
 import com.example.data.db.SourceEntity
 import com.example.data.merge.MergeKey
+import com.example.data.metadata.MetadataAssertions
 import com.example.data.source.FourReadAdapter
 import com.example.data.source.SluhayAdapter
 import com.example.data.source.SourceAdapter
@@ -73,19 +74,25 @@ class LibraryImport(
                 // Spec-14 T2/T3: the shared import path persists the enriched
                 // profile the seam now provides (genres → genre, rating,
                 // series) — every import door's card agrees with the source.
+                // ADR-0004: claim normalization (brand-scrub, duration
+                // sentinel) and chapter materialization come from the one
+                // MetadataAssertions module; the door keeps only its insert
+                // defaults (id scheme, placeholder author/narrator, template).
                 val book = AudiobookEntity(
                     id = bookId,
                     title = detail.title,
-                    author = detail.author.ifBlank { sourceId },
-                    narrator = detail.narrator.ifBlank { "$sourceId narrator" },
+                    author = MetadataAssertions.normalizeClaimedText(detail.author) ?: sourceId,
+                    narrator = MetadataAssertions.normalizeClaimedText(detail.narrator) ?: "$sourceId narrator",
                     description = "Аудіокнига з джерела $sourceId. Джерело: ${detail.url}",
                     coverDrawableRes = R.drawable.img_neuromancer_cover_1785247475170,
-                    coverImageUrl = detail.coverImageUrl,
+                    coverImageUrl = MetadataAssertions.coverDelta(detail.coverImageUrl),
                     genre = detail.genres.joinToString(" · ").ifBlank { "Каталог" },
                     sourceUrl = detail.url,
                     isDownloaded = false,
                     downloadProgress = 0f,
-                    totalDurationSeconds = detail.chapters.sumOf { it.durationSeconds }.takeIf { it > 0L } ?: 0L,
+                    totalDurationSeconds = MetadataAssertions.normalizeDurationSeconds(
+                        detail.chapters.sumOf { it.durationSeconds }
+                    ) ?: 0L,
                     totalChapters = detail.chapters.size,
                     rating = detail.rating?.toFloat() ?: 0f,
                     seriesTitle = detail.series?.name,
@@ -95,16 +102,7 @@ class LibraryImport(
                 )
                 dao.insertAudiobooks(listOf(book))
                 dao.insertChapters(
-                    detail.chapters.mapIndexed { index, ch ->
-                        ChapterEntity(
-                            id = "${bookId}_ch${index + 1}",
-                            bookId = bookId,
-                            chapterIndex = index,
-                            title = ch.title.ifBlank { "Глава ${index + 1}" },
-                            durationSeconds = ch.durationSeconds,
-                            streamUrl = ch.streamUrl
-                        )
-                    }
+                    MetadataAssertions.materializeChapters(bookId, detail.title, detail.chapters)
                 )
                 dao.insertSources(listOf(sourceRow(sourceId, bookId, detail.url)))
                 // An explicit import is a user action: any tombstone of the
@@ -229,33 +227,42 @@ class LibraryImport(
         val existing = dao.getAudiobookById(book.id)
         if (existing != null) {
             var updated = existing
+            // ADR-0004: the field-precedence delta comes from the one
+            // MetadataAssertions module — never re-derived here.
+            //
             // Legacy placeholder cleanup: catalogue books were once seeded with
-            // a fabricated 4:00:00 (14400s) and 5 chapters. Treat that exact
-            // value as unknown so it never renders as real; the real duration
-            // is back-filled from the book page (refreshBookCoverAndDetails).
-            // The stored chapter count may already be REAL (a page fetch with
-            // no parseable duration keeps 14400s but writes the true chapter
-            // count), so only the duration is reset — never the chapters.
-            if (existing.totalDurationSeconds == 14400L) {
+            // a fabricated 4:00:00 (14400s) and 5 chapters. The sentinel is
+            // treated as unknown (durationDelta never lets it survive), so it
+            // never renders as real; the real duration is back-filled from the
+            // book page (refreshBookCoverAndDetails). The stored chapter count
+            // may already be REAL (a page fetch with no parseable duration
+            // keeps the sentinel but writes the true chapter count), so only
+            // the duration is reset — never the chapters.
+            val storedDuration = MetadataAssertions.normalizeDurationSeconds(existing.totalDurationSeconds)
+            if (storedDuration == null) {
                 dao.updateBookStats(book.id, existing.totalChapters, 0L)
                 updated = updated.copy(totalDurationSeconds = 0L)
             }
             // Enrich with a real duration this source carries (e.g. the ТОП 100
-            // page's "Триває:") — never clobber a known value with 0.
-            if (book.totalDurationSeconds > 0L && updated.totalDurationSeconds != book.totalDurationSeconds) {
-                dao.updateBookStats(book.id, updated.totalChapters, book.totalDurationSeconds)
-                updated = updated.copy(totalDurationSeconds = book.totalDurationSeconds)
+            // page's "Триває:") — never clobber a known value with an unknown.
+            val enrichedDuration = MetadataAssertions.durationDelta(updated.totalDurationSeconds, book.totalDurationSeconds)
+            if (enrichedDuration != updated.totalDurationSeconds) {
+                dao.updateBookStats(book.id, updated.totalChapters, enrichedDuration)
+                updated = updated.copy(totalDurationSeconds = enrichedDuration)
             }
-            if (book.seriesUrl != null &&
-                (updated.seriesUrl != book.seriesUrl ||
-                    updated.seriesTitle != book.seriesTitle ||
-                    updated.seriesIndex != book.seriesIndex)
-            ) {
-                dao.updateSeriesFields(book.id, book.seriesTitle, book.seriesUrl, book.seriesIndex)
+            // Series applies only when its URL changed (the membership signal).
+            val series = MetadataAssertions.seriesDelta(
+                existingSeriesUrl = updated.seriesUrl,
+                claimedUrl = book.seriesUrl,
+                claimedTitle = book.seriesTitle,
+                claimedIndex = book.seriesIndex
+            )
+            if (series != null) {
+                dao.updateSeriesFields(book.id, series.title, series.url, series.index)
                 updated = updated.copy(
-                    seriesTitle = book.seriesTitle,
-                    seriesUrl = book.seriesUrl,
-                    seriesIndex = book.seriesIndex
+                    seriesTitle = series.title,
+                    seriesUrl = series.url,
+                    seriesIndex = series.index
                 )
             }
             // Return the known updated shape instead of re-querying: the
@@ -270,7 +277,7 @@ class LibraryImport(
             narrator = "4read Voice Narrator",
             description = "Аудіокнига з каталогу 4read.org. Джерело: ${book.url}",
             coverDrawableRes = R.drawable.img_neuromancer_cover_1785247475170,
-            coverImageUrl = book.coverImageUrl,
+            coverImageUrl = MetadataAssertions.coverDelta(book.coverImageUrl),
             genre = "4read Каталог",
             sourceUrl = book.url,
             isDownloaded = false,
@@ -278,9 +285,10 @@ class LibraryImport(
             // The catalogue homepage doesn't know the chapter count or total
             // duration — they're back-filled from the real chapter list once
             // the book page is fetched (see getChaptersList). Sources that DO
-            // carry a real duration (ТОП 100's "Триває:") keep it; unknown is
-            // 0, never a fabricated "5 Ch. • 4:00:00".
-            totalDurationSeconds = book.totalDurationSeconds,
+            // carry a real duration (ТОП 100's "Триває:") keep it; the legacy
+            // 14400 s sentinel counts as unknown (ADR-0004) — never a
+            // fabricated "5 Ch. • 4:00:00".
+            totalDurationSeconds = MetadataAssertions.normalizeDurationSeconds(book.totalDurationSeconds) ?: 0L,
             totalChapters = 0,
             rating = 0f,
             seriesTitle = book.seriesTitle,

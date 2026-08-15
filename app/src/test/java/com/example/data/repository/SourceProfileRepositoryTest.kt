@@ -7,6 +7,7 @@ import com.example.data.db.AudiobookDao
 import com.example.data.db.AudiobookDatabase
 import com.example.data.db.AudiobookEntity
 import com.example.data.db.SourceEntity
+import com.example.data.entries.LibraryEntries
 import com.example.data.source.SourceAdapter
 import com.example.data.source.SourceBookDetail
 import com.example.data.source.SourceChapter
@@ -60,8 +61,10 @@ class SourceProfileRepositoryTest {
         override suspend fun fetchBookPage(url: String): SourceBookDetail = detail
     }
 
+    // ADR-0002 (#140): the per-source profile aggregation lives in the Library
+    // Entries module — construct it directly, no god module.
     private fun repo(vararg adapters: SourceAdapter) =
-        AudiobookRepository(dao, context, autoSyncOnInit = false, sourceAdapters = adapters.toList())
+        LibraryEntries(dao, adapters.toList())
 
     private suspend fun seedBook(vararg sources: SourceEntity): String {
         val book = AudiobookEntity(

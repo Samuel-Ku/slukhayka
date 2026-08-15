@@ -12,7 +12,7 @@ import com.example.data.source.streamOnlyFor
  * Deterministic Room-entity fixtures for JVM unit tests (GitHub issue #6).
  *
  * Design decisions taken on the ticket:
- * - **Factory, not production seed re-use.** `AudiobookRepository` seeds itself
+ * - **Factory, not production seed re-use.** The catalogue is never seeded
  *   from a hardcoded 4read catalogue and hits the network in its `init` block.
  *   Reusing that would couple every test to production content that changes.
  *   This factory constructs entities directly -- no DAO, no database, no I/O.
@@ -180,7 +180,7 @@ object TestDataFactory {
     /**
      * One [SourceEntity] per book per source type, frozen at [FIXED_CLOCK_MS].
      *
-     * Mirrors `AudiobookRepository.sourceRow` (id "`<type>-<bookId>`",
+     * Mirrors the source-row id shape ("`<type>-<bookId>`",
      * `streamOnly` from the T1-verified [streamOnlyFor] policy) so repository
      * tests can seed the `sources` table deterministically — `addedAt`
      * otherwise defaults to the wall clock and would make any order/equality

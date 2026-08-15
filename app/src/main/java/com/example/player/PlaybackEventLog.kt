@@ -7,7 +7,7 @@ import java.util.Locale
 /**
  * In-memory ring buffer of recent playback events (wayfinder #52) for the
  * diagnostic overlay and post-mortems. Never persisted; the durable ledger of
- * *failures* lives in Room via [AudiobookRepository.recordPlaybackFailure].
+ * *failures* lives in Room via [ListeningStateStore.recordPlaybackFailure].
  * Pure JVM so it is unit-testable without Robolectric.
  */
 class PlaybackEventLog(private val capacity: Int = DEFAULT_CAPACITY) {

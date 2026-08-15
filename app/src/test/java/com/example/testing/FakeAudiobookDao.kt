@@ -5,12 +5,14 @@ import com.example.data.db.AudiobookEntity
 import com.example.data.db.BookmarkEntity
 import com.example.data.db.ChapterEntity
 import com.example.data.db.CorrectionEntity
+import com.example.data.db.EditionEntity
 import com.example.data.db.ListeningStatEntity
 import com.example.data.db.PlaybackEventEntity
 import com.example.data.db.PlaybackFailureEntity
 import com.example.data.db.PlaybackProgressEntity
 import com.example.data.db.SourceEntity
 import com.example.data.db.TombstoneEntity
+import com.example.data.db.WorkEntity
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.map
@@ -44,6 +46,8 @@ class FakeAudiobookDao(
     private val eventsState = MutableStateFlow(emptyList<PlaybackEventEntity>())
     private val tombstonesState = MutableStateFlow(emptyList<TombstoneEntity>())
     private val correctionsState = MutableStateFlow(emptyList<CorrectionEntity>())
+    private val worksState = MutableStateFlow(emptyList<WorkEntity>())
+    private val editionsState = MutableStateFlow(emptyList<EditionEntity>())
 
     /** Snapshot of the recorded playback failures, for assertions. */
     val savedFailures: List<PlaybackFailureEntity> get() = failuresState.value
@@ -438,4 +442,35 @@ class FakeAudiobookDao(
         correctionsState.value
             .filter { it.kind == "NEVER_MATCH" && (it.mergeKey == mergeKey || it.value == mergeKey) }
             .sortedByDescending { it.updatedAt }
+
+    // --- Persisted catalogue: Works + Editions (spec-23 T1) ----------------
+
+    override suspend fun findWorkByMergeKey(mergeKey: String): WorkEntity? =
+        worksState.value.firstOrNull { it.mergeKey == mergeKey && it.mergeKey.isNotEmpty() }
+
+    override suspend fun upsertWork(work: WorkEntity) {
+        worksState.update { current -> current.filterNot { it.id == work.id } + work }
+    }
+
+    override suspend fun upsertEdition(edition: EditionEntity) {
+        editionsState.update { current -> current.filterNot { it.id == edition.id } + edition }
+    }
+
+    override fun observeEditionsForWork(workId: String): Flow<List<EditionEntity>> =
+        editionsState.map { list -> list.filter { it.workId == workId }.sortedBy { it.addedAt } }
+
+    override suspend fun getEditionsForWorkSync(workId: String): List<EditionEntity> =
+        editionsState.value.filter { it.workId == workId }.sortedBy { it.addedAt }
+
+    override fun observeWorks(): Flow<List<WorkEntity>> = worksState
+
+    override suspend fun countWorks(): Int = worksState.value.size
+
+    override suspend fun countEditions(): Int = editionsState.value.size
+
+    /** Snapshot of the persisted catalogue works, for assertions. */
+    val savedWorks: List<WorkEntity> get() = worksState.value
+
+    /** Snapshot of the persisted catalogue editions, for assertions. */
+    val savedEditions: List<EditionEntity> get() = editionsState.value
 }

@@ -4,6 +4,8 @@ import android.util.Log
 import com.example.data.db.AudiobookDao
 import com.example.data.db.AudiobookEntity
 import com.example.data.db.ChapterEntity
+import com.example.data.db.EditionEntity
+import com.example.data.db.WorkEntity
 import com.example.data.imports.LibraryImport
 import com.example.data.merge.MergeKey
 import com.example.data.source.FourReadAdapter
@@ -411,6 +413,84 @@ class SourceCatalog(
             )
         }
         return chapters
+    }
+
+    // ---------------------------------------------------------------------
+    // Persisted catalogue: Works + Editions, merge-on-write (spec-23 T1).
+    // The browse layer is distinct from the listening/library `audiobooks`
+    // row: a Work is one book identity (normalized MergeKey), an Edition is
+    // one source carrying it. Any catalogue write merges here — writing the
+    // same book from two sources yields one Work with two Editions, and
+    // re-hydration never duplicates. Dedup is on the WRITE path, not at read
+    // time: the ephemeral read-time union (refreshUnifiedCatalog) is
+    // superseded by this persisted layer for the T4 endless feed.
+    // ---------------------------------------------------------------------
+
+    /** Deterministic, stable-per-URL id fragment (hex of String.hashCode — specified, cross-process stable). */
+    private fun stableIdOf(url: String): String = Integer.toHexString(url.hashCode())
+
+    /**
+     * Merge-on-write: normalizes the identity via the validated [MergeKey]
+     * (title+author+narrator), finds the Work by its merge key, and either
+     * creates the Work + its first Edition or attaches a new Edition to the
+     * existing Work. Idempotent: the Edition id is deterministic
+     * (`<workId>|<sourceId>|<url-hash>`), so re-writing the same source row
+     * REPLACE-no-ops instead of duplicating. Unmergeable rows (blank key —
+     * no identity to merge on) get their own Work with a stable per-source
+     * id; they never merge, by definition.
+     */
+    suspend fun writeWorkEdition(
+        sourceId: String,
+        title: String,
+        author: String,
+        narrator: String,
+        sourceUrl: String,
+        streamOnly: Boolean = false,
+        coverImageUrl: String? = null,
+        durationSeconds: Long? = null,
+        seriesTitle: String? = null,
+        seriesIndex: Int? = null
+    ): WorkEntity {
+        val mergeKey = MergeKey.keyFor(title, author, narrator)
+        val work = if (mergeKey.isNotBlank()) {
+            dao.findWorkByMergeKey(mergeKey) ?: WorkEntity(
+                id = mergeKey,
+                mergeKey = mergeKey,
+                title = title.trim(),
+                author = author.trim(),
+                narrator = narrator.trim(),
+                seriesTitle = seriesTitle,
+                seriesIndex = seriesIndex,
+                coverImageUrl = coverImageUrl,
+                addedAt = System.currentTimeMillis()
+            ).also { dao.upsertWork(it) }
+        } else {
+            val id = "w-$sourceId-${stableIdOf(sourceUrl)}"
+            WorkEntity(
+                id = id,
+                mergeKey = "",
+                title = title.trim(),
+                author = author.trim(),
+                narrator = narrator.trim(),
+                seriesTitle = seriesTitle,
+                seriesIndex = seriesIndex,
+                coverImageUrl = coverImageUrl,
+                addedAt = System.currentTimeMillis()
+            ).also { dao.upsertWork(it) }
+        }
+        dao.upsertEdition(
+            EditionEntity(
+                id = "${work.id}|$sourceId|${stableIdOf(sourceUrl)}",
+                workId = work.id,
+                sourceId = sourceId,
+                sourceUrl = sourceUrl,
+                streamOnly = streamOnly,
+                coverImageUrl = coverImageUrl,
+                durationSeconds = durationSeconds,
+                addedAt = System.currentTimeMillis()
+            )
+        )
+        return work
     }
 
     // ---------------------------------------------------------------------

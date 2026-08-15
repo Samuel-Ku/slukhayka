@@ -3,6 +3,7 @@ package com.example.data.catalog
 import android.util.Log
 import com.example.data.db.AudiobookDao
 import com.example.data.db.AudiobookEntity
+import com.example.data.db.ChapterEntity
 import com.example.data.imports.LibraryImport
 import com.example.data.merge.MergeKey
 import com.example.data.source.FourReadAdapter
@@ -314,6 +315,103 @@ class SourceCatalog(
         val merged: Int = 0,
         val failed: Int
     )
+
+    // ---------------------------------------------------------------------
+    // Chapter materialisation (ADR-0002 #139): a catalogue-only Work's
+    // chapters live on its source page and are materialised on demand.
+    // A raw DAO read historically returned zero chapters for any book whose
+    // page had never been opened/played (183 of 214 books on-device), and
+    // callers that relied on it — the Download button — silently did nothing.
+    // ---------------------------------------------------------------------
+
+    /**
+     * Returns a book's chapters, fetching them from the live 4read page when
+     * Room holds none (catalogue Works seed chapter-less). This is the
+     * fallback chapter fetch Offline Downloads and the playback stack route
+     * through — never a raw Room read alone.
+     */
+    suspend fun getChaptersList(bookId: String): List<ChapterEntity> {
+        var chapters = dao.getChaptersListForBook(bookId)
+        val book = dao.getAudiobookById(bookId)
+        val sourceUrl = book?.sourceUrl ?: ""
+
+        // Only fall back to the live 4read page when the book has NO chapters
+        // at all. Previously the condition was `chapters.isEmpty() || any
+        // contains archive.org` which treated the intentionally-seeded
+        // LibriVox/archive.org chapters as placeholders and re-inserted the
+        // live page's chapters on EVERY play/refresh -- observed on-device as
+        // 54 chapter rows for one 6-chapter seed book, scrambled order, and
+        // the player picking up reasd.org streams instead of the seeded ones.
+        if (chapters.isEmpty() && sourceUrl.isNotBlank() && sourceUrl.contains("4read.org")) {
+            // Spec-14 T5: the adapter owns the page parse; the catalog only
+            // persists what the seam's SourceBookDetail carries.
+            val detail = fourReadAdapter.fetchBookPage(sourceUrl)
+            if (detail.chapters.isNotEmpty()) {
+                val realChapters = detail.chapters.mapIndexed { index, chapter ->
+                    ChapterEntity(
+                        id = "${bookId}_ch_${index + 1}",
+                        bookId = bookId,
+                        chapterIndex = index,
+                        title = "Глава ${index + 1} (${book?.title ?: "4read"})",
+                        durationSeconds = 0L, // unknown until the stream is actually played
+                        streamUrl = chapter.streamUrl
+                    )
+                }
+                dao.insertChapters(realChapters)
+                // Back-fill the real chapter count, the site's own total
+                // duration ("Триває:"), and the real author/narrator/genre/
+                // rating/series now that we've fetched the book page — the
+                // catalogue seed only ever had placeholders.
+                val knownDuration = detail.totalDurationSeconds ?: book?.totalDurationSeconds ?: 0L
+                dao.updateBookStats(bookId, realChapters.size, knownDuration)
+                val author = detail.author.ifBlank { null }
+                val narrator = detail.narrator.ifBlank { null }
+                val genres = detail.genres.joinToString(" · ").ifBlank { null }
+                val rating = detail.rating?.toFloat()
+                val seriesTitle = detail.series?.name
+                val seriesIndex = detail.series?.position
+                val seriesUrl = detail.series?.url
+                if (author != null || narrator != null || genres != null ||
+                    rating != null || seriesTitle != null || seriesUrl != null
+                ) {
+                    dao.updateBookMetadata(
+                        bookId,
+                        author = author,
+                        narrator = narrator,
+                        genre = genres,
+                        rating = rating,
+                        seriesTitle = seriesTitle,
+                        seriesIndex = seriesIndex,
+                        seriesUrl = seriesUrl
+                    )
+                }
+                // Cover via a targeted UPDATE, not a REPLACE insert: the row
+                // carries freshly back-filled metadata above, and a full-row
+                // re-insert with the stale seed entity would clobber it back
+                // to the placeholders ("4read.org" etc.).
+                if (!detail.coverImageUrl.isNullOrBlank()) {
+                    dao.updateCoverImageUrl(bookId, detail.coverImageUrl)
+                }
+                return realChapters
+            }
+        }
+
+        // Phase 2.5 hotfix (CR-002 / SF-003 / SF-005 / SF-006): when 4read fetch
+        // returns no streams the previous code synthesised N chapters pointing
+        // at unrelated archive.org MP3s (time_machine / war_of_the_worlds) so
+        // that the chapter list was always populated. Users heard 19th-century
+        // sci-fi while the UI showed their selected book. We refuse to fabricate
+        // audio and surface an empty chapter list — the player / UI sees the
+        // absence and shows a "no chapters available" message instead.
+        if (chapters.isEmpty()) {
+            Log.w(
+                "SourceCatalog",
+                "No chapters for bookId=$bookId and 4read fetch returned none; " +
+                    "refusing to fabricate placeholder audio."
+            )
+        }
+        return chapters
+    }
 
     // ---------------------------------------------------------------------
     // Catalogue sections (spec #8 tickets T5/T6): rows for the Explore

@@ -7,6 +7,7 @@ import com.example.data.db.AudiobookDao
 import com.example.data.db.AudiobookDatabase
 import com.example.data.source.SourceAdapter
 import com.example.data.source.SourceBook
+import com.example.data.source.sourceIdForUrl
 import com.example.data.source.SourceBookDetail
 import com.example.data.source.SourceChapter
 import kotlinx.coroutines.flow.first
@@ -71,22 +72,20 @@ class GlobalSearchRepositoryTest {
 
     @Test
     fun `sluhayua urls map to the sluhayua source`() {
-        val repository = repo()
-        assertEquals("sluhayua", repository.sourceTypeOfUrl("https://sluhay.com.ua/4508492:taras-shevchenko-Єretik"))
-        assertEquals("sluhayua", repository.sourceTypeOfUrl("https://mp3.sluhay.com.ua/Serdeshna/01.mp3"))
+        assertEquals("sluhayua", sourceIdForUrl("https://sluhay.com.ua/4508492:taras-shevchenko-Єretik"))
+        assertEquals("sluhayua", sourceIdForUrl("https://mp3.sluhay.com.ua/Serdeshna/01.mp3"))
     }
 
     @Test
     fun `sluhay and sluhayknigi urls map to their own sources - never the cdn`() {
-        val repository = repo()
         // sluhay.com.ua is checked before sluhay.com (it contains it); the
         // shared redirectto.cc CDN and the knigi domain must resolve to the
         // right source so the Referer seam picks the owning site.
-        assertEquals("sluhay", repository.sourceTypeOfUrl("https://sluhay.com/svitova-literatura/6150-dzho-aberkrombi-trohi-nenavisti.html"))
-        assertEquals("sluhayknigi", repository.sourceTypeOfUrl("https://sluhayknigi.com/svitova-literatura/6066-klark-eshton-smit-metamorfoza-zemli.html"))
+        assertEquals("sluhay", sourceIdForUrl("https://sluhay.com/svitova-literatura/6150-dzho-aberkrombi-trohi-nenavisti.html"))
+        assertEquals("sluhayknigi", sourceIdForUrl("https://sluhayknigi.com/svitova-literatura/6066-klark-eshton-smit-metamorfoza-zemli.html"))
         // The book's sourceUrl is the PAGE url (never the mp3), but a stray
         // CDN url must still not map to sluhayua or unknown.
-        assertEquals("sluhay", repository.sourceTypeOfUrl("https://sluhay.com/uploads/books/6150/cover.webp"))
+        assertEquals("sluhay", sourceIdForUrl("https://sluhay.com/uploads/books/6150/cover.webp"))
     }
 
     @Test
@@ -94,8 +93,8 @@ class GlobalSearchRepositoryTest {
         // The production default list (no injection) must build and know the
         // sluhayua + sluhay sources; adapter construction is inert (no network).
         val defaultRepo = AudiobookRepository(dao, context, autoSyncOnInit = false)
-        assertEquals("sluhayua", defaultRepo.sourceTypeOfUrl("https://sluhay.com.ua/1965454:olga-kobilyanska-priroda"))
-        assertEquals("sluhay", defaultRepo.sourceTypeOfUrl("https://sluhay.com/svitova-literatura/6150-dzho-aberkrombi-trohi-nenavisti.html"))
+        assertEquals("sluhayua", sourceIdForUrl("https://sluhay.com.ua/1965454:olga-kobilyanska-priroda"))
+        assertEquals("sluhay", sourceIdForUrl("https://sluhay.com/svitova-literatura/6150-dzho-aberkrombi-trohi-nenavisti.html"))
         // A WebView source has no server-fetch search — the registry still
         // holds the adapter (import path), but the feed stays empty (no row).
         val feed = defaultRepo.sourceFeeds.value

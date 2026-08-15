@@ -31,6 +31,8 @@ import com.example.data.db.PlaybackEventFilter
 import com.example.data.db.PlaybackEventKind
 import com.example.data.db.PlaybackEventPolicy
 import com.example.data.repository.AudiobookRepository
+import com.example.data.source.headersFor
+import com.example.data.source.sourceIdForUrl
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -432,7 +434,7 @@ class AudioPlayerManager(
         // Spec-16 T2: loading the same book from a different source is a source
         // switch — recorded as a discrete transition (audit trail for undo and
         // sync; cross-source undo semantics land with the persistent undo, T3).
-        val newBookKey = book.id to repository.sourceKeyFor(book)
+        val newBookKey = book.id to sourceIdForUrl(book.sourceUrl)
         val switchingSource = lastLoadedBookKey?.let { it.first == book.id && it.second != newBookKey.second } == true
         lastLoadedBookKey = newBookKey
         _playerState.value = _playerState.value.copy(
@@ -579,7 +581,7 @@ class AudioPlayerManager(
             // covers every request of this chapter; the next chapter re-sets
             // them (empty for sources that serve plain GETs).
             val headers = _playerState.value.currentBook
-                ?.let { repository.streamHeadersFor(it, chapter.streamUrl) }
+                ?.let { headersFor(sourceIdForUrl(it.sourceUrl), chapter.streamUrl) }
                 ?: emptyMap()
             httpDataSourceFactory.setDefaultRequestProperties(headers)
             lastAppliedStreamHeaders = headers
@@ -1230,7 +1232,7 @@ class AudioPlayerManager(
         scope.launch(Dispatchers.IO) {
             // Spec-10 T2: positions are keyed per source (ADR-0001), so the
             // player writes to the current book's source key.
-            repository.updateProgress(book.id, currentChapter, posSec, sourceKey = repository.sourceKeyFor(book))
+            repository.updateProgress(book.id, currentChapter, posSec, sourceKey = sourceIdForUrl(book.sourceUrl))
             repository.recordListeningTime(5L)
         }
     }
@@ -1250,7 +1252,7 @@ class AudioPlayerManager(
     ) {
         val book = _playerState.value.currentBook ?: return
         val bookId = book.id
-        val sourceKey = repository.sourceKeyFor(book)
+        val sourceKey = sourceIdForUrl(book.sourceUrl)
         scope.launch(Dispatchers.IO) {
             repository.recordPlaybackEvent(
                 bookId = bookId,

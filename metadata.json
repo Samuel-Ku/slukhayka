@@ -1,6 +1,0 @@
-{
-  "name": "Слухайка",
-  "description": "Сучасний плеєр українських аудіокниг із багатоджерельним каталогом, ONNX-рекомендаціями, офлайн-режимом та розумним таймером сну.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}

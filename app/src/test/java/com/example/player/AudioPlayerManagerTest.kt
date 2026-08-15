@@ -2,6 +2,7 @@ package com.example.player
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import com.example.data.catalog.SourceCatalog
 import com.example.data.db.AudiobookEntity
 import com.example.data.db.ChapterEntity
 import com.example.data.db.PlaybackEventKind
@@ -57,6 +58,16 @@ class AudioPlayerManagerTest {
     private val book: AudiobookEntity = TestDataFactory.dataBooks()[STREAMING_BOOK_INDEX]
     private val chapters: List<ChapterEntity> = TestDataFactory.chaptersFor(book)
 
+    // ADR-0007: the player resolves chapter → track 1:1 by index — the
+    // physical stream URLs live on the Source tracks, not the chapter rows.
+    private val playable: List<SourceCatalog.PlayableChapter> =
+        chapters.mapIndexed { index, chapter ->
+            SourceCatalog.PlayableChapter(
+                chapter = chapter,
+                track = TestDataFactory.tracksFor(book, "4read")[index]
+            )
+        }
+
     @Before
     fun setUp() {
         Dispatchers.setMain(dispatcher)
@@ -85,13 +96,13 @@ class AudioPlayerManagerTest {
         val resolvedDurationMs = 90_000L
 
         // Act
-        manager.loadAndPlayBook(book, chapters, initialChapterIndex = 0, autoPlay = false)
+        manager.loadAndPlayBook(book, chapters, playable = playable, initialChapterIndex = 0, autoPlay = false)
         val engine = factory.current
 
         // Assert -- buffering while the engine has not reported READY yet
         assertEquals(1, factory.engines.size)
         assertEquals(1, engine.prepareCount)
-        assertEquals(chapters[0].streamUrl, engine.lastMediaItemUri)
+        assertEquals(playable[0].track!!.url, engine.lastMediaItemUri)
         assertTrue(manager.playerState.value.isBuffering)
 
         // Act -- the stream becomes playable
@@ -102,7 +113,7 @@ class AudioPlayerManagerTest {
         assertFalse(state.isBuffering)
         assertEquals("4read Direct Stream", state.audioEngineMode)
         assertEquals(resolvedDurationMs, state.durationMs)
-        assertEquals(chapters[0].streamUrl, state.currentStreamUrl)
+        assertEquals(playable[0].track!!.url, state.currentStreamUrl)
         assertFalse("autoPlay was false", state.isPlaying)
         assertEquals(0, engine.playCount)
     }
@@ -144,7 +155,7 @@ class AudioPlayerManagerTest {
     @Test
     fun `chapter completion advances to the next chapter`() = playerTest { manager, factory ->
         // Arrange
-        manager.loadAndPlayBook(book, chapters, initialChapterIndex = 0, autoPlay = true)
+        manager.loadAndPlayBook(book, chapters, playable = playable, initialChapterIndex = 0, autoPlay = true)
         val firstEngine = factory.current
         firstEngine.simulateReady(chapters[0].durationSeconds * MILLIS_PER_SECOND)
         assertEquals(0, manager.playerState.value.currentChapterIndex)
@@ -156,11 +167,11 @@ class AudioPlayerManagerTest {
         // (background-playback refactor: one player per manager lifetime).
         val state = manager.playerState.value
         assertEquals(1, state.currentChapterIndex)
-        assertEquals(chapters[1].streamUrl, state.currentStreamUrl)
+        assertEquals(playable[1].track!!.url, state.currentStreamUrl)
         assertEquals(1, factory.engines.size)
         assertFalse("the finished engine must be reused, not released", firstEngine.isReleased)
         assertEquals(2, firstEngine.prepareCount)
-        assertEquals(chapters[1].streamUrl, firstEngine.lastMediaItemUri)
+        assertEquals(playable[1].track!!.url, firstEngine.lastMediaItemUri)
     }
 
     // ---------------------------------------------------------------------
@@ -265,25 +276,29 @@ class AudioPlayerManagerTest {
     @Test
     fun `fully downloaded multi-chapter book prepares EVERY chapter from its local file`() =
         playerTest { manager, factory ->
-            // Arrange — a fully downloaded 3-chapter book: every chapter points
+            // Arrange — a fully downloaded 3-chapter book: every TRACK points
             // at a real file on disk (length > 100 so the local path wins).
-            val localChapters = chapters.mapIndexed { index, chapter ->
-                val file = java.io.File(context.cacheDir, "downloaded-${chapter.id}.mp3")
+            // ADR-0007: download state lives on the tracks, never on chapters.
+            val localTracks = playable.map { p ->
+                val file = java.io.File(context.cacheDir, "downloaded-${p.chapter.id}.mp3")
                 file.writeBytes(ByteArray(1024))
-                chapter.copy(localFilePath = file.absolutePath, isDownloaded = true)
+                p.track!!.copy(localFilePath = file.absolutePath, isDownloaded = true)
             }
             val offlineBook = book.copy(isDownloaded = true, downloadProgress = 1f)
+            val offlinePlayable = chapters.mapIndexed { index, chapter ->
+                SourceCatalog.PlayableChapter(chapter, localTracks[index])
+            }
 
             // Act — play chapter 0, then auto-advance through ALL chapters.
-            manager.loadAndPlayBook(offlineBook, localChapters, initialChapterIndex = 0, autoPlay = false)
+            manager.loadAndPlayBook(offlineBook, chapters, playable = offlinePlayable, initialChapterIndex = 0, autoPlay = false)
             val engine = factory.current
 
-            for (i in localChapters.indices) {
+            for (i in localTracks.indices) {
                 if (i > 0) manager.nextChapter()
-                val expectedUri = android.net.Uri.fromFile(java.io.File(localChapters[i].localFilePath!!)).toString()
+                val expectedUri = android.net.Uri.fromFile(java.io.File(localTracks[i].localFilePath!!)).toString()
                 assertEquals("chapter ${i + 1} must resolve to its local file", expectedUri, engine.lastMediaItemUri)
-                assertNotEquals("chapter ${i + 1} must NOT use the network stream", localChapters[i].streamUrl, engine.lastMediaItemUri)
-                engine.simulateReady(localChapters[i].durationSeconds * MILLIS_PER_SECOND)
+                assertNotEquals("chapter ${i + 1} must NOT use the network stream", localTracks[i].url, engine.lastMediaItemUri)
+                engine.simulateReady(chapters[i].durationSeconds * MILLIS_PER_SECOND)
                 assertEquals("Offline Local File", manager.playerState.value.audioEngineMode)
             }
             assertEquals("one engine reused across all chapters", 1, factory.engines.size)
@@ -292,20 +307,23 @@ class AudioPlayerManagerTest {
     @Test
     fun `partially downloaded book mixes local files and stream fallback per chapter`() =
         playerTest { manager, factory ->
-            // Arrange — chapter 0 downloaded; chapter 1's file was deleted from
-            // disk (localFilePath stale); chapter 2 downloaded.
+            // Arrange — chapter 0's track downloaded; chapter 1's track file was
+            // deleted from disk (localFilePath stale); chapter 2's downloaded.
             val file0 = java.io.File(context.cacheDir, "partial-0.mp3").apply { writeBytes(ByteArray(1024)) }
             val file2 = java.io.File(context.cacheDir, "partial-2.mp3").apply { writeBytes(ByteArray(1024)) }
-            val mixedChapters = chapters.mapIndexed { index, chapter ->
+            val mixedTracks = playable.mapIndexed { index, p ->
                 when (index) {
-                    0 -> chapter.copy(localFilePath = file0.absolutePath, isDownloaded = true)
-                    1 -> chapter.copy(localFilePath = "/nonexistent/missing.mp3", isDownloaded = true) // file gone
-                    else -> chapter.copy(localFilePath = file2.absolutePath, isDownloaded = true)
+                    0 -> p.track!!.copy(localFilePath = file0.absolutePath, isDownloaded = true)
+                    1 -> p.track!!.copy(localFilePath = "/nonexistent/missing.mp3", isDownloaded = true) // file gone
+                    else -> p.track!!.copy(localFilePath = file2.absolutePath, isDownloaded = true)
                 }
             }
             val offlineBook = book.copy(isDownloaded = true, downloadProgress = 1f)
+            val mixedPlayable = chapters.mapIndexed { index, chapter ->
+                SourceCatalog.PlayableChapter(chapter, mixedTracks[index])
+            }
 
-            manager.loadAndPlayBook(offlineBook, mixedChapters, initialChapterIndex = 0, autoPlay = false)
+            manager.loadAndPlayBook(offlineBook, chapters, playable = mixedPlayable, initialChapterIndex = 0, autoPlay = false)
             val engine = factory.current
 
             // Chapter 0 — local file.
@@ -313,20 +331,20 @@ class AudioPlayerManagerTest {
                 android.net.Uri.fromFile(file0).toString(),
                 engine.lastMediaItemUri
             )
-            engine.simulateReady(mixedChapters[0].durationSeconds * MILLIS_PER_SECOND)
+            engine.simulateReady(chapters[0].durationSeconds * MILLIS_PER_SECOND)
             assertEquals("Offline Local File", manager.playerState.value.audioEngineMode)
 
             // Chapter 1 — localFilePath set but the file is GONE: fall back to
             // the network stream rather than preparing a dead file URI.
             manager.nextChapter()
-            assertEquals(mixedChapters[1].streamUrl, engine.lastMediaItemUri)
-            engine.simulateReady(mixedChapters[1].durationSeconds * MILLIS_PER_SECOND)
+            assertEquals(mixedTracks[1].url, engine.lastMediaItemUri)
+            engine.simulateReady(chapters[1].durationSeconds * MILLIS_PER_SECOND)
             assertEquals("4read Direct Stream", manager.playerState.value.audioEngineMode)
 
             // Chapter 2 — local file again.
             manager.nextChapter()
             assertEquals(android.net.Uri.fromFile(file2).toString(), engine.lastMediaItemUri)
-            engine.simulateReady(mixedChapters[2].durationSeconds * MILLIS_PER_SECOND)
+            engine.simulateReady(chapters[2].durationSeconds * MILLIS_PER_SECOND)
             assertEquals("Offline Local File", manager.playerState.value.audioEngineMode)
         }
 
@@ -337,7 +355,7 @@ class AudioPlayerManagerTest {
     @Test
     fun `player error reports the failure instead of fabricating audio`() = playerTest { manager, factory ->
         // Arrange
-        manager.loadAndPlayBook(book, chapters, initialChapterIndex = 0, autoPlay = true)
+        manager.loadAndPlayBook(book, chapters, playable = playable, initialChapterIndex = 0, autoPlay = true)
         val engine = factory.current
 
         // Act
@@ -366,7 +384,7 @@ class AudioPlayerManagerTest {
         awaitLedgerRows(1)
         assertEquals(1, dao.savedFailures.size)
         assertEquals("ERROR_CODE_IO_NETWORK_CONNECTION_FAILED", dao.savedFailures.first().errorCodeName)
-        assertEquals(chapters[0].streamUrl, dao.savedFailures.first().streamUrl)
+        assertEquals(playable[0].track!!.url, dao.savedFailures.first().streamUrl)
         // wayfinder #61 Q1: the Media3 IO code classifies as SOURCE_LOST.
         assertEquals("SOURCE_LOST", dao.savedFailures.first().category)
     }
@@ -570,7 +588,7 @@ class AudioPlayerManagerTest {
     }
 
     @Test
-    fun `loading the same book from another source records a source switch`() {
+    fun `loading the same book from another source keeps one listening identity`() {
         val clock = TestClock()
         playerTest(clock = clock) { manager, _ ->
             manager.loadAndPlayBook(book, chapters, initialChapterIndex = 0, autoPlay = true)
@@ -579,15 +597,22 @@ class AudioPlayerManagerTest {
 
             val soundBooksBook = book.copy(sourceUrl = "https://sound-books.net/books/kobzar.html")
             manager.loadAndPlayBook(soundBooksBook, chapters, initialChapterIndex = 0, autoPlay = true)
-            awaitEvents(3)
+            awaitEvents(2)
 
-            // The switch and its fresh RESUME are separate IO writes — assert
-            // the multiset, not the interleaving of the two coroutines.
+            // ADR-0007: switching the source is NOT a listening-state
+            // transition — progress is keyed by the Edition, so the second
+            // load is just another RESUME, and every new row writes
+            // sourceKey = "" (the column is history).
             val kinds = dao.savedPlaybackEvents.map { it.kind }
-            assertEquals(3, kinds.size)
-            assertEquals(2, kinds.count { it == PlaybackEventKind.RESUME })
-            assertEquals(1, kinds.count { it == PlaybackEventKind.SOURCE_SWITCH })
-            assertEquals("soundbooks", dao.savedPlaybackEvents.first { it.kind == PlaybackEventKind.SOURCE_SWITCH }.sourceKey)
+            assertEquals(listOf(PlaybackEventKind.RESUME, PlaybackEventKind.RESUME), kinds)
+            assertTrue(
+                "no SOURCE_SWITCH may be recorded",
+                dao.savedPlaybackEvents.none { it.kind == PlaybackEventKind.SOURCE_SWITCH }
+            )
+            assertTrue(
+                "new event rows write sourceKey = \"\"",
+                dao.savedPlaybackEvents.all { it.sourceKey.isEmpty() }
+            )
         }
     }
 
@@ -720,7 +745,7 @@ class AudioPlayerManagerTest {
         playerTest(clock = clock) { manager, factory ->
             val totalSeconds = chapters.sumOf { it.durationSeconds }
             manager.loadAndPlayBook(
-                book, chapters,
+                book, chapters, playable = playable,
                 initialChapterIndex = chapters.lastIndex,
                 initialPositionSeconds = totalSeconds,
                 autoPlay = true
@@ -736,7 +761,7 @@ class AudioPlayerManagerTest {
             )
             assertEquals(0, manager.playerState.value.currentChapterIndex)
             assertEquals(0L, manager.playerState.value.currentPositionMs)
-            assertEquals(chapters[0].streamUrl, factory.current.lastMediaItemUri)
+            assertEquals(playable[0].track!!.url, factory.current.lastMediaItemUri)
         }
     }
 
@@ -812,7 +837,11 @@ class AudioPlayerManagerTest {
     ) = runTest(dispatcher) {
         val factory = RecordingPlayerFactory()
         val manager = AudioPlayerManager(
-            context, listeningState, { dao.getChaptersListForBook(it) }, factory,
+            context, listeningState,
+            // ADR-0007: the fetcher yields chapter→track pairs; the explicit
+            // playable list below carries the real tracks for URI assertions.
+            { dao.getChaptersListForBook(it).map { ch -> SourceCatalog.PlayableChapter(ch, null) } },
+            factory,
             now = { clock?.ms ?: System.currentTimeMillis() },
             // Spec-16 T3 flake (#101): the undo-candidate restore runs on the
             // test scheduler, so runCurrent() observes it instead of a

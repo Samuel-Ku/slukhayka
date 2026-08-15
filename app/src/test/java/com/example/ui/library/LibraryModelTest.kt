@@ -47,8 +47,7 @@ class LibraryModelTest {
         bookId = bookId,
         chapterIndex = index,
         title = "Глава ${index + 1}",
-        durationSeconds = duration,
-        streamUrl = "https://fixtures.invalid/$bookId/$index"
+        durationSeconds = duration
     )
 
     private fun progress(
@@ -58,6 +57,8 @@ class LibraryModelTest {
         lastListenedAt: Long = 0L,
         isCompleted: Boolean = false
     ) = PlaybackProgressEntity(
+        // ADR-0007: progress is Edition-keyed — one row per rendition.
+        editionId = "ed-$bookId",
         bookId = bookId,
         currentChapterIndex = chapterIndex,
         currentPositionSeconds = position,
@@ -345,20 +346,20 @@ class LibraryModelTest {
         assertEquals("4 год", formatRemainingTime(4 * 3600L))
     }
 
-    // --- spec-10 T2: per-source progress rows dedup to one card -------------
+    // --- ADR-0007: multiple progress rows (one per Edition) dedup to one card
 
     @Test
-    fun `per-source progress rows collapse into one card with the latest`() {
+    fun `per-edition progress rows collapse into one card with the latest`() {
         val b = book("b", "Бета")
         val progress = listOf(
-            progress("b", chapterIndex = 0, position = 10L, lastListenedAt = 100L).copy(sourceKey = "soundbooks"),
-            progress("b", chapterIndex = 0, position = 400L, lastListenedAt = 300L).copy(sourceKey = "audiobookmp3")
+            progress("b", chapterIndex = 0, position = 10L, lastListenedAt = 100L).copy(editionId = "ed-soundbooks"),
+            progress("b", chapterIndex = 0, position = 400L, lastListenedAt = 300L).copy(editionId = "ed-audiobookmp3")
         )
 
         val cards = buildLibraryBooks(listOf(b), progress, emptyMap())
 
         assertEquals(1, cards.size)
-        // The card reflects the latest-listened source row.
+        // The card reflects the latest-listened rendition row.
         assertEquals(400L, cards.single().progress?.currentPositionSeconds)
         assertEquals(300L, cards.single().lastListenedAt)
     }

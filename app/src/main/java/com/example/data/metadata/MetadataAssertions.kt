@@ -1,17 +1,25 @@
 package com.example.data.metadata
 
 import com.example.data.db.ChapterEntity
+import com.example.data.db.SourceTrackEntity
 import com.example.data.source.SourceChapter
 
 /**
  * ADR-0004 — the ONE place Metadata Assertions from sources are applied to
  * library rows. Pure (no DAO, no I/O): claim normalization, the field
- * precedence delta against an existing row, and chapter materialization. The
- * four persistent application sites — explicit import, catalog upsert,
+ * precedence delta against an existing row, and materialization. The
+ * persistent application sites — explicit import, catalog upsert,
  * on-demand chapter fetch, detail refresh — are thin callers of these rules;
  * none re-derives blank / never-clobber / series / cover behaviour. Per-door
  * insert defaults (id schemes, placeholder author/narrator, description
  * templates) stay at the doors.
+ *
+ * ADR-0007 — Editions own Chapters, Sources own tracks: this module
+ * materializes BOTH lists. The logical chapter list belongs to the Edition
+ * (first Source only); the physical tracks belong to each Source. Input is
+ * re-keyed from bookId to editionId/sourceId. Chapter → track is 1:1 by
+ * index today (documented in ADR-0007); per-source chapter topology is
+ * future work.
  *
  * Domain terms (CONTEXT.md): a **Metadata Assertion** is a provenance-bearing
  * claim supplied by a source page; this module is the future landing spot for
@@ -101,32 +109,65 @@ object MetadataAssertions {
         claimed?.trim()?.takeIf { it.isNotEmpty() }
 
     // ---------------------------------------------------------------------
-    // Chapter materialization
+    // Materialization (ADR-0007: Edition chapters + Source tracks)
     // ---------------------------------------------------------------------
+
+    /** Both materialized lists of one source import. */
+    data class MaterializedChapters(
+        val chapters: List<ChapterEntity>,
+        val tracks: List<SourceTrackEntity>
+    )
 
     /**
      * ONE chapter id format (the dash format `<bookId>_ch_<n>`) and ONE title
      * fallback for ALL new books — existing rows stay unmigrated. Duration
      * convention: the claim's real duration survives normalization, anything
      * unknown (blank / 0 / legacy sentinel) becomes 0 (unknown until played).
+     *
+     * The logical chapter list belongs to the Edition ([editionId], first
+     * Source only); the physical tracks belong to the importing [sourceId].
      */
-    fun materializeChapters(
+    fun materializeChaptersAndTracks(
+        editionId: String,
+        sourceId: String,
         bookId: String,
         bookTitle: String,
         chapters: List<SourceChapter>
-    ): List<ChapterEntity> = chapters.mapIndexed { index, chapter ->
-        ChapterEntity(
-            id = chapterId(bookId, index),
-            bookId = bookId,
-            chapterIndex = index,
-            title = chapterTitle(chapter.title, index, bookTitle),
-            durationSeconds = normalizeDurationSeconds(chapter.durationSeconds) ?: 0L,
-            streamUrl = chapter.streamUrl
-        )
+    ): MaterializedChapters {
+        val chapterList = chapters.mapIndexed { index, chapter ->
+            ChapterEntity(
+                id = chapterId(bookId, index),
+                bookId = bookId,
+                editionId = editionId,
+                chapterIndex = index,
+                title = chapterTitle(chapter.title, index, bookTitle),
+                durationSeconds = normalizeDurationSeconds(chapter.durationSeconds) ?: 0L
+            )
+        }
+        return MaterializedChapters(chapters = chapterList, tracks = materializeTracks(sourceId, chapters))
     }
+
+    /**
+     * The physical tracks of ONE Source (ADR-0007): one row per chapter of
+     * the source that imported it, paired 1:1 by index with the Edition's
+     * logical chapter list. A track carries the concrete URL only — download
+     * state and local copies land on the track rows later.
+     */
+    fun materializeTracks(sourceId: String, chapters: List<SourceChapter>): List<SourceTrackEntity> =
+        chapters.mapIndexed { index, chapter ->
+            SourceTrackEntity(
+                id = trackId(sourceId, index),
+                sourceId = sourceId,
+                trackIndex = index,
+                url = chapter.streamUrl
+            )
+        }
 
     /** The dash id format — the single format for all new books. */
     fun chapterId(bookId: String, index: Int): String = "${bookId}_ch_${index + 1}"
+
+    /** The track id format — the source-scoped analogue of the chapter id. */
+    fun trackId(sourceId: String, index: Int): String = "${sourceId}_tr_${index + 1}"
 
     /** The single title fallback for all new books. */
     fun chapterTitle(claimed: String, index: Int, bookTitle: String): String =

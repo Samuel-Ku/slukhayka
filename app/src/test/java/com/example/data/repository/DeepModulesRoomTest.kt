@@ -131,12 +131,27 @@ class DeepModulesRoomTest {
         val book = TestDataFactory.dataBooks()[0]
         val localFile = File(context.filesDir, "cascade-${book.id}.mp3")
         localFile.writeBytes(ByteArray(64))
+        // ADR-0007: the physical copy lives on a Source TRACK, not the chapter.
+        val editionId = com.example.data.EditionId.forBook(book.mergeKey, book.id)
+        val localSourceId = "local-$editionId"
 
-        val chapters = TestDataFactory.chaptersFor(book).mapIndexed { index, ch ->
-            if (index == 0) ch.copy(localFilePath = localFile.absolutePath, isDownloaded = true) else ch
-        }
         dao.insertAudiobooks(listOf(book))
-        dao.insertChapters(chapters)
+        dao.insertChapters(TestDataFactory.chaptersFor(book))
+        dao.insertSources(
+            listOf(
+                com.example.data.db.SourceEntity(
+                    id = localSourceId, bookId = book.id, editionId = editionId, type = "local", url = ""
+                )
+            )
+        )
+        dao.insertTracks(
+            listOf(
+                com.example.data.db.SourceTrackEntity(
+                    id = "$localSourceId-tr-1", sourceId = localSourceId, trackIndex = 0,
+                    url = localFile.absolutePath, localFilePath = localFile.absolutePath, isDownloaded = true
+                )
+            )
+        )
         dao.insertBookmark(
             BookmarkEntity(
                 bookId = book.id,
@@ -149,6 +164,7 @@ class DeepModulesRoomTest {
         )
         dao.savePlaybackProgress(
             PlaybackProgressEntity(
+                editionId = editionId,
                 bookId = book.id,
                 currentChapterIndex = 0,
                 currentPositionSeconds = 10L,
@@ -162,6 +178,7 @@ class DeepModulesRoomTest {
         assertTrue(dao.getChaptersListForBook(book.id).isEmpty())
         assertTrue(dao.getBookmarksForBook(book.id).first().isEmpty())
         assertNull(dao.getPlaybackProgressSync(book.id))
+        assertTrue(dao.getTracksForBookSync(book.id).isEmpty())
         assertFalse("local file must be deleted", localFile.exists())
     }
 
@@ -775,6 +792,233 @@ class DeepModulesRoomTest {
     }
 
     // ---------------------------------------------------------------------
+    // ADR-0007: schema migration 13 -> 14 (Editions own Chapters, Sources
+    // own tracks). The spec-23 `editions` table becomes `work_sources` (its
+    // row is one SOURCE carrying a Work, not a rendition); a new domain
+    // `editions` table gets one row per book; chapters drop the physical
+    // playback columns (they move to `source_tracks`); sources re-parent to
+    // editionId with recomputed ids; progress re-keys to editionId (per book
+    // the latest row wins, the sourceKey shadows drop); bookmarks gain
+    // editionId. The bookId columns are kept during this expand step.
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `migration 13 to 14 re-parents the domain and preserves library data`() {
+        val factory = FrameworkSQLiteOpenHelperFactory()
+        val config = SupportSQLiteOpenHelper.Configuration.builder(context)
+            .name("migration-13-test.db")
+            .callback(object : SupportSQLiteOpenHelper.Callback(13) {
+                override fun onCreate(db: SupportSQLiteDatabase) {
+                    // Minimal v13 schema: a book with a chapter (carrying the
+                    // physical playback columns), a source, two progress rows
+                    // (one per sourceKey — the shadow pair), a bookmark, a
+                    // work and its spec-23 `editions` row.
+                    db.execSQL(
+                        "CREATE TABLE audiobooks (id TEXT NOT NULL PRIMARY KEY, title TEXT NOT NULL, " +
+                            "author TEXT NOT NULL, narrator TEXT NOT NULL, description TEXT NOT NULL, " +
+                            "coverDrawableRes INTEGER NOT NULL, coverImageUrl TEXT, genre TEXT NOT NULL, " +
+                            "sourceUrl TEXT NOT NULL, isDownloaded INTEGER NOT NULL DEFAULT 0, " +
+                            "downloadProgress REAL NOT NULL DEFAULT 0, totalDurationSeconds INTEGER NOT NULL DEFAULT 0, " +
+                            "totalChapters INTEGER NOT NULL DEFAULT 0, rating REAL NOT NULL DEFAULT 4.9, " +
+                            "isFavorite INTEGER NOT NULL DEFAULT 0, seriesTitle TEXT, seriesUrl TEXT, seriesIndex INTEGER, " +
+                            "preferredSpeed REAL, createdAt INTEGER NOT NULL DEFAULT 0, sourceTreeUri TEXT, " +
+                            "mergeKey TEXT NOT NULL DEFAULT '', workId TEXT)"
+                    )
+                    db.execSQL(
+                        "INSERT INTO audiobooks (id, title, author, narrator, description, coverDrawableRes, genre, " +
+                            "sourceUrl, totalDurationSeconds, totalChapters, mergeKey, workId, isDownloaded) VALUES " +
+                            "('b1', 'Кобзар', 'Автор', 'Читець', '', 0, '', '', 3600, 3, 'кобзар|автор|читець', 'кобзар|автор|читець', 1), " +
+                            "('b2', 'Локальна книга', 'Локальний файл', '', '', 0, '', '', 0, 0, '', '', 1)"
+                    )
+                    db.execSQL(
+                        "CREATE TABLE chapters (id TEXT NOT NULL PRIMARY KEY, bookId TEXT NOT NULL, " +
+                            "chapterIndex INTEGER NOT NULL, title TEXT NOT NULL, durationSeconds INTEGER NOT NULL, " +
+                            "streamUrl TEXT NOT NULL, localFilePath TEXT, isDownloaded INTEGER NOT NULL DEFAULT 0, " +
+                            "contentHash TEXT, editionId TEXT)"
+                    )
+                    db.execSQL(
+                        "INSERT INTO chapters (id, bookId, chapterIndex, title, durationSeconds, streamUrl, " +
+                            "localFilePath, isDownloaded, contentHash, editionId) VALUES " +
+                            "('c1', 'b1', 0, 'Розділ 1', 1200, 'http://x/1.mp3', '/local/1.mp3', 1, 'aaa', 'b1')"
+                    )
+                    // Untouched tables (v13): the migration must preserve their
+                    // rows exactly — a tombstone and one playback event.
+                    db.execSQL(
+                        "CREATE TABLE tombstones (bookId TEXT NOT NULL PRIMARY KEY, deletedAt INTEGER NOT NULL)"
+                    )
+                    db.execSQL("INSERT INTO tombstones (bookId, deletedAt) VALUES ('b2', 1700000000000)")
+                    db.execSQL(
+                        "CREATE TABLE playback_events (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                            "bookId TEXT NOT NULL, sourceKey TEXT NOT NULL DEFAULT '', kind TEXT NOT NULL, " +
+                            "chapterIndex INTEGER NOT NULL DEFAULT 0, positionSeconds INTEGER NOT NULL DEFAULT 0, " +
+                            "fromPositionSeconds INTEGER, timestamp INTEGER NOT NULL, deviceId TEXT NOT NULL DEFAULT '')"
+                    )
+                    db.execSQL(
+                        "INSERT INTO playback_events (bookId, sourceKey, kind, chapterIndex, positionSeconds, timestamp) " +
+                            "VALUES ('b1', '', 'RESUME', 0, 0, 1000)"
+                    )
+                    db.execSQL(
+                        "CREATE TABLE sources (id TEXT NOT NULL PRIMARY KEY, bookId TEXT NOT NULL, " +
+                            "type TEXT NOT NULL, url TEXT NOT NULL, streamOnly INTEGER NOT NULL DEFAULT 0, " +
+                            "addedAt INTEGER NOT NULL DEFAULT 0, lastScanFingerprint TEXT)"
+                    )
+                    db.execSQL("CREATE INDEX IF NOT EXISTS index_sources_bookId ON sources(bookId)")
+                    db.execSQL(
+                        "INSERT INTO sources (id, bookId, type, url, addedAt) VALUES " +
+                            "('4read-b1', 'b1', '4read', 'http://4read.org/kobzar', 1700000000000)"
+                    )
+                    db.execSQL(
+                        "CREATE TABLE playback_progress (bookId TEXT NOT NULL, sourceKey TEXT NOT NULL, " +
+                            "currentChapterIndex INTEGER NOT NULL, currentPositionSeconds INTEGER NOT NULL, " +
+                            "lastListenedAt INTEGER NOT NULL, isCompleted INTEGER NOT NULL, " +
+                            "lastPausedAtEpochMs INTEGER, PRIMARY KEY(bookId, sourceKey))"
+                    )
+                    db.execSQL("CREATE INDEX IF NOT EXISTS index_playback_progress_bookId ON playback_progress(bookId)")
+                    db.execSQL(
+                        "INSERT INTO playback_progress (bookId, sourceKey, currentChapterIndex, " +
+                            "currentPositionSeconds, lastListenedAt, isCompleted, lastPausedAtEpochMs) VALUES " +
+                            "('b1', '4read', 0, 100, 1000, 0, 2000), " +
+                            "('b1', 'soundbooks', 1, 200, 3000, 0, NULL)"
+                    )
+                    db.execSQL(
+                        "CREATE TABLE bookmarks (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                            "bookId TEXT NOT NULL, chapterIndex INTEGER NOT NULL, chapterTitle TEXT NOT NULL, " +
+                            "timestampSeconds INTEGER NOT NULL, note TEXT NOT NULL, createdAt INTEGER NOT NULL)"
+                    )
+                    db.execSQL("CREATE INDEX IF NOT EXISTS index_bookmarks_bookId ON bookmarks(bookId)")
+                    db.execSQL(
+                        "INSERT INTO bookmarks (bookId, chapterIndex, chapterTitle, timestampSeconds, note, createdAt) " +
+                            "VALUES ('b1', 1, 'Розділ 2', 120, 'нотатка', 1700000000000)"
+                    )
+                    db.execSQL(
+                        "CREATE TABLE works (id TEXT NOT NULL PRIMARY KEY, mergeKey TEXT NOT NULL, " +
+                            "title TEXT NOT NULL, author TEXT NOT NULL, narrator TEXT NOT NULL DEFAULT '', " +
+                            "seriesTitle TEXT, seriesIndex INTEGER, coverImageUrl TEXT, addedAt INTEGER NOT NULL)"
+                    )
+                    db.execSQL(
+                        "INSERT INTO works (id, mergeKey, title, author, narrator, addedAt) VALUES " +
+                            "('кобзар|автор|читець', 'кобзар|автор|читець', 'Кобзар', 'Автор', 'Читець', 1700000000000)"
+                    )
+                    db.execSQL(
+                        "CREATE TABLE editions (id TEXT NOT NULL PRIMARY KEY, workId TEXT NOT NULL, " +
+                            "sourceId TEXT NOT NULL, sourceUrl TEXT NOT NULL, streamOnly INTEGER NOT NULL DEFAULT 0, " +
+                            "coverImageUrl TEXT, durationSeconds INTEGER, addedAt INTEGER NOT NULL, " +
+                            "FOREIGN KEY(workId) REFERENCES works(id) ON DELETE CASCADE)"
+                    )
+                    db.execSQL(
+                        "INSERT INTO editions (id, workId, sourceId, sourceUrl, streamOnly, addedAt) VALUES " +
+                            "('кобзар|автор|читець|4read|1', 'кобзар|автор|читець', '4read', 'http://4read.org/kobzar', 0, 1700000000000)"
+                    )
+                    db.execSQL("CREATE INDEX IF NOT EXISTS index_editions_workId ON editions(workId)")
+                    db.execSQL("CREATE INDEX IF NOT EXISTS index_editions_sourceId ON editions(sourceId)")
+                }
+
+                override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) {}
+            })
+            .build()
+        val helper = factory.create(config)
+        val db = helper.writableDatabase
+
+        AudiobookDatabase.MIGRATION_13_14.migrate(db)
+
+        val expectedEditionId = com.example.data.EditionId.forBook("кобзар|автор|читець", "b1")
+
+        // The spec-23 catalogue row is renamed to work_sources (one SOURCE
+        // carrying a Work) and its data survives.
+        assertEquals(
+            setOf("id", "workId", "sourceId", "sourceUrl", "streamOnly", "coverImageUrl", "durationSeconds", "addedAt"),
+            tableColumns(db, "work_sources").toSet()
+        )
+        db.query("SELECT sourceId, sourceUrl FROM work_sources").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals("4read", cursor.getString(0))
+            assertEquals("http://4read.org/kobzar", cursor.getString(1))
+        }
+        // The new domain editions table: exactly one deterministic row per
+        // book — INCLUDING the blank-mergeKey local row (id falls back to the
+        // book id in EditionId.forBook).
+        assertEquals(
+            setOf("id", "workId", "language", "narrator", "totalChapters", "totalDurationSeconds"),
+            tableColumns(db, "editions").toSet()
+        )
+        db.query("SELECT COUNT(*) FROM editions").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals(2, cursor.getInt(0))
+        }
+        db.query("SELECT id, workId, narrator, totalChapters, totalDurationSeconds FROM editions WHERE workId = 'b1'").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals(expectedEditionId, cursor.getString(0))
+            assertEquals("b1", cursor.getString(1))
+            assertEquals("Читець", cursor.getString(2))
+            assertEquals(3, cursor.getInt(3))
+            assertEquals(3600L, cursor.getLong(4))
+        }
+        db.query("SELECT id FROM editions WHERE workId = 'b2'").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals(com.example.data.EditionId.forBook("", "b2"), cursor.getString(0))
+        }
+        // Chapters: the physical playback columns moved to source_tracks and
+        // editionId re-points at the domain edition.
+        assertEquals(
+            setOf("id", "bookId", "chapterIndex", "title", "durationSeconds", "editionId"),
+            tableColumns(db, "chapters").toSet()
+        )
+        db.query("SELECT title, editionId FROM chapters WHERE id = 'c1'").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals("Розділ 1", cursor.getString(0))
+            assertEquals(expectedEditionId, cursor.getString(1))
+        }
+        // source_tracks carries the chapter's physical playback data, one row
+        // per (chapter, source of the chapter's book).
+        db.query(
+            "SELECT sourceId, trackIndex, url, localFilePath, contentHash, isDownloaded FROM source_tracks"
+        ).use { cursor ->
+            cursor.moveToFirst()
+            // Tracks reference the RE-parented source id ($type-$editionId).
+            assertEquals("4read-$expectedEditionId", cursor.getString(0))
+            assertEquals(0, cursor.getInt(1))
+            assertEquals("http://x/1.mp3", cursor.getString(2))
+            assertEquals("/local/1.mp3", cursor.getString(3))
+            assertEquals("aaa", cursor.getString(4))
+            assertEquals(1, cursor.getInt(5))
+        }
+        // Sources re-parent to the edition; the id is recomputed as
+        // $type-$editionId (deterministic, so future writes agree).
+        db.query("SELECT id, editionId FROM sources").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals("4read-$expectedEditionId", cursor.getString(0))
+            assertEquals(expectedEditionId, cursor.getString(1))
+        }
+        // Progress re-keys to editionId: per book the LATEST row wins, the
+        // older sourceKey shadow is dropped.
+        db.query("SELECT COUNT(*) FROM playback_progress").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals(1, cursor.getInt(0))
+        }
+        db.query("SELECT editionId, currentChapterIndex, currentPositionSeconds FROM playback_progress").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals(expectedEditionId, cursor.getString(0))
+            assertEquals(1, cursor.getInt(1))
+            assertEquals(200L, cursor.getLong(2))
+        }
+        // Bookmarks anchor to the edition.
+        db.query("SELECT editionId FROM bookmarks").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals(expectedEditionId, cursor.getString(0))
+        }
+        // Untouched tables keep their exact row counts.
+        db.query("SELECT COUNT(*) FROM tombstones").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals(1, cursor.getInt(0))
+        }
+        db.query("SELECT COUNT(*) FROM playback_events").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals(1, cursor.getInt(0))
+        }
+        db.close()
+    }
+
+    // ---------------------------------------------------------------------
     // spec-10 T2: multi-source merge and per-source position
     // ---------------------------------------------------------------------
 
@@ -805,6 +1049,20 @@ class DeepModulesRoomTest {
         val sources = dao.getSourcesForBookSync(first.id)
         assertEquals(2, sources.size)
         assertEquals(setOf("soundbooks", "audiobookmp3"), sources.map { it.type }.toSet())
+        // ADR-0007 — the headline: TWO sources of one Work yield ONE logical
+        // chapter list (the first source's, owned by the Edition) and TWO
+        // track sets (one per source, 1:1 by index).
+        assertNotNull(dao.getEditionForWork(first.id))
+        assertEquals(1, dao.getChaptersListForBook(first.id).size)
+        val tracks = dao.getTracksForBookSync(first.id)
+        assertEquals(2, tracks.size)
+        // Tracks hang off the deterministic re-parented source ids
+        // ($type-$editionId) — one set per source, 1:1 by track index.
+        val expectedSourceIds = sources.map { it.id }.toSet()
+        assertEquals(expectedSourceIds, tracks.map { it.sourceId }.toSet())
+        sources.forEach { s ->
+            assertEquals(listOf(0), tracks.filter { it.sourceId == s.id }.map { it.trackIndex })
+        }
     }
 
     @Test
@@ -827,23 +1085,48 @@ class DeepModulesRoomTest {
     }
 
     @Test
-    fun `playback positions are isolated per source`() = runBlocking {
+    fun `progress survives the source switch - the Edition owns the position`() = runBlocking {
         val mods = modules()
-        val book = TestDataFactory.dataBooks()[0]
-        dao.insertAudiobooks(listOf(book))
+        // The headline fixture: ONE Work, two sources (same narration → same
+        // merge key → merge-on-write attaches the second source).
+        val detail1 = com.example.data.source.SourceBookDetail(
+            title = "Кобзар",
+            author = "Тарас Шевченко",
+            narrator = "Валерій Завалко",
+            url = "https://sound-books.net/kobzar.html",
+            chapters = listOf(
+                com.example.data.source.SourceChapter("1", "https://arch.sound-books.net/k/1.mp3"),
+                com.example.data.source.SourceChapter("2", "https://arch.sound-books.net/k/2.mp3")
+            )
+        )
+        val detail2 = com.example.data.source.SourceBookDetail(
+            title = "КОБЗАР",
+            author = "Тарас Шевченко",
+            narrator = "Валерій Завалко",
+            url = "https://audiobook-mp3.com/kobzar",
+            chapters = listOf(com.example.data.source.SourceChapter("01", "https://cdn.audiobook-mp3.com/k/1.mp3"))
+        )
+        val book = mods.imports.importBookFromSource("soundbooks", detail1)
+        mods.imports.importBookFromSource("audiobookmp3", detail2)
+        assertEquals(2, dao.getSourcesForBookSync(book.id).size)
+        // ADR-0007: progress is keyed by the domain Edition — the source that
+        // plays is NOT part of the listening identity, so switching sources
+        // mid-book keeps the position (no SOURCE_SWITCH, no shadow rows).
+        val editionId = dao.getEditionForWork(book.id)!!.id
 
-        mods.listening.updateProgress(book.id, 0, 100L, sourceKey = "soundbooks")
-        mods.listening.updateProgress(book.id, 1, 200L, sourceKey = "audiobookmp3")
+        // Listen from source A: the position lands on the Edition row.
+        mods.listening.updateProgress(book.id, 1, 200L)
+        val row = dao.getPlaybackProgressSync(book.id)
+        assertEquals(200L, row?.currentPositionSeconds)
+        assertEquals(editionId, row?.editionId)
+        assertEquals(1, dao.getAllPlaybackProgress().first().size)
 
-        // Each source keeps its own position.
-        assertEquals(100L, dao.getPlaybackProgressSync(book.id, "soundbooks")?.currentPositionSeconds)
-        assertEquals(200L, dao.getPlaybackProgressSync(book.id, "audiobookmp3")?.currentPositionSeconds)
-        // The bookId-only read returns the latest row.
-        assertEquals(200L, dao.getPlaybackProgressSync(book.id)?.currentPositionSeconds)
-        // Writing one source's position does not touch the other.
-        mods.listening.updateProgress(book.id, 0, 150L, sourceKey = "soundbooks")
-        assertEquals(150L, dao.getPlaybackProgressSync(book.id, "soundbooks")?.currentPositionSeconds)
-        assertEquals(200L, dao.getPlaybackProgressSync(book.id, "audiobookmp3")?.currentPositionSeconds)
+        // Switch to source B and keep listening: the same row updates (REPLACE
+        // by editionId) — never a second row, never a lost position.
+        mods.listening.updateProgress(book.id, 1, 250L)
+        assertEquals(1, dao.getAllPlaybackProgress().first().size)
+        assertEquals(250L, dao.getPlaybackProgressSync(book.id)?.currentPositionSeconds)
+        assertEquals(editionId, dao.getPlaybackProgressSync(book.id)?.editionId)
     }
 
     // ---------------------------------------------------------------------
@@ -910,7 +1193,10 @@ class DeepModulesRoomTest {
 
         // Chapters came from the adapter's playlist expansion, not new repo parsing.
         assertTrue(chapters.isNotEmpty())
-        assertEquals("https://4read.org/uploads/audio/7589/01.mp3", chapters.single().streamUrl)
+        // ADR-0007: the physical stream lives on the primary source's TRACK.
+        val tracks = dao.getSourcesForBookSync(book.id)
+            .flatMap { dao.getTracksForSourceSync(it.id) }
+        assertEquals("https://4read.org/uploads/audio/7589/01.mp3", tracks.single().url)
         // The enriched profile flowed into the row's backing state (COALESCE
         // back-fill replaces the seed placeholders).
         val stored = dao.getAudiobookById(book.id)!!
@@ -944,7 +1230,10 @@ class DeepModulesRoomTest {
         assertEquals("Максим Темний", book.seriesTitle)
         val chapters = dao.getChaptersListForBook(book.id)
         assertEquals(1, chapters.size)
-        assertEquals("https://4read.org/uploads/audio/7589/01.mp3", chapters.single().streamUrl)
+        // ADR-0007: the physical stream lives on the source's TRACK rows.
+        val tracks = dao.getSourcesForBookSync(book.id)
+            .flatMap { dao.getTracksForSourceSync(it.id) }
+        assertEquals("https://4read.org/uploads/audio/7589/01.mp3", tracks.single().url)
         // The shared import path writes the source row too.
         val sources = dao.getSourcesForBookSync(book.id)
         assertEquals(1, sources.size)
@@ -1039,7 +1328,10 @@ class DeepModulesRoomTest {
         assertFalse("sluhay downloads are allowed (robots open)", sources.single().streamOnly)
         val chapters = dao.getChaptersListForBook(book.id)
         assertEquals(1, chapters.size)
-        assertEquals("https://j3wccg4mgjcw.redirectto.cc/s05/2/6/5/4/4/track-0.mp3", chapters.single().streamUrl)
+        // ADR-0007: the physical stream lives on the source's TRACK rows.
+        val tracks = dao.getSourcesForBookSync(book.id)
+            .flatMap { dao.getTracksForSourceSync(it.id) }
+        assertEquals("https://j3wccg4mgjcw.redirectto.cc/s05/2/6/5/4/4/track-0.mp3", tracks.single().url)
     }
 
     @Test
@@ -1111,7 +1403,8 @@ class DeepModulesRoomTest {
         val stored = dao.getAudiobookById(book.id)
         assertFalse(stored!!.isDownloaded)
         assertEquals(0f, stored.downloadProgress)
-        assertTrue(dao.getChaptersListForBook(book.id).none { it.isDownloaded })
+        // ADR-0007: download state lives on the TRACK rows.
+        assertTrue(dao.getTracksForBookSync(book.id).none { it.isDownloaded })
     }
 
     @Test
@@ -1125,11 +1418,13 @@ class DeepModulesRoomTest {
         dao.insertAudiobooks(listOf(book))
         // Non-http stream urls: the loop executes, skips the network hop and
         // reports every chapter as failed — exercising the whole download path
-        // with fakes (in-memory Room), no network.
+        // with fakes (in-memory Room), no network. No source/track rows exist,
+        // so the playable pairs carry null tracks (ADR-0007) and every chapter
+        // stays failed.
         dao.insertChapters(
             listOf(
-                ChapterEntity("${book.id}_ch1", book.id, 0, "Глава 1", 60L, "not-a-url"),
-                ChapterEntity("${book.id}_ch2", book.id, 1, "Глава 2", 60L, "not-a-url")
+                ChapterEntity("${book.id}_ch1", book.id, 0, "Глава 1", 60L),
+                ChapterEntity("${book.id}_ch2", book.id, 1, "Глава 2", 60L)
             )
         )
 
@@ -1138,7 +1433,8 @@ class DeepModulesRoomTest {
         assertEquals(2, result.totalChapters)
         assertEquals(0, result.downloadedChapters)
         assertFalse(dao.getAudiobookById(book.id)!!.isDownloaded)
-        assertTrue(dao.getChaptersListForBook(book.id).none { it.isDownloaded })
+        // ADR-0007: download state lives on the TRACK rows.
+        assertTrue(dao.getTracksForBookSync(book.id).none { it.isDownloaded })
     }
 
     @Test
@@ -1199,9 +1495,14 @@ class DeepModulesRoomTest {
         val book = TestDataFactory.dataBooks()[0]
         dao.insertAudiobooks(listOf(book))
         // Frozen timestamp — the default lastListenedAt is wall clock and
-        // would make this (and any) fixture row non-deterministic.
+        // would make this (and any) fixture row non-deterministic. ADR-0007:
+        // progress is keyed by the Edition.
         dao.savePlaybackProgress(
-            PlaybackProgressEntity(bookId = book.id, lastListenedAt = TestDataFactory.FIXED_CLOCK_MS)
+            PlaybackProgressEntity(
+                editionId = com.example.data.EditionId.forBook(book.mergeKey, book.id),
+                bookId = book.id,
+                lastListenedAt = TestDataFactory.FIXED_CLOCK_MS
+            )
         )
 
         mods.listening.updatePausedAt(book.id, 1_700_000_000_000L)
@@ -1223,13 +1524,32 @@ class DeepModulesRoomTest {
         val localFile = File(context.filesDir, "keep-${book.id}.mp3")
         localFile.writeBytes(ByteArray(64))
 
-        val chapters = TestDataFactory.chaptersFor(book).mapIndexed { index, ch ->
-            if (index == 0) ch.copy(localFilePath = localFile.absolutePath, isDownloaded = true) else ch
-        }
+        // ADR-0007: the physical copy lives on a Source TRACK, not the chapter.
+        val editionId = com.example.data.EditionId.forBook(book.mergeKey, book.id)
+        val localSourceId = "local-$editionId"
         dao.insertAudiobooks(listOf(book))
-        dao.insertChapters(chapters)
+        dao.insertChapters(TestDataFactory.chaptersFor(book))
+        dao.insertSources(
+            listOf(
+                com.example.data.db.SourceEntity(
+                    id = localSourceId, bookId = book.id, editionId = editionId, type = "local", url = ""
+                )
+            )
+        )
+        dao.insertTracks(
+            listOf(
+                com.example.data.db.SourceTrackEntity(
+                    id = "$localSourceId-tr-1", sourceId = localSourceId, trackIndex = 0,
+                    url = localFile.absolutePath, localFilePath = localFile.absolutePath, isDownloaded = true
+                )
+            )
+        )
         dao.savePlaybackProgress(
-            PlaybackProgressEntity(bookId = book.id, lastListenedAt = TestDataFactory.FIXED_CLOCK_MS)
+            PlaybackProgressEntity(
+                editionId = editionId,
+                bookId = book.id,
+                lastListenedAt = TestDataFactory.FIXED_CLOCK_MS
+            )
         )
 
         mods.entries.removeFromLibrary(book.id)
@@ -1348,11 +1668,14 @@ class DeepModulesRoomTest {
 
         val chapters = dao.getChaptersListForBook(book.id)
         assertEquals(1, chapters.size)
-        val chapter = chapters.first()
-        assertEquals(book.id, chapter.bookId)
-        assertEquals(0, chapter.chapterIndex)
-        assertTrue("local file must exist", File(chapter.localFilePath!!).exists())
-        assertEquals(chapter.localFilePath, chapter.streamUrl)
+        assertEquals(book.id, chapters.first().bookId)
+        assertEquals(0, chapters.first().chapterIndex)
+        // ADR-0007: the physical copy lives on the local source's TRACK.
+        val tracks = dao.getTracksForBookSync(book.id)
+        assertEquals(1, tracks.size)
+        val track = tracks.first()
+        assertTrue("local file must exist", File(track.localFilePath!!).exists())
+        assertEquals(track.localFilePath, track.url)
 
         // The imported book shows in the downloaded set.
         val downloaded = dao.getDownloadedAudiobooks().first()
@@ -1385,11 +1708,13 @@ class DeepModulesRoomTest {
         val rootBook = books.first { it.title == "Лісова пісня" }
         val historyBook = books.first { it.title == "Історія" }
 
-        // Folder book: two chapters, all downloaded, pointing at copied files.
-        val folderChapters = dao.getChaptersListForBook(folderBook.id)
-        assertEquals(2, folderChapters.size)
-        assertTrue(folderChapters.all { it.isDownloaded && it.localFilePath != null })
-        assertTrue(folderChapters.all { File(it.localFilePath!!).exists() })
+        // Folder book: two chapters, all downloaded, pointing at copied files
+        // (ADR-0007: the copies live on the TRACK rows).
+        assertEquals(2, dao.getChaptersListForBook(folderBook.id).size)
+        val folderTracks = dao.getTracksForBookSync(folderBook.id)
+        assertEquals(2, folderTracks.size)
+        assertTrue(folderTracks.all { it.isDownloaded && it.localFilePath != null })
+        assertTrue(folderTracks.all { File(it.localFilePath!!).exists() })
 
         // Root book: single chapter, title = file name (T7 behaviour).
         assertEquals(1, dao.getChaptersListForBook(rootBook.id).size)
@@ -1469,7 +1794,8 @@ class DeepModulesRoomTest {
         )
 
         val book = dao.getAllAudiobooks().first().first { it.title == "Книга" }
-        val paths = dao.getChaptersListForBook(book.id).mapNotNull { it.localFilePath }
+        // ADR-0007: the copied files live on the TRACK rows.
+        val paths = dao.getTracksForBookSync(book.id).mapNotNull { it.localFilePath }
         assertTrue(paths.any { it.endsWith(".ogg") })
         assertTrue(paths.any { it.endsWith(".m4a") })
     }
@@ -1601,10 +1927,12 @@ class DeepModulesRoomTest {
         assertEquals(0, report.newBooks)
 
         val book = dao.getAllAudiobooks().first().first { it.title == "Кобзар" }
-        val chapters = dao.getChaptersListForBook(book.id)
-        assertEquals(3, chapters.size)
-        assertTrue(chapters.all { it.isDownloaded && it.localFilePath != null })
-        assertTrue(chapters.all { File(it.localFilePath!!).exists() })
+        assertEquals(3, dao.getChaptersListForBook(book.id).size)
+        // ADR-0007: the rebuilt local copies live on the TRACK rows.
+        val tracks = dao.getTracksForBookSync(book.id)
+        assertEquals(3, tracks.size)
+        assertTrue(tracks.all { it.isDownloaded && it.localFilePath != null })
+        assertTrue(tracks.all { File(it.localFilePath!!).exists() })
     }
 
     @Test
@@ -1763,8 +2091,9 @@ class DeepModulesRoomTest {
         )
 
         val book = dao.getAllAudiobooks().first().first()
-        val chapter = dao.getChaptersListForBook(book.id).first()
-        assertEquals(contentHashOf(ByteArrayInputStream(bytes)), chapter.contentHash)
+        // ADR-0007: the content hash lives on the TRACK row.
+        val track = dao.getTracksForBookSync(book.id).first()
+        assertEquals(contentHashOf(ByteArrayInputStream(bytes)), track.contentHash)
     }
 
     @Test
@@ -1796,13 +2125,25 @@ class DeepModulesRoomTest {
             File(context.filesDir, "purge-1.mp3").apply { writeBytes(ByteArray(64)) },
             File(context.filesDir, "purge-2.mp3").apply { writeBytes(ByteArray(64)) }
         )
+        val editionId = com.example.data.EditionId.forBook(book.mergeKey, book.id)
+        val sourceId = "4read-$editionId"
         dao.insertAudiobooks(listOf(book.copy(isDownloaded = true, downloadProgress = 1f)))
-        dao.insertChapters(
+        dao.insertChapters(TestDataFactory.chaptersFor(book))
+        dao.insertSources(
+            listOf(
+                com.example.data.db.SourceEntity(
+                    id = sourceId, bookId = book.id, editionId = editionId, type = "4read", url = book.sourceUrl
+                )
+            )
+        )
+        // ADR-0007: download state lives on the TRACK rows.
+        dao.insertTracks(
             TestDataFactory.chaptersFor(book).mapIndexed { index, ch ->
-                ch.copy(
-                    isDownloaded = true,
+                com.example.data.db.SourceTrackEntity(
+                    id = "$sourceId-tr-${index + 1}", sourceId = sourceId, trackIndex = index,
+                    url = files[index % files.size].absolutePath,
                     localFilePath = files[index % files.size].absolutePath,
-                    streamUrl = files[index % files.size].absolutePath
+                    isDownloaded = true
                 )
             }
         )
@@ -1812,7 +2153,7 @@ class DeepModulesRoomTest {
         assertTrue("copies must be gone", files.all { !it.exists() })
         assertFalse("book must no longer be downloaded", dao.getAudiobookById(book.id)!!.isDownloaded)
         assertEquals(0f, dao.getAudiobookById(book.id)!!.downloadProgress)
-        assertTrue(dao.getChaptersListForBook(book.id).all { !it.isDownloaded && it.localFilePath == null })
+        assertTrue(dao.getTracksForBookSync(book.id).all { !it.isDownloaded && it.localFilePath == null })
         assertNotNull("the book itself must survive", dao.getAudiobookById(book.id))
     }
 
@@ -1866,6 +2207,51 @@ class DeepModulesRoomTest {
         mods.entries.removeFromLibrary(book.id)
 
         assertTrue("removed book id must be tombstoned", dao.getTombstoneBookIds().contains(book.id))
+    }
+
+    @Test
+    fun `deleting a two-source Work blocks catalog re-listing from every source`() = runBlocking {
+        val mods = modules()
+        // One Work carried by two sources (merge-on-write, ADR-0007).
+        val detail1 = com.example.data.source.SourceBookDetail(
+            title = "Кобзар",
+            author = "Тарас Шевченко",
+            narrator = "Валерій Завалко",
+            url = "https://sound-books.net/kobzar.html",
+            chapters = listOf(com.example.data.source.SourceChapter("1", "https://arch.sound-books.net/k/1.mp3"))
+        )
+        val detail2 = com.example.data.source.SourceBookDetail(
+            title = "КОБЗАР",
+            author = "Тарас Шевченко",
+            narrator = "Валерій Завалко",
+            url = "https://audiobook-mp3.com/kobzar",
+            chapters = listOf(com.example.data.source.SourceChapter("01", "https://cdn.audiobook-mp3.com/k/1.mp3"))
+        )
+        val book = mods.imports.importBookFromSource("soundbooks", detail1)
+        mods.imports.importBookFromSource("audiobookmp3", detail2)
+        assertEquals(2, dao.getSourcesForBookSync(book.id).size)
+
+        // Delete the Work: tombstone written, every row of every source gone.
+        mods.entries.deleteBook(book.id)
+        assertTrue(dao.getTombstoneBookIds().contains(book.id))
+        assertTrue(dao.getSourcesForBookSync(book.id).isEmpty())
+        assertTrue(dao.getTracksForBookSync(book.id).isEmpty())
+        assertTrue(dao.getChaptersListForBook(book.id).isEmpty())
+
+        // ADR-0005: a catalog re-listing of the same poster is a no-op — the
+        // Work cannot be resurrected from either source's catalogue row.
+        assertNull(
+            mods.catalog.upsertCatalogBook(
+                CatalogBook(
+                    id = book.id,
+                    title = detail1.title,
+                    author = detail1.author,
+                    url = detail1.url,
+                    coverImageUrl = null
+                )
+            )
+        )
+        assertNull(dao.getAudiobookById(book.id))
     }
 
     @Test

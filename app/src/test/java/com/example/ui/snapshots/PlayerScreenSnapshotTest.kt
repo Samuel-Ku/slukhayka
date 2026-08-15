@@ -55,8 +55,7 @@ class PlayerScreenSnapshotTest {
             bookId = book.id,
             chapterIndex = index,
             title = "Розділ ${index + 1}. Зустріч у Чіба-сіті",
-            durationSeconds = duration,
-            streamUrl = "https://example.invalid/chapter-$index.mp3"
+            durationSeconds = duration
         )
     }
     private val bookmark = BookmarkEntity(

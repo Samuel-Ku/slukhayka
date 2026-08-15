@@ -196,6 +196,10 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
 
                     selectedBookId != null -> BookDetailScreen(
                         viewModel = viewModel,
+                        // ADR-0008 batch 4 (#159): the modules come in as
+                        // parameters from the composition root.
+                        listeningState = viewModel.listeningState,
+                        offlineDownloads = viewModel.offlineDownloads,
                         onBackClick = { viewModel.selectBook(null) }
                     )
 
@@ -203,6 +207,10 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                         // Spec-9: first tab is the listening panel, not the storefront.
                         SelectedTab.LISTEN -> ListenScreen(
                             viewModel = viewModel,
+                            // ADR-0008 batch 3 (#158): the modules come in as
+                            // parameters from the composition root.
+                            libraryEntries = viewModel.libraryEntries,
+                            sourceCatalog = viewModel.sourceCatalog,
                             onBookClick = { id -> viewModel.selectBook(id) },
                             onPlayClick = { book ->
                                 viewModel.playAudiobook(book)
@@ -227,8 +235,13 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                                 null
                             }
                         )
-                        SelectedTab.EXPLORE -> HomeScreen(
+                        SelectedTab.EXPLORE ->                        HomeScreen(
                             viewModel = viewModel,
+                            // ADR-0008 batches 2 + contract (#156, #160): the
+                            // modules come in as parameters from the
+                            // composition root.
+                            libraryEntries = viewModel.libraryEntries,
+                            sourceCatalog = viewModel.sourceCatalog,
                             onBookClick = { id -> viewModel.selectBook(id) },
                             onPlayClick = { book ->
                                 viewModel.playAudiobook(book)
@@ -237,6 +250,12 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                         )
                         SelectedTab.LIBRARY -> LibraryScreen(
                             viewModel = viewModel,
+                            // ADR-0008 batch 1 (#154): the screen receives the
+                            // modules it reads from as parameters, wired here
+                            // from the single adapter (the ViewModel's public
+                            // module fields — the playerManager precedent).
+                            libraryEntries = viewModel.libraryEntries,
+                            listeningState = viewModel.listeningState,
                             onBookClick = { id -> viewModel.selectBook(id) },
                             onPlayClick = { book ->
                                 viewModel.playAudiobook(book)
@@ -244,8 +263,13 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                             },
                             onBrowseClick = { viewModel.selectTab(SelectedTab.EXPLORE) }
                         )
-                        else -> HomeScreen(
+                        else ->                        HomeScreen(
                             viewModel = viewModel,
+                            // ADR-0008 batches 2 + contract (#156, #160): the
+                            // modules come in as parameters from the
+                            // composition root.
+                            libraryEntries = viewModel.libraryEntries,
+                            sourceCatalog = viewModel.sourceCatalog,
                             onBookClick = { id -> viewModel.selectBook(id) },
                             onPlayClick = { book ->
                                 viewModel.playAudiobook(book)
@@ -265,6 +289,9 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     ) {
         PlayerScreen(
             viewModel = viewModel,
+            // ADR-0008 batch 4 (#159): the module comes in as a parameter from
+            // the composition root.
+            libraryEntries = viewModel.libraryEntries,
             onDismiss = { viewModel.setShowFullPlayer(false) }
         )
     }

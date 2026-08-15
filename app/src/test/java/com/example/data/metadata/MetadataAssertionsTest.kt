@@ -115,7 +115,11 @@ class MetadataAssertionsTest {
 
     @Test
     fun `chapter materialization uses the dash id format, one title fallback and duration conventions`() {
-        val chapters = MetadataAssertions.materializeChapters(
+        // ADR-0007: the module materializes BOTH lists — the Edition's
+        // logical chapters and the importing Source's physical tracks.
+        val materialized = MetadataAssertions.materializeChaptersAndTracks(
+            editionId = "ed-b1",
+            sourceId = "4read",
             bookId = "b1",
             bookTitle = "Пасажир",
             chapters = listOf(
@@ -124,6 +128,8 @@ class MetadataAssertionsTest {
                 SourceChapter("  ", "https://s/3.mp3", durationSeconds = 0L)
             )
         )
+        val chapters = materialized.chapters
+        val tracks = materialized.tracks
 
         // The dash id format — the single format for all new books.
         assertEquals(listOf("b1_ch_1", "b1_ch_2", "b1_ch_3"), chapters.map { it.id })
@@ -133,8 +139,10 @@ class MetadataAssertionsTest {
         assertEquals("Глава 3 (Пасажир)", chapters[2].title)
         // Duration convention: real claim survives, sentinel/zero become 0.
         assertEquals(listOf(600L, 0L, 0L), chapters.map { it.durationSeconds })
-        // Indexes and stream urls intact.
+        // Indexes intact; the physical stream URLs live on the TRACK rows.
         assertEquals(listOf(0, 1, 2), chapters.map { it.chapterIndex })
-        assertEquals("https://s/3.mp3", chapters[2].streamUrl)
+        assertEquals(listOf(0, 1, 2), tracks.map { it.trackIndex })
+        assertEquals("https://s/3.mp3", tracks[2].url)
+        assertEquals(setOf("4read"), tracks.map { it.sourceId }.toSet())
     }
 }

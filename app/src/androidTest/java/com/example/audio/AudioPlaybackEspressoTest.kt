@@ -61,8 +61,9 @@ import java.io.File
  *    (a) couple the test to network reachability, (b) fail the
  *    `assert playerState.isPlaying == true within 3 s` assertion once the
  *    archive.org fetch stalls. The fixture row shipped here sidesteps both.
- *  - We copy the asset MP3 into the test app's `filesDir` and set
- *    `ChapterEntity.localFilePath` to that file. `AudioPlayerManager` then
+ *  - We copy the asset MP3 into the test app's `filesDir` and point the
+ *    seeded Source TRACK's `localFilePath` at that file (ADR-0007: the
+ *    physical playback data lives on the tracks). `AudioPlayerManager` then
  *    picks the local-file branch in `prepareChapter` and never makes a
  *    network call.
  *
@@ -153,22 +154,51 @@ class AudioPlaybackEspressoTest {
                 rating = 5.0f,
                 isFavorite = true
             )
+            // ADR-0007: one domain Edition owns the logical chapter list; the
+            // 4read Source gets its physical tracks (1:1 by index). The local
+            // copy and download flag live on the TRACK row, never the chapter.
+            val editionId = com.example.data.EditionId.forBook("", fixtureBookId)
             val chapter = ChapterEntity(
                 id = fixtureChapterId,
                 bookId = fixtureBookId,
+                editionId = editionId,
                 chapterIndex = 0,
                 title = "Глава 01: Silent Fixture",
-                durationSeconds = 1L,
-                // Keeping `streamUrl` to a fixed, deterministic value so that
-                // a future regression where `localFilePath` is dropped falls
+                durationSeconds = 1L
+            )
+            val source = com.example.data.db.SourceEntity(
+                id = "4read-$editionId",
+                bookId = fixtureBookId,
+                editionId = editionId,
+                type = "4read",
+                url = "https://fixtures.4read.invalid/$fixtureBookId.html",
+                streamOnly = false
+            )
+            val track = com.example.data.db.SourceTrackEntity(
+                id = "4read-$editionId-tr-1",
+                sourceId = source.id,
+                trackIndex = 0,
+                // Keeping `url` to a fixed, deterministic value so that a
+                // future regression where `localFilePath` is dropped falls
                 // back to this placeholder instead of leaking the production
                 // archive.org URL into the test.
-                streamUrl = "asset:///fixture_short.mp3",
+                url = "asset:///fixture_short.mp3",
                 localFilePath = target.absolutePath,
                 isDownloaded = true
             )
             dao.insertAudiobooks(listOf(book))
+            dao.insertEdition(
+                com.example.data.db.EditionEntity(
+                    id = editionId,
+                    workId = fixtureBookId,
+                    narrator = book.narrator,
+                    totalChapters = 1,
+                    totalDurationSeconds = 1L
+                )
+            )
             dao.insertChapters(listOf(chapter))
+            dao.insertSources(listOf(source))
+            dao.insertTracks(listOf(track))
         }
     }
 

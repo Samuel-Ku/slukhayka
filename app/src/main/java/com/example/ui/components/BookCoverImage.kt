@@ -12,6 +12,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -23,6 +24,31 @@ import coil.request.ImageRequest
 import com.example.data.db.AudiobookEntity
 import com.example.ui.displayAuthor
 import com.example.ui.theme.*
+
+/**
+ * Genre-mapped accent for cover-fallback art (spec-22 T3). When a cover is
+ * blocked or absent, the fallback gradient blends this colour into the
+ * surface tones so the placeholder still reads as "that genre's book".
+ * Pure function — unit-testable, no theme dependency.
+ *
+ * Returns null for unknown/blank genres and the «4read Каталог» placeholder
+ * genre, so the caller keeps its default (brand) accent unchanged.
+ */
+fun genreAccentColor(genre: String?): Color? {
+    val g = genre?.trim()?.lowercase() ?: return null
+    if (g.contains("4read")) return null
+    return when {
+        g.contains("cyberpunk") || g.contains("киберпанк") || g.contains("кіберпанк") -> Color(0xFF9C6BFF)  // neon violet
+        g.contains("фантастик") || g.contains("sci-fi") || g.contains("фэнтези") || g.contains("фентезі") -> Color(0xFF5C6BC0) // cosmic indigo
+        g.contains("класик") || g.contains("классик") -> Color(0xFFE9A13B)  // warm amber — the brand hue
+        g.contains("детектив") -> Color(0xFF78909C)   // deep slate
+        g.contains("антиутоп") -> Color(0xFF26A69A)   // teal
+        g.contains("жах") || g.contains("ужас") -> Color(0xFFC62828)   // deep red
+        g.contains("пригод") || g.contains("приключен") -> Color(0xFF43A047) // adventure green
+        g.contains("роман") || g.contains("любов") -> Color(0xFFEC6E7A) // rose
+        else -> null
+    }
+}
 
 @Composable
 fun BookCoverImage(
@@ -58,7 +84,10 @@ fun BookCoverImage(
             onError = { isError = true }
         )
     } else {
-        // Fallback layout: Elegant dark typography cover with book title & author
+        // Fallback layout: genre-tinted typographic cover with book title &
+        // author (spec-22 T3) — a known genre blends its accent into the
+        // surface tones; unknown genres keep the brand-accent gradient.
+        val fallbackAccent = genreAccentColor(book.genre)
         Box(
             modifier = modifier
                 .background(
@@ -66,7 +95,8 @@ fun BookCoverImage(
                         colors = listOf(
                             MaterialTheme.colorScheme.surface,
                             MaterialTheme.colorScheme.surfaceContainerHigh,
-                            MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)
+                            (fallbackAccent ?: MaterialTheme.colorScheme.primary)
+                                .copy(alpha = if (fallbackAccent != null) 0.45f else 0.25f)
                         )
                     )
                 )

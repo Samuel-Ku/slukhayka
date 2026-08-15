@@ -28,7 +28,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         WorkSourceEntity::class,
         LibraryEntryEntity::class
     ],
-    version = 15,
+    version = 16,
     exportSchema = true
 )
 abstract class AudiobookDatabase : RoomDatabase() {
@@ -52,7 +52,7 @@ abstract class AudiobookDatabase : RoomDatabase() {
                     // upgrades, so a schema change fails loudly at runtime
                     // instead of silently dropping the database.
                     .addMigrations(
-                        MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15
+                        MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16
                     )
                     .build()
                 INSTANCE = instance
@@ -401,7 +401,10 @@ abstract class AudiobookDatabase : RoomDatabase() {
                         db.execSQL(
                             "INSERT INTO editions (id, workId, language, narrator, totalChapters, " +
                                 "totalDurationSeconds) VALUES (?, ?, '', ?, ?, ?)",
-                            arrayOf(com.example.data.EditionId.forBook(mergeKey, bookId), bookId, narrator, totalChapters, totalDuration)
+                            // The v13→v14-era formula (narrator inside the mergeKey):
+                            // the v16 migration remaps these ids to the ADR-0010
+                            // formula (narrator as a separate hash input).
+                            arrayOf(com.example.data.EditionId.forBookLegacy(mergeKey, bookId), bookId, narrator, totalChapters, totalDuration)
                         )
                     }
                 }
@@ -620,7 +623,7 @@ abstract class AudiobookDatabase : RoomDatabase() {
                         val bookId = cursor.getString(0)
                         val title = cursor.getString(1) ?: ""
                         val author = cursor.getString(2) ?: ""
-                        val key = com.example.data.merge.MergeKey.keyFor(title, author, "")
+                        val key = com.example.data.merge.MergeKey.keyFor(title, author)
                         if (key.isBlank()) continue
                         // Only re-anchor when the Works row for that key
                         // actually exists — a blank-key book with a generic
@@ -686,6 +689,240 @@ abstract class AudiobookDatabase : RoomDatabase() {
                 )
                 db.execSQL("DROP TABLE audiobooks")
                 db.execSQL("ALTER TABLE audiobooks_new RENAME TO audiobooks")
+            }
+        }
+
+        /**
+         * v15 -> v16 (ADR-0010 — the Work is bibliographic: mergeKey
+         * `title|author`, narrator is an Edition property). The works row
+         * loses its narrator column and is re-keyed on the narrator-less key
+         * (rows that only differed by narrator MERGE into one Work); the
+         * library_entries and work_sources anchors follow. Edition ids gain
+         * the narrator as a hash input (`hash(mergeKey|narrator|language)`)
+         * so two narrations of the same Work keep distinct listening state
+         * (ADR-0001), and every edition-scoped row is remapped. The works and
+         * work_sources tables are rebuilt TOGETHER in an FK-safe order (the
+         * new work_sources references works_new, so the re-pointed workIds
+         * validate against the table that will become `works`). Internal (not
+         * private) so the JVM test suite can verify the upgrade path against
+         * a real v15 database.
+         */
+        internal val MIGRATION_15_16 = object : Migration(15, 16) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // ---- Step 1: the narrator-less Work key per mergeable row --
+                // The new key is computed from the row's own title/author so
+                // it agrees with every future write. Blank-key rows (stable
+                // per-source ids) are not mapped and keep their ids.
+                val workIdMap = HashMap<String, String>()
+                db.query("SELECT id, mergeKey, title, author FROM works ORDER BY addedAt ASC, id ASC").use { cursor ->
+                    while (cursor.moveToNext()) {
+                        val oldId = cursor.getString(0)
+                        val mergeKey = cursor.getString(1) ?: ""
+                        if (mergeKey.isBlank()) continue
+                        val newId = com.example.data.merge.MergeKey.keyFor(
+                            cursor.getString(2) ?: "", cursor.getString(3) ?: ""
+                        )
+                        if (newId.isNotBlank()) workIdMap[oldId] = newId
+                    }
+                }
+
+                // ---- Step 2: works rebuilt without narrator, re-keyed and
+                // de-duplicated (the earliest row wins; later duplicates only
+                // enrich the survivor's series fields via COALESCE).
+                db.execSQL(
+                    "CREATE TABLE works_new (" +
+                        "id TEXT NOT NULL, " +
+                        "mergeKey TEXT NOT NULL, " +
+                        "title TEXT NOT NULL, " +
+                        "author TEXT NOT NULL, " +
+                        "seriesTitle TEXT, " +
+                        "seriesUrl TEXT, " +
+                        "seriesIndex INTEGER, " +
+                        "coverImageUrl TEXT, " +
+                        "addedAt INTEGER NOT NULL, " +
+                        "PRIMARY KEY(id))"
+                )
+                db.query(
+                    "SELECT id, mergeKey, title, author, seriesTitle, seriesUrl, seriesIndex, coverImageUrl, addedAt " +
+                        "FROM works ORDER BY addedAt ASC, id ASC"
+                ).use { cursor ->
+                    while (cursor.moveToNext()) {
+                        val oldId = cursor.getString(0)
+                        val newId = workIdMap[oldId] ?: oldId
+                        db.execSQL(
+                            "INSERT OR IGNORE INTO works_new (id, mergeKey, title, author, seriesTitle, " +
+                                "seriesUrl, seriesIndex, coverImageUrl, addedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                            arrayOf(
+                                newId, newId,
+                                cursor.getString(2) ?: "", cursor.getString(3) ?: "",
+                                cursor.getString(4), cursor.getString(5),
+                                cursor.getInt(6).takeIf { !cursor.isNull(6) },
+                                cursor.getString(7), cursor.getLong(8)
+                            )
+                        )
+                        if (newId != oldId) {
+                            db.execSQL(
+                                "UPDATE works_new SET seriesTitle = COALESCE(seriesTitle, ?), " +
+                                    "seriesUrl = COALESCE(seriesUrl, ?), seriesIndex = COALESCE(seriesIndex, ?) " +
+                                    "WHERE id = ?",
+                                arrayOf(
+                                    cursor.getString(4), cursor.getString(5),
+                                    cursor.getInt(6).takeIf { !cursor.isNull(6) },
+                                    newId
+                                )
+                            )
+                        }
+                    }
+                }
+
+                // ---- Step 3: work_sources rebuilt with the re-keyed workIds,
+                // its FK pointing at works_new so the new ids validate against
+                // the table that will become `works`.
+                db.execSQL(
+                    "CREATE TABLE work_sources_new (" +
+                        "id TEXT NOT NULL, " +
+                        "workId TEXT NOT NULL, " +
+                        "sourceId TEXT NOT NULL, " +
+                        "sourceUrl TEXT NOT NULL, " +
+                        "streamOnly INTEGER NOT NULL DEFAULT 0, " +
+                        "coverImageUrl TEXT, " +
+                        "durationSeconds INTEGER, " +
+                        "addedAt INTEGER NOT NULL, " +
+                        "PRIMARY KEY(id), " +
+                        "FOREIGN KEY(workId) REFERENCES works_new(id) ON DELETE CASCADE)"
+                )
+                db.query(
+                    "SELECT id, workId, sourceId, sourceUrl, streamOnly, coverImageUrl, durationSeconds, addedAt " +
+                        "FROM work_sources"
+                ).use { cursor ->
+                    while (cursor.moveToNext()) {
+                        val newWorkId = workIdMap[cursor.getString(1)] ?: cursor.getString(1)
+                        db.execSQL(
+                            "INSERT INTO work_sources_new (id, workId, sourceId, sourceUrl, streamOnly, " +
+                                "coverImageUrl, durationSeconds, addedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                            arrayOf(
+                                cursor.getString(0), newWorkId, cursor.getString(2), cursor.getString(3),
+                                cursor.getInt(4), cursor.getString(5),
+                                cursor.getLong(6).let { if (cursor.isNull(6)) null else it },
+                                cursor.getLong(7)
+                            )
+                        )
+                    }
+                }
+
+                // ---- Step 4: library_entries re-pointed to the new Work ids
+                // (no FK — safe in place, any time).
+                for ((oldId, newId) in workIdMap) {
+                    db.execSQL("UPDATE library_entries SET workId = ? WHERE workId = ?", arrayOf(newId, oldId))
+                }
+
+                // ---- Step 5: the swap. The old child goes first (dropping
+                // `works` would otherwise fire ON DELETE CASCADE into it);
+                // renaming works_new to `works` rewrites work_sources_new's
+                // FK to reference `works`, matching the Room schema.
+                db.execSQL("DROP TABLE work_sources")
+                db.execSQL("DROP TABLE works")
+                db.execSQL("ALTER TABLE works_new RENAME TO works")
+                db.execSQL("ALTER TABLE work_sources_new RENAME TO work_sources")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_works_mergeKey ON works(mergeKey)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_work_sources_workId ON work_sources(workId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_work_sources_sourceId ON work_sources(sourceId)")
+
+                // ---- Step 6: Edition ids gain the narrator. The Work key of
+                // each book is its (re-keyed) works.id via library_entries; a
+                // blank-key book falls back to its own id.
+                val editionRows = mutableListOf<Array<Any?>>()
+                db.query("SELECT id, workId, language, narrator FROM editions").use { cursor ->
+                    while (cursor.moveToNext()) {
+                        editionRows.add(arrayOf(cursor.getString(0), cursor.getString(1), cursor.getString(2) ?: "", cursor.getString(3) ?: ""))
+                    }
+                }
+                val editionIdMap = HashMap<String, String>()
+                for (row in editionRows) {
+                    val oldId = row[0] as String
+                    val bookId = row[1] as String
+                    val language = row[2] as String
+                    val narrator = row[3] as String
+                    val workKey = db.query(
+                        "SELECT w.id FROM works w JOIN library_entries le ON le.workId = w.id " +
+                            "WHERE le.id = ? LIMIT 1",
+                        arrayOf(bookId)
+                    ).use { c -> if (c.moveToFirst()) c.getString(0) ?: "" else "" }
+                    editionIdMap[oldId] = com.example.data.EditionId.forBook(workKey, bookId, narrator, language)
+                }
+                db.execSQL(
+                    "CREATE TABLE editions_new (" +
+                        "id TEXT NOT NULL, " +
+                        "workId TEXT NOT NULL, " +
+                        "language TEXT NOT NULL DEFAULT '', " +
+                        "narrator TEXT NOT NULL DEFAULT '', " +
+                        "totalChapters INTEGER NOT NULL DEFAULT 0, " +
+                        "totalDurationSeconds INTEGER NOT NULL DEFAULT 0, " +
+                        "PRIMARY KEY(id))"
+                )
+                db.query(
+                    "SELECT id, workId, language, narrator, totalChapters, totalDurationSeconds FROM editions"
+                ).use { cursor ->
+                    while (cursor.moveToNext()) {
+                        db.execSQL(
+                            "INSERT INTO editions_new (id, workId, language, narrator, totalChapters, " +
+                                "totalDurationSeconds) VALUES (?, ?, ?, ?, ?, ?)",
+                            arrayOf(
+                                editionIdMap[cursor.getString(0)] ?: cursor.getString(0),
+                                cursor.getString(1), cursor.getString(2) ?: "", cursor.getString(3) ?: "",
+                                cursor.getInt(4), cursor.getLong(5)
+                            )
+                        )
+                    }
+                }
+                db.execSQL("DROP TABLE editions")
+                db.execSQL("ALTER TABLE editions_new RENAME TO editions")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_editions_workId ON editions(workId)")
+
+                // ---- Step 7: edition-scoped children remapped to the new
+                // ids. chapters/sources/bookmarks update in place; the
+                // playback_progress PRIMARY KEY is the editionId, so it is
+                // rebuilt.
+                for ((oldId, newId) in editionIdMap) {
+                    if (oldId == newId) continue
+                    db.execSQL("UPDATE chapters SET editionId = ? WHERE editionId = ?", arrayOf(newId, oldId))
+                    db.execSQL("UPDATE sources SET editionId = ? WHERE editionId = ?", arrayOf(newId, oldId))
+                    db.execSQL("UPDATE bookmarks SET editionId = ? WHERE editionId = ?", arrayOf(newId, oldId))
+                }
+                db.execSQL(
+                    "CREATE TABLE playback_progress_new (" +
+                        "editionId TEXT NOT NULL, " +
+                        "bookId TEXT NOT NULL, " +
+                        "currentChapterIndex INTEGER NOT NULL, " +
+                        "currentPositionSeconds INTEGER NOT NULL, " +
+                        "lastListenedAt INTEGER NOT NULL, " +
+                        "isCompleted INTEGER NOT NULL, " +
+                        "lastPausedAtEpochMs INTEGER, " +
+                        "preferredSpeed REAL, " +
+                        "PRIMARY KEY(editionId))"
+                )
+                db.query(
+                    "SELECT editionId, bookId, currentChapterIndex, currentPositionSeconds, lastListenedAt, " +
+                        "isCompleted, lastPausedAtEpochMs, preferredSpeed FROM playback_progress"
+                ).use { cursor ->
+                    while (cursor.moveToNext()) {
+                        db.execSQL(
+                            "INSERT INTO playback_progress_new (editionId, bookId, currentChapterIndex, " +
+                                "currentPositionSeconds, lastListenedAt, isCompleted, lastPausedAtEpochMs, " +
+                                "preferredSpeed) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                            arrayOf(
+                                editionIdMap[cursor.getString(0)] ?: cursor.getString(0),
+                                cursor.getString(1), cursor.getInt(2), cursor.getLong(3), cursor.getLong(4),
+                                cursor.getInt(5),
+                                if (cursor.isNull(6)) null else cursor.getLong(6),
+                                if (cursor.isNull(7)) null else cursor.getFloat(7)
+                            )
+                        )
+                    }
+                }
+                db.execSQL("DROP TABLE playback_progress")
+                db.execSQL("ALTER TABLE playback_progress_new RENAME TO playback_progress")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_playback_progress_bookId ON playback_progress(bookId)")
             }
         }
     }

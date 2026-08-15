@@ -50,7 +50,6 @@ class WorkFeedCardSnapshotTest {
         mergeKey = title.lowercase(),
         title = title,
         author = author,
-        narrator = "",
         seriesTitle = null,
         seriesIndex = null,
         coverImageUrl = null,

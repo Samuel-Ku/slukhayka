@@ -132,7 +132,7 @@ class DeepModulesRoomTest {
         val localFile = File(context.filesDir, "cascade-${book.id}.mp3")
         localFile.writeBytes(ByteArray(64))
         // ADR-0007: the physical copy lives on a Source TRACK, not the chapter.
-        val editionId = com.example.data.EditionId.forBook(book.mergeKey, book.id)
+        val editionId = com.example.data.EditionId.forBook(book.mergeKey, book.id, book.narrator)
         val localSourceId = "local-$editionId"
 
         dao.insertAudiobooks(listOf(book))
@@ -921,7 +921,9 @@ class DeepModulesRoomTest {
 
         AudiobookDatabase.MIGRATION_13_14.migrate(db)
 
-        val expectedEditionId = com.example.data.EditionId.forBook("кобзар|автор|читець", "b1")
+        // The v13→v14-era formula (narrator inside the mergeKey): the v16
+        // migration remaps these ids to the ADR-0010 formula.
+        val expectedEditionId = com.example.data.EditionId.forBookLegacy("кобзар|автор|читець", "b1")
 
         // The spec-23 catalogue row is renamed to work_sources (one SOURCE
         // carrying a Work) and its data survives.
@@ -955,7 +957,7 @@ class DeepModulesRoomTest {
         }
         db.query("SELECT id FROM editions WHERE workId = 'b2'").use { cursor ->
             cursor.moveToFirst()
-            assertEquals(com.example.data.EditionId.forBook("", "b2"), cursor.getString(0))
+            assertEquals(com.example.data.EditionId.forBookLegacy("", "b2"), cursor.getString(0))
         }
         // Chapters: the physical playback columns moved to source_tracks and
         // editionId re-points at the domain edition.
@@ -1066,7 +1068,7 @@ class DeepModulesRoomTest {
     }
 
     @Test
-    fun `importBookFromSource keeps different narrations separate`() = runBlocking {
+    fun `importBookFromSource merges different narrations into one Work`() = runBlocking {
         val mods = modules()
         val base = com.example.data.source.SourceBookDetail(
             title = "Кобзар",
@@ -1080,8 +1082,14 @@ class DeepModulesRoomTest {
         val a = mods.imports.importBookFromSource("soundbooks", narratorA)
         val b = mods.imports.importBookFromSource("soundbooks", narratorB)
 
-        assertTrue(a.id != b.id)
-        assertEquals(2, dao.getAllAudiobooks().first().size)
+        // ADR-0010: the narrator is an Edition property, never a Work key —
+        // two narrations of the same text are ONE Work and ONE library card
+        // (the Edition id still carries the narrator, so distinct narrations
+        // keep distinct rendition ids — ADR-0001).
+        assertEquals(a.id, b.id)
+        assertEquals(1, dao.getAllAudiobooks().first().size)
+        assertEquals(1, dao.countWorks())
+        assertEquals(1, dao.countLibraryEntries())
     }
 
     @Test
@@ -1488,7 +1496,7 @@ class DeepModulesRoomTest {
         dao.insertAudiobooks(listOf(book))
         // ADR-0009: the preference lives on the Listening State row — it needs
         // the Edition anchor + a progress row to land.
-        val editionId = com.example.data.EditionId.forBook("", book.id)
+        val editionId = com.example.data.EditionId.forBook("", book.id, book.narrator)
         dao.insertEdition(com.example.data.db.EditionEntity(id = editionId, workId = book.id))
         dao.savePlaybackProgress(
             com.example.data.db.PlaybackProgressEntity(
@@ -1520,7 +1528,7 @@ class DeepModulesRoomTest {
         // progress is keyed by the Edition.
         dao.savePlaybackProgress(
             PlaybackProgressEntity(
-                editionId = com.example.data.EditionId.forBook(book.mergeKey, book.id),
+                editionId = com.example.data.EditionId.forBook(book.mergeKey, book.id, book.narrator),
                 bookId = book.id,
                 lastListenedAt = TestDataFactory.FIXED_CLOCK_MS
             )
@@ -1546,7 +1554,7 @@ class DeepModulesRoomTest {
         localFile.writeBytes(ByteArray(64))
 
         // ADR-0007: the physical copy lives on a Source TRACK, not the chapter.
-        val editionId = com.example.data.EditionId.forBook(book.mergeKey, book.id)
+        val editionId = com.example.data.EditionId.forBook(book.mergeKey, book.id, book.narrator)
         val localSourceId = "local-$editionId"
         dao.insertAudiobooks(listOf(book))
         dao.insertChapters(TestDataFactory.chaptersFor(book))
@@ -1652,7 +1660,7 @@ class DeepModulesRoomTest {
         // ADR-0009: series persists on the WORK row — seed the book, its
         // Works row (by the key the catalogue write path uses) and the entry.
         val book = TestDataFactory.dataBooks()[1]
-        val key = MergeKey.keyFor(book.title, book.author, "")
+        val key = MergeKey.keyFor(book.title, book.author)
         dao.insertAudiobooks(listOf(book))
         dao.upsertWork(
             com.example.data.db.WorkEntity(
@@ -1865,7 +1873,7 @@ class DeepModulesRoomTest {
     fun `applyImportPlan attaches an accepted merge to the existing work`() = runBlocking {
         val mods = modules()
         // Seed the library with an existing Work whose key matches.
-        val existingKey = MergeKey.keyFor("Кобзар", "Тарас Шевченко", "")
+        val existingKey = MergeKey.keyFor("Кобзар", "Тарас Шевченко")
         val existing = com.example.data.db.AudiobookEntity(
             id = "b1",
             title = "Кобзар",
@@ -1912,7 +1920,7 @@ class DeepModulesRoomTest {
         val mods = modules()
         // Seed a same-title Work so the planned book carries a T2 suggestion
         // that can be rejected into a NEVER_MATCH memory.
-        val existingKey = MergeKey.keyFor("Книга", "Хтось", "")
+        val existingKey = MergeKey.keyFor("Книга", "Хтось")
         dao.insertAudiobooks(
             listOf(
                 com.example.data.db.AudiobookEntity(
@@ -2176,7 +2184,7 @@ class DeepModulesRoomTest {
             File(context.filesDir, "purge-1.mp3").apply { writeBytes(ByteArray(64)) },
             File(context.filesDir, "purge-2.mp3").apply { writeBytes(ByteArray(64)) }
         )
-        val editionId = com.example.data.EditionId.forBook(book.mergeKey, book.id)
+        val editionId = com.example.data.EditionId.forBook(book.mergeKey, book.id, book.narrator)
         val sourceId = "4read-$editionId"
         dao.insertAudiobooks(listOf(book.copy(isDownloaded = true).also { it.downloadProgress = 1f }))
         dao.insertChapters(TestDataFactory.chaptersFor(book))
@@ -2549,7 +2557,9 @@ class DeepModulesRoomTest {
         val book = mods.imports.importBookFromSource("4read", detail)
 
         // The Works row and the Library Entry row landed alongside.
-        val key = MergeKey.keyFor("Кобзар", "Тарас Шевченко", "Валерій Завалко")
+        // ADR-0010: the Work key is bibliographic — the narrator no longer
+        // participates (it differentiates Editions, not Works).
+        val key = MergeKey.keyFor("Кобзар", "Тарас Шевченко")
         assertNotNull("the Work row must exist", dao.findWorkByMergeKey(key))
         assertEquals(1, dao.countLibraryEntries())
         // The JOINed read carries the series from the Work.
@@ -2571,7 +2581,7 @@ class DeepModulesRoomTest {
             id = book.id, workId = book.id, isFavorite = false,
             createdAt = TestDataFactory.FIXED_CLOCK_MS, downloadProgress = 0.5f
         )
-        val editionId = com.example.data.EditionId.forBook("", book.id)
+        val editionId = com.example.data.EditionId.forBook("", book.id, book.narrator)
         dao.insertEdition(com.example.data.db.EditionEntity(id = editionId, workId = book.id))
 
         // Favourite -> Library Entry row.
@@ -2599,5 +2609,221 @@ class DeepModulesRoomTest {
             1.5f,
             dao.getPlaybackProgressSyncByEdition(editionId)!!.preferredSpeed
         )
+    }
+
+    // ---------------------------------------------------------------------
+    // ADR-0010: the Work is bibliographic — mergeKey is title|author, the
+    // narrator is an Edition property (never a Work property).
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `migration 15 to 16 re-keys works on title author merges duplicates and remaps editions with the narrator`() {
+        val factory = FrameworkSQLiteOpenHelperFactory()
+        val config = SupportSQLiteOpenHelper.Configuration.builder(context)
+            .name("migration-15-test.db")
+            .callback(object : SupportSQLiteOpenHelper.Callback(15) {
+                override fun onCreate(db: SupportSQLiteDatabase) {
+                    // Minimal v15 schema: two mergeable library books (one
+                    // single-narration, one pair of narrations of the SAME
+                    // text that were two Works under the old narrator-bearing
+                    // key), one blank-key local book, and edition-scoped
+                    // children (chapter/source/bookmark/progress) to verify
+                    // the remap.
+                    db.execSQL(
+                        "CREATE TABLE audiobooks (id TEXT NOT NULL PRIMARY KEY, title TEXT NOT NULL, " +
+                            "author TEXT NOT NULL, narrator TEXT NOT NULL, description TEXT NOT NULL, " +
+                            "coverDrawableRes INTEGER NOT NULL, coverImageUrl TEXT, genre TEXT NOT NULL, " +
+                            "sourceUrl TEXT NOT NULL, isDownloaded INTEGER NOT NULL, " +
+                            "totalDurationSeconds INTEGER NOT NULL, totalChapters INTEGER NOT NULL, " +
+                            "rating REAL NOT NULL, sourceTreeUri TEXT)"
+                    )
+                    db.execSQL(
+                        "INSERT INTO audiobooks (id, title, author, narrator, description, coverDrawableRes, genre, " +
+                            "sourceUrl, isDownloaded, totalDurationSeconds, totalChapters, rating) VALUES " +
+                            "('b1', 'Кобзар', 'Автор', 'Читець', '', 0, '', 'http://4read.org/kobzar', 1, 3600, 3, 4.9), " +
+                            "('b2', 'Локальна книга', 'Локальний файл', 'Локальний читець', '', 0, '', '', 1, 0, 0, 0.0), " +
+                            "('b4', 'Війна і мир', 'Лев Толстой', 'Читець 2', '', 0, '', 'http://4read.org/vijna-a', 0, 0, 0, 0.0), " +
+                            "('b5', 'Війна і мир', 'Лев Толстой', 'Інший читець', '', 0, '', 'http://4read.org/vijna-b', 0, 0, 0, 0.0)"
+                    )
+                    db.execSQL(
+                        "CREATE TABLE library_entries (id TEXT NOT NULL PRIMARY KEY, workId TEXT NOT NULL, " +
+                            "isFavorite INTEGER NOT NULL DEFAULT 0, createdAt INTEGER NOT NULL DEFAULT 0, " +
+                            "downloadProgress REAL NOT NULL DEFAULT 0)"
+                    )
+                    db.execSQL(
+                        "CREATE TABLE works (id TEXT NOT NULL PRIMARY KEY, mergeKey TEXT NOT NULL, " +
+                            "title TEXT NOT NULL, author TEXT NOT NULL, narrator TEXT NOT NULL DEFAULT '', " +
+                            "seriesTitle TEXT, seriesUrl TEXT, seriesIndex INTEGER, coverImageUrl TEXT, " +
+                            "addedAt INTEGER NOT NULL)"
+                    )
+                    db.execSQL("CREATE INDEX IF NOT EXISTS index_works_mergeKey ON works(mergeKey)")
+                    db.execSQL(
+                        "INSERT INTO works (id, mergeKey, title, author, narrator, seriesTitle, seriesIndex, addedAt) VALUES " +
+                            "('кобзар|автор|читець', 'кобзар|автор|читець', 'Кобзар', 'Автор', 'Читець', 'Цикл', 1, 1000), " +
+                            "('війна і мир|лев толстой|читець 2', 'війна і мир|лев толстой|читець 2', 'Війна і мир', 'Лев Толстой', 'Читець 2', NULL, NULL, 2000), " +
+                            "('війна і мир|лев толстой|інший читець', 'війна і мир|лев толстой|інший читець', 'Війна і мир', 'Лев Толстой', 'Інший читець', NULL, NULL, 3000)"
+                    )
+                    db.execSQL(
+                        "CREATE TABLE work_sources (id TEXT NOT NULL PRIMARY KEY, workId TEXT NOT NULL, " +
+                            "sourceId TEXT NOT NULL, sourceUrl TEXT NOT NULL, streamOnly INTEGER NOT NULL DEFAULT 0, " +
+                            "coverImageUrl TEXT, durationSeconds INTEGER, addedAt INTEGER NOT NULL, " +
+                            "FOREIGN KEY(workId) REFERENCES works(id) ON DELETE CASCADE)"
+                    )
+                    db.execSQL("CREATE INDEX IF NOT EXISTS index_work_sources_workId ON work_sources(workId)")
+                    db.execSQL("CREATE INDEX IF NOT EXISTS index_work_sources_sourceId ON work_sources(sourceId)")
+                    db.execSQL(
+                        "INSERT INTO work_sources (id, workId, sourceId, sourceUrl, streamOnly, addedAt) VALUES " +
+                            "('ws1', 'кобзар|автор|читець', '4read', 'http://4read.org/kobzar', 0, 1000), " +
+                            "('ws2', 'війна і мир|лев толстой|читець 2', '4read', 'http://4read.org/vijna-a', 0, 2000), " +
+                            "('ws3', 'війна і мир|лев толстой|інший читець', '4read', 'http://4read.org/vijna-b', 0, 3000)"
+                    )
+                    db.execSQL(
+                        "CREATE TABLE editions (id TEXT NOT NULL PRIMARY KEY, workId TEXT NOT NULL, " +
+                            "language TEXT NOT NULL DEFAULT '', narrator TEXT NOT NULL DEFAULT '', " +
+                            "totalChapters INTEGER NOT NULL DEFAULT 0, totalDurationSeconds INTEGER NOT NULL DEFAULT 0)"
+                    )
+                    db.execSQL(
+                        "INSERT INTO editions (id, workId, language, narrator, totalChapters, totalDurationSeconds) VALUES " +
+                            "('ed-b1', 'b1', '', 'Читець', 3, 3600), " +
+                            "('ed-b2', 'b2', '', 'Локальний читець', 0, 0), " +
+                            "('ed-b4', 'b4', '', 'Читець 2', 0, 0), " +
+                            "('ed-b5', 'b5', '', 'Інший читець', 0, 0)"
+                    )
+                    db.execSQL(
+                        "CREATE TABLE chapters (id TEXT NOT NULL PRIMARY KEY, bookId TEXT NOT NULL, " +
+                            "chapterIndex INTEGER NOT NULL, title TEXT NOT NULL, durationSeconds INTEGER NOT NULL, " +
+                            "editionId TEXT)"
+                    )
+                    db.execSQL(
+                        "INSERT INTO chapters (id, bookId, chapterIndex, title, durationSeconds, editionId) " +
+                            "VALUES ('c1', 'b1', 0, 'Розділ 1', 100, 'ed-b1')"
+                    )
+                    db.execSQL(
+                        "CREATE TABLE sources (id TEXT NOT NULL PRIMARY KEY, bookId TEXT NOT NULL, " +
+                            "editionId TEXT, type TEXT NOT NULL, url TEXT NOT NULL, " +
+                            "streamOnly INTEGER NOT NULL DEFAULT 0, addedAt INTEGER NOT NULL DEFAULT 0)"
+                    )
+                    db.execSQL(
+                        "INSERT INTO sources (id, bookId, editionId, type, url, streamOnly, addedAt) " +
+                            "VALUES ('4read-ed-b1', 'b1', 'ed-b1', '4read', 'http://4read.org/kobzar', 0, 1000)"
+                    )
+                    db.execSQL(
+                        "CREATE TABLE bookmarks (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, bookId TEXT NOT NULL, " +
+                            "editionId TEXT, chapterIndex INTEGER NOT NULL, chapterTitle TEXT NOT NULL, " +
+                            "timestampSeconds INTEGER NOT NULL, note TEXT NOT NULL, createdAt INTEGER NOT NULL DEFAULT 0)"
+                    )
+                    db.execSQL(
+                        "INSERT INTO bookmarks (bookId, editionId, chapterIndex, chapterTitle, timestampSeconds, note, createdAt) " +
+                            "VALUES ('b1', 'ed-b1', 0, 'Розділ 1', 42, '', 1000)"
+                    )
+                    db.execSQL(
+                        "CREATE TABLE playback_progress (editionId TEXT NOT NULL PRIMARY KEY, bookId TEXT NOT NULL, " +
+                            "currentChapterIndex INTEGER NOT NULL, currentPositionSeconds INTEGER NOT NULL, " +
+                            "lastListenedAt INTEGER NOT NULL, isCompleted INTEGER NOT NULL, " +
+                            "lastPausedAtEpochMs INTEGER, preferredSpeed REAL)"
+                    )
+                    db.execSQL(
+                        "INSERT INTO playback_progress (editionId, bookId, currentChapterIndex, currentPositionSeconds, " +
+                            "lastListenedAt, isCompleted, preferredSpeed) VALUES ('ed-b1', 'b1', 1, 300, 1700000001000, 0, 1.25)"
+                    )
+                    // Seed the Library Entry rows — the migration re-points
+                    // them, so they must exist.
+                    db.execSQL(
+                        "INSERT INTO library_entries (id, workId, isFavorite, createdAt, downloadProgress) VALUES " +
+                            "('b1', 'кобзар|автор|читець', 1, 1700000000000, 0.5), " +
+                            "('b2', 'b2', 0, 1600000000000, 1.0), " +
+                            "('b4', 'війна і мир|лев толстой|читець 2', 0, 1500000000000, 0.0), " +
+                            "('b5', 'війна і мир|лев толстой|інший читець', 0, 1400000000000, 0.0)"
+                    )
+                }
+
+                override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) {}
+            })
+            .build()
+        val helper = factory.create(config)
+        val db = helper.writableDatabase
+        // Simulate Room: foreign-key enforcement ON during the migration — the
+        // rebuild order must be FK-safe (the new work_sources validates its
+        // re-keyed workIds against works_new, which becomes `works`).
+        db.execSQL("PRAGMA foreign_keys = ON")
+
+        AudiobookDatabase.MIGRATION_15_16.migrate(db)
+
+        // CONTRACT — works lost its narrator column.
+        assertTrue("works must lose narrator", !tableColumns(db, "works").contains("narrator"))
+
+        // The mergeable book's Work is re-keyed on title|author.
+        db.query("SELECT seriesTitle, seriesIndex FROM works WHERE id = 'кобзар|автор'").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("Цикл", cursor.getString(0))
+            assertEquals(1, cursor.getInt(1))
+        }
+        // The two narrations of «Війна і мир» merged into ONE Work.
+        assertEquals(2, db.query("SELECT COUNT(*) FROM works").use { it.moveToFirst(); it.getInt(0) })
+        db.query("SELECT COUNT(*) FROM works WHERE id = 'війна і мир|лев толстой'").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals(1, cursor.getInt(0))
+        }
+        // The Library Entries and work_sources both re-pointed at the merged Work.
+        db.query("SELECT COUNT(*) FROM library_entries WHERE workId = 'війна і мир|лев толстой'").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals(2, cursor.getInt(0))
+        }
+        db.query("SELECT COUNT(*) FROM work_sources WHERE workId = 'війна і мир|лев толстой'").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals(2, cursor.getInt(0))
+        }
+        db.query("SELECT COUNT(*) FROM work_sources WHERE workId = 'кобзар|автор'").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals(1, cursor.getInt(0))
+        }
+        // The blank-key book keeps its self-anchored entry.
+        db.query("SELECT workId FROM library_entries WHERE id = 'b2'").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals("b2", cursor.getString(0))
+        }
+
+        // Edition ids now carry the narrator: the merged Work keeps TWO
+        // distinct editions (one per narration — ADR-0001), and every
+        // edition-scoped child was remapped.
+        val edB1 = com.example.data.EditionId.forBook("кобзар|автор", "b1", "Читець")
+        val edB4 = com.example.data.EditionId.forBook("війна і мир|лев толстой", "b4", "Читець 2")
+        val edB5 = com.example.data.EditionId.forBook("війна і мир|лев толстой", "b5", "Інший читець")
+        val edB2 = com.example.data.EditionId.forBook("", "b2", "Локальний читець")
+        db.query("SELECT id FROM editions WHERE workId = 'b1'").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals(edB1, cursor.getString(0))
+        }
+        db.query("SELECT id FROM editions WHERE workId = 'b4'").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals(edB4, cursor.getString(0))
+        }
+        db.query("SELECT id FROM editions WHERE workId = 'b5'").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals(edB5, cursor.getString(0))
+        }
+        assertTrue("the two narrations keep distinct editions", edB4 != edB5)
+        db.query("SELECT id FROM editions WHERE workId = 'b2'").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals(edB2, cursor.getString(0))
+        }
+        db.query("SELECT editionId FROM chapters WHERE id = 'c1'").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals(edB1, cursor.getString(0))
+        }
+        db.query("SELECT editionId FROM sources WHERE id = '4read-ed-b1'").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals(edB1, cursor.getString(0))
+        }
+        db.query("SELECT editionId FROM bookmarks WHERE bookId = 'b1'").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals(edB1, cursor.getString(0))
+        }
+        db.query("SELECT editionId, preferredSpeed FROM playback_progress WHERE bookId = 'b1'").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals(edB1, cursor.getString(0))
+            assertEquals(1.25f, cursor.getFloat(1))
+        }
+        db.close()
     }
 }

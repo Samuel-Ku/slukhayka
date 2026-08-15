@@ -305,7 +305,7 @@ interface AudiobookDao {
      */
     @Query(
         """
-        SELECT w.id AS workId, w.mergeKey, w.title, w.author, w.narrator, w.seriesTitle, w.seriesIndex,
+        SELECT w.id AS workId, w.mergeKey, w.title, w.author, w.seriesTitle, w.seriesIndex,
                w.coverImageUrl, w.addedAt,
                (SELECT COUNT(*) FROM work_sources ws WHERE ws.workId = w.id) AS sourceCount,
                a.genre AS genre
@@ -322,7 +322,7 @@ interface AudiobookDao {
     /** Same feed, sorted by title (stable tiebreak: addedAt DESC). */
     @Query(
         """
-        SELECT w.id AS workId, w.mergeKey, w.title, w.author, w.narrator, w.seriesTitle, w.seriesIndex,
+        SELECT w.id AS workId, w.mergeKey, w.title, w.author, w.seriesTitle, w.seriesIndex,
                w.coverImageUrl, w.addedAt,
                (SELECT COUNT(*) FROM work_sources ws WHERE ws.workId = w.id) AS sourceCount,
                a.genre AS genre

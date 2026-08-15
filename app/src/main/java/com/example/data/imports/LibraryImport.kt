@@ -67,7 +67,9 @@ class LibraryImport(
      */
     suspend fun importBookFromSource(sourceId: String, detail: SourceBookDetail): AudiobookEntity =
         withContext(Dispatchers.IO) {
-            val mergeKey = MergeKey.keyFor(detail.title, detail.author, detail.narrator)
+            // ADR-0010: the Work key is bibliographic (title|author) — the
+            // narrator is an Edition property, never part of the Work.
+            val mergeKey = MergeKey.keyFor(detail.title, detail.author)
             val existing = if (mergeKey.isNotBlank()) dao.findByMergeKey(mergeKey) else null
             val bookId = existing?.id ?: adapterBookId(sourceId, detail.url)
 
@@ -112,7 +114,6 @@ class LibraryImport(
                         mergeKey = mergeKey,
                         title = book.title,
                         author = book.author,
-                        narrator = book.narrator,
                         seriesTitle = detail.series?.name,
                         seriesUrl = detail.series?.url,
                         seriesIndex = detail.series?.position,
@@ -129,7 +130,9 @@ class LibraryImport(
                     createdAt = System.currentTimeMillis(),
                     downloadProgress = 0f
                 )
-                val editionId = EditionId.forBook(mergeKey, bookId)
+                // ADR-0010: the Edition id carries the narrator — two
+                // narrations of the same Work keep distinct listening state.
+                val editionId = EditionId.forBook(mergeKey, bookId, book.narrator)
                 dao.insertEdition(
                     EditionEntity(
                         id = editionId,
@@ -166,7 +169,7 @@ class LibraryImport(
                 val known = dao.getSourcesForBookSync(existing.id).any { it.url == detail.url }
                 if (!known) {
                     val storedEdition = dao.getEditionForWork(existing.id)
-                    val editionId = storedEdition?.id ?: EditionId.forBook(mergeKey, existing.id)
+                    val editionId = storedEdition?.id ?: EditionId.forBook(mergeKey, existing.id, existing.narrator)
                     if (storedEdition == null) {
                         dao.insertEdition(
                             EditionEntity(
@@ -428,14 +431,13 @@ class LibraryImport(
      * can open the Work. Idempotent by construction.
      */
     private suspend fun ensureWorkAndEntry(book: com.example.data.catalog.CatalogBook, bookId: String) {
-        val mergeKey = MergeKey.keyFor(book.title, book.author, "")
+        val mergeKey = MergeKey.keyFor(book.title, book.author)
         val workId = if (mergeKey.isNotBlank()) {
             (dao.findWorkByMergeKey(mergeKey) ?: WorkEntity(
                 id = mergeKey,
                 mergeKey = mergeKey,
                 title = book.title.trim(),
                 author = book.author.trim(),
-                narrator = "",
                 seriesTitle = book.seriesTitle,
                 seriesUrl = book.seriesUrl,
                 seriesIndex = book.seriesIndex,
@@ -615,7 +617,9 @@ class LibraryImport(
                     val existing = dao.getAudiobookById(targetBookId)
                     val baseIndex = existing?.totalChapters ?: 0
                     val storedEdition = dao.getEditionForWork(targetBookId)
-                    val editionId = storedEdition?.id ?: EditionId.forBook(existing?.mergeKey ?: "", targetBookId)
+                    val editionId = storedEdition?.id ?: EditionId.forBook(
+                        existing?.mergeKey ?: "", targetBookId, existing?.narrator ?: ""
+                    )
                     if (storedEdition == null) {
                         dao.insertEdition(
                             EditionEntity(
@@ -872,7 +876,8 @@ class LibraryImport(
         )
         // ADR-0007: a local import is a Source of type "local" whose tracks
         // carry the copied files; the Edition owns the logical chapter list.
-        val editionId = EditionId.forBook(mergeKey = "", bookId = bookId)
+        // ADR-0010: the edition id carries the rendition narrator.
+        val editionId = EditionId.forBook(mergeKey = "", bookId = bookId, narrator = book.narrator)
         dao.insertEdition(
             EditionEntity(
                 id = editionId,
@@ -1128,16 +1133,18 @@ class LibraryImport(
     private suspend fun rewriteBookChapters(bookId: String, chapters: List<LocalChapterInput>) {
         val sorted = chapters.sortedWith(Comparator { a, b -> compareNatural(a.title, b.title) })
         val storedEdition = dao.getEditionForWork(bookId)
+        val bookRow = dao.getAudiobookById(bookId)
         val editionId = storedEdition?.id ?: EditionId.forBook(
-            dao.getAudiobookById(bookId)?.mergeKey ?: "",
-            bookId
+            bookRow?.mergeKey ?: "",
+            bookId,
+            bookRow?.narrator ?: ""
         )
         if (storedEdition == null) {
             dao.insertEdition(
                 EditionEntity(
                     id = editionId,
                     workId = bookId,
-                    narrator = dao.getAudiobookById(bookId)?.narrator ?: "",
+                    narrator = bookRow?.narrator ?: "",
                     totalChapters = sorted.size,
                     totalDurationSeconds = 0L
                 )

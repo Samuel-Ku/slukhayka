@@ -302,7 +302,9 @@ class SourceCatalog(
                     // Count honestly: a book whose Work already exists (same
                     // merge key) is a merge — the new source is attached to
                     // the existing card, never a duplicate Work.
-                    val mergeKey = MergeKey.keyFor(detail.title, detail.author, detail.narrator)
+                    // ADR-0010: the Work key is bibliographic — the narrator
+                    // distinguishes Editions, never Works.
+                    val mergeKey = MergeKey.keyFor(detail.title, detail.author)
                     val alreadyKnown = mergeKey.isNotBlank() && dao.findByMergeKey(mergeKey) != null
                     libraryImport.importBookFromSource(sourceId, detail)
                     // Spec-23 T3: the hydrated row ALSO lands in the persisted
@@ -394,7 +396,7 @@ class SourceCatalog(
                 // title fallback, duration conventions; Edition chapters +
                 // Source tracks) comes from the one module.
                 val edition = dao.getEditionForWork(bookId)
-                val editionId = edition?.id ?: EditionId.forBook(book?.mergeKey ?: "", bookId)
+                val editionId = edition?.id ?: EditionId.forBook(book?.mergeKey ?: "", bookId, book?.narrator ?: "")
                 if (edition == null) {
                     dao.insertEdition(
                         EditionEntity(
@@ -565,7 +567,9 @@ class SourceCatalog(
         seriesTitle: String? = null,
         seriesIndex: Int? = null
     ): WorkWriteResult {
-        val mergeKey = MergeKey.keyFor(title, author, narrator)
+        // ADR-0010: the Work key is bibliographic (title|author) — the
+        // narrator is a rendition (Edition) property, never part of the Work.
+        val mergeKey = MergeKey.keyFor(title, author)
         val existing = if (mergeKey.isNotBlank()) dao.findWorkByMergeKey(mergeKey) else null
         val work = existing ?: if (mergeKey.isNotBlank()) {
             WorkEntity(
@@ -573,7 +577,6 @@ class SourceCatalog(
                 mergeKey = mergeKey,
                 title = title.trim(),
                 author = author.trim(),
-                narrator = narrator.trim(),
                 seriesTitle = seriesTitle,
                 seriesIndex = seriesIndex,
                 coverImageUrl = coverImageUrl,
@@ -586,7 +589,6 @@ class SourceCatalog(
                 mergeKey = "",
                 title = title.trim(),
                 author = author.trim(),
-                narrator = narrator.trim(),
                 seriesTitle = seriesTitle,
                 seriesIndex = seriesIndex,
                 coverImageUrl = coverImageUrl,

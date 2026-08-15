@@ -43,7 +43,11 @@ class ListeningStateStore(private val dao: AudiobookDao) {
      *  deterministic fallback the import path would have created. */
     private suspend fun editionIdOf(bookId: String): String? =
         dao.getEditionForWork(bookId)?.id
-            ?: dao.getAudiobookById(bookId)?.let { EditionId.forBook(it.mergeKey ?: "", bookId) }
+            ?: dao.getAudiobookById(bookId)?.let {
+                // ADR-0010: the deterministic fallback carries the rendition
+                // narrator, so two narrations never share a progress row.
+                EditionId.forBook(it.mergeKey ?: "", bookId, it.narrator)
+            }
 
     fun observeProgress(bookId: String): Flow<PlaybackProgressEntity?> = dao.getPlaybackProgress(bookId)
 

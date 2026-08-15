@@ -208,7 +208,7 @@ object ImportPlanner {
         existingByKey: Map<String, ExistingWork>,
         existingByTitle: Map<String, ExistingWork>
     ): MergeSuggestion? {
-        val key = MergeKey.keyFor(title, author, "")
+        val key = MergeKey.keyFor(title, author)
         val exact = if (key.isNotBlank()) existingByKey[key] else null
         if (exact != null) {
             return MergeSuggestion(
@@ -233,8 +233,10 @@ object ImportPlanner {
         return null
     }
 
+    // ADR-0010: the Work key is bibliographic — the narrator is an Edition
+    // property, never part of the merge suggestion key.
     private fun bookKey(book: PlannedBook): String =
-        MergeKey.keyFor(book.title, book.author, book.narrator)
+        MergeKey.keyFor(book.title, book.author)
 
     private fun sanitize(displayName: String): String =
         displayName.substringBeforeLast('.').trim().ifBlank { displayName }

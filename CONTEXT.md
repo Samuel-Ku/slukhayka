@@ -71,3 +71,11 @@ _Avoid_: forwarding StateFlows, 1:1 ViewModel forwarders
 **Works and Library Entries**:
 `audiobooks` is ONE concept — the metadata of the user's copy. The Work identity (mergeKey, series) lives in `works` (the shared spec-23 table, #142), the Library Entry (isFavorite, createdAt, downloadProgress) in `library_entries` (one row per audiobooks row, `workId` linking to the Work), and the per-book speed in the Listening State row (`playback_progress.preferredSpeed`). DAO reads join all three and fill `@Ignore` projections on `AudiobookEntity` (via the `BookRow` projection), so the UI keeps reading one shaped row while the persisted columns are gone (ADR-0009).
 _Avoid_: fused columns on audiobooks
+
+**One Source seam, one HTTP transport**:
+Captured-page import is a [SourceAdapter] capability — `parseCapturedPage(html, url)` with a "not mine" default; the WebView-pattern adapters (4read, sluhay) override it under one name and no import door downcasts to a concrete adapter. All HTTP goes through the shared [HttpFetcher]: it serves text (`getText`) and binary streams (`getStream`), and the offline download loop consumes the stream method — the offline user agent lives in the download policy beside the per-source header rules (ADR-0006).
+_Avoid_: per-adapter captured-page methods, raw HttpURLConnection in modules
+
+**Bibliographic Work, Edition-owned narrator**:
+The Work is `title|author` — the mergeKey carries NO narrator. The narrator is an Edition (rendition) property: it lives on `editions` and on the audiobooks row (the user's copy of one rendition), never on `works`. The Edition id hashes `mergeKey|narrator|language`, so two narrations of one Work never share listening state (ADR-0001) even though they share the Work (ADR-0010). The library keeps one rendition per Work for now; a second narration of an imported book merges into the existing card.
+_Avoid_: narrator in the mergeKey, narrator on the Works row

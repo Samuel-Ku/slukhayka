@@ -76,8 +76,7 @@ class SourceProfileRepositoryTest {
             coverDrawableRes = 0,
             genre = "",
             sourceUrl = sources.firstOrNull()?.url ?: "",
-            isDownloaded = false,
-            downloadProgress = 0f
+            isDownloaded = false
         )
         dao.insertAudiobooks(listOf(book))
         dao.insertSources(sources.toList())

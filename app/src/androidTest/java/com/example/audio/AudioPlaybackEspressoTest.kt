@@ -148,12 +148,15 @@ class AudioPlaybackEspressoTest {
                 genre = "Test",
                 sourceUrl = "https://fixtures.4read.invalid/$fixtureBookId.html",
                 isDownloaded = true,
-                downloadProgress = 1.0f,
                 totalDurationSeconds = 1L,
                 totalChapters = 1,
-                rating = 5.0f,
-                isFavorite = true
-            )
+                rating = 5.0f
+            ).also {
+                // ADR-0009: downloadProgress/isFavorite are projections read
+                // from library_entries, not constructor columns.
+                it.downloadProgress = 1.0f
+                it.isFavorite = true
+            }
             // ADR-0007: one domain Edition owns the logical chapter list; the
             // 4read Source gets its physical tracks (1:1 by index). The local
             // copy and download flag live on the TRACK row, never the chapter.

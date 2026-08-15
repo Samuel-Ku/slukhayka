@@ -43,7 +43,7 @@ class ListeningStateStore(private val dao: AudiobookDao) {
      *  deterministic fallback the import path would have created. */
     private suspend fun editionIdOf(bookId: String): String? =
         dao.getEditionForWork(bookId)?.id
-            ?: dao.getAudiobookById(bookId)?.let { EditionId.forBook(it.mergeKey, bookId) }
+            ?: dao.getAudiobookById(bookId)?.let { EditionId.forBook(it.mergeKey ?: "", bookId) }
 
     fun observeProgress(bookId: String): Flow<PlaybackProgressEntity?> = dao.getPlaybackProgress(bookId)
 
@@ -157,7 +157,11 @@ class ListeningStateStore(private val dao: AudiobookDao) {
 
     // --- Per-book playback facts -------------------------------------------
 
-    /** Per-book preferred playback speed (wayfinder #26); null clears the preference. */
+    /**
+     * Per-book preferred playback speed (wayfinder #26); null clears the
+     * preference. ADR-0009: the preference lives on the Listening State row
+     * (`playback_progress`, keyed by the Edition) — not on the book row.
+     */
     suspend fun setPreferredSpeed(bookId: String, speed: Float?) = dao.updatePreferredSpeed(bookId, speed)
 
     /** Real chapter duration discovered during playback (replaces unknown 0). */

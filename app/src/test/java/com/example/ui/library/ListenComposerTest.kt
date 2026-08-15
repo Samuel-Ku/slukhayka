@@ -31,11 +31,13 @@ class ListenComposerTest {
         genre = "",
         sourceUrl = "https://4read.org/$id.html",
         isDownloaded = isDownloaded,
-        totalDurationSeconds = totalDurationSeconds,
-        isFavorite = isFavorite,
-        seriesTitle = seriesTitle,
-        createdAt = createdAt
-    )
+        totalDurationSeconds = totalDurationSeconds
+    ).also {
+        // ADR-0009: @Ignore projections set in place.
+        it.isFavorite = isFavorite
+        it.seriesTitle = seriesTitle
+        it.createdAt = createdAt
+    }
 
     private fun progress(
         bookId: String,

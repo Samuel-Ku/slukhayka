@@ -99,6 +99,9 @@ object TestDataFactory {
      * side of the relationship.
      */
     fun dataBooks(): List<AudiobookEntity> = bookSpecs.mapIndexed { bookIndex, spec ->
+        // ADR-0009: downloadProgress / isFavorite / createdAt are @Ignore
+        // projections (the columns live on the Library Entry row) — the
+        // factory sets them in place so in-memory reads keep working.
         AudiobookEntity(
             id = spec.id,
             title = spec.title,
@@ -110,16 +113,17 @@ object TestDataFactory {
             genre = spec.genre,
             sourceUrl = "$FIXTURE_HOST/${spec.id}.html",
             isDownloaded = spec.isDownloaded,
-            downloadProgress = if (spec.isDownloaded) 1.0f else 0f,
             totalDurationSeconds = totalDurationSecondsOf(bookIndex),
             totalChapters = CHAPTERS_PER_BOOK,
-            rating = 4.5f,
-            isFavorite = bookIndex == 0,
+            rating = 4.5f
+        ).also {
+            it.downloadProgress = if (spec.isDownloaded) 1.0f else 0f
+            it.isFavorite = bookIndex == 0
             // The entity defaults createdAt to the wall clock — frozen here so
             // the determinism self-test (and every equality/snapshot assertion
             // downstream) stays stable, per this factory's no-wall-clock rule.
-            createdAt = FIXED_CLOCK_MS
-        )
+            it.createdAt = FIXED_CLOCK_MS
+        }
     }
 
     /**

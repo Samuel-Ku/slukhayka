@@ -87,3 +87,7 @@ _Avoid_: one card per Work with unreachable second narrations
 **Smart collections**:
 The «Колекції» Огляд block is curated external lists (Нобелівські лауреати, Шевченківська премія, Букер) shipped as static JSON assets (`assets/collections/`), matched locally against the catalog union. The strict decoder (`CollectionJson`) and the matcher (`CollectionMatcher`) are pure JVM; the matcher reuses the MergeKey normalization plus diacritics (Cyrillic-preserving) and parenthetical-annotation trimming, requires author agreement, and hides non-matches (author-only fallback for title-less entries). `SourceCatalog.smartCollections` is recomputed on the SAME trigger as the union (`refreshUnifiedCatalog`); empty collections are dropped, nothing is persisted — no schema change (ADR-0012).
 _Avoid_: network lists, Room persistence of match results
+
+**Live collections**:
+The same matcher also consumes LIVE lists over the `LiveCollectionSource` seam (first source: keyless OpenLibrary trending → «Популярне зараз»), fetched through the shared HttpFetcher on the union refresh, TTL-cached per source like the feeds, best-effort (failure → no collection, never a broken refresh). Static + live feed one `matchAll`; the JSON parser behind the assets is the shared pure-JVM `MiniJson` (ADR-0013).
+_Avoid_: raw connections in live sources, live lists persisted to Room

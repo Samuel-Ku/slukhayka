@@ -294,12 +294,14 @@ fun BookDetailScreen(
 
                         // The one canonical source label — only for books that
                         // actually came from the catalog, never for local imports.
+                        // Spec-22 T2: solid scrim instead of a translucent wash,
+                        // so the pill stays readable on any background.
                         if (currentBook.sourceUrl.contains("4read.org")) {
                             TagPill(
                                 text = "4read.org Source",
-                                color = MaterialTheme.colorScheme.secondary,
-                                container = MaterialTheme.colorScheme.secondary.copy(alpha = 0.2f),
-                                border = null
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                container = AppBadgeScrim,
+                                border = androidx.compose.foundation.BorderStroke(1.dp, AppBadgeScrimBorder)
                             )
                         }
                     }
@@ -889,7 +891,8 @@ fun ChapterRowItem(
                 if (chapter.durationSeconds > 0L) {
                     Text(
                         text = "Duration: ${MainViewModel.formatTime(chapter.durationSeconds)}",
-                        style = MaterialTheme.typography.bodySmall,
+                        // Spec-22 T2: tabular figures for duration counters.
+                        style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum"),
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }

@@ -97,9 +97,13 @@ class LibraryImport(
                 // ADR-0009: the audiobooks row carries only the persisted
                 // metadata; the fused columns (series, mergeKey) are written
                 // to the Works + Library Entry rows alongside it.
+                // Spec-24 T1: the claimed title is scrubbed of SEO suffixes
+                // (one rule, one module — the Work row below stores the same
+                // clean title). The merge key keeps the RAW claim so stored
+                // identities never churn under the scrub.
                 val book = AudiobookEntity(
                     id = bookId,
-                    title = detail.title,
+                    title = MetadataAssertions.normalizeTitle(detail.title),
                     author = MetadataAssertions.normalizeClaimedText(detail.author) ?: sourceId,
                     narrator = narrator,
                     description = "Аудіокнига з джерела $sourceId. Джерело: ${detail.url}",
@@ -157,7 +161,7 @@ class LibraryImport(
                     editionId = editionId,
                     sourceId = sourceId,
                     bookId = bookId,
-                    bookTitle = detail.title,
+                    bookTitle = book.title,
                     chapters = detail.chapters
                 )
                 dao.insertChapters(materialized.chapters)
@@ -378,7 +382,10 @@ class LibraryImport(
         // projection (so the series reads resolve immediately).
         val newBook = AudiobookEntity(
             id = book.id,
-            title = book.title,
+            // Spec-24 T1: the claimed poster title is scrubbed of SEO
+            // suffixes at the catalog write path — the stored row is clean
+            // by construction.
+            title = MetadataAssertions.normalizeTitle(book.title),
             author = book.author.ifBlank { "4read.org" },
             narrator = "4read Voice Narrator",
             description = "Аудіокнига з каталогу 4read.org. Джерело: ${book.url}",
@@ -447,7 +454,8 @@ class LibraryImport(
             (dao.findWorkByMergeKey(mergeKey) ?: WorkEntity(
                 id = mergeKey,
                 mergeKey = mergeKey,
-                title = book.title.trim(),
+                // Spec-24 T1: the Work row stores the scrubbed title too.
+                title = MetadataAssertions.normalizeTitle(book.title),
                 author = book.author.trim(),
                 seriesTitle = book.seriesTitle,
                 seriesUrl = book.seriesUrl,

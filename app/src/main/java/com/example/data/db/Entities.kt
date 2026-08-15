@@ -526,5 +526,21 @@ data class WorkFeedRow(
     // COUNT of `work_sources` rows for this Work — the badge count.
     val sourceCount: Int,
     // The library row's genre (nullable until the Work is linked/imported).
-    val genre: String? = null
+    val genre: String? = null,
+    // Spec-24 T1: the Work's listening total (the Edition owns it, ADR-0010)
+    // — joined from the domain `editions` row of the linked library copy;
+    // null/zero renders nothing on the card (unknown until known).
+    val durationSeconds: Long? = null
+)
+
+/**
+ * Spec-24 T1 — one (id, title) row of the one-time stored-title scrub: the
+ * startup pass reads both `audiobooks` and `works` titles through this
+ * projection, applies [com.example.data.metadata.MetadataAssertions.normalizeTitle]
+ * in Kotlin, and rewrites only the rows that change. A row projection of a
+ * Room query, not a stored table.
+ */
+data class TitleRow(
+    val id: String,
+    val title: String
 )

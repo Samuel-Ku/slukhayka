@@ -39,6 +39,10 @@ class ListenScreenBlocksSnapshotTest {
 
     private val book = TestDataFactory.dataBooks()[0]
     private val progress = TestDataFactory.seedPlaybackProgress(listOf(book), chapterIndex = 2, positionSeconds = 420L)[0]
+    // Spec-24 T1: the hero card shows the BOOK-level position — the chapters
+    // before the current one (600 + 660 for fixture book 0) plus the in-
+    // chapter offset (420) — the same cumulative value LibraryBook computes.
+    private val cumulativePositionSeconds = 600L + 660L + 420L
 
     @Test
     fun hero_resume_card() {
@@ -48,6 +52,7 @@ class ListenScreenBlocksSnapshotTest {
                     ListenHeroCard(
                         book = book,
                         progress = progress,
+                        cumulativePositionSeconds = cumulativePositionSeconds,
                         onResumeClick = {},
                         onBookClick = {}
                     )
@@ -69,6 +74,7 @@ class ListenScreenBlocksSnapshotTest {
                     ListenHeroCard(
                         book = book,
                         progress = progress,
+                        cumulativePositionSeconds = cumulativePositionSeconds,
                         onResumeClick = {},
                         onBookClick = {}
                     )
@@ -88,6 +94,7 @@ class ListenScreenBlocksSnapshotTest {
                     RecentlyListenedRow(
                         book = book,
                         progress = progress,
+                        cumulativePositionSeconds = cumulativePositionSeconds,
                         onClick = {},
                         onPlayClick = {}
                     )

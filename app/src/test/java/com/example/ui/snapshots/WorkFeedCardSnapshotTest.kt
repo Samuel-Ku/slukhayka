@@ -100,4 +100,37 @@ class WorkFeedCardSnapshotTest {
             filePath = "src/test/snapshots/work_feed_single_source_no_badge.png"
         )
     }
+
+    // Spec-24 T1: the feed card shows the full book duration (Ч:ММ:СС) under
+    // the author, and only when the duration is really known — never «0:00».
+    @Test
+    fun feed_card_known_duration_renders_time() {
+        setContent {
+            WorkFeedCard(
+                row = row("Пасажир", "Жан-Крістоф Гранже", editionCount = 1)
+                    .copy(durationSeconds = 60_061L),
+                onClick = {}
+            )
+        }
+        // Self-verifying on top of the image: the «16:41:01» line renders.
+        composeTestRule.onNodeWithText("16:41:01").assertExists()
+        composeTestRule.onRoot().captureRoboImage(
+            filePath = "src/test/snapshots/work_feed_duration.png"
+        )
+    }
+
+    @Test
+    fun feed_card_unknown_duration_renders_nothing() {
+        setContent {
+            WorkFeedCard(
+                row = row("Пасажир", "Жан-Крістоф Гранже", editionCount = 1),
+                onClick = {}
+            )
+        }
+        // No duration known — no time line at all (never a fabricated «0:00»).
+        composeTestRule.onNodeWithText("16:41:01").assertDoesNotExist()
+        composeTestRule.onRoot().captureRoboImage(
+            filePath = "src/test/snapshots/work_feed_no_duration.png"
+        )
+    }
 }

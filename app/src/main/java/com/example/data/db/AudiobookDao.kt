@@ -272,6 +272,23 @@ interface AudiobookDao {
     @Query("SELECT * FROM editions WHERE workId = :bookId LIMIT 1")
     suspend fun getEditionForWork(bookId: String): EditionEntity?
 
+    // --- Spec-24 T1: the one-time stored-title scrub -----------------------
+    // The startup pass reads every stored title (audiobooks + works), applies
+    // the pure normalizeTitle rule in Kotlin, and rewrites only the rows that
+    // change — idempotent by construction (a second run matches nothing).
+
+    @Query("SELECT id, title FROM audiobooks")
+    suspend fun getAllBookTitleRows(): List<TitleRow>
+
+    @Query("SELECT id, title FROM works")
+    suspend fun getAllWorkTitleRows(): List<TitleRow>
+
+    @Query("UPDATE audiobooks SET title = :title WHERE id = :id")
+    suspend fun updateBookTitle(id: String, title: String)
+
+    @Query("UPDATE works SET title = :title WHERE id = :id")
+    suspend fun updateWorkTitle(id: String, title: String)
+
     // --- Persisted catalogue: Works + Sources (spec-23 T1, ADR-0007) -------
 
     /** One Work per normalized merge key — the merge-on-write lookup. */
@@ -315,7 +332,8 @@ interface AudiobookDao {
         SELECT w.id AS workId, w.mergeKey, w.title, w.author, w.seriesTitle, w.seriesIndex,
                w.coverImageUrl, w.addedAt,
                (SELECT COUNT(*) FROM work_sources ws WHERE ws.workId = w.id) AS sourceCount,
-               a.genre AS genre
+               a.genre AS genre,
+               (SELECT e.totalDurationSeconds FROM editions e WHERE e.workId = le.id LIMIT 1) AS durationSeconds
         FROM works w
         LEFT JOIN library_entries le ON le.workId = w.id
         LEFT JOIN audiobooks a ON a.id = le.id
@@ -332,7 +350,8 @@ interface AudiobookDao {
         SELECT w.id AS workId, w.mergeKey, w.title, w.author, w.seriesTitle, w.seriesIndex,
                w.coverImageUrl, w.addedAt,
                (SELECT COUNT(*) FROM work_sources ws WHERE ws.workId = w.id) AS sourceCount,
-               a.genre AS genre
+               a.genre AS genre,
+               (SELECT e.totalDurationSeconds FROM editions e WHERE e.workId = le.id LIMIT 1) AS durationSeconds
         FROM works w
         LEFT JOIN library_entries le ON le.workId = w.id
         LEFT JOIN audiobooks a ON a.id = le.id

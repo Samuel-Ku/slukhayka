@@ -29,6 +29,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -1068,7 +1069,7 @@ class DeepModulesRoomTest {
     }
 
     @Test
-    fun `importBookFromSource merges different narrations into one Work`() = runBlocking {
+    fun `importBookFromSource creates a second card for a different narration of the same Work`() = runBlocking {
         val mods = modules()
         val base = com.example.data.source.SourceBookDetail(
             title = "Кобзар",
@@ -1082,14 +1083,75 @@ class DeepModulesRoomTest {
         val a = mods.imports.importBookFromSource("soundbooks", narratorA)
         val b = mods.imports.importBookFromSource("soundbooks", narratorB)
 
-        // ADR-0010: the narrator is an Edition property, never a Work key —
-        // two narrations of the same text are ONE Work and ONE library card
-        // (the Edition id still carries the narrator, so distinct narrations
-        // keep distinct rendition ids — ADR-0001).
+        // ADR-0011: the narrator is the rendition (Edition) identity — two
+        // narrations of the same text are ONE Work with TWO library cards,
+        // each with its own Edition and listening state (ADR-0001).
+        assertTrue(a.id != b.id)
+        assertEquals(2, dao.getAllAudiobooks().first().size)
+        assertEquals(1, dao.countWorks())
+        assertEquals(2, dao.countLibraryEntries())
+        // Both cards anchor to the SAME Work.
+        val workIdA = dao.getAudiobookById(a.id)?.workId
+        val workIdB = dao.getAudiobookById(b.id)?.workId
+        assertEquals(workIdA, workIdB)
+        assertTrue(workIdA!!.isNotBlank())
+        // Distinct rendition ids → distinct progress rows (ADR-0001).
+        val editionA = dao.getEditionForWork(a.id)!!.id
+        val editionB = dao.getEditionForWork(b.id)!!.id
+        assertTrue(editionA != editionB)
+        assertTrue(
+            com.example.data.EditionId.forBook(MergeKey.keyFor("Кобзар", "Тарас Шевченко"), "", "Богдан Бенюк") == editionB
+        )
+    }
+
+    @Test
+    fun `importBookFromSource merges the same narration into its card`() = runBlocking {
+        val mods = modules()
+        val base = com.example.data.source.SourceBookDetail(
+            title = "Кобзар",
+            author = "Тарас Шевченко",
+            narrator = "Валерій Завалко",
+            url = "https://sound-books.net/kobzar.html",
+            chapters = listOf(com.example.data.source.SourceChapter("1", "https://arch.sound-books.net/k/1.mp3"))
+        )
+        // The same narration from a second source: merges into the SAME card.
+        val second = base.copy(url = "https://audiobook-mp3.com/kobzar")
+
+        val a = mods.imports.importBookFromSource("soundbooks", base)
+        val b = mods.imports.importBookFromSource("audiobookmp3", second)
+
+        // ADR-0011: dedup is per rendition — the same narrator merges into the
+        // existing card and attaches the second source (one card, two sources).
         assertEquals(a.id, b.id)
         assertEquals(1, dao.getAllAudiobooks().first().size)
         assertEquals(1, dao.countWorks())
-        assertEquals(1, dao.countLibraryEntries())
+        assertEquals(2, dao.getSourcesForBookSync(a.id).size)
+    }
+
+    @Test
+    fun `second narration card keeps its own progress row`() = runBlocking {
+        val mods = modules()
+        val base = com.example.data.source.SourceBookDetail(
+            title = "Кобзар",
+            author = "Тарас Шевченко",
+            url = "https://sound-books.net/x.html",
+            chapters = listOf(com.example.data.source.SourceChapter("1", "https://arch.sound-books.net/x/01.mp3"))
+        )
+        val narratorA = base.copy(narrator = "Валерій Завалко", url = "https://sound-books.net/a.html")
+        val narratorB = base.copy(narrator = "Богдан Бенюк", url = "https://sound-books.net/b.html")
+
+        val a = mods.imports.importBookFromSource("soundbooks", narratorA)
+        val b = mods.imports.importBookFromSource("soundbooks", narratorB)
+        // Each card's Listening State is keyed by its own Edition.
+        mods.listening.updateProgress(a.id, chapterIndex = 1, positionSeconds = 120L)
+        mods.listening.updateProgress(b.id, chapterIndex = 0, positionSeconds = 42L)
+
+        assertEquals(2, dao.getAllPlaybackProgress().first().size)
+        assertEquals(1, dao.getPlaybackProgressSync(a.id)?.currentChapterIndex)
+        assertEquals(0, dao.getPlaybackProgressSync(b.id)?.currentChapterIndex)
+        assertTrue(
+            dao.getPlaybackProgressSync(a.id)!!.editionId != dao.getPlaybackProgressSync(b.id)!!.editionId
+        )
     }
 
     @Test
@@ -1368,7 +1430,7 @@ class DeepModulesRoomTest {
     }
 
     @Test
-    fun `importWebSourcePage merges the same book with an existing source into one Work`() = runBlocking {
+    fun `importWebSourcePage with a different narration creates a second rendition card of the same Work`() = runBlocking {
         val fetcher = com.example.testing.FakeFetcher(
             mapOf(
                 "https://9giiu0g54k8c.redirectto.cc/s05/2/6/5/4/4/26544.pl.txt" to sluhayPlaylist
@@ -1376,8 +1438,10 @@ class DeepModulesRoomTest {
         )
         val mods = modules(listOf(com.example.data.source.SluhayAdapter(fetcher))
         )
-        // A same-narration 4read copy already in the library (merge key
-        // = normalized title|author, narrator empty on both).
+        // A 4read copy already in the library. The 4read source carries no
+        // narrator metadata, so its card gets the "4read narrator" rendition
+        // placeholder; the sluhay captured page likewise yields "sluhay
+        // narrator" — a DIFFERENT rendition of the same Work (ADR-0011).
         val existing = mods.imports.importBookFromSource(
             "4read",
             com.example.data.source.SourceBookDetail(
@@ -1388,14 +1452,17 @@ class DeepModulesRoomTest {
             )
         )
 
-        val merged = mods.imports.importWebSourcePage("sluhay", sluhayBookUrl, sluhayCapturedPage())
+        val second = mods.imports.importWebSourcePage("sluhay", sluhayBookUrl, sluhayCapturedPage())
 
-        // One Work card, two sources.
-        assertEquals(existing.id, merged!!.id)
-        assertEquals(1, dao.getAllAudiobooks().first().size)
-        val sources = dao.getSourcesForBookSync(existing.id)
-        assertEquals(2, sources.size)
-        assertEquals(setOf("4read", "sluhay"), sources.map { it.type }.toSet())
+        // Two rendition cards under ONE Work (same merge key), each with its
+        // own edition and its own source.
+        assertNotNull(second)
+        assertNotEquals(existing.id, second!!.id)
+        assertEquals(2, dao.getAllAudiobooks().first().size)
+        assertEquals(existing.mergeKey, second.mergeKey)
+        assertNotEquals(dao.getEditionForWork(existing.id)?.id, dao.getEditionForWork(second.id)?.id)
+        assertEquals("4read", dao.getSourcesForBookSync(existing.id).single().type)
+        assertEquals("sluhay", dao.getSourcesForBookSync(second.id).single().type)
     }
 
     // ---------------------------------------------------------------------

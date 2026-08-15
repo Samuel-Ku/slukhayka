@@ -36,9 +36,12 @@ import com.example.data.db.AudiobookEntity
 import com.example.data.db.BookmarkEntity
 import com.example.data.db.ChapterEntity
 import com.example.data.downloads.OfflineDownloads
+import com.example.data.entries.LibraryEntries
 import com.example.data.listening.ListeningStateStore
+import com.example.data.source.sourceDisplayName
 import com.example.data.source.sourceIdForUrl
 import com.example.data.source.streamOnlyFor
+import com.example.ui.library.siblingNarrations
 import com.example.ui.MainViewModel
 import com.example.ui.bookPersonPath
 import com.example.ui.components.BookmarkDialog
@@ -60,6 +63,9 @@ fun BookDetailScreen(
     // stay orchestrated by the ViewModel.
     listeningState: ListeningStateStore,
     offlineDownloads: OfflineDownloads,
+    // ADR-0011: the screen reads the other rendition cards of the same Work
+    // (the «Інші начитки» block) straight from the module.
+    libraryEntries: LibraryEntries,
     onBackClick: () -> Unit
 ) {
     val book by viewModel.selectedBook.collectAsState()
@@ -86,6 +92,13 @@ fun BookDetailScreen(
 
     val currentBook = book ?: return
     val isDownloadingThis = downloadingBookId == currentBook.id
+    // ADR-0011: the other rendition cards of this Work — the «Інші начитки»
+    // block. Cold flow collected once per composition; the pure filter is
+    // JVM-tested (siblingNarrations).
+    val allBooks by libraryEntries.allBooks.collectAsState(initial = emptyList())
+    val siblingCards = remember(currentBook.id, currentBook.mergeKey, allBooks) {
+        siblingNarrations(allBooks, currentBook.id, currentBook.mergeKey ?: "")
+    }
     // Spec-10 T6: stream-only sources (lihtar — its ToS forbids reproduction)
     // hide the download action; the repository refuses anyway, in depth.
     // ADR-0008: the pure stream-only decision is read from the source helpers
@@ -482,6 +495,26 @@ fun BookDetailScreen(
                                 modifier = Modifier.size(20.dp),
                                 strokeWidth = 2.dp,
                                 color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+
+                    // ADR-0011: «Інші начитки» — the other rendition cards of
+                    // the same Work. Tapping one opens that card (its own
+                    // narrator, chapters, progress) — the narration selection.
+                    if (siblingCards.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(20.dp))
+                        Text(
+                            text = "Інші начитки",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.padding(horizontal = 8.dp)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        siblingCards.forEach { sibling ->
+                            NarrationRowCard(
+                                sibling = sibling,
+                                onClick = { viewModel.selectBook(sibling.id) }
                             )
                         }
                     }
@@ -1272,6 +1305,56 @@ fun WorkSourceRowCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
+            }
+        }
+    }
+}
+
+/**
+ * ADR-0011 — one row of the book page's «Інші начитки» section: another
+ * rendition card of the same Work. The narrator is the rendition identity
+ * (ADR-0010); the row shows it plus the source the card came from, and
+ * tapping it opens that card — the narration selection. Pure `@Composable`.
+ */
+@Composable
+fun NarrationRowCard(
+    sibling: com.example.data.db.AudiobookEntity,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(AppDimens.RadiusPanel),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp, vertical = 4.dp)
+            .testTag("narration_${sibling.id}")
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.RecordVoiceOver,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(22.dp)
+            )
+            Spacer(modifier = Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = sibling.narrator.ifBlank { "Невідомий читач" },
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = sourceDisplayName(sourceIdForUrl(sibling.sourceUrl)),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
     }

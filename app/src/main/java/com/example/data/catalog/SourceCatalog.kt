@@ -52,7 +52,17 @@ class SourceCatalog(
     // top-100/people). Same HttpFetcher the adapters use; the module owns no
     // HTTP client of its own. Injectable so the hydration tests serve canned
     // pages without network.
-    private val fourReadFetcher: HttpFetcher = HttpFetcher(referer = "https://4read.org/")
+    private val fourReadFetcher: HttpFetcher = HttpFetcher(referer = "https://4read.org/"),
+    // Spec-16: the curated smart-collection lists, loaded at the composition
+    // root through the context seam (CollectionAssets). Empty in tests that
+    // don't exercise collections; a list asset is pure data — adding one is
+    // a JSON file, never a code change.
+    private val collectionLists: List<com.example.data.collections.CollectionList> = emptyList(),
+    // Spec-16 follow-up: LIVE collection sources (bestsellers/trending)
+    // fetched over the shared HTTP transport on the union refresh. Best-effort
+    // per source — a failing source contributes no collection, never breaks
+    // the refresh. Empty in tests that don't exercise live lists.
+    private val liveCollectionSources: List<com.example.data.collections.LiveCollectionSource> = emptyList()
 ) {
 
     private val fourReadAdapter: SourceAdapter =
@@ -100,6 +110,26 @@ class SourceCatalog(
     private val _unifiedCatalog = MutableStateFlow<List<GlobalSearchResult>>(emptyList())
     val unifiedCatalog: StateFlow<List<GlobalSearchResult>> = _unifiedCatalog.asStateFlow()
 
+    // Spec-16 T2: the matched smart collections — recomputed from the union
+    // on every refreshUnifiedCatalog (the SAME trigger that recomputes the
+    // union itself), so a newly enumerated book appears in its collection
+    // after the next catalog refresh. Computed, never stored — no Room rows,
+    // no schema change. Empty collections are absent from the flow.
+    private val _smartCollections =
+        MutableStateFlow<List<com.example.data.collections.CollectionMatcher.MatchedCollection>>(emptyList())
+    val smartCollections: StateFlow<List<com.example.data.collections.CollectionMatcher.MatchedCollection>> =
+        _smartCollections.asStateFlow()
+
+    // Spec-16 follow-up: the last fetched LIVE collections (static + live are
+    // matched together; this flow lets tests pin what a live source actually
+    // contributed). TTL-cached per source like the feeds — repeated refreshes
+    // within the TTL reuse the session's lists instead of re-fetching.
+    private class CachedLiveList(val fetchedAt: Long, val lists: List<com.example.data.collections.CollectionList>)
+    private val liveCollectionCache = java.util.concurrent.ConcurrentHashMap<String, CachedLiveList>()
+    private val _liveCollections = MutableStateFlow<List<com.example.data.collections.CollectionList>>(emptyList())
+    val liveCollections: StateFlow<List<com.example.data.collections.CollectionList>> =
+        _liveCollections.asStateFlow()
+
     private val _isUnifiedCatalogLoading = MutableStateFlow(false)
     val isUnifiedCatalogLoading: StateFlow<Boolean> = _isUnifiedCatalogLoading.asStateFlow()
 
@@ -129,6 +159,17 @@ class SourceCatalog(
                 }
                 val merged = mergeGlobalSearchResults(books)
                 _unifiedCatalog.value = merged
+                // Spec-16 T2 + follow-up: the collections ride the same
+                // recompute — the union is the match corpus, so a changed
+                // union (or a changed live list) changes the collections with
+                // it. Live sources are best-effort and TTL-cached; matchAll
+                // drops empty collections.
+                _liveCollections.value = liveCollectionsFor()
+                _smartCollections.value =
+                    com.example.data.collections.CollectionMatcher.matchAll(
+                        collectionLists + _liveCollections.value,
+                        merged
+                    )
                 merged
             } finally {
                 _isUnifiedCatalogLoading.value = false
@@ -152,6 +193,33 @@ class SourceCatalog(
         }
         adapterCatalogCache[adapter.sourceId] = CachedFeed(System.currentTimeMillis(), books)
         return books
+    }
+
+    /**
+     * Spec-16 follow-up — fetches the live collections, best-effort per
+     * source and TTL-cached for the session like the feeds (a live list is a
+     * convenience, safe to serve stale for a refresh or two). A failing
+     * source contributes nothing; the whole call never throws.
+     */
+    private suspend fun liveCollectionsFor(): List<com.example.data.collections.CollectionList> {
+        if (liveCollectionSources.isEmpty()) return emptyList()
+        val now = System.currentTimeMillis()
+        val lists = mutableListOf<com.example.data.collections.CollectionList>()
+        for (source in liveCollectionSources) {
+            val cached = liveCollectionCache[source.sourceId]
+            if (cached != null && now - cached.fetchedAt < newFeedTtlMs) {
+                lists += cached.lists
+                continue
+            }
+            val fetched = try {
+                source.fetchLiveCollections()
+            } catch (e: Exception) {
+                emptyList()
+            }
+            liveCollectionCache[source.sourceId] = CachedLiveList(now, fetched)
+            lists += fetched
+        }
+        return lists
     }
 
     private val _sourceFeeds = MutableStateFlow<List<SourceNewFeed>>(emptyList())

@@ -2,8 +2,8 @@ package com.example
 
 import android.app.Application
 import com.example.data.catalog.SourceCatalog
-import com.example.data.collection.SmartCollectionAssets
-import com.example.data.collection.SmartCollections
+import com.example.data.collections.CollectionAssets
+import com.example.data.collections.OpenLibraryTrendingSource
 import com.example.data.db.AudiobookDatabase
 import com.example.data.downloads.OfflineDownloads
 import com.example.data.duration.DurationEnrichment
@@ -79,7 +79,17 @@ class App : Application() {
 
     /** Source Catalog: browse/sync/search + chapter materialisation. */
     val sourceCatalog: SourceCatalog by lazy {
-        SourceCatalog(database.audiobookDao(), sourceAdapters, libraryImport)
+        // Spec-16: the curated smart-collection lists ride the context seam —
+        // one JSON file per collection, loaded once at the composition root.
+        // The live «Популярне зараз» list (OpenLibrary trending, keyless) is
+        // fetched over the shared HTTP transport on the union refresh.
+        SourceCatalog(
+            database.audiobookDao(),
+            sourceAdapters,
+            libraryImport,
+            collectionLists = CollectionAssets.load(this),
+            liveCollectionSources = listOf(OpenLibraryTrendingSource())
+        )
     }
 
     /** Offline Downloads: download/remove/cache-clear over the catalog's chapter fetch. */
@@ -100,14 +110,6 @@ class App : Application() {
     val durationEnrichment: DurationEnrichment by lazy {
         val fourRead = sourceAdapters.first { it.sourceId == "4read" }
         DurationEnrichment(database.audiobookDao(), fourRead::fetchBookPage)
-    }
-
-    /**
-     * Spec-16 T2 (#108): smart collections matched against the stored
-     * catalog, recomputed on catalog syncs.
-     */
-    val smartCollections: SmartCollections by lazy {
-        SmartCollections(database.audiobookDao()) { SmartCollectionAssets.load(this) }
     }
 
     /** Single player manager; created lazily on first playback/service access. */

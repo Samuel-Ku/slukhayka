@@ -56,6 +56,13 @@ interface AudiobookDao {
     @Query(BOOK_SELECT + " WHERE w.mergeKey = :mergeKey AND w.mergeKey != '' LIMIT 1")
     suspend fun findByMergeKey(mergeKey: String): BookRow?
 
+    // ADR-0011: the library card of a given RENDITION — the Edition id is the
+    // rendition identity (`hash(mergeKey|narrator|language)`), so this is the
+    // narration-aware dedup lookup: the same narration of a Work resolves to
+    // its card, a different narration resolves to nothing (a new card).
+    @Query(BOOK_SELECT + " JOIN editions e ON e.workId = a.id WHERE e.id = :editionId LIMIT 1")
+    suspend fun findBookByEditionId(editionId: String): BookRow?
+
     // --- Sources (spec-10 T2; re-parented to editionId in ADR-0007) ---
 
     @Query("SELECT * FROM sources WHERE bookId = :bookId ORDER BY addedAt ASC")

@@ -77,5 +77,13 @@ Captured-page import is a [SourceAdapter] capability — `parseCapturedPage(html
 _Avoid_: per-adapter captured-page methods, raw HttpURLConnection in modules
 
 **Bibliographic Work, Edition-owned narrator**:
-The Work is `title|author` — the mergeKey carries NO narrator. The narrator is an Edition (rendition) property: it lives on `editions` and on the audiobooks row (the user's copy of one rendition), never on `works`. The Edition id hashes `mergeKey|narrator|language`, so two narrations of one Work never share listening state (ADR-0001) even though they share the Work (ADR-0010). The library keeps one rendition per Work for now; a second narration of an imported book merges into the existing card.
+The Work is `title|author` — the mergeKey carries NO narrator. The narrator is an Edition (rendition) property: it lives on `editions` and on the audiobooks row (the user's copy of one rendition), never on `works`. The Edition id hashes `mergeKey|narrator|language`, so two narrations of one Work never share listening state (ADR-0001) even though they share the Work (ADR-0010).
 _Avoid_: narrator in the mergeKey, narrator on the Works row
+
+**Multi-Edition library**:
+Import dedup is per RENDITION (Edition id), not per Work — the same narration merges into its card, a DIFFERENT narration of the same Work creates a NEW card of that Work (own audiobooks row, own Library Entry under the same `workId`, own Edition/chapters/sources/tracks/progress). The book page lists the other rendition cards in the «Інші начитки» block via the pure, JVM-tested `siblingNarrations` (ADR-0011). No schema change — the v16 split already allowed several entries per Work.
+_Avoid_: one card per Work with unreachable second narrations
+
+**Smart collections**:
+The «Колекції» Огляд block is curated external lists (Нобелівські лауреати, Шевченківська премія, Букер) shipped as static JSON assets (`assets/collections/`), matched locally against the catalog union. The strict decoder (`CollectionJson`) and the matcher (`CollectionMatcher`) are pure JVM; the matcher reuses the MergeKey normalization plus diacritics (Cyrillic-preserving) and parenthetical-annotation trimming, requires author agreement, and hides non-matches (author-only fallback for title-less entries). `SourceCatalog.smartCollections` is recomputed on the SAME trigger as the union (`refreshUnifiedCatalog`); empty collections are dropped, nothing is persisted — no schema change (ADR-0012).
+_Avoid_: network lists, Room persistence of match results

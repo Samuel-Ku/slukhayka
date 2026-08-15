@@ -59,18 +59,29 @@ class LibraryImport(
     // ---------------------------------------------------------------------
 
     /**
-     * Spec-10 T2 — the multi-source import core. Turns a parsed source book
-     * (from a [SourceAdapter]) into a Work row plus a Source row. When a book
-     * with the same merge key (normalized title|author|narrator) already
-     * exists, the new source is attached to it and the existing Work is
-     * returned — one library card, several sources, no duplicates.
+     * Spec-10 T2 + ADR-0011 — the multi-source import core. Turns a parsed
+     * source book (from a [SourceAdapter]) into a Work row plus a Source row.
+     * Dedup is per RENDITION: a book whose Edition (same narrator — the
+     * rendition identity, [EditionId]) already exists in the library merges
+     * into that card (the new source is attached to it); the SAME Work with a
+     * DIFFERENT narration creates a NEW card — several rendition cards under
+     * one Work, each with its own Edition, chapters, tracks and progress.
      */
     suspend fun importBookFromSource(sourceId: String, detail: SourceBookDetail): AudiobookEntity =
         withContext(Dispatchers.IO) {
             // ADR-0010: the Work key is bibliographic (title|author) — the
             // narrator is an Edition property, never part of the Work.
             val mergeKey = MergeKey.keyFor(detail.title, detail.author)
-            val existing = if (mergeKey.isNotBlank()) dao.findByMergeKey(mergeKey) else null
+            val narrator = MetadataAssertions.normalizeClaimedText(detail.narrator) ?: "$sourceId narrator"
+            // ADR-0011: the Edition id is the rendition identity and is
+            // deterministic for mergeable books (the bookId fallback applies
+            // only to blank keys), so the same narration resolves to its card
+            // and a different narration of the same Work resolves to nothing.
+            val existing = if (mergeKey.isNotBlank()) {
+                dao.findBookByEditionId(EditionId.forBook(mergeKey, "", narrator, ""))
+            } else {
+                null
+            }
             val bookId = existing?.id ?: adapterBookId(sourceId, detail.url)
 
             if (existing == null) {
@@ -90,7 +101,7 @@ class LibraryImport(
                     id = bookId,
                     title = detail.title,
                     author = MetadataAssertions.normalizeClaimedText(detail.author) ?: sourceId,
-                    narrator = MetadataAssertions.normalizeClaimedText(detail.narrator) ?: "$sourceId narrator",
+                    narrator = narrator,
                     description = "Аудіокнига з джерела $sourceId. Джерело: ${detail.url}",
                     coverDrawableRes = R.drawable.img_neuromancer_cover_1785247475170,
                     coverImageUrl = MetadataAssertions.coverDelta(detail.coverImageUrl),

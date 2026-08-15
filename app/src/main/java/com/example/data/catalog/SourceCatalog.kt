@@ -10,6 +10,7 @@ import com.example.data.db.WorkEntity
 import com.example.data.db.WorkFeedRow
 import com.example.data.imports.LibraryImport
 import com.example.data.merge.MergeKey
+import com.example.data.metadata.MetadataAssertions
 import com.example.data.source.FourReadAdapter
 import com.example.data.source.GlobalSearchResult
 import com.example.data.source.HttpFetcher
@@ -372,25 +373,26 @@ class SourceCatalog(
             // persists what the seam's SourceBookDetail carries.
             val detail = fourReadAdapter.fetchBookPage(sourceUrl)
             if (detail.chapters.isNotEmpty()) {
-                val realChapters = detail.chapters.mapIndexed { index, chapter ->
-                    ChapterEntity(
-                        id = "${bookId}_ch_${index + 1}",
-                        bookId = bookId,
-                        chapterIndex = index,
-                        title = "Глава ${index + 1} (${book?.title ?: "4read"})",
-                        durationSeconds = 0L, // unknown until the stream is actually played
-                        streamUrl = chapter.streamUrl
-                    )
-                }
+                // ADR-0004: chapter materialization (one id format, one title
+                // fallback, duration conventions) comes from the one module.
+                val realChapters = MetadataAssertions.materializeChapters(
+                    bookId,
+                    book?.title ?: "4read",
+                    detail.chapters
+                )
                 dao.insertChapters(realChapters)
                 // Back-fill the real chapter count, the site's own total
                 // duration ("Триває:"), and the real author/narrator/genre/
                 // rating/series now that we've fetched the book page — the
-                // catalogue seed only ever had placeholders.
-                val knownDuration = detail.totalDurationSeconds ?: book?.totalDurationSeconds ?: 0L
+                // catalogue seed only ever had placeholders. All claim
+                // normalization goes through the one module (ADR-0004).
+                val knownDuration = MetadataAssertions.durationDelta(
+                    book?.totalDurationSeconds ?: 0L,
+                    detail.totalDurationSeconds
+                )
                 dao.updateBookStats(bookId, realChapters.size, knownDuration)
-                val author = detail.author.ifBlank { null }
-                val narrator = detail.narrator.ifBlank { null }
+                val author = MetadataAssertions.normalizeClaimedText(detail.author)
+                val narrator = MetadataAssertions.normalizeClaimedText(detail.narrator)
                 val genres = detail.genres.joinToString(" · ").ifBlank { null }
                 val rating = detail.rating?.toFloat()
                 val seriesTitle = detail.series?.name
@@ -413,9 +415,10 @@ class SourceCatalog(
                 // Cover via a targeted UPDATE, not a REPLACE insert: the row
                 // carries freshly back-filled metadata above, and a full-row
                 // re-insert with the stale seed entity would clobber it back
-                // to the placeholders ("4read.org" etc.).
-                if (!detail.coverImageUrl.isNullOrBlank()) {
-                    dao.updateCoverImageUrl(bookId, detail.coverImageUrl)
+                // to the placeholders ("4read.org" etc.). Only a non-blank
+                // claim ever updates the cover (ADR-0004).
+                MetadataAssertions.coverDelta(detail.coverImageUrl)?.let { cover ->
+                    dao.updateCoverImageUrl(bookId, cover)
                 }
                 return realChapters
             }

@@ -2,6 +2,7 @@ package com.example.data.db
 
 import androidx.room.Entity
 import androidx.room.ColumnInfo
+import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
@@ -316,4 +317,63 @@ data class EditionSettingsEntity(
     val volumeBoostEnabled: Boolean = false,
     val silenceSkipEnabled: Boolean = false,
     val updatedAt: Long = System.currentTimeMillis()
+)
+
+/**
+ * A persisted catalogue Work (spec-23 T1): one row per book identity, keyed
+ * by the normalized title+author+narrator [MergeKey]. This is the browse
+ * layer — distinct from [AudiobookEntity], which stays the listening/library
+ * row and links to a Work only when the user adds or plays it. One card per
+ * Work, however many sources carry it; the sources live in [EditionEntity].
+ */
+@Entity(
+    tableName = "works",
+    indices = [Index("mergeKey")]
+)
+data class WorkEntity(
+    // The merge key itself for mergeable rows (the pinned identity, #54/#55);
+    // a stable per-source id for unmergeable rows (blank key, no identity to
+    // merge on).
+    @PrimaryKey val id: String,
+    // Normalized title|author[|narrator]; '' for unmergeable rows — dedup by
+    // lookup on the write path (merge-on-write), never a blank-key collision.
+    val mergeKey: String,
+    val title: String,
+    val author: String,
+    val narrator: String = "",
+    val seriesTitle: String? = null,
+    val seriesIndex: Int? = null,
+    val coverImageUrl: String? = null,
+    val addedAt: Long = System.currentTimeMillis()
+)
+
+/**
+ * A persisted catalogue Edition (spec-23 T1): one row per source carrying a
+ * [WorkEntity]. Writing the same book from two sources attaches a second
+ * Edition to the same Work — the browse feed shows one card with an «N
+ * джерел» badge (spec-23 T5), never duplicates.
+ */
+@Entity(
+    tableName = "editions",
+    foreignKeys = [
+        ForeignKey(
+            entity = WorkEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["workId"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ],
+    indices = [Index("workId"), Index("sourceId")]
+)
+data class EditionEntity(
+    // Deterministic per (work, source, url) so re-writing is idempotent:
+    // `<workId>|<sourceId>|<url-hash>` — REPLACE no-ops on the same row.
+    @PrimaryKey val id: String,
+    val workId: String,
+    val sourceId: String,
+    val sourceUrl: String,
+    val streamOnly: Boolean = false,
+    val coverImageUrl: String? = null,
+    val durationSeconds: Long? = null,
+    val addedAt: Long = System.currentTimeMillis()
 )

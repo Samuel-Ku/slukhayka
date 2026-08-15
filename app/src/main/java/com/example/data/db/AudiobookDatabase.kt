@@ -21,9 +21,11 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         CorrectionEntity::class,
         SeriesEntity::class,
         SeriesMemberEntity::class,
-        EditionSettingsEntity::class
+        EditionSettingsEntity::class,
+        WorkEntity::class,
+        EditionEntity::class
     ],
-    version = 12,
+    version = 13,
     exportSchema = true
 )
 abstract class AudiobookDatabase : RoomDatabase() {
@@ -47,7 +49,7 @@ abstract class AudiobookDatabase : RoomDatabase() {
                     // upgrades, so a schema change fails loudly at runtime
                     // instead of silently dropping the database.
                     .addMigrations(
-                        MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12
+                        MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13
                     )
                     .build()
                 INSTANCE = instance
@@ -293,6 +295,52 @@ abstract class AudiobookDatabase : RoomDatabase() {
                         "updatedAt INTEGER NOT NULL, " +
                         "PRIMARY KEY(bookId, sourceKey))"
                 )
+            }
+        }
+
+        /**
+         * v12 -> v13 (spec-23 T1): the persisted browse catalogue. Additive
+         * only — two new tables, no existing table is touched, so every v12
+         * row (audiobooks, chapters, progress, downloads, tombstones) survives
+         * untouched. The `works` table is one row per book identity keyed by
+         * the normalized MergeKey (dedup happens on the write path —
+         * merge-on-write — never a blank-key collision, so `mergeKey` is a
+         * plain index, not UNIQUE); `editions` is one row per source carrying
+         * a Work, with a deterministic id (`<workId>|<sourceId>|<url-hash>`)
+         * so re-hydration is idempotent. Internal (not private) so the JVM
+         * test suite can verify the upgrade path against a real v12 database.
+         */
+        internal val MIGRATION_12_13 = object : Migration(12, 13) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS works (" +
+                        "id TEXT NOT NULL, " +
+                        "mergeKey TEXT NOT NULL, " +
+                        "title TEXT NOT NULL, " +
+                        "author TEXT NOT NULL, " +
+                        "narrator TEXT NOT NULL DEFAULT '', " +
+                        "seriesTitle TEXT, " +
+                        "seriesIndex INTEGER, " +
+                        "coverImageUrl TEXT, " +
+                        "addedAt INTEGER NOT NULL, " +
+                        "PRIMARY KEY(id))"
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_works_mergeKey ON works(mergeKey)")
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS editions (" +
+                        "id TEXT NOT NULL, " +
+                        "workId TEXT NOT NULL, " +
+                        "sourceId TEXT NOT NULL, " +
+                        "sourceUrl TEXT NOT NULL, " +
+                        "streamOnly INTEGER NOT NULL DEFAULT 0, " +
+                        "coverImageUrl TEXT, " +
+                        "durationSeconds INTEGER, " +
+                        "addedAt INTEGER NOT NULL, " +
+                        "PRIMARY KEY(id), " +
+                        "FOREIGN KEY(workId) REFERENCES works(id) ON DELETE CASCADE)"
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_editions_workId ON editions(workId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_editions_sourceId ON editions(sourceId)")
             }
         }
     }

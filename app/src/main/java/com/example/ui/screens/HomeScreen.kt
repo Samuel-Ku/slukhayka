@@ -53,6 +53,7 @@ import com.example.ui.theme.*
  * - Smart Continue Listening Session card with exact remaining time
  * - 4Read.org curated rows (Новинки, Цикли/Серії) with genre-aware fallback art
  * - Full local library archive placed at the bottom
+ * - High-contrast typography hierarchy (M3 standards, no text < 11sp, tabular timers)
  * - Tactile haptic feedback & system BackHandler
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -131,12 +132,12 @@ fun HomeScreen(
             .testTag("home_screen"),
         contentPadding = PaddingValues(bottom = 120.dp)
     ) {
-        // --- Header & Collapsible Search (Ticket #1) ---
+        // --- Header & Collapsible Search ---
         item {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 10.dp)
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
             ) {
                 // Top Action Bar
                 Row(
@@ -149,32 +150,35 @@ fun HomeScreen(
                             shape = RoundedCornerShape(12.dp),
                             color = CyberPrimary.copy(alpha = 0.2f),
                             border = androidx.compose.foundation.BorderStroke(1.dp, CyberPrimary.copy(alpha = 0.5f)),
-                            modifier = Modifier.size(38.dp)
+                            modifier = Modifier.size(40.dp)
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 Icon(
                                     imageVector = Icons.Default.Headphones,
                                     contentDescription = null,
                                     tint = CyberPrimary,
-                                    modifier = Modifier.size(20.dp)
+                                    modifier = Modifier.size(22.dp)
                                 )
                             }
                         }
-                        Spacer(modifier = Modifier.width(10.dp))
+                        Spacer(modifier = Modifier.width(12.dp))
                         Column {
                             Text(
                                 text = "4Read Audio",
                                 style = MaterialTheme.typography.titleLarge.copy(
                                     fontWeight = FontWeight.ExtraBold,
                                     fontSize = 20.sp,
-                                    letterSpacing = 0.5.sp
+                                    letterSpacing = 0.3.sp
                                 ),
                                 color = CyberTextPrimary
                             )
                             Text(
                                 text = "Українські аудіокниги",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = CyberPrimary
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    color = CyberPrimary,
+                                    fontWeight = FontWeight.Medium,
+                                    fontSize = 12.sp
+                                )
                             )
                         }
                     }
@@ -195,7 +199,7 @@ fun HomeScreen(
                                 }
                             },
                             modifier = Modifier
-                                .size(38.dp)
+                                .size(40.dp)
                                 .clip(CircleShape)
                                 .background(if (isSearchExpanded) CyberPrimary else CyberSurfaceVariant)
                                 .testTag("home_search_toggle_button")
@@ -215,7 +219,7 @@ fun HomeScreen(
                                 viewModel.refreshCatalog()
                             },
                             modifier = Modifier
-                                .size(38.dp)
+                                .size(40.dp)
                                 .clip(CircleShape)
                                 .background(CyberSurfaceVariant)
                                 .testTag("home_refresh_button")
@@ -236,7 +240,7 @@ fun HomeScreen(
                     enter = expandVertically(animationSpec = tween(250)) + fadeIn(animationSpec = tween(250)),
                     exit = shrinkVertically(animationSpec = tween(200)) + fadeOut(animationSpec = tween(200))
                 ) {
-                    Column(modifier = Modifier.padding(top = 12.dp)) {
+                    Column(modifier = Modifier.padding(top = 14.dp)) {
                         // Search Input
                         OutlinedTextField(
                             value = searchQuery,
@@ -244,8 +248,10 @@ fun HomeScreen(
                             placeholder = {
                                 Text(
                                     "Пошук книги, автора чи диктора...",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = CyberTextSecondary.copy(alpha = 0.7f)
+                                    style = MaterialTheme.typography.bodyMedium.copy(
+                                        fontSize = 14.sp
+                                    ),
+                                    color = CyberTextSecondary.copy(alpha = 0.8f)
                                 )
                             },
                             leadingIcon = {
@@ -265,6 +271,10 @@ fun HomeScreen(
                                     }
                                 }
                             },
+                            textStyle = MaterialTheme.typography.bodyMedium.copy(
+                                color = CyberTextPrimary,
+                                fontSize = 14.sp
+                            ),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .focusRequester(searchFocusRequester)
@@ -274,7 +284,7 @@ fun HomeScreen(
                                 focusedContainerColor = CyberCardBg,
                                 unfocusedContainerColor = CyberCardBg,
                                 focusedBorderColor = CyberPrimary,
-                                unfocusedBorderColor = CyberCardBorder.copy(alpha = 0.6f)
+                                unfocusedBorderColor = CyberCardBorder.copy(alpha = 0.8f)
                             ),
                             singleLine = true
                         )
@@ -298,6 +308,7 @@ fun HomeScreen(
                                         Text(
                                             text = filter,
                                             style = MaterialTheme.typography.labelMedium.copy(
+                                                fontSize = 12.sp,
                                                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                                             )
                                         )
@@ -312,7 +323,7 @@ fun HomeScreen(
                                     border = FilterChipDefaults.filterChipBorder(
                                         enabled = true,
                                         selected = isSelected,
-                                        borderColor = CyberCardBorder.copy(alpha = 0.5f),
+                                        borderColor = CyberCardBorder.copy(alpha = 0.6f),
                                         selectedBorderColor = CyberPrimary
                                     )
                                 )
@@ -335,7 +346,10 @@ fun HomeScreen(
                 ) {
                     Text(
                         text = if (searchQuery.isNotBlank()) "Знайдено за запитом" else selectedGenre,
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, fontSize = 16.sp),
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp
+                        ),
                         color = CyberTextPrimary
                     )
                     Surface(
@@ -344,9 +358,12 @@ fun HomeScreen(
                     ) {
                         Text(
                             text = "${filteredBooks.size} книг",
-                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                            style = MaterialTheme.typography.labelMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp
+                            ),
                             color = CyberPrimary,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                         )
                     }
                 }
@@ -370,7 +387,7 @@ fun HomeScreen(
                 )
             }
         } else {
-            // --- Default Curated Feed View (Ticket #3) ---
+            // --- Default Curated Feed View ---
 
             // 1. Shimmer skeleton when catalog is loading on empty state
             if (isCatalogLoading && allBooks.isEmpty() && sections.isEmpty()) {
@@ -460,12 +477,12 @@ fun HomeScreen(
                 }
             }
 
-            // 5. Full Local Library Archive (Moved to Bottom - Ticket #3)
+            // 5. Full Local Library Archive (Placed at Bottom)
             item {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(start = 16.dp, end = 16.dp, top = 24.dp, bottom = 8.dp),
+                        .padding(start = 16.dp, end = 16.dp, top = 26.dp, bottom = 8.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -484,9 +501,12 @@ fun HomeScreen(
                     ) {
                         Text(
                             text = "${filteredBooks.size}",
-                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                            style = MaterialTheme.typography.labelMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp
+                            ),
                             color = CyberPrimary,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp)
                         )
                     }
                 }
@@ -521,13 +541,13 @@ fun CatalogRowHeader(title: String) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 16.dp, end = 16.dp, top = 18.dp, bottom = 8.dp),
+            .padding(start = 16.dp, end = 16.dp, top = 20.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
             modifier = Modifier
                 .width(4.dp)
-                .height(16.dp)
+                .height(18.dp)
                 .clip(RoundedCornerShape(2.dp))
                 .background(CyberPrimary)
         )
@@ -537,7 +557,7 @@ fun CatalogRowHeader(title: String) {
             style = MaterialTheme.typography.titleMedium.copy(
                 fontWeight = FontWeight.ExtraBold,
                 fontSize = 14.sp,
-                letterSpacing = 0.5.sp
+                letterSpacing = 0.6.sp
             ),
             color = CyberTextPrimary
         )
@@ -546,7 +566,7 @@ fun CatalogRowHeader(title: String) {
 
 /**
  * 2026 Cover-first card for horizontal catalogue rows:
- * High quality rounded cover, duration/rating badges, clear typography.
+ * High-contrast rating badge, comfortable line heights, 14sp title.
  */
 @Composable
 fun CatalogBookCard(
@@ -555,7 +575,7 @@ fun CatalogBookCard(
 ) {
     Column(
         modifier = Modifier
-            .width(130.dp)
+            .width(136.dp)
             .clip(RoundedCornerShape(16.dp))
             .clickable { onClick() }
             .testTag("catalog_book_${book.id}"),
@@ -563,15 +583,15 @@ fun CatalogBookCard(
     ) {
         Box(
             modifier = Modifier
-                .width(130.dp)
-                .height(182.dp)
+                .width(136.dp)
+                .height(188.dp)
                 .clip(RoundedCornerShape(16.dp))
                 .background(CyberCardBg)
         ) {
             CatalogCoverImage(
                 coverImageUrl = book.coverImageUrl,
                 title = book.title,
-                genre = book.title, // Pass title/hint for genre inference
+                genre = book.title,
                 modifier = Modifier.fillMaxSize()
             )
 
@@ -579,37 +599,38 @@ fun CatalogBookCard(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(40.dp)
+                    .height(44.dp)
                     .background(
                         Brush.verticalGradient(
-                            colors = listOf(Color.Black.copy(alpha = 0.6f), Color.Transparent)
+                            colors = listOf(Color.Black.copy(alpha = 0.7f), Color.Transparent)
                         )
                     )
             )
 
-            // Rating badge
+            // High-contrast rating badge (Solid dark background with subtle border)
             Surface(
-                color = Color.Black.copy(alpha = 0.65f),
+                color = Color(0xFF141318),
                 shape = RoundedCornerShape(8.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF333038)),
                 modifier = Modifier
                     .padding(6.dp)
                     .align(Alignment.TopEnd)
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
                         imageVector = Icons.Default.Star,
                         contentDescription = null,
-                        tint = Color(0xFFFFC107),
-                        modifier = Modifier.size(11.dp)
+                        tint = Color(0xFFFFB300),
+                        modifier = Modifier.size(12.dp)
                     )
-                    Spacer(modifier = Modifier.width(2.dp))
+                    Spacer(modifier = Modifier.width(3.dp))
                     Text(
                         text = "4.9",
                         style = MaterialTheme.typography.labelSmall.copy(
-                            fontSize = 9.sp,
+                            fontSize = 11.sp,
                             fontWeight = FontWeight.Bold
                         ),
                         color = Color.White
@@ -623,13 +644,13 @@ fun CatalogBookCard(
         Text(
             text = book.title,
             style = MaterialTheme.typography.bodyMedium.copy(
-                fontWeight = FontWeight.Bold,
-                fontSize = 13.sp
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 14.sp,
+                lineHeight = 18.sp
             ),
             color = CyberTextPrimary,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
-            lineHeight = 16.sp,
             modifier = Modifier.fillMaxWidth()
         )
     }
@@ -643,7 +664,7 @@ fun CatalogSeriesCard(
 ) {
     Column(
         modifier = Modifier
-            .width(150.dp)
+            .width(156.dp)
             .clip(RoundedCornerShape(14.dp))
             .clickable { onClick() }
             .testTag("catalog_series_${series.url.hashCode()}"),
@@ -651,8 +672,8 @@ fun CatalogSeriesCard(
     ) {
         Box(
             modifier = Modifier
-                .width(150.dp)
-                .height(88.dp)
+                .width(156.dp)
+                .height(92.dp)
                 .clip(RoundedCornerShape(14.dp))
                 .background(CyberCardBg)
         ) {
@@ -669,13 +690,13 @@ fun CatalogSeriesCard(
                     .fillMaxSize()
                     .background(
                         Brush.verticalGradient(
-                            colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.75f))
+                            colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.8f))
                         )
                     )
             )
 
             Surface(
-                color = CyberPrimary.copy(alpha = 0.85f),
+                color = CyberPrimary,
                 shape = RoundedCornerShape(6.dp),
                 modifier = Modifier
                     .padding(6.dp)
@@ -689,13 +710,13 @@ fun CatalogSeriesCard(
                         imageVector = Icons.Default.CollectionsBookmark,
                         contentDescription = null,
                         tint = CyberOnPrimary,
-                        modifier = Modifier.size(11.dp)
+                        modifier = Modifier.size(12.dp)
                     )
                     Spacer(modifier = Modifier.width(3.dp))
                     Text(
                         text = "Цикл",
                         style = MaterialTheme.typography.labelSmall.copy(
-                            fontSize = 9.sp,
+                            fontSize = 11.sp,
                             fontWeight = FontWeight.Bold
                         ),
                         color = CyberOnPrimary
@@ -708,20 +729,20 @@ fun CatalogSeriesCard(
 
         Text(
             text = series.title,
-            style = MaterialTheme.typography.bodySmall.copy(
-                fontWeight = FontWeight.Bold,
-                fontSize = 12.sp
+            style = MaterialTheme.typography.bodyMedium.copy(
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 13.sp,
+                lineHeight = 17.sp
             ),
             color = CyberPrimary,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
-            lineHeight = 15.sp,
             modifier = Modifier.fillMaxWidth()
         )
     }
 }
 
-/** Remote-cover image with genre-themed artistic fallback (Ticket #4) */
+/** Remote-cover image with genre-themed artistic fallback */
 @Composable
 fun CatalogCoverImage(
     coverImageUrl: String?,
@@ -763,25 +784,27 @@ fun CatalogCoverImage(
                     imageVector = getGenreIcon(genre ?: title),
                     contentDescription = null,
                     tint = CyberPrimary,
-                    modifier = Modifier.size(26.dp)
+                    modifier = Modifier.size(28.dp)
                 )
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
                     text = title,
                     color = CyberTextPrimary,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.labelMedium.copy(
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        lineHeight = 15.sp
+                    ),
                     maxLines = 3,
                     overflow = TextOverflow.Ellipsis,
-                    textAlign = TextAlign.Center,
-                    lineHeight = 13.sp
+                    textAlign = TextAlign.Center
                 )
             }
         }
     }
 }
 
-/** 2026 Smart Continue Listening Card with exact duration remaining and progress wave */
+/** 2026 Smart Continue Listening Card with tabular timer */
 @Composable
 fun SmartContinueListeningSection(
     book: AudiobookEntity,
@@ -799,7 +822,7 @@ fun SmartContinueListeningSection(
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 6.dp)
             .clip(RoundedCornerShape(20.dp))
-            .border(1.dp, CyberPrimary.copy(alpha = 0.3f), RoundedCornerShape(20.dp))
+            .border(1.dp, CyberPrimary.copy(alpha = 0.35f), RoundedCornerShape(20.dp))
             .clickable { onBookClick() },
         colors = CardDefaults.cardColors(containerColor = CyberCardBg)
     ) {
@@ -809,7 +832,7 @@ fun SmartContinueListeningSection(
                 .background(
                     Brush.horizontalGradient(
                         colors = listOf(
-                            CyberPrimary.copy(alpha = 0.08f),
+                            CyberPrimary.copy(alpha = 0.1f),
                             Color.Transparent
                         )
                     )
@@ -826,14 +849,15 @@ fun SmartContinueListeningSection(
                         imageVector = Icons.Default.PlayCircleFilled,
                         contentDescription = null,
                         tint = CyberPrimary,
-                        modifier = Modifier.size(16.dp)
+                        modifier = Modifier.size(18.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = "ПРОДОВЖИТИ СЛУХАННЯ",
                         style = MaterialTheme.typography.labelMedium.copy(
                             fontWeight = FontWeight.ExtraBold,
-                            letterSpacing = 0.8.sp
+                            fontSize = 12.sp,
+                            letterSpacing = 0.6.sp
                         ),
                         color = CyberPrimary
                     )
@@ -842,16 +866,16 @@ fun SmartContinueListeningSection(
                 if (remainingSec > 0) {
                     Text(
                         text = "Залишилось: ${formatDurationUk(remainingSec)}",
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold
-                        ),
-                        color = CyberTextSecondary
+                        style = TabularTimerStyle.copy(
+                            color = CyberTextSecondary,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium
+                        )
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -861,7 +885,7 @@ fun SmartContinueListeningSection(
                     book = book,
                     contentDescription = book.title,
                     modifier = Modifier
-                        .size(56.dp)
+                        .size(58.dp)
                         .clip(RoundedCornerShape(12.dp)),
                     contentScale = ContentScale.Crop
                 )
@@ -873,17 +897,20 @@ fun SmartContinueListeningSection(
                         text = book.title,
                         style = MaterialTheme.typography.titleMedium.copy(
                             fontWeight = FontWeight.Bold,
-                            fontSize = 15.sp
+                            fontSize = 15.sp,
+                            lineHeight = 19.sp
                         ),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         color = CyberTextPrimary
                     )
-                    Spacer(modifier = Modifier.height(2.dp))
+                    Spacer(modifier = Modifier.height(3.dp))
                     Text(
                         text = "Розділ ${progress.currentChapterIndex + 1} • ${MainViewModel.formatTime(currentSec)}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = CyberTextSecondary
+                        style = TabularTimerStyle.copy(
+                            color = CyberTextSecondary,
+                            fontSize = 12.sp
+                        )
                     )
                 }
 
@@ -892,7 +919,7 @@ fun SmartContinueListeningSection(
                 IconButton(
                     onClick = onResumeClick,
                     modifier = Modifier
-                        .size(44.dp)
+                        .size(46.dp)
                         .clip(CircleShape)
                         .background(CyberPrimary)
                 ) {
@@ -900,19 +927,19 @@ fun SmartContinueListeningSection(
                         imageVector = Icons.Default.PlayArrow,
                         contentDescription = "Resume",
                         tint = CyberOnPrimary,
-                        modifier = Modifier.size(26.dp)
+                        modifier = Modifier.size(28.dp)
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
             // Progress bar
             LinearProgressIndicator(
                 progress = { progressFraction },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(5.dp)
+                    .height(6.dp)
                     .clip(RoundedCornerShape(3.dp)),
                 color = CyberPrimary,
                 trackColor = CyberSurfaceVariant
@@ -921,7 +948,7 @@ fun SmartContinueListeningSection(
     }
 }
 
-/** 2026 Enhanced Audiobook List Item with badges */
+/** 2026 Enhanced Audiobook List Item with 3-tier font weight hierarchy */
 @Composable
 fun AudiobookListItem(
     book: AudiobookEntity,
@@ -933,7 +960,7 @@ fun AudiobookListItem(
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 5.dp)
             .clip(RoundedCornerShape(16.dp))
-            .border(1.dp, CyberCardBorder.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
+            .border(1.dp, CyberCardBorder.copy(alpha = 0.6f), RoundedCornerShape(16.dp))
             .clickable { onClick() }
             .testTag("book_item_${book.id}"),
         colors = CardDefaults.cardColors(containerColor = CyberCardBg)
@@ -946,7 +973,7 @@ fun AudiobookListItem(
         ) {
             Box(
                 modifier = Modifier
-                    .size(68.dp)
+                    .size(70.dp)
                     .clip(RoundedCornerShape(12.dp))
             ) {
                 com.example.ui.components.BookCoverImage(
@@ -967,17 +994,17 @@ fun AudiobookListItem(
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Surface(
-                        color = CyberPrimary.copy(alpha = 0.15f),
+                        color = CyberPrimary.copy(alpha = 0.18f),
                         shape = RoundedCornerShape(6.dp)
                     ) {
                         Text(
                             text = book.genre.ifBlank { "Аудіокнига" },
                             style = MaterialTheme.typography.labelSmall.copy(
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 10.sp
+                                fontSize = 11.sp
                             ),
                             color = CyberPrimary,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
                         )
                     }
 
@@ -986,27 +1013,33 @@ fun AudiobookListItem(
                             imageVector = Icons.Default.CloudDone,
                             contentDescription = "Downloaded",
                             tint = CyberSecondary,
-                            modifier = Modifier.size(15.dp)
+                            modifier = Modifier.size(16.dp)
                         )
                     }
                 }
 
                 Spacer(modifier = Modifier.height(4.dp))
 
+                // Tier 1: Title (Bold, 16sp, high contrast)
                 Text(
                     text = book.title,
                     style = MaterialTheme.typography.titleMedium.copy(
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 16.sp,
+                        lineHeight = 20.sp
                     ),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     color = CyberTextPrimary
                 )
 
+                // Tier 2: Author (Medium, 13sp)
                 Text(
                     text = book.author.ifBlank { "Невідомий автор" },
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        fontWeight = FontWeight.Medium,
+                        fontSize = 13.sp
+                    ),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     color = CyberTextSecondary
@@ -1014,24 +1047,30 @@ fun AudiobookListItem(
 
                 Spacer(modifier = Modifier.height(4.dp))
 
+                // Tier 3: Metadata (Regular, 12sp)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         imageVector = Icons.Default.Schedule,
                         contentDescription = null,
-                        tint = CyberTextSecondary.copy(alpha = 0.7f),
-                        modifier = Modifier.size(12.dp)
+                        tint = CyberTextSecondary.copy(alpha = 0.8f),
+                        modifier = Modifier.size(13.dp)
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
                         text = if (book.totalDurationSeconds > 0) formatDurationUk(book.totalDurationSeconds) else "${book.totalChapters} розд.",
-                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
-                        color = CyberTextSecondary
+                        style = TabularTimerStyle.copy(
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Normal,
+                            color = CyberTextSecondary
+                        )
                     )
                     if (book.narrator.isNotBlank()) {
                         Text(
-                            text = " • Читає: ${book.narrator}",
-                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
-                            color = CyberTextSecondary,
+                            text = " • ${book.narrator}",
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                fontSize = 12.sp,
+                                color = CyberTextSecondary
+                            ),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -1044,7 +1083,7 @@ fun AudiobookListItem(
             IconButton(
                 onClick = onPlayClick,
                 modifier = Modifier
-                    .size(40.dp)
+                    .size(42.dp)
                     .clip(CircleShape)
                     .background(CyberSurfaceVariant)
             ) {
@@ -1052,7 +1091,7 @@ fun AudiobookListItem(
                     imageVector = Icons.Default.PlayArrow,
                     contentDescription = "Play",
                     tint = CyberPrimary,
-                    modifier = Modifier.size(24.dp)
+                    modifier = Modifier.size(26.dp)
                 )
             }
         }
@@ -1152,13 +1191,19 @@ fun EmptyCatalogState(
         Spacer(modifier = Modifier.height(14.dp))
         Text(
             text = "Знайдіть свою першу книгу",
-            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, fontSize = 17.sp),
+            style = MaterialTheme.typography.titleMedium.copy(
+                fontWeight = FontWeight.Bold,
+                fontSize = 18.sp
+            ),
             color = CyberTextPrimary
         )
         Spacer(modifier = Modifier.height(6.dp))
         Text(
             text = "Каталог українських аудіокниг оновлюється. Оновіть сторінку або імпортуйте власний файл.",
-            style = MaterialTheme.typography.bodyMedium,
+            style = MaterialTheme.typography.bodyMedium.copy(
+                fontSize = 14.sp,
+                lineHeight = 20.sp
+            ),
             color = CyberTextSecondary,
             textAlign = TextAlign.Center
         )
@@ -1191,9 +1236,9 @@ fun formatDurationUk(seconds: Long): String {
     val hrs = seconds / 3600
     val mins = (seconds % 3600) / 60
     return when {
-        hrs > 0 && mins > 0 -> "${hrs} год ${mins} хв"
-        hrs > 0 -> "${hrs} год"
-        mins > 0 -> "${mins} хв"
-        else -> "${seconds} с"
+        hrs > 0 && mins > 0 -> "$hrs год $mins хв"
+        hrs > 0 -> "$hrs год"
+        mins > 0 -> "$mins хв"
+        else -> "< 1 хв"
     }
 }

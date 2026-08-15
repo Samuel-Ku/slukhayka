@@ -59,6 +59,62 @@ object MetadataAssertions {
         return trimmed
     }
 
+    /**
+     * Spec-24 T1 — the curated Ukrainian SEO title suffixes stripped from the
+     * END of any claimed title. Some sources append marketing phrases
+     * («аудіокнига слухати онлайн», «слухати онлайн»…) to every title; they
+     * render everywhere — catalog cards, book page, player — so they are
+     * scrubbed at the write path (the one metadata-assertions seam, ADR-0004)
+     * and by the one-time startup pass ([StoredTitleScrub]). Longest phrase
+     * first so «Книга - аудіокнига слухати онлайн» cuts the whole suffix,
+     * not just «слухати онлайн».
+     */
+    val SEO_TITLE_PHRASES: List<String> = listOf(
+        "аудіокнига слухати онлайн",
+        "слухати онлайн безкоштовно",
+        "аудіокнига українською",
+        "аудіокнига онлайн",
+        "слухати онлайн"
+    ).sortedByDescending { it.length }
+
+    /**
+     * The separators an SEO suffix can sit behind: ` - `, ` — `, ` ( `, `, `,
+     * `|`. Stripped (with surrounding whitespace) once a phrase has been cut,
+     * so the remainder of a scrubbed title is clean.
+     */
+    private val TRAILING_SEPARATOR = Regex("""(?:\s*-\s*|\s*[—–]\s*|\s*\(\s*|,\s*|\s*\|\s*)+$""")
+
+    /**
+     * Strips the curated [SEO_TITLE_PHRASES] from the END of a claimed title,
+     * case-insensitive and across separators (a phrase in parentheses ends
+     * with the closing `)`, which is cut with it); trims. If nothing is left
+     * after the cut the ORIGINAL title is kept — the scrub never produces a
+     * blank title. Idempotent: a second application matches nothing.
+     */
+    fun normalizeTitle(claimed: String?): String {
+        val original = claimed?.trim().orEmpty()
+        var title = original
+        var changed = true
+        while (changed) {
+            changed = false
+            for (phrase in SEO_TITLE_PHRASES) {
+                // The phrase, tolerating a closing paren after it (the ` (`
+                // separator case: «Пасажир (аудіокнига онлайн)») — matched
+                // with the source's own casing so the cut length is exact.
+                val match = Regex(
+                    Regex.escape(phrase) + """\s*\)?\s*$""",
+                    RegexOption.IGNORE_CASE
+                ).find(title)
+                if (match != null) {
+                    title = TRAILING_SEPARATOR.replace(title.dropLast(match.value.length), "").trim()
+                    changed = true
+                    break
+                }
+            }
+        }
+        return title.ifBlank { original }
+    }
+
     // ---------------------------------------------------------------------
     // Book delta — field precedence against the existing row
     // ---------------------------------------------------------------------

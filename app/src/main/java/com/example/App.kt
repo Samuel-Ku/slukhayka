@@ -10,6 +10,7 @@ import com.example.data.duration.DurationEnrichment
 import com.example.data.entries.LibraryEntries
 import com.example.data.imports.LibraryImport
 import com.example.data.listening.ListeningStateStore
+import com.example.data.metadata.StoredTitleScrub
 import com.example.data.source.AudiobookMp3Adapter
 import com.example.data.source.FourReadAdapter
 import com.example.data.source.LihtarAdapter
@@ -112,6 +113,15 @@ class App : Application() {
         DurationEnrichment(database.audiobookDao(), fourRead::fetchBookPage)
     }
 
+    /**
+     * Spec-24 T1 — the one-time stored-title scrub runner (audiobooks +
+     * works rows). Idempotent: a second run matches nothing, so repeated
+     * starts are safe.
+     */
+    val storedTitleScrub: StoredTitleScrub by lazy {
+        StoredTitleScrub(database.audiobookDao())
+    }
+
     /** Single player manager; created lazily on first playback/service access. */
     val playerManager: AudioPlayerManager by lazy {
         // The player runs on the store; chapter materialisation (incl. the
@@ -129,6 +139,12 @@ class App : Application() {
         // call, kicked off here (best-effort, never blocks startup).
         CoroutineScope(Dispatchers.IO).launch {
             runCatching { sourceCatalog.fetchCatalogSections() }
+        }
+        // Spec-24 T1: scrub SEO title suffixes from rows stored before the
+        // write-path rule existed (audiobooks + works). Best-effort and
+        // idempotent — a failing or repeated pass never blocks startup.
+        CoroutineScope(Dispatchers.IO).launch {
+            runCatching { storedTitleScrub.scrubOnce() }
         }
     }
 

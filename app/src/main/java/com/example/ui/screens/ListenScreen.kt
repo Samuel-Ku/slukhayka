@@ -116,6 +116,13 @@ fun ListenScreen(
                         ListenHeroCard(
                             book = hero.book,
                             progress = hero.progress!!,
+                            // The hero shows the BOOK-level percent/remaining:
+                            // the in-chapter position alone would read as 0 %
+                            // for anyone early in a long chapter. The
+                            // cumulative wall-clock position comes from the
+                            // LibraryBook (the same effectiveChapterDurations
+                            // rule the library cards use).
+                            cumulativePositionSeconds = hero.cumulativePositionSeconds,
                             onResumeClick = { onPlayClick(hero.book) },
                             onBookClick = { onBookClick(hero.book.id) }
                         )
@@ -565,11 +572,12 @@ fun ContinueSeriesRow(
 fun ListenHeroCard(
     book: AudiobookEntity,
     progress: PlaybackProgressEntity,
+    cumulativePositionSeconds: Long,
     onResumeClick: () -> Unit,
     onBookClick: () -> Unit
 ) {
     val totalSec = book.totalDurationSeconds
-    val positionSec = progress.currentPositionSeconds.coerceAtLeast(0L)
+    val positionSec = cumulativePositionSeconds.coerceAtLeast(0L)
     // Local imports have no duration metadata: percent/remaining would be
     // meaningless (0/1 -> 100%), so fall back to the bare position instead.
     val hasDuration = totalSec > 0
@@ -706,11 +714,12 @@ fun ListenHeroCard(
 fun RecentlyListenedRow(
     book: AudiobookEntity,
     progress: PlaybackProgressEntity,
+    cumulativePositionSeconds: Long,
     onClick: () -> Unit,
     onPlayClick: () -> Unit
 ) {
     val totalSec = book.totalDurationSeconds
-    val positionSec = progress.currentPositionSeconds.coerceAtLeast(0L)
+    val positionSec = cumulativePositionSeconds.coerceAtLeast(0L)
     // Duration-less local imports: keep the bar empty instead of a full bar.
     val hasDuration = totalSec > 0
     val progressFraction = if (hasDuration) (positionSec.toFloat() / totalSec.toFloat()).coerceIn(0f, 1f) else 0f

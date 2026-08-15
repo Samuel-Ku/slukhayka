@@ -15,6 +15,7 @@ import com.example.data.db.PlaybackFailureEntity
 import com.example.data.db.PlaybackProgressEntity
 import com.example.data.db.SourceEntity
 import com.example.data.db.SourceTrackEntity
+import com.example.data.db.TitleRow
 import com.example.data.db.TombstoneEntity
 import com.example.data.db.WorkEntity
 import com.example.data.db.WorkFeedRow
@@ -680,6 +681,22 @@ class FakeAudiobookDao(
 
     override fun observeWorks(): Flow<List<WorkEntity>> = worksState
 
+    // Spec-24 T1: the stored-title scrub reads through the same projection
+    // the real DAO serves.
+    override suspend fun getAllBookTitleRows(): List<TitleRow> =
+        booksState.value.map { TitleRow(it.id, it.title) }
+
+    override suspend fun getAllWorkTitleRows(): List<TitleRow> =
+        worksState.value.map { TitleRow(it.id, it.title) }
+
+    override suspend fun updateBookTitle(id: String, title: String) {
+        booksState.update { current -> current.map { if (it.id == id) it.copy(title = title) else it } }
+    }
+
+    override suspend fun updateWorkTitle(id: String, title: String) {
+        worksState.update { current -> current.map { if (it.id == id) it.copy(title = title) else it } }
+    }
+
     override suspend fun countWorks(): Int = worksState.value.size
 
     override suspend fun countWorkSources(): Int = workSourcesState.value.size
@@ -696,9 +713,16 @@ class FakeAudiobookDao(
             if (sourceId != null && workSourcesState.value.none { it.workId == work.id && it.sourceId == sourceId }) {
                 return@mapNotNull null
             }
-            val libraryGenre = booksState.value.firstOrNull { it.workId == work.id }?.genre
+            val libraryBook = booksState.value.firstOrNull { it.workId == work.id }
+            val libraryGenre = libraryBook?.genre
             if (genre != null && (libraryGenre == null || !libraryGenre.contains(genre, ignoreCase = true))) {
                 return@mapNotNull null
+            }
+            // Spec-24 T1: mirrors the real feed SQL — the Work's duration is
+            // the linked library copy's Edition total (the Edition owns the
+            // listening totals, ADR-0010); null until one exists.
+            val durationSeconds = libraryBook?.let { book ->
+                editionsState.value.firstOrNull { it.workId == book.id }?.totalDurationSeconds
             }
             WorkFeedRow(
                 workId = work.id,
@@ -710,7 +734,8 @@ class FakeAudiobookDao(
                 coverImageUrl = work.coverImageUrl,
                 addedAt = work.addedAt,
                 sourceCount = workSourcesState.value.count { it.workId == work.id },
-                genre = libraryGenre
+                genre = libraryGenre,
+                durationSeconds = durationSeconds
             )
         }
         val sorted = if (sortByTitle) {

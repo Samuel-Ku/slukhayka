@@ -17,6 +17,7 @@ import com.example.data.source.SourceAdapter
 import com.example.data.source.SourceBook
 import com.example.data.source.mergeGlobalSearchResults
 import com.example.data.source.sourceDisplayName
+import com.example.data.source.sourceIdForUrl
 import com.example.data.source.streamOnlyFor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -642,6 +643,53 @@ class SourceCatalog(
     /** The Editions carrying one Work — the feed card resolves its first
      *  source through these (spec-23 T4 open action). */
     suspend fun editionsForWork(workId: String): List<EditionEntity> = dao.getEditionsForWorkSync(workId)
+
+    /**
+     * Spec-23 T5 — one source carrying a Work, for the book page's
+     * «Джерела» section: display name, the Edition url and the source's
+     * stream-only policy (from the persisted Edition row for post-merge
+     * books; from the source policy for pre-merge library rows).
+     */
+    data class WorkSourceRow(
+        val sourceId: String,
+        val sourceName: String,
+        val url: String,
+        val streamOnly: Boolean
+    )
+
+    /**
+     * Spec-23 T5 — every source that carries [bookId]'s Work, resolved from
+     * the persisted `editions` rows (merge-on-write output), never guessed at
+     * read time. A library row that predates the merge (no workId / no
+     * editions yet) falls back to its own single source — still honest, one
+     * row. Dedup keeps the list stable when the same source+url appears on
+     * multiple rows.
+     */
+    suspend fun sourcesForBook(bookId: String): List<WorkSourceRow> {
+        val book = dao.getAudiobookById(bookId) ?: return emptyList()
+        val editions = book.workId?.let { dao.getEditionsForWorkSync(it) }.orEmpty()
+        val rows = if (editions.isNotEmpty()) {
+            editions.map { edition ->
+                WorkSourceRow(
+                    sourceId = edition.sourceId,
+                    sourceName = sourceDisplayName(edition.sourceId),
+                    url = edition.sourceUrl,
+                    streamOnly = edition.streamOnly
+                )
+            }
+        } else {
+            val id = sourceIdForUrl(book.sourceUrl)
+            listOf(
+                WorkSourceRow(
+                    sourceId = id,
+                    sourceName = sourceDisplayName(id),
+                    url = book.sourceUrl,
+                    streamOnly = streamOnlyFor(id)
+                )
+            )
+        }
+        return rows.distinctBy { it.sourceId to it.url }
+    }
 
     // ---------------------------------------------------------------------
     // Catalogue sections (spec #8 tickets T5/T6): rows for the Explore

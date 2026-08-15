@@ -930,9 +930,34 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             // it (description, rating, narrator, genres) — best-effort per
             // source, a failing source degrades to the remaining blocks.
             loadSourceProfiles(bookId)
+            // Spec-23 T5: the «Джерела» section — every Edition carrying the
+            // Work (source name + stream-only marker), from the persisted
+            // `editions` rows, not a read-time guess.
+            loadBookSources(bookId)
         } else {
             _relatedBooks.value = emptyList()
             _sourceProfiles.value = emptyList()
+            _bookSources.value = emptyList()
+        }
+    }
+
+    // Spec-23 T5: every source carrying the selected book's Work — the
+    // «Джерела» section on the book page. Tapping one plays that variant
+    // through [playFromSource] (per-source policy, incl. Referer/UA).
+    private val _bookSources = MutableStateFlow<List<SourceCatalog.WorkSourceRow>>(emptyList())
+    val bookSources: StateFlow<List<SourceCatalog.WorkSourceRow>> = _bookSources.asStateFlow()
+
+    fun loadBookSources(bookId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val rows = try {
+                sourceCatalog.sourcesForBook(bookId)
+            } catch (e: Exception) {
+                emptyList()
+            }
+            // Stale-result guard: only apply while the user is still on this book.
+            if (_selectedBookId.value == bookId) {
+                _bookSources.value = rows
+            }
         }
     }
 

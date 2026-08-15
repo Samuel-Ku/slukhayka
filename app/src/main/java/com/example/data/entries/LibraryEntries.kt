@@ -8,6 +8,7 @@ import com.example.data.db.ChapterEntity
 import com.example.data.db.PlaybackProgressEntity
 import com.example.data.db.SourceEntity
 import com.example.data.db.TombstoneEntity
+import com.example.data.metadata.MetadataAssertions
 import com.example.data.source.FourReadAdapter
 import com.example.data.source.SourceAdapter
 import com.example.data.source.SourceBookDetail
@@ -214,32 +215,46 @@ class LibraryEntries(
         }
 
         // 2. Fall back to book's webpage (spec-14 T5: the adapter owns the
-        // page parse; the module persists what the seam provides).
+        // page parse; the module persists what the seam provides). All claim
+        // normalization / deltas come from the one MetadataAssertions module
+        // (ADR-0004) — never re-derived here.
         if (book.sourceUrl.isNotBlank()) {
             val detail = fourReadAdapter.fetchBookPage(book.sourceUrl)
-            if (!detail.coverImageUrl.isNullOrBlank()) {
-                dao.updateCoverImageUrl(bookId, detail.coverImageUrl)
+            // Cover applies only when the claim is non-blank — never clears a
+            // stored cover with an absent one.
+            MetadataAssertions.coverDelta(detail.coverImageUrl)?.let { cover ->
+                dao.updateCoverImageUrl(bookId, cover)
             }
             // Real metadata (author/narrator/genre/duration/rating/series) is
             // back-filled on EVERY book-page open — the catalogue seed only
             // ever had placeholders, and a book may already carry them from a
             // previous session, so gating on chapters.isEmpty() would leave
-            // "4read.org" / "4:00:00" forever.
-            val author = detail.author.ifBlank { null }
-            val narrator = detail.narrator.ifBlank { null }
+            // "4read.org" / "4:00:00" forever. Brand placeholder claims are
+            // scrubbed to absent at write time (ADR-0004).
+            val author = MetadataAssertions.normalizeClaimedText(detail.author)
+            val narrator = MetadataAssertions.normalizeClaimedText(detail.narrator)
             val genres = detail.genres.joinToString(" · ").ifBlank { null }
             val rating = detail.rating?.toFloat()
-            val seriesTitle = detail.series?.name
-            val seriesIndex = detail.series?.position
-            val seriesUrl = detail.series?.url
+            // Series applies only when its URL changed; unchanged → nulls
+            // (COALESCE keeps the stored series).
+            val series = MetadataAssertions.seriesDelta(
+                existingSeriesUrl = book.seriesUrl,
+                claimedUrl = detail.series?.url,
+                claimedTitle = detail.series?.name,
+                claimedIndex = detail.series?.position
+            )
+            val knownDuration = MetadataAssertions.durationDelta(
+                book.totalDurationSeconds,
+                detail.totalDurationSeconds
+            )
             if (detail.totalDurationSeconds != null || author != null ||
                 narrator != null || genres != null ||
-                rating != null || seriesTitle != null || seriesUrl != null
+                rating != null || series != null
             ) {
                 dao.updateBookStats(
                     bookId,
                     chapters.size.takeIf { it > 0 } ?: detail.chapters.size,
-                    detail.totalDurationSeconds ?: book.totalDurationSeconds
+                    knownDuration
                 )
                 dao.updateBookMetadata(
                     bookId,
@@ -247,31 +262,23 @@ class LibraryEntries(
                     narrator = narrator,
                     genre = genres,
                     rating = rating,
-                    seriesTitle = seriesTitle,
-                    seriesIndex = seriesIndex,
-                    seriesUrl = seriesUrl
+                    seriesTitle = series?.title,
+                    seriesIndex = series?.index,
+                    seriesUrl = series?.url
                 )
             }
             // Same guard as SourceCatalog.getChaptersList: never overwrite
             // existing (seeded) chapters with live-page ones -- that
             // duplicated rows on every book-detail open.
             if (chapters.isEmpty() && detail.chapters.isNotEmpty()) {
-                // Same id format as SourceCatalog.getChaptersList ("_ch_") so
-                // a concurrent fetch-then-insert (e.g. an offline Download
+                // The same id format as every other site ("_ch_") so a
+                // concurrent fetch-then-insert (e.g. an offline Download
                 // racing this refresh) produces identical rows and
                 // @Insert(REPLACE) dedupes them — a mixed `ch`/`ch_` format
                 // used to duplicate the whole chapter list.
-                val updatedChapters = detail.chapters.mapIndexed { index, chapter ->
-                    ChapterEntity(
-                        id = "${bookId}_ch_${index + 1}",
-                        bookId = bookId,
-                        chapterIndex = index,
-                        title = "Глава ${index + 1} (${book.title})",
-                        durationSeconds = 0L, // unknown until played
-                        streamUrl = chapter.streamUrl
-                    )
-                }
-                dao.insertChapters(updatedChapters)
+                dao.insertChapters(
+                    MetadataAssertions.materializeChapters(bookId, book.title, detail.chapters)
+                )
             }
         }
     }

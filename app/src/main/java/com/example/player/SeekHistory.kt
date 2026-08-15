@@ -1,5 +1,6 @@
 package com.example.player
 
+import com.example.data.db.PlaybackEventPolicy
 import kotlin.math.abs
 
 /** A recorded potentially-accidental jump: the position the listener was at before it. */
@@ -59,7 +60,11 @@ class SeekHistory(
     }
 
     companion object {
-        /** A seek of 5+ minutes is treated as a potentially accidental jump. */
-        const val DEFAULT_JUMP_THRESHOLD_MS: Long = 5 * 60 * 1000L
+        /**
+         * A seek of 5+ minutes is treated as a potentially accidental jump.
+         * ADR-0003: reads the canonical threshold from the data layer
+         * ([PlaybackEventPolicy]) — the player never owns the number.
+         */
+        const val DEFAULT_JUMP_THRESHOLD_MS: Long = PlaybackEventPolicy.SEEK_JUMP_THRESHOLD_MS
     }
 }

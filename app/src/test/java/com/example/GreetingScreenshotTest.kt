@@ -22,7 +22,7 @@ class GreetingScreenshotTest {
 
   @Test
   fun greeting_screenshot() {
-    composeTestRule.setContent { AudiobookTheme(darkTheme = true) { Text("4read Player") } }
+    composeTestRule.setContent { AudiobookTheme { Text("4read Player") } }
 
     composeTestRule.onRoot().captureRoboImage(filePath = "src/test/screenshots/greeting.png")
   }

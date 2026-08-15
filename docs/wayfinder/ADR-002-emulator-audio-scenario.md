@@ -4,8 +4,8 @@ label: wayfinder:adr
 created: 2026-07-30
 status: accepted
 tracker: github-issues
-parent: https://github.com/Samuel-Ku/slukhayka/issues/2
-ticket: https://github.com/Samuel-Ku/slukhayka/issues/7
+parent: https://github.com/Samuel-Ku/4read-audiobooks-player/issues/2
+ticket: https://github.com/Samuel-Ku/4read-audiobooks-player/issues/7
 ---
 
 # ADR-002 — Emulator audio playback scenario (Espresso)

@@ -3,37 +3,24 @@ package com.example.player
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import androidx.media3.session.MediaLibraryService
+import androidx.media3.session.MediaLibraryService.MediaLibrarySession
 import androidx.media3.session.MediaSession
-import androidx.media3.session.MediaSessionService
 import com.example.App
 import com.example.MainActivity
 
 /**
- * Background playback host (audit CRITICAL finding PERF-002 / PERF-021:
- * "No foreground service / MediaSessionService — on Android 8+ (especially
- * 12+) background audio is killed within minutes").
+ * Background playback host & Automotive / Android Auto media library service
+ * (spec-21 Track A / T1; audit PERF-002 / PERF-021).
  *
- * The service wraps the application-scoped player from [App.playerManager] in
- * a [MediaSession]. It deliberately does NOT own the player: the player lives
- * in [AudioPlayerManager] for the process lifetime, so the UI keeps driving it
- * directly (the existing `playerState` StateFlow remains the single source of
- * truth for Compose). Media3's `MediaSessionService` handles the rest:
- *
- *  - moves this service into the foreground and shows the media notification
- *    with transport controls when playback starts (`onUpdateNotification`);
- *  - handles Bluetooth/wired headset media buttons through the session;
- *  - exposes the session to Android Auto / lock-screen / Wear devices via the
- *    `androidx.media3.session.MediaSessionService` intent filter.
- *
- * Known trade-off (documented in docs/audits/...): because the player is not
- * owned by the service, an explicit "swipe app away" that kills the process
- * ends playback. The critical daily-use scenario — app backgrounded, screen
- * off, process alive — is fixed, because the foreground service keeps the
- * process alive for the whole listening session.
+ * Migrated from [androidx.media3.session.MediaSessionService] to
+ * [MediaLibraryService] to support vehicle head-unit browsing (recent books,
+ * favorites, catalogue) via [AudiobookLibrarySessionCallback] while preserving
+ * full foreground playback survival, lock screen controls, and headset buttons.
  */
-class PlaybackService : MediaSessionService() {
+class PlaybackService : MediaLibraryService() {
 
-    private var mediaSession: MediaSession? = null
+    private var mediaLibrarySession: MediaLibrarySession? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -45,33 +32,34 @@ class PlaybackService : MediaSessionService() {
             },
             PendingIntent.FLAG_IMMUTABLE
         )
-        mediaSession = MediaSession.Builder(this, App.instance.playerManager.player)
+        val callback = AudiobookLibrarySessionCallback(
+            context = this,
+            repository = App.instance.repository,
+            playerManager = App.instance.playerManager
+        )
+        mediaLibrarySession = MediaLibrarySession.Builder(this, App.instance.playerManager.player, callback)
             .setSessionActivity(sessionActivity)
             .build()
     }
 
-    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? =
-        mediaSession
+    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? =
+        mediaLibrarySession
 
     override fun onDestroy() {
         // Release only the session; the shared player stays with App.playerManager.
-        mediaSession?.run {
+        mediaLibrarySession?.run {
             release()
-            mediaSession = null
+            mediaLibrarySession = null
         }
         super.onDestroy()
     }
 
     companion object {
         /**
-         * Intent that starts this service and makes Media3 attach the session
-         * (the default `onStartCommand` treats `Intent.ACTION_PLAY` as a media
-         * action and calls `onGetSession` + `addSession`).
+         * Intent that starts this service and makes Media3 attach the session.
          */
         fun playIntent(context: Context): Intent =
             Intent(context, PlaybackService::class.java)
-                // Legacy media action Media3's DefaultActionFactory recognizes
-                // (it routes the intent to onGetSession + attaches the session).
                 .setAction("android.intent.action.PLAY")
     }
 }

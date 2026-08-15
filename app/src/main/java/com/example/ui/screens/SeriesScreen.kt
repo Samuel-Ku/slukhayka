@@ -14,6 +14,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.ui.MainViewModel
 import com.example.ui.theme.*
 
@@ -38,10 +39,7 @@ fun SeriesScreen(
 
     Scaffold(
         topBar = {
-            // Host Scaffold in MainActivity already consumed the status bar
-            // (innerPadding.top); don't let this inner TopAppBar add it again.
             TopAppBar(
-                windowInsets = WindowInsets(0, 0, 0, 0),
                 title = {
                     Text(
                         text = currentSeries.title,
@@ -55,10 +53,10 @@ fun SeriesScreen(
                         Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = CyberBg)
             )
         },
-        containerColor = MaterialTheme.colorScheme.background
+        containerColor = CyberBg
     ) { padding ->
         LazyColumn(
             modifier = Modifier
@@ -76,7 +74,7 @@ fun SeriesScreen(
                                 .padding(48.dp),
                             contentAlignment = Alignment.Center
                         ) {
-                            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                            CircularProgressIndicator(color = CyberPrimary)
                         }
                     }
                 }
@@ -93,14 +91,14 @@ fun SeriesScreen(
                                 Icon(
                                     imageVector = Icons.Default.MenuBook,
                                     contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    tint = CyberTextSecondary,
                                     modifier = Modifier.size(48.dp)
                                 )
                                 Spacer(modifier = Modifier.height(12.dp))
                                 Text(
                                     text = "Не вдалося завантажити книги циклу. Перевірте з'єднання.",
                                     style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    color = CyberTextSecondary
                                 )
                             }
                         }
@@ -111,8 +109,11 @@ fun SeriesScreen(
                     item {
                         Text(
                             text = "${books.size} книг у циклі",
-                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                            color = MaterialTheme.colorScheme.secondary,
+                            style = MaterialTheme.typography.labelMedium.copy(
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 13.sp
+                            ),
+                            color = CyberSecondary,
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
                         )
                     }

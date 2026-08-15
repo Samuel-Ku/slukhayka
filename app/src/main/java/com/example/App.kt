@@ -3,6 +3,7 @@ package com.example
 import android.app.Application
 import com.example.data.catalog.SourceCatalog
 import com.example.data.collections.CollectionAssets
+import com.example.data.collections.OpenLibraryTrendingSource
 import com.example.data.db.AudiobookDatabase
 import com.example.data.downloads.OfflineDownloads
 import com.example.data.entries.LibraryEntries
@@ -79,11 +80,14 @@ class App : Application() {
     val sourceCatalog: SourceCatalog by lazy {
         // Spec-16: the curated smart-collection lists ride the context seam —
         // one JSON file per collection, loaded once at the composition root.
+        // The live «Популярне зараз» list (OpenLibrary trending, keyless) is
+        // fetched over the shared HTTP transport on the union refresh.
         SourceCatalog(
             database.audiobookDao(),
             sourceAdapters,
             libraryImport,
-            collectionLists = CollectionAssets.load(this)
+            collectionLists = CollectionAssets.load(this),
+            liveCollectionSources = listOf(OpenLibraryTrendingSource())
         )
     }
 

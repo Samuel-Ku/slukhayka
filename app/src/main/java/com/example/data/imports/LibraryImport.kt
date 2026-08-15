@@ -19,8 +19,6 @@ import com.example.data.db.WorkEntity
 import com.example.data.db.WorkSourceEntity
 import com.example.data.merge.MergeKey
 import com.example.data.metadata.MetadataAssertions
-import com.example.data.source.FourReadAdapter
-import com.example.data.source.SluhayAdapter
 import com.example.data.source.SourceAdapter
 import com.example.data.source.SourceBookDetail
 import com.example.data.source.sourceIdForUrl
@@ -55,9 +53,6 @@ class LibraryImport(
     private val context: Context?,
     private val sourceAdapters: List<SourceAdapter>
 ) {
-
-    private val fourReadAdapter: SourceAdapter =
-        sourceAdapters.firstOrNull { it.sourceId == "4read" } ?: FourReadAdapter()
 
     // ---------------------------------------------------------------------
     // Door 1 + 2 core: the shared import path (explicit + captured pages)
@@ -244,19 +239,22 @@ class LibraryImport(
         }
 
     /**
-     * Spec-13 T3 — import a WebView-source book from its CAPTURED page HTML.
-     * The page HTML comes from the live browser session (past the Cloudflare
-     * challenge — server-fetch would 403); the adapter's captured-page path
-     * parses metadata + the inline Playerjs playlist and fetches the playlist
-     * with the source Referer. Null when the source is unknown, the page is
-     * unparseable or yields nothing playable.
+     * Spec-13 T3 / ADR-0006 — import a WebView-source book from its CAPTURED
+     * page HTML through the [SourceAdapter.parseCapturedPage] seam: the page
+     * HTML comes from the live browser session (past the Cloudflare challenge
+     * — server-fetch would 403); the adapter's captured-page path parses
+     * metadata + the inline Playerjs playlist and fetches the playlist with
+     * the source Referer. Null when the source is unknown, does not support
+     * the door (default "not mine"), the page is unparseable or yields
+     * nothing playable. No import door downcasts an adapter to a concrete
+     * class — a future WebView-pattern source works through the same door.
      */
     suspend fun importWebSourcePage(sourceId: String, url: String, html: String): AudiobookEntity? =
         withContext(Dispatchers.IO) {
-            val adapter = sourceAdapters.firstOrNull { it.sourceId == sourceId } as? SluhayAdapter
+            val adapter = sourceAdapters.firstOrNull { it.sourceId == sourceId }
                 ?: return@withContext null
             try {
-                val detail = adapter.detailFromCapturedHtml(html, url)
+                val detail = adapter.parseCapturedPage(html, url) ?: return@withContext null
                 if (detail.chapters.isEmpty()) return@withContext null
                 importBookFromSource(sourceId, detail)
             } catch (e: Exception) {
@@ -265,9 +263,9 @@ class LibraryImport(
         }
 
     /**
-     * Spec-14 T4/T5 — the WebView door rides the same parser + transport as
-     * every other door: the adapter owns the captured page parse (playlist
-     * content resolved through its own HttpFetcher), and the shared import
+     * Spec-14 T4/T5 / ADR-0006 — the 4read WebView door is the same door:
+     * it rides the [SourceAdapter.parseCapturedPage] seam (playlist content
+     * resolved through the adapter's own transport), and the shared import
      * path persists the Work with the same merge key / id shape. The
      * repository performs no 4read parsing or transport. A captured page that
      * yields nothing playable surfaces as absent (null) — never a forged card.
@@ -275,10 +273,7 @@ class LibraryImport(
     suspend fun importAudiobookFromHtml(urlOrSlug: String, html: String): AudiobookEntity? {
         val cleanInput = urlOrSlug.trim()
         val sourceUrl = if (cleanInput.startsWith("http")) cleanInput else "https://4read.org/$cleanInput"
-        val adapter = fourReadAdapter as? FourReadAdapter ?: return null
-        val detail = adapter.parseCapturedPage(html, sourceUrl)
-        if (detail.chapters.isEmpty()) return null
-        return importBookFromSource("4read", detail)
+        return importWebSourcePage("4read", sourceUrl, html)
     }
 
     /**

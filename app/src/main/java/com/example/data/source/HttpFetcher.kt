@@ -1,5 +1,7 @@
 package com.example.data.source
 
+import java.io.FilterInputStream
+import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -48,6 +50,49 @@ open class HttpFetcher(
             ""
         } finally {
             connection.disconnect()
+        }
+    }
+
+    /**
+     * ADR-0006 — binary GET: the ONE transport the offline download path
+     * uses. Returns null on any failure — the same degrade-never-throw
+     * convention as [getText]. The caller owns reading and must close the
+     * stream: closing it disconnects the underlying connection (the returned
+     * stream is a [FilterInputStream] over the connection's input). Never
+     * throws. Open so fixture fakes can serve in-memory bytes.
+     */
+    open fun getStream(url: String, extraHeaders: Map<String, String> = emptyMap()): InputStream? {
+        val connection = try {
+            (URL(url).openConnection() as HttpURLConnection).apply {
+                connectTimeout = 12_000
+                readTimeout = 18_000
+                requestMethod = "GET"
+                setRequestProperty("User-Agent", userAgent)
+                if (referer != null) setRequestProperty("Referer", referer)
+                extraHeaders.forEach { (name, value) -> setRequestProperty(name, value) }
+                instanceFollowRedirects = true
+            }
+        } catch (e: Exception) {
+            return null
+        }
+        return try {
+            if (connection.responseCode == HttpURLConnection.HTTP_OK) {
+                object : FilterInputStream(connection.inputStream) {
+                    override fun close() {
+                        try {
+                            super.close()
+                        } finally {
+                            connection.disconnect()
+                        }
+                    }
+                }
+            } else {
+                connection.disconnect()
+                null
+            }
+        } catch (e: Exception) {
+            connection.disconnect()
+            null
         }
     }
 

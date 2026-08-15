@@ -51,3 +51,11 @@ fun headersFor(sourceId: String, streamUrl: String): Map<String, String> = when 
     "audiobookmp3" -> mapOf("Referer" to "https://audiobook-mp3.com/uk")
     else -> emptyMap()
 }
+
+/**
+ * ADR-0006 — the User-Agent of the shared offline-download transport, kept
+ * beside the per-source header rules (the download path performs no HTTP of
+ * its own — it consumes [HttpFetcher.getStream], which is constructed with
+ * this agent).
+ */
+const val OFFLINE_USER_AGENT = "Mozilla/5.0 (Android; 4read-Audio-Engine/1.0)"

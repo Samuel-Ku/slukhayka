@@ -20,11 +20,14 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun SleepTimerSheet(
     currentTimerMinutes: Int,
+    isEndOfChapter: Boolean = false,
+    remainingSeconds: Int = 0,
     onSelectTimer: (Int) -> Unit,
     onDismiss: () -> Unit
 ) {
     val options = listOf(
         0 to "Вимкнено",
+        -1 to "До кінця розділу",
         5 to "5 хвилин",
         15 to "15 хвилин",
         30 to "30 хвилин",
@@ -55,11 +58,23 @@ fun SleepTimerSheet(
                     modifier = Modifier.size(28.dp)
                 )
                 Spacer(modifier = Modifier.width(10.dp))
-                Text(
-                    text = "Sleep Timer",
-                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                    color = MaterialTheme.colorScheme.onSurface
-                )
+                Column {
+                    Text(
+                        text = "Таймер сну",
+                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    if (remainingSeconds > 0) {
+                        val min = remainingSeconds / 60
+                        val sec = remainingSeconds % 60
+                        Text(
+                            text = if (isEndOfChapter) "До кінця розділу: %d:%02d".format(min, sec)
+                            else "Залишилось: %d:%02d".format(min, sec),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
             }
 
             Spacer(modifier = Modifier.height(16.dp))

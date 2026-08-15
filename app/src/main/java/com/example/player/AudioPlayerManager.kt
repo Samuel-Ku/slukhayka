@@ -38,6 +38,15 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.sample
 
+/**
+ * Spec-22 T5: sleep-timer fade volume for a given remaining-second count.
+ * Linear 1.0→0.0 over the last 30 s; outside the fade window volume is
+ * untouched (1.0). Extracted as a pure function so the boundary math is
+ * unit-testable.
+ */
+internal fun sleepTimerFadeVolume(remainingSec: Int): Float =
+    if (remainingSec in 1..30) remainingSec / 30f else 1.0f
+
 data class PlayerState(
     val currentBook: AudiobookEntity? = null,
     val chapters: List<ChapterEntity> = emptyList(),
@@ -48,6 +57,8 @@ data class PlayerState(
     val playbackSpeed: Float = 1.0f,
     val sleepTimerMinutes: Int = 0,
     val sleepTimerRemainingSeconds: Int = 0,
+    // Spec-22 T5: true while the timer is in «до кінця розділу» mode (-1).
+    val isSleepTimerEndOfChapter: Boolean = false,
     val isBuffering: Boolean = false,
     val isOfflineMode: Boolean = false,
     val audioEngineMode: String = "4read Audio Engine",
@@ -293,6 +304,7 @@ class AudioPlayerManager(
 
     private var updateProgressJob: Job? = null
     private var sleepTimer: CountDownTimer? = null
+    private var shakeDetector: ShakeDetector? = null
     private var prepareTimeoutJob: Job? = null
 
     /** Global playback preferences (wayfinder #26): default speed etc. */
@@ -437,6 +449,16 @@ class AudioPlayerManager(
             canUndoSeek = false,
             undoFromPositionMs = 0L
         )
+        // A fresh load starts a new listening cycle: the sleep timer belongs to
+        // the previous listening session and does not follow the new book.
+        sleepTimer?.cancel()
+        shakeDetector?.stopListening()
+        _playerState.value = _playerState.value.copy(
+            sleepTimerMinutes = 0,
+            sleepTimerRemainingSeconds = 0,
+            isSleepTimerEndOfChapter = false
+        )
+        try { mediaPlayer?.volume = 1.0f } catch (_: Exception) {}
         // A fresh load starts a new listening cycle: completion resets, chapter
         // history resets, and — when autoplaying — the resume + segment begin.
         completionLogged = false
@@ -518,6 +540,9 @@ class AudioPlayerManager(
             canUndoSeek = false,
             undoFromPositionMs = 0L
         )
+
+        // Spec-22 T5: «до кінця розділу» follows manual chapter switches.
+        rearmEndOfChapterTimerIfActive(chapterIndex, startPositionMs)
 
         // Arm the one-shot resume seek (see [pendingResumeSeekMs]): it is fired
         // by the READY listener exactly once and consumed, so a resume position
@@ -989,19 +1014,79 @@ class AudioPlayerManager(
         }
     }
 
+    /**
+     * Arms the sleep timer (spec-22 T5).
+     *
+     * - `0` — cancels any active timer and restores volume.
+     * - `-1` — «до кінця розділу»: stops exactly at the current chapter's
+     *   boundary (recomputed on manual chapter switches via [prepareChapter]).
+     * - positive — minutes until stop.
+     *
+     * Both timed modes fade the volume 1.0→0.0 linearly over the last 30 s;
+     * during that window a shake gesture (see [ShakeDetector]) restores
+     * volume and extends the timer by +15 min.
+     */
     fun setSleepTimer(minutes: Int) {
         sleepTimer?.cancel()
-        if (minutes <= 0) {
-            _playerState.value = _playerState.value.copy(sleepTimerMinutes = 0, sleepTimerRemainingSeconds = 0)
+        shakeDetector?.stopListening()
+        if (minutes == 0) {
+            _playerState.value = _playerState.value.copy(
+                sleepTimerMinutes = 0,
+                sleepTimerRemainingSeconds = 0,
+                isSleepTimerEndOfChapter = false
+            )
             try { mediaPlayer?.volume = 1.0f } catch (_: Exception) {}
+            return
+        }
+
+        if (minutes == -1) {
+            val state = _playerState.value
+            val remainingMs = (state.durationMs - state.currentPositionMs).coerceAtLeast(1000L)
+            val remainingSec = (remainingMs / 1000L).toInt()
+            _playerState.value = _playerState.value.copy(
+                sleepTimerMinutes = -1,
+                sleepTimerRemainingSeconds = remainingSec,
+                isSleepTimerEndOfChapter = true
+            )
+            startSleepTimerInternal(remainingMs, isEndOfChapter = true)
             return
         }
 
         val totalMs = minutes * 60 * 1000L
         _playerState.value = _playerState.value.copy(
             sleepTimerMinutes = minutes,
-            sleepTimerRemainingSeconds = minutes * 60
+            sleepTimerRemainingSeconds = minutes * 60,
+            isSleepTimerEndOfChapter = false
         )
+        startSleepTimerInternal(totalMs, isEndOfChapter = false)
+    }
+
+    /**
+     * Spec-22 T5: if the timer is in «до кінця розділу» mode, re-arm it for
+     * the newly prepared chapter (manual skip or auto-advance) so it still
+     * stops exactly at the chapter boundary.
+     */
+    private fun rearmEndOfChapterTimerIfActive(chapterIndex: Int, startPositionMs: Long) {
+        if (!_playerState.value.isSleepTimerEndOfChapter) return
+        sleepTimer?.cancel()
+        shakeDetector?.stopListening()
+        val chapter = _playerState.value.chapters.getOrNull(chapterIndex) ?: return
+        val remainingMs =
+            (chapter.durationSeconds * 1000L - startPositionMs).coerceAtLeast(1000L)
+        _playerState.value = _playerState.value.copy(
+            sleepTimerRemainingSeconds = (remainingMs / 1000L).toInt()
+        )
+        startSleepTimerInternal(remainingMs, isEndOfChapter = true)
+    }
+
+    private fun startSleepTimerInternal(totalMs: Long, isEndOfChapter: Boolean) {
+        if (shakeDetector == null) {
+            shakeDetector = ShakeDetector(context) {
+                // Shake during the fade-out window: +15 min and full volume.
+                try { mediaPlayer?.volume = 1.0f } catch (_: Exception) {}
+                setSleepTimer(15)
+            }
+        }
 
         sleepTimer = object : CountDownTimer(totalMs, 1000L) {
             override fun onTick(millisUntilFinished: Long) {
@@ -1009,14 +1094,19 @@ class AudioPlayerManager(
                 _playerState.value = _playerState.value.copy(
                     sleepTimerRemainingSeconds = remainingSec
                 )
-                // Smooth volume fade during the last 15 seconds
-                if (remainingSec in 1..15) {
-                    val vol = remainingSec / 15f
+                // Smooth 30 s volume fade 1.0→0.0; shake-to-extend only armed
+                // inside the fade window.
+                val vol = sleepTimerFadeVolume(remainingSec)
+                if (vol < 1.0f) {
                     try { mediaPlayer?.volume = vol } catch (_: Exception) {}
+                    shakeDetector?.startListening()
+                } else {
+                    shakeDetector?.stopListening()
                 }
             }
 
             override fun onFinish() {
+                shakeDetector?.stopListening()
                 val book = _playerState.value.currentBook
                 val chapterIdx = _playerState.value.currentChapterIndex
                 val chapters = _playerState.value.chapters
@@ -1049,7 +1139,8 @@ class AudioPlayerManager(
                 try { mediaPlayer?.volume = 1.0f } catch (_: Exception) {}
                 _playerState.value = _playerState.value.copy(
                     sleepTimerMinutes = 0,
-                    sleepTimerRemainingSeconds = 0
+                    sleepTimerRemainingSeconds = 0,
+                    isSleepTimerEndOfChapter = false
                 )
             }
         }.start()
@@ -1175,6 +1266,8 @@ class AudioPlayerManager(
 
     fun release() {
         sleepTimer?.cancel()
+        shakeDetector?.stopListening()
+        shakeDetector = null
         updateProgressJob?.cancel()
         // Code-review HIGH #1 (post-Wave-1 review): without this, a prepare
         // timeout coroutine launched by `prepareChapter` can outlive the

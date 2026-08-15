@@ -617,6 +617,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    // Spec-23 T2: the 4read full-catalog hydration pass — enumerates the
+    // homepage, genre categories and series pages into the persisted
+    // Works/Editions layer (merge-on-write, idempotent). Same result state as
+    // the WebView tool so the debug surface reports counts the same way.
+    fun hydrateFourReadCatalog() {
+        if (_isHydrating.value) return
+        _isHydrating.value = true
+        _hydration.value = null
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val result = sourceCatalog.hydrateFourReadCatalog()
+                _hydration.value = result
+                // Refresh the ephemeral union so freshly hydrated books
+                // surface immediately in the Explore feed.
+                sourceCatalog.refreshUnifiedCatalog()
+            } catch (e: Exception) {
+                _hydration.value = com.example.data.catalog.SourceCatalog.HydrationResult("4read", found = 0, imported = 0, failed = 0)
+            } finally {
+                _isHydrating.value = false
+            }
+        }
+    }
+
     // Spec-15 T1: the deduplicated «Увесь каталог» union — every verified
     // source's catalogue enumeration merged into one Work card per book, with
     // a badge per carried source. Ephemeral (nothing imported until a card is

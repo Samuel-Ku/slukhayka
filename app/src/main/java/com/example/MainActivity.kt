@@ -1,6 +1,7 @@
 package com.example
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -10,6 +11,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.viewModels
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
@@ -41,12 +43,20 @@ import com.example.ui.screens.SeriesScreen
 import com.example.ui.screens.Top100Screen
 import com.example.ui.screens.WebSourceBrowserScreen
 import com.example.ui.theme.AudiobookTheme
+import com.example.widget.WidgetIntents
 
 class MainActivity : ComponentActivity() {
+
+    // Spec-17 (#110): the widget's book tap reuses this existing surface — the
+    // activity-level VM lets us honor the widget extra outside composition.
+    private val appViewModel: MainViewModel by viewModels()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        
+
+        handleWidgetOpenPlayerIntent(intent)
+
         // Globally disable hardware bitmaps in Coil to prevent E/ashmem Pinning is deprecated errors
         val imageLoader = coil.ImageLoader.Builder(this)
             .allowHardware(false)
@@ -55,8 +65,20 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             AudiobookTheme {
-                AudiobookApp()
+                AudiobookApp(viewModel = appViewModel)
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleWidgetOpenPlayerIntent(intent)
+    }
+
+    /** Spec-17 (#110): the widget's book tap opens the full player on top. */
+    private fun handleWidgetOpenPlayerIntent(intent: Intent) {
+        if (intent.getBooleanExtra(WidgetIntents.EXTRA_OPEN_PLAYER, false)) {
+            appViewModel.setShowFullPlayer(true)
         }
     }
 }
@@ -154,7 +176,6 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                         viewModel = viewModel,
                         sourceId = selectedWebSource!!.sourceId,
                         homeUrl = selectedWebSource!!.homeUrl,
-                        displayName = selectedWebSource!!.displayName,
                         onClose = { viewModel.closeWebSource() }
                     )
 
@@ -219,8 +240,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                                 {
                                     viewModel.openWebSource(
                                         sourceId = "sluhay",
-                                        homeUrl = "https://sluhay.com/",
-                                        displayName = "Sluhay"
+                                        homeUrl = "https://sluhay.com/"
                                     )
                                 }
                             } else {

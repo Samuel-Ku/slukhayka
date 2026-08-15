@@ -1,5 +1,11 @@
 package com.example.ui.screens
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -14,13 +20,18 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -37,6 +48,7 @@ import com.example.data.db.AudiobookEntity
 import com.example.data.source.catalogCardDownloadAllowed
 import com.example.ui.MainViewModel
 import com.example.ui.components.EmptyState
+import com.example.ui.components.genreAccentColor
 import com.example.ui.displayAuthor
 import com.example.ui.theme.*
 
@@ -84,7 +96,14 @@ fun HomeScreen(
     // sources on every refresh).
     androidx.compose.runtime.LaunchedEffect(Unit) { viewModel.loadUnifiedCatalog() }
 
-    val genres = listOf("Усі", "Фантастика", "Cyberpunk", "Детективи", "Класика", "Антиутопія", "Завантажені")
+    // Spec-22 T3: the search bar and filter chips are collapsible — the
+    // header shows brand + [🔍] + [🔄], and the field + chips expand on
+    // demand with auto-focus. Closing (✕ or Back) clears the query and
+    // resets the filter to «Усі».
+    val haptic = LocalHapticFeedback.current
+    var searchExpanded by rememberSaveable { mutableStateOf(false) }
+
+    val genres = listOf("Усі", "Фантастика", "Cyberpunk", "Детективи", "Класика", "Антиутопія", "Короткі", "Завантажені")
 
     val filteredBooks = allBooks.filter { book ->
         val matchesSearch = searchQuery.isBlank() ||
@@ -94,6 +113,8 @@ fun HomeScreen(
         val matchesGenre = when (selectedGenre) {
             "Усі", "All" -> true
             "Завантажені", "Downloaded" -> book.isDownloaded
+            // Spec-22 T3 mood chip: a short book = up to ~3 hours.
+            "Короткі" -> book.totalDurationSeconds in 1..3 * 3600
             "Фантастика" -> book.genre.contains("фантастика", ignoreCase = true) || book.genre.contains("sci-fi", ignoreCase = true)
             "Cyberpunk" -> book.genre.contains("cyberpunk", ignoreCase = true) || book.genre.contains("киберпанк", ignoreCase = true) || book.genre.contains("кіберпанк", ignoreCase = true)
             "Детективи" -> book.genre.contains("детектив", ignoreCase = true)
@@ -114,134 +135,34 @@ fun HomeScreen(
             .testTag("home_screen"),
         contentPadding = PaddingValues(bottom = 120.dp)
     ) {
-        // Header & Search
+        // Header & collapsible search (spec-22 T3) — the field and chips
+        // expand from the header's [🔍] and close via ✕ or the Back gesture.
         item {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Surface(
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(36.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = Icons.Default.Headphones,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onPrimary,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                        }
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Text(
-                            text = "Слухайка",
-                            style = MaterialTheme.typography.titleLarge.copy(
-                                fontWeight = FontWeight.ExtraBold,
-                                letterSpacing = 1.sp
-                            ),
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
+            HomeHeader(
+                searchExpanded = searchExpanded,
+                searchQuery = searchQuery,
+                selectedGenre = selectedGenre,
+                genres = genres,
+                onToggleSearch = {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    searchExpanded = !searchExpanded
+                    if (!searchExpanded) {
+                        if (searchQuery.isNotBlank()) viewModel.updateSearchQuery("")
+                        if (selectedGenre != "Усі") viewModel.selectGenreFilter("Усі")
                     }
-
-                    Surface(
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
-                        shape = RoundedCornerShape(AppDimens.RadiusHero),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f))
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(8.dp)
-                                    .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.primary)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "Українські аудіокниги",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    }
+                },
+                onRefresh = viewModel::refreshCatalog,
+                onSearchQueryChange = viewModel::updateSearchQuery,
+                onCloseSearch = {
+                    searchExpanded = false
+                    if (searchQuery.isNotBlank()) viewModel.updateSearchQuery("")
+                    if (selectedGenre != "Усі") viewModel.selectGenreFilter("Усі")
+                },
+                onSelectGenre = { genre ->
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    viewModel.selectGenreFilter(genre)
                 }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Search Bar
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = { viewModel.updateSearchQuery(it) },
-                    placeholder = { Text("Пошук книги або автора...") },
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Default.Search,
-                            contentDescription = "Search",
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    },
-                    trailingIcon = {
-                        if (searchQuery.isNotEmpty()) {
-                            IconButton(onClick = { viewModel.updateSearchQuery("") }) {
-                                Icon(imageVector = Icons.Default.Clear, contentDescription = "Clear")
-                            }
-                        }
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("home_search_input"),
-                    shape = RoundedCornerShape(AppDimens.RadiusPanel),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        // MD3: input fills sit on the highest tonal container.
-                        focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                        focusedBorderColor = MaterialTheme.colorScheme.primary,
-                        unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
-                    ),
-                    singleLine = true
-                )
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                // Genre Filter Chips
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(genres) { genre ->
-                        val isSelected = selectedGenre == genre
-                        FilterChip(
-                            selected = isSelected,
-                            onClick = { viewModel.selectGenreFilter(genre) },
-                            label = { Text(genre) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = MaterialTheme.colorScheme.primary,
-                                selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
-                                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                                labelColor = MaterialTheme.colorScheme.onSurface
-                            ),
-                            border = FilterChipDefaults.filterChipBorder(
-                                enabled = true,
-                                selected = isSelected,
-                                borderColor = MaterialTheme.colorScheme.outlineVariant,
-                                selectedBorderColor = MaterialTheme.colorScheme.primary
-                            )
-                        )
-                    }
-                }
-            }
+            )
         }
 
         if (inSearchMode) {
@@ -518,6 +439,154 @@ fun HomeScreen(
     }
 }
 
+/**
+ * Explore header (spec-22 T3): brand row with [🔍] search toggle + [🔄]
+ * refresh, and an expandable search field with genre/mood chips. State is
+ * hoisted so snapshot tests can pin both collapsed and expanded without a
+ * ViewModel. ✕ or the system Back collapses the search, clears the query
+ * and resets the filter to «Усі».
+ */
+@Composable
+fun HomeHeader(
+    searchExpanded: Boolean,
+    searchQuery: String,
+    selectedGenre: String,
+    genres: List<String>,
+    onToggleSearch: () -> Unit,
+    onRefresh: () -> Unit,
+    onSearchQueryChange: (String) -> Unit,
+    onCloseSearch: () -> Unit,
+    onSelectGenre: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val focusRequester = remember { FocusRequester() }
+    BackHandler(enabled = searchExpanded) { onCloseSearch() }
+    LaunchedEffect(searchExpanded) {
+        if (searchExpanded) focusRequester.requestFocus()
+    }
+
+    Column(modifier = modifier.fillMaxWidth().padding(16.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.Headphones,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onPrimary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.width(10.dp))
+                Text(
+                    text = "Слухайка",
+                    style = MaterialTheme.typography.titleLarge.copy(
+                        fontWeight = FontWeight.ExtraBold,
+                        letterSpacing = 1.sp
+                    ),
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(
+                    onClick = onRefresh,
+                    modifier = Modifier.size(AppDimens.TouchTarget).testTag("home_refresh")
+                ) {
+                    Icon(Icons.Default.Refresh, contentDescription = "Оновити каталог")
+                }
+                IconButton(
+                    onClick = onToggleSearch,
+                    modifier = Modifier.size(AppDimens.TouchTarget).testTag("home_search_toggle")
+                ) {
+                    Icon(
+                        imageVector = if (searchExpanded) Icons.Default.Close else Icons.Default.Search,
+                        contentDescription = if (searchExpanded) "Закрити пошук" else "Пошук"
+                    )
+                }
+            }
+        }
+
+        AnimatedVisibility(
+            visible = searchExpanded,
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically()
+        ) {
+            Column {
+                Spacer(modifier = Modifier.height(16.dp))
+
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = onSearchQueryChange,
+                    placeholder = { Text("Пошук книги або автора...") },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = "Search",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    },
+                    trailingIcon = {
+                        // ✕ collapses search and resets the filters (US-2).
+                        IconButton(onClick = onCloseSearch, modifier = Modifier.testTag("home_search_close")) {
+                            Icon(imageVector = Icons.Default.Clear, contentDescription = "Закрити пошук")
+                        }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .focusRequester(focusRequester)
+                        .testTag("home_search_input"),
+                    shape = RoundedCornerShape(AppDimens.RadiusPanel),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        // MD3: input fills sit on the highest tonal container.
+                        focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
+                    ),
+                    singleLine = true
+                )
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // Genre/mood filter chips — revealed with the search field.
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(genres) { genre ->
+                        val isSelected = selectedGenre == genre
+                        FilterChip(
+                            selected = isSelected,
+                            onClick = { onSelectGenre(genre) },
+                            label = { Text(genre) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+                                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                labelColor = MaterialTheme.colorScheme.onSurface
+                            ),
+                            border = FilterChipDefaults.filterChipBorder(
+                                enabled = true,
+                                selected = isSelected,
+                                borderColor = MaterialTheme.colorScheme.outlineVariant,
+                                selectedBorderColor = MaterialTheme.colorScheme.primary
+                            ),
+                            modifier = Modifier.testTag("home_genre_chip_$genre")
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
 /** Section heading for a Netflix row (spec #8 ticket T6). */
 @Composable
 fun CatalogRowHeader(title: String) {
@@ -682,12 +751,17 @@ fun CatalogSeriesCard(
     }
 }
 
-/** Remote-cover image with the same dark typographic fallback as BookCoverImage. */
+/**
+ * Remote-cover image with the same genre-tinted typographic fallback as
+ * BookCoverImage (spec-22 T3). [genre] is optional — catalogue rows usually
+ * carry no genre, so they keep the brand-accent gradient unchanged.
+ */
 @Composable
 fun CatalogCoverImage(
     coverImageUrl: String?,
     title: String,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    genre: String? = null
 ) {
     val context = LocalContext.current
     var isError by remember(coverImageUrl) { mutableStateOf(false) }
@@ -710,10 +784,16 @@ fun CatalogCoverImage(
             onError = { isError = true }
         )
     } else {
+        val fallbackAccent = genreAccentColor(genre)
         Box(
             modifier = modifier.background(
                 brush = Brush.verticalGradient(
-                    colors = listOf(MaterialTheme.colorScheme.surface, MaterialTheme.colorScheme.surfaceContainerHigh, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f))
+                    colors = listOf(
+                        MaterialTheme.colorScheme.surface,
+                        MaterialTheme.colorScheme.surfaceContainerHigh,
+                        (fallbackAccent ?: MaterialTheme.colorScheme.primary)
+                            .copy(alpha = if (fallbackAccent != null) 0.45f else 0.25f)
+                    )
                 )
             ),
             contentAlignment = Alignment.Center
@@ -902,8 +982,13 @@ fun AudiobookListItem(
 
             Spacer(modifier = Modifier.width(8.dp))
 
+            val haptic = LocalHapticFeedback.current
             IconButton(
-                onClick = onPlayClick,
+                onClick = {
+                    // Spec-22 T3: a light tick on playback start.
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    onPlayClick()
+                },
                 modifier = Modifier
                     .size(40.dp)
                     .clip(CircleShape)

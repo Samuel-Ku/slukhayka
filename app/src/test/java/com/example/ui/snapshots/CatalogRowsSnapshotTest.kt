@@ -14,6 +14,7 @@ import com.example.ui.screens.CatalogBookCard
 import com.example.ui.screens.CatalogRowHeader
 import com.example.ui.screens.CatalogSeriesCard
 import com.example.ui.screens.EmptyCatalogState
+import com.example.ui.screens.HomeHeader
 import com.example.ui.theme.AudiobookTheme
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
 import com.github.takahirom.roborazzi.captureRoboImage
@@ -100,6 +101,57 @@ class CatalogRowsSnapshotTest {
         }
         composeTestRule.onRoot().captureRoboImage(
             filePath = "src/test/snapshots/catalog_empty_state.png"
+        )
+    }
+
+    // Spec-22 T3: the Explore header is collapsible — brand + [🔍] + [🔄]
+    // when collapsed, search field + chips when expanded. Both states are
+    // pinned so the redesign cannot drift.
+    @Test
+    fun explore_header_collapsed() {
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                CatalogSurface {
+                    HomeHeader(
+                        searchExpanded = false,
+                        searchQuery = "",
+                        selectedGenre = "Усі",
+                        genres = listOf("Усі", "Фантастика", "Короткі", "Завантажені"),
+                        onToggleSearch = {},
+                        onRefresh = {},
+                        onSearchQueryChange = {},
+                        onCloseSearch = {},
+                        onSelectGenre = {}
+                    )
+                }
+            }
+        }
+        composeTestRule.onRoot().captureRoboImage(
+            filePath = "src/test/snapshots/explore_header_collapsed.png"
+        )
+    }
+
+    @Test
+    fun explore_header_expanded() {
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                CatalogSurface {
+                    HomeHeader(
+                        searchExpanded = true,
+                        searchQuery = "Шевченко",
+                        selectedGenre = "Класика",
+                        genres = listOf("Усі", "Фантастика", "Короткі", "Завантажені"),
+                        onToggleSearch = {},
+                        onRefresh = {},
+                        onSearchQueryChange = {},
+                        onCloseSearch = {},
+                        onSelectGenre = {}
+                    )
+                }
+            }
+        }
+        composeTestRule.onRoot().captureRoboImage(
+            filePath = "src/test/snapshots/explore_header_expanded.png"
         )
     }
 }

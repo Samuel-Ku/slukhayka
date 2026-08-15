@@ -97,7 +97,6 @@ class WorkSourcesRepositoryTest {
             mergeKey = "пасажир|жанкрісторгранже",
             title = "Пасажир",
             author = "Жан-Крістоф Гранже",
-            narrator = "",
             addedAt = 0L
         )
         dao.upsertWork(work)

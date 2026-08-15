@@ -50,7 +50,7 @@ class GlobalSearchMergeTest {
     }
 
     @Test
-    fun `different narrations of the same work stay separate cards`() {
+    fun `different narrations merge into one card with both sources`() {
         val results = listOf(
             book("Кобзар", "Тарас Шевченко", "4read").copy(narrator = "Валерій Завалко"),
             book("Кобзар", "Тарас Шевченко", "soundbooks").copy(narrator = "Богдан Бенюк")
@@ -58,7 +58,11 @@ class GlobalSearchMergeTest {
 
         val merged = mergeGlobalSearchResults(results)
 
-        assertEquals(2, merged.size)
+        // ADR-0010: the Work is bibliographic — both narrations are ONE card
+        // carrying both sources (the narrator differentiates Editions, not
+        // cards).
+        assertEquals(1, merged.size)
+        assertEquals(listOf("4read", "soundbooks"), merged.single().sources.map { it.sourceId })
     }
 
     @Test

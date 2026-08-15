@@ -153,7 +153,9 @@ class WorkFeedPagingTest {
                     id = "lib-${work.id}",
                     title = work.title,
                     author = work.author,
-                    narrator = work.narrator,
+                    // ADR-0010: the Work carries no narrator — the rendition
+                    // narrator is an Edition property, absent here.
+                    narrator = "",
                     description = "",
                     coverDrawableRes = 0,
                     coverImageUrl = null,

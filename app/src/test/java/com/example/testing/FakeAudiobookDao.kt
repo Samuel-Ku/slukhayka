@@ -699,7 +699,6 @@ class FakeAudiobookDao(
                 mergeKey = work.mergeKey,
                 title = work.title,
                 author = work.author,
-                narrator = work.narrator,
                 seriesTitle = work.seriesTitle,
                 seriesIndex = work.seriesIndex,
                 coverImageUrl = work.coverImageUrl,

@@ -23,8 +23,9 @@ import androidx.room.PrimaryKey
  * `playback_progress` and fills them, so the UI (LibraryModel, ListenComposer,
  * screens, the player) keeps reading the same shaped row while the persisted
  * columns are gone. Writes never touch them here — they go to the owning
- * tables. `narrator` stays mirrored on both rows until the Work-merge policy
- * revisits the mergeKey (out of scope of ADR-0009).
+ * tables. `narrator` mirrors the EDITION's narrator (ADR-0010): the Work has
+ * no narrator — the row is the user's copy of one rendition, and the
+ * narrator rides on the audiobooks/editions pair, never on `works`.
  */
 @Entity(tableName = "audiobooks")
 data class AudiobookEntity(
@@ -411,10 +412,15 @@ data class EditionSettingsEntity(
 
 /**
  * A persisted catalogue Work (spec-23 T1): one row per book identity, keyed
- * by the normalized title+author+narrator [MergeKey]. This is the browse
- * layer — distinct from [AudiobookEntity], which stays the listening/library
- * row and links to a Work only when the user adds or plays it. One card per
- * Work, however many sources carry it; the sources live in [WorkSourceEntity].
+ * by the normalized title+author [MergeKey]. This is the browse layer —
+ * distinct from [AudiobookEntity], which stays the listening/library row and
+ * links to a Work only when the user adds or plays it. One card per Work,
+ * however many sources carry it; the sources live in [WorkSourceEntity].
+ *
+ * ADR-0010 — the Work is bibliographic only: NO narrator column. The
+ * narrator is an Edition (rendition) property ([EditionEntity.narrator], and
+ * the audiobooks row that is the user's copy of that rendition). Two
+ * narrations of the same text are ONE Works row with two Edition rows.
  */
 @Entity(
     tableName = "works",
@@ -425,12 +431,11 @@ data class WorkEntity(
     // a stable per-source id for unmergeable rows (blank key, no identity to
     // merge on).
     @PrimaryKey val id: String,
-    // Normalized title|author[|narrator]; '' for unmergeable rows — dedup by
-    // lookup on the write path (merge-on-write), never a blank-key collision.
+    // Normalized title|author; '' for unmergeable rows — dedup by lookup on
+    // the write path (merge-on-write), never a blank-key collision.
     val mergeKey: String,
     val title: String,
     val author: String,
-    val narrator: String = "",
     val seriesTitle: String? = null,
     // 4read series page URL (spec-9 T1, ADR-0009): moved here from the
     // audiobooks row in the v15 contract step — the membership signal the
@@ -506,13 +511,14 @@ data class WorkSourceEntity(
  * Sources carrying it (the «N джерел» badge input) and its optional
  * library-side genre (LEFT JOIN — null until the Work is linked into
  * `audiobooks`). Row shape for a Room paging query, not a stored table.
+ * ADR-0010: no narrator — the Work is bibliographic; the rendition narrator
+ * lives on the Edition, never on the Work.
  */
 data class WorkFeedRow(
     val workId: String,
     val mergeKey: String,
     val title: String,
     val author: String,
-    val narrator: String,
     val seriesTitle: String? = null,
     val seriesIndex: Int? = null,
     val coverImageUrl: String? = null,

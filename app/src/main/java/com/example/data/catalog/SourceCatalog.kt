@@ -15,6 +15,7 @@ import com.example.data.source.SourceAdapter
 import com.example.data.source.SourceBook
 import com.example.data.source.mergeGlobalSearchResults
 import com.example.data.source.sourceDisplayName
+import com.example.data.source.streamOnlyFor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -296,6 +297,24 @@ class SourceCatalog(
                     val mergeKey = MergeKey.keyFor(detail.title, detail.author, detail.narrator)
                     val alreadyKnown = mergeKey.isNotBlank() && dao.findByMergeKey(mergeKey) != null
                     libraryImport.importBookFromSource(sourceId, detail)
+                    // Spec-23 T3: the hydrated row ALSO lands in the persisted
+                    // browse layer (works/editions) via merge-on-write — the
+                    // endless feed's source of truth. Idempotent: the edition
+                    // id is deterministic, so re-hydration never duplicates.
+                    // The per-source policy rides along (stream-only flags),
+                    // and playback already routes Referer/UA via headersFor.
+                    writeWorkEdition(
+                        sourceId = sourceId,
+                        title = detail.title,
+                        author = detail.author,
+                        narrator = detail.narrator,
+                        sourceUrl = book.url,
+                        streamOnly = streamOnlyFor(sourceId),
+                        coverImageUrl = detail.coverImageUrl,
+                        durationSeconds = detail.totalDurationSeconds,
+                        seriesTitle = detail.series?.name,
+                        seriesIndex = detail.series?.position
+                    )
                     if (alreadyKnown) merged++ else imported++
                 } catch (e: Exception) {
                     failed++

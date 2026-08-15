@@ -162,4 +162,59 @@ class HydrationRepositoryTest {
         assertEquals(0, result.failed)
         assertTrue(dao.getAllAudiobooks().first().isEmpty())
     }
+
+    // ---------------------------------------------------------------------
+    // Spec-23 T3: hydrated rows ALSO land in the persisted browse layer
+    // (works/editions) via merge-on-write, carrying the source's policy.
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `hydration lands every row in works and editions with the source policy`() = runBlocking {
+        val pasazhyr = book("Пасажир", "Жан-Крістоф Гранже", "sluhay")
+        val kobzar = book("Кобзар", "Тарас Шевченко", "sluhay")
+        val repository = repo(FakeAdapter("sluhay", listOf(pasazhyr, kobzar), ::detailOf))
+
+        val result = repository.hydrateWebSourceCatalog("sluhay")
+
+        assertEquals(2, result.found)
+        assertEquals(2, dao.countWorks())
+        assertEquals(2, dao.countEditions())
+        for (work in dao.observeWorks().first()) {
+            val edition = dao.getEditionsForWorkSync(work.id).single()
+            assertEquals("sluhay", edition.sourceId)
+            // sluhay is downloadable — the edition must not be stream-only.
+            assertEquals(false, edition.streamOnly)
+        }
+    }
+
+    @Test
+    fun `stream-only sources carry their policy into the browse layer`() = runBlocking {
+        val pasazhyr = book("Пасажир", "Жан-Крістоф Гранже", "lihtar")
+        val repository = repo(FakeAdapter("lihtar", listOf(pasazhyr), ::detailOf))
+
+        repository.hydrateWebSourceCatalog("lihtar")
+
+        val work = dao.observeWorks().first().single()
+        val edition = dao.getEditionsForWorkSync(work.id).single()
+        assertEquals("lihtar", edition.sourceId)
+        // lihtar is stream-only — the edition must refuse downloads.
+        assertEquals(true, edition.streamOnly)
+    }
+
+    @Test
+    fun `re-hydration never duplicates works or editions`() = runBlocking {
+        val pasazhyr = book("Пасажир", "Жан-Крістоф Гранже", "sluhay")
+        val kobzar = book("Кобзар", "Тарас Шевченко", "sluhay")
+        val repository = repo(FakeAdapter("sluhay", listOf(pasazhyr, kobzar), ::detailOf))
+
+        repository.hydrateWebSourceCatalog("sluhay")
+        val second = repository.hydrateWebSourceCatalog("sluhay")
+
+        // The second run merged everything back into known Works/Editions.
+        assertEquals(2, second.found)
+        assertEquals(0, second.imported)
+        assertEquals(2, second.merged)
+        assertEquals(2, dao.countWorks())
+        assertEquals(2, dao.countEditions())
+    }
 }

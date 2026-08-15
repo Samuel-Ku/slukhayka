@@ -102,11 +102,11 @@ fun BookCoverImage(
             onError = { isError = true }
         )
     } else {
-        // Fallback layout: Genre-aware gradient typography cover
+        // Fallback layout: High-contrast typography cover (minimum 11-12sp text)
         Box(
             modifier = modifier
                 .background(brush = getGenreGradient(book.genre))
-                .padding(6.dp),
+                .padding(8.dp),
             contentAlignment = Alignment.Center
         ) {
             Column(
@@ -117,24 +117,31 @@ fun BookCoverImage(
                     imageVector = getGenreIcon(book.genre),
                     contentDescription = null,
                     tint = CyberPrimary,
-                    modifier = Modifier.size(24.dp)
+                    modifier = Modifier.size(26.dp)
                 )
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(6.dp))
                 Text(
                     text = book.title,
                     color = CyberTextPrimary,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.labelMedium.copy(
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        lineHeight = 15.sp
+                    ),
                     maxLines = 3,
                     overflow = TextOverflow.Ellipsis,
                     textAlign = TextAlign.Center
                 )
                 if (book.author.isNotBlank()) {
-                    Spacer(modifier = Modifier.height(2.dp))
+                    Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = book.author,
                         color = CyberTextSecondary,
-                        fontSize = 9.sp,
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            lineHeight = 14.sp
+                        ),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         textAlign = TextAlign.Center

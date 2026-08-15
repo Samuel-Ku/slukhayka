@@ -2,8 +2,11 @@ package com.example
 
 import android.app.Application
 import com.example.data.catalog.SourceCatalog
+import com.example.data.collection.SmartCollectionAssets
+import com.example.data.collection.SmartCollections
 import com.example.data.db.AudiobookDatabase
 import com.example.data.downloads.OfflineDownloads
+import com.example.data.duration.DurationEnrichment
 import com.example.data.entries.LibraryEntries
 import com.example.data.imports.LibraryImport
 import com.example.data.listening.ListeningStateStore
@@ -87,6 +90,24 @@ class App : Application() {
     /** Library Entries: delete/remove/favourite/metadata + library reads. */
     val libraryEntries: LibraryEntries by lazy {
         LibraryEntries(database.audiobookDao(), sourceAdapters)
+    }
+
+    /**
+     * spec-18 T2 (#113): the throttled background duration-enrichment pass.
+     * The page fetch rides the 4read source adapter — the same seam every
+     * other door uses.
+     */
+    val durationEnrichment: DurationEnrichment by lazy {
+        val fourRead = sourceAdapters.first { it.sourceId == "4read" }
+        DurationEnrichment(database.audiobookDao(), fourRead::fetchBookPage)
+    }
+
+    /**
+     * Spec-16 T2 (#108): smart collections matched against the stored
+     * catalog, recomputed on catalog syncs.
+     */
+    val smartCollections: SmartCollections by lazy {
+        SmartCollections(database.audiobookDao()) { SmartCollectionAssets.load(this) }
     }
 
     /** Single player manager; created lazily on first playback/service access. */

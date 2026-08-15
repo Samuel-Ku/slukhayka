@@ -31,6 +31,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.catalog.CatalogBook
+import com.example.data.catalog.CatalogPerson
 import com.example.data.db.AudiobookEntity
 import com.example.data.db.BookmarkEntity
 import com.example.data.db.ChapterEntity
@@ -39,8 +40,14 @@ import com.example.data.listening.ListeningStateStore
 import com.example.data.source.sourceIdForUrl
 import com.example.data.source.streamOnlyFor
 import com.example.ui.MainViewModel
+import com.example.ui.bookPersonPath
 import com.example.ui.components.BookmarkDialog
 import com.example.ui.displayAuthor
+import com.example.ui.displayNarrator
+import com.example.ui.library.BookPlayState
+import com.example.ui.library.bookPlayLabel
+import com.example.ui.library.bookPlayState
+import com.example.ui.library.bookPositionAndTotal
 import com.example.ui.theme.*
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -67,6 +74,10 @@ fun BookDetailScreen(
     val isSourceProfilesLoading by viewModel.isSourceProfilesLoading.collectAsState()
     // Spec-23 T5: every Edition carrying the Work — the «Джерела» section.
     val bookSources by viewModel.bookSources.collectAsState()
+
+    // #40 decision 1: the favourite toggle lives on the book page itself.
+    val favoriteBooks by viewModel.libraryEntries.getFavoriteAudiobooks()
+        .collectAsState(initial = emptyList())
 
     var activeTab by remember { mutableStateOf(0) } // 0 = Chapters, 1 = Bookmarks
     var showAddBookmarkDialog by remember { mutableStateOf(false) }
@@ -101,6 +112,40 @@ fun BookDetailScreen(
         viewModel.loadRelatedBooks(currentBook.id)
     }
 
+    // #40 decision 1: the other volumes of the book's series («У серії»),
+    // fetched once per opened book through the catalog seam. The series
+    // fetch is session-cached, so this row costs nothing once the series
+    // page loaded.
+    var inSeriesBooks by remember { mutableStateOf<List<AudiobookEntity>>(emptyList()) }
+    LaunchedEffect(currentBook.id) {
+        val url = currentBook.seriesUrl?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
+        inSeriesBooks = try {
+            viewModel.sourceCatalog.fetchSeriesBooks(url)
+                .filterNot { it.id == currentBook.id }
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    // #40 decision 1: the main button reflects the book's real state — plain
+    // start, resume-with-position, re-listen of a finished book, or the live
+    // Playing label while this book is on the player. Position and total run
+    // on the same rule as the library card (spec-16 T4).
+    val progress = viewModel.libraryEntries.recentProgress
+        .collectAsState(initial = emptyList()).value
+        .firstOrNull { it.bookId == currentBook.id }
+    val (cumulativePosition, totalDuration) = bookPositionAndTotal(
+        chapters = chapters,
+        progress = progress,
+        bookTotalDurationSeconds = currentBook.totalDurationSeconds
+    )
+    val playState = bookPlayState(
+        isPlayingThisBook = playerState.currentBook?.id == currentBook.id,
+        progress = progress,
+        cumulativePositionSeconds = cumulativePosition,
+        totalDurationSeconds = totalDuration
+    )
+
     Scaffold(
         topBar = {
             // The host Scaffold in MainActivity already consumed the status
@@ -116,6 +161,21 @@ fun BookDetailScreen(
                     }
                 },
                 actions = {
+                    // #40 decision 1: the favourite toggle lives on the book
+                    // page itself — the place where the user decides a book is
+                    // worth keeping at hand.
+                    val isFavoriteThis = favoriteBooks.any { it.id == currentBook.id }
+                    FavoriteButton(
+                        isFavorite = isFavoriteThis,
+                        onToggle = {
+                            scope.launch {
+                                viewModel.libraryEntries.toggleFavorite(
+                                    currentBook.id,
+                                    !isFavoriteThis
+                                )
+                            }
+                        }
+                    )
                     // Spec #8 ticket T4: the WebView is no longer a tab — a
                     // book page keeps an "open on site" escape hatch instead.
                     if (currentBook.sourceUrl.contains("4read.org")) {
@@ -237,24 +297,55 @@ fun BookDetailScreen(
                     Spacer(modifier = Modifier.height(4.dp))
 
                     // "4read.org" is a placeholder author, not a real one — the
-                    // Source pill below already names the catalog.
+                    // Source pill below already names the catalog. #40: a real
+                    // author's name opens their catalogue page
+                    // (`/xfsearch/avtor/…`), a blank renders nothing.
                     if (currentBook.displayAuthor.isNotBlank()) {
                         Text(
                             text = "By ${currentBook.displayAuthor}",
                             style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.primary
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier
+                                .testTag("book_detail_author_link")
+                                .clickable {
+                                    viewModel.openPersonBooks(
+                                        CatalogPerson(
+                                            name = currentBook.displayAuthor,
+                                            path = bookPersonPath("avtor", currentBook.displayAuthor),
+                                            bookCount = 0
+                                        )
+                                    )
+                                }
                         )
                     }
 
-                    Text(
-                        text = "Narrated by ${currentBook.narrator}",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.fillMaxWidth(),
-                        textAlign = TextAlign.Center
-                    )
+                    // #40: a real narrator is a tappable person link
+                    // (`/xfsearch/chitaet/…`); the fabricated
+                    // "4read Voice Narrator" placeholder is scrubbed away
+                    // entirely (ADR-0004 write path), never rendered as text.
+                    val narratorName = currentBook.displayNarrator
+                    if (narratorName.isNotBlank()) {
+                        Text(
+                            text = "Narrated by $narratorName",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    viewModel.openPersonBooks(
+                                        CatalogPerson(
+                                            name = narratorName,
+                                            path = bookPersonPath("chitaet", narratorName),
+                                            bookCount = 0
+                                        )
+                                    )
+                                }
+                                .testTag("book_detail_narrator_link"),
+                            textAlign = TextAlign.Center
+                        )
+                    }
 
                     Spacer(modifier = Modifier.height(12.dp))
 
@@ -320,6 +411,23 @@ fun BookDetailScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 container = AppBadgeScrim,
                                 border = androidx.compose.foundation.BorderStroke(1.dp, AppBadgeScrimBorder)
+                            )
+                        }
+
+                        // #40 decision 1: the book's series names its
+                        // neighbours — the pill opens the series page
+                        // (spec-9 T1), where the volume order and the
+                        // next-unread CTA live.
+                        val seriesTitle = currentBook.seriesTitle.orEmpty()
+                        if (seriesTitle.isNotBlank()) {
+                            SeriesPill(
+                                seriesTitle = seriesTitle,
+                                seriesIndex = currentBook.seriesIndex ?: 0,
+                                onClick = {
+                                    currentBook.seriesUrl?.takeIf { it.isNotBlank() }?.let { url ->
+                                        viewModel.openSeries(seriesTitle, url)
+                                    }
+                                }
                             )
                         }
                     }
@@ -410,7 +518,13 @@ fun BookDetailScreen(
                     ) {
                         Button(
                             onClick = {
-                                viewModel.playAudiobook(currentBook)
+                                // #40 decision 1: a finished book asks to
+                                // restart from the top (RELISTEN); everything
+                                // else starts or resumes.
+                                when (playState) {
+                                    BookPlayState.Finished -> viewModel.relistenBook(currentBook)
+                                    else -> viewModel.playAudiobook(currentBook)
+                                }
                                 viewModel.setShowFullPlayer(true)
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
@@ -425,9 +539,11 @@ fun BookDetailScreen(
                             Icon(imageVector = Icons.Default.PlayArrow, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary)
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = if (playerState.currentBook?.id == currentBook.id && playerState.isPlaying) "Playing" else "Play",
+                                text = bookPlayLabel(playState) { MainViewModel.formatTime(it) },
                                 fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onPrimary
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
 
@@ -607,6 +723,39 @@ fun BookDetailScreen(
                                     coverImageUrl = related.coverImageUrl
                                 ),
                                 onClick = { viewModel.selectBook(related.id) }
+                            )
+                        }
+                    }
+                }
+            }
+
+            // #40 decision 1: the other volumes of the book's series ("У
+            // серії"), the book itself excluded. The series fetch is session-
+            // cached, so this row costs nothing once the series page loaded.
+            if (inSeriesBooks.isNotEmpty()) {
+                item {
+                    Text(
+                        text = "У серії",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 20.dp, bottom = 8.dp)
+                    )
+                }
+                item {
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        items(inSeriesBooks, key = { it.id }) { seriesBook ->
+                            CatalogBookCard(
+                                book = CatalogBook(
+                                    id = seriesBook.id,
+                                    title = seriesBook.title,
+                                    author = seriesBook.author,
+                                    url = seriesBook.sourceUrl,
+                                    coverImageUrl = seriesBook.coverImageUrl
+                                ),
+                                onClick = { viewModel.selectBook(seriesBook.id) }
                             )
                         }
                     }
@@ -792,6 +941,59 @@ private fun TagPill(
             text = text,
             style = MaterialTheme.typography.labelSmall,
             color = color,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+        )
+    }
+}
+
+/**
+ * #40 decision 1 — the book page's favourite toggle: a filled heart when the
+ * book is in «Улюблені», an outlined one otherwise. Public so the snapshot
+ * seam can pin both states and the toggle from fixture data.
+ */
+@Composable
+fun FavoriteButton(
+    isFavorite: Boolean,
+    onToggle: () -> Unit
+) {
+    IconButton(onClick = onToggle, modifier = Modifier.testTag("favorite_toggle_button")) {
+        Icon(
+            imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+            contentDescription = if (isFavorite) "Прибрати з улюблених" else "Додати в улюблені",
+            tint = if (isFavorite) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
+        )
+    }
+}
+
+/**
+ * #40 decision 1 — the book's series as a tappable pill on the book page:
+ * "«Чаклун» • Кн. 2". Opens the series catalogue page (spec-9 T1
+ * SeriesScreen), which holds the volume order and the next-unread-volume
+ * CTA. Public (not private) so the snapshot seam can pin the pill's
+ * presence and tap through it with fixture data.
+ */
+@Composable
+fun SeriesPill(
+    seriesTitle: String,
+    seriesIndex: Int,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+        shape = RoundedCornerShape(AppDimens.RadiusCard),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
+        ),
+        modifier = Modifier.testTag("book_detail_series_pill")
+    ) {
+        Text(
+            text = if (seriesIndex > 0) "«$seriesTitle» • Кн. $seriesIndex" else "«$seriesTitle»",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.primary,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)

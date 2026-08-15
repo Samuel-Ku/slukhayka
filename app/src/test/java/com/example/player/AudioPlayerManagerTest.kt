@@ -823,6 +823,34 @@ class AudioPlayerManagerTest {
         }
     }
 
+    @Test
+    fun `forceRelisten resets a start that position alone would keep`() {
+        val clock = TestClock()
+        playerTest(clock = clock) { manager, factory ->
+            // The gap #40 decision 1 covers: a saved position strictly below
+            // the book total (last chapter, in-chapter seconds) — the
+            // position-based rule would RESUME here, but «Почати спочатку»
+            // must deterministically restart.
+            val totalSeconds = chapters.sumOf { it.durationSeconds }
+            manager.loadAndPlayBook(
+                book, chapters,
+                initialChapterIndex = chapters.lastIndex,
+                initialPositionSeconds = totalSeconds - 60L,
+                autoPlay = true,
+                forceRelisten = true
+            )
+            factory.current.simulateReady(chapters[0].durationSeconds * MILLIS_PER_SECOND)
+            awaitEvents(1) // RELISTEN replaces RESUME for the forced restart
+
+            assertEquals(
+                listOf(PlaybackEventKind.RELISTEN),
+                dao.savedPlaybackEvents.map { it.kind }
+            )
+            assertEquals(0, manager.playerState.value.currentChapterIndex)
+            assertEquals(0L, manager.playerState.value.currentPositionMs)
+        }
+    }
+
     /**
      * Builds a manager wired to a [RecordingPlayerFactory], runs [body] on the
      * shared test scheduler, and always releases the manager so its

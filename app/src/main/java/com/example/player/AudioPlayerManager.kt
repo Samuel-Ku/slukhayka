@@ -46,7 +46,6 @@ data class PlayerState(
     val playbackSpeed: Float = 1.0f,
     val sleepTimerMinutes: Int = 0,
     val sleepTimerRemainingSeconds: Int = 0,
-    val isSleepTimerEndOfChapter: Boolean = false,
     val isBuffering: Boolean = false,
     val isOfflineMode: Boolean = false,
     val audioEngineMode: String = "4read Audio Engine",
@@ -272,7 +271,6 @@ class AudioPlayerManager(
     private var updateProgressJob: Job? = null
     private var sleepTimer: CountDownTimer? = null
     private var prepareTimeoutJob: Job? = null
-    private var shakeDetector: ShakeDetector? = null
 
     /** Global playback preferences (wayfinder #26): default speed etc. */
     private val playbackSettings = settings ?: PlaybackSettings(context)
@@ -717,7 +715,6 @@ class AudioPlayerManager(
         val resumeGapMs = if (wasPlaying) null else pausedAtEpochMs?.let { now() - it }
         _playerState.value = _playerState.value.copy(isPlaying = true)
         ensurePlaybackServiceStarted()
-        com.example.widget.AudiobookGlanceWidgetReceiver.update(context)
         // Smart rewind (wayfinder #25): coming back from a pause rewinds a few
         // seconds to a few tens of seconds depending on how long the break was.
         applySmartRewindIfNeeded()
@@ -969,57 +966,19 @@ class AudioPlayerManager(
         }
     }
 
-    /**
-     * Sets or cancels the sleep timer.
-     * @param minutes Positive duration in minutes, -1 for "End of Chapter", or 0 / negative to cancel.
-     */
-     fun setSleepTimer(minutes: Int) {
+    fun setSleepTimer(minutes: Int) {
         sleepTimer?.cancel()
-        shakeDetector?.stopListening()
-        if (minutes == 0) {
-            _playerState.value = _playerState.value.copy(
-                sleepTimerMinutes = 0,
-                sleepTimerRemainingSeconds = 0,
-                isSleepTimerEndOfChapter = false
-            )
+        if (minutes <= 0) {
+            _playerState.value = _playerState.value.copy(sleepTimerMinutes = 0, sleepTimerRemainingSeconds = 0)
             try { mediaPlayer?.volume = 1.0f } catch (_: Exception) {}
-            return
-        }
-
-        if (minutes == -1) {
-            // End of current chapter mode
-            val state = _playerState.value
-            val remainingMs = (state.durationMs - state.currentPositionMs).coerceAtLeast(1000L)
-            val remainingSec = (remainingMs / 1000L).toInt()
-            val remainingMins = (remainingSec + 59) / 60
-
-            _playerState.value = _playerState.value.copy(
-                sleepTimerMinutes = -1,
-                sleepTimerRemainingSeconds = remainingSec,
-                isSleepTimerEndOfChapter = true
-            )
-            startSleepTimerInternal(remainingMs, isEndOfChapter = true)
             return
         }
 
         val totalMs = minutes * 60 * 1000L
         _playerState.value = _playerState.value.copy(
             sleepTimerMinutes = minutes,
-            sleepTimerRemainingSeconds = minutes * 60,
-            isSleepTimerEndOfChapter = false
+            sleepTimerRemainingSeconds = minutes * 60
         )
-        startSleepTimerInternal(totalMs, isEndOfChapter = false)
-    }
-
-    private fun startSleepTimerInternal(totalMs: Long, isEndOfChapter: Boolean) {
-        if (shakeDetector == null) {
-            shakeDetector = ShakeDetector(context) {
-                // Shake detected during fade-out: extend timer by 15 mins and restore volume!
-                Log.d("AudioPlayer", "Shake detected: extending sleep timer by 15 mins")
-                try { mediaPlayer?.volume = 1.0f } catch (_: Exception) {}
-                setSleepTimer(15)
-            }
-        }
 
         sleepTimer = object : CountDownTimer(totalMs, 1000L) {
             override fun onTick(millisUntilFinished: Long) {
@@ -1027,18 +986,14 @@ class AudioPlayerManager(
                 _playerState.value = _playerState.value.copy(
                     sleepTimerRemainingSeconds = remainingSec
                 )
-                // Smooth volume fade during the last 30 seconds (Spec-21 T3)
-                if (remainingSec in 1..30) {
-                    val vol = remainingSec / 30f
+                // Smooth volume fade during the last 15 seconds
+                if (remainingSec in 1..15) {
+                    val vol = remainingSec / 15f
                     try { mediaPlayer?.volume = vol } catch (_: Exception) {}
-                    shakeDetector?.startListening()
-                } else {
-                    shakeDetector?.stopListening()
                 }
             }
 
             override fun onFinish() {
-                shakeDetector?.stopListening()
                 val book = _playerState.value.currentBook
                 val chapterIdx = _playerState.value.currentChapterIndex
                 val chapters = _playerState.value.chapters
@@ -1071,8 +1026,7 @@ class AudioPlayerManager(
                 try { mediaPlayer?.volume = 1.0f } catch (_: Exception) {}
                 _playerState.value = _playerState.value.copy(
                     sleepTimerMinutes = 0,
-                    sleepTimerRemainingSeconds = 0,
-                    isSleepTimerEndOfChapter = false
+                    sleepTimerRemainingSeconds = 0
                 )
             }
         }.start()
@@ -1165,7 +1119,6 @@ class AudioPlayerManager(
             repository.updateProgress(book.id, currentChapter, posSec, sourceKey = repository.sourceKeyFor(book))
             repository.recordListeningTime(5L)
         }
-        com.example.widget.AudiobookGlanceWidgetReceiver.update(context)
     }
 
     /**
@@ -1176,7 +1129,7 @@ class AudioPlayerManager(
      * the manager's injectable clock so tests stay free of the wall clock.
      */
     private fun recordPlaybackEvent(
-        kind: PlaybackEventKind,
+        kind: String,
         chapterIndex: Int = _playerState.value.currentChapterIndex,
         positionSeconds: Long = _playerState.value.currentPositionMs / 1000L,
         fromPositionSeconds: Long? = null
@@ -1199,8 +1152,6 @@ class AudioPlayerManager(
 
     fun release() {
         sleepTimer?.cancel()
-        shakeDetector?.stopListening()
-        shakeDetector = null
         updateProgressJob?.cancel()
         // Code-review HIGH #1 (post-Wave-1 review): without this, a prepare
         // timeout coroutine launched by `prepareChapter` can outlive the
@@ -1228,7 +1179,6 @@ class AudioPlayerManager(
     fun stopAndClear() {
         sleepTimer?.cancel()
         sleepTimer = null
-        shakeDetector?.stopListening()
         prepareTimeoutJob?.cancel()
         // Deliberately NOT persisting progress here: the caller (deleteBook)
         // removes the book's progress row right after, so a save would race it

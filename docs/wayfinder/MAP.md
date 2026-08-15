@@ -4,7 +4,7 @@ label: wayfinder:map
 created: 2026-07-30
 status: charting
 tracker: github-issues
-map_issue: https://github.com/Samuel-Ku/4read-audiobooks-player/issues/2
+map_issue: https://github.com/Samuel-Ku/slukhayka/issues/2
 ---
 
 # Wayfinder Mirror — `coverage-to-80-via-hybrid-stack`
@@ -13,7 +13,7 @@ map_issue: https://github.com/Samuel-Ku/4read-audiobooks-player/issues/2
 > This file is a local pointer so a checkout without network access
 > still shows the destination and current frontier.
 >
-> Map issue: [#2](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/2)
+> Map issue: [#2](https://github.com/Samuel-Ku/slukhayka/issues/2)
 
 ## Destination
 
@@ -69,11 +69,11 @@ Standing preferences:
 
 ## Tickets (children of map #2)
 
-- #3 — [Ticket #1 — kover-and-coverage-gate](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/3) `wayfinder:task` — frontier.
-- #4 — [Ticket #2 — fake-player-engine](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/4) `wayfinder:prototype` — frontier.
-- #5 — [Ticket #3 — compose-snapshot-infra](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/5) `wayfinder:research` — frontier.
-- #6 — [Ticket #4 — jvm-test-fixtures](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/6) `wayfinder:research` — frontier.
-- #7 — [Ticket #5 — emulator-audio-scenario](https://github.com/Samuel-Ku/4read-audiobooks-player/issues/7) `wayfinder:task` — **blocked by #3, #5, #6**.
+- #3 — [Ticket #1 — kover-and-coverage-gate](https://github.com/Samuel-Ku/slukhayka/issues/3) `wayfinder:task` — frontier.
+- #4 — [Ticket #2 — fake-player-engine](https://github.com/Samuel-Ku/slukhayka/issues/4) `wayfinder:prototype` — frontier.
+- #5 — [Ticket #3 — compose-snapshot-infra](https://github.com/Samuel-Ku/slukhayka/issues/5) `wayfinder:research` — frontier.
+- #6 — [Ticket #4 — jvm-test-fixtures](https://github.com/Samuel-Ku/slukhayka/issues/6) `wayfinder:research` — frontier.
+- #7 — [Ticket #5 — emulator-audio-scenario](https://github.com/Samuel-Ku/slukhayka/issues/7) `wayfinder:task` — **blocked by #3, #5, #6**.
 
 Fog is in the GitHub map body. Local ticket files
 (`docs/wayfinder/tickets/*.md`) were removed once the GitHub

@@ -30,7 +30,7 @@ import com.example.data.db.ChapterEntity
 import com.example.data.db.PlaybackEventFilter
 import com.example.data.db.PlaybackEventKind
 import com.example.data.db.PlaybackEventPolicy
-import com.example.data.repository.AudiobookRepository
+import com.example.data.listening.ListeningStateStore
 import com.example.data.source.headersFor
 import com.example.data.source.sourceIdForUrl
 import kotlinx.coroutines.*
@@ -106,7 +106,12 @@ fun interface PlayerFactory {
  */
 class AudioPlayerManager(
     private val context: Context,
-    private val repository: AudiobookRepository,
+    // ADR-0002: the player runs on the Listening State Store + the chapter-
+    // fetch path, not the whole god module. All listening persistence funnels
+    // through [ListeningStateStore]; chapter materialisation (incl. the 4read
+    // page fallback) comes in as a suspend fetcher.
+    private val listeningState: ListeningStateStore,
+    private val chapterFetcher: suspend (String) -> List<ChapterEntity>,
     private val injectedPlayerFactory: PlayerFactory? = null,
     /** Wall clock, injectable for deterministic smart-rewind tests. */
     private val now: () -> Long = System::currentTimeMillis,
@@ -487,7 +492,7 @@ class AudioPlayerManager(
         val restoredPositionSeconds = positionSeconds
         val restoredSourceKey = newBookKey.second
         scope.launch(ioDispatcher) {
-            val candidate = repository.lastUndoCandidate(book.id, restoredSourceKey)
+            val candidate = listeningState.lastUndoCandidate(book.id, restoredSourceKey)
             if (candidate != null &&
                 !seekHistory.canUndo() &&
                 !PlaybackEventPolicy.isStaleUndoCandidate(candidate, now()) &&
@@ -646,7 +651,7 @@ class AudioPlayerManager(
         if (bookId != null && chapter != null) {
             scope.launch {
                 try {
-                    repository.recordPlaybackFailure(
+                    listeningState.recordPlaybackFailure(
                         bookId = bookId,
                         chapterIndex = chapter.chapterIndex,
                         errorCodeName = errorCodeName,
@@ -922,7 +927,7 @@ class AudioPlayerManager(
     fun savePreferredSpeed(speed: Float) {
         val book = _playerState.value.currentBook ?: return
         scope.launch(Dispatchers.IO) {
-            repository.setPreferredSpeed(book.id, speed)
+            listeningState.setPreferredSpeed(book.id, speed)
         }
     }
 
@@ -1000,7 +1005,7 @@ class AudioPlayerManager(
         val book = _playerState.value.currentBook ?: return
         val bookId = book.id
         scope.launch(Dispatchers.IO) {
-            repository.updatePausedAt(bookId, epochMs)
+            listeningState.updatePausedAt(bookId, epochMs)
         }
     }
 
@@ -1117,7 +1122,7 @@ class AudioPlayerManager(
 
                 if (book != null) {
                     scope.launch(Dispatchers.IO) {
-                        repository.addBookmark(
+                        listeningState.addBookmark(
                             BookmarkEntity(
                                 bookId = book.id,
                                 chapterIndex = chapterIdx,
@@ -1217,10 +1222,10 @@ class AudioPlayerManager(
         if (durationMs <= 0L) return
         val seconds = durationMs / 1000L
         scope.launch(Dispatchers.IO) {
-            repository.updateChapterDuration(chapter.id, seconds)
-            val chapters = repository.getChaptersList(book.id)
+            listeningState.updateChapterDuration(chapter.id, seconds)
+            val chapters = chapterFetcher(book.id)
             if (chapters.isNotEmpty() && chapters.all { it.durationSeconds > 0L }) {
-                repository.updateBookStats(book.id, chapters.size, chapters.sumOf { it.durationSeconds })
+                listeningState.updateBookStats(book.id, chapters.size, chapters.sumOf { it.durationSeconds })
             }
         }
     }
@@ -1232,8 +1237,8 @@ class AudioPlayerManager(
         scope.launch(Dispatchers.IO) {
             // Spec-10 T2: positions are keyed per source (ADR-0001), so the
             // player writes to the current book's source key.
-            repository.updateProgress(book.id, currentChapter, posSec, sourceKey = sourceIdForUrl(book.sourceUrl))
-            repository.recordListeningTime(5L)
+            listeningState.updateProgress(book.id, currentChapter, posSec, sourceKey = sourceIdForUrl(book.sourceUrl))
+            listeningState.recordListeningTime(5L)
         }
     }
 
@@ -1254,7 +1259,7 @@ class AudioPlayerManager(
         val bookId = book.id
         val sourceKey = sourceIdForUrl(book.sourceUrl)
         scope.launch(Dispatchers.IO) {
-            repository.recordPlaybackEvent(
+            listeningState.recordPlaybackEvent(
                 bookId = bookId,
                 kind = kind,
                 chapterIndex = chapterIndex,

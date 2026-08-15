@@ -4,7 +4,7 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.db.AudiobookEntity
 import com.example.data.db.ChapterEntity
-import com.example.data.repository.AudiobookRepository
+import com.example.data.listening.ListeningStateStore
 import com.example.testing.FakeAudiobookDao
 import com.example.testing.TestDataFactory
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -36,7 +36,7 @@ import kotlin.math.abs
 class SleepTimerTest {
 
     private lateinit var context: Context
-    private lateinit var repository: AudiobookRepository
+    private lateinit var listeningState: ListeningStateStore
     private val testDispatcher = StandardTestDispatcher()
     private val testScope = TestScope(testDispatcher)
 
@@ -48,11 +48,12 @@ class SleepTimerTest {
     @Before
     fun setup() {
         context = ApplicationProvider.getApplicationContext()
-        repository = AudiobookRepository(FakeAudiobookDao(), context, autoSyncOnInit = false)
+        listeningState = ListeningStateStore(FakeAudiobookDao())
         val fakeEngine = FakePlayerEngine()
         playerManager = AudioPlayerManager(
             context = context,
-            repository = repository,
+            listeningState = listeningState,
+            chapterFetcher = { emptyList() },
             injectedPlayerFactory = { fakeEngine },
             widgetSyncEnabled = false
         )

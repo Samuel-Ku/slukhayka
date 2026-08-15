@@ -14,6 +14,7 @@ import com.example.data.db.*
 import com.example.data.contentHashOf
 import com.example.data.imports.FolderRescan
 import com.example.data.imports.ImportPlan
+import com.example.data.listening.ListeningStateStore
 import com.example.data.imports.ImportPlanner
 import com.example.data.imports.LocalAudioEntry
 import com.example.data.imports.LocalFolderScanner
@@ -78,7 +79,11 @@ class AudiobookRepository(
                 android.webkit.CookieManager.getInstance().getCookie("https://sluhay.com/")
             }.getOrNull().orEmpty()
         })
-    )
+    ),
+    // ADR-0002 expand phase: Listening State lives in its own deep module; the
+    // god module delegates its Listening State members to it (deletion is a
+    // later ticket). Defaults to a fresh store over the same DAO.
+    private val listeningState: ListeningStateStore = ListeningStateStore(dao)
 ) {
 
     val allBooks: Flow<List<AudiobookEntity>> = dao.getAllAudiobooks()
@@ -868,15 +873,15 @@ class AudiobookRepository(
     }
 
     /** Per-book preferred playback speed (wayfinder #26); null clears the preference. */
-    suspend fun setPreferredSpeed(bookId: String, speed: Float?) = dao.updatePreferredSpeed(bookId, speed)
+    suspend fun setPreferredSpeed(bookId: String, speed: Float?) = listeningState.setPreferredSpeed(bookId, speed)
 
     /** Real chapter duration discovered during playback (replaces unknown 0). */
     suspend fun updateChapterDuration(chapterId: String, durationSeconds: Long) =
-        dao.updateChapterDuration(chapterId, durationSeconds)
+        listeningState.updateChapterDuration(chapterId, durationSeconds)
 
     /** Real chapter count / total duration once the book's chapters are known. */
     suspend fun updateBookStats(bookId: String, totalChapters: Int, totalDurationSeconds: Long) =
-        dao.updateBookStats(bookId, totalChapters, totalDurationSeconds)
+        listeningState.updateBookStats(bookId, totalChapters, totalDurationSeconds)
 
     /** Back-fills real page metadata (author/narrator/genre/rating/series). */
     suspend fun updateBookMetadata(
@@ -892,7 +897,7 @@ class AudiobookRepository(
 
     /** Last-pause marker for the smart rewind (wayfinder #25); null clears it. */
     suspend fun updatePausedAt(bookId: String, pausedAt: Long?, sourceKey: String = "") =
-        dao.updatePausedAt(bookId, pausedAt, sourceKey)
+        listeningState.updatePausedAt(bookId, pausedAt, sourceKey)
 
     /**
      * Appends one row to the durable playback-failure ledger (wayfinder #52).
@@ -905,21 +910,7 @@ class AudiobookRepository(
         errorCodeName: String,
         streamUrl: String,
         audioEngineMode: String
-    ) = withContext(Dispatchers.IO) {
-        dao.insertPlaybackFailure(
-            PlaybackFailureEntity(
-                timestamp = System.currentTimeMillis(),
-                bookId = bookId,
-                chapterIndex = chapterIndex,
-                errorCodeName = errorCodeName,
-                streamUrl = streamUrl,
-                audioEngineMode = audioEngineMode,
-                // wayfinder #61 Q1: the coarse diagnosability bucket, derived
-                // from the error code by a pure function (stage-2 S1).
-                category = FailureCategory.fromErrorCodeName(errorCodeName)
-            )
-        )
-    }
+    ) = listeningState.recordPlaybackFailure(bookId, chapterIndex, errorCodeName, streamUrl, audioEngineMode)
 
     // ---------------------------------------------------------------------
     // Local audio import (spec #8 ticket T7): one picked file = one book.
@@ -1620,33 +1611,25 @@ class AudiobookRepository(
     }
 
 
-    fun observeBookmarks(bookId: String): Flow<List<BookmarkEntity>> = dao.getBookmarksForBook(bookId)
+    fun observeBookmarks(bookId: String): Flow<List<BookmarkEntity>> = listeningState.observeBookmarks(bookId)
 
-    suspend fun addBookmark(bookmark: BookmarkEntity) = dao.insertBookmark(bookmark)
-    suspend fun deleteBookmark(bookmarkId: Long) = dao.deleteBookmark(bookmarkId)
+    suspend fun addBookmark(bookmark: BookmarkEntity) = listeningState.addBookmark(bookmark)
+    suspend fun deleteBookmark(bookmarkId: Long) = listeningState.deleteBookmark(bookmarkId)
 
-    fun observeProgress(bookId: String): Flow<PlaybackProgressEntity?> = dao.getPlaybackProgress(bookId)
+    fun observeProgress(bookId: String): Flow<PlaybackProgressEntity?> = listeningState.observeProgress(bookId)
     fun observeProgress(bookId: String, sourceKey: String): Flow<PlaybackProgressEntity?> =
-        dao.getPlaybackProgress(bookId, sourceKey)
-    suspend fun getProgressSync(bookId: String): PlaybackProgressEntity? = dao.getPlaybackProgressSync(bookId)
+        listeningState.observeProgress(bookId, sourceKey)
+    suspend fun getProgressSync(bookId: String): PlaybackProgressEntity? = listeningState.getProgressSync(bookId)
     suspend fun getProgressSync(bookId: String, sourceKey: String): PlaybackProgressEntity? =
-        dao.getPlaybackProgressSync(bookId, sourceKey)
+        listeningState.getProgressSync(bookId, sourceKey)
 
     /**
      * Persists the playback position keyed per source (spec-10 T2). Callers
      * that know the source pass its key; the default "" keeps the legacy
      * single-source behaviour.
      */
-    suspend fun updateProgress(bookId: String, chapterIndex: Int, positionSeconds: Long, sourceKey: String = "") {
-        val progress = PlaybackProgressEntity(
-            bookId = bookId,
-            sourceKey = sourceKey,
-            currentChapterIndex = chapterIndex,
-            currentPositionSeconds = positionSeconds,
-            lastListenedAt = System.currentTimeMillis()
-        )
-        dao.savePlaybackProgress(progress)
-    }
+    suspend fun updateProgress(bookId: String, chapterIndex: Int, positionSeconds: Long, sourceKey: String = "") =
+        listeningState.updateProgress(bookId, chapterIndex, positionSeconds, sourceKey)
 
     // --- Playback event log (spec-16, wayfinder #53) -----------------------
     // The seam the player uses to record discrete listening transitions. The
@@ -1668,41 +1651,22 @@ class AudiobookRepository(
         sourceKey: String = "",
         fromPositionSeconds: Long? = null,
         timestampMs: Long = System.currentTimeMillis()
-    ) {
-        dao.insertPlaybackEvent(
-            PlaybackEventEntity(
-                bookId = bookId,
-                sourceKey = sourceKey,
-                kind = kind,
-                chapterIndex = chapterIndex,
-                positionSeconds = positionSeconds,
-                fromPositionSeconds = fromPositionSeconds,
-                timestamp = timestampMs,
-                deviceId = ""
-            )
-        )
-        compactPlaybackEvents(bookId, sourceKey, nowMs = timestampMs)
-    }
+    ) = listeningState.recordPlaybackEvent(bookId, kind, chapterIndex, positionSeconds, sourceKey, fromPositionSeconds, timestampMs)
 
     /**
      * The undo candidate for (book, source): the latest SEEK / SOURCE_SWITCH
      * event whose jump met the threshold (pure policy). Null when there is
      * nothing undoable — the caller shows no «Повернутися» offer.
      */
-    suspend fun lastUndoCandidate(bookId: String, sourceKey: String = ""): PlaybackEventEntity? {
-        val latest = dao.getLatestUndoCandidate(bookId, sourceKey) ?: return null
-        return if (PlaybackEventPolicy.isUndoCandidate(latest)) latest else null
-    }
+    suspend fun lastUndoCandidate(bookId: String, sourceKey: String = ""): PlaybackEventEntity? =
+        listeningState.lastUndoCandidate(bookId, sourceKey)
 
     /**
      * Prunes one (book, source) bucket to the policy: newest [cap] events
      * kept, stale undo candidates dropped. The state row is never touched.
      */
-    suspend fun compactPlaybackEvents(bookId: String, sourceKey: String = "", nowMs: Long = System.currentTimeMillis()) {
-        val events = dao.getPlaybackEventsForBookSource(bookId, sourceKey)
-        val prune = PlaybackEventPolicy.pruneIds(events, nowMs = nowMs)
-        if (prune.isNotEmpty()) dao.deletePlaybackEvents(prune)
-    }
+    suspend fun compactPlaybackEvents(bookId: String, sourceKey: String = "", nowMs: Long = System.currentTimeMillis()) =
+        listeningState.compactPlaybackEvents(bookId, sourceKey, nowMs)
 
     /**
      * Outcome of an offline download attempt. `totalChapters == 0` means no
@@ -2005,17 +1969,9 @@ class AudiobookRepository(
     fun getFavoriteAudiobooks(): Flow<List<AudiobookEntity>> = dao.getFavoriteAudiobooks()
 
     // Listening Stats
-    fun getAllListeningStats(): Flow<List<ListeningStatEntity>> = dao.getAllListeningStats()
+    fun getAllListeningStats(): Flow<List<ListeningStatEntity>> = listeningState.getAllListeningStats()
 
-    suspend fun recordListeningTime(seconds: Long) {
-        if (seconds <= 0) return
-        val dateIso = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
-        withContext(Dispatchers.IO) {
-            val current = dao.getListeningStatForDate(dateIso)
-            val updatedSeconds = (current?.listenedSeconds ?: 0L) + seconds
-            dao.saveListeningStat(ListeningStatEntity(dateIso, updatedSeconds))
-        }
-    }
+    suspend fun recordListeningTime(seconds: Long) = listeningState.recordListeningTime(seconds)
 
     companion object {
         /** TTL of the in-memory per-source «new arrivals» feed cache (spec-10 T4). */

@@ -6,7 +6,7 @@ import com.example.data.db.AudiobookDao
 import com.example.data.db.AudiobookDatabase
 import com.example.data.db.AudiobookEntity
 import com.example.data.db.ChapterEntity
-import com.example.data.repository.AudiobookRepository
+import com.example.data.listening.ListeningStateStore
 import com.example.player.AudioPlayerManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -27,7 +27,6 @@ class ButtonTesting {
     private lateinit var context: Context
     private lateinit var database: AudiobookDatabase
     private lateinit var dao: AudiobookDao
-    private lateinit var repository: AudiobookRepository
     private lateinit var playerManager: AudioPlayerManager
 
     private val testDispatcher = StandardTestDispatcher()
@@ -38,10 +37,17 @@ class ButtonTesting {
         context = ApplicationProvider.getApplicationContext()
         database = AudiobookDatabase.getDatabase(context)
         dao = database.audiobookDao()
-        repository = AudiobookRepository(dao, context)
+        // ADR-0002: the player runs on the store + a chapter fetcher — no
+        // repository graph.
+        val listeningState = ListeningStateStore(dao)
         // Spec-22 T4: the widget-sync collector is a forever-running loop on
         // the test scheduler — disable it so runTest can finish.
-        playerManager = AudioPlayerManager(context, repository, widgetSyncEnabled = false)
+        playerManager = AudioPlayerManager(
+            context,
+            listeningState,
+            { dao.getChaptersListForBook(it) },
+            widgetSyncEnabled = false
+        )
     }
 
     @After

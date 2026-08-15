@@ -147,13 +147,24 @@ object TestDataFactory {
                 bookId = book.id,
                 chapterIndex = chapterIndex,
                 title = "Глава ${chapterIndex + 1}",
-                durationSeconds = chapterDurationSeconds(bookIndex, chapterIndex),
-                streamUrl = "$FIXTURE_HOST/${book.id}/chapter-${chapterIndex + 1}.mp3",
-                localFilePath = null,
-                isDownloaded = false
+                durationSeconds = chapterDurationSeconds(bookIndex, chapterIndex)
             )
         }
     }
+
+    /**
+     * One [SourceTrackEntity] per chapter of [book]'s [sourceId], unroutable
+     * URLs — the physical playback fixture (ADR-0007).
+     */
+    fun tracksFor(book: AudiobookEntity, sourceId: String): List<com.example.data.db.SourceTrackEntity> =
+        (0 until CHAPTERS_PER_BOOK).map { chapterIndex ->
+            com.example.data.db.SourceTrackEntity(
+                id = "$sourceId-tr-${chapterIndex + 1}",
+                sourceId = sourceId,
+                trackIndex = chapterIndex,
+                url = "$FIXTURE_HOST/${book.id}/chapter-${chapterIndex + 1}.mp3"
+            )
+        }
 
     /**
      * One [PlaybackProgressEntity] per book, all frozen at [FIXED_CLOCK_MS].
@@ -169,6 +180,9 @@ object TestDataFactory {
         isCompleted: Boolean = false
     ): List<PlaybackProgressEntity> = audiobooks.map { book ->
         PlaybackProgressEntity(
+            // ADR-0007: progress is keyed by the Edition (deterministic id
+            // from the book's identity — the same id the import writes).
+            editionId = com.example.data.EditionId.forBook(book.mergeKey, book.id),
             bookId = book.id,
             currentChapterIndex = chapterIndex,
             currentPositionSeconds = positionSeconds,

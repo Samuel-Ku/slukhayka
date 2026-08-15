@@ -33,8 +33,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
 import com.example.data.db.AudiobookEntity
 import com.example.data.db.BookmarkEntity
+import com.example.data.entries.LibraryEntries
+import com.example.data.listening.ListeningStateStore
 import com.example.ui.MainViewModel
 import com.example.ui.components.BookCoverImage
 import com.example.ui.components.EmptyState
@@ -58,16 +61,29 @@ import com.example.ui.theme.*
 @Composable
 fun LibraryScreen(
     viewModel: MainViewModel,
+    // ADR-0008 batch 1 (#154): the screen receives the modules it reads from
+    // as parameters, wired from the composition root by the top-level app
+    // composable — the injection idiom every other screen copies. Orchestration
+    // (import, cache) and navigation stay on the ViewModel.
+    libraryEntries: LibraryEntries,
+    listeningState: ListeningStateStore,
     onBookClick: (String) -> Unit,
     onPlayClick: (AudiobookEntity) -> Unit,
     onBrowseClick: () -> Unit
 ) {
     val libraryBooks by viewModel.libraryBooks.collectAsState()
-    val allBookmarks by viewModel.allBookmarks.collectAsState()
-    val allBooks by viewModel.allBooks.collectAsState()
-    val listeningStats by viewModel.listeningStats.collectAsState()
+    // ADR-0008: module flows are read directly — no forwarding StateFlow on
+    // the ViewModel. getAllListeningStats() builds the (cold) flow, so it is
+    // remembered once per composition instead of re-created on every frame.
+    val allBookmarks by libraryEntries.allBookmarks.collectAsState(initial = emptyList())
+    val allBooks by libraryEntries.allBooks.collectAsState(initial = emptyList())
+    val listeningStats by remember { listeningState.getAllListeningStats() }
+        .collectAsState(initial = emptyList())
     val cacheSizeFormatted by viewModel.cacheSizeFormatted.collectAsState()
     val context = LocalContext.current
+    // ADR-0008: suspend module calls from user actions run on the composition
+    // scope (same pattern as playerManager's call-through).
+    val scope = rememberCoroutineScope()
 
     // Spec #8 ticket T7: system file picker (SAF) → one picked audio file = one book.
     val importLauncher = rememberLauncherForActivityResult(
@@ -399,7 +415,9 @@ fun LibraryScreen(
                                     bookmark = bookmark,
                                     bookTitle = book?.title ?: "Аудіокнига",
                                     onJumpClick = { viewModel.jumpToBookmark(bookmark) },
-                                    onDeleteClick = { viewModel.deleteBookmark(bookmark.id) }
+                                    onDeleteClick = {
+                                        scope.launch { listeningState.deleteBookmark(bookmark.id) }
+                                    }
                                 )
                             }
                         }

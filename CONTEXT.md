@@ -61,3 +61,9 @@ _Avoid_: Missing Source, unavailable file
 **Smart Rewind**:
 One pure rule (`SmartRewind.rewoundPositionMs`): the longer the pause, the further back playback resumes (tiers of 3/12/25 s), clamped at zero. It serves both the in-session resume (live engine position) and the across-restart resume (persisted Listening State), so the two paths can never drift (ADR-0003).
 _Avoid_: per-path rewind logic
+
+## Architecture
+
+**Module reads**:
+Screens read the five deep modules' flows and suspend functions directly — `module.flow.collectAsState(...)` for flows, `rememberCoroutineScope().launch { module.suspendFun(...) }` for actions. MainViewModel keeps only composition, navigation and orchestration; the pure download/import outcome messages and the resume start-position decision live in `ui.library` (`OutcomeMessages`, `computeResumeStart`) with JVM tests (ADR-0008).
+_Avoid_: forwarding StateFlows, 1:1 ViewModel forwarders

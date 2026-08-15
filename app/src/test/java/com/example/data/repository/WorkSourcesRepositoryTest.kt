@@ -7,8 +7,8 @@ import com.example.data.catalog.SourceCatalog
 import com.example.data.db.AudiobookDao
 import com.example.data.db.AudiobookDatabase
 import com.example.data.db.AudiobookEntity
-import com.example.data.db.EditionEntity
 import com.example.data.db.WorkEntity
+import com.example.data.db.WorkSourceEntity
 import com.example.data.imports.LibraryImport
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -22,10 +22,11 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 /**
- * Repository seam (spec-23 T5): the «Джерела» section's resolver — every
- * Edition carrying a Work, from the persisted `editions` rows (merge-on-write
- * output), with the source's stream-only marker. Post-merge books list their
- * Editions; pre-merge library rows fall back to their own single source.
+ * Repository seam (spec-23 T5, ADR-0007): the «Джерела» section's resolver —
+ * every source carrying a Work, from the persisted `work_sources` rows
+ * (merge-on-write output), with the source's stream-only marker. Post-merge
+ * books list their sources; pre-merge library rows fall back to their own
+ * single source.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
@@ -78,7 +79,7 @@ class WorkSourcesRepositoryTest {
     )
 
     @Test
-    fun `book with two Editions lists both sources with their stream-only markers`() = runBlocking {
+    fun `book with two sources lists both with their stream-only markers`() = runBlocking {
         val catalog = catalog()
         // One Work carried by 4read (downloadable) and lihtar (stream-only).
         val work = WorkEntity(
@@ -90,8 +91,8 @@ class WorkSourcesRepositoryTest {
             addedAt = 0L
         )
         dao.upsertWork(work)
-        dao.upsertEdition(
-            EditionEntity(
+        dao.upsertWorkSource(
+            WorkSourceEntity(
                 id = "w-merge-1|4read|1",
                 workId = work.id,
                 sourceId = "4read",
@@ -100,8 +101,8 @@ class WorkSourcesRepositoryTest {
                 addedAt = 0L
             )
         )
-        dao.upsertEdition(
-            EditionEntity(
+        dao.upsertWorkSource(
+            WorkSourceEntity(
                 id = "w-merge-1|lihtar|1",
                 workId = work.id,
                 sourceId = "lihtar",

@@ -12,6 +12,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         AudiobookEntity::class,
         SourceEntity::class,
         ChapterEntity::class,
+        SourceTrackEntity::class,
         BookmarkEntity::class,
         PlaybackProgressEntity::class,
         ListeningStatEntity::class,
@@ -23,9 +24,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         SeriesMemberEntity::class,
         EditionSettingsEntity::class,
         WorkEntity::class,
-        EditionEntity::class
+        EditionEntity::class,
+        WorkSourceEntity::class
     ],
-    version = 13,
+    version = 14,
     exportSchema = true
 )
 abstract class AudiobookDatabase : RoomDatabase() {
@@ -49,7 +51,7 @@ abstract class AudiobookDatabase : RoomDatabase() {
                     // upgrades, so a schema change fails loudly at runtime
                     // instead of silently dropping the database.
                     .addMigrations(
-                        MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13
+                        MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14
                     )
                     .build()
                 INSTANCE = instance
@@ -341,6 +343,195 @@ abstract class AudiobookDatabase : RoomDatabase() {
                 )
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_editions_workId ON editions(workId)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_editions_sourceId ON editions(sourceId)")
+            }
+        }
+
+        /**
+         * v13 -> v14 (ADR-0007 — Editions own Chapters, Sources own tracks):
+         * the domain split of the library identity. The spec-23 catalogue
+         * `editions` table is renamed to `work_sources` (its row is one
+         * SOURCE carrying a Work, not a rendition); a new domain `editions`
+         * table is created with exactly one row per existing book (id =
+         * deterministic sha256 of (mergeKey|language), computed in Kotlin so
+         * the migration agrees with every future write); `chapters` drop the
+         * physical playback columns (they move to the new `source_tracks`
+         * table, one row per (chapter, source of its book)) and re-point
+         * `editionId` at the domain edition; `sources` re-parent to
+         * `editionId` with ids recomputed as `$type-$editionId`; progress is
+         * re-keyed to `editionId` (per book keep the latest row, drop the
+         * sourceKey shadows); bookmarks gain `editionId`. The bookId columns
+         * are KEPT during this expand step (they contract in a later
+         * ticket) — minSdk 24 forbids DROP COLUMN on the chapters table, so
+         * chapters are rebuilt instead. Internal (not private) so the JVM
+         * test suite can verify the upgrade path against a real v13 database.
+         */
+        internal val MIGRATION_13_14 = object : Migration(13, 14) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // ADR-0007: the spec-23 catalogue row is one SOURCE carrying a
+                // Work, not a domain Edition — rename the table and recreate
+                // its indices under the Room-expected names.
+                db.execSQL("ALTER TABLE editions RENAME TO work_sources")
+                db.execSQL("DROP INDEX IF EXISTS index_editions_workId")
+                db.execSQL("DROP INDEX IF EXISTS index_editions_sourceId")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_work_sources_workId ON work_sources(workId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_work_sources_sourceId ON work_sources(sourceId)")
+
+                // The domain editions table: one rendition per book. The id is
+                // computed in Kotlin (deterministic sha256 of (mergeKey|
+                // language)) so the migration and every future write agree.
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS editions (" +
+                        "id TEXT NOT NULL, " +
+                        "workId TEXT NOT NULL, " +
+                        "language TEXT NOT NULL DEFAULT '', " +
+                        "narrator TEXT NOT NULL DEFAULT '', " +
+                        "totalChapters INTEGER NOT NULL DEFAULT 0, " +
+                        "totalDurationSeconds INTEGER NOT NULL DEFAULT 0, " +
+                        "PRIMARY KEY(id))"
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_editions_workId ON editions(workId)")
+                db.query("SELECT id, mergeKey, narrator, totalChapters, totalDurationSeconds FROM audiobooks").use { cursor ->
+                    while (cursor.moveToNext()) {
+                        val bookId = cursor.getString(0)
+                        val mergeKey = cursor.getString(1) ?: ""
+                        val narrator = cursor.getString(2) ?: ""
+                        val totalChapters = cursor.getInt(3)
+                        val totalDuration = cursor.getLong(4)
+                        db.execSQL(
+                            "INSERT INTO editions (id, workId, language, narrator, totalChapters, " +
+                                "totalDurationSeconds) VALUES (?, ?, '', ?, ?, ?)",
+                            arrayOf(com.example.data.EditionId.forBook(mergeKey, bookId), bookId, narrator, totalChapters, totalDuration)
+                        )
+                    }
+                }
+
+                // Sources re-parent to editionId; ids recomputed
+                // deterministically as $type-$editionId (same-type collisions
+                // get a numeric suffix, ordered by addedAt).
+                db.execSQL("ALTER TABLE sources ADD COLUMN editionId TEXT")
+                db.execSQL(
+                    "UPDATE sources SET editionId = (SELECT e.id FROM editions e WHERE e.workId = sources.bookId LIMIT 1)"
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_sources_editionId ON sources(editionId)")
+                val idByOld = LinkedHashMap<String, String>()
+                val usedIds = HashSet<String>()
+                db.query("SELECT id, type, editionId FROM sources ORDER BY bookId ASC, addedAt ASC, id ASC").use { cursor ->
+                    while (cursor.moveToNext()) {
+                        val oldId = cursor.getString(0)
+                        val type = cursor.getString(1) ?: "unknown"
+                        val editionId = cursor.getString(2) ?: continue
+                        var candidate = "$type-$editionId"
+                        var n = 2
+                        while (!usedIds.add(candidate)) {
+                            candidate = "$type-$editionId-$n"
+                            n++
+                        }
+                        idByOld[oldId] = candidate
+                    }
+                }
+                for ((old, new) in idByOld) {
+                    db.execSQL("UPDATE sources SET id = ? WHERE id = ?", arrayOf(new, old))
+                }
+
+                // source_tracks: one row per (chapter, source of the chapter's
+                // book), carrying the physical playback data that leaves the
+                // chapter rows below.
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS source_tracks (" +
+                        "id TEXT NOT NULL, " +
+                        "sourceId TEXT NOT NULL, " +
+                        "trackIndex INTEGER NOT NULL, " +
+                        "url TEXT NOT NULL, " +
+                        "localFilePath TEXT, " +
+                        "contentHash TEXT, " +
+                        "isDownloaded INTEGER NOT NULL DEFAULT 0, " +
+                        "PRIMARY KEY(id))"
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_source_tracks_sourceId ON source_tracks(sourceId)")
+                db.query("SELECT id, bookId FROM sources ORDER BY bookId ASC, id ASC").use { cursor ->
+                    while (cursor.moveToNext()) {
+                        val sourceId = cursor.getString(0)
+                        val bookId = cursor.getString(1)
+                        db.query(
+                            "SELECT chapterIndex, streamUrl, localFilePath, contentHash, isDownloaded " +
+                                "FROM chapters WHERE bookId = ? ORDER BY chapterIndex ASC",
+                            arrayOf(bookId)
+                        ).use { chapters ->
+                            while (chapters.moveToNext()) {
+                                val index = chapters.getInt(0)
+                                val url = chapters.getString(1)
+                                val localPath = chapters.getString(2)
+                                val hash = chapters.getString(3)
+                                val isDownloaded = chapters.getInt(4)
+                                db.execSQL(
+                                    "INSERT INTO source_tracks (id, sourceId, trackIndex, url, " +
+                                        "localFilePath, contentHash, isDownloaded) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                                    arrayOf("${sourceId}_tr_${index + 1}", sourceId, index, url, localPath, hash, isDownloaded)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Chapters: drop the physical playback columns (they moved to
+                // source_tracks) and re-point editionId at the domain edition.
+                // Rebuilt (not DROP COLUMN) for minSdk 24 compatibility.
+                db.execSQL(
+                    "CREATE TABLE chapters_new (" +
+                        "id TEXT NOT NULL, " +
+                        "bookId TEXT NOT NULL, " +
+                        "chapterIndex INTEGER NOT NULL, " +
+                        "title TEXT NOT NULL, " +
+                        "durationSeconds INTEGER NOT NULL, " +
+                        "editionId TEXT, " +
+                        "PRIMARY KEY(id))"
+                )
+                db.execSQL(
+                    "INSERT INTO chapters_new (id, bookId, chapterIndex, title, durationSeconds, editionId) " +
+                        "SELECT c.id, c.bookId, c.chapterIndex, c.title, c.durationSeconds, e.id " +
+                        "FROM chapters c LEFT JOIN editions e ON e.workId = c.bookId"
+                )
+                db.execSQL("DROP TABLE chapters")
+                db.execSQL("ALTER TABLE chapters_new RENAME TO chapters")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_chapters_bookId ON chapters(bookId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_chapters_editionId ON chapters(editionId)")
+
+                // playback_progress re-keys to editionId: per book keep the row
+                // with the latest lastListenedAt (rowid tiebreak), drop the
+                // other sourceKey shadows. lastPausedAtEpochMs migrates with
+                // it (Smart Rewind rides along).
+                db.execSQL(
+                    "CREATE TABLE playback_progress_new (" +
+                        "editionId TEXT NOT NULL, " +
+                        "bookId TEXT NOT NULL, " +
+                        "currentChapterIndex INTEGER NOT NULL, " +
+                        "currentPositionSeconds INTEGER NOT NULL, " +
+                        "lastListenedAt INTEGER NOT NULL, " +
+                        "isCompleted INTEGER NOT NULL, " +
+                        "lastPausedAtEpochMs INTEGER, " +
+                        "PRIMARY KEY(editionId))"
+                )
+                db.execSQL(
+                    "INSERT INTO playback_progress_new (editionId, bookId, currentChapterIndex, " +
+                        "currentPositionSeconds, lastListenedAt, isCompleted, lastPausedAtEpochMs) " +
+                        "SELECT e.id, p.bookId, p.currentChapterIndex, p.currentPositionSeconds, " +
+                        "p.lastListenedAt, p.isCompleted, p.lastPausedAtEpochMs " +
+                        "FROM playback_progress p JOIN editions e ON e.workId = p.bookId " +
+                        "WHERE NOT EXISTS (" +
+                        "  SELECT 1 FROM playback_progress p2 " +
+                        "  WHERE p2.bookId = p.bookId AND (p2.lastListenedAt > p.lastListenedAt " +
+                        "    OR (p2.lastListenedAt = p.lastListenedAt AND p2.rowid > p.rowid)))"
+                )
+                db.execSQL("DROP TABLE playback_progress")
+                db.execSQL("ALTER TABLE playback_progress_new RENAME TO playback_progress")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_playback_progress_bookId ON playback_progress(bookId)")
+
+                // Bookmarks re-key to editionId (bookId kept during expand).
+                db.execSQL("ALTER TABLE bookmarks ADD COLUMN editionId TEXT")
+                db.execSQL(
+                    "UPDATE bookmarks SET editionId = (SELECT e.id FROM editions e WHERE e.workId = bookmarks.bookId LIMIT 1)"
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_bookmarks_editionId ON bookmarks(editionId)")
             }
         }
     }

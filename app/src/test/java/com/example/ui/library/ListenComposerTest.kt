@@ -42,6 +42,8 @@ class ListenComposerTest {
         position: Long,
         lastListenedAt: Long = 0L
     ) = PlaybackProgressEntity(
+        // ADR-0007: progress is Edition-keyed — one row per rendition.
+        editionId = "ed-$bookId",
         bookId = bookId,
         currentChapterIndex = 0,
         currentPositionSeconds = position,

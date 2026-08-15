@@ -14,7 +14,7 @@ class PlayerProgressTest {
     }
 
     private fun chapter(index: Int, duration: Long) = ChapterEntity(
-        "chapter-$index", bookId, index, "Розділ ${index + 1}", duration, "https://example.invalid/$index.mp3"
+        "chapter-$index", bookId, index, "Розділ ${index + 1}", duration
     )
 
     @Test

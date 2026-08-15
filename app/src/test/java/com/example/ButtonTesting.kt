@@ -45,7 +45,7 @@ class ButtonTesting {
         playerManager = AudioPlayerManager(
             context,
             listeningState,
-            { dao.getChaptersListForBook(it) },
+            { dao.getChaptersListForBook(it).map { ch -> com.example.data.catalog.SourceCatalog.PlayableChapter(ch, null) } },
             widgetSyncEnabled = false
         )
     }
@@ -69,10 +69,13 @@ class ButtonTesting {
         totalDurationSeconds = 3000L
     )
 
+    // ADR-0007: chapter rows carry no stream URLs anymore — the physical
+    // playback data lives on the Source tracks. These fixtures only need the
+    // logical chapter list (ids/durations) for the button-state assertions.
     private fun sampleChapters() = listOf(
-        ChapterEntity("ch_1", "test_book_1", 0, "Глава 1", 1000L, "https://ia800201.us.archive.org/12/items/time_machine_0802_librivox/timemachine_01_wells_64kb.mp3"),
-        ChapterEntity("ch_2", "test_book_1", 1, "Глава 2", 1000L, "https://ia800201.us.archive.org/12/items/time_machine_0802_librivox/timemachine_02_wells_64kb.mp3"),
-        ChapterEntity("ch_3", "test_book_1", 2, "Глава 3", 1000L, "https://ia800302.us.archive.org/1/items/war_of_the_worlds_librivox/war_of_the_worlds_01_wells_64kb.mp3")
+        ChapterEntity("ch_1", "test_book_1", 0, "Глава 1", 1000L),
+        ChapterEntity("ch_2", "test_book_1", 1, "Глава 2", 1000L),
+        ChapterEntity("ch_3", "test_book_1", 2, "Глава 3", 1000L)
     )
 
     @Test

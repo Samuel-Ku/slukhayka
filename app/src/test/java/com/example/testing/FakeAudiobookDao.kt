@@ -11,9 +11,11 @@ import com.example.data.db.PlaybackEventEntity
 import com.example.data.db.PlaybackFailureEntity
 import com.example.data.db.PlaybackProgressEntity
 import com.example.data.db.SourceEntity
+import com.example.data.db.SourceTrackEntity
 import com.example.data.db.TombstoneEntity
 import com.example.data.db.WorkEntity
 import com.example.data.db.WorkFeedRow
+import com.example.data.db.WorkSourceEntity
 import androidx.paging.PagingSource
 import androidx.paging.PagingState
 import kotlinx.coroutines.flow.Flow
@@ -33,6 +35,9 @@ import kotlinx.coroutines.flow.update
  * All writes are copy-on-write over [MutableStateFlow], so concurrent access
  * from `Dispatchers.IO` (which `AudioPlayerManager` uses to persist progress) is
  * safe without locking.
+ *
+ * ADR-0007 mirror: the fake keeps source tracks and editions as first-class
+ * state alongside books/chapters/sources/progress.
  */
 class FakeAudiobookDao(
     books: List<AudiobookEntity> = emptyList(),
@@ -41,6 +46,8 @@ class FakeAudiobookDao(
 
     private val booksState = MutableStateFlow(books)
     private val chaptersState = MutableStateFlow(chapters)
+    private val tracksState = MutableStateFlow(emptyList<SourceTrackEntity>())
+    private val editionsState = MutableStateFlow(emptyList<EditionEntity>())
     private val bookmarksState = MutableStateFlow(emptyList<BookmarkEntity>())
     private val progressState = MutableStateFlow(emptyList<PlaybackProgressEntity>())
     private val sourcesState = MutableStateFlow(emptyList<SourceEntity>())
@@ -50,7 +57,7 @@ class FakeAudiobookDao(
     private val tombstonesState = MutableStateFlow(emptyList<TombstoneEntity>())
     private val correctionsState = MutableStateFlow(emptyList<CorrectionEntity>())
     private val worksState = MutableStateFlow(emptyList<WorkEntity>())
-    private val editionsState = MutableStateFlow(emptyList<EditionEntity>())
+    private val workSourcesState = MutableStateFlow(emptyList<WorkSourceEntity>())
 
     /** Snapshot of the recorded playback failures, for assertions. */
     val savedFailures: List<PlaybackFailureEntity> get() = failuresState.value
@@ -66,6 +73,12 @@ class FakeAudiobookDao(
 
     /** Snapshot of the persisted source rows, for assertions. */
     val savedSources: List<SourceEntity> get() = sourcesState.value
+
+    /** Snapshot of the persisted source-track rows, for assertions. */
+    val savedTracks: List<SourceTrackEntity> get() = tracksState.value
+
+    /** Snapshot of the persisted edition rows, for assertions. */
+    val savedEditions: List<EditionEntity> get() = editionsState.value
 
     /** Snapshot of the persisted playback events, for assertions. */
     val savedPlaybackEvents: List<PlaybackEventEntity> get() = eventsState.value
@@ -126,11 +139,9 @@ class FakeAudiobookDao(
         }
     }
 
-    override suspend fun updatePausedAt(bookId: String, pausedAt: Long?, sourceKey: String) {
+    override suspend fun updatePausedAt(bookId: String, pausedAt: Long?) {
         progressState.update { current ->
-            current.map {
-                if (it.bookId == bookId && it.sourceKey == sourceKey) it.copy(lastPausedAtEpochMs = pausedAt) else it
-            }
+            current.map { if (it.bookId == bookId) it.copy(lastPausedAtEpochMs = pausedAt) else it }
         }
     }
 
@@ -166,28 +177,15 @@ class FakeAudiobookDao(
     override suspend fun getChaptersListForBook(bookId: String): List<ChapterEntity> =
         chaptersState.value.filter { it.bookId == bookId }.sortedBy { it.chapterIndex }
 
+    override suspend fun getChaptersListForEdition(editionId: String): List<ChapterEntity> =
+        chaptersState.value.filter { it.editionId == editionId }.sortedBy { it.chapterIndex }
+
     override fun getAllChapters(): Flow<List<ChapterEntity>> =
         chaptersState.map { chapters -> chapters.sortedWith(compareBy({ it.bookId }, { it.chapterIndex })) }
 
     override suspend fun insertChapters(chapters: List<ChapterEntity>) {
         val incomingIds = chapters.map { it.id }.toSet()
         chaptersState.update { current -> current.filterNot { it.id in incomingIds } + chapters }
-    }
-
-    override suspend fun updateChapterDownloadState(
-        chapterId: String,
-        isDownloaded: Boolean,
-        filePath: String?
-    ) {
-        chaptersState.update { current ->
-            current.map { chapter ->
-                if (chapter.id == chapterId) {
-                    chapter.copy(isDownloaded = isDownloaded, localFilePath = filePath)
-                } else {
-                    chapter
-                }
-            }
-        }
     }
 
     override suspend fun updateChapterDuration(chapterId: String, durationSeconds: Long) {
@@ -235,25 +233,91 @@ class FakeAudiobookDao(
         }
     }
 
-    override suspend fun clearChaptersDownloadState(bookId: String) {
-        chaptersState.update { current ->
-            current.map {
-                if (it.bookId == bookId) it.copy(isDownloaded = false, localFilePath = null) else it
+    // --- Source tracks (ADR-0007) -----------------------------------------
+
+    override fun getTracksForSource(sourceId: String): Flow<List<SourceTrackEntity>> =
+        tracksState.map { tracks ->
+            tracks.filter { it.sourceId == sourceId }.sortedBy { it.trackIndex }
+        }
+
+    override suspend fun getTracksForSourceSync(sourceId: String): List<SourceTrackEntity> =
+        tracksState.value.filter { it.sourceId == sourceId }.sortedBy { it.trackIndex }
+
+    override suspend fun getTracksForBookSync(bookId: String): List<SourceTrackEntity> {
+        val sourceIds = sourcesState.value.filter { it.bookId == bookId }.map { it.id }.toSet()
+        return tracksState.value.filter { it.sourceId in sourceIds }.sortedBy { it.trackIndex }
+    }
+
+    override suspend fun insertTracks(tracks: List<SourceTrackEntity>) {
+        val incomingIds = tracks.map { it.id }.toSet()
+        tracksState.update { current -> current.filterNot { it.id in incomingIds } + tracks }
+    }
+
+    override suspend fun updateTrackDownloadState(trackId: String, isDownloaded: Boolean, filePath: String?) {
+        tracksState.update { current ->
+            current.map { track ->
+                if (track.id == trackId) {
+                    track.copy(isDownloaded = isDownloaded, localFilePath = filePath)
+                } else {
+                    track
+                }
             }
         }
     }
 
-    override suspend fun clearAllChaptersDownloadState() {
-        chaptersState.update { current ->
+    override suspend fun getTrackByContentHash(hash: String): SourceTrackEntity? =
+        tracksState.value.firstOrNull { it.contentHash == hash }
+
+    override suspend fun getAllTrackContentHashes(): List<String> =
+        tracksState.value.mapNotNull { it.contentHash }
+
+    override suspend fun clearTrackContentHashesForBook(bookId: String) {
+        val sourceIds = sourcesState.value.filter { it.bookId == bookId }.map { it.id }.toSet()
+        tracksState.update { current ->
+            current.map { tr -> if (tr.sourceId in sourceIds) tr.copy(contentHash = null) else tr }
+        }
+    }
+
+    override suspend fun clearTracksDownloadStateForBook(bookId: String) {
+        val sourceIds = sourcesState.value.filter { it.bookId == bookId }.map { it.id }.toSet()
+        tracksState.update { current ->
+            current.map { tr -> if (tr.sourceId in sourceIds) tr.copy(isDownloaded = false, localFilePath = null) else tr }
+        }
+    }
+
+    override suspend fun clearAllTracksDownloadState() {
+        tracksState.update { current ->
             current.map { it.copy(isDownloaded = false, localFilePath = null) }
         }
     }
+
+    override suspend fun deleteTracksForBook(bookId: String) {
+        val sourceIds = sourcesState.value.filter { it.bookId == bookId }.map { it.id }.toSet()
+        tracksState.update { current -> current.filterNot { it.sourceId in sourceIds } }
+    }
+
+    // --- Domain Editions (ADR-0007) ---------------------------------------
+
+    override suspend fun insertEdition(edition: EditionEntity) {
+        editionsState.update { current -> current.filterNot { it.id == edition.id } + edition }
+    }
+
+    override suspend fun getEditionById(editionId: String): EditionEntity? =
+        editionsState.value.firstOrNull { it.id == editionId }
+
+    override suspend fun getEditionForWork(bookId: String): EditionEntity? =
+        editionsState.value.firstOrNull { it.workId == bookId }
 
     // --- Bookmarks --------------------------------------------------------
 
     override fun getBookmarksForBook(bookId: String): Flow<List<BookmarkEntity>> =
         bookmarksState.map { bookmarks ->
             bookmarks.filter { it.bookId == bookId }.sortedBy { it.timestampSeconds }
+        }
+
+    override fun getBookmarksForEdition(editionId: String): Flow<List<BookmarkEntity>> =
+        bookmarksState.map { bookmarks ->
+            bookmarks.filter { it.editionId == editionId }.sortedBy { it.timestampSeconds }
         }
 
     override fun getAllBookmarks(): Flow<List<BookmarkEntity>> =
@@ -274,7 +338,7 @@ class FakeAudiobookDao(
         bookmarksState.update { current -> current.filterNot { it.id == bookmarkId } }
     }
 
-    // --- Sources (spec-10 T2) ----------------------------------------------
+    // --- Sources (spec-10 T2; re-parented to editionId in ADR-0007) --------
 
     override suspend fun findByMergeKey(mergeKey: String): AudiobookEntity? =
         booksState.value.firstOrNull { it.mergeKey == mergeKey && it.mergeKey.isNotEmpty() }
@@ -302,6 +366,9 @@ class FakeAudiobookDao(
     override suspend fun getSourcesForBookSync(bookId: String): List<SourceEntity> =
         sourcesState.value.filter { it.bookId == bookId }.sortedBy { it.addedAt }
 
+    override suspend fun getSourcesForEditionSync(editionId: String): List<SourceEntity> =
+        sourcesState.value.filter { it.editionId == editionId }.sortedBy { it.addedAt }
+
     override suspend fun insertSources(sources: List<SourceEntity>) {
         val incomingIds = sources.map { it.id }.toSet()
         sourcesState.update { current -> current.filterNot { it.id in incomingIds } + sources }
@@ -310,6 +377,9 @@ class FakeAudiobookDao(
     override suspend fun deleteSourcesForBook(bookId: String) {
         sourcesState.update { current -> current.filterNot { it.bookId == bookId } }
     }
+
+    override suspend fun getBookIdBySourceId(sourceId: String): String? =
+        sourcesState.value.firstOrNull { it.id == sourceId }?.bookId
 
     // --- Cascade deletion (spec #8 ticket T2) ------------------------------
 
@@ -329,26 +399,26 @@ class FakeAudiobookDao(
         booksState.update { current -> current.filterNot { it.id == bookId } }
     }
 
-    // --- Playback progress (spec-10 T2: per-source rows) -------------------
+    // --- Playback progress (ADR-0007: keyed by Edition) --------------------
 
     override fun getPlaybackProgress(bookId: String): Flow<PlaybackProgressEntity?> =
         progressState.map { progress -> progress.filter { it.bookId == bookId }.maxByOrNull { it.lastListenedAt } }
 
-    override fun getPlaybackProgress(bookId: String, sourceKey: String): Flow<PlaybackProgressEntity?> =
-        progressState.map { progress -> progress.firstOrNull { it.bookId == bookId && it.sourceKey == sourceKey } }
+    override fun getPlaybackProgressByEdition(editionId: String): Flow<PlaybackProgressEntity?> =
+        progressState.map { progress -> progress.firstOrNull { it.editionId == editionId } }
 
     override suspend fun getPlaybackProgressSync(bookId: String): PlaybackProgressEntity? =
         progressState.value.filter { it.bookId == bookId }.maxByOrNull { it.lastListenedAt }
 
-    override suspend fun getPlaybackProgressSync(bookId: String, sourceKey: String): PlaybackProgressEntity? =
-        progressState.value.firstOrNull { it.bookId == bookId && it.sourceKey == sourceKey }
+    override suspend fun getPlaybackProgressSyncByEdition(editionId: String): PlaybackProgressEntity? =
+        progressState.value.firstOrNull { it.editionId == editionId }
 
     override fun getAllPlaybackProgress(): Flow<List<PlaybackProgressEntity>> =
         progressState.map { progress -> progress.sortedByDescending { it.lastListenedAt } }
 
     override suspend fun savePlaybackProgress(progress: PlaybackProgressEntity) {
         progressState.update { current ->
-            current.filterNot { it.bookId == progress.bookId && it.sourceKey == progress.sourceKey } + progress
+            current.filterNot { it.editionId == progress.editionId } + progress
         }
     }
 
@@ -364,15 +434,6 @@ class FakeAudiobookDao(
         statsState.update { current -> current.filterNot { it.dateIso == stat.dateIso } + stat }
     }
 
-    override suspend fun getChapterByContentHash(hash: String): ChapterEntity? =
-        chaptersState.value.firstOrNull { it.contentHash == hash }
-
-    override suspend fun clearChapterContentHashes(bookId: String) {
-        chaptersState.update { current ->
-            current.map { ch -> if (ch.bookId == bookId) ch.copy(contentHash = null) else ch }
-        }
-    }
-
     override suspend fun insertPlaybackFailure(failure: PlaybackFailureEntity) {
         failuresState.update { current -> current + failure }
     }
@@ -384,7 +445,7 @@ class FakeAudiobookDao(
         failuresState.update { current -> current.filterNot { it.id == id } }
     }
 
-    // --- Playback events (spec-16) -----------------------------------------
+    // --- Playback events (spec-16; ADR-0007 rows carry sourceKey "") --------
 
     override suspend fun insertPlaybackEvent(event: PlaybackEventEntity) {
         eventsState.update { current ->
@@ -489,7 +550,7 @@ class FakeAudiobookDao(
             .filter { it.kind == "NEVER_MATCH" && (it.mergeKey == mergeKey || it.value == mergeKey) }
             .sortedByDescending { it.updatedAt }
 
-    // --- Persisted catalogue: Works + Editions (spec-23 T1) ----------------
+    // --- Persisted catalogue: Works + Sources (spec-23 T1, ADR-0007) --------
 
     override suspend fun findWorkByMergeKey(mergeKey: String): WorkEntity? =
         worksState.value.firstOrNull { it.mergeKey == mergeKey && it.mergeKey.isNotEmpty() }
@@ -498,21 +559,21 @@ class FakeAudiobookDao(
         worksState.update { current -> current.filterNot { it.id == work.id } + work }
     }
 
-    override suspend fun upsertEdition(edition: EditionEntity) {
-        editionsState.update { current -> current.filterNot { it.id == edition.id } + edition }
+    override suspend fun upsertWorkSource(workSource: WorkSourceEntity) {
+        workSourcesState.update { current -> current.filterNot { it.id == workSource.id } + workSource }
     }
 
-    override fun observeEditionsForWork(workId: String): Flow<List<EditionEntity>> =
-        editionsState.map { list -> list.filter { it.workId == workId }.sortedBy { it.addedAt } }
+    override fun observeWorkSourcesForWork(workId: String): Flow<List<WorkSourceEntity>> =
+        workSourcesState.map { list -> list.filter { it.workId == workId }.sortedBy { it.addedAt } }
 
-    override suspend fun getEditionsForWorkSync(workId: String): List<EditionEntity> =
-        editionsState.value.filter { it.workId == workId }.sortedBy { it.addedAt }
+    override suspend fun getWorkSourcesForWorkSync(workId: String): List<WorkSourceEntity> =
+        workSourcesState.value.filter { it.workId == workId }.sortedBy { it.addedAt }
 
     override fun observeWorks(): Flow<List<WorkEntity>> = worksState
 
     override suspend fun countWorks(): Int = worksState.value.size
 
-    override suspend fun countEditions(): Int = editionsState.value.size
+    override suspend fun countWorkSources(): Int = workSourcesState.value.size
 
     override fun pagedWorksFeedRecent(sourceId: String?, genre: String?): PagingSource<Int, WorkFeedRow> =
         fakeFeed(sourceId, genre, sortByTitle = false)
@@ -523,7 +584,7 @@ class FakeAudiobookDao(
     /** In-memory PagingSource over the same state the fake DAO owns. */
     private fun fakeFeed(sourceId: String?, genre: String?, sortByTitle: Boolean): PagingSource<Int, WorkFeedRow> {
         val rows = worksState.value.mapNotNull { work ->
-            if (sourceId != null && editionsState.value.none { it.workId == work.id && it.sourceId == sourceId }) {
+            if (sourceId != null && workSourcesState.value.none { it.workId == work.id && it.sourceId == sourceId }) {
                 return@mapNotNull null
             }
             val libraryGenre = booksState.value.firstOrNull { it.workId == work.id }?.genre
@@ -540,7 +601,7 @@ class FakeAudiobookDao(
                 seriesIndex = work.seriesIndex,
                 coverImageUrl = work.coverImageUrl,
                 addedAt = work.addedAt,
-                editionCount = editionsState.value.count { it.workId == work.id },
+                sourceCount = workSourcesState.value.count { it.workId == work.id },
                 genre = libraryGenre
             )
         }
@@ -567,6 +628,6 @@ class FakeAudiobookDao(
     /** Snapshot of the persisted catalogue works, for assertions. */
     val savedWorks: List<WorkEntity> get() = worksState.value
 
-    /** Snapshot of the persisted catalogue editions, for assertions. */
-    val savedEditions: List<EditionEntity> get() = editionsState.value
+    /** Snapshot of the persisted catalogue work-sources, for assertions. */
+    val savedWorkSources: List<WorkSourceEntity> get() = workSourcesState.value
 }

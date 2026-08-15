@@ -207,7 +207,7 @@ class WorkFeedPagingTest {
     }
 
     @Test
-    fun `feed row carries the edition count for the sources badge`() = runBlocking {
+    fun `feed row carries the source count for the sources badge`() = runBlocking {
         val catalog = catalog()
         catalog.writeWorkEdition(
             sourceId = "4read",
@@ -227,7 +227,8 @@ class WorkFeedPagingTest {
         val rows = collectAll(dao.pagedWorksFeedRecent(null, null))
 
         assertEquals(1, rows.size)
-        // Two sources carry one Work — the «2 джерела» badge input.
-        assertEquals(2, rows.single().editionCount)
+        // Two sources carry one Work — the «2 джерела» badge input
+        // (ADR-0007: counted over work_sources).
+        assertEquals(2, rows.single().sourceCount)
     }
 }

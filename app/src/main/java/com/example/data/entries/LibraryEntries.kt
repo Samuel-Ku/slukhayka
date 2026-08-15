@@ -155,8 +155,9 @@ class LibraryEntries(
         // lists deleted books on every sync, so without a durable marker the
         // next sync would resurrect the deleted book after a restart.
         dao.insertTombstone(TombstoneEntity(bookId = bookId))
-        dao.getChaptersListForBook(bookId).forEach { chapter ->
-            chapter.localFilePath?.let { path ->
+        // ADR-0007: the physical copies live on the TRACK rows.
+        dao.getTracksForBookSync(bookId).forEach { track ->
+            track.localFilePath?.let { path ->
                 try {
                     val file = File(path)
                     if (file.exists()) file.delete()
@@ -168,6 +169,10 @@ class LibraryEntries(
         dao.deleteChaptersForBook(bookId)
         dao.deleteBookmarksForBook(bookId)
         dao.deletePlaybackProgressForBook(bookId)
+        // Tracks FIRST — deleteTracksForBook joins the sources table, so the
+        // source rows must still exist while it runs (otherwise orphaned track
+        // rows would survive the cascade).
+        dao.deleteTracksForBook(bookId)
         dao.deleteSourcesForBook(bookId)
         dao.deletePlaybackEventsForBook(bookId)
         dao.deleteAudiobook(bookId)
@@ -184,6 +189,9 @@ class LibraryEntries(
         dao.deleteChaptersForBook(bookId)
         dao.deleteBookmarksForBook(bookId)
         dao.deletePlaybackProgressForBook(bookId)
+        // Tracks first (same reason as deleteBook — the track delete joins
+        // sources).
+        dao.deleteTracksForBook(bookId)
         dao.deleteSourcesForBook(bookId)
         dao.deletePlaybackEventsForBook(bookId)
         dao.deleteAudiobook(bookId)
@@ -269,16 +277,43 @@ class LibraryEntries(
             }
             // Same guard as SourceCatalog.getChaptersList: never overwrite
             // existing (seeded) chapters with live-page ones -- that
-            // duplicated rows on every book-detail open.
+            // duplicated rows on every book-detail open. ADR-0007: the
+            // Edition's logical chapters AND the 4read source's tracks are
+            // materialized together (one module, one id format — a mixed
+            // `ch`/`ch_` format used to duplicate the whole chapter list).
             if (chapters.isEmpty() && detail.chapters.isNotEmpty()) {
-                // The same id format as every other site ("_ch_") so a
-                // concurrent fetch-then-insert (e.g. an offline Download
-                // racing this refresh) produces identical rows and
-                // @Insert(REPLACE) dedupes them — a mixed `ch`/`ch_` format
-                // used to duplicate the whole chapter list.
-                dao.insertChapters(
-                    MetadataAssertions.materializeChapters(bookId, book.title, detail.chapters)
+                val edition = dao.getEditionForWork(bookId)
+                val editionId = edition?.id ?: com.example.data.EditionId.forBook(book.mergeKey, bookId)
+                if (edition == null) {
+                    dao.insertEdition(
+                        com.example.data.db.EditionEntity(
+                            id = editionId,
+                            workId = bookId,
+                            narrator = book.narrator,
+                            totalChapters = detail.chapters.size,
+                            totalDurationSeconds = detail.totalDurationSeconds ?: 0L
+                        )
+                    )
+                }
+                val source = dao.getSourcesForBookSync(bookId).firstOrNull { it.type == "4read" }
+                    ?: com.example.data.db.SourceEntity(
+                        id = "4read-$editionId",
+                        bookId = bookId,
+                        editionId = editionId,
+                        type = "4read",
+                        url = book.sourceUrl,
+                        streamOnly = com.example.data.source.streamOnlyFor("4read"),
+                        addedAt = System.currentTimeMillis()
+                    ).also { dao.insertSources(listOf(it)) }
+                val materialized = MetadataAssertions.materializeChaptersAndTracks(
+                    editionId = editionId,
+                    sourceId = source.id,
+                    bookId = bookId,
+                    bookTitle = book.title,
+                    chapters = detail.chapters
                 )
+                dao.insertChapters(materialized.chapters)
+                dao.insertTracks(materialized.tracks)
             }
         }
     }

@@ -1,5 +1,6 @@
 package com.example.data.repository
 
+import com.example.data.catalog.nextInSeries
 import com.example.testing.TestDataFactory
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull

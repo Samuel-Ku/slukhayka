@@ -1,6 +1,6 @@
 package com.example.ui
 
-import com.example.data.repository.AudiobookRepository.SourceNewFeed
+import com.example.data.catalog.SourceCatalog.SourceNewFeed
 import com.example.data.source.SourceBook
 import com.example.ui.screens.visibleSourceFeeds
 import org.junit.Assert.assertEquals

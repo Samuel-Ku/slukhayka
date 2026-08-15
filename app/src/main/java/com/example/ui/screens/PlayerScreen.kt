@@ -466,11 +466,15 @@ fun PlayerScreenContent(
                         shape = RoundedCornerShape(AppDimens.RadiusHero),
                         tonalElevation = 1.dp,
                         shadowElevation = 6.dp,
+                        // Test seam: the tight-viewport snapshot measures the
+                        // cover to pin that it shrinks while keeping its aspect
+                        // ratio (spec-24 T6).
                         modifier = Modifier
                             .widthIn(max = 272.dp)
                             .heightIn(max = 336.dp)
                             .fillMaxWidth(0.76f)
                             .aspectRatio(coverAspect)
+                            .testTag("player_cover")
                     ) {
                         BookCoverImage(
                             book = book,

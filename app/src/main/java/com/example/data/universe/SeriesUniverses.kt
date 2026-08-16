@@ -124,12 +124,41 @@ class SeriesUniverses(
         val provider = wikidata ?: return
         val resolution = provider.resolve(title, author) ?: return
         persist(resolution, workId, seriesIndex)
-        // Spec-26 T6 (#180): write the fresh resolution back to the shared
-        // base so the next user reads it instead of re-resolving. Best-effort
-        // and silent — persist ran first, so a failing write never touches
-        // the local cache (AC5). Idempotent: the same workId key replaces.
-        // The provider returns only P50-author-verified works, hence
-        // authorVerified = true.
+        writeBack(workId, resolution)
+    }
+
+    /**
+     * Spec-26 T8 (#182) — the import event trigger: a NEW book whose series
+     * belongs to a CACHED universe immediately re-validates that universe's
+     * chain through the provider (cheap — one resolve), so a new series or a
+     * reordered chain lands for everyone: the fresh resolution REPLACEs the
+     * cached rows (precedes/follows and new series appear) and writes back
+     * to the shared base with provenance. An unknown series, a missing
+     * provider, or a failing resolve is a SILENT no-op — the cached chain
+     * stays exactly as it is.
+     */
+    suspend fun validateChainFor(workId: String) = withContext(Dispatchers.IO) {
+        val work = dao.getWorkById(workId) ?: return@withContext
+        val seriesTitle = work.seriesTitle?.takeIf { it.isNotBlank() } ?: return@withContext
+        // The trigger fires only for a series that belongs to a CACHED
+        // universe — the cached-series row is the "known universe" signal
+        // (AC1); anything else is a silent no-op (AC3).
+        val cached = cachedSeriesRow(seriesTitle, work.seriesUrl) ?: return@withContext
+        if (cached.universeId == null) return@withContext
+        val provider = wikidata ?: return@withContext
+        val resolution = provider.resolve(work.title, work.author) ?: return@withContext
+        persist(resolution, workId, work.seriesIndex)
+        writeBack(workId, resolution)
+    }
+
+    /**
+     * Spec-26 T6 (#180) — the shared-base write-back of a fresh resolution.
+     * Best-effort and silent — the local cache persisted first, so a failing
+     * write never touches it (AC5). Idempotent: the same workId key replaces.
+     * The provider returns only P50-author-verified works, hence
+     * authorVerified = true.
+     */
+    private suspend fun writeBack(workId: String, resolution: UniverseResolution) {
         try {
             sharedStore?.putResolution(
                 workId,

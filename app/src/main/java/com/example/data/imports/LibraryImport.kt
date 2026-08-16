@@ -51,7 +51,13 @@ import java.io.File
 class LibraryImport(
     private val dao: AudiobookDao,
     private val context: Context?,
-    private val sourceAdapters: List<SourceAdapter>
+    private val sourceAdapters: List<SourceAdapter>,
+    // Spec-26 T8 (#182): fired after a NEW work with a series enters the
+    // library through the explicit import door — the import event trigger
+    // the composition root wires to the universe chain validation. Silent
+    // and best-effort by contract: a failing callback never breaks the
+    // import.
+    private val onWorkImported: (suspend (String) -> Unit)? = null
 ) {
 
     // ---------------------------------------------------------------------
@@ -145,6 +151,13 @@ class LibraryImport(
                     createdAt = System.currentTimeMillis(),
                     downloadProgress = 0f
                 )
+                // Spec-26 T8 (#182): a NEW book with a series fires the
+                // import event trigger (the callback is wired to the universe
+                // chain validation in the composition root). Best-effort and
+                // silent — a failing callback never breaks the import.
+                if (workId.isNotBlank() && detail.series?.name?.isNotBlank() == true) {
+                    runCatching { onWorkImported?.invoke(workId) }
+                }
                 // ADR-0010: the Edition id carries the narrator — two
                 // narrations of the same Work keep distinct listening state.
                 val editionId = EditionId.forBook(mergeKey, bookId, book.narrator)

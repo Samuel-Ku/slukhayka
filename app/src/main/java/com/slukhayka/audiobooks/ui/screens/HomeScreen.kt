@@ -23,6 +23,7 @@ import androidx.paging.compose.itemKey
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -57,6 +58,7 @@ import com.slukhayka.audiobooks.data.duration.ChapterDurationProbe
 import com.slukhayka.audiobooks.data.duration.DurationEnrichment
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
 import com.slukhayka.audiobooks.data.db.WorkFeedRow
+import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.data.source.sourceDisplayName
 import com.slukhayka.audiobooks.ui.DurationBooks
 import com.slukhayka.audiobooks.ui.MainViewModel
@@ -89,7 +91,10 @@ fun HomeScreen(
     // spec-24 T8 (#169): the throttled chapter-duration probing pass.
     chapterDurationProbe: ChapterDurationProbe,
     onBookClick: (String) -> Unit,
-    onPlayClick: (AudiobookEntity) -> Unit
+    onPlayClick: (AudiobookEntity) -> Unit,
+    // spec-28 (#192): the «Більше книг на Sluhay» exit CTA — wired from the
+    // composition root exactly like on Listen (debug-only, spec-13 T3/T2).
+    onOpenWebSource: (() -> Unit)? = null
 ) {
     // ADR-0008: module flows are read directly — no forwarding StateFlow on
     // the ViewModel. Cold flows need an initial value; the catalogue StateFlows
@@ -122,14 +127,23 @@ fun HomeScreen(
     // empty.
     val collections by sourceCatalog.smartCollections.collectAsState()
 
+    // spec-28 (#192): the cross-source «Новинки» rail — 4read's new arrivals
+    // plus every other source's new feed, merged by Work with a source badge
+    // per card (re-homed from Слухати; the «Новинки» catalogue section below
+    // is skipped so 4read appears exactly once).
+    val newArrivals by sourceCatalog.newArrivals.collectAsState()
+
     // Spec-15 T1: refresh the ephemeral union once per Огляд composition —
     // the ViewModel still needs it for the recommendation enrichment, even
     // though the browse surface is now the spec-23 T4 persisted feed.
+    // spec-28 (#192): the feeds refresh on the same trigger — the rail's
+    // other-source half lives there, so the move never loses a feed.
     // ADR-0008: the module call is made directly from the composition scope;
     // the embedding pass stays orchestrated by the ViewModel (single-flight).
     val scope = rememberCoroutineScope()
     LaunchedEffect(Unit) {
         sourceCatalog.refreshUnifiedCatalog()
+        sourceCatalog.refreshSourceFeeds()
         viewModel.refreshEmbeddingVectors()
         // spec-18 T2: one throttled, bounded duration-enrichment pass is
         // detached so it never delays browsing or catalogue completion. The
@@ -423,6 +437,34 @@ fun HomeScreen(
                 }
             }
 
+            // spec-28 (#192): «Новинки» — the ONE cross-source new-arrivals
+            // rail (4read's «Новинки» section + every other source's feed,
+            // merged by Work, a source badge per card), re-homed from
+            // Слухати. Tapping a card resolves-and-plays exactly like the
+            // global-search cards. The «Новинки» catalogue section is skipped
+            // below so 4read's new arrivals appear exactly once on the screen.
+            if (newArrivals.isNotEmpty()) {
+                item {
+                    NewArrivalsRail(
+                        results = newArrivals,
+                        onBookClick = { result -> viewModel.playGlobalSearchResult(result) }
+                    )
+                }
+            }
+
+            // spec-28 (#192): «Більше книг на Sluhay» moved from Слухати to
+            // Огляд as a compact exit CTA, not a content shelf. Debug builds
+            // open the in-app browser surface; release hides the row (the
+            // same debug-gating as on Listen, spec-13 T3/T2).
+            if (onOpenWebSource != null) {
+                item {
+                    OpenWebSourceRow(
+                        displayName = "Sluhay",
+                        onClick = onOpenWebSource
+                    )
+                }
+            }
+
             // Spec-23 T4: the endless merged feed — every Work in the
             // persisted catalogue, paged via Paging 3. It supersedes the
             // spec-15 T1 ephemeral union: the same merge key / one card per
@@ -530,8 +572,11 @@ fun HomeScreen(
             }
 
             // Catalogue rows parsed from the 4read.org homepage. Spec-9: the
-            // Continue-Listening card moved to the Слухати tab.
+            // Continue-Listening card moved to the Слухати tab. Spec-28
+            // (#192): the «Новинки» section is superseded by the cross-source
+            // rail above — 4read's new arrivals must appear exactly once.
             sections.forEach { section ->
+                if (section.title == "Новинки") return@forEach
                 if (section.books.isNotEmpty()) {
                     item {
                         CatalogRowHeader(title = section.title)
@@ -779,6 +824,82 @@ fun DurationSection(
                     CatalogBookCard(book = book, onClick = { onBookClick(book.id) })
                 }
             }
+        }
+    }
+}
+
+/**
+ * spec-28 (#192) — the cross-source «Новинки» rail: 4read's new arrivals
+ * plus every other source's new feed, merged by Work with a source badge
+ * per card. Public and stateless (pure `@Composable` inputs) so the
+ * snapshot seam can pin the rail from fixture data.
+ */
+@Composable
+fun NewArrivalsRail(
+    results: List<GlobalSearchResult>,
+    onBookClick: (GlobalSearchResult) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier.testTag("new_arrivals_rail")) {
+        CatalogRowHeader(title = "Новинки")
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            items(results, key = { it.key }) { result ->
+                UnifiedCatalogCard(
+                    result = result,
+                    onClick = { onBookClick(result) }
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Spec-13 T3 — compact «більше книг на Sluhay →» exit row to the source's
+ * browser surface (spec-28 #192: re-homed from Слухати to Огляд as a
+ * footer CTA, not a content shelf). One line, not a storefront.
+ */
+@Composable
+fun OpenWebSourceRow(
+    displayName: String,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 5.dp)
+            .clip(RoundedCornerShape(AppDimens.RadiusCardLg))
+            .clickable { onClick() }
+            .testTag("open_web_source_sluhay"),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Default.Language,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(modifier = Modifier.width(10.dp))
+            Text(
+                text = "Більше книг на $displayName",
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.weight(1f)
+            )
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }

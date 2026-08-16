@@ -7,9 +7,11 @@ import com.slukhayka.audiobooks.data.catalog.SourceCatalog
 import com.slukhayka.audiobooks.data.db.AudiobookDao
 import com.slukhayka.audiobooks.data.db.AudiobookDatabase
 import com.slukhayka.audiobooks.data.imports.LibraryImport
+import com.slukhayka.audiobooks.data.source.HttpFetcher
 import com.slukhayka.audiobooks.data.source.SourceAdapter
 import com.slukhayka.audiobooks.data.source.SourceBook
 import com.slukhayka.audiobooks.data.source.SourceBookDetail
+import com.slukhayka.audiobooks.testing.FakeFetcher
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -74,9 +76,16 @@ class SourceFeedsRepositoryTest {
     }
 
     // ADR-0002 (#138): the catalog tests construct the Source Catalog module
-    // directly — no god module, no auto-sync on construction.
-    private fun repo(vararg adapters: SourceAdapter) =
-        SourceCatalog(dao, adapters.toList(), LibraryImport(dao, context, adapters.toList()))
+    // directly — no god module, no auto-sync on construction. The fetcher is
+    // injectable so the cross-source rail test can serve a canned 4read
+    // homepage without network.
+    private fun repo(vararg adapters: SourceAdapter, fetcher: HttpFetcher? = null) =
+        SourceCatalog(
+            dao,
+            adapters.toList(),
+            LibraryImport(dao, context, adapters.toList()),
+            fourReadFetcher = fetcher ?: HttpFetcher(referer = "https://4read.org/")
+        )
 
     private fun book(sourceId: String, title: String) =
         SourceBook(title = title, author = "", url = "https://$sourceId.example/$title", sourceId = sourceId)
@@ -185,5 +194,82 @@ class SourceFeedsRepositoryTest {
         // surface immediately); the TTL-cached source is fetched only once.
         assertEquals(2, sluhay.fetchNewCalls)
         assertEquals(1, soundbooks.fetchNewCalls)
+    }
+
+    // ---------------------------------------------------------------------
+    // spec-28 (#192): the cross-source «Новинки» rail — 4read's «Новинки»
+    // section (served here by a fake homepage) plus every other source's new
+    // feed, merged by Work with a badge per source.
+    // ---------------------------------------------------------------------
+
+    private val homepage = """
+        <div class="poster has-overlay grid-item d-flex fd-column">
+            <div class="poster__desc order-last">
+                <a href="https://4read.org/7611-vkradi-mene-zaraz.html" class="poster__link"><div class="poster__title line-clamp">Вкради мене... Зараз!</div></a>
+                <div class="poster__subtitle ws-nowrap">Сергій Оріанець</div>
+            </div>
+            <div class="poster__img img-responsive img-responsive--portrait img-fit-cover anim">
+                <img src="/uploads/posts/2026-06/medium/vkrady-mene-zaraz.webp" loading="lazy" alt="x">
+            </div>
+        </div>
+        <div class="poster has-overlay grid-item d-flex fd-column">
+            <div class="poster__desc order-last">
+                <a href="https://4read.org/7589-neostannij-bij.html" class="poster__link"><div class="poster__title line-clamp">Неостанній бій</div></a>
+                <div class="poster__subtitle ws-nowrap">Костянтин Шелест</div>
+            </div>
+            <div class="poster__img img-responsive img-responsive--portrait img-fit-cover anim">
+                <img src="/uploads/posts/2026-05/medium/4_ks_mt7.webp" loading="lazy" alt="x">
+            </div>
+        </div>
+    """.trimIndent()
+
+    @Test
+    fun `the new-arrivals rail merges 4read with other sources and deduplicates by Work`() = runBlocking {
+        val soundbooks = FakeAdapter(
+            "soundbooks",
+            listOf(
+                // The SAME Work as the 4read homepage poster — must collapse
+                // into one rail card with both badges.
+                SourceBook(
+                    title = "Вкради мене... Зараз!",
+                    author = "Сергій Оріанець",
+                    url = "https://sound-books.net/vkrady",
+                    sourceId = "soundbooks"
+                ),
+                SourceBook(
+                    title = "Темна матерія",
+                    author = "Блейк Крауч",
+                    url = "https://sound-books.net/temna",
+                    sourceId = "soundbooks"
+                )
+            )
+        )
+        val repository = repo(
+            soundbooks,
+            fetcher = FakeFetcher(responses = mapOf("https://4read.org/" to homepage))
+        )
+
+        repository.fetchCatalogSections()
+        repository.refreshSourceFeeds()
+
+        val rail = repository.newArrivals.value
+        // Вкради мене... Зараз! (merged) + Неостанній бій (4read) + Темна матерія (soundbooks).
+        assertEquals(3, rail.size)
+        val merged = rail.first { it.title == "Вкради мене... Зараз!" }
+        assertEquals("Сергій Оріанець", merged.author)
+        // One badge per source, sorted by sourceId.
+        assertEquals(listOf("4read", "soundbooks"), merged.sources.map { it.sourceId })
+        assertEquals(1, rail.first { it.title == "Неостанній бій" }.sources.size)
+        assertEquals("4read", rail.first { it.title == "Неостанній бій" }.sources.single().sourceId)
+        assertEquals("soundbooks", rail.first { it.title == "Темна матерія" }.sources.single().sourceId)
+    }
+
+    @Test
+    fun `the new-arrivals rail is empty when neither sections nor feeds have data`() = runBlocking {
+        val repository = repo(FakeAdapter("soundbooks", emptyList()))
+
+        repository.refreshSourceFeeds()
+
+        assertTrue(repository.newArrivals.value.isEmpty())
     }
 }

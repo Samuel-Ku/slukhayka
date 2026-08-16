@@ -88,7 +88,17 @@ class App : Application() {
 
     /** Library Import: the five import doors + rescan over the shared adapters. */
     val libraryImport: LibraryImport by lazy {
-        LibraryImport(database.audiobookDao(), this, sourceAdapters)
+        LibraryImport(
+            database.audiobookDao(),
+            this,
+            sourceAdapters,
+            // Spec-26 T8 (#182): a new imported book whose series belongs to
+            // a cached universe immediately re-validates that universe's
+            // chain (cheap — one resolve) and spreads the update through the
+            // shared base. Best-effort and silent — the import itself never
+            // depends on it.
+            onWorkImported = { workId -> runCatching { seriesUniverses.validateChainFor(workId) } }
+        )
     }
 
     /** Source Catalog: browse/sync/search + chapter materialisation. */

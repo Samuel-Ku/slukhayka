@@ -74,6 +74,24 @@ class WikidataParserTest {
         assertEquals(emptyList<String>(), WikidataParser.authorIds("not json", "Q1"))
     }
 
+    @Test
+    fun `edition of main subject and instance of claims extract their ids`() {
+        val json = """
+            {"entities":{"Q1":{"claims":{
+              "P629":[{"mainsnak":{"snaktype":"value","datavalue":{"value":{"id":"Q2"}}}}],
+              "P921":[{"mainsnak":{"snaktype":"value","datavalue":{"value":{"id":"Q3"}}}}],
+              "P31":[{"mainsnak":{"snaktype":"value","datavalue":{"value":{"id":"Q277759"}}}}]
+            }}}}
+        """.trimIndent()
+
+        assertEquals(listOf("Q2"), WikidataParser.editionOfIds(json, "Q1"))
+        assertEquals(listOf("Q3"), WikidataParser.mainSubjectIds(json, "Q1"))
+        assertEquals(listOf("Q277759"), WikidataParser.instanceOfIds(json, "Q1"))
+        // Absent properties and other entities contribute nothing.
+        assertEquals(emptyList<String>(), WikidataParser.editionOfIds(json, "Q9"))
+        assertEquals(emptyList<String>(), WikidataParser.mainSubjectIds(claimsJson, "Q1"))
+    }
+
     // ---------------------------------------------------------------------
     // Labels
     // ---------------------------------------------------------------------

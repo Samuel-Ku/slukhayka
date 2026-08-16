@@ -155,6 +155,63 @@ class WikidataSeriesProviderTest {
         assertNull(provider(responses).resolve("A Little Hatred", "Блейк Крауч"))
     }
 
+    // ---------------------------------------------------------------------
+    // Series discovery fallbacks: P629 (edition) and P921 (main subject)
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `an edition without a direct series resolves through its underlying work`() = runBlocking {
+        val responses = fixtureResponses().toMutableMap()
+        // Q1 is an edition: no P179 of its own, but P629 → Q2, the work.
+        responses[entityUrl("Q1")] = entityJson(
+            mapOf("Q1" to """{"labels":{${labelsJson("uk" to "Трохи ненависті")}},"claims":{${claimJson("P50" to listOf("Q10"), "P629" to listOf("Q2"))}}}""")
+        )
+        // Q2 (the work) carries the series claim.
+        responses[entityUrl("Q2")] = entityJson(
+            mapOf("Q2" to """{"labels":{},"claims":{${claimJson("P179" to listOf("Q100"))}}}""")
+        )
+
+        val resolution = provider(responses).resolve("A Little Hatred", "Блейк Крауч")!!
+
+        assertEquals("Перший закон", resolution.universe.name)
+        assertEquals("Епоха божевілля", resolution.matchedSeries.title)
+        assertEquals(2, resolution.position)
+    }
+
+    @Test
+    fun `a work whose main subject is a series resolves to it`() = runBlocking {
+        val responses = fixtureResponses().toMutableMap()
+        // Q1 has no P179; its main subject (P921) is the series Q100 itself.
+        responses[entityUrl("Q1")] = entityJson(
+            mapOf("Q1" to """{"labels":{${labelsJson("uk" to "Трохи ненависті")}},"claims":{${claimJson("P50" to listOf("Q10"), "P921" to listOf("Q100"))}}}""")
+        )
+        // Q100 is a book series (P31) — the gate lets it through.
+        responses[entityUrl("Q100")] = entityJson(
+            mapOf("Q100" to """{"labels":{${labelsJson("uk" to "Епоха божевілля")}},"claims":{${claimJson("P31" to listOf("Q277759"), "P155" to listOf("Q101"))}}}""")
+        )
+
+        val resolution = provider(responses).resolve("A Little Hatred", "Блейк Крауч")!!
+
+        assertEquals("Перший закон", resolution.universe.name)
+        assertEquals("Епоха божевілля", resolution.matchedSeries.title)
+        assertEquals(2, resolution.position)
+    }
+
+    @Test
+    fun `a main subject that is not a series is skipped`() = runBlocking {
+        val responses = fixtureResponses().toMutableMap()
+        // Q1's main subject is a person (P31 = Q5, human), not a series.
+        responses[entityUrl("Q1")] = entityJson(
+            mapOf("Q1" to """{"labels":{${labelsJson("uk" to "Трохи ненависті")}},"claims":{${claimJson("P50" to listOf("Q10"), "P921" to listOf("Q500"))}}}""")
+        )
+        responses[entityUrl("Q500")] = entityJson(
+            mapOf("Q500" to """{"labels":{${labelsJson("uk" to "Якась тема")}},"claims":{${claimJson("P31" to listOf("Q5"))}}}""")
+        )
+
+        // No P179, no edition, and the main subject is not a series — nothing.
+        assertNull(provider(responses).resolve("A Little Hatred", "Блейк Крауч"))
+    }
+
     @Test
     fun `blank inputs resolve to nothing without a fetch`() = runBlocking {
         val responses = fixtureResponses()

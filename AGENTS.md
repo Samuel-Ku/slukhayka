@@ -1,19 +1,10 @@
 # Agent instructions
 
-## Agent skills
+AI agents working in this repository should first read:
 
-### Issue tracker
+- `CONTEXT.md` — the domain glossary and ubiquitous language
+- `docs/adr/` — architectural decisions and their rationale
+- `CONTRIBUTING.md` — how to contribute and what the repository expects
 
-Issues live as GitHub issues in `Samuel-Ku/slukhayka`; use the `gh` CLI.
-External PRs are not a triage surface. See `docs/agents/issue-tracker.md`.
-
-### Triage labels
-
-The five canonical triage roles map to the default label strings
-(`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`).
-See `docs/agents/triage-labels.md`.
-
-### Domain docs
-
-Single-context: `CONTEXT.md` + `docs/adr/` at the repo root.
-See `docs/agents/domain.md`.
+All other guidance lives in the documentation tree; this file only points to
+it. The repository welcomes external contributions (see `CONTRIBUTING.md`).

@@ -1,0 +1,51 @@
+# Release — build a signed APK on version tags and publish a GitHub Release
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Restore signing keystore
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > "${{ runner.temp }}/upload.jks"
+          chmod 600 "${{ runner.temp }}/upload.jks"
+
+      - name: Build release APK
+        env:
+          KEYSTORE_PATH: "${{ runner.temp }}/upload.jks"
+          STORE_PASSWORD: "${{ secrets.STORE_PASSWORD }}"
+          KEY_PASSWORD: "${{ secrets.KEY_PASSWORD }}"
+        run: ./gradlew :app:assembleRelease --no-daemon
+
+      - name: Checksum
+        run: |
+          cd app/build/outputs/apk/release
+          sha256sum app-release.apk > app-release.apk.sha256
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: false
+          files: |
+            app/build/outputs/apk/release/app-release.apk
+            app/build/outputs/apk/release/app-release.apk.sha256

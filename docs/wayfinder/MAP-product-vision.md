@@ -27,7 +27,10 @@ Skills each session should consult: wayfinder (this map), /grilling and /domain-
 
 Standing preferences:
 
-- Decisions, not deliverables: implementation happens later per stage via /implement + /to-tickets.
+- Visible deltas, not decision docs (ADR-0017, 2026-08-16): a UI ticket closes
+  only when its visible delta ships and is phone-verified; a grilling/research
+  ticket closes with a decision AND an immediate delivery ticket. Sessions end
+  by installing the build on the user's device.
 - One ticket per session, claimed by assigning before any work.
 - Stage order from the maintainer's document: 1 → 2 → 3 → 4.
 - External-data rule (2026-08-07 grilling): blocks/collections ship only when the data can come from 4read or a verified external source.
@@ -62,17 +65,17 @@ Standing preferences:
 - #31 — 4read catalog data audit `wayfinder:research` — ✅ resolved 2026-08-07.
 - #32 — Android Auto: MediaLibraryService `wayfinder:research` — ✅ resolved 2026-08-07.
 - #33 — Cast feasibility `wayfinder:research` — ✅ resolved 2026-08-07.
-- #34 — Home-screen widget `wayfinder:grilling` — frontier.
+- #34 — Home-screen widget `wayfinder:grilling` — ✅ shipped (Spec-21 Track B, Glance 4x2/2x2 + playback sync; restored by spec-22 #127).
 - #35 — Backup & sync approach `wayfinder:research` — ✅ resolved 2026-08-07.
-- #36 — Adaptive two-pane layout `wayfinder:research` — ✅ resolved 2026-08-07.
+- #36 — Adaptive two-pane layout `wayfinder:research` — ✅ resolved 2026-08-07; gated on the Library rework (#39, shipped).
 - #37 — Light and dark themes `wayfinder:grilling` — ✅ resolved 2026-08-07.
-- #38 — Player redesign `wayfinder:prototype` — **blocked by #23**.
-- #39 — Library filters, sorting & book card `wayfinder:grilling` — **blocked by #23**.
-- #40 — Book page completeness `wayfinder:grilling` — **blocked by #23**.
-- #41 — Accessibility pass `wayfinder:grilling` — **blocked by #23**.
+- #38 — Player redesign `wayfinder:prototype` — ✅ closed 2026-08-10 (implemented in the phone-test rounds: opaque backdrop, portrait cover, dual progress, quick-tools sheets).
+- #39 — Library filters, sorting & book card `wayfinder:grilling` — ✅ closed 2026-08-10.
+- #40 — Book page completeness `wayfinder:grilling` — ✅ closed 2026-08-14.
+- #41 — Accessibility pass `wayfinder:grilling` — **open** (only remaining stage-1 UI ticket).
 - #42 — Re-scan, duplicates & missing files `wayfinder:grilling` — **blocked by #29**.
-- #43 — Smart collections design `wayfinder:grilling` — **blocked by #30**.
-- #44 — Browse tab expansion `wayfinder:grilling` — **blocked by #31**.
+- #43 — Smart collections design `wayfinder:grilling` — ✅ shipped (ADR-0012 static curated lists + ADR-0013 live collections via `LiveCollectionSource`).
+- #44 — Browse tab expansion `wayfinder:grilling` — superseded by spec-10/spec-15 catalog depth; per-source genre/author browse deferred until hydration (2026-08-15).
 
 Fog lives in the GitHub map body (#22). The frontier: any open, unblocked, unclaimed ticket above.
 

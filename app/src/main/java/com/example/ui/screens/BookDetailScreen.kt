@@ -72,6 +72,9 @@ fun BookDetailScreen(
     val chapters by viewModel.selectedBookChapters.collectAsState()
     val bookmarks by viewModel.selectedBookBookmarks.collectAsState()
     val relatedBooks by viewModel.relatedBooks.collectAsState()
+    // Spec-25 (#171): the book's series universe — the «Всесвіт» line under
+    // the series pill. Null until the lazy resolution cached it (silent).
+    val bookUniverse by viewModel.selectedBookUniverse.collectAsState()
     val playerState by viewModel.playerState.collectAsState()
     val downloadingBookId by viewModel.downloadingBookId.collectAsState()
     val downloadMessage by viewModel.downloadMessage.collectAsState()
@@ -442,6 +445,13 @@ fun BookDetailScreen(
                                     }
                                 }
                             )
+                        }
+                        // Spec-25 (#171): the universe line under the series
+                        // pill — renders only when the series' universe
+                        // resolved (a missing universe stays silent).
+                        bookUniverse?.let { universe ->
+                            Spacer(modifier = Modifier.height(4.dp))
+                            BookUniverseLine(universe.universeName)
                         }
                     }
 
@@ -1032,6 +1042,24 @@ fun SeriesPill(
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
         )
     }
+}
+
+/**
+ * Spec-25 (#171) — the book page's universe line under the series pill:
+ * «Всесвіт: «Перший закон»». Renders only for a resolved universe — a
+ * missing one never degrades the book page. Public (not private) so the
+ * snapshot seam can pin the line with fixture data.
+ */
+@Composable
+fun BookUniverseLine(universeName: String) {
+    Text(
+        text = "Всесвіт: «$universeName»",
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier.testTag("book_detail_universe_line")
+    )
 }
 
 /**

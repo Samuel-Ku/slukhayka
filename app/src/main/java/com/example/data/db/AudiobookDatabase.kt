@@ -22,13 +22,14 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         CorrectionEntity::class,
         SeriesEntity::class,
         SeriesMemberEntity::class,
+        UniverseEntity::class,
         EditionSettingsEntity::class,
         WorkEntity::class,
         EditionEntity::class,
         WorkSourceEntity::class,
         LibraryEntryEntity::class
     ],
-    version = 16,
+    version = 17,
     exportSchema = true
 )
 abstract class AudiobookDatabase : RoomDatabase() {
@@ -52,7 +53,7 @@ abstract class AudiobookDatabase : RoomDatabase() {
                     // upgrades, so a schema change fails loudly at runtime
                     // instead of silently dropping the database.
                     .addMigrations(
-                        MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16
+                        MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17
                     )
                     .build()
                 INSTANCE = instance
@@ -923,6 +924,28 @@ abstract class AudiobookDatabase : RoomDatabase() {
                 db.execSQL("DROP TABLE playback_progress")
                 db.execSQL("ALTER TABLE playback_progress_new RENAME TO playback_progress")
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_playback_progress_bookId ON playback_progress(bookId)")
+            }
+        }
+
+        /**
+         * Spec-25 (#171): v16 -> v17 adds the universe cache — the `universes`
+         * table plus the two nullable anchor columns on the (so far empty)
+         * `series` table (the universe the series belongs to and its order
+         * inside it). Pure additions: no existing row is touched, so the
+         * migration is trivially safe on any v16 database. Internal (not
+         * private) so the JVM test suite can verify the upgrade path against
+         * a real v16 database.
+         */
+        internal val MIGRATION_16_17 = object : Migration(16, 17) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS universes (" +
+                        "id TEXT NOT NULL, " +
+                        "name TEXT NOT NULL, " +
+                        "PRIMARY KEY(id))"
+                )
+                db.execSQL("ALTER TABLE series ADD COLUMN universeId TEXT")
+                db.execSQL("ALTER TABLE series ADD COLUMN positionInUniverse INTEGER")
             }
         }
     }

@@ -13,9 +13,12 @@ import com.example.data.db.toBookRow
 import com.example.data.db.PlaybackEventEntity
 import com.example.data.db.PlaybackFailureEntity
 import com.example.data.db.PlaybackProgressEntity
+import com.example.data.db.SeriesEntity
+import com.example.data.db.SeriesMemberEntity
 import com.example.data.db.SourceEntity
 import com.example.data.db.SourceTrackEntity
 import com.example.data.db.TitleRow
+import com.example.data.db.UniverseEntity
 import com.example.data.db.TombstoneEntity
 import com.example.data.db.WorkEntity
 import com.example.data.db.WorkFeedRow
@@ -63,6 +66,10 @@ class FakeAudiobookDao(
     private val worksState = MutableStateFlow(emptyList<WorkEntity>())
     private val workSourcesState = MutableStateFlow(emptyList<WorkSourceEntity>())
     private val libraryEntriesState = MutableStateFlow(emptyList<LibraryEntryEntity>())
+    // Spec-25 (#171): the universe resolution cache.
+    private val universesState = MutableStateFlow(emptyList<UniverseEntity>())
+    private val seriesState = MutableStateFlow(emptyList<SeriesEntity>())
+    private val seriesMembersState = MutableStateFlow(emptyList<SeriesMemberEntity>())
 
     /** Snapshot of the recorded playback failures, for assertions. */
     val savedFailures: List<PlaybackFailureEntity> get() = failuresState.value
@@ -677,6 +684,38 @@ class FakeAudiobookDao(
     override suspend fun upsertWorkSource(workSource: WorkSourceEntity) {
         workSourcesState.update { current -> current.filterNot { it.id == workSource.id } + workSource }
     }
+
+    // --- Spec-25 (#171): the universe resolution cache ---------------------
+
+    override suspend fun upsertUniverse(universe: UniverseEntity) {
+        universesState.update { current -> current.filterNot { it.id == universe.id } + universe }
+    }
+
+    override suspend fun upsertSeries(series: SeriesEntity) {
+        seriesState.update { current -> current.filterNot { it.id == series.id } + series }
+    }
+
+    override suspend fun upsertSeriesMember(member: SeriesMemberEntity) {
+        seriesMembersState.update { current -> current.filterNot { it.workId == member.workId && it.seriesId == member.seriesId } + member }
+    }
+
+    override suspend fun getUniverseById(id: String): UniverseEntity? =
+        universesState.value.firstOrNull { it.id == id }
+
+    override suspend fun getSeriesInUniverse(universeId: String): List<SeriesEntity> =
+        seriesState.value.filter { it.universeId == universeId }.sortedBy { it.positionInUniverse }
+
+    override suspend fun getSeriesMembersForWork(workId: String): List<SeriesMemberEntity> =
+        seriesMembersState.value.filter { it.workId == workId }
+
+    /** Snapshot of the cached universes, for assertions. */
+    val savedUniverses: List<UniverseEntity> get() = universesState.value
+
+    /** Snapshot of the cached series rows, for assertions. */
+    val savedSeries: List<SeriesEntity> get() = seriesState.value
+
+    /** Snapshot of the cached series memberships, for assertions. */
+    val savedSeriesMembers: List<SeriesMemberEntity> get() = seriesMembersState.value
 
     override fun observeWorkSourcesForWork(workId: String): Flow<List<WorkSourceEntity>> =
         workSourcesState.map { list -> list.filter { it.workId == workId }.sortedBy { it.addedAt } }

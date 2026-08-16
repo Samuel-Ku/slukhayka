@@ -2893,4 +2893,58 @@ class DeepModulesRoomTest {
         }
         db.close()
     }
+
+    // ---------------------------------------------------------------------
+    // Spec-25 (#171): v16 -> v17 adds the universe cache — the `universes`
+    // table and the two nullable universe anchors on the `series` table.
+    // Pure additions: a v16 database upgrades with every existing row intact.
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `migration 16 to 17 adds the universes table and the series universe anchors`() {
+        val factory = FrameworkSQLiteOpenHelperFactory()
+        val config = SupportSQLiteOpenHelper.Configuration.builder(context)
+            .name("migration-16-test.db")
+            .callback(object : SupportSQLiteOpenHelper.Callback(16) {
+                override fun onCreate(db: SupportSQLiteDatabase) {
+                    // Minimal v16 schema of the two tables the migration
+                    // touches: `series` gains the anchors, `universes` is
+                    // created. A seeded series row must survive intact.
+                    db.execSQL(
+                        "CREATE TABLE series (id TEXT NOT NULL PRIMARY KEY, title TEXT NOT NULL, url TEXT)"
+                    )
+                    db.execSQL(
+                        "INSERT INTO series (id, title, url) VALUES " +
+                            "('s1', 'Епоха божевілля', 'https://4read.org/xfsearch/cikl/epoha-bozhevillja/')"
+                    )
+                    db.execSQL(
+                        "CREATE TABLE series_members (workId TEXT NOT NULL, seriesId TEXT NOT NULL, " +
+                            "position INTEGER NOT NULL, PRIMARY KEY(workId, seriesId))"
+                    )
+                }
+
+                override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) {}
+            })
+            .build()
+        val helper = factory.create(config)
+        val db = helper.writableDatabase
+
+        AudiobookDatabase.MIGRATION_16_17.migrate(db)
+
+        // The universe cache exists.
+        assertTrue("universes table must exist", tableExists(db, "universes"))
+        // The series anchors landed and stay nullable.
+        val seriesColumns = tableColumns(db, "series")
+        assertTrue("universeId column must exist", seriesColumns.contains("universeId"))
+        assertTrue("positionInUniverse column must exist", seriesColumns.contains("positionInUniverse"))
+        // The pre-existing row survived with its data and NULL anchors.
+        db.query("SELECT title, url, universeId, positionInUniverse FROM series WHERE id = 's1'").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("Епоха божевілля", cursor.getString(0))
+            assertEquals("https://4read.org/xfsearch/cikl/epoha-bozhevillja/", cursor.getString(1))
+            assertTrue(cursor.isNull(2))
+            assertTrue(cursor.isNull(3))
+        }
+        db.close()
+    }
 }

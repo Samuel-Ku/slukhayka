@@ -10,9 +10,11 @@ package com.example.data.collections
  * booleans/`null`. Returns `null` on any malformed input. Shared by the
  * strict asset decoder ([CollectionJson]) and the live-list sources
  * ([com.example.data.collections.LiveCollectionSource] implementations such
- * as [OpenLibraryTrendingSource]).
+ * as [OpenLibraryTrendingSource]). Public so the sibling universe module
+ * (Spec-25, the curated series-universe assets) shares the ONE parser
+ * instead of duplicating a JSON decoder.
  */
-internal object MiniJson {
+object MiniJson {
 
     /** Parses one JSON document, or `null` when it is not valid JSON. */
     fun parse(text: String): Any? {

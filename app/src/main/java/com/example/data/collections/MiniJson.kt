@@ -14,6 +14,16 @@ package com.example.data.collections
  * (Spec-25, the curated series-universe assets) shares the ONE parser
  * instead of duplicating a JSON decoder.
  */
+/**
+ * Sentinel for a JSON `null` literal inside a document: [MiniJson.parse]
+ * cannot represent "JSON null" vs "parse failure" in one nullable return,
+ * so the parser passes the sentinel through the value stack and converts it
+ * back to null at the collection/root boundaries. Typed readers never see it
+ * — an `as? String`/`as? Map`/`as? List` cast on it fails exactly like on
+ * null, so null values keep reading as absent.
+ */
+private val JSON_NULL = Any()
+
 object MiniJson {
 
     /** Parses one JSON document, or `null` when it is not valid JSON. */
@@ -21,7 +31,7 @@ object MiniJson {
         val parser = Parser(text)
         val value = parser.parseValue() ?: return null
         if (parser.skipWs() != -1) return null // trailing junk
-        return value
+        return if (value === JSON_NULL) null else value
     }
 
     private class Parser(private val input: String) {
@@ -41,7 +51,7 @@ object MiniJson {
                 c == '"'.code -> parseString()
                 c == 't'.code -> if (expect("true")) true else null
                 c == 'f'.code -> if (expect("false")) false else null
-                c == 'n'.code -> if (expect("null")) null else null
+                c == 'n'.code -> if (expect("null")) JSON_NULL else null
                 else -> parseNumber()
             }
         }
@@ -56,7 +66,7 @@ object MiniJson {
                 if (skipWs() != ':'.code) return null
                 pos++ // ':'
                 val value = parseValue() ?: return null
-                map[key] = value
+                map[key] = if (value === JSON_NULL) null else value
                 when (skipWs()) {
                     ','.code -> { pos++; continue }
                     '}'.code -> { pos++; return map }
@@ -71,7 +81,7 @@ object MiniJson {
             if (skipWs() == ']'.code) { pos++; return list }
             while (true) {
                 val value = parseValue() ?: return null
-                list += value
+                list += if (value === JSON_NULL) null else value
                 when (skipWs()) {
                     ','.code -> { pos++; continue }
                     ']'.code -> { pos++; return list }

@@ -13,24 +13,33 @@ import java.net.URLEncoder
  * at most once.
  *
  * Best-effort and silent by design: no network, no search hits in any of
- * uk → ru → en, no author agreement, no P179, a malformed response or an
- * ambiguous candidate set all yield null — the surfaces never degrade. The
- * transport is injected (`fetchJson` returns the raw JSON or "" on failure,
- * the degrade-never-throw convention of the adapter seam); fixture tests
- * serve canned API responses by URL.
+ * uk → ru → en, no translation (spec-26 T1 — a [TitleTranslator] fallback
+ * searches the translated title when the direct search is empty), no author
+ * agreement, no P179, a malformed response or an ambiguous candidate set all
+ * yield null — the surfaces never degrade. The transport is injected
+ * (`fetchJson` returns the raw JSON or "" on failure, the degrade-never-
+ * throw convention of the adapter seam); fixture tests serve canned API
+ * responses by URL.
  */
 class WikidataSeriesProvider(
     private val fetchJson: suspend (String) -> String,
     private val languages: List<String> = listOf("uk", "ru", "en"),
     private val maxCandidates: Int = 3,
-    private val maxChainHops: Int = 8
+    private val maxChainHops: Int = 8,
+    // Spec-26 T1: the title-translation fallback (on-device ML Kit). Null —
+    // the path is disabled; the source titles are Ukrainian but Wikidata
+    // items often carry only ru/en labels, so a translated search catches
+    // them.
+    private val translator: TitleTranslator? = null
 ) : SeriesUniverseProvider {
 
     override suspend fun resolve(bookTitle: String, bookAuthor: String): UniverseResolution? {
         if (bookTitle.isBlank() || bookAuthor.isBlank()) return null
         // 1. Search the work title, uk → ru → en (the first language with
-        //    hits wins — never a union, so ambiguity stays contained).
-        val candidates = search(bookTitle) ?: return null
+        //    hits wins — never a union, so ambiguity stays contained). When
+        //    every direct search is empty, the translated-title fallback
+        //    fires (only then — a direct hit never pays for a translation).
+        val candidates = search(bookTitle) ?: searchTranslated(bookTitle) ?: return null
         // 2. Candidate verification: the first candidate whose P50 author
         //    agrees with the book's author wins; none agreeing → no resolution.
         val workQid = candidates.firstOrNull { authorMatches(it, bookAuthor) } ?: return null
@@ -62,6 +71,25 @@ class WikidataSeriesProvider(
             if (json.isBlank()) continue
             val ids = WikidataParser.searchHitIds(json)
             if (ids.isNotEmpty()) return ids.take(maxCandidates)
+        }
+        return null
+    }
+
+    /**
+     * The translated-title fallback (spec-26 T1): translate the title to ru,
+     * then en, and search each translation through the same language ladder.
+     * Each hop is independent and failure-tolerant; a translation that fails,
+     * comes back blank or unchanged contributes nothing. The translated path
+     * reuses the SAME candidate verification — the P50 author check applies
+     * to translated hits exactly like direct ones.
+     */
+    private suspend fun searchTranslated(title: String): List<String>? {
+        val translator = translator ?: return null
+        for (target in listOf("ru", "en")) {
+            val translated = translator.translate(title, target) ?: continue
+            if (translated.isBlank() || translated.equals(title, ignoreCase = true)) continue
+            val ids = search(translated)
+            if (!ids.isNullOrEmpty()) return ids
         }
         return null
     }

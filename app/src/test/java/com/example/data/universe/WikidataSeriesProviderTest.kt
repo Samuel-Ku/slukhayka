@@ -53,8 +53,13 @@ class WikidataSeriesProviderTest {
         )
     }
 
-    private fun provider(responses: Map<String, String>): WikidataSeriesProvider =
-        WikidataSeriesProvider(fetchJson = { url -> responses[url] ?: "" })
+    private fun provider(
+        responses: Map<String, String>,
+        translator: TitleTranslator? = null
+    ): WikidataSeriesProvider = WikidataSeriesProvider(
+        fetchJson = { url -> responses[url] ?: "" },
+        translator = translator
+    )
 
     private fun searchUrl(language: String, title: String): String =
         "https://www.wikidata.org/w/api.php?action=wbsearchentities&format=json" +
@@ -217,6 +222,94 @@ class WikidataSeriesProviderTest {
         val responses = fixtureResponses()
         assertNull(provider(responses).resolve("", "Блейк Крауч"))
         assertNull(provider(responses).resolve("A Little Hatred", "  "))
+    }
+
+    // ---------------------------------------------------------------------
+    // Translation fallback (spec-26 T1): the keyless Google Translate seam
+    // ---------------------------------------------------------------------
+
+    /** A canned translator: maps the anchor title to its ru/en labels. */
+    private fun anchorTranslator(): TitleTranslator = object : TitleTranslator {
+        override suspend fun translate(title: String, targetLang: String): String? =
+            when (targetLang) {
+                "ru" -> "Немного ненависти"
+                "en" -> "A Little Hatred"
+                else -> null
+            }
+    }
+
+    /** Empty direct searches for the anchor title — forces the fallback. */
+    private fun emptyDirectSearches(responses: MutableMap<String, String>) {
+        for (language in listOf("uk", "ru", "en")) {
+            responses[searchUrl(language, "A Little Hatred")] = searchJson()
+        }
+    }
+
+    @Test
+    fun `translation fallback resolves when the direct search is empty`() = runBlocking {
+        // The anchor scenario: the work exists on Wikidata with only ru/en
+        // labels (no uk label at all) — the direct uk/ru/en searches of the
+        // source title are empty, and the ru translation finds it.
+        val responses = fixtureResponses().toMutableMap()
+        emptyDirectSearches(responses)
+        // The translated ru string hits in the ru index; uk/en miss.
+        responses[searchUrl("ru", "Немного ненависти")] = searchJson("Q1")
+        responses[searchUrl("uk", "Немного ненависти")] = searchJson()
+        responses[searchUrl("en", "Немного ненависти")] = searchJson()
+
+        val resolution = provider(responses, anchorTranslator()).resolve("A Little Hatred", "Блейк Крауч")!!
+
+        assertEquals("Перший закон", resolution.universe.name)
+        assertEquals("Епоха божевілля", resolution.matchedSeries.title)
+        assertEquals(2, resolution.position)
+    }
+
+    @Test
+    fun `the translated hit still passes author verification`() = runBlocking {
+        // The translated candidate goes through the SAME P50 check: a hit
+        // whose author does not agree with the book's author is rejected.
+        val responses = fixtureResponses().toMutableMap()
+        emptyDirectSearches(responses)
+        responses[searchUrl("ru", "Немного ненависти")] = searchJson("Q1")
+        responses[searchUrl("uk", "Немного ненависти")] = searchJson()
+        responses[searchUrl("en", "Немного ненависти")] = searchJson()
+        // Q1's author is someone else now.
+        responses[entityUrl("Q1")] = entityJson(
+            mapOf("Q1" to """{"labels":{},"claims":{${claimJson("P50" to listOf("Q20"))}}}""")
+        )
+        responses[entityUrl("Q20")] = entityJson(
+            mapOf("Q20" to """{"labels":{${labelsJson("uk" to "Ще хтось")}}}""")
+        )
+
+        assertNull(provider(responses, anchorTranslator()).resolve("A Little Hatred", "Блейк Крауч"))
+    }
+
+    @Test
+    fun `a failing translation contributes nothing`() = runBlocking {
+        val responses = fixtureResponses().toMutableMap()
+        emptyDirectSearches(responses)
+        val failing = object : TitleTranslator {
+            override suspend fun translate(title: String, targetLang: String): String? = null
+        }
+
+        assertNull(provider(responses, failing).resolve("A Little Hatred", "Блейк Крауч"))
+    }
+
+    @Test
+    fun `the fallback is skipped when the direct search hits`() = runBlocking {
+        // The direct search resolves — the translator is never consulted.
+        var calls = 0
+        val counting = object : TitleTranslator {
+            override suspend fun translate(title: String, targetLang: String): String? {
+                calls++
+                return "Немного ненависти"
+            }
+        }
+
+        val resolution = provider(fixtureResponses(), counting).resolve("A Little Hatred", "Блейк Крауч")!!
+
+        assertEquals(0, calls)
+        assertEquals("Перший закон", resolution.universe.name)
     }
 
     // ---------------------------------------------------------------------

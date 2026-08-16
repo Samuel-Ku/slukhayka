@@ -187,13 +187,15 @@ class SeriesUniverses(
                 )
             }
             // Book → series membership with the source's volume index; the
-            // series-page resolution has no book, so nothing to link.
+            // series-page resolution has no book, so nothing to link. The
+            // resolvedAt stamp drives the TTL gate on the Wikidata fallback.
             if (workId != null && volumeIndex != null && volumeIndex > 0) {
                 dao.upsertSeriesMember(
                     com.example.data.db.SeriesMemberEntity(
                         workId = workId,
                         seriesId = seriesId(resolution.universe.id, resolution.position),
-                        position = volumeIndex
+                        position = volumeIndex,
+                        resolvedAt = now()
                     )
                 )
             }

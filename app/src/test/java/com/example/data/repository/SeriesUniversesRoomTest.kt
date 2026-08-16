@@ -6,6 +6,7 @@ import androidx.test.core.app.ApplicationProvider
 import com.example.data.db.AudiobookDao
 import com.example.data.db.AudiobookDatabase
 import com.example.data.db.AudiobookEntity
+import com.example.data.db.SeriesMemberEntity
 import com.example.data.db.WorkEntity
 import com.example.data.universe.SeriesUniverses
 import com.example.data.universe.SeriesUniverseProvider

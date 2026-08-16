@@ -7,9 +7,11 @@ import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.dp
+import com.example.ui.screens.BookUniverseLine
 import com.example.ui.screens.FavoriteButton
 import com.example.ui.screens.SeriesPill
 import com.example.ui.theme.AudiobookTheme
@@ -37,6 +39,26 @@ class BookDetailActionsSnapshotTest {
 
     @get:Rule
     val composeTestRule = createComposeRule()
+
+    // Spec-25 (#171): the «Всесвіт» line under the series pill on the book
+    // page — renders the resolved universe name, silently absent otherwise.
+    @Test
+    fun book_universe_line_under_the_series_pill() {
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                Surface {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        SeriesPill(seriesTitle = "Епоха божевілля", seriesIndex = 1, onClick = {})
+                        BookUniverseLine(universeName = "Перший закон")
+                    }
+                }
+            }
+        }
+        composeTestRule.onNodeWithText("Всесвіт: «Перший закон»").assertExists()
+        composeTestRule.onRoot().captureRoboImage(
+            filePath = "src/test/snapshots/book_universe_line.png"
+        )
+    }
 
     @Test
     fun series_pill_with_volume() {

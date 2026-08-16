@@ -14,6 +14,8 @@ import com.example.data.duration.ChapterDurationProbe
 import com.example.data.duration.DurationEnrichment
 import com.example.data.imports.ImportGrantStore
 import com.example.data.imports.ImportPlan
+import com.example.data.universe.SeriesUniverseContext
+import com.example.data.universe.SeriesUniverses
 import com.example.data.catalog.SourceCatalog
 import com.example.data.downloads.OfflineDownloads
 import com.example.data.entries.LibraryEntries
@@ -97,6 +99,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // spec-24 T8 (#169): the throttled chapter-duration probing pass — the
     // same detached-window idiom as the duration enrichment above.
     val chapterDurationProbe: ChapterDurationProbe = App.instance.chapterDurationProbe
+    // Spec-25 (#171): the lazy series-universe resolution over the curated assets.
+    val seriesUniverses: SeriesUniverses = App.instance.seriesUniverses
     val playerManager: AudioPlayerManager = App.instance.playerManager
 
     val playerState: StateFlow<PlayerState> = playerManager.playerState
@@ -325,20 +329,33 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _isSeriesLoading = MutableStateFlow(false)
     val isSeriesLoading: StateFlow<Boolean> = _isSeriesLoading.asStateFlow()
 
+    // Spec-25 (#171): the resolved universe context of the CURRENT series
+    // page (the header block: universe name, position, precedes/follows
+    // chips). Null until a seeded series page is opened — silent.
+    private val _selectedSeriesUniverse = MutableStateFlow<SeriesUniverseContext?>(null)
+    val selectedSeriesUniverse: StateFlow<SeriesUniverseContext?> = _selectedSeriesUniverse.asStateFlow()
+
     fun openSeries(title: String, url: String) {
         _selectedSeries.value = SelectedSeries(title, url)
         _seriesBooks.value = emptyList()
         _isSeriesLoading.value = true
+        _selectedSeriesUniverse.value = null
         viewModelScope.launch(Dispatchers.IO) {
             val books = sourceCatalog.fetchSeriesBooks(url)
             _seriesBooks.value = books
             _isSeriesLoading.value = false
+            // Spec-25 (#171): resolve + surface the series' universe, same
+            // cache-first-then-fresher idiom as selectBook.
+            _selectedSeriesUniverse.value = seriesUniverses.contextOf(title, url)
+            seriesUniverses.resolveForSeries(title, url)
+            _selectedSeriesUniverse.value = seriesUniverses.contextOf(title, url)
         }
     }
 
     fun closeSeries() {
         _selectedSeries.value = null
         _seriesBooks.value = emptyList()
+        _selectedSeriesUniverse.value = null
     }
 
     // Genre pages ("Аудіокниги жанру:" from the homepage sidebar): one
@@ -855,11 +872,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _relatedBooks = MutableStateFlow<List<AudiobookEntity>>(emptyList())
     val relatedBooks: StateFlow<List<AudiobookEntity>> = _relatedBooks.asStateFlow()
 
+    // Spec-25 (#171): the resolved universe context of the CURRENT book (the
+    // book page's «Всесвіт» line under the series pill). Null until a book
+    // with a seeded series is opened — the UI stays silent (never a guess).
+    private val _selectedBookUniverse = MutableStateFlow<SeriesUniverseContext?>(null)
+    val selectedBookUniverse: StateFlow<SeriesUniverseContext?> = _selectedBookUniverse.asStateFlow()
+
     fun selectBook(bookId: String?) {
         _selectedBookId.value = bookId
         if (bookId != null) {
+            _selectedBookUniverse.value = null
             viewModelScope.launch(Dispatchers.IO) {
                 libraryEntries.refreshBookCoverAndDetails(bookId)
+                // Spec-25 (#171): resolve the book's series universe lazily —
+                // cache-first read, then the (idempotent) resolution, then the
+                // fresher read. Best-effort: an unseeded series contributes
+                // nothing.
+                _selectedBookUniverse.value = seriesUniverses.contextOfBook(bookId)
+                seriesUniverses.resolveForBook(bookId)
+                _selectedBookUniverse.value = seriesUniverses.contextOfBook(bookId)
             }
             // Spec-15 T5: load what every source carrying the Work says about
             // it (description, rating, narrator, genres) — best-effort per
@@ -873,6 +904,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _relatedBooks.value = emptyList()
             _sourceProfiles.value = emptyList()
             _bookSources.value = emptyList()
+            _selectedBookUniverse.value = null
         }
     }
 

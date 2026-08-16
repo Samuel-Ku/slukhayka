@@ -30,6 +30,7 @@ import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.SelectedTab
 import com.slukhayka.audiobooks.ui.components.MiniPlayerBar
 import com.slukhayka.audiobooks.ui.screens.BookDetailScreen
+import com.slukhayka.audiobooks.ui.screens.CollectionsIndexScreen
 import com.slukhayka.audiobooks.ui.screens.GenreScreen
 import com.slukhayka.audiobooks.ui.screens.HomeScreen
 import com.slukhayka.audiobooks.ui.screens.LibraryScreen
@@ -89,6 +90,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     val selectedWebSource by viewModel.selectedWebSource.collectAsState()
     val selectedSeries by viewModel.selectedSeries.collectAsState()
     val seriesIndexOpen by viewModel.seriesIndexOpen.collectAsState()
+    val collectionsIndexOpen by viewModel.collectionsIndexOpen.collectAsState()
     val selectedGenre by viewModel.selectedGenre.collectAsState()
     val selectedTop100 by viewModel.selectedTop100.collectAsState()
     val selectedPeopleKind by viewModel.selectedPeopleKind.collectAsState()
@@ -96,8 +98,8 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
 
     // Handle system back press
     BackHandler(enabled = showFullPlayer || selectedBookId != null ||
-        selectedWebSource != null || selectedSeries != null || seriesIndexOpen || selectedGenre != null ||
-        selectedTop100 || selectedPeopleKind != null || selectedPerson != null) {
+        selectedWebSource != null || selectedSeries != null || seriesIndexOpen || collectionsIndexOpen ||
+        selectedGenre != null || selectedTop100 || selectedPeopleKind != null || selectedPerson != null) {
         if (showFullPlayer) {
             viewModel.setShowFullPlayer(false)
         } else if (selectedWebSource != null) {
@@ -108,6 +110,8 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
             viewModel.closeSeries()
         } else if (seriesIndexOpen) {
             viewModel.closeSeriesIndex()
+        } else if (collectionsIndexOpen) {
+            viewModel.closeCollectionsIndex()
         } else if (selectedGenre != null) {
             viewModel.closeGenre()
         } else if (selectedTop100) {
@@ -178,6 +182,15 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                         viewModel = viewModel,
                         onBackClick = { viewModel.closeSeriesIndex() },
                         onSeriesClick = { series -> viewModel.openSeries(series.title, series.url) }
+                    )
+
+                    // spec-28 (#190): the «Колекції» index — every matched
+                    // smart collection with its books; tapping a book
+                    // resolves-and-plays it (same as the inline cards).
+                    collectionsIndexOpen -> CollectionsIndexScreen(
+                        viewModel = viewModel,
+                        onBackClick = { viewModel.closeCollectionsIndex() },
+                        onBookClick = { result -> viewModel.playGlobalSearchResult(result) }
                     )
 
                     // Genre (category) page ("Аудіокниги жанру:").

@@ -390,6 +390,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _seriesIndex.value = emptyList()
     }
 
+    // spec-28 (#190): the «Колекції» index — every matched smart collection
+    // with its books. Same seam as the series/top-100/people index: one
+    // read-only StateFlow plus an open/close pair. The list is a snapshot of
+    // the matched collections at open time; the module flow
+    // ([SourceCatalog.smartCollections]) recomputes them on every union
+    // refresh, so reopening after a refresh shows the fresh list. Tapping a
+    // book resolves-and-plays exactly like the inline Огляд cards.
+    private val _collectionsIndexOpen = MutableStateFlow(false)
+    val collectionsIndexOpen: StateFlow<Boolean> = _collectionsIndexOpen.asStateFlow()
+
+    private val _collectionsIndex =
+        MutableStateFlow<List<com.slukhayka.audiobooks.data.collections.CollectionMatcher.MatchedCollection>>(emptyList())
+    val collectionsIndex: StateFlow<List<com.slukhayka.audiobooks.data.collections.CollectionMatcher.MatchedCollection>> =
+        _collectionsIndex.asStateFlow()
+
+    fun openCollectionsIndex() {
+        _collectionsIndex.value = sourceCatalog.smartCollections.value
+        _collectionsIndexOpen.value = true
+    }
+
+    fun closeCollectionsIndex() {
+        _collectionsIndexOpen.value = false
+        _collectionsIndex.value = emptyList()
+    }
+
     // Genre pages ("Аудіокниги жанру:" from the homepage sidebar): one
     // full-screen book list per genre, same shape as the series page.
     private val _selectedGenre = MutableStateFlow<SelectedGenre?>(null)

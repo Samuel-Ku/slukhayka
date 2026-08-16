@@ -362,6 +362,15 @@ fun HomeScreen(
                             onClick = { viewModel.openSeriesIndex() }
                         )
                     }
+                    // spec-28 (#190): «Колекції» — a pushed index of every
+                    // matched smart collection; tapping a book resolves-and-
+                    // plays exactly like the inline collection cards.
+                    item {
+                        GenreChip(
+                            title = "Колекції",
+                            onClick = { viewModel.openCollectionsIndex() }
+                        )
+                    }
                 }
             }
 

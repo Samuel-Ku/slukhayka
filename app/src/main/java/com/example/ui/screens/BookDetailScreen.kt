@@ -448,10 +448,26 @@ fun BookDetailScreen(
                         }
                         // Spec-25 (#171): the universe line under the series
                         // pill — renders only when the series' universe
-                        // resolved (a missing universe stays silent).
+                        // resolved (a missing universe stays silent). The
+                        // adjacent affordance (spec-26 T9) reports a wrong
+                        // universe: the line hides, the work re-resolves, and
+                        // the verdict either corrects the resolution (cache +
+                        // shared base) or restores it.
                         bookUniverse?.let { universe ->
                             Spacer(modifier = Modifier.height(4.dp))
-                            BookUniverseLine(universe.universeName)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                BookUniverseLine(universe.universeName)
+                                TextButton(
+                                    onClick = { viewModel.reportWrongUniverse(currentBook.id) },
+                                    contentPadding = PaddingValues(horizontal = 6.dp),
+                                    modifier = Modifier.testTag("book_detail_report_wrong_universe")
+                                ) {
+                                    Text(
+                                        text = "Всесвіт неправильний?",
+                                        style = MaterialTheme.typography.labelSmall
+                                    )
+                                }
+                            }
                         }
                     }
 

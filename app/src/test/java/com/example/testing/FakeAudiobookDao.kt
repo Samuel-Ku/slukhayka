@@ -672,6 +672,10 @@ class FakeAudiobookDao(
             .filter { it.kind == "NEVER_MATCH" && (it.mergeKey == mergeKey || it.value == mergeKey) }
             .sortedByDescending { it.updatedAt }
 
+    override suspend fun deleteCorrection(mergeKey: String, kind: String) {
+        correctionsState.update { current -> current.filterNot { it.mergeKey == mergeKey && it.kind == kind } }
+    }
+
     // --- Persisted catalogue: Works + Sources (spec-23 T1, ADR-0007) --------
 
     override suspend fun findWorkByMergeKey(mergeKey: String): WorkEntity? =
@@ -714,6 +718,10 @@ class FakeAudiobookDao(
         seriesMembersState.value.filter { it.workId == workId }
 
     override suspend fun getAllSeriesMembers(): List<SeriesMemberEntity> = seriesMembersState.value
+
+    override suspend fun deleteSeriesMembersForWork(workId: String) {
+        seriesMembersState.update { current -> current.filterNot { it.workId == workId } }
+    }
 
     /** Snapshot of the cached universes, for assertions. */
     val savedUniverses: List<UniverseEntity> get() = universesState.value

@@ -10,6 +10,7 @@ import androidx.paging.cachedIn
 import com.example.App
 import com.example.data.catalog.CatalogPerson
 import com.example.data.db.*
+import com.example.data.duration.ChapterDurationProbe
 import com.example.data.duration.DurationEnrichment
 import com.example.data.imports.ImportGrantStore
 import com.example.data.imports.ImportPlan
@@ -93,6 +94,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val offlineDownloads: OfflineDownloads = App.instance.offlineDownloads
     val libraryEntries: LibraryEntries = App.instance.libraryEntries
     val durationEnrichment: DurationEnrichment = App.instance.durationEnrichment
+    // spec-24 T8 (#169): the throttled chapter-duration probing pass — the
+    // same detached-window idiom as the duration enrichment above.
+    val chapterDurationProbe: ChapterDurationProbe = App.instance.chapterDurationProbe
     val playerManager: AudioPlayerManager = App.instance.playerManager
 
     val playerState: StateFlow<PlayerState> = playerManager.playerState

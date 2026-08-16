@@ -3,7 +3,7 @@
 > Executed: **2026-08-07** against the GitHub-updated build (Ukrainian
 > Netflix-style catalog, spec #8: 2-tab nav, Listen/Library screens, SAF
 > import, redesigned player). Device: **OnePlus 8 Pro** (IN2023), Android 14
-> (SDK 34), 1440×3168 @560dpi, wireless ADB (`192.168.2.143:39257`).
+> (SDK 34), 1440×3168 @560dpi, wireless ADB (`<adb-device>:39257`).
 >
 > **Re-run (clean):** `connectedDebugAndroidTest` executed twice back-to-back
 > after the phone's Messenger call ended — **2/2 PASS both runs**
@@ -757,7 +757,7 @@ Screenshots: `docs/phone-test/screenshots/folder_import_{01_launch,02_playing,03
 # spec-14 T6 (#88) — import doors + missing-book, device session
 
 > Executed: **2026-08-12** against `main` HEAD (`9b79f89` + the two fixes below).
-> Device: OnePlus 8 Pro (IN2023), Android 14, wireless ADB `192.168.13.142:37371`.
+> Device: OnePlus 8 Pro (IN2023), Android 14, wireless ADB `<adb-device>:<port>`.
 > Runbook: `docs/phone-test/PLAN-spec-14-t6.md`.
 
 ## Acceptance matrix

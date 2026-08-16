@@ -23,7 +23,7 @@ import com.example.data.source.HttpFetcher
 import com.example.data.source.SourceAdapter
 
 import com.example.data.universe.FirestoreUniverseStore
-import com.example.data.universe.MlKitTranslator
+import com.example.data.universe.MlKitTitleTranslator
 import com.example.data.universe.SeriesUniverses
 import com.example.data.universe.UniverseAssets
 import com.example.data.universe.WikidataResponse
@@ -150,14 +150,18 @@ class App : Application() {
             database.audiobookDao(),
             UniverseAssets.load(this),
             WikidataSeriesProvider(
-
-                // Spec-26 T3: the status-aware transport — the provider
-                // retries rate-limited (429) requests with backoff itself.
-                fetchJson = { url -> wikidataFetcher.getResult(url) },
-                // Spec-26 T1 (#175): the on-device ML Kit translation fallback
-                // (free, no key) — a failed translation or model download
-                // degrades silently, never breaks resolve.
-                translator = MlKitTranslator()
+                // spec-26 T3 (#177): the status-aware transport feeds the
+                // 429 retry policy — a rate-limited response retries with
+                // exponential backoff instead of silently losing the
+                // resolution.
+                fetch = { url ->
+                    val (status, body) = wikidataFetcher.getTextResult(url)
+                    WikidataResponse(status, body)
+                },
+                // spec-26 T1 (#175): on-device uk → ru/en title translation
+                // (ML Kit, free, no key) for books whose only Wikidata
+                // labels are ru/en — best-effort, silent on failure.
+                translator = MlKitTitleTranslator()
             ),
             // Spec-26 T5: the shared Firestore read layer between the Room
             // cache and Wikidata — a resolution another user wrote back is

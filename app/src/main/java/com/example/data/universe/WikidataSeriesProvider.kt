@@ -1,7 +1,10 @@
 package com.example.data.universe
 
 import com.example.data.collections.CollectionMatcher
+import com.example.data.source.FetchResult
 import java.net.URLEncoder
+import kotlin.random.Random
+import kotlinx.coroutines.delay
 
 /**
  * Spec-25 T2 (#173) — the Wikidata provider behind the [SeriesUniverseProvider]
@@ -17,15 +20,26 @@ import java.net.URLEncoder
  * searches the translated title when the direct search is empty), no author
  * agreement, no P179, a malformed response or an ambiguous candidate set all
  * yield null — the surfaces never degrade. The transport is injected
- * (`fetchJson` returns the raw JSON or "" on failure, the degrade-never-
- * throw convention of the adapter seam); fixture tests serve canned API
+ * (`fetchJson` returns a [FetchResult] — body "" on failure, the degrade-
+ * never-throw convention of the adapter seam); a rate-limited response (429)
+ * is retried with exponential backoff and jitter up to [maxAttempts], then
+ * silently given up on (spec-26 T3). Fixture tests serve canned API
  * responses by URL.
  */
 class WikidataSeriesProvider(
-    private val fetchJson: suspend (String) -> String,
+    private val fetchJson: suspend (String) -> FetchResult,
     private val languages: List<String> = listOf("uk", "ru", "en"),
     private val maxCandidates: Int = 3,
     private val maxChainHops: Int = 8,
+    // Spec-26 T3: the retry budget for rate-limited (429) requests — other
+    // statuses and empty bodies are final and never retried. Exponential
+    // backoff between attempts, jittered so a fleet of clients does not
+    // retry in lockstep.
+    private val maxAttempts: Int = 3,
+    private val retryBaseMillis: Long = 500,
+    private val retryMaxMillis: Long = 5_000,
+    // Injectable for deterministic fixture tests (real default = delay).
+    private val sleep: suspend (Long) -> Unit = { delay(it) },
     // Spec-26 T1: the title-translation fallback (on-device ML Kit). Null —
     // the path is disabled; the source titles are Ukrainian but Wikidata
     // items often carry only ru/en labels, so a translated search catches
@@ -73,9 +87,9 @@ class WikidataSeriesProvider(
         // stage (a blank author keeps the query title-only).
         val query = if (author.isBlank()) title else "$title $author"
         for (language in languages) {
-            val json = fetchJson(searchUrl(language, query))
-            if (json.isBlank()) continue
-            val ids = WikidataParser.searchHitIds(json)
+            val body = fetch(searchUrl(language, query)).body
+            if (body.isBlank()) continue
+            val ids = WikidataParser.searchHitIds(body)
             if (ids.isNotEmpty()) return ids.take(maxCandidates)
         }
         return null
@@ -184,7 +198,32 @@ class WikidataSeriesProvider(
     }
 
     private suspend fun fetchEntity(ids: String): String? =
-        fetchJson(entitiesUrl(ids)).takeIf { it.isNotBlank() }
+        fetch(entitiesUrl(ids)).body.takeIf { it.isNotBlank() }
+
+    /**
+     * Spec-26 T3 — the rate-limit retry wrapper around the injected
+     * transport: only a 429 is retried (exponential backoff, jittered,
+     * bounded by [maxAttempts]); any other status or empty body is final —
+     * retrying would not cure it and only burns the API budget. Exhausting
+     * the budget returns the last 429, whose empty body degrades the
+     * resolution silently (the next book open retries).
+     */
+    private suspend fun fetch(url: String): FetchResult {
+        var attempt = 1
+        while (true) {
+            val result = fetchJson(url)
+            if (result.status != 429 || attempt >= maxAttempts) return result
+            sleep(backoffMillis(attempt))
+            attempt++
+        }
+    }
+
+    /** The jittered exponential backoff for attempt N (1-based). */
+    private fun backoffMillis(attempt: Int): Long {
+        val base = minOf(retryMaxMillis, retryBaseMillis shl (attempt - 1))
+        val jitter = 0.75 + Random.nextDouble() * 0.5 // 0.75..1.25 of the base
+        return (base * jitter).toLong()
+    }
 
     private fun searchUrl(language: String, title: String): String =
         "https://www.wikidata.org/w/api.php?action=wbsearchentities&format=json" +

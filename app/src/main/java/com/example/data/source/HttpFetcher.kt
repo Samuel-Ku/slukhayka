@@ -6,6 +6,14 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 /**
+ * The outcome of an HTTP GET: the status code and the response body ("" for
+ * non-200 responses and transport failures, whose status is 0). Carries the
+ * status so callers can distinguish a rate-limit (429) — which retrying may
+ * cure — from any other failure (spec-26 T3).
+ */
+data class FetchResult(val status: Int, val body: String)
+
+/**
  * Minimal JVM HTTP GET used by [SourceAdapter]s. Configurable [referer] so the
  * audiobookmp3 playlist CDN (which 403s without one) can be fetched, and
  * per-request [extraHeaders] for endpoints gated on headers like
@@ -26,7 +34,16 @@ open class HttpFetcher(
      * `X-Requested-With: XMLHttpRequest` gate). Open so fixture fakes can serve
      * canned content by URL, ignoring headers.
      */
-    open fun getText(url: String, extraHeaders: Map<String, String>): String {
+    open fun getText(url: String, extraHeaders: Map<String, String>): String =
+        getResult(url, extraHeaders).body
+
+    /**
+     * The status-aware GET — [getText] plus the response code (0 on transport
+     * failure), so a caller can retry specifically on 429 (spec-26 T3). Same
+     * degrade-never-throw convention: body is "" on any non-200. Open so
+     * fixture fakes can serve canned (status, body) pairs by URL.
+     */
+    open fun getResult(url: String, extraHeaders: Map<String, String> = emptyMap()): FetchResult {
         val connection = try {
             (URL(url).openConnection() as HttpURLConnection).apply {
                 connectTimeout = 12_000
@@ -38,16 +55,17 @@ open class HttpFetcher(
                 instanceFollowRedirects = true
             }
         } catch (e: Exception) {
-            return ""
+            return FetchResult(0, "")
         }
         return try {
-            if (connection.responseCode == HttpURLConnection.HTTP_OK) {
-                connection.inputStream.bufferedReader().use { it.readText() }
+            val code = connection.responseCode
+            if (code == HttpURLConnection.HTTP_OK) {
+                FetchResult(code, connection.inputStream.bufferedReader().use { it.readText() })
             } else {
-                ""
+                FetchResult(code, "")
             }
         } catch (e: Exception) {
-            ""
+            FetchResult(0, "")
         } finally {
             connection.disconnect()
         }

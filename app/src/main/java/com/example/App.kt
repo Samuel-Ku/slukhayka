@@ -147,7 +147,9 @@ class App : Application() {
             database.audiobookDao(),
             UniverseAssets.load(this),
             WikidataSeriesProvider(
-                fetchJson = { url -> wikidataFetcher.getText(url) },
+                // Spec-26 T3: the status-aware transport — the provider
+                // retries rate-limited (429) requests with backoff itself.
+                fetchJson = { url -> wikidataFetcher.getResult(url) },
                 // Spec-26 T1 (#175): the on-device ML Kit translation fallback
                 // (free, no key) — a failed translation or model download
                 // degrades silently, never breaks resolve.

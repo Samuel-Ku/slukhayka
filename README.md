@@ -4,6 +4,7 @@
 ![Android](https://img.shields.io/badge/Platform-Android%207%2B-green.svg)
 ![Latest release](https://img.shields.io/github/v/release/Samuel-Ku/slukhayka?label=Latest%20release)
 ![Free forever](https://img.shields.io/badge/Free-forever-brightgreen.svg)
+[![Social preview](https://img.shields.io/badge/Social%20Preview-1280%C3%97640-blue)](docs/social-preview.png)
 
 > Всі українські аудіокниги — в одному плеєрі. Без реклами, без підписок,
 > без збору даних. Відкрив — і продовжуєш слухати з того місця, де зупинився.
@@ -19,8 +20,6 @@
   <img src="docs/screenshots/02-sleep-timer.png" width="24%" alt="Таймер сну"/>
   <img src="docs/screenshots/03-speed.png" width="24%" alt="Швидкість відтворення"/>
 </p>
-
-<!-- TODO: оновити скріншоти після spec-27 P0 (чисті «Слухати» та «Медіатека»). -->
 
 **Слухайка** — вільний плеєр українських аудіокниг для Android, який ставить
 слухача на перше місце. Він збирає книги з шести українських джерел в один

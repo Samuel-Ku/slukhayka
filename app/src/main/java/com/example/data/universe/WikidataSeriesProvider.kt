@@ -34,6 +34,12 @@ import kotlinx.coroutines.delay
  * and a 429 past the limit carries an empty body, so the caller degrades
  * silently and the next book open repeats.
  *
+ * Spec-26 T4 (#179) adds the failure diagnostics: the optional [diagnostic]
+ * callback is invoked once per resolve at the first failure point (and per
+ * exhausted-429 request), so the residual-measurement harness classifies
+ * catalog misses by cause — the surfaces themselves still degrade to
+ * nothing.
+ *
  * Best-effort and silent by design: no network, no search hits in any of
  * uk → ru → en (direct or translated), no author agreement, no P179, a
  * malformed response or an ambiguous candidate set all yield null — the
@@ -49,7 +55,12 @@ class WikidataSeriesProvider(
     private val maxChainHops: Int = 8,
     private val translator: TitleTranslator? = null,
     private val maxAttempts: Int = 3,
-    private val retryDelayMs: (Int) -> Long = { WikidataRetryPolicy.backoffDelayMs(it) }
+    private val retryDelayMs: (Int) -> Long = { WikidataRetryPolicy.backoffDelayMs(it) },
+    // Spec-26 T4: research/eval support — invoked once per resolve at the
+    // first failure point (and per exhausted-429 request). Null in
+    // production wiring; the residual harness collects it to classify
+    // catalog misses by cause.
+    private val diagnostic: ((ResolutionDiagnostic) -> Unit)? = null
 ) : SeriesUniverseProvider {
 
     override suspend fun resolve(bookTitle: String, bookAuthor: String): UniverseResolution? {
@@ -64,18 +75,24 @@ class WikidataSeriesProvider(
         val candidates = searchByAuthor(bookTitle, bookAuthor)
             ?: search(bookTitle)
             ?: searchTranslated(bookTitle)
-            ?: return null
+            ?: run { diagnostic?.invoke(ResolutionDiagnostic.SEARCH_MISS); return null }
         // 2. Candidate verification: the first candidate whose P50 author
         //    agrees with the book's author wins; none agreeing → no resolution.
-        val workQid = candidates.firstOrNull { authorMatches(it, bookAuthor) } ?: return null
+        val workQid = candidates.firstOrNull { authorMatches(it, bookAuthor) }
+            ?: run { diagnostic?.invoke(ResolutionDiagnostic.AUTHOR_MISMATCH); return null }
         // 3. P179 → the series item.
         val workJson = fetchEntity(workQid) ?: return null
-        val seriesQid = WikidataParser.seriesIds(workJson, workQid).firstOrNull() ?: return null
+        val seriesQid = WikidataParser.seriesIds(workJson, workQid).firstOrNull()
+            ?: run { diagnostic?.invoke(ResolutionDiagnostic.NO_SERIES_CLAIM); return null }
         // 4. The series' P155/P156 chain, bounded in both directions; the
         //    chain head names the universe and anchors its id.
-        val chain = buildChain(seriesQid) ?: return null
+        val chain = buildChain(seriesQid)
+            ?: run { diagnostic?.invoke(ResolutionDiagnostic.CHAIN_UNPLACEABLE); return null }
         val position = chain.indexOfFirst { it.qid == seriesQid }
-        if (position < 0) return null
+        if (position < 0) {
+            diagnostic?.invoke(ResolutionDiagnostic.CHAIN_UNPLACEABLE)
+            return null
+        }
         val head = chain.first()
         val universeName = head.label ?: return null
         return UniverseResolution(
@@ -101,6 +118,9 @@ class WikidataSeriesProvider(
         while (true) {
             val response = fetch(url)
             if (!WikidataRetryPolicy.shouldRetry(attempt, maxAttempts, response.statusCode)) {
+                if (response.statusCode == WikidataRetryPolicy.HTTP_TOO_MANY_REQUESTS) {
+                    diagnostic?.invoke(ResolutionDiagnostic.THROTTLED)
+                }
                 return response
             }
             delay(retryDelayMs(attempt))
@@ -296,6 +316,26 @@ class WikidataSeriesProvider(
  * of the adapter seam); the status lets the 429 retry policy (spec-26 T3)
  * tell a rate-limited response from any other failure.
  */
+/**
+ * Why a resolution failed — surfaced only through the provider's
+ * [WikidataSeriesProvider.diagnostic] callback (spec-26 T4): the residual-
+ * measurement harness classifies catalog misses by cause. [THROTTLED] is
+ * emitted per request that exhausts its 429 retry budget; the others once
+ * per resolve, at the first failure point.
+ */
+enum class ResolutionDiagnostic {
+    /** No candidates in any language — the work is not on Wikidata. */
+    SEARCH_MISS,
+    /** Candidates existed, but none's P50 author agreed with the book's. */
+    AUTHOR_MISMATCH,
+    /** The work has no P179 series claim. */
+    NO_SERIES_CLAIM,
+    /** The series exists but its P155/P156 chain could not place it. */
+    CHAIN_UNPLACEABLE,
+    /** A request exhausted its 429 retry budget (rate-limited). */
+    THROTTLED
+}
+
 data class WikidataResponse(
     val statusCode: Int,
     val body: String

@@ -21,6 +21,7 @@ import com.example.data.source.SluhayuaAdapter
 import com.example.data.source.SoundBooksAdapter
 import com.example.data.source.HttpFetcher
 import com.example.data.source.SourceAdapter
+import com.example.data.universe.MlKitTranslator
 import com.example.data.universe.SeriesUniverses
 import com.example.data.universe.UniverseAssets
 import com.example.data.universe.WikidataSeriesProvider
@@ -145,7 +146,13 @@ class App : Application() {
         SeriesUniverses(
             database.audiobookDao(),
             UniverseAssets.load(this),
-            WikidataSeriesProvider(fetchJson = { url -> wikidataFetcher.getText(url) })
+            WikidataSeriesProvider(
+                fetchJson = { url -> wikidataFetcher.getText(url) },
+                // Spec-26 T1 (#175): the on-device ML Kit translation fallback
+                // (free, no key) — a failed translation or model download
+                // degrades silently, never breaks resolve.
+                translator = MlKitTranslator()
+            )
         )
     }
 

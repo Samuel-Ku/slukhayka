@@ -9,10 +9,11 @@
 
 | Що | SHA / шлях |
 |---|---|
-| Новий локальний HEAD (після перезапису) | `02b9e1c43c2b705c93fcb71cd1a658341dd8ceca` |
-| Старий HEAD на GitHub (`origin/main` зараз) | `40e514b09b63e9337a0bafaf17dc41a2fe486859` |
+| Новий локальний HEAD (після перезапису) | `4fcbb06f6963df6dc02b71778ca07ad9272ad55d` (цей документ — останній коміт; перезапис: `967f4da → ddaba37 → 02b9e1c`) |
+| Старий HEAD на GitHub до пуша | `40e514b09b63e9337a0bafaf17dc41a2fe486859` |
 | Резервна копія старої історії (mirror) | `/tmp/slukhayka-backup-2026-08-16.git` (272 MB) |
 | Remote | `https://github.com/Samuel-Ku/slukhayka.git` |
+| Тег `v1.0` на remote | Вказує на **старий** коміт `dd4f3bf` (анотований, «Перший публічний реліз») — тримає старі блоби живими в клонах. **Очікує рішення**: перепризначити на переписаний еквівалент `06fcc50` або видалити |
 
 `git filter-repo` сам видалив remote `origin` — перед пушем його треба
 додати заново.
@@ -23,10 +24,10 @@
 
 ```bash
 git log --oneline -3
-# очікуємо:
+# очікуємо (після пуша тут також лежить коміт цієї інструкції):
+#   4fcbb06 docs: record history rewrite and force-push procedure
 #   02b9e1c docs: regenerate codemaps for the current 8-module structure
 #   ddaba37 docs: rewrite AGENTS.md as contributor-facing guide and record ADR-0016
-#   967f4da chore: strip internal QA artifacts and dead code from the tree
 
 git status        # робоче дерево чисте
 du -sh .git       # очікуємо ~18-20 MB, не ~250 MB
@@ -69,10 +70,10 @@ git push --force-with-lease origin main
 ## Крок 5 — перевірка після пуша
 
 ```bash
-git ls-remote origin refs/heads/main        # має дорівнювати 02b9e1c…
+git ls-remote origin refs/heads/main        # має дорівнювати 4fcbb06…
 git fetch origin                            # оновлює origin/main до нової історії
 git reflog expire --expire=now --all && git gc --prune=now   # прибрати старі об'єкти локально
-du -sh .git                                 # знову ~18-20 MB
+du -sh .git                                 # ~18-20 MB, але дивись «Тег v1.0» нижче
 
 # Свіжий клон з GitHub — фінальна перевірка:
 git clone https://github.com/Samuel-Ku/slukhayka.git /tmp/slukhayka-verify
@@ -108,6 +109,27 @@ rm -rf /tmp/slukhayka-backup-2026-08-16.git   # бек-ап більше не п
 - ❌ Не оновлювати жодних посилань на старі SHA (`88f5f1e`, `87711d3`,
   `00d6c79`, `40e514b`) — цих комітів у новій історії не існує.
 - ❌ Не видаляти бек-ап, поки хоча б один співробітник не пере-клонувався.
+
+## Тег v1.0 (виявлено під час пуша, очікує рішення)
+
+Force-push `main` не прибирає розмір клону, поки на remote живе анотований
+tег `v1.0`, який вказує на старий коміт `dd4f3bf` (з нього досяжні ~249
+шляхів `audit/` + `docs/phone-test/`): `git clone` за замовчуванням тягне
+теги, тому свіжий клон важив 290 MB навіть після перепису `main`.
+
+Рекомендація: перепризначити тег на переписаний еквівалент `06fcc50`
+(той самий реліз, дерево без QA-артефактів):
+
+```bash
+git push origin --delete v1.0
+# зберегти оригінальне повідомлення тега (git cat-file tag v1.0):
+git tag -a v1.0 06fcc50 -m "Перший публічний реліз «Слухайки» — …"
+git push origin v1.0
+# локально: reflog expire + gc — тоді .git схудне до ~18 MB
+```
+
+Альтернатива — залишити тег як є: тоді клон і далі важить ~290 MB і
+сенс перезапису історії втрачається.
 
 ## Чому все це безпечно
 

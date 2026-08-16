@@ -207,6 +207,9 @@ class SeriesUniverses(
     private fun seriesId(universeId: String, position: Int): String = "$universeId:$position"
 }
 
+/** Default TTL of a cached Wikidata universe resolution: 30 days. */
+private const val DEFAULT_TTL_MILLIS: Long = 30L * 24 * 60 * 60 * 1000
+
 /** A tappable neighbor series of the universe («Передує» / «Продовжує»). */
 data class SeriesRef(
     val title: String,

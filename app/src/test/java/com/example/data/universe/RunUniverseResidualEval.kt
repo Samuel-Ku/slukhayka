@@ -1,7 +1,6 @@
 package com.example.data.universe
 
 import com.example.data.collections.CollectionMatcher
-import com.example.data.source.FetchResult
 import com.example.data.source.HttpFetcher
 import java.io.File
 import java.net.URLEncoder
@@ -88,7 +87,7 @@ object RunUniverseResidualEval {
                 // not trigger Wikidata's rate-limit window.
                 val aDiagnostics = mutableListOf<ResolutionDiagnostic>()
                 val provider = WikidataSeriesProvider(
-                    fetchJson = { url -> pacedFetch(url) },
+                    fetch = { url -> pacedFetch(url) },
                     diagnostic = { aDiagnostics += it }
                 )
                 val resolution = provider.resolve(book.title, book.author)
@@ -129,7 +128,7 @@ object RunUniverseResidualEval {
         var saw429 = false
         for (language in LANGUAGES) {
             val result = fetchWithRetry(searchUrl(language, title))
-            if (result.status == 429) {
+            if (result.statusCode == 429) {
                 saw429 = true
                 continue
             }
@@ -159,18 +158,19 @@ object RunUniverseResidualEval {
     }
 
     /** Paced + retried request (the probe and the provider seam share it). */
-    private suspend fun pacedFetch(url: String): FetchResult = fetchWithRetry(url)
+    private suspend fun pacedFetch(url: String): WikidataResponse = fetchWithRetry(url)
 
     private suspend fun fetchEntity(ids: String): String? =
         fetchWithRetry(entitiesUrl(ids)).body.takeIf { it.isNotBlank() }
 
     /** Pace every request, then retry 429s (same backoff as the provider). */
-    private suspend fun fetchWithRetry(url: String, attempts: Int = 3): FetchResult {
+    private suspend fun fetchWithRetry(url: String, attempts: Int = 3): WikidataResponse {
         delay(requestPaceMillis)
         var attempt = 1
         while (true) {
-            val result = fetcher.getResult(url)
-            if (result.status != 429 || attempt >= attempts) return result
+            val (status, body) = fetcher.getTextResult(url)
+            val result = WikidataResponse(status, body)
+            if (result.statusCode != 429 || attempt >= attempts) return result
             delay(500L * (1L shl (attempt - 1)))
             attempt++
         }

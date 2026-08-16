@@ -19,9 +19,11 @@ import com.example.data.source.LihtarAdapter
 import com.example.data.source.SluhayAdapter
 import com.example.data.source.SluhayuaAdapter
 import com.example.data.source.SoundBooksAdapter
+import com.example.data.source.HttpFetcher
 import com.example.data.source.SourceAdapter
 import com.example.data.universe.SeriesUniverses
 import com.example.data.universe.UniverseAssets
+import com.example.data.universe.WikidataSeriesProvider
 import com.example.player.AudioPlayerManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -132,13 +134,19 @@ class App : Application() {
     }
 
     /**
-     * Spec-25 (#171): the lazy series-universe resolution over the curated
-     * universe assets. The assets are local (offline-capable for the seeded
-     * universes); the Wikidata provider for unseeded series slots behind
-     * this same module in a later ticket.
+     * Spec-25 (#171/#173): the lazy series-universe resolution — the curated
+     * universe assets first (offline-capable for the seeded universes), then
+     * the Wikidata provider for unseeded series, behind the same seam. The
+     * transport is the adapters' degrade-never-throw fetcher; any failure
+     * contributes nothing.
      */
     val seriesUniverses: SeriesUniverses by lazy {
-        SeriesUniverses(database.audiobookDao(), UniverseAssets.load(this))
+        val wikidataFetcher = HttpFetcher()
+        SeriesUniverses(
+            database.audiobookDao(),
+            UniverseAssets.load(this),
+            WikidataSeriesProvider(fetchJson = { url -> wikidataFetcher.getText(url) })
+        )
     }
 
     /**

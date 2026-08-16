@@ -1,0 +1,99 @@
+package com.example.data.universe
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Test
+
+/**
+ * Spec-25 T2 (#173) — pure JVM fixture tests for [WikidataParser]: the two
+ * API shapes (wbsearchentities hits, wbgetentities claims+labels) map to
+ * typed facts; absent facts and malformed JSON contribute nothing.
+ */
+class WikidataParserTest {
+
+    private val languages = listOf("uk", "ru", "en")
+
+    // ---------------------------------------------------------------------
+    // Search hits
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `search hits extract the ids in api order`() {
+        val json = """{"search":[{"id":"Q1","label":"A"},{"id":"Q2","label":"B"},{"id":"Q3"}]}"""
+        assertEquals(listOf("Q1", "Q2", "Q3"), WikidataParser.searchHitIds(json))
+    }
+
+    @Test
+    fun `an empty search and malformed json yield no hits`() {
+        assertEquals(emptyList<String>(), WikidataParser.searchHitIds("""{"search":[]}"""))
+        assertEquals(emptyList<String>(), WikidataParser.searchHitIds("not json"))
+        assertEquals(emptyList<String>(), WikidataParser.searchHitIds("""{"search":"not-a-list"}"""))
+    }
+
+    // ---------------------------------------------------------------------
+    // Claims: P50 (author), P179 (series), P155/P156 (chain)
+    // ---------------------------------------------------------------------
+
+    private val claimsJson = """
+        {
+          "entities": {
+            "Q1": {
+              "labels": {"en": {"language": "en", "value": "A Little Hatred"}},
+              "claims": {
+                "P50": [
+                  {"mainsnak": {"snaktype": "value", "property": "P50", "datavalue": {"value": {"id": "Q10"}}}}
+                ],
+                "P179": [
+                  {"mainsnak": {"snaktype": "value", "property": "P179", "datavalue": {"value": {"id": "Q100"}}}}
+                ],
+                "P155": [
+                  {"mainsnak": {"snaktype": "value", "property": "P155", "datavalue": {"value": {"id": "Q101"}}}}
+                ],
+                "P156": [
+                  {"mainsnak": {"snaktype": "somevalue"}}
+                ]
+              }
+            }
+          }
+        }
+    """.trimIndent()
+
+    @Test
+    fun `claims extract the author series and chain entity ids`() {
+        assertEquals(listOf("Q10"), WikidataParser.authorIds(claimsJson, "Q1"))
+        assertEquals(listOf("Q100"), WikidataParser.seriesIds(claimsJson, "Q1"))
+        assertEquals(listOf("Q101"), WikidataParser.followsIds(claimsJson, "Q1"))
+        // The somevalue statement (no datavalue) contributes nothing.
+        assertEquals(emptyList<String>(), WikidataParser.followedByIds(claimsJson, "Q1"))
+    }
+
+    @Test
+    fun `a claim of another entity or an absent property contributes nothing`() {
+        assertEquals(emptyList<String>(), WikidataParser.authorIds(claimsJson, "Q2"))
+        assertEquals(emptyList<String>(), WikidataParser.followsIds(claimsJson, "Q2"))
+        assertEquals(emptyList<String>(), WikidataParser.authorIds("not json", "Q1"))
+    }
+
+    // ---------------------------------------------------------------------
+    // Labels
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `the label prefers the languages in order`() {
+        val all = """{"entities":{"Q1":{"labels":{"en":{"value":"A Little Hatred"},"ru":{"value":"Немного ненависти"},"uk":{"value":"Трохи ненависті"}}}}}"""
+        assertEquals("Трохи ненависті", WikidataParser.label(all, "Q1", languages))
+        assertEquals("Трохи ненависті", WikidataParser.label(all, "Q1", listOf("uk")))
+
+        // A missing uk label falls through to the next language.
+        val noUk = """{"entities":{"Q1":{"labels":{"en":{"value":"A Little Hatred"},"ru":{"value":"Немного ненависти"}}}}}"""
+        assertEquals("Немного ненависти", WikidataParser.label(noUk, "Q1", languages))
+        assertEquals("A Little Hatred", WikidataParser.label(noUk, "Q1", listOf("en")))
+    }
+
+    @Test
+    fun `an entity without labels yields null`() {
+        val json = """{"entities":{"Q1":{"labels":{}}}}"""
+        assertNull(WikidataParser.label(json, "Q1", languages))
+        assertNull(WikidataParser.label("not json", "Q1", languages))
+    }
+}

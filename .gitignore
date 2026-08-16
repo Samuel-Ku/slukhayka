@@ -17,6 +17,7 @@ local.properties
 .env
 debug.keystore
 my-upload-key.jks
+keystore.properties
 # Local agent tooling state — never part of the public repo.
 .headroom/
 .serena/

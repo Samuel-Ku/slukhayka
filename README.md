@@ -86,7 +86,18 @@ cd slukhayka
 # APK: app/build/outputs/apk/debug/app-debug.apk
 ```
 
-Release-збірка підписується власним keystore (див. `.github/workflows/release.yml`).
+Release-збірка підписується власним keystore. Локально згенеруй його один раз
+і збирай однією командою:
+
+```bash
+bash scripts/generate-keystore.sh   # створює my-upload-key.jks + keystore.properties (обидва в .gitignore)
+./gradlew :app:assembleRelease      # APK: app/build/outputs/apk/release/app-release.apk
+```
+
+> ⚠️ Keystore і паролі — єдиний спосіб оновлювати додаток під цим підписом.
+> Збережи `keystore.properties` у надійному місці (менеджер паролів, бек-ап).
+> У CI підпис налаштований через секрети `KEYSTORE_BASE64`/`STORE_PASSWORD`/
+> `KEY_PASSWORD` (див. `.github/workflows/release.yml`).
 
 ## Долучайся
 

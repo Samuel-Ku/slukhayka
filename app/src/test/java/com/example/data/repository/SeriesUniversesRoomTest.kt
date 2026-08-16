@@ -12,6 +12,7 @@ import com.example.data.universe.ResolutionProvenance
 import com.example.data.universe.SeriesUniverses
 import com.example.data.universe.SeriesUniverseProvider
 import com.example.data.universe.SharedUniverseStore
+import com.example.data.universe.UniverseRefreshTier
 import com.example.data.universe.UniverseList
 import com.example.data.universe.UniverseResolution
 import com.example.data.universe.UniverseSeries
@@ -277,7 +278,9 @@ class SeriesUniversesRoomTest {
     private fun wikidataResolver(
         resolution: UniverseResolution? = wikidataResolution,
         onCall: () -> Unit = {},
-        ttlMillis: Long = 10_000L,
+        // Spec-26 T7: the tier rule is injectable; the tests use a flat 10s
+        // tier so "fresh" vs "stale" is a plain clock comparison.
+        tierTtl: (Boolean, Int?, Int) -> Long = { _, _, _ -> 10_000L },
         now: () -> Long = System::currentTimeMillis
     ): SeriesUniverses = SeriesUniverses(
         dao,
@@ -288,7 +291,7 @@ class SeriesUniversesRoomTest {
                 return resolution
             }
         },
-        ttlMillis = ttlMillis,
+        tierTtlMillis = tierTtl,
         now = now
     )
 
@@ -357,7 +360,7 @@ class SeriesUniversesRoomTest {
         seedBook("Невідомий цикл", null, seriesIndex = 1)
         var currentTime = 1_000_000L
         var calls = 0
-        val resolver = wikidataResolver(onCall = { calls++ }, ttlMillis = 10_000L, now = { currentTime })
+        val resolver = wikidataResolver(onCall = { calls++ }, now = { currentTime })
 
         resolver.resolveForBook("b1")
         assertEquals(1, calls)
@@ -382,7 +385,7 @@ class SeriesUniversesRoomTest {
     fun `a membership without a stamp counts as stale and refreshes`() = runBlocking {
         seedBook("Невідомий цикл", null, seriesIndex = 1)
         var calls = 0
-        val resolver = wikidataResolver(onCall = { calls++ }, ttlMillis = 10_000L, now = { 1_000_000L })
+        val resolver = wikidataResolver(onCall = { calls++ }, now = { 1_000_000L })
         // A pre-TTL row (migration leftovers): a membership with a NULL stamp.
         dao.upsertSeriesMember(
             SeriesMemberEntity(workId = "w1", seriesId = "wd:Q900:2", position = 1, resolvedAt = null)
@@ -403,7 +406,6 @@ class SeriesUniversesRoomTest {
         val resolver = wikidataResolver(
             resolution = null, // the provider fails on the re-resolution
             onCall = { calls++ },
-            ttlMillis = 10_000L,
             now = { currentTime }
         )
         // A stale membership (pre-TTL) already in the cache.
@@ -467,7 +469,9 @@ class SeriesUniversesRoomTest {
     private fun sharedResolver(
         shared: SharedUniverseStore?,
         onWikidataCall: () -> Unit = {},
-        ttlMillis: Long = 10_000L,
+        // Spec-26 T7: the tier rule is injectable; the tests use a flat 10s
+        // tier so "fresh" vs "stale" is a plain clock comparison.
+        tierTtl: (Boolean, Int?, Int) -> Long = { _, _, _ -> 10_000L },
         now: () -> Long = System::currentTimeMillis
     ): SeriesUniverses = SeriesUniverses(
         dao,
@@ -479,7 +483,7 @@ class SeriesUniversesRoomTest {
             }
         },
         sharedStore = shared,
-        ttlMillis = ttlMillis,
+        tierTtlMillis = tierTtl,
         now = now
     )
 
@@ -559,7 +563,6 @@ class SeriesUniversesRoomTest {
         val resolver = sharedResolver(
             shared = sharedStore("w1" to wikidataResolution, onCall = { sharedCalls++ }),
             onWikidataCall = { wikidataCalls++ },
-            ttlMillis = 10_000L,
             now = { 1_005_000L }
         )
 
@@ -607,7 +610,7 @@ class SeriesUniversesRoomTest {
     fun `a wikidata resolution writes back to the shared store with provenance`() = runBlocking {
         seedBook("Невідомий цикл", null, seriesIndex = 2)
         val store = RecordingStore()
-        val resolver = sharedResolver(shared = store, ttlMillis = 10_000L, now = { 1_000_000L })
+        val resolver = sharedResolver(shared = store, now = { 1_000_000L })
 
         resolver.resolveForBook("b1")
 
@@ -631,7 +634,7 @@ class SeriesUniversesRoomTest {
         // already persisted and must not suffer.
         seedBook("Невідомий цикл", null, seriesIndex = 2)
         val store = RecordingStore().apply { failWrites = true }
-        val resolver = sharedResolver(shared = store, ttlMillis = 10_000L)
+        val resolver = sharedResolver(shared = store)
 
         resolver.resolveForBook("b1") // must not throw
 
@@ -660,7 +663,7 @@ class SeriesUniversesRoomTest {
         // provider, reads the written-back resolution instead of re-resolving.
         seedBook("Невідомий цикл", null, seriesIndex = 2)
         val store = RecordingStore()
-        val clientA = sharedResolver(shared = store, ttlMillis = 10_000L, now = { 1_000_000L })
+        val clientA = sharedResolver(shared = store, now = { 1_000_000L })
         clientA.resolveForBook("b1")
         assertEquals(1, store.writes.size)
 
@@ -675,7 +678,7 @@ class SeriesUniversesRoomTest {
                 universes,
                 wikidata = null, // must never be needed — the shared base answers
                 sharedStore = store,
-                ttlMillis = 10_000L,
+                tierTtlMillis = { _, _, _ -> 10_000L },
                 now = { 1_000_000L }
             )
 
@@ -686,5 +689,145 @@ class SeriesUniversesRoomTest {
         } finally {
             dbB.close()
         }
+    }
+
+    // ---------------------------------------------------------------------
+    // Tiered refresh (spec-26 T7): the P577 year rides the resolution into
+    // the cache, and the work-row path re-resolves without a library book
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `the P577 publication year persists to the series rows`() = runBlocking {
+        seedBook("Невідомий цикл", null, seriesIndex = 2)
+        val resolutionWithYear = UniverseResolution(
+            universe = UniverseList(
+                id = "wd:Q900",
+                name = "Невідомий всесвіт",
+                series = listOf(
+                    UniverseSeries(title = "Серія А", publicationYear = 2019),
+                    UniverseSeries(title = "Серія Б", publicationYear = 2021)
+                )
+            ),
+            matchedSeries = UniverseSeries(title = "Серія Б", publicationYear = 2021),
+            position = 2
+        )
+        val resolver = SeriesUniverses(
+            dao,
+            universes,
+            wikidata = object : SeriesUniverseProvider {
+                override suspend fun resolve(bookTitle: String, bookAuthor: String) = resolutionWithYear
+            },
+            tierTtlMillis = { _, _, _ -> 10_000L },
+            now = { 1_000_000L }
+        )
+
+        resolver.resolveForBook("b1")
+
+        // The tier rule's age signal is in the cache, per series row.
+        assertEquals(listOf(2019, 2021), dao.getSeriesInUniverse("wd:Q900").map { it.publicationYear })
+    }
+
+    @Test
+    fun `resolveForWork resolves straight from the work row without a book`() = runBlocking {
+        // The background refresh pass's path (spec-26 T7): only the work row
+        // exists — no audiobook, no library entry.
+        dao.upsertWork(
+            WorkEntity(
+                id = "w2",
+                mergeKey = "невідомий цикл|автор",
+                title = "Книга",
+                author = "Автор",
+                seriesTitle = "Невідомий цикл",
+                seriesUrl = null,
+                seriesIndex = 1
+            )
+        )
+        val resolver = wikidataResolver()
+
+        resolver.resolveForWork("w2")
+
+        assertEquals("Невідомий всесвіт", dao.getUniverseById("wd:Q900")!!.name)
+        assertEquals(listOf("wd:Q900:2"), dao.getSeriesMembersForWork("w2").map { it.seriesId })
+        assertEquals(1, dao.getSeriesMembersForWork("w2")[0].position)
+    }
+
+    @Test
+    fun `the tier gate re-resolves a hot membership at 8 days but not a cold one`() = runBlocking {
+        // The real tier rule (spec-26 T7): a tail + young series refreshes
+        // fastest. Exercised against pre-seeded cache state so the signals
+        // (chain-tail position, P577 year) are exact. Both cases use
+        // resolveForWork — the pass's path — with the clock 8 days past the
+        // membership stamp.
+        val t0 = 1_700_000_000_000L // 2023-11-14 UTC
+        val eightDays = 8L * 24 * 60 * 60 * 1000
+
+        suspend fun seedWork(workId: String, seriesTitle: String) {
+            dao.upsertWork(
+                WorkEntity(
+                    id = workId,
+                    mergeKey = "$seriesTitle|автор",
+                    title = "Книга",
+                    author = "Автор",
+                    seriesTitle = seriesTitle,
+                    seriesUrl = null,
+                    seriesIndex = 1
+                )
+            )
+        }
+
+        suspend fun seedUniverse(universeId: String, tailYear: Int) {
+            dao.upsertSeries(
+                com.example.data.db.SeriesEntity(
+                    id = "$universeId:1", title = "Серія А", universeId = universeId,
+                    positionInUniverse = 1, publicationYear = 2000
+                )
+            )
+            dao.upsertSeries(
+                com.example.data.db.SeriesEntity(
+                    id = "$universeId:2", title = "Серія Б", universeId = universeId,
+                    positionInUniverse = 2, publicationYear = tailYear
+                )
+            )
+        }
+
+        fun resolverWith(provider: SeriesUniverseProvider, nowMillis: Long) = SeriesUniverses(
+            dao,
+            universes,
+            wikidata = provider,
+            tierTtlMillis = UniverseRefreshTier::tierTtlMillis,
+            now = { nowMillis }
+        )
+
+        // HOT: the matched series is the tail (pos 2 of 2) and young (2021)
+        // → 7-day tier → 8 days is stale → the provider re-resolves.
+        seedWork("w1", "Невідомий цикл")
+        seedUniverse("wd:Q900", tailYear = 2021)
+        dao.upsertSeriesMember(
+            SeriesMemberEntity(workId = "w1", seriesId = "wd:Q900:2", position = 1, resolvedAt = t0)
+        )
+        var hotCalls = 0
+        resolverWith(object : SeriesUniverseProvider {
+            override suspend fun resolve(bookTitle: String, bookAuthor: String): UniverseResolution? {
+                hotCalls++
+                return wikidataResolution
+            }
+        }, t0 + eightDays).resolveForWork("w1")
+        assertEquals(1, hotCalls)
+
+        // COLD: the matched series is the middle (pos 1 of 2) and old (2000)
+        // → 180-day floor → 8 days is fresh → nothing re-resolves.
+        seedWork("w3", "Невідомий цикл 3")
+        seedUniverse("wd:Q901", tailYear = 2000)
+        dao.upsertSeriesMember(
+            SeriesMemberEntity(workId = "w3", seriesId = "wd:Q901:1", position = 1, resolvedAt = t0)
+        )
+        var coldCalls = 0
+        resolverWith(object : SeriesUniverseProvider {
+            override suspend fun resolve(bookTitle: String, bookAuthor: String): UniverseResolution? {
+                coldCalls++
+                return wikidataResolution
+            }
+        }, t0 + eightDays).resolveForWork("w3")
+        assertEquals(0, coldCalls)
     }
 }

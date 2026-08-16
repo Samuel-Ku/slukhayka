@@ -379,7 +379,11 @@ data class SeriesEntity(
     val universeId: String? = null,
     // Spec-25: the series' ORDER inside its universe (1-based) — the order
     // yields the precedes/follows relations; null = unseeded.
-    val positionInUniverse: Int? = null
+    val positionInUniverse: Int? = null,
+    // Spec-26 T7: the series' last publication year (Wikidata P577, captured
+    // at resolution) — the age signal of the tiered refresh rule; null when
+    // Wikidata had no P577 (or the series is curated).
+    val publicationYear: Int? = null
 )
 
 /** Membership of a Work in a [SeriesEntity] at an ordered [position] (stage-2 S1). */

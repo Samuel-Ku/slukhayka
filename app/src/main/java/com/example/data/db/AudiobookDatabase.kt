@@ -29,7 +29,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         WorkSourceEntity::class,
         LibraryEntryEntity::class
     ],
-    version = 18,
+    version = 19,
     exportSchema = true
 )
 abstract class AudiobookDatabase : RoomDatabase() {
@@ -53,7 +53,7 @@ abstract class AudiobookDatabase : RoomDatabase() {
                     // upgrades, so a schema change fails loudly at runtime
                     // instead of silently dropping the database.
                     .addMigrations(
-                        MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18
+                        MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19
                     )
                     .build()
                 INSTANCE = instance
@@ -962,6 +962,20 @@ abstract class AudiobookDatabase : RoomDatabase() {
         internal val MIGRATION_17_18 = object : Migration(17, 18) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE series_members ADD COLUMN resolvedAt INTEGER")
+            }
+        }
+
+        /**
+         * v18 -> v19 (spec-26 T7): the series' last publication year (P577) —
+         * the age signal of the tiered refresh rule. Pure addition: pre-
+         * existing series rows get a NULL year, which the tier treats as
+         * unknown-age (never hot; warm only when the series sits at the chain
+         * tail). Internal (not private) so the JVM test suite can verify the
+         * upgrade path against a real v18 database.
+         */
+        internal val MIGRATION_18_19 = object : Migration(18, 19) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE series ADD COLUMN publicationYear INTEGER")
             }
         }
     }

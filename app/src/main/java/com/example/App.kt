@@ -24,6 +24,7 @@ import com.example.data.source.SourceAdapter
 
 import com.example.data.universe.CuratedSeed
 import com.example.data.universe.FirestoreUniverseStore
+import com.example.data.universe.UniverseRefreshPass
 import com.example.data.universe.MlKitTitleTranslator
 import com.example.data.universe.SeriesUniverses
 import com.example.data.universe.UniverseAssets
@@ -32,6 +33,7 @@ import com.example.data.universe.WikidataSeriesProvider
 import com.example.player.AudioPlayerManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
@@ -174,6 +176,14 @@ class App : Application() {
     }
 
     /**
+     * Spec-26 T7 (#181) — the background refresh pass over the tiered
+     * membership schedule.
+     */
+    val universeRefreshPass: UniverseRefreshPass by lazy {
+        UniverseRefreshPass(database.audiobookDao(), seriesUniverses)
+    }
+
+    /**
      * Spec-24 T1 — the one-time stored-title scrub runner (audiobooks +
      * works rows). Idempotent: a second run matches nothing, so repeated
      * starts are safe.
@@ -217,11 +227,25 @@ class App : Application() {
                 UniverseAssets.load(this@App)
             )
         }
+        // Spec-26 T7 (#181): the background universe-refresh pass — re-resolves
+        // expired-tier memberships by priority (bounded per run, paced below
+        // Wikidata's 429 window) so Wikidata changes reach every cache and the
+        // shared base (T6 write-back) even for books no one opens. Best-effort
+        // and silent; the loop itself never blocks startup.
+        CoroutineScope(Dispatchers.IO).launch {
+            while (true) {
+                runCatching { universeRefreshPass.runOnce() }
+                delay(UNIVERSE_REFRESH_INTERVAL_MILLIS)
+            }
+        }
     }
 
     companion object {
         /** Late-init singleton; safe because Application.onCreate runs before any component. */
         lateinit var instance: App
             private set
+
+        /** How often the background universe-refresh pass wakes (6 hours). */
+        private const val UNIVERSE_REFRESH_INTERVAL_MILLIS: Long = 6L * 60 * 60 * 1000
     }
 }

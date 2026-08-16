@@ -57,6 +57,33 @@ object WikidataParser {
     fun followedByIds(json: String, qid: String): List<String> = claimEntityIds(json, qid, "P156")
 
     /**
+     * Spec-26 T7 (#181) — the last publication year of one entity (its P577
+     * time value), the series-age signal of the tiered refresh rule. The
+     * Wikidata time is `+YYYY-MM-DDT00:00:00Z` (year precision shows as
+     * `+YYYY-00-00T00:00:00Z`); the calendar year is parsed from the prefix.
+     * Null when the entity has no P577, an unknown value, or a malformed
+     * time.
+     */
+    fun publicationYear(json: String, qid: String): Int? {
+        val obj = MiniJson.parse(json) as? Map<*, *> ?: return null
+        val entity = (obj["entities"] as? Map<*, *>)?.get(qid) as? Map<*, *> ?: return null
+        val claims = entity["claims"] as? Map<*, *> ?: return null
+        val propertyClaims = claims["P577"] as? List<*> ?: return null
+        for (claim in propertyClaims) {
+            val mainsnak = (claim as? Map<*, *>)?.get("mainsnak") as? Map<*, *> ?: continue
+            val value = mainsnak["datavalue"] as? Map<*, *> ?: continue
+            val inner = value["value"] as? Map<*, *> ?: continue
+            val time = inner["time"] as? String ?: continue
+            // "+2021-00-00T00:00:00Z" or "+2021-05-13T00:00:00Z" → 2021.
+            val match = TIME_YEAR.find(time) ?: continue
+            return match.groupValues[1].toIntOrNull()
+        }
+        return null
+    }
+
+    private val TIME_YEAR = Regex("^[+-]?(\\d{4})\\-")
+
+    /**
      * The display label of one entity, preferring [languages] in order (the
      * provider searches uk → ru → en, so the label follows the same order).
      * Null when the entity or every language label is absent.

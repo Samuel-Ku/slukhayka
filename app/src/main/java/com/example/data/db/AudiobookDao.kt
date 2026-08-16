@@ -338,6 +338,20 @@ interface AudiobookDao {
     @Query("SELECT * FROM series_members WHERE workId = :workId")
     suspend fun getSeriesMembersForWork(workId: String): List<SeriesMemberEntity>
 
+    /**
+     * Spec-26 T7 — all book→series memberships (the background refresh pass
+     * enumerates the stale ones over the tier rule and re-resolves them by
+     * priority).
+     */
+    @Query("SELECT * FROM series_members")
+    suspend fun getAllSeriesMembers(): List<SeriesMemberEntity>
+
+    /** The work row by id — the background refresh pass re-resolves a stale
+     *  membership straight from the work (title/author/series) without a
+     *  library book. */
+    @Query("SELECT * FROM works WHERE id = :workId LIMIT 1")
+    suspend fun getWorkById(workId: String): WorkEntity?
+
     /** Every source carrying a Work, for the «Джерела» section (spec-23 T5). */
     @Query("SELECT * FROM work_sources WHERE workId = :workId ORDER BY addedAt ASC")
     fun observeWorkSourcesForWork(workId: String): Flow<List<WorkSourceEntity>>

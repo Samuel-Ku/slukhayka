@@ -100,9 +100,15 @@ class WikidataSeriesProvider(
             universe = UniverseList(
                 id = "wd:${head.qid}",
                 name = universeName,
-                series = chain.map { UniverseSeries(title = it.label ?: it.qid) }
+                // Spec-26 T7: each series carries its P577 publication year
+                // (captured when its entity was fetched for the chain walk) —
+                // the age signal of the tiered refresh rule.
+                series = chain.map { UniverseSeries(title = it.label ?: it.qid, publicationYear = it.publicationYear) }
             ),
-            matchedSeries = UniverseSeries(title = chain[position].label ?: seriesQid),
+            matchedSeries = UniverseSeries(
+                title = chain[position].label ?: seriesQid,
+                publicationYear = chain[position].publicationYear
+            ),
             position = position + 1
         )
     }
@@ -289,6 +295,10 @@ class WikidataSeriesProvider(
         return ChainSeries(
             qid = qid,
             label = WikidataParser.label(json, qid, languages),
+            // Spec-26 T7: the P577 year is captured here (the entity is
+            // already on the wire for the chain walk) and rides the
+            // resolution into the cache.
+            publicationYear = WikidataParser.publicationYear(json, qid),
             follows = WikidataParser.followsIds(json, qid),
             followedBy = WikidataParser.followedByIds(json, qid)
         )
@@ -333,10 +343,12 @@ class WikidataSeriesProvider(
         val TRANSLATION_TARGETS = listOf("ru", "en")
     }
 
-    /** One series of the resolved chain: its id, label and chain neighbors. */
+    /** One series of the resolved chain: its id, label, P577 year and chain
+     *  neighbors (the year feeds the tiered refresh rule, spec-26 T7). */
     private data class ChainSeries(
         val qid: String,
         val label: String?,
+        val publicationYear: Int? = null,
         val follows: List<String>,
         val followedBy: List<String>
     )

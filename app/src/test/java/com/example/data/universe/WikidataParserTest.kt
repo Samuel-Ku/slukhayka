@@ -126,6 +126,50 @@ class WikidataParserTest {
         assertEquals("A Little Hatred", WikidataParser.label(noUk, "Q1", listOf("en")))
     }
 
+    // ---------------------------------------------------------------------
+    // Publication year (spec-26 T7 — the P577 age signal of the tier rule)
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `the P577 publication year extracts the calendar year`() {
+        val yearPrecision = """{"entities":{"Q1":{"claims":{
+          "P577":[{"mainsnak":{"snaktype":"value","datavalue":{"value":{"time":"+2021-00-00T00:00:00Z","precision":9}}}}]
+        }}}}""".trimIndent()
+        assertEquals(2021, WikidataParser.publicationYear(yearPrecision, "Q1"))
+
+        // A day-precision time yields the same calendar year.
+        val dayPrecision = """{"entities":{"Q1":{"claims":{
+          "P577":[{"mainsnak":{"snaktype":"value","datavalue":{"value":{"time":"+2021-05-13T00:00:00Z"}}}}]
+        }}}}""".trimIndent()
+        assertEquals(2021, WikidataParser.publicationYear(dayPrecision, "Q1"))
+
+        // A BCE time parses the year digits.
+        val bce = """{"entities":{"Q1":{"claims":{
+          "P577":[{"mainsnak":{"snaktype":"value","datavalue":{"value":{"time":"-0455-00-00T00:00:00Z"}}}}]
+        }}}}""".trimIndent()
+        assertEquals(455, WikidataParser.publicationYear(bce, "Q1"))
+    }
+
+    @Test
+    fun `a missing or malformed P577 contributes no year`() {
+        val none = """{"entities":{"Q1":{"claims":{}}}}""".trimIndent()
+        assertNull(WikidataParser.publicationYear(none, "Q1"))
+
+        // An unknown value (somevalue — no datavalue) and a malformed time.
+        val someValue = """{"entities":{"Q1":{"claims":{
+          "P577":[{"mainsnak":{"snaktype":"somevalue"}}]
+        }}}}""".trimIndent()
+        assertNull(WikidataParser.publicationYear(someValue, "Q1"))
+        val badTime = """{"entities":{"Q1":{"claims":{
+          "P577":[{"mainsnak":{"snaktype":"value","datavalue":{"value":{"time":"not-a-time"}}}}]
+        }}}}""".trimIndent()
+        assertNull(WikidataParser.publicationYear(badTime, "Q1"))
+
+        // Another entity and malformed json.
+        assertNull(WikidataParser.publicationYear(none, "Q9"))
+        assertNull(WikidataParser.publicationYear("not json", "Q1"))
+    }
+
     @Test
     fun `an entity without labels yields null`() {
         val json = """{"entities":{"Q1":{"labels":{}}}}"""

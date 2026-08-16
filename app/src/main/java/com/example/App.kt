@@ -21,6 +21,7 @@ import com.example.data.source.SluhayuaAdapter
 import com.example.data.source.SoundBooksAdapter
 import com.example.data.source.HttpFetcher
 import com.example.data.source.SourceAdapter
+import com.example.data.universe.FirestoreUniverseStore
 import com.example.data.universe.MlKitTranslator
 import com.example.data.universe.SeriesUniverses
 import com.example.data.universe.UniverseAssets
@@ -154,7 +155,13 @@ class App : Application() {
                 // (free, no key) — a failed translation or model download
                 // degrades silently, never breaks resolve.
                 translator = MlKitTranslator()
-            )
+            ),
+            // Spec-26 T5: the shared Firestore read layer between the Room
+            // cache and Wikidata — a resolution another user wrote back is
+            // read here instead of paying for Wikidata. Null without Firebase
+            // keys (no google-services.json): the app then behaves exactly as
+            // before.
+            sharedStore = FirestoreUniverseStore.create(this)
         )
     }
 

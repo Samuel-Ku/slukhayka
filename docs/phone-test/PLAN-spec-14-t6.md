@@ -186,7 +186,7 @@ Logcat tags to watch: `AudiobookRepo` (import outcome / failures), `MainViewMode
 
 ## Session log — 2026-08-12 (partial, in progress)
 
-Device: OnePlus 8 Pro (IN2023), Android 14, wireless ADB `192.168.13.142:37371`.
+Device: OnePlus 8 Pro (IN2023), Android 14, wireless ADB `<adb-device>:<port>`.
 Build: HEAD `9b79f89` + the encodeUrl fix below.
 
 ### Real bug found (fixed, re-verified on device)

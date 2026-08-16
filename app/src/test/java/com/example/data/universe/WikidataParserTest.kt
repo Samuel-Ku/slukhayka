@@ -31,6 +31,24 @@ class WikidataParserTest {
     }
 
     // ---------------------------------------------------------------------
+    // CirrusSearch hits (spec-26 T2 — the author-narrowed work search)
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `cirrus hits extract the ids from query search`() {
+        val json = """{"query":{"search":[{"title":"Q1"},{"title":"Q2"}]}}"""
+        assertEquals(listOf("Q1", "Q2"), WikidataParser.cirrusHitIds(json))
+    }
+
+    @Test
+    fun `an empty cirrus search and malformed json yield no hits`() {
+        assertEquals(emptyList<String>(), WikidataParser.cirrusHitIds("""{"query":{"search":[]}}"""))
+        assertEquals(emptyList<String>(), WikidataParser.cirrusHitIds("""{"query":{}}"""))
+        assertEquals(emptyList<String>(), WikidataParser.cirrusHitIds("not json"))
+        assertEquals(emptyList<String>(), WikidataParser.cirrusHitIds("""{"query":{"search":"not-a-list"}}"""))
+    }
+
+    // ---------------------------------------------------------------------
     // Claims: P50 (author), P179 (series), P155/P156 (chain)
     // ---------------------------------------------------------------------
 

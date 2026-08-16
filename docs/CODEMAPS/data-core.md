@@ -12,30 +12,30 @@ depends on the DAO and the Work/Edition/Source model.
 ## Key Files
 
 ```
-app/src/main/java/com/example/data/db/AudiobookDatabase.kt   982 lines  (v19, migrations)
-app/src/main/java/com/example/data/db/AudiobookDao.kt        681 lines
-app/src/main/java/com/example/data/db/Entities.kt            585 lines  (19 entities)
-app/src/main/java/com/example/data/db/BookRow.kt              97 lines  (join row models)
-app/src/main/java/com/example/data/db/FailureCategory.kt      75 lines
-app/src/main/java/com/example/data/db/PlaybackEventFilter.kt  35 lines
-app/src/main/java/com/example/data/db/PlaybackEventPolicy.kt  84 lines
+app/src/main/java/com/slukhayka/audiobooks/data/db/AudiobookDatabase.kt   982 lines  (v19, migrations)
+app/src/main/java/com/slukhayka/audiobooks/data/db/AudiobookDao.kt        681 lines
+app/src/main/java/com/slukhayka/audiobooks/data/db/Entities.kt            585 lines  (19 entities)
+app/src/main/java/com/slukhayka/audiobooks/data/db/BookRow.kt              97 lines  (join row models)
+app/src/main/java/com/slukhayka/audiobooks/data/db/FailureCategory.kt      75 lines
+app/src/main/java/com/slukhayka/audiobooks/data/db/PlaybackEventFilter.kt  35 lines
+app/src/main/java/com/slukhayka/audiobooks/data/db/PlaybackEventPolicy.kt  84 lines
 
-app/src/main/java/com/example/data/catalog/SourceCatalog.kt  1055 lines
-app/src/main/java/com/example/data/catalog/CatalogParser.kt   453 lines
+app/src/main/java/com/slukhayka/audiobooks/data/catalog/SourceCatalog.kt  1055 lines
+app/src/main/java/com/slukhayka/audiobooks/data/catalog/CatalogParser.kt   453 lines
 
-app/src/main/java/com/example/data/entries/LibraryEntries.kt 354 lines
-app/src/main/java/com/example/data/listening/ListeningStateStore.kt 204 lines
-app/src/main/java/com/example/data/downloads/OfflineDownloads.kt    241 lines
-app/src/main/java/com/example/data/metadata/MetadataAssertions.kt   231 lines
-app/src/main/java/com/example/data/metadata/StoredTitleScrub.kt      34 lines
-app/src/main/java/com/example/data/merge/MergeKey.kt                 59 lines
-app/src/main/java/com/example/data/duration/DurationEnrichment.kt    79 lines
-app/src/main/java/com/example/data/duration/ChapterDurationProbe.kt 111 lines
-app/src/main/java/com/example/data/duration/DurationBuckets.kt       68 lines
-app/src/main/java/com/example/data/duration/MpegAudioFrame.kt       138 lines
-app/src/main/java/com/example/data/duration/StreamProber.kt         109 lines
-app/src/main/java/com/example/data/EditionId.kt                     36 lines
-app/src/main/java/com/example/data/Hashing.kt                       40 lines
+app/src/main/java/com/slukhayka/audiobooks/data/entries/LibraryEntries.kt 354 lines
+app/src/main/java/com/slukhayka/audiobooks/data/listening/ListeningStateStore.kt 204 lines
+app/src/main/java/com/slukhayka/audiobooks/data/downloads/OfflineDownloads.kt    241 lines
+app/src/main/java/com/slukhayka/audiobooks/data/metadata/MetadataAssertions.kt   231 lines
+app/src/main/java/com/slukhayka/audiobooks/data/metadata/StoredTitleScrub.kt      34 lines
+app/src/main/java/com/slukhayka/audiobooks/data/merge/MergeKey.kt                 59 lines
+app/src/main/java/com/slukhayka/audiobooks/data/duration/DurationEnrichment.kt    79 lines
+app/src/main/java/com/slukhayka/audiobooks/data/duration/ChapterDurationProbe.kt 111 lines
+app/src/main/java/com/slukhayka/audiobooks/data/duration/DurationBuckets.kt       68 lines
+app/src/main/java/com/slukhayka/audiobooks/data/duration/MpegAudioFrame.kt       138 lines
+app/src/main/java/com/slukhayka/audiobooks/data/duration/StreamProber.kt         109 lines
+app/src/main/java/com/slukhayka/audiobooks/data/EditionId.kt                     36 lines
+app/src/main/java/com/slukhayka/audiobooks/data/Hashing.kt                       40 lines
 ```
 
 ## Database Schema (v19, 19 tables)
@@ -117,6 +117,6 @@ local-file dedup) — used across import, entries and downloads.
   the largest data file; migrations must stay append-only (Room schema exports in `app/schemas/`).
 - `audiobooks` is a legacy bridge table — new code should target
   `works`/`editions`/`sources`; the flat entity survives for existing UI reads.
-- Tests: `app/src/test/java/com/example/data/repository/` holds the Room-backed
+- Tests: `app/src/test/java/com/slukhayka/audiobooks/data/repository/` holds the Room-backed
   module tests (DeepModulesRoomTest, SourceFeedsRepositoryTest, …);
   `UniverseMigrationsTest` covers schema migrations.

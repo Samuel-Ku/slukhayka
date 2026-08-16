@@ -12,21 +12,21 @@ typography or any cross-screen component.
 ## Key Files
 
 ```
-app/src/main/java/com/example/ui/theme/Color.kt          78 lines  (palette)
-app/src/main/java/com/example/ui/theme/Type.kt          123 lines  (typography)
-app/src/main/java/com/example/ui/theme/Theme.kt         112 lines  (AudiobookTheme, dark scheme)
-app/src/main/java/com/example/ui/theme/Dimens.kt         39 lines  (spacing/sizes)
+app/src/main/java/com/slukhayka/audiobooks/ui/theme/Color.kt          78 lines  (palette)
+app/src/main/java/com/slukhayka/audiobooks/ui/theme/Type.kt          123 lines  (typography)
+app/src/main/java/com/slukhayka/audiobooks/ui/theme/Theme.kt         112 lines  (AudiobookTheme, dark scheme)
+app/src/main/java/com/slukhayka/audiobooks/ui/theme/Dimens.kt         39 lines  (spacing/sizes)
 
-app/src/main/java/com/example/ui/components/MiniPlayerBar.kt        166 lines
-app/src/main/java/com/example/ui/components/DesignSystem.kt         161 lines  (shared surfaces/cards)
-app/src/main/java/com/example/ui/components/BookCoverImage.kt       139 lines  (Coil)
-app/src/main/java/com/example/ui/components/BookmarkDialog.kt       120 lines
-app/src/main/java/com/example/ui/components/SleepTimerSheet.kt      121 lines
-app/src/main/java/com/example/ui/components/SpeedSheet.kt           139 lines
-app/src/main/java/com/example/ui/components/PlayerDebugOverlay.kt   371 lines
+app/src/main/java/com/slukhayka/audiobooks/ui/components/MiniPlayerBar.kt        166 lines
+app/src/main/java/com/slukhayka/audiobooks/ui/components/DesignSystem.kt         161 lines  (shared surfaces/cards)
+app/src/main/java/com/slukhayka/audiobooks/ui/components/BookCoverImage.kt       139 lines  (Coil)
+app/src/main/java/com/slukhayka/audiobooks/ui/components/BookmarkDialog.kt       120 lines
+app/src/main/java/com/slukhayka/audiobooks/ui/components/SleepTimerSheet.kt      121 lines
+app/src/main/java/com/slukhayka/audiobooks/ui/components/SpeedSheet.kt           139 lines
+app/src/main/java/com/slukhayka/audiobooks/ui/components/PlayerDebugOverlay.kt   371 lines
 
-app/src/main/java/com/example/ui/BookDisplay.kt          40 lines  (displayAuthor extension)
-app/src/main/java/com/example/ui/DurationBooks.kt        32 lines  (short/long bucket DTO)
+app/src/main/java/com/slukhayka/audiobooks/ui/BookDisplay.kt          40 lines  (displayAuthor extension)
+app/src/main/java/com/slukhayka/audiobooks/ui/DurationBooks.kt        32 lines  (short/long bucket DTO)
 ```
 
 ## What Lives Here
@@ -72,5 +72,5 @@ app/src/main/java/com/example/ui/DurationBooks.kt        32 lines  (short/long b
 - `PlayerDebugOverlay` is ~371 lines of debug-only UI — keep it behind
   `BuildConfig.DEBUG`; it is the largest single component.
 - Snapshot tests pin the design system in
-  `app/src/test/java/com/example/ui/snapshots/` (DesignSystemSnapshotTest,
+  `app/src/test/java/com/slukhayka/audiobooks/ui/snapshots/` (DesignSystemSnapshotTest,
   LibraryComponentsSnapshotTest, …) — run them after theme changes.

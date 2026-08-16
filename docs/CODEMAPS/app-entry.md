@@ -12,10 +12,10 @@ module is the wiring layer you touch when adding a new dependency edge.
 ## Key Files
 
 ```
-app/src/main/java/com/example/App.kt                  261 lines  (composition root)
-app/src/main/java/com/example/MainActivity.kt         370 lines  (nav shell + AppBottomBar)
-app/src/main/java/com/example/ui/MainViewModel.kt    1386 lines  (state + commands)
-app/src/main/java/com/example/ui/BrowserGating.kt      30 lines  (debug-only WebView gating)
+app/src/main/java/com/slukhayka/audiobooks/App.kt                  261 lines  (composition root)
+app/src/main/java/com/slukhayka/audiobooks/MainActivity.kt         370 lines  (nav shell + AppBottomBar)
+app/src/main/java/com/slukhayka/audiobooks/ui/MainViewModel.kt    1386 lines  (state + commands)
+app/src/main/java/com/slukhayka/audiobooks/ui/BrowserGating.kt      30 lines  (debug-only WebView gating)
 ```
 
 ## Architecture
@@ -107,5 +107,5 @@ sources (sluhay) get an in-app surface in **debug builds only** (spec-15 T2).
   refactor candidate, but ADR-0008 already moved module reads into the screens.
 - WebView browser surface is reachable only in debug builds; release routes the
   same action to the system browser in the ViewModel.
-- App id (`com.aistudio.audiobook.read`) and namespace (`com.example`) differ —
-  leftover from project scaffolding; renaming is a coordinated build change.
+- Application id and namespace: `com.slukhayka.audiobooks` (renamed from the
+  AI Studio scaffolding identity on 2026-08-16).

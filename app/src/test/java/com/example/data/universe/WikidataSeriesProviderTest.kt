@@ -1,5 +1,6 @@
 package com.example.data.universe
 
+import com.example.data.source.FetchResult
 import java.net.URLEncoder
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -54,11 +55,16 @@ class WikidataSeriesProviderTest {
         )
     }
 
+    /** A canned transport: known URLs answer 200 with the fixture body, an
+     *  unknown URL is a transport failure (status 0, empty body). */
     private fun provider(
         responses: Map<String, String>,
         translator: TitleTranslator? = null
     ): WikidataSeriesProvider = WikidataSeriesProvider(
-        fetchJson = { url -> responses[url] ?: "" },
+        fetchJson = { url ->
+            val body = responses[url]
+            if (body != null) FetchResult(200, body) else FetchResult(0, "")
+        },
         translator = translator
     )
 
@@ -142,7 +148,7 @@ class WikidataSeriesProviderTest {
     @Test
     fun `the search query carries the title and the author tokens`() = runBlocking {
         val seen = mutableListOf<String>()
-        val provider = WikidataSeriesProvider(fetchJson = { url -> seen += url; "" })
+        val provider = WikidataSeriesProvider(fetchJson = { url -> seen += url; FetchResult(200, "") })
 
         provider.resolve("A Little Hatred", "Блейк Крауч")
 
@@ -199,6 +205,94 @@ class WikidataSeriesProviderTest {
         val resolution = provider(responses).resolve("A Little Hatred", "Raúl")!!
 
         assertEquals("Епоха божевілля", resolution.matchedSeries.title)
+    }
+
+    // ---------------------------------------------------------------------
+    // Retry on 429 (spec-26 T3)
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `a rate-limited request retries and succeeds after the limit`() = runBlocking {
+        // The search endpoint answers 429 twice, then the real fixture — the
+        // provider must back off and retry instead of giving up silently.
+        val searchRequest = searchUrl("uk", "A Little Hatred Блейк Крауч")
+        val responses = fixtureResponses()
+        var searchCalls = 0
+        val provider = WikidataSeriesProvider(
+            fetchJson = { url ->
+                if (url == searchRequest) {
+                    searchCalls++
+                    if (searchCalls <= 2) FetchResult(429, "rate limited")
+                    else FetchResult(200, responses[url] ?: "")
+                } else {
+                    FetchResult(200, responses[url] ?: "")
+                }
+            },
+            sleep = {}
+        )
+
+        val resolution = provider.resolve("A Little Hatred", "Блейк Крауч")!!
+
+        assertEquals(3, searchCalls)
+        assertEquals("Перший закон", resolution.universe.name)
+    }
+
+    @Test
+    fun `rate limiting exhausts the attempt budget and resolves to nothing`() = runBlocking {
+        // Only the uk search is rate-limited (429); the other languages fail
+        // with 500 — the count of uk attempts proves the retry budget, the
+        // 500s prove non-429 paths are never retried.
+        val ukSearch = searchUrl("uk", "A Little Hatred Блейк Крауч")
+        var ukCalls = 0
+        val provider = WikidataSeriesProvider(
+            fetchJson = { url ->
+                if (url == ukSearch) {
+                    ukCalls++
+                    FetchResult(429, "")
+                } else {
+                    FetchResult(500, "")
+                }
+            },
+            maxAttempts = 4,
+            sleep = {}
+        )
+
+        assertNull(provider.resolve("A Little Hatred", "Блейк Крауч"))
+        assertEquals(4, ukCalls)
+    }
+
+    @Test
+    fun `a non-429 failure is not retried`() = runBlocking {
+        val ukSearch = searchUrl("uk", "A Little Hatred Блейк Крауч")
+        var ukCalls = 0
+        val provider = WikidataSeriesProvider(
+            fetchJson = { url -> if (url == ukSearch) ukCalls++; FetchResult(500, "") },
+            sleep = {}
+        )
+
+        assertNull(provider.resolve("A Little Hatred", "Блейк Крауч"))
+        assertEquals("a 500 is final — exactly one attempt", 1, ukCalls)
+    }
+
+    @Test
+    fun `retries back off exponentially`() = runBlocking {
+        // The jitter is ±25% of the base, so with base 100 the delays are
+        // strictly increasing: ~75-125, ~150-250, ~300-500.
+        val ukSearch = searchUrl("uk", "A Little Hatred Блейк Крауч")
+        val sleeps = mutableListOf<Long>()
+        val provider = WikidataSeriesProvider(
+            fetchJson = { url ->
+                if (url == ukSearch) FetchResult(429, "") else FetchResult(500, "")
+            },
+            retryBaseMillis = 100,
+            maxAttempts = 4,
+            sleep = { sleeps += it }
+        )
+
+        provider.resolve("A Little Hatred", "Блейк Крауч")
+
+        assertEquals(3, sleeps.size)
+        assertTrue("delays must grow", sleeps[1] > sleeps[0] && sleeps[2] > sleeps[1])
     }
 
     // ---------------------------------------------------------------------

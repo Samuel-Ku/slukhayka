@@ -6,7 +6,9 @@ import com.example.data.collections.CollectionAssets
 import com.example.data.collections.OpenLibraryTrendingSource
 import com.example.data.db.AudiobookDatabase
 import com.example.data.downloads.OfflineDownloads
+import com.example.data.duration.ChapterDurationProbe
 import com.example.data.duration.DurationEnrichment
+import com.example.data.duration.HttpStreamProber
 import com.example.data.entries.LibraryEntries
 import com.example.data.imports.LibraryImport
 import com.example.data.listening.ListeningStateStore
@@ -111,6 +113,20 @@ class App : Application() {
     val durationEnrichment: DurationEnrichment by lazy {
         val fourRead = sourceAdapters.first { it.sourceId == "4read" }
         DurationEnrichment(database.audiobookDao(), fourRead::fetchBookPage)
+    }
+
+    /**
+     * spec-24 T8 (#169): the throttled background chapter-duration probing
+     * pass. The chapter→track pairing rides the catalog seam
+     * (getPlayableChapters — the player's own pairing); the transport is the
+     * only network code (HEAD + ranged GET of the stream head).
+     */
+    val chapterDurationProbe: ChapterDurationProbe by lazy {
+        ChapterDurationProbe(
+            database.audiobookDao(),
+            sourceCatalog::getPlayableChapters,
+            HttpStreamProber()
+        )
     }
 
     /**

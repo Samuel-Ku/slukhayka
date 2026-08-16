@@ -78,4 +78,33 @@ class MergeKeyTest {
         val k2 = MergeKey.keyFor("Kobzar", "Shevchenko")
         assertNotEquals(k1, k2)
     }
+
+    @Test
+    fun `spec27 - a raw page title with a dash brand suffix merges with the clean title`() {
+        // Spec-27 (#184) BUG-002: «Трохи ненависті - АудіоКниги Українською»
+        // is the raw <title> of the 4read page; the clean title is the Work's
+        // real name. They must produce the SAME key so the raw-titled import
+        // merges into the existing card instead of spawning a second one.
+        val raw = MergeKey.keyFor("Трохи ненависті - АудіоКниги Українською", "Джо Аберкромбі")
+        val clean = MergeKey.keyFor("Трохи ненависті", "Джо Аберкромбі")
+        assertEquals(raw, clean)
+        assertEquals("трохи ненависті|джо аберкромбі", clean)
+    }
+
+    @Test
+    fun `spec27 - the SEO scrub runs before the key - a raw feed title merges with the clean one`() {
+        // The curated SEO suffix (a different source's marketing phrase) is
+        // scrubbed before the key is computed, so a feed row and a clean row
+        // of the same book share a Work.
+        val raw = MergeKey.keyFor("Пасажир - аудіокнига слухати онлайн", "Жан-Крістоф Гранже")
+        val clean = MergeKey.keyFor("Пасажир", "Жан-Крістоф Гранже")
+        assertEquals(raw, clean)
+    }
+
+    @Test
+    fun `spec27 - the dash suffix cut never blanks a title key`() {
+        // A title that is entirely the suffix keeps a usable (if imperfect)
+        // key — the normalization never degrades a title into blank.
+        assertTrue(MergeKey.keyFor("АудіоКниги Українською", "Джо Аберкромбі").isNotBlank())
+    }
 }

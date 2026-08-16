@@ -449,6 +449,18 @@ interface AudiobookDao {
     @Query("DELETE FROM audiobooks WHERE id = :bookId")
     suspend fun deleteAudiobook(bookId: String)
 
+    // --- Spec-27 (#184) BUG-002: the one-time duplicate-Work merge ---------
+    // The DuplicateWorkMerger collapses library rows that share a hardened
+    // Work identity; these two deletes finish the loser row after its
+    // progress/bookmarks/sources/entries have been re-pointed. Deleting the
+    // works row also cascades its original work_sources rows (FK CASCADE).
+
+    @Query("DELETE FROM works WHERE id = :workId")
+    suspend fun deleteWork(workId: String)
+
+    @Query("DELETE FROM editions WHERE workId = :workId")
+    suspend fun deleteEditionsForWork(workId: String)
+
     // Playback Progress (ADR-0007: keyed by Edition; the bookId variants are
     // book-scoped conveniences over the kept expand column).
     @Query("SELECT * FROM playback_progress WHERE bookId = :bookId ORDER BY lastListenedAt DESC LIMIT 1")

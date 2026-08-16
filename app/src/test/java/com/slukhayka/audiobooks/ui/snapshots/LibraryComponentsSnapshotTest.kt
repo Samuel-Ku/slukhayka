@@ -13,6 +13,7 @@ import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.testing.TestDataFactory
 import com.slukhayka.audiobooks.ui.library.buildLibraryBooks
 import com.slukhayka.audiobooks.ui.library.LibraryBook
+import com.slukhayka.audiobooks.ui.screens.ClearCacheConfirmDialog
 import com.slukhayka.audiobooks.ui.screens.LibraryBookCard
 import com.slukhayka.audiobooks.ui.screens.ListeningStatsCard
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
@@ -135,6 +136,27 @@ class LibraryComponentsSnapshotTest {
         }
         composeTestRule.onRoot().captureRoboImage(
             filePath = "src/test/snapshots/library_stats_card_populated.png"
+        )
+    }
+
+    // Spec-27 (#184) BUG-001: the destructive-action confirm quotes the exact
+    // scope (book count + bytes) and a destructive-colored confirm — deleting
+    // every offline file is only ever one explicit step away, never a direct
+    // tap on a neutral-looking button.
+    @Test
+    fun clear_cache_confirm_dialog() {
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                ClearCacheConfirmDialog(
+                    bookCount = 12,
+                    bytes = 2_469_396_397L,
+                    onConfirm = {},
+                    onDismiss = {}
+                )
+            }
+        }
+        composeTestRule.onRoot().captureRoboImage(
+            filePath = "src/test/snapshots/library_clear_cache_dialog.png"
         )
     }
 }

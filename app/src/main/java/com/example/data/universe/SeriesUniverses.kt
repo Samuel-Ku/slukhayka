@@ -18,11 +18,12 @@ import kotlinx.coroutines.withContext
  * Two providers behind one seam: the curated [UniverseList] assets first
  * (local, offline, alias-aware), then the [SeriesUniverseProvider] fallback
  * (Wikidata, T2) for unseeded series — best-effort and gated on the cache: a
- * work that already carries a series membership is resolved (one resolution
- * per book, never a duplicate). A book/series neither provider knows, or a
- * failing provider, contributes NOTHING (no row, no error surfaced). The
- * persistence is idempotent REPLACE upserts, so re-resolution is a no-op by
- * construction.
+ * work whose membership is fresh is resolved (one resolution per book; the
+ * membership carries a [com.example.data.db.SeriesMemberEntity.resolvedAt]
+ * stamp so stale rows re-resolve after the TTL instead of persisting
+ * forever). A book/series neither provider knows, or a failing provider,
+ * contributes NOTHING (no row, no error surfaced). The persistence is
+ * idempotent REPLACE upserts, so a re-resolution overwrites the same rows.
  *
  * Resolution is triggered on book-page open / series-page open, background,
  * best-effort.
@@ -30,7 +31,14 @@ import kotlinx.coroutines.withContext
 class SeriesUniverses(
     private val dao: AudiobookDao,
     private val curated: List<UniverseList>,
-    private val wikidata: SeriesUniverseProvider? = null
+    private val wikidata: SeriesUniverseProvider? = null,
+    // Spec-25: a cached Wikidata resolution is re-resolved once it is older
+    // than the TTL, so the universe view eventually tracks Wikidata changes
+    // instead of persisting forever. Curated resolutions are exempt by
+    // construction — the asset is local and re-persists on every book open.
+    private val ttlMillis: Long = DEFAULT_TTL_MILLIS,
+    // Injectable clock so the TTL gate is testable.
+    private val now: () -> Long = System::currentTimeMillis
 ) {
 
     /** Resolves one library book's series → universe and caches the result. */
@@ -45,10 +53,13 @@ class SeriesUniverses(
             return@withContext
         }
         // Wikidata fallback for unseeded series — best-effort and silent, and
-        // gated on the cache: a work that already carries a series membership
-        // is resolved (one resolution per book).
+        // gated on the cache: a work whose membership is fresh (resolved
+        // within the TTL) is resolved; stale or missing memberships re-resolve,
+        // so the universe view eventually refreshes. A failing re-resolution
+        // leaves the stale row in place — the next book open retries.
         val provider = wikidata ?: return@withContext
-        if (dao.getSeriesMembersForWork(workId).isNotEmpty()) return@withContext
+        val cutoff = now() - ttlMillis
+        if (dao.getSeriesMembersForWork(workId).any { (it.resolvedAt ?: 0L) > cutoff }) return@withContext
         val resolution = provider.resolve(book.title, book.author) ?: return@withContext
         persist(resolution, workId, book.seriesIndex)
     }
@@ -155,13 +166,15 @@ class SeriesUniverses(
                 )
             }
             // Book → series membership with the source's volume index; the
-            // series-page resolution has no book, so nothing to link.
+            // series-page resolution has no book, so nothing to link. The
+            // resolvedAt stamp drives the TTL gate on the Wikidata fallback.
             if (workId != null && volumeIndex != null && volumeIndex > 0) {
                 dao.upsertSeriesMember(
                     com.example.data.db.SeriesMemberEntity(
                         workId = workId,
                         seriesId = seriesId(resolution.universe.id, resolution.position),
-                        position = volumeIndex
+                        position = volumeIndex,
+                        resolvedAt = now()
                     )
                 )
             }
@@ -174,6 +187,9 @@ class SeriesUniverses(
 
     private fun seriesId(universeId: String, position: Int): String = "$universeId:$position"
 }
+
+/** Default TTL of a cached Wikidata universe resolution: 30 days. */
+private const val DEFAULT_TTL_MILLIS: Long = 30L * 24 * 60 * 60 * 1000
 
 /** A tappable neighbor series of the universe («Передує» / «Продовжує»). */
 data class SeriesRef(

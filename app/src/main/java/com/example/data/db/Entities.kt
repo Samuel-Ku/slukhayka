@@ -393,7 +393,13 @@ data class SeriesMemberEntity(
     val workId: String,
     val seriesId: String,
     // Authoritative ordering; edited via a FIELD correction (synced).
-    val position: Int
+    val position: Int,
+    // Spec-25: the epoch-millis time THIS book→series membership was resolved
+    // (written by the lazy universe resolution). The Wikidata fallback
+    // re-resolves once the cached membership is older than its TTL; null
+    // (pre-TTL rows) counts as stale. Curated memberships re-persist on every
+    // book open, so they stay fresh by construction.
+    val resolvedAt: Long? = null
 )
 
 /**

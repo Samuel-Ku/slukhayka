@@ -2947,4 +2947,48 @@ class DeepModulesRoomTest {
         }
         db.close()
     }
+
+    // ---------------------------------------------------------------------
+    // Spec-25: v17 -> v18 gives the universe cache a bounded TTL —
+    // `series_members.resolvedAt` (the epoch-millis stamp of a book's
+    // resolution). Pure addition: pre-existing memberships get a NULL stamp,
+    // which the resolver treats as stale (one refresh on the next open).
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `migration 17 to 18 adds the resolvedAt stamp to series_members`() {
+        val factory = FrameworkSQLiteOpenHelperFactory()
+        val config = SupportSQLiteOpenHelper.Configuration.builder(context)
+            .name("migration-17-test.db")
+            .callback(object : SupportSQLiteOpenHelper.Callback(17) {
+                override fun onCreate(db: SupportSQLiteDatabase) {
+                    // Minimal v17 schema: series_members without the stamp.
+                    db.execSQL(
+                        "CREATE TABLE series_members (workId TEXT NOT NULL, seriesId TEXT NOT NULL, " +
+                            "position INTEGER NOT NULL, PRIMARY KEY(workId, seriesId))"
+                    )
+                    db.execSQL(
+                        "INSERT INTO series_members (workId, seriesId, position) VALUES ('w1', 's1', 1)"
+                    )
+                }
+
+                override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) {}
+            })
+            .build()
+        val helper = factory.create(config)
+        val db = helper.writableDatabase
+
+        AudiobookDatabase.MIGRATION_17_18.migrate(db)
+
+        // The stamp column exists and the pre-existing row survived with a
+        // NULL stamp (unknown → stale → refreshed on the next book open).
+        assertTrue("resolvedAt column must exist", tableColumns(db, "series_members").contains("resolvedAt"))
+        db.query("SELECT seriesId, position, resolvedAt FROM series_members WHERE workId = 'w1'").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("s1", cursor.getString(0))
+            assertEquals(1, cursor.getInt(1))
+            assertTrue(cursor.isNull(2))
+        }
+        db.close()
+    }
 }

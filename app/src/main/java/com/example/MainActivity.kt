@@ -240,6 +240,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                         )
                         SelectedTab.EXPLORE ->                        HomeScreen(
                             durationEnrichment = viewModel.durationEnrichment,
+                            chapterDurationProbe = viewModel.chapterDurationProbe,
                             viewModel = viewModel,
                             // ADR-0008 batches 2 + contract (#156, #160): the
                             // modules come in as parameters from the
@@ -269,6 +270,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                         )
                         else ->                        HomeScreen(
                             durationEnrichment = viewModel.durationEnrichment,
+                            chapterDurationProbe = viewModel.chapterDurationProbe,
                             viewModel = viewModel,
                             // ADR-0008 batches 2 + contract (#156, #160): the
                             // modules come in as parameters from the

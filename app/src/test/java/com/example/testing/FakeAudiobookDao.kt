@@ -274,6 +274,11 @@ class FakeAudiobookDao(
     override fun getAllChapters(): Flow<List<ChapterEntity>> =
         chaptersState.map { chapters -> chapters.sortedWith(compareBy({ it.bookId }, { it.chapterIndex })) }
 
+    // Spec-24 T8 (#169): the chapter-duration probe's candidate pool — every
+    // book with at least one unknown-duration chapter (0 is the placeholder).
+    override suspend fun getBookIdsWithUnknownChapterDurations(): List<String> =
+        chaptersState.value.filter { it.durationSeconds <= 0L }.map { it.bookId }.distinct()
+
     override suspend fun insertChapters(chapters: List<ChapterEntity>) {
         val incomingIds = chapters.map { it.id }.toSet()
         chaptersState.update { current -> current.filterNot { it.id in incomingIds } + chapters }

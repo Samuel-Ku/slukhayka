@@ -164,6 +164,15 @@ interface AudiobookDao {
     @Query("SELECT * FROM chapters")
     fun getAllChapters(): Flow<List<ChapterEntity>>
 
+    /**
+     * Spec-24 T8 (#169) — the candidate pool of the chapter-duration probe:
+     * every book with at least one unknown-duration chapter (0 is the
+     * unknown placeholder written at import). The pass filters the stream
+     * gate (non-blank sourceUrl) on top.
+     */
+    @Query("SELECT DISTINCT bookId FROM chapters WHERE durationSeconds <= 0")
+    suspend fun getBookIdsWithUnknownChapterDurations(): List<String>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertChapters(chapters: List<ChapterEntity>)
 

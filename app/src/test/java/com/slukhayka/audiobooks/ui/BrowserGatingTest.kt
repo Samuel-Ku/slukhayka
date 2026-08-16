@@ -1,8 +1,5 @@
 package com.slukhayka.audiobooks.ui
 
-import com.slukhayka.audiobooks.data.catalog.SourceCatalog.SourceNewFeed
-import com.slukhayka.audiobooks.data.source.SourceBook
-import com.slukhayka.audiobooks.ui.screens.visibleSourceFeeds
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -13,9 +10,7 @@ import org.junit.Test
  * - the 4read legacy browser is removed from the UI entirely — its "open on
  *   site" action is ALWAYS the system browser, debug included;
  * - a WebView-source surface (sluhay first) is an in-app destination only in
- *   debug builds; release builds open the system browser;
- * - a session-bound feed row (its stale-session CTA needs the in-app browser
- *   to refresh the challenge) is hidden when no browser surface exists.
+ *   debug builds; release builds open the system browser.
  */
 class BrowserGatingTest {
 
@@ -43,31 +38,5 @@ class BrowserGatingTest {
         // A debug build of a source WITHOUT a browser surface (server-fetch
         // sources) must still not invent one.
         assertEquals(BrowserDestination.SYSTEM_BROWSER, browserDestinationFor(isDebug = true, sourceId = "soundbooks"))
-    }
-
-    private fun feed(sourceId: String, sessionBound: Boolean) = SourceNewFeed(
-        sourceId = sourceId,
-        sourceName = sourceId,
-        books = listOf(
-            SourceBook(title = "Книга", author = "Автор", url = "https://$sourceId.example/1", sourceId = sourceId)
-        ),
-        sessionBound = sessionBound
-    )
-
-    @Test
-    fun `session-bound feed rows are hidden when no browser surface exists`() {
-        val feeds = listOf(feed("sluhay", sessionBound = true), feed("soundbooks", sessionBound = false))
-
-        // Debug build (browser surface present): both rows show.
-        assertEquals(listOf("sluhay", "soundbooks"), visibleSourceFeeds(feeds, hasBrowserSurface = true).map { it.sourceId })
-        // Release build (no in-app browser): the session-bound row is hidden —
-        // its stale-session CTA would be a dead end — the server-fetch row stays.
-        assertEquals(listOf("soundbooks"), visibleSourceFeeds(feeds, hasBrowserSurface = false).map { it.sourceId })
-    }
-
-    @Test
-    fun `server-fetch feeds are never hidden by the browser gate`() {
-        val feeds = listOf(feed("soundbooks", sessionBound = false), feed("lihtar", sessionBound = false))
-        assertEquals(2, visibleSourceFeeds(feeds, hasBrowserSurface = false).size)
     }
 }

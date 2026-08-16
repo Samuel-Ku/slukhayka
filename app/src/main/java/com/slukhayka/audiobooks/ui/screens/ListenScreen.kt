@@ -10,7 +10,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -23,12 +22,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.slukhayka.audiobooks.data.catalog.SourceCatalog
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.PlaybackProgressEntity
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
 import com.slukhayka.audiobooks.ui.MainViewModel
-import com.slukhayka.audiobooks.ui.components.AppSectionHeader
 import com.slukhayka.audiobooks.ui.components.CompactBookCard
 import com.slukhayka.audiobooks.ui.components.EmptyState
 import com.slukhayka.audiobooks.ui.displayAuthor
@@ -54,35 +51,23 @@ fun ListenScreen(
     // ADR-0008 batch 3 (#158): the screen receives the modules it reads from
     // as parameters, wired from the composition root — the injection idiom
     // settled by #154. Listen composition (blocks, prefs, hidden) and the
-    // next-in-series orchestration stay on the ViewModel.
+    // next-in-series orchestration stay on the ViewModel. spec-28 (#192):
+    // discovery left the tab — only personal content (hero + 8 shelves).
     libraryEntries: LibraryEntries,
-    sourceCatalog: SourceCatalog,
     onBookClick: (String) -> Unit,
     onPlayClick: (AudiobookEntity) -> Unit,
     onBrowseClick: () -> Unit,
-    onImportClick: () -> Unit,
-    onOpenWebSource: (() -> Unit)? = null
+    onImportClick: () -> Unit
 ) {
     // ADR-0008: module flows are read directly — no forwarding StateFlow on
     // the ViewModel. Cold flows need an initial value; the catalogue StateFlows
     // carry their own.
     val allBooks by libraryEntries.allBooks.collectAsState(initial = emptyList())
-    val sections by sourceCatalog.catalogSections.collectAsState()
     // Wayfinder #62: the rule-based block list — every block carries its
     // eligibility and a reason line; hidden blocks stay computed but are
     // unrendered here.
     val listenBlocks by viewModel.listenBlocks.collectAsState()
     val hiddenBlocks by viewModel.hiddenListenBlocks.collectAsState()
-    // Spec-10 T5: per-source «Нове з кожного джерела» rows.
-    val sourceFeeds by sourceCatalog.sourceFeeds.collectAsState()
-    val isFeedsLoading by sourceCatalog.isFeedsLoading.collectAsState()
-
-    // Load the per-source feeds once the Listen surface composes; the
-    // repository's TTL cache makes re-compositions free, and a failing source
-    // hides only its own row.
-    LaunchedEffect(Unit) {
-        sourceCatalog.refreshSourceFeeds()
-    }
 
     // Refresh the "continue the series" suggestion whenever the hero book
     // changes (keyed on its id so position updates don't refetch).
@@ -188,115 +173,9 @@ fun ListenScreen(
             }
         }
 
-        // Нове на 4read: at most two rows (spec-9 — a couple, not ten).
-        val newSections = sections.filter { it.books.isNotEmpty() }.take(2)
-        newSections.forEach { section ->
-            item { AppSectionHeader(title = section.title) }
-            item {
-                LazyRow(
-                    contentPadding = PaddingValues(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    items(section.books, key = { it.id }) { book ->
-                        CatalogBookCard(book = book, onClick = { onBookClick(book.id) })
-                    }
-                }
-            }
-        }
-
-        // Spec-10 T5: «Нове з кожного джерела» — one row per verified source
-        // (4read is excluded: its «Нове на 4read» rows above already carry its
-        // new arrivals). A source that fails to load contributes no row.
-        //
-        // Spec-15 T2: a session-bound source (WebView pattern) is hidden when
-        // there is no browser surface to refresh it (release builds) — its
-        // stale-session CTA would be a dead end without the in-app browser.
-        val visibleFeeds = visibleSourceFeeds(sourceFeeds, hasBrowserSurface = onOpenWebSource != null)
-        if (visibleFeeds.isNotEmpty()) {
-            visibleFeeds.forEach { feed ->
-                item {
-                    SourceFeedRow(
-                        feed = feed,
-                        onBookClick = { book -> viewModel.playFromSource(feed.sourceId, book.url) },
-                        // Spec-13 T4: a stale-session feed row (e.g. «Нове з
-                        // Sluhay» without a live challenge) renders a CTA that
-                        // opens the source's browser surface.
-                        onOpenWebSource = onOpenWebSource
-                    )
-                }
-            }
-        } else if (isFeedsLoading) {
-            item {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 16.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                }
-            }
-        }
-
-        // Spec-13 T3: the WebView-source browser entry point — a compact
-        // "more books on Sluhay →" row (per #73 decisions, NOT a tab). Shown
-        // only when the host surface provided the callback.
-        if (onOpenWebSource != null) {
-            item {
-                OpenWebSourceRow(
-                    displayName = "Sluhay",
-                    onClick = onOpenWebSource
-                )
-            }
-        }
-    }
-}
-
-/**
- * Spec-13 T3 — compact «більше книг на Sluhay →» entry row to the source's
- * browser surface. One line, not a storefront: the WebView is a secondary
- * discovery surface, not a tab (#73).
- */
-@Composable
-fun OpenWebSourceRow(
-    displayName: String,
-    onClick: () -> Unit
-) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 5.dp)
-            .clip(RoundedCornerShape(AppDimens.RadiusCardLg))
-            .clickable { onClick() }
-            .testTag("open_web_source_sluhay"),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                imageVector = Icons.Default.Language,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(20.dp)
-            )
-            Spacer(modifier = Modifier.width(10.dp))
-            Text(
-                text = "Більше книг на $displayName",
-                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.weight(1f)
-            )
-            Icon(
-                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
+        // spec-28 (#192): discovery left the tab — the cross-source
+        // «Новинки» rail and the «Більше книг на Sluhay» CTA now live on
+        // Огляд, and the 4read sections render there only.
     }
 }
 

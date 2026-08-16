@@ -239,32 +239,17 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                         SelectedTab.LISTEN -> ListenScreen(
                             viewModel = viewModel,
                             // ADR-0008 batch 3 (#158): the modules come in as
-                            // parameters from the composition root.
+                            // parameters from the composition root. spec-28
+                            // (#192): discovery left the tab, so only the
+                            // library module is read here.
                             libraryEntries = viewModel.libraryEntries,
-                            sourceCatalog = viewModel.sourceCatalog,
                             onBookClick = { id -> viewModel.selectBook(id) },
                             onPlayClick = { book ->
                                 viewModel.playAudiobook(book)
                                 viewModel.setShowFullPlayer(true)
                             },
                             onBrowseClick = { viewModel.selectTab(SelectedTab.EXPLORE) },
-                            onImportClick = { viewModel.selectTab(SelectedTab.LIBRARY) },
-                            // Spec-13 T3 + spec-15 T2: the WebView-source
-                            // browser entry point (sluhay.com first;
-                            // sluhayknigi joins later) renders only in debug
-                            // builds — in release the same row would open an
-                            // in-app browser that cannot exist.
-                            onOpenWebSource = if (BuildConfig.DEBUG) {
-                                {
-                                    viewModel.openWebSource(
-                                        sourceId = "sluhay",
-                                        homeUrl = "https://sluhay.com/",
-                                        displayName = "Sluhay"
-                                    )
-                                }
-                            } else {
-                                null
-                            }
+                            onImportClick = { viewModel.selectTab(SelectedTab.LIBRARY) }
                         )
                         SelectedTab.EXPLORE ->                        HomeScreen(
                             durationEnrichment = viewModel.durationEnrichment,
@@ -279,6 +264,22 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                             onPlayClick = { book ->
                                 viewModel.playAudiobook(book)
                                 viewModel.setShowFullPlayer(true)
+                            },
+                            // Spec-13 T3 + spec-15 T2: the «Більше книг на
+                            // Sluhay» exit CTA (spec-28 #192, moved from
+                            // Listen) renders only in debug builds — in
+                            // release the same row would open an in-app
+                            // browser that cannot exist.
+                            onOpenWebSource = if (BuildConfig.DEBUG) {
+                                {
+                                    viewModel.openWebSource(
+                                        sourceId = "sluhay",
+                                        homeUrl = "https://sluhay.com/",
+                                        displayName = "Sluhay"
+                                    )
+                                }
+                            } else {
+                                null
                             }
                         )
                         SelectedTab.LIBRARY -> LibraryScreen(

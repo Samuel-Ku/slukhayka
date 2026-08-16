@@ -225,6 +225,16 @@ class SourceCatalog(
     private val _sourceFeeds = MutableStateFlow<List<SourceNewFeed>>(emptyList())
     val sourceFeeds: StateFlow<List<SourceNewFeed>> = _sourceFeeds.asStateFlow()
 
+    // spec-28 (#192): the cross-source «Новинки» rail — 4read's «Новинки»
+    // section (the same homepage posters) plus every other source's new feed,
+    // merged into ONE rail by Work with a source badge per card. Replaces
+    // both the «Нове на 4read» rows and the per-source «Нове з кожного
+    // джерела» rows; published on the SAME triggers as its inputs
+    // ([refreshSourceFeeds] and [fetchCatalogSections]), so the rail always
+    // reflects the freshest of the two.
+    private val _newArrivals = MutableStateFlow<List<GlobalSearchResult>>(emptyList())
+    val newArrivals: StateFlow<List<GlobalSearchResult>> = _newArrivals.asStateFlow()
+
     private val _isFeedsLoading = MutableStateFlow(false)
     val isFeedsLoading: StateFlow<Boolean> = _isFeedsLoading.asStateFlow()
 
@@ -253,11 +263,39 @@ class SourceCatalog(
                 }
             }
             _sourceFeeds.value = feeds
+            publishNewArrivals()
             feeds
         } finally {
             _isFeedsLoading.value = false
         }
     }
+
+    /**
+     * spec-28 (#192) — recomputes the cross-source «Новинки» rail from the
+     * current inputs: 4read's «Новинки» section books (already tombstone-
+     * filtered by the upsert pass) plus every other source's new-feed books,
+     * merged by Work via [mergeGlobalSearchResults] — one card per Work with
+     * a badge per source. Called at the end of both [refreshSourceFeeds] and
+     * [fetchCatalogSections] so the rail tracks the fresher of the two.
+     */
+    private fun publishNewArrivals() {
+        val fourReadBooks = catalogSections.value
+            .firstOrNull { it.title == "Новинки" }
+            ?.books.orEmpty()
+            .map { it.toSourceBook() }
+        val otherBooks = sourceFeeds.value.flatMap { it.books }
+        _newArrivals.value = mergeGlobalSearchResults(fourReadBooks + otherBooks)
+    }
+
+    private fun CatalogBook.toSourceBook(): SourceBook = SourceBook(
+        title = title,
+        author = author,
+        url = url,
+        coverImageUrl = coverImageUrl,
+        seriesTitle = seriesTitle,
+        seriesIndex = seriesIndex,
+        sourceId = "4read"
+    )
 
     private suspend fun newFeedFor(adapter: SourceAdapter, skipCache: Boolean = false): List<SourceBook> {
         val now = System.currentTimeMillis()
@@ -887,6 +925,7 @@ class SourceCatalog(
                     section.copy(books = section.books.filter { it.id in landedIds })
                 }
                 _catalogSections.value = sections
+                publishNewArrivals()
                 sections
             } catch (e: Exception) {
                 Log.w("SourceCatalog", "Catalogue sync failed", e)

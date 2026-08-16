@@ -14,6 +14,7 @@ import com.example.data.source.FourReadAdapter
 import com.example.data.source.SourceAdapter
 import com.example.data.source.SourceBookDetail
 import com.example.data.source.sourceDisplayName
+import com.example.data.source.sourceIdForUrl
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
@@ -249,7 +250,15 @@ class LibraryEntries(
         // normalization / deltas come from the one MetadataAssertions module
         // (ADR-0004) — never re-derived here.
         if (book.sourceUrl.isNotBlank()) {
-            val detail = fourReadAdapter.fetchBookPage(book.sourceUrl)
+            // Spec-24 T9 (#170): the page-open heal dispatches to the book's
+            // OWN source adapter — it was 4read-hard-coded, so sound-books
+            // (and every non-4read) row never back-filled its cover. The one
+            // pure sourceIdForUrl dispatch; 4read stays the fallback for
+            // unknown urls.
+            val sourceId = sourceIdForUrl(book.sourceUrl)
+            val adapter = sourceAdapters.firstOrNull { it.sourceId == sourceId }
+                ?: fourReadAdapter
+            val detail = adapter.fetchBookPage(book.sourceUrl)
             // Cover applies only when the claim is non-blank — never clears a
             // stored cover with an absent one.
             MetadataAssertions.coverDelta(detail.coverImageUrl)?.let { cover ->
@@ -320,14 +329,14 @@ class LibraryEntries(
                         )
                     )
                 }
-                val source = dao.getSourcesForBookSync(bookId).firstOrNull { it.type == "4read" }
+                val source = dao.getSourcesForBookSync(bookId).firstOrNull { it.type == sourceId }
                     ?: com.example.data.db.SourceEntity(
-                        id = "4read-$editionId",
+                        id = "$sourceId-$editionId",
                         bookId = bookId,
                         editionId = editionId,
-                        type = "4read",
+                        type = sourceId,
                         url = book.sourceUrl,
-                        streamOnly = com.example.data.source.streamOnlyFor("4read"),
+                        streamOnly = com.example.data.source.streamOnlyFor(sourceId),
                         addedAt = System.currentTimeMillis()
                     ).also { dao.insertSources(listOf(it)) }
                 val materialized = MetadataAssertions.materializeChaptersAndTracks(

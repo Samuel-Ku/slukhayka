@@ -1,0 +1,185 @@
+package com.slukhayka.audiobooks.ui.snapshots
+
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onRoot
+import com.slukhayka.audiobooks.testing.TestDataFactory
+import com.slukhayka.audiobooks.ui.screens.ContinueSeriesRow
+import com.slukhayka.audiobooks.ui.screens.ListenEmptyState
+import com.slukhayka.audiobooks.ui.screens.ListenHeroCard
+import com.slukhayka.audiobooks.ui.screens.OpenWebSourceRow
+import com.slukhayka.audiobooks.ui.screens.RecentlyListenedRow
+import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
+import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
+import com.github.takahirom.roborazzi.captureRoboImage
+import org.junit.Rule
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
+
+/**
+ * Snapshot tests for the Слухати tab blocks (spec-9 T3): the hero resume
+ * card, a recently-listened row and the fresh-install empty state. Pure
+ * `@Composable` inputs — no `MainViewModel`, no Room.
+ */
+@RunWith(RobolectricTestRunner::class)
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
+@Config(qualifiers = RobolectricDeviceQualifiers.Pixel8, sdk = [36])
+class ListenScreenBlocksSnapshotTest {
+
+    @get:Rule
+    val composeTestRule = createComposeRule()
+
+    private val book = TestDataFactory.dataBooks()[0]
+    private val progress = TestDataFactory.seedPlaybackProgress(listOf(book), chapterIndex = 2, positionSeconds = 420L)[0]
+    // Spec-24 T1: the hero card shows the BOOK-level position — the chapters
+    // before the current one (600 + 660 for fixture book 0) plus the in-
+    // chapter offset (420) — the same cumulative value LibraryBook computes.
+    private val cumulativePositionSeconds = 600L + 660L + 420L
+
+    @Test
+    fun hero_resume_card() {
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                ListenSurface {
+                    ListenHeroCard(
+                        book = book,
+                        progress = progress,
+                        cumulativePositionSeconds = cumulativePositionSeconds,
+                        onResumeClick = {},
+                        onBookClick = {}
+                    )
+                }
+            }
+        }
+        // Spec-24 T5 (#166): the mid-book hero shows the CUMULATIVE percent
+        // (1680 / 1980 s = 84 %), never the in-chapter offset (420 s = 21 %)
+        // that would read as 0 % early in a long chapter.
+        composeTestRule.onNodeWithText("84% · Залишилося 5 хв").assertExists()
+        composeTestRule.onNodeWithText("21% · Залишилося 26 хв").assertDoesNotExist()
+        composeTestRule.onRoot().captureRoboImage(
+            filePath = "src/test/snapshots/listen_hero_card.png"
+        )
+    }
+
+    @Test
+    fun hero_resume_card_light() {
+        // Themes ticket (#37): the light scheme must render the migrated
+        // reference screen, not just the primitives.
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = false) {
+                ListenSurface {
+                    ListenHeroCard(
+                        book = book,
+                        progress = progress,
+                        cumulativePositionSeconds = cumulativePositionSeconds,
+                        onResumeClick = {},
+                        onBookClick = {}
+                    )
+                }
+            }
+        }
+        composeTestRule.onRoot().captureRoboImage(
+            filePath = "src/test/snapshots/listen_hero_card_light.png"
+        )
+    }
+
+    @Test
+    fun recently_listened_row() {
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                ListenSurface {
+                    RecentlyListenedRow(
+                        book = book,
+                        progress = progress,
+                        cumulativePositionSeconds = cumulativePositionSeconds,
+                        onClick = {},
+                        onPlayClick = {}
+                    )
+                }
+            }
+        }
+        // Spec-24 T5 (#166): the row shows the cumulative position (28:00 =
+        // chapters before + in-chapter offset), not the bare 07:00 offset.
+        composeTestRule.onNodeWithText("Розділ 3 · 28:00").assertExists()
+        composeTestRule.onNodeWithText("Розділ 3 · 07:00").assertDoesNotExist()
+        composeTestRule.onRoot().captureRoboImage(
+            filePath = "src/test/snapshots/listen_recent_row.png"
+        )
+    }
+
+    @Test
+    fun continue_series_row() {
+        // ADR-0009: series fields are @Ignore projections — set in place.
+        val nextVolume = book.copy(title = "Наступна книга циклу").also {
+            it.seriesTitle = "Сага про Дріззта"
+            it.seriesIndex = 3
+        }
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                ListenSurface {
+                    ContinueSeriesRow(
+                        seriesTitle = "Сага про Дріззта",
+                        book = nextVolume,
+                        onClick = {},
+                        onPlayClick = {}
+                    )
+                }
+            }
+        }
+        composeTestRule.onRoot().captureRoboImage(
+            filePath = "src/test/snapshots/listen_continue_series.png"
+        )
+    }
+
+    @Test
+    fun empty_state_with_ctas() {
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                ListenSurface {
+                    ListenEmptyState(
+                        onBrowseClick = {},
+                        onImportClick = {}
+                    )
+                }
+            }
+        }
+        composeTestRule.onRoot().captureRoboImage(
+            filePath = "src/test/snapshots/listen_empty_state.png"
+        )
+    }
+
+    @Test
+    fun open_web_source_row() {
+        // Spec-13 T3: the compact «більше книг на Sluhay →» entry row.
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                ListenSurface {
+                    OpenWebSourceRow(
+                        displayName = "Sluhay",
+                        onClick = {}
+                    )
+                }
+            }
+        }
+        composeTestRule.onRoot().captureRoboImage(
+            filePath = "src/test/snapshots/listen_open_web_source.png"
+        )
+    }
+}
+
+/** Same chrome as the other snapshot suites: scheme background, full size. */
+@Composable
+private fun ListenSurface(content: @Composable () -> Unit) {
+    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+        Column(modifier = Modifier.fillMaxSize()) { content() }
+    }
+}

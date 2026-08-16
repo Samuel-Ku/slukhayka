@@ -11,14 +11,14 @@ helpers (smart rewind, shake detection, seek history, metrics, sleep timer).
 ## Key Files
 
 ```
-app/src/main/java/com/example/player/AudioPlayerManager.kt  1373 lines  (the player)
-app/src/main/java/com/example/player/PlaybackService.kt       77 lines  (MediaSession + notification)
-app/src/main/java/com/example/player/ShakeDetector.kt        113 lines
-app/src/main/java/com/example/player/SeekHistory.kt           70 lines
-app/src/main/java/com/example/player/SmartRewind.kt           51 lines
-app/src/main/java/com/example/player/PlaybackMetrics.kt       46 lines
-app/src/main/java/com/example/player/PlaybackEventLog.kt      39 lines
-app/src/main/java/com/example/player/PlaybackSettings.kt      25 lines
+app/src/main/java/com/slukhayka/audiobooks/player/AudioPlayerManager.kt  1373 lines  (the player)
+app/src/main/java/com/slukhayka/audiobooks/player/PlaybackService.kt       77 lines  (MediaSession + notification)
+app/src/main/java/com/slukhayka/audiobooks/player/ShakeDetector.kt        113 lines
+app/src/main/java/com/slukhayka/audiobooks/player/SeekHistory.kt           70 lines
+app/src/main/java/com/slukhayka/audiobooks/player/SmartRewind.kt           51 lines
+app/src/main/java/com/slukhayka/audiobooks/player/PlaybackMetrics.kt       46 lines
+app/src/main/java/com/slukhayka/audiobooks/player/PlaybackEventLog.kt      39 lines
+app/src/main/java/com/slukhayka/audiobooks/player/PlaybackSettings.kt      25 lines
 ```
 
 ## Architecture
@@ -85,6 +85,6 @@ the last 30 s, unit-tested boundary math. Timer state lives on `PlayerState`
   split candidate (transport vs. session vs. events).
 - Playback lives in the process scope: the player + service are constructed in
   `App`, not in the Activity (backgrounding no longer kills playback).
-- Tests use a fake player seam: `app/src/test/java/com/example/player/`
+- Tests use a fake player seam: `app/src/test/java/com/slukhayka/audiobooks/player/`
   (`FakePlayerBase`, `FakePlayerEngine`, `AudioPlayerManagerTest`,
   `SleepTimerTest`, `SmartRewindTest`, `SpeedAndRewindManagerTest`).

@@ -12,18 +12,18 @@ the catalog, import and enrichment modules.
 ## Key Files
 
 ```
-app/src/main/java/com/example/data/source/SourceAdapter.kt   143 lines  (the seam + models)
-app/src/main/java/com/example/data/source/FourReadAdapter.kt 123 lines
-app/src/main/java/com/example/data/source/SoundBooksAdapter.kt 180 lines
-app/src/main/java/com/example/data/source/AudiobookMp3Adapter.kt 169 lines
-app/src/main/java/com/example/data/source/LihtarAdapter.kt   138 lines
-app/src/main/java/com/example/data/source/SluhayuaAdapter.kt 277 lines
-app/src/main/java/com/example/data/source/SluhayAdapter.kt   313 lines  (WebView session-bound)
-app/src/main/java/com/example/data/source/HttpFetcher.kt     118 lines  (shared degrade-never-throw transport)
-app/src/main/java/com/example/data/source/GlobalSearch.kt    116 lines
-app/src/main/java/com/example/data/source/DownloadPolicy.kt   61 lines
-app/src/main/java/com/example/data/source/WebViewHtmlParser.kt      329 lines
-app/src/main/java/com/example/data/source/WebViewInterceptLogParser.kt  80 lines
+app/src/main/java/com/slukhayka/audiobooks/data/source/SourceAdapter.kt   143 lines  (the seam + models)
+app/src/main/java/com/slukhayka/audiobooks/data/source/FourReadAdapter.kt 123 lines
+app/src/main/java/com/slukhayka/audiobooks/data/source/SoundBooksAdapter.kt 180 lines
+app/src/main/java/com/slukhayka/audiobooks/data/source/AudiobookMp3Adapter.kt 169 lines
+app/src/main/java/com/slukhayka/audiobooks/data/source/LihtarAdapter.kt   138 lines
+app/src/main/java/com/slukhayka/audiobooks/data/source/SluhayuaAdapter.kt 277 lines
+app/src/main/java/com/slukhayka/audiobooks/data/source/SluhayAdapter.kt   313 lines  (WebView session-bound)
+app/src/main/java/com/slukhayka/audiobooks/data/source/HttpFetcher.kt     118 lines  (shared degrade-never-throw transport)
+app/src/main/java/com/slukhayka/audiobooks/data/source/GlobalSearch.kt    116 lines
+app/src/main/java/com/slukhayka/audiobooks/data/source/DownloadPolicy.kt   61 lines
+app/src/main/java/com/slukhayka/audiobooks/data/source/WebViewHtmlParser.kt      329 lines
+app/src/main/java/com/slukhayka/audiobooks/data/source/WebViewInterceptLogParser.kt  80 lines
 ```
 
 ## The Seam (SourceAdapter)

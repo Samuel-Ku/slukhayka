@@ -12,28 +12,28 @@ parameters from the composition root, not through the ViewModel.
 ## Key Files
 
 ```
-app/src/main/java/com/example/ui/screens/HomeScreen.kt            1395 lines
-app/src/main/java/com/example/ui/screens/BookDetailScreen.kt      1405 lines
-app/src/main/java/com/example/ui/screens/LibraryScreen.kt          985 lines
-app/src/main/java/com/example/ui/screens/PlayerScreen.kt           943 lines
-app/src/main/java/com/example/ui/screens/ListenScreen.kt           852 lines
-app/src/main/java/com/example/ui/screens/WebSourceBrowserScreen.kt 595 lines
-app/src/main/java/com/example/ui/screens/GlobalSearchResults.kt    242 lines
-app/src/main/java/com/example/ui/screens/Top100Screen.kt           236 lines
-app/src/main/java/com/example/ui/screens/PeopleScreen.kt           205 lines
-app/src/main/java/com/example/ui/screens/SeriesScreen.kt           201 lines
-app/src/main/java/com/example/ui/screens/SourceFeeds.kt            152 lines
-app/src/main/java/com/example/ui/screens/BookListScreen.kt         132 lines
-app/src/main/java/com/example/ui/screens/GenreScreen.kt             38 lines
-app/src/main/java/com/example/ui/screens/PersonBooksScreen.kt       37 lines
+app/src/main/java/com/slukhayka/audiobooks/ui/screens/HomeScreen.kt            1395 lines
+app/src/main/java/com/slukhayka/audiobooks/ui/screens/BookDetailScreen.kt      1405 lines
+app/src/main/java/com/slukhayka/audiobooks/ui/screens/LibraryScreen.kt          985 lines
+app/src/main/java/com/slukhayka/audiobooks/ui/screens/PlayerScreen.kt           943 lines
+app/src/main/java/com/slukhayka/audiobooks/ui/screens/ListenScreen.kt           852 lines
+app/src/main/java/com/slukhayka/audiobooks/ui/screens/WebSourceBrowserScreen.kt 595 lines
+app/src/main/java/com/slukhayka/audiobooks/ui/screens/GlobalSearchResults.kt    242 lines
+app/src/main/java/com/slukhayka/audiobooks/ui/screens/Top100Screen.kt           236 lines
+app/src/main/java/com/slukhayka/audiobooks/ui/screens/PeopleScreen.kt           205 lines
+app/src/main/java/com/slukhayka/audiobooks/ui/screens/SeriesScreen.kt           201 lines
+app/src/main/java/com/slukhayka/audiobooks/ui/screens/SourceFeeds.kt            152 lines
+app/src/main/java/com/slukhayka/audiobooks/ui/screens/BookListScreen.kt         132 lines
+app/src/main/java/com/slukhayka/audiobooks/ui/screens/GenreScreen.kt             38 lines
+app/src/main/java/com/slukhayka/audiobooks/ui/screens/PersonBooksScreen.kt       37 lines
 
-app/src/main/java/com/example/ui/library/LibraryModel.kt   219 lines  (LibraryBook model)
-app/src/main/java/com/example/ui/library/ListenComposer.kt 211 lines  (reorderable listen blocks)
-app/src/main/java/com/example/ui/library/ListenPrefsStore.kt  82 lines
-app/src/main/java/com/example/ui/library/BookPlayButton.kt   78 lines
-app/src/main/java/com/example/ui/library/OutcomeMessages.kt  74 lines
-app/src/main/java/com/example/ui/library/BookTimeline.kt     52 lines
-app/src/main/java/com/example/ui/library/ResumeStart.kt      53 lines
+app/src/main/java/com/slukhayka/audiobooks/ui/library/LibraryModel.kt   219 lines  (LibraryBook model)
+app/src/main/java/com/slukhayka/audiobooks/ui/library/ListenComposer.kt 211 lines  (reorderable listen blocks)
+app/src/main/java/com/slukhayka/audiobooks/ui/library/ListenPrefsStore.kt  82 lines
+app/src/main/java/com/slukhayka/audiobooks/ui/library/BookPlayButton.kt   78 lines
+app/src/main/java/com/slukhayka/audiobooks/ui/library/OutcomeMessages.kt  74 lines
+app/src/main/java/com/slukhayka/audiobooks/ui/library/BookTimeline.kt     52 lines
+app/src/main/java/com/slukhayka/audiobooks/ui/library/ResumeStart.kt      53 lines
 ```
 
 ## Screen Map

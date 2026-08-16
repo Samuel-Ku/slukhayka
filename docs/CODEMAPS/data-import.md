@@ -11,20 +11,20 @@ smart-collection machinery (curated JSON assets + live sources matched locally).
 ## Key Files
 
 ```
-app/src/main/java/com/example/data/imports/LibraryImport.kt    1284 lines  (the five doors)
-app/src/main/java/com/example/data/imports/ImportPlanner.kt     262 lines  (local folder → plan)
-app/src/main/java/com/example/data/imports/FolderRescan.kt      114 lines
-app/src/main/java/com/example/data/imports/ImportPlan.kt         75 lines
-app/src/main/java/com/example/data/imports/LocalFolderScanner.kt 83 lines  (DocumentFile walk)
-app/src/main/java/com/example/data/imports/ImportGrantStore.kt   28 lines  (SAF tree-uri persistence)
+app/src/main/java/com/slukhayka/audiobooks/data/imports/LibraryImport.kt    1284 lines  (the five doors)
+app/src/main/java/com/slukhayka/audiobooks/data/imports/ImportPlanner.kt     262 lines  (local folder → plan)
+app/src/main/java/com/slukhayka/audiobooks/data/imports/FolderRescan.kt      114 lines
+app/src/main/java/com/slukhayka/audiobooks/data/imports/ImportPlan.kt         75 lines
+app/src/main/java/com/slukhayka/audiobooks/data/imports/LocalFolderScanner.kt 83 lines  (DocumentFile walk)
+app/src/main/java/com/slukhayka/audiobooks/data/imports/ImportGrantStore.kt   28 lines  (SAF tree-uri persistence)
 
-app/src/main/java/com/example/data/collections/CollectionAssets.kt          32 lines  (context.assets loader)
-app/src/main/java/com/example/data/collections/CollectionJson.kt            56 lines
-app/src/main/java/com/example/data/collections/CollectionList.kt            26 lines
-app/src/main/java/com/example/data/collections/CollectionMatcher.kt        112 lines  (local matching)
-app/src/main/java/com/example/data/collections/MiniJson.kt                 134 lines  (tiny JSON reader)
-app/src/main/java/com/example/data/collections/LiveCollectionSource.kt      26 lines  (seam)
-app/src/main/java/com/example/data/collections/OpenLibraryTrendingSource.kt 59 lines  (live «Популярне зараз»)
+app/src/main/java/com/slukhayka/audiobooks/data/collections/CollectionAssets.kt          32 lines  (context.assets loader)
+app/src/main/java/com/slukhayka/audiobooks/data/collections/CollectionJson.kt            56 lines
+app/src/main/java/com/slukhayka/audiobooks/data/collections/CollectionList.kt            26 lines
+app/src/main/java/com/slukhayka/audiobooks/data/collections/CollectionMatcher.kt        112 lines  (local matching)
+app/src/main/java/com/slukhayka/audiobooks/data/collections/MiniJson.kt                 134 lines  (tiny JSON reader)
+app/src/main/java/com/slukhayka/audiobooks/data/collections/LiveCollectionSource.kt      26 lines  (seam)
+app/src/main/java/com/slukhayka/audiobooks/data/collections/OpenLibraryTrendingSource.kt 59 lines  (live «Популярне зараз»)
 ```
 
 ## The Five Import Doors (LibraryImport)

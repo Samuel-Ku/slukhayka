@@ -43,7 +43,8 @@ largest module and the natural home for most UI bug fixes.
 ## Freshness
 
 - Generated: 2026-08-16
-- Source commit scanned: current `main` after the repo-cleanup (ADR-0016)
+- Source commit scanned: current `main` after the repo-cleanup (ADR-0016) and
+the package rename to `com.slukhayka.audiobooks`
 - Refresh rule: regenerate when the module-to-file mapping drifts by more than a
   few files, or after a feature that adds/removes a package under `app/src/main/`.
   The per-file header carries the scan date and line counts — update them on refresh.
@@ -51,7 +52,7 @@ largest module and the natural home for most UI bug fixes.
 ## Tools & Targets
 
 - Build: Gradle 9.3.1 + AGP 9.1.1, Kotlin 2.2.10, KSP, Room 2.7.0
-- Snapshots: Roborazzi 1.59.0 (tests in `app/src/test/java/com/example/ui/snapshots/`)
+- Snapshots: Roborazzi 1.59.0 (tests in `app/src/test/java/com/slukhayka/audiobooks/ui/snapshots/`)
 - Coverage: Kover 0.9.9; secrets-gradle-plugin + google-services (Firebase, optional)
 - Min / target SDK: 24 / 36 (compileSdk 36, minor API 1)
-- Application id: `com.aistudio.audiobook.read`; namespace `com.example`
+- Application id / namespace: `com.slukhayka.audiobooks`

@@ -24,10 +24,13 @@ import kotlinx.coroutines.withContext
 
  * work whose membership is fresh is resolved (one resolution per book; the
  * membership carries a [com.example.data.db.SeriesMemberEntity.resolvedAt]
- * stamp so stale rows re-resolve after the TTL instead of persisting
- * forever). A book/series no layer knows, or a failing layer, contributes
- * NOTHING (no row, no error surfaced). The persistence is idempotent REPLACE
- * upserts, so a re-resolution overwrites the same rows.
+ * stamp, and spec-26 T7 refreshes stale rows on a TIERED schedule — hot
+ * ~7 days for a young series at the chain tail, warm ~30 days for a tail or
+ * young one, cold ~180 days (the floor) for the rest — instead of a flat
+ * TTL, so Wikidata changes eventually reach every cache). A book/series no
+ * layer knows, or a failing layer, contributes NOTHING (no row, no error
+ * surfaced). The persistence is idempotent REPLACE upserts, so a
+ * re-resolution overwrites the same rows.
  *
  * Resolution is triggered on book-page open / series-page open, background,
  * best-effort.
@@ -41,48 +44,86 @@ class SeriesUniverses(
     // and Wikidata. Null — the layer is absent (no Firebase keys), and the
     // read path is exactly the pre-Firestore one.
     private val sharedStore: SharedUniverseStore? = null,
-    // Spec-25: a cached Wikidata resolution is re-resolved once it is older
-    // than the TTL, so the universe view eventually tracks Wikidata changes
-    // instead of persisting forever. Curated resolutions are exempt by
-    // construction — the asset is local and re-persists on every book open.
-    private val ttlMillis: Long = DEFAULT_TTL_MILLIS,
-    // Injectable clock so the TTL gate is testable.
+    // Spec-26 T7 (#181): the tiered refresh rule — how stale a membership
+    // must be before it re-resolves (hot ~7d for a young series at the chain
+    // tail, warm ~30d for tail-or-young, cold ~180d floor for the rest), so
+    // the universe view eventually tracks Wikidata changes instead of
+    // persisting forever. Injectable for tests; the flat TTL is gone.
+    private val tierTtlMillis: (Boolean, Int?, Int) -> Long = UniverseRefreshTier::tierTtlMillis,
+    // Injectable clock so the tier gate is testable.
     private val now: () -> Long = System::currentTimeMillis
 ) {
 
     /** Resolves one library book's series → universe and caches the result. */
     suspend fun resolveForBook(bookId: String) = withContext(Dispatchers.IO) {
         val book = dao.getAudiobookById(bookId) ?: return@withContext
-        val seriesTitle = book.seriesTitle?.takeIf { it.isNotBlank() } ?: return@withContext
-        val workId = book.workId ?: book.id
+        resolveWork(
+            workId = book.workId ?: book.id,
+            title = book.title,
+            author = book.author,
+            seriesTitle = book.seriesTitle,
+            seriesUrl = book.seriesUrl,
+            seriesIndex = book.seriesIndex
+        )
+    }
+
+    /**
+     * Spec-26 T7 (#181) — resolves one WORK's series → universe with no
+     * library book: the background refresh pass re-resolves stale
+     * memberships straight from the work row. The exact same path as
+     * [resolveForBook].
+     */
+    suspend fun resolveForWork(workId: String) = withContext(Dispatchers.IO) {
+        val work = dao.getWorkById(workId) ?: return@withContext
+        resolveWork(
+            workId = work.id,
+            title = work.title,
+            author = work.author,
+            seriesTitle = work.seriesTitle,
+            seriesUrl = work.seriesUrl,
+            seriesIndex = work.seriesIndex
+        )
+    }
+
+    private suspend fun resolveWork(
+        workId: String,
+        title: String,
+        author: String,
+        seriesTitle: String?,
+        seriesUrl: String?,
+        seriesIndex: Int?
+    ) {
+        val series = seriesTitle?.takeIf { it.isNotBlank() } ?: return
         // Curated first (local, offline, alias-aware).
-        val curatedMatch = UniverseMatcher.resolve(curated, seriesTitle, book.seriesUrl)
+        val curatedMatch = UniverseMatcher.resolve(curated, series, seriesUrl)
         if (curatedMatch != null) {
-            persist(curatedMatch.toResolution(), workId, book.seriesIndex)
-            return@withContext
+            persist(curatedMatch.toResolution(), workId, seriesIndex)
+            return
         }
 
         // The shared (Firestore) layer, then the Wikidata fallback — both
-        // gated on the cache: a work whose membership is fresh (resolved
-        // within the TTL) is resolved; stale or missing memberships re-resolve,
-        // so the universe view eventually refreshes. A shared-store hit is
-        // mirrored into the Room cache and never pays for Wikidata (spec-26
-        // T5 AC2); a shared miss or failure (null) falls through silently to
-        // Wikidata exactly as before (AC3). A failing re-resolution leaves
-        // the stale row in place — the next book open retries.
-        val cutoff = now() - ttlMillis
-        if (dao.getSeriesMembersForWork(workId).any { (it.resolvedAt ?: 0L) > cutoff }) return@withContext
+        // gated on the cache: a work whose membership is fresh under its
+        // tier (spec-26 T7) is resolved; stale or missing memberships
+        // re-resolve, so the universe view eventually refreshes. A shared-
+        // store hit is mirrored into the Room cache and never pays for
+        // Wikidata (spec-26 T5 AC2); a shared miss or failure (null) falls
+        // through silently to Wikidata exactly as before (AC3). A failing
+        // re-resolution leaves the stale row in place — the next open (book
+        // or pass) retries.
+        val currentNow = now()
+        val memberships = dao.getSeriesMembersForWork(workId)
+        if (memberships.isNotEmpty() && freshUnderTier(memberships, currentNow)) return
         val shared = sharedStore
         if (shared != null) {
             val sharedResolution = shared.getResolution(workId)
             if (sharedResolution != null) {
-                persist(sharedResolution, workId, book.seriesIndex)
-                return@withContext
+                persist(sharedResolution, workId, seriesIndex)
+                return
             }
         }
-        val provider = wikidata ?: return@withContext
-        val resolution = provider.resolve(book.title, book.author) ?: return@withContext
-        persist(resolution, workId, book.seriesIndex)
+        val provider = wikidata ?: return
+        val resolution = provider.resolve(title, author) ?: return
+        persist(resolution, workId, seriesIndex)
         // Spec-26 T6 (#180): write the fresh resolution back to the shared
         // base so the next user reads it instead of re-resolving. Best-effort
         // and silent — persist ran first, so a failing write never touches
@@ -189,6 +230,36 @@ class SeriesUniverses(
         return all.firstOrNull { UniverseMatcher.normalizeSeriesTitle(it.title) == normalizedTitle }
     }
 
+    /**
+     * Spec-26 T7 — true when ANY of the work's memberships is fresh under
+     * its tier. The tier comes from the cached series row: the chain-tail
+     * signal (the series sits at its universe's end — a continuation may
+     * appear) and the series' P577 publication year (captured at
+     * resolution). A tail + young series refreshes fastest (hot ~7 days), a
+     * cold one only after the 180-day floor — so even the coldest cached
+     * membership eventually re-resolves and spreads Wikidata fixes.
+     */
+    private suspend fun freshUnderTier(
+        memberships: List<com.example.data.db.SeriesMemberEntity>,
+        currentNow: Long
+    ): Boolean {
+        val allSeries = dao.getAllSeries()
+        val byId = allSeries.associateBy { it.id }
+        val universeSizes = allSeries
+            .filter { it.universeId != null }
+            .groupBy { it.universeId!! }
+            .mapValues { it.value.size }
+        val year = UniverseRefreshTier.epochYear(currentNow)
+        return memberships.any { membership ->
+            val series = byId[membership.seriesId]
+            val isTail = series?.universeId?.let { universeId ->
+                series.positionInUniverse != null &&
+                    series.positionInUniverse == universeSizes[universeId]
+            } ?: false
+            (membership.resolvedAt ?: 0L) > currentNow - tierTtlMillis(isTail, series?.publicationYear, year)
+        }
+    }
+
     private suspend fun persist(resolution: UniverseResolution, workId: String?, volumeIndex: Int?) {
         try {
             dao.upsertUniverse(UniverseEntity(id = resolution.universe.id, name = resolution.universe.name))
@@ -201,7 +272,10 @@ class SeriesUniverses(
                         title = series.title,
                         url = series.urls.firstOrNull(),
                         universeId = resolution.universe.id,
-                        positionInUniverse = index + 1
+                        positionInUniverse = index + 1,
+                        // Spec-26 T7: the P577 year captured at resolution —
+                        // the tier rule's age signal (null for curated series).
+                        publicationYear = series.publicationYear
                     )
                 )
             }
@@ -227,9 +301,6 @@ class SeriesUniverses(
 
     private fun seriesId(universeId: String, position: Int): String = "$universeId:$position"
 }
-
-/** Default TTL of a cached Wikidata universe resolution: 30 days. */
-private const val DEFAULT_TTL_MILLIS: Long = 30L * 24 * 60 * 60 * 1000
 
 /** A tappable neighbor series of the universe («Передує» / «Продовжує»). */
 data class SeriesRef(

@@ -14,7 +14,11 @@ package com.example.data.universe
 data class UniverseSeries(
     val title: String,
     val aliases: List<String> = emptyList(),
-    val urls: List<String> = emptyList()
+    val urls: List<String> = emptyList(),
+    // Spec-26 T7: the series' last publication year (Wikidata P577, captured
+    // at resolution) — the age signal of the tiered refresh rule; null for
+    // curated series (their asset is exempt from the TTL anyway).
+    val publicationYear: Int? = null
 )
 
 /** One curated universe: stable [id], display [name] and the ordered [series]. */

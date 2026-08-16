@@ -677,6 +677,9 @@ class FakeAudiobookDao(
     override suspend fun findWorkByMergeKey(mergeKey: String): WorkEntity? =
         worksState.value.firstOrNull { it.mergeKey == mergeKey && it.mergeKey.isNotEmpty() }
 
+    override suspend fun getWorkById(workId: String): WorkEntity? =
+        worksState.value.firstOrNull { it.id == workId }
+
     override suspend fun upsertWork(work: WorkEntity) {
         worksState.update { current -> current.filterNot { it.id == work.id } + work }
     }
@@ -709,6 +712,8 @@ class FakeAudiobookDao(
 
     override suspend fun getSeriesMembersForWork(workId: String): List<SeriesMemberEntity> =
         seriesMembersState.value.filter { it.workId == workId }
+
+    override suspend fun getAllSeriesMembers(): List<SeriesMemberEntity> = seriesMembersState.value
 
     /** Snapshot of the cached universes, for assertions. */
     val savedUniverses: List<UniverseEntity> get() = universesState.value

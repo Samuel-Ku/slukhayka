@@ -28,6 +28,7 @@ import com.slukhayka.audiobooks.player.PlayerState
 import com.slukhayka.audiobooks.ui.library.OutcomeMessages
 import com.slukhayka.audiobooks.ui.library.ResumeStart
 import com.slukhayka.audiobooks.ui.library.computeResumeStart
+import com.slukhayka.audiobooks.ui.library.formatBytes
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
@@ -105,7 +106,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     val playerState: StateFlow<PlayerState> = playerManager.playerState
 
-    private val _cacheSizeFormatted = MutableStateFlow("0 MB")
+    // Spec-27 (#184) BUG-001: the raw byte count feeds the confirm dialog's
+    // exact scope («Видалити 12 завантажених книг, 2,3 ГБ?»), while the
+    // formatted flow drives the storage row. Both refresh together so the
+    // dialog can never quote a stale size.
+    private val _cacheSizeBytes = MutableStateFlow(0L)
+    val cacheSizeBytes: StateFlow<Long> = _cacheSizeBytes.asStateFlow()
+
+    private val _cacheSizeFormatted = MutableStateFlow("0 МБ")
     val cacheSizeFormatted: StateFlow<String> = _cacheSizeFormatted.asStateFlow()
 
     init {
@@ -115,8 +123,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun refreshCacheSize() {
         viewModelScope.launch(Dispatchers.IO) {
             val bytes = offlineDownloads.getAudioCacheSizeBytes()
-            val mb = bytes / (1024 * 1024)
-            _cacheSizeFormatted.value = "$mb MB"
+            _cacheSizeBytes.value = bytes
+            _cacheSizeFormatted.value = formatBytes(bytes)
         }
     }
 

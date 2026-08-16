@@ -1,5 +1,6 @@
 package com.slukhayka.audiobooks.data.merge
 
+import com.slukhayka.audiobooks.data.metadata.MetadataAssertions
 import java.util.Locale
 
 /**
@@ -17,16 +18,29 @@ import java.util.Locale
  * The normalization reuses the approach validated in the enrichment spike
  * (wayfinder #43 / Google Books + OpenLibrary matcher): lowercase, strip
  * punctuation, collapse whitespace, and cut subtitles after ':' / '—' / '–'.
+ *
+ * Spec-27 (#184) BUG-002 — the SAME curated SEO scrub the write paths apply
+ * runs BEFORE the key is computed, and a trailing ` - ` segment (a site /
+ * brand / author suffix — «Трохи ненависті - АудіоКниги Українською») is
+ * cut like the ':' / '—' subtitles. The raw page title and the clean title
+ * therefore produce the SAME key and merge into one Work instead of spawning
+ * a second library card. One normalization seam, shared with the write
+ * paths (ADR-0004) — the historical migrations and every future write agree.
  * Pure JVM so the merge rule is unit-testable without Android.
  */
 object MergeKey {
 
     /** Normalizes a title for comparison: lowercases, strips a subtitle. */
     fun normalizeTitle(title: String): String {
-        val withoutSubtitle = title
+        // Spec-27 BUG-002: the SEO scrub first — a raw page title with a
+        // curated suffix («Трохи ненависті - АудіоКниги Українською») is
+        // already clean when the subtitle cuts below run.
+        val scrubbed = MetadataAssertions.normalizeTitle(title)
+        val withoutSubtitle = scrubbed
             .substringBefore(':')
             .substringBefore('—')
             .substringBefore('–')
+            .substringBefore(" - ")
         return normalize(withoutSubtitle)
     }
 

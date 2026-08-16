@@ -13,6 +13,7 @@ import com.slukhayka.audiobooks.data.entries.LibraryEntries
 import com.slukhayka.audiobooks.data.imports.LibraryImport
 import com.slukhayka.audiobooks.data.listening.ListeningStateStore
 import com.slukhayka.audiobooks.data.metadata.StoredTitleScrub
+import com.slukhayka.audiobooks.data.merge.DuplicateWorkMerger
 import com.slukhayka.audiobooks.data.source.AudiobookMp3Adapter
 import com.slukhayka.audiobooks.data.source.FourReadAdapter
 import com.slukhayka.audiobooks.data.source.LihtarAdapter
@@ -202,6 +203,16 @@ class App : Application() {
         StoredTitleScrub(database.audiobookDao())
     }
 
+    /**
+     * Spec-27 (#184) BUG-002 — the one-time duplicate-Work merge runner.
+     * Collapses library rows that share a hardened merge key (SEO-suffix
+     * variants of one title), moving progress and bookmarks onto the
+     * surviving card. Idempotent by construction and best-effort.
+     */
+    val duplicateWorkMerger: DuplicateWorkMerger by lazy {
+        DuplicateWorkMerger(database.audiobookDao())
+    }
+
     /** Single player manager; created lazily on first playback/service access. */
     val playerManager: AudioPlayerManager by lazy {
         // The player runs on the store; chapter materialisation (incl. the
@@ -223,8 +234,13 @@ class App : Application() {
         // Spec-24 T1: scrub SEO title suffixes from rows stored before the
         // write-path rule existed (audiobooks + works). Best-effort and
         // idempotent — a failing or repeated pass never blocks startup.
+        // Spec-27 (#184) BUG-002: right after the scrub (so both copies of a
+        // duplicate read clean), the one-time duplicate-Work merge collapses
+        // rows sharing a hardened identity — one card per book, with progress
+        // and bookmarks carried onto the survivor.
         CoroutineScope(Dispatchers.IO).launch {
             runCatching { storedTitleScrub.scrubOnce() }
+            runCatching { duplicateWorkMerger.mergeOnce() }
         }
         // Spec-26 T6 (#180): pour the curated universe asset into the shared
         // base (one document per curated series, idempotent — a re-seed on a

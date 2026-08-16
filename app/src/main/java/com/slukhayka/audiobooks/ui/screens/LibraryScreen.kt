@@ -45,8 +45,10 @@ import com.slukhayka.audiobooks.ui.displayAuthor
 import com.slukhayka.audiobooks.ui.library.LibraryBook
 import com.slukhayka.audiobooks.ui.library.LibraryFilter
 import com.slukhayka.audiobooks.ui.library.LibrarySort
+import com.slukhayka.audiobooks.ui.library.clearCacheConfirmText
 import com.slukhayka.audiobooks.ui.library.filterAndSortLibrary
 import com.slukhayka.audiobooks.ui.library.formatRemainingTime
+import com.slukhayka.audiobooks.ui.library.ukPlural
 import com.slukhayka.audiobooks.ui.theme.*
 
 /**
@@ -80,6 +82,9 @@ fun LibraryScreen(
     val listeningStats by remember { listeningState.getAllListeningStats() }
         .collectAsState(initial = emptyList())
     val cacheSizeFormatted by viewModel.cacheSizeFormatted.collectAsState()
+    // Spec-27 (#184) BUG-001: the raw bytes back the confirm dialog's exact
+    // scope, and gate the clear button (nothing to delete → no button).
+    val cacheSizeBytes by viewModel.cacheSizeBytes.collectAsState()
     val context = LocalContext.current
     // ADR-0008: suspend module calls from user actions run on the composition
     // scope (same pattern as playerManager's call-through).
@@ -138,6 +143,9 @@ fun LibraryScreen(
     }
 
     var activeTab by remember { mutableStateOf(0) } // 0 = Книги, 1 = Закладки, 2 = Статистика
+    // Spec-27 (#184) BUG-001: deleting every offline file is destructive —
+    // it only ever happens through the confirm dialog, never on a direct tap.
+    var showClearCacheDialog by remember { mutableStateOf(false) }
     var filter by remember { mutableStateOf(LibraryFilter.ALL) }
     var sort by remember { mutableStateOf(LibrarySort.RECENTLY_LISTENED) }
     var query by remember { mutableStateOf("") }
@@ -314,7 +322,10 @@ fun LibraryScreen(
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "Пам'ять пристрою: $cacheSizeFormatted · $offlineCount аудіокниг offline",
+                        // Spec-27 BUG-006: the count takes the proper Ukrainian
+                        // plural («1 аудіокнига», «2 аудіокниги», «5 аудіокниг»).
+                        text = "Пам'ять пристрою: $cacheSizeFormatted · $offlineCount " +
+                            ukPlural(offlineCount, "аудіокнига", "аудіокниги", "аудіокниг") + " offline",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.weight(1f)
@@ -332,16 +343,35 @@ fun LibraryScreen(
                             )
                         }
                     }
-                    TextButton(
-                        onClick = { viewModel.clearAllAudioCache() },
-                        contentPadding = PaddingValues(horizontal = 8.dp)
-                    ) {
-                        Text(
-                            text = "Очистити",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.error
-                        )
+                    // Spec-27 (#184) BUG-001: the button is named by its
+                    // consequence and only appears when there IS something to
+                    // delete; the actual deletion happens on the dialog's
+                    // confirm, never on this tap.
+                    if (offlineCount > 0 || cacheSizeBytes > 0L) {
+                        TextButton(
+                            onClick = { showClearCacheDialog = true },
+                            contentPadding = PaddingValues(horizontal = 8.dp),
+                            modifier = Modifier.testTag("clear_cache_button")
+                        ) {
+                            Text(
+                                text = "Видалити завантажені файли",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
                     }
+                }
+
+                if (showClearCacheDialog) {
+                    ClearCacheConfirmDialog(
+                        bookCount = offlineCount,
+                        bytes = cacheSizeBytes,
+                        onConfirm = {
+                            showClearCacheDialog = false
+                            viewModel.clearAllAudioCache()
+                        },
+                        onDismiss = { showClearCacheDialog = false }
+                    )
                 }
             }
 
@@ -884,6 +914,41 @@ fun GlobalBookmarkItem(
             }
         }
     }
+}
+
+/**
+ * Spec-27 (#184) BUG-001 — the destructive-action confirm: deletes every
+ * downloaded file, quoting the exact scope (book count + bytes) so the
+ * listener knows what is about to happen. The confirm button is the error
+ * color (the destructive tone, never a neutral primary); dismissing leaves
+ * every file untouched. Extracted so the dialog is snapshot-testable without
+ * a [MainViewModel].
+ */
+@Composable
+fun ClearCacheConfirmDialog(
+    bookCount: Int,
+    bytes: Long,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Видалити завантажені файли?") },
+        text = { Text(clearCacheConfirmText(bookCount, bytes)) },
+        confirmButton = {
+            TextButton(
+                onClick = onConfirm,
+                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+            ) {
+                Text("Видалити")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Скасувати")
+            }
+        }
+    )
 }
 
 /**

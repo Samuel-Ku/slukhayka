@@ -94,6 +94,22 @@ class MetadataAssertionsTest {
     }
 
     @Test
+    fun `title scrub cuts the plural site-brand suffix`() {
+        // Spec-27 (#184) BUG-002: «АудіоКниги Українською» is the site brand
+        // 4read appends to its raw page <title>. The plural form the site
+        // actually uses is a curated phrase, so the raw title cleans fully.
+        assertEquals(
+            "Трохи ненависті",
+            MetadataAssertions.normalizeTitle("Трохи ненависті - АудіоКниги Українською")
+        )
+        // A whole-title brand is kept, never blanked (the never-blank rule).
+        assertEquals(
+            "АудіоКниги Українською",
+            MetadataAssertions.normalizeTitle("АудіоКниги Українською")
+        )
+    }
+
+    @Test
     fun `title scrub never blanks a title and is idempotent`() {
         // The whole title is the phrase — keep the original, never blank.
         assertEquals("слухати онлайн", MetadataAssertions.normalizeTitle("слухати онлайн"))

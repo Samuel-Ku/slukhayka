@@ -73,6 +73,10 @@ object MetadataAssertions {
         "аудіокнига слухати онлайн",
         "слухати онлайн безкоштовно",
         "аудіокнига українською",
+        // Spec-27 (#184) BUG-002: the «АудіоКниги Українською» site brand
+        // appended to titles («Трохи ненависті - АудіоКниги Українською»)
+        // — the plural form the site actually uses.
+        "аудіокниги українською",
         "аудіокнига онлайн",
         "слухати онлайн"
     ).sortedByDescending { it.length }

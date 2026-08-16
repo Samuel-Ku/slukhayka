@@ -502,6 +502,18 @@ class FakeAudiobookDao(
         booksState.update { current -> current.filterNot { it.id == bookId } }
     }
 
+    // Spec-27 (#184) BUG-002: the duplicate-Work merge's cleanup — the loser's
+    // works row (cascade-removing its original work_sources in the real DAO)
+    // and its edition rows (dropped after progress/bookmarks/sources moved).
+    override suspend fun deleteWork(workId: String) {
+        worksState.update { current -> current.filterNot { it.id == workId } }
+        workSourcesState.update { current -> current.filterNot { it.workId == workId } }
+    }
+
+    override suspend fun deleteEditionsForWork(workId: String) {
+        editionsState.update { current -> current.filterNot { it.workId == workId } }
+    }
+
     override suspend fun upsertLibraryEntry(
         id: String,
         workId: String,

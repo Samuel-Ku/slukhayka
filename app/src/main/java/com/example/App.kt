@@ -21,6 +21,7 @@ import com.example.data.source.SluhayuaAdapter
 import com.example.data.source.SoundBooksAdapter
 import com.example.data.source.HttpFetcher
 import com.example.data.source.SourceAdapter
+import com.example.data.universe.MlKitTitleTranslator
 import com.example.data.universe.SeriesUniverses
 import com.example.data.universe.UniverseAssets
 import com.example.data.universe.WikidataSeriesProvider
@@ -145,7 +146,13 @@ class App : Application() {
         SeriesUniverses(
             database.audiobookDao(),
             UniverseAssets.load(this),
-            WikidataSeriesProvider(fetchJson = { url -> wikidataFetcher.getText(url) })
+            WikidataSeriesProvider(
+                fetchJson = { url -> wikidataFetcher.getText(url) },
+                // spec-26 T1 (#175): on-device uk → ru/en title translation
+                // (ML Kit, free, no key) for books whose only Wikidata
+                // labels are ru/en — best-effort, silent on failure.
+                translator = MlKitTitleTranslator()
+            )
         )
     }
 

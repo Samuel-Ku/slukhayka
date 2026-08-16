@@ -12,25 +12,34 @@ import java.net.URLEncoder
  * [SeriesUniverses] persists into the shared cache — so each book resolves
  * at most once.
  *
+ * Spec-26 T1 (#175) adds the title-translation fallback: when the direct
+ * uk → ru → en search is empty, the uk title is translated uk → ru/en via
+ * the [TitleTranslator] seam (ML Kit, on-device) and the search retried.
+ *
  * Best-effort and silent by design: no network, no search hits in any of
- * uk → ru → en, no author agreement, no P179, a malformed response or an
- * ambiguous candidate set all yield null — the surfaces never degrade. The
- * transport is injected (`fetchJson` returns the raw JSON or "" on failure,
- * the degrade-never-throw convention of the adapter seam); fixture tests
- * serve canned API responses by URL.
+ * uk → ru → en (direct or translated), no author agreement, no P179, a
+ * malformed response or an ambiguous candidate set all yield null — the
+ * surfaces never degrade. The transport is injected (`fetchJson` returns
+ * the raw JSON or "" on failure, the degrade-never-throw convention of the
+ * adapter seam); fixture tests serve canned API responses by URL.
  */
 class WikidataSeriesProvider(
     private val fetchJson: suspend (String) -> String,
     private val languages: List<String> = listOf("uk", "ru", "en"),
     private val maxCandidates: Int = 3,
-    private val maxChainHops: Int = 8
+    private val maxChainHops: Int = 8,
+    private val translator: TitleTranslator? = null
 ) : SeriesUniverseProvider {
 
     override suspend fun resolve(bookTitle: String, bookAuthor: String): UniverseResolution? {
         if (bookTitle.isBlank() || bookAuthor.isBlank()) return null
         // 1. Search the work title, uk → ru → en (the first language with
-        //    hits wins — never a union, so ambiguity stays contained).
-        val candidates = search(bookTitle) ?: return null
+        //    hits wins — never a union, so ambiguity stays contained). When
+        //    all three come back empty, the uk title is translated uk → ru/en
+        //    (spec-26 T1, ML Kit via the [TitleTranslator] seam) and the
+        //    search is retried with the translated string — a book whose
+        //    only Wikidata labels are ru/en still resolves.
+        val candidates = search(bookTitle) ?: searchTranslated(bookTitle) ?: return null
         // 2. Candidate verification: the first candidate whose P50 author
         //    agrees with the book's author wins; none agreeing → no resolution.
         val workQid = candidates.firstOrNull { authorMatches(it, bookAuthor) } ?: return null
@@ -58,6 +67,29 @@ class WikidataSeriesProvider(
     private suspend fun search(title: String): List<String>? {
         for (language in languages) {
             val json = fetchJson(searchUrl(language, title))
+            if (json.isBlank()) continue
+            val ids = WikidataParser.searchHitIds(json)
+            if (ids.isNotEmpty()) return ids.take(maxCandidates)
+        }
+        return null
+    }
+
+    /**
+     * Spec-26 T1 (#175) — the translation fallback. Fires only after the
+     * direct uk → ru → en search came back empty: the uk title is translated
+     * into ru and en (ML Kit via the [TitleTranslator] seam) and each
+     * translated string is searched in its own language, first hit wins. A
+     * missing translator, a blank/identity translation, a failed fetch or an
+     * empty translated search contributes nothing — the resolution stays
+     * silent.
+     */
+    private suspend fun searchTranslated(title: String): List<String>? {
+        val translator = translator ?: return null
+        for (language in TRANSLATION_TARGETS) {
+            if (language !in languages) continue
+            val translated = translator.translate(title, language) ?: continue
+            if (translated.isBlank() || translated == title) continue
+            val json = fetchJson(searchUrl(language, translated))
             if (json.isBlank()) continue
             val ids = WikidataParser.searchHitIds(json)
             if (ids.isNotEmpty()) return ids.take(maxCandidates)
@@ -135,6 +167,11 @@ class WikidataSeriesProvider(
             "&ids=$ids&props=claims|labels"
 
     private fun encode(value: String): String = URLEncoder.encode(value, "UTF-8")
+
+    private companion object {
+        /** The translated-search targets, ru first (the Wikidata anchor). */
+        val TRANSLATION_TARGETS = listOf("ru", "en")
+    }
 
     /** One series of the resolved chain: its id, label and chain neighbors. */
     private data class ChainSeries(

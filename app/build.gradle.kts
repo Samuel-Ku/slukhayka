@@ -142,6 +142,9 @@ dependencies {
   implementation(libs.firebase.appcheck.recaptcha)
   implementation(libs.kotlinx.coroutines.android)
   implementation(libs.kotlinx.coroutines.core)
+  // spec-26 T1 (#175): on-device title translation for the Wikidata search
+  // fallback — free, no API key, models download once per language pair.
+  implementation(libs.mlkit.translate)
   implementation(libs.logging.interceptor)
   implementation(libs.moshi.kotlin)
   implementation(libs.okhttp)

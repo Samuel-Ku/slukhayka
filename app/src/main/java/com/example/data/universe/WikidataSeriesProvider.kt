@@ -80,9 +80,10 @@ class WikidataSeriesProvider(
         //    agrees with the book's author wins; none agreeing → no resolution.
         val workQid = candidates.firstOrNull { authorMatches(it, bookAuthor) }
             ?: run { diagnostic?.invoke(ResolutionDiagnostic.AUTHOR_MISMATCH); return null }
-        // 3. P179 → the series item.
-        val workJson = fetchEntity(workQid) ?: return null
-        val seriesQid = WikidataParser.seriesIds(workJson, workQid).firstOrNull()
+        // 3. The series item: the direct P179 claim, else the underlying
+        //    work of an edition (P629), else the main subject (P921) when it
+        //    is itself a series — so editions and companion works resolve too.
+        val seriesQid = findSeriesQid(workQid)
             ?: run { diagnostic?.invoke(ResolutionDiagnostic.NO_SERIES_CLAIM); return null }
         // 4. The series' P155/P156 chain, bounded in both directions; the
         //    chain head names the universe and anchors its id.
@@ -224,6 +225,30 @@ class WikidataSeriesProvider(
     }
 
     /**
+     * The work's series item, three ways: the direct P179 claim first; an
+     * edition (P629) falls back to its underlying work's P179; a work whose
+     * main subject (P921) is itself a series resolves to that series — gated
+     * on P31 so a random subject never fabricates a bogus universe. Any
+     * failing hop contributes nothing.
+     */
+    private suspend fun findSeriesQid(workQid: String): String? {
+        val workJson = fetchEntity(workQid) ?: return null
+        // 1. The direct P179 claim.
+        WikidataParser.seriesIds(workJson, workQid).firstOrNull()?.let { return it }
+        // 2. An edition (P629) resolves through its underlying work's P179.
+        for (editionOf in WikidataParser.editionOfIds(workJson, workQid)) {
+            val underlying = fetchEntity(editionOf) ?: continue
+            WikidataParser.seriesIds(underlying, editionOf).firstOrNull()?.let { return it }
+        }
+        // 3. The main subject (P921) when it is itself a series.
+        for (subject in WikidataParser.mainSubjectIds(workJson, workQid)) {
+            val subjectJson = fetchEntity(subject) ?: continue
+            if (WikidataParser.instanceOfIds(subjectJson, subject).any { it in SERIES_CLASSES }) return subject
+        }
+        return null
+    }
+
+    /**
      * Walks the series' P155 (follows) links to the chain head, then the
      * P156 (followed by) links from the head to build the reading order.
      * Bounded ([maxChainHops] each way) and loop-safe (a visited id stops
@@ -296,6 +321,13 @@ class WikidataSeriesProvider(
 
     private fun encode(value: String): String = URLEncoder.encode(value, "UTF-8")
 
+    /**
+     * P31 classes that identify an item as a book-ish series — the gate for
+     * the P921 (main subject) fallback. Q7725310 is "series of creative
+     * works", Q277759 is "book series" (verified against the live API).
+     */
+    private val SERIES_CLASSES = setOf("Q7725310", "Q277759")
+
     private companion object {
         /** The translated-search targets, ru first (the Wikidata anchor). */
         val TRANSLATION_TARGETS = listOf("ru", "en")
@@ -328,7 +360,7 @@ enum class ResolutionDiagnostic {
     SEARCH_MISS,
     /** Candidates existed, but none's P50 author agreed with the book's. */
     AUTHOR_MISMATCH,
-    /** The work has no P179 series claim. */
+    /** The work has no P179 series, no P629 edition-of, no P921 series subject. */
     NO_SERIES_CLAIM,
     /** The series exists but its P155/P156 chain could not place it. */
     CHAIN_UNPLACEABLE,

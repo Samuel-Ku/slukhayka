@@ -264,7 +264,9 @@ class SeriesUniversesRoomTest {
 
     private fun wikidataResolver(
         resolution: UniverseResolution? = wikidataResolution,
-        onCall: () -> Unit = {}
+        onCall: () -> Unit = {},
+        ttlMillis: Long = 10_000L,
+        now: () -> Long = System::currentTimeMillis
     ): SeriesUniverses = SeriesUniverses(
         dao,
         universes,
@@ -273,7 +275,9 @@ class SeriesUniversesRoomTest {
                 onCall()
                 return resolution
             }
-        }
+        },
+        ttlMillis = ttlMillis,
+        now = now
     )
 
     @Test

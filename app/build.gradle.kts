@@ -37,11 +37,11 @@ ksp {
 }
 
 android {
-  namespace = "com.example"
+  namespace = "com.slukhayka.audiobooks"
   compileSdk { version = release(36) { minorApiLevel = 1 } }
 
   defaultConfig {
-    applicationId = "com.aistudio.audiobook.read"
+    applicationId = "com.slukhayka.audiobooks"
     minSdk = 24
     targetSdk = 36
     versionCode = 1
@@ -213,7 +213,7 @@ val downloadE5Model by tasks.registering(Exec::class) {
 val runUniverseResidualEval by tasks.registering(JavaExec::class) {
   group = "verification"
   description = "Runs the spec-26 T4 residual measurement over the catalog sample with the live Wikidata API; writes the report. Overrides via --args=\"path delayMs limit\"."
-  mainClass.set("com.example.data.universe.RunUniverseResidualEval")
+  mainClass.set("com.slukhayka.audiobooks.data.universe.RunUniverseResidualEval")
   dependsOn("compileDebugUnitTestKotlin", "processDebugUnitTestJavaRes")
   val compileTask = project.tasks.named("compileDebugUnitTestKotlin")
   val testOutput = (compileTask.get() as org.jetbrains.kotlin.gradle.tasks.KotlinCompile).destinationDirectory
@@ -230,7 +230,7 @@ val runUniverseResidualEval by tasks.registering(JavaExec::class) {
 val runRecommendationEval by tasks.registering(JavaExec::class) {
   group = "verification"
   description = "Runs the spec-19 leave-one-out eval gate on saved fixtures with the real ONNX model; prints recall@20 / NDCG@20 and the GO/NO-GO decision."
-  mainClass.set("com.example.data.recommend.RunRecommendationEval")
+  mainClass.set("com.slukhayka.audiobooks.data.recommend.RunRecommendationEval")
   // Classpath: test+main outputs, the desktop onnxruntime jar, and the
   // test runtime minus the android AAR (whose ai.onnxruntime classes share
   // the package — the desktop jar must win so its host natives load).

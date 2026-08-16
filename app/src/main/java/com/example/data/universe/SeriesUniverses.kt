@@ -15,14 +15,19 @@ import kotlinx.coroutines.withContext
  * `series_members` / `universes` tables — so a resolution never repeats (the
  * cache is the read model, the matching rule is the provider).
  *
- * Two providers behind one seam: the curated [UniverseList] assets first
- * (local, offline, alias-aware), then the [SeriesUniverseProvider] fallback
+ * Three layers behind one seam, client-first: the curated [UniverseList]
+ * assets (local, offline, alias-aware), then the shared [SharedUniverseStore]
+ * (spec-26 T5 — Firestore: a resolution another user already wrote back is
+ * read here BEFORE Wikidata, mirrored into the Room cache, and never pays
+ * for a Wikidata call), then the [SeriesUniverseProvider] fallback
  * (Wikidata, T2) for unseeded series — best-effort and gated on the cache: a
- * work that already carries a series membership is resolved (one resolution
- * per book, never a duplicate). A book/series neither provider knows, or a
- * failing provider, contributes NOTHING (no row, no error surfaced). The
- * persistence is idempotent REPLACE upserts, so re-resolution is a no-op by
- * construction.
+
+ * work whose membership is fresh is resolved (one resolution per book; the
+ * membership carries a [com.example.data.db.SeriesMemberEntity.resolvedAt]
+ * stamp so stale rows re-resolve after the TTL instead of persisting
+ * forever). A book/series no layer knows, or a failing layer, contributes
+ * NOTHING (no row, no error surfaced). The persistence is idempotent REPLACE
+ * upserts, so a re-resolution overwrites the same rows.
  *
  * Resolution is triggered on book-page open / series-page open, background,
  * best-effort.
@@ -30,7 +35,19 @@ import kotlinx.coroutines.withContext
 class SeriesUniverses(
     private val dao: AudiobookDao,
     private val curated: List<UniverseList>,
-    private val wikidata: SeriesUniverseProvider? = null
+
+    private val wikidata: SeriesUniverseProvider? = null,
+    // Spec-26 T5: the shared (Firestore) read layer between the Room cache
+    // and Wikidata. Null — the layer is absent (no Firebase keys), and the
+    // read path is exactly the pre-Firestore one.
+    private val sharedStore: SharedUniverseStore? = null,
+    // Spec-25: a cached Wikidata resolution is re-resolved once it is older
+    // than the TTL, so the universe view eventually tracks Wikidata changes
+    // instead of persisting forever. Curated resolutions are exempt by
+    // construction — the asset is local and re-persists on every book open.
+    private val ttlMillis: Long = DEFAULT_TTL_MILLIS,
+    // Injectable clock so the TTL gate is testable.
+    private val now: () -> Long = System::currentTimeMillis
 ) {
 
     /** Resolves one library book's series → universe and caches the result. */
@@ -44,11 +61,26 @@ class SeriesUniverses(
             persist(curatedMatch.toResolution(), workId, book.seriesIndex)
             return@withContext
         }
-        // Wikidata fallback for unseeded series — best-effort and silent, and
-        // gated on the cache: a work that already carries a series membership
-        // is resolved (one resolution per book).
+
+        // The shared (Firestore) layer, then the Wikidata fallback — both
+        // gated on the cache: a work whose membership is fresh (resolved
+        // within the TTL) is resolved; stale or missing memberships re-resolve,
+        // so the universe view eventually refreshes. A shared-store hit is
+        // mirrored into the Room cache and never pays for Wikidata (spec-26
+        // T5 AC2); a shared miss or failure (null) falls through silently to
+        // Wikidata exactly as before (AC3). A failing re-resolution leaves
+        // the stale row in place — the next book open retries.
+        val cutoff = now() - ttlMillis
+        if (dao.getSeriesMembersForWork(workId).any { (it.resolvedAt ?: 0L) > cutoff }) return@withContext
+        val shared = sharedStore
+        if (shared != null) {
+            val sharedResolution = shared.getResolution(workId)
+            if (sharedResolution != null) {
+                persist(sharedResolution, workId, book.seriesIndex)
+                return@withContext
+            }
+        }
         val provider = wikidata ?: return@withContext
-        if (dao.getSeriesMembersForWork(workId).isNotEmpty()) return@withContext
         val resolution = provider.resolve(book.title, book.author) ?: return@withContext
         persist(resolution, workId, book.seriesIndex)
     }

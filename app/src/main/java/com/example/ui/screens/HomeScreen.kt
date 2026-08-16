@@ -53,6 +53,7 @@ import com.example.data.catalog.CatalogSection
 import com.example.data.catalog.CatalogSeries
 import com.example.data.catalog.SourceCatalog
 import com.example.data.db.AudiobookEntity
+import com.example.data.duration.ChapterDurationProbe
 import com.example.data.duration.DurationEnrichment
 import com.example.data.entries.LibraryEntries
 import com.example.data.db.WorkFeedRow
@@ -85,6 +86,8 @@ fun HomeScreen(
     libraryEntries: LibraryEntries,
     sourceCatalog: SourceCatalog,
     durationEnrichment: DurationEnrichment,
+    // spec-24 T8 (#169): the throttled chapter-duration probing pass.
+    chapterDurationProbe: ChapterDurationProbe,
     onBookClick: (String) -> Unit,
     onPlayClick: (AudiobookEntity) -> Unit
 ) {
@@ -132,6 +135,10 @@ fun HomeScreen(
         // detached so it never delays browsing or catalogue completion. The
         // module's own atomic throttle collapses overlapping triggers.
         durationEnrichment.enrichUnknownDurations()
+        // spec-24 T8 (#169): one throttled, bounded chapter-duration probing
+        // pass, same detached idiom — fills unknown chapter durations from
+        // the provider streams (HEAD + ranged GET, CBR only, never a guess).
+        chapterDurationProbe.probeUnknownChapters()
     }
 
     // spec-18 T3: the «За тривалістю» rows, derived live from the library

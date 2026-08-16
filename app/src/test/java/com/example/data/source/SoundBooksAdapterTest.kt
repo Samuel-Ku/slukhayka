@@ -17,6 +17,7 @@ class SoundBooksAdapterTest {
         <html><head>
         <meta property="og:title" content="Темна матерія">
         <meta property="og:description" content="Роман Блейка Крауча про квантову фізику, паралельні світи та ціну вибору.">
+        <meta property="og:image" content="https://sound-books.net/uploads/posts/2026-07/bleik-krauch-temna-materiia.webp">
         </head><body>
         <p>Автор: Блейк Крауч. Читає: Pik CAH4E3. Триває: 09:28:09</p>
         <script>
@@ -29,6 +30,32 @@ class SoundBooksAdapterTest {
     private val m3u = """
         https://arch.sound-books.net/4111/Темна матерія-01.mp3
         https://arch.sound-books.net/4111/Темна матерія-02.mp3
+    """.trimIndent()
+
+    // Same shape as [bookPage] minus og:image — the no-cover case.
+    private val bookPageWithoutCover = """
+        <html><head>
+        <meta property="og:title" content="Темна матерія">
+        <meta property="og:description" content="Роман Блейка Крауча про квантову фізику, паралельні світи та ціну вибору.">
+        </head><body>
+        <p>Автор: Блейк Крауч. Читає: Pik CAH4E3. Триває: 09:28:09</p>
+        <script>
+        var player = new Playerjs({file:"https://sound-books.net/uploads/public_files/2026-07/4111-krauch-bleik-temna-materiia.m3u"});
+        </script>
+        </body></html>
+    """.trimIndent()
+
+    // og:image in relative form — resolved against the site origin.
+    private val bookPageRelativeCover = """
+        <html><head>
+        <meta property="og:title" content="Сонячна машина">
+        <meta property="og:image" content="/uploads/posts/2026-07/soniachna-mashyna.webp">
+        </head><body>
+        <p>Автор: Володимир Винниченко. Читає: Тест.</p>
+        <script>
+        var player = new Playerjs({file:"https://sound-books.net/uploads/public_files/2026-07/3001-soniachna-mashyna.m3u"});
+        </script>
+        </body></html>
     """.trimIndent()
 
     // The homepage renders each entry twice: a bare-title cover tile and a
@@ -60,20 +87,50 @@ class SoundBooksAdapterTest {
         assertEquals("Pik CAH4E3", detail.narrator)
         // Spec-15 T5: og:description is the book's own blurb.
         assertEquals("Роман Блейка Крауча про квантову фізику, паралельні світи та ціну вибору.", detail.description)
+        // Spec-24 T9 (#170): the page's og:image is the imported cover.
+        assertEquals(
+            "https://sound-books.net/uploads/posts/2026-07/bleik-krauch-temna-materiia.webp",
+            detail.coverImageUrl
+        )
         assertEquals(2, detail.chapters.size)
         assertEquals("https://arch.sound-books.net/4111/Темна матерія-01.mp3", detail.chapters[0].streamUrl)
         assertEquals("https://arch.sound-books.net/4111/Темна матерія-02.mp3", detail.chapters[1].streamUrl)
         // Chapter title comes from the m3u file name.
         assertEquals("Темна матерія-01", detail.chapters[0].title)
-    }
-
-    @Test
+    }    @Test
     fun `book page without a playlist yields no chapters`() = runBlocking {
         val adapter = SoundBooksAdapter(
             FakeFetcher(mapOf("https://sound-books.net/x.html" to "<html><body>no player</body></html>"))
         )
 
+
         assertTrue(adapter.fetchBookPage("https://sound-books.net/x.html").chapters.isEmpty())
+    }
+
+    // Spec-24 T9 (#170): a page without og:image keeps a null cover — never
+    // fabricated. (The relative-path form is resolved against the site origin,
+    // mirroring the tile covers.)
+    @Test
+    fun `book page without a cover yields a null cover`() = runBlocking {
+        val adapter = SoundBooksAdapter(
+            FakeFetcher(mapOf("https://sound-books.net/y.html" to bookPageWithoutCover))
+        )
+
+        val detail = adapter.fetchBookPage("https://sound-books.net/y.html")
+        assertEquals(null, detail.coverImageUrl)
+    }
+
+    @Test
+    fun `relative og-image is resolved against the site origin`() = runBlocking {
+        val adapter = SoundBooksAdapter(
+            FakeFetcher(mapOf("https://sound-books.net/z.html" to bookPageRelativeCover))
+        )
+
+        val detail = adapter.fetchBookPage("https://sound-books.net/z.html")
+        assertEquals(
+            "https://sound-books.net/uploads/posts/2026-07/soniachna-mashyna.webp",
+            detail.coverImageUrl
+        )
     }
 
     @Test

@@ -6,6 +6,7 @@ import androidx.test.core.app.ApplicationProvider
 import com.example.data.db.AudiobookDao
 import com.example.data.db.AudiobookDatabase
 import com.example.data.db.AudiobookEntity
+import com.example.data.db.SeriesMemberEntity
 import com.example.data.db.WorkEntity
 import com.example.data.universe.SeriesUniverses
 import com.example.data.universe.SeriesUniverseProvider
@@ -263,7 +264,9 @@ class SeriesUniversesRoomTest {
 
     private fun wikidataResolver(
         resolution: UniverseResolution? = wikidataResolution,
-        onCall: () -> Unit = {}
+        onCall: () -> Unit = {},
+        ttlMillis: Long = 10_000L,
+        now: () -> Long = System::currentTimeMillis
     ): SeriesUniverses = SeriesUniverses(
         dao,
         universes,
@@ -272,7 +275,9 @@ class SeriesUniversesRoomTest {
                 onCall()
                 return resolution
             }
-        }
+        },
+        ttlMillis = ttlMillis,
+        now = now
     )
 
     @Test
@@ -323,10 +328,81 @@ class SeriesUniversesRoomTest {
         resolver.resolveForBook("b1")
         resolver.resolveForBook("b1")
 
-        // The first resolution cached the membership; the second is gated on
-        // the cache — the provider is consulted exactly once.
+        // The first resolution cached a fresh membership; the second is gated
+        // on the cache — the provider is consulted exactly once.
         assertEquals(1, calls)
         assertEquals("Невідомий всесвіт", dao.getUniverseById("wd:Q900")!!.name)
         assertEquals(1, dao.getSeriesMembersForWork("w1").size)
+    }
+
+    // ---------------------------------------------------------------------
+    // TTL: stale memberships re-resolve instead of persisting forever
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `a stale membership re-resolves through the provider and refreshes the stamp`() = runBlocking {
+        seedBook("Невідомий цикл", null, seriesIndex = 1)
+        var currentTime = 1_000_000L
+        var calls = 0
+        val resolver = wikidataResolver(onCall = { calls++ }, ttlMillis = 10_000L, now = { currentTime })
+
+        resolver.resolveForBook("b1")
+        assertEquals(1, calls)
+        assertEquals(1_000_000L, dao.getSeriesMembersForWork("w1")[0].resolvedAt)
+
+        // Within the TTL — the membership is fresh, no re-resolution.
+        currentTime += 5_000
+        resolver.resolveForBook("b1")
+        assertEquals(1, calls)
+
+        // Past the TTL — the provider is consulted again and the stamp
+        // refreshes; the same membership row is REPLACEd, never duplicated.
+        currentTime += 10_000
+        resolver.resolveForBook("b1")
+        assertEquals(2, calls)
+        assertEquals(1_015_000L, dao.getSeriesMembersForWork("w1")[0].resolvedAt)
+        assertEquals(1, dao.getSeriesMembersForWork("w1").size)
+        assertEquals("Невідомий всесвіт", dao.getUniverseById("wd:Q900")!!.name)
+    }
+
+    @Test
+    fun `a membership without a stamp counts as stale and refreshes`() = runBlocking {
+        seedBook("Невідомий цикл", null, seriesIndex = 1)
+        var calls = 0
+        val resolver = wikidataResolver(onCall = { calls++ }, ttlMillis = 10_000L, now = { 1_000_000L })
+        // A pre-TTL row (migration leftovers): a membership with a NULL stamp.
+        dao.upsertSeriesMember(
+            SeriesMemberEntity(workId = "w1", seriesId = "wd:Q900:2", position = 1, resolvedAt = null)
+        )
+
+        resolver.resolveForBook("b1")
+
+        // Null is unknown → stale → the provider refreshes and stamps the row.
+        assertEquals(1, calls)
+        assertEquals(1_000_000L, dao.getSeriesMembersForWork("w1")[0].resolvedAt)
+    }
+
+    @Test
+    fun `a failing re-resolution leaves the stale row untouched`() = runBlocking {
+        seedBook("Невідомий цикл", null, seriesIndex = 1)
+        var currentTime = 1_000_000L
+        var calls = 0
+        val resolver = wikidataResolver(
+            resolution = null, // the provider fails on the re-resolution
+            onCall = { calls++ },
+            ttlMillis = 10_000L,
+            now = { currentTime }
+        )
+        // A stale membership (pre-TTL) already in the cache.
+        dao.upsertSeriesMember(
+            SeriesMemberEntity(workId = "w1", seriesId = "wd:Q900:2", position = 1, resolvedAt = 900_000L)
+        )
+
+        resolver.resolveForBook("b1")
+
+        // The failed refresh contributes nothing — the stale row stays, and
+        // the next book open retries.
+        assertEquals(1, calls)
+        assertEquals(900_000L, dao.getSeriesMembersForWork("w1")[0].resolvedAt)
     }
 }

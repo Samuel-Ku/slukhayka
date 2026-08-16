@@ -29,7 +29,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         WorkSourceEntity::class,
         LibraryEntryEntity::class
     ],
-    version = 17,
+    version = 18,
     exportSchema = true
 )
 abstract class AudiobookDatabase : RoomDatabase() {
@@ -53,7 +53,7 @@ abstract class AudiobookDatabase : RoomDatabase() {
                     // upgrades, so a schema change fails loudly at runtime
                     // instead of silently dropping the database.
                     .addMigrations(
-                        MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17
+                        MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18
                     )
                     .build()
                 INSTANCE = instance
@@ -946,6 +946,22 @@ abstract class AudiobookDatabase : RoomDatabase() {
                 )
                 db.execSQL("ALTER TABLE series ADD COLUMN universeId TEXT")
                 db.execSQL("ALTER TABLE series ADD COLUMN positionInUniverse INTEGER")
+            }
+        }
+
+        /**
+         * Spec-25: v17 -> v18 gives the series-universe cache a bounded TTL —
+         * `series_members.resolvedAt` (epoch millis) marks when a book's
+         * resolution happened, so the Wikidata fallback can re-resolve stale
+         * rows instead of persisting forever. Pure addition: pre-existing
+         * memberships get a NULL timestamp, which the resolver treats as
+         * stale (one refresh on the next book open). Internal (not private)
+         * so the JVM test suite can verify the upgrade path against a real
+         * v17 database.
+         */
+        internal val MIGRATION_17_18 = object : Migration(17, 18) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE series_members ADD COLUMN resolvedAt INTEGER")
             }
         }
     }

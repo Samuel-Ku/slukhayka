@@ -64,6 +64,7 @@ Release-збірка підписується власним keystore (див. `
 
 Структура домену й архітектури — [CONTEXT.md](CONTEXT.md) і
 [docs/adr/](docs/adr/). Історія рішень — [docs/specs/](docs/specs/).
+Навігація по коду по модулях — [docs/CODEMAPS/](docs/CODEMAPS/).
 
 ## Ліцензія
 

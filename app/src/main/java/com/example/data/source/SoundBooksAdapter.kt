@@ -38,13 +38,22 @@ class SoundBooksAdapter(
         // per-source detail blocks.
         val description = ogMeta(html, "og:description")?.trim().orEmpty()
 
+        // Spec-24 T9 (#170): the page carries its own cover in og:image — the
+        // only cover signal of the book page (the tile covers live on listing
+        // pages only). Absent → null, never fabricated; relative paths are
+        // resolved against the site origin like the tile covers.
+        val coverImageUrl = ogMeta(html, "og:image")?.trim()?.let { cover ->
+            if (cover.startsWith("http")) cover else "https://sound-books.net$cover"
+        }
+
         val m3uUrl = PLAYLIST_URL.find(html)?.groupValues?.get(1) ?: return SourceBookDetail(
             title = title,
             author = author,
             narrator = narrator,
             url = url,
             chapters = emptyList(),
-            description = description
+            description = description,
+            coverImageUrl = coverImageUrl
         )
 
         val playlist = fetcher.getText(m3uUrl)
@@ -64,7 +73,8 @@ class SoundBooksAdapter(
             narrator = narrator,
             url = url,
             chapters = chapters,
-            description = description
+            description = description,
+            coverImageUrl = coverImageUrl
         )
     }
 

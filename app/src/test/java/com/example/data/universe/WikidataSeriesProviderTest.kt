@@ -296,6 +296,81 @@ class WikidataSeriesProviderTest {
     }
 
     // ---------------------------------------------------------------------
+    // Failure diagnostics (spec-26 T4): the residual harness classifies
+    // catalog misses by cause through the optional callback
+    // ---------------------------------------------------------------------
+
+    private fun diagnosticsOf(
+        responses: Map<String, String>,
+        configure: (WikidataSeriesProvider) -> WikidataSeriesProvider = { it }
+    ): List<ResolutionDiagnostic> {
+        val seen = mutableListOf<ResolutionDiagnostic>()
+        val provider = configure(
+            WikidataSeriesProvider(
+                fetchJson = { url ->
+                    val body = responses[url]
+                    if (body != null) FetchResult(200, body) else FetchResult(0, "")
+                },
+                diagnostic = { seen += it }
+            )
+        )
+        runBlocking { provider.resolve("A Little Hatred", "Блейк Крауч") }
+        return seen
+    }
+
+    @Test
+    fun `a search miss is diagnosed as not-on-wikidata`() = runBlocking {
+        // Empty direct searches (no translated fallback configured).
+        val responses = fixtureResponses().toMutableMap()
+        for (language in listOf("uk", "ru", "en")) {
+            responses[searchUrl(language, "A Little Hatred Блейк Крауч")] = searchJson()
+        }
+
+        assertEquals(listOf(ResolutionDiagnostic.SEARCH_MISS), diagnosticsOf(responses))
+    }
+
+    @Test
+    fun `a candidate whose author disagrees is diagnosed as author-mismatch`() = runBlocking {
+        val responses = fixtureResponses().toMutableMap()
+        responses[entityUrl("Q10")] = entityJson(
+            mapOf("Q10" to """{"labels":{${labelsJson("uk" to "Інший автор")}}}""")
+        )
+
+        assertEquals(listOf(ResolutionDiagnostic.AUTHOR_MISMATCH), diagnosticsOf(responses))
+    }
+
+    @Test
+    fun `a work without a series claim is diagnosed as no-series`() = runBlocking {
+        val responses = fixtureResponses().toMutableMap()
+        // Q1 loses its P179 — the work is not part of any series.
+        responses[entityUrl("Q1")] = entityJson(
+            mapOf("Q1" to """{"labels":{},"claims":{${claimJson("P50" to listOf("Q10"))}}}""")
+        )
+
+        assertEquals(listOf(ResolutionDiagnostic.NO_SERIES_CLAIM), diagnosticsOf(responses))
+    }
+
+    @Test
+    fun `an exhausted 429 budget is diagnosed as throttled`() = runBlocking {
+        val seen = mutableListOf<ResolutionDiagnostic>()
+        val provider = WikidataSeriesProvider(
+            fetchJson = { FetchResult(429, "") },
+            maxAttempts = 3,
+            sleep = {},
+            diagnostic = { seen += it }
+        )
+
+        provider.resolve("A Little Hatred", "Блейк Крауч")
+
+        // One exhausted-429 per language of the search ladder, then the
+        // terminal SEARCH_MISS — the harness classifies throttled-first.
+        assertEquals(
+            List(3) { ResolutionDiagnostic.THROTTLED } + ResolutionDiagnostic.SEARCH_MISS,
+            seen
+        )
+    }
+
+    // ---------------------------------------------------------------------
     // Silent no-ops: no network, no candidates, no series
     // ---------------------------------------------------------------------
 

@@ -25,12 +25,22 @@ import kotlinx.coroutines.delay
  * is retried with exponential backoff and jitter up to [maxAttempts], then
  * silently given up on (spec-26 T3). Fixture tests serve canned API
  * responses by URL.
+ *
+ * Best-effort is preserved for the UI: the failure reasons surface only
+ * through the optional [diagnostic] callback (spec-26 T4) — the residual-
+ * measurement harness classifies catalog misses by cause; the surfaces
+ * themselves still degrade to nothing.
  */
 class WikidataSeriesProvider(
     private val fetchJson: suspend (String) -> FetchResult,
     private val languages: List<String> = listOf("uk", "ru", "en"),
     private val maxCandidates: Int = 3,
     private val maxChainHops: Int = 8,
+    // Spec-26 T4: research/eval support — invoked once per resolve at the
+    // first failure point (and per exhausted-429 request). Null in
+    // production wiring; the residual harness collects it to classify
+    // catalog misses by cause.
+    private val diagnostic: ((ResolutionDiagnostic) -> Unit)? = null,
     // Spec-26 T3: the retry budget for rate-limited (429) requests — other
     // statuses and empty bodies are final and never retried. Exponential
     // backoff between attempts, jittered so a fleet of clients does not
@@ -55,21 +65,29 @@ class WikidataSeriesProvider(
         //    the search stage, and the P50 check below confirms it). When
         //    every direct search is empty, the translated-title fallback
         //    fires (only then — a direct hit never pays for a translation).
-        val candidates = search(bookTitle, bookAuthor) ?: searchTranslated(bookTitle, bookAuthor) ?: return null
+        val candidates = search(bookTitle, bookAuthor) ?: searchTranslated(bookTitle, bookAuthor)
+            ?: run { diagnostic?.invoke(ResolutionDiagnostic.SEARCH_MISS); return null }
         // 2. Candidate verification: the first candidate whose P50 author
         //    agrees with the book's author wins; none agreeing → no resolution.
-        val workQid = candidates.firstOrNull { authorMatches(it, bookAuthor) } ?: return null
+        val workQid = candidates.firstOrNull { authorMatches(it, bookAuthor) }
+            ?: run { diagnostic?.invoke(ResolutionDiagnostic.AUTHOR_MISMATCH); return null }
         // 3. The series item: the direct P179 claim, else the underlying
         //    work of an edition (P629), else the main subject (P921) when it
         //    is itself a series — so editions and companion works resolve too.
-        val seriesQid = findSeriesQid(workQid) ?: return null
+        val seriesQid = findSeriesQid(workQid)
+            ?: run { diagnostic?.invoke(ResolutionDiagnostic.NO_SERIES_CLAIM); return null }
         // 4. The series' P155/P156 chain, bounded in both directions; the
         //    chain head names the universe and anchors its id.
-        val chain = buildChain(seriesQid) ?: return null
+        val chain = buildChain(seriesQid)
+            ?: run { diagnostic?.invoke(ResolutionDiagnostic.CHAIN_UNPLACEABLE); return null }
         val position = chain.indexOfFirst { it.qid == seriesQid }
-        if (position < 0) return null
+        if (position < 0) {
+            diagnostic?.invoke(ResolutionDiagnostic.CHAIN_UNPLACEABLE)
+            return null
+        }
         val head = chain.first()
-        val universeName = head.label ?: return null
+        val universeName = head.label
+            ?: run { diagnostic?.invoke(ResolutionDiagnostic.CHAIN_UNPLACEABLE); return null }
         return UniverseResolution(
             universe = UniverseList(
                 id = "wd:${head.qid}",
@@ -212,7 +230,11 @@ class WikidataSeriesProvider(
         var attempt = 1
         while (true) {
             val result = fetchJson(url)
-            if (result.status != 429 || attempt >= maxAttempts) return result
+            if (result.status != 429) return result
+            if (attempt >= maxAttempts) {
+                diagnostic?.invoke(ResolutionDiagnostic.THROTTLED)
+                return result
+            }
             sleep(backoffMillis(attempt))
             attempt++
         }
@@ -249,6 +271,26 @@ class WikidataSeriesProvider(
         val follows: List<String>,
         val followedBy: List<String>
     )
+}
+
+/**
+ * Why a resolution failed — surfaced only through the provider's
+ * [WikidataSeriesProvider.diagnostic] callback (spec-26 T4): the residual-
+ * measurement harness classifies catalog misses by cause. [THROTTLED] is
+ * emitted per request that exhausts its 429 retry budget; the others once
+ * per resolve, at the first failure point.
+ */
+enum class ResolutionDiagnostic {
+    /** No candidates in any language — the work is not on Wikidata. */
+    SEARCH_MISS,
+    /** Candidates existed, but none's P50 author agreed with the book's. */
+    AUTHOR_MISMATCH,
+    /** The work has no P179 series, no P629 edition-of, no P921 series subject. */
+    NO_SERIES_CLAIM,
+    /** The series exists but its P155/P156 chain could not place it. */
+    CHAIN_UNPLACEABLE,
+    /** A request exhausted its 429 retry budget (rate-limited). */
+    THROTTLED
 }
 
 /** One series of a resolved universe view (the provider seam's result). */

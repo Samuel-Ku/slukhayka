@@ -203,6 +203,28 @@ val downloadE5Model by tasks.registering(Exec::class) {
   )
 }
 
+// spec-26 T4: the residual-measurement gate — runUniverseResidualEval. A
+// host JVM script (test sources, reusing the catalog fixture) that runs the
+// fixed Wikidata provider against the live API with the real transport and
+// classifies the misses by cause, writing the report. ML Kit (T1) is
+// device-only, so the harness runs without the translator and says so.
+val runUniverseResidualEval by tasks.registering(JavaExec::class) {
+  group = "verification"
+  description = "Runs the spec-26 T4 residual measurement over the catalog sample with the live Wikidata API; writes the report. Overrides via --args=\"path delayMs limit\"."
+  mainClass.set("com.example.data.universe.RunUniverseResidualEval")
+  dependsOn("compileDebugUnitTestKotlin", "processDebugUnitTestJavaRes")
+  val compileTask = project.tasks.named("compileDebugUnitTestKotlin")
+  val testOutput = (compileTask.get() as org.jetbrains.kotlin.gradle.tasks.KotlinCompile).destinationDirectory
+  val resourcesOutput = project.layout.buildDirectory.dir("intermediates/java_res/debugUnitTest/processDebugUnitTestJavaRes/out")
+  val testCp = project.configurations.getByName("debugUnitTestRuntimeClasspath")
+  classpath = project.files(
+    testOutput,
+    resourcesOutput
+  ) + project.files(testCp)
+  args("${projectDir}/docs/specs/2026-08-16-universe-residual-report.md")
+  isIgnoreExitValue = false
+}
+
 val runRecommendationEval by tasks.registering(JavaExec::class) {
   group = "verification"
   description = "Runs the spec-19 leave-one-out eval gate on saved fixtures with the real ONNX model; prints recall@20 / NDCG@20 and the GO/NO-GO decision."

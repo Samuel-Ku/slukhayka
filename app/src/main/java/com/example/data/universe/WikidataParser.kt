@@ -29,6 +29,15 @@ object WikidataParser {
     /** Every P179 (part of the series) entity id of one entity. */
     fun seriesIds(json: String, qid: String): List<String> = claimEntityIds(json, qid, "P179")
 
+    /** Every P629 (edition of) entity id — the work an edition embodies. */
+    fun editionOfIds(json: String, qid: String): List<String> = claimEntityIds(json, qid, "P629")
+
+    /** Every P921 (main subject) entity id — a series the work is about. */
+    fun mainSubjectIds(json: String, qid: String): List<String> = claimEntityIds(json, qid, "P921")
+
+    /** Every P31 (instance of) entity id — the class of the entity. */
+    fun instanceOfIds(json: String, qid: String): List<String> = claimEntityIds(json, qid, "P31")
+
     /** Every P155 (follows) entity id of one entity — the preceding series. */
     fun followsIds(json: String, qid: String): List<String> = claimEntityIds(json, qid, "P155")
 

@@ -9,6 +9,7 @@ import com.example.data.db.AudiobookEntity
 import com.example.data.db.WorkEntity
 import com.example.data.universe.SeriesUniverses
 import com.example.data.universe.SeriesUniverseProvider
+import com.example.data.universe.SharedUniverseStore
 import com.example.data.universe.UniverseList
 import com.example.data.universe.UniverseResolution
 import com.example.data.universe.UniverseSeries
@@ -328,5 +329,222 @@ class SeriesUniversesRoomTest {
         assertEquals(1, calls)
         assertEquals("Невідомий всесвіт", dao.getUniverseById("wd:Q900")!!.name)
         assertEquals(1, dao.getSeriesMembersForWork("w1").size)
+    }
+
+
+    // ---------------------------------------------------------------------
+    // TTL: stale memberships re-resolve instead of persisting forever
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `a stale membership re-resolves through the provider and refreshes the stamp`() = runBlocking {
+        seedBook("Невідомий цикл", null, seriesIndex = 1)
+        var currentTime = 1_000_000L
+        var calls = 0
+        val resolver = wikidataResolver(onCall = { calls++ }, ttlMillis = 10_000L, now = { currentTime })
+
+        resolver.resolveForBook("b1")
+        assertEquals(1, calls)
+        assertEquals(1_000_000L, dao.getSeriesMembersForWork("w1")[0].resolvedAt)
+
+        // Within the TTL — the membership is fresh, no re-resolution.
+        currentTime += 5_000
+        resolver.resolveForBook("b1")
+        assertEquals(1, calls)
+
+        // Past the TTL — the provider is consulted again and the stamp
+        // refreshes; the same membership row is REPLACEd, never duplicated.
+        currentTime += 10_000
+        resolver.resolveForBook("b1")
+        assertEquals(2, calls)
+        assertEquals(1_015_000L, dao.getSeriesMembersForWork("w1")[0].resolvedAt)
+        assertEquals(1, dao.getSeriesMembersForWork("w1").size)
+        assertEquals("Невідомий всесвіт", dao.getUniverseById("wd:Q900")!!.name)
+    }
+
+    @Test
+    fun `a membership without a stamp counts as stale and refreshes`() = runBlocking {
+        seedBook("Невідомий цикл", null, seriesIndex = 1)
+        var calls = 0
+        val resolver = wikidataResolver(onCall = { calls++ }, ttlMillis = 10_000L, now = { 1_000_000L })
+        // A pre-TTL row (migration leftovers): a membership with a NULL stamp.
+        dao.upsertSeriesMember(
+            SeriesMemberEntity(workId = "w1", seriesId = "wd:Q900:2", position = 1, resolvedAt = null)
+        )
+
+        resolver.resolveForBook("b1")
+
+        // Null is unknown → stale → the provider refreshes and stamps the row.
+        assertEquals(1, calls)
+        assertEquals(1_000_000L, dao.getSeriesMembersForWork("w1")[0].resolvedAt)
+    }
+
+    @Test
+    fun `a failing re-resolution leaves the stale row untouched`() = runBlocking {
+        seedBook("Невідомий цикл", null, seriesIndex = 1)
+        var currentTime = 1_000_000L
+        var calls = 0
+        val resolver = wikidataResolver(
+            resolution = null, // the provider fails on the re-resolution
+            onCall = { calls++ },
+            ttlMillis = 10_000L,
+            now = { currentTime }
+        )
+        // A stale membership (pre-TTL) already in the cache.
+        dao.upsertSeriesMember(
+            SeriesMemberEntity(workId = "w1", seriesId = "wd:Q900:2", position = 1, resolvedAt = 900_000L)
+        )
+
+        resolver.resolveForBook("b1")
+
+        // The failed refresh contributes nothing — the stale row stays, and
+        // the next book open retries.
+        assertEquals(1, calls)
+        assertEquals(900_000L, dao.getSeriesMembersForWork("w1")[0].resolvedAt)
+    }
+
+    // ---------------------------------------------------------------------
+    // Shared store read path (spec-26 T5): Room → Firestore → Wikidata
+    // ---------------------------------------------------------------------
+
+    /** A canned shared store: known workIds answer, everything else misses. */
+    private fun sharedStore(
+        vararg resolutions: Pair<String, UniverseResolution?>,
+        onCall: () -> Unit = {}
+    ): SharedUniverseStore = object : SharedUniverseStore {
+        private val map = resolutions.toMap()
+        override suspend fun getResolution(workId: String): UniverseResolution? {
+            onCall()
+            return map[workId]
+        }
+    }
+
+    private fun sharedResolver(
+        shared: SharedUniverseStore?,
+        onWikidataCall: () -> Unit = {},
+        ttlMillis: Long = 10_000L,
+        now: () -> Long = System::currentTimeMillis
+    ): SeriesUniverses = SeriesUniverses(
+        dao,
+        universes,
+        wikidata = object : SeriesUniverseProvider {
+            override suspend fun resolve(bookTitle: String, bookAuthor: String): UniverseResolution? {
+                onWikidataCall()
+                return wikidataResolution
+            }
+        },
+        sharedStore = shared,
+        ttlMillis = ttlMillis,
+        now = now
+    )
+
+    @Test
+    fun `a shared-store hit mirrors into the room cache and skips wikidata`() = runBlocking {
+        seedBook("Невідомий цикл", null, seriesIndex = 2)
+        var sharedCalls = 0
+        var wikidataCalls = 0
+        val resolver = sharedResolver(
+            shared = sharedStore("w1" to wikidataResolution, onCall = { sharedCalls++ }),
+            onWikidataCall = { wikidataCalls++ }
+        )
+
+        resolver.resolveForBook("b1")
+
+        // The shared hit populated the cache exactly like a fresh resolution.
+        assertEquals("Невідомий всесвіт", dao.getUniverseById("wd:Q900")!!.name)
+        assertEquals(listOf("Серія А", "Серія Б"), dao.getSeriesInUniverse("wd:Q900").map { it.title })
+        assertEquals(listOf("wd:Q900:2"), dao.getSeriesMembersForWork("w1").map { it.seriesId })
+        // The hit never paid for a Wikidata resolution.
+        assertEquals(1, sharedCalls)
+        assertEquals(0, wikidataCalls)
+        // The mirrored cache is the instant offline read model.
+        assertEquals("Невідомий всесвіт", resolver.contextOfBook("b1")!!.universeName)
+    }
+
+    @Test
+    fun `a shared-store miss falls through to wikidata`() = runBlocking {
+        seedBook("Невідомий цикл", null, seriesIndex = 2)
+        var wikidataCalls = 0
+        val resolver = sharedResolver(
+            shared = sharedStore("other-work" to wikidataResolution), // miss for w1
+            onWikidataCall = { wikidataCalls++ }
+        )
+
+        resolver.resolveForBook("b1")
+
+        assertEquals(1, wikidataCalls)
+        assertEquals("Невідомий всесвіт", dao.getUniverseById("wd:Q900")!!.name)
+        assertEquals(listOf("wd:Q900:2"), dao.getSeriesMembersForWork("w1").map { it.seriesId })
+    }
+
+    @Test
+    fun `a shared-store failure degrades silently to wikidata`() = runBlocking {
+        // The seam contract: a store that fails (offline, timeout, corrupt
+        // document) returns null — the read falls through exactly like a miss.
+        seedBook("Невідомий цикл", null, seriesIndex = 1)
+        var wikidataCalls = 0
+        val resolver = sharedResolver(
+            shared = object : SharedUniverseStore {
+                override suspend fun getResolution(workId: String): UniverseResolution? = null
+            },
+            onWikidataCall = { wikidataCalls++ }
+        )
+
+        resolver.resolveForBook("b1")
+
+        assertEquals(1, wikidataCalls)
+        assertEquals("Невідомий всесвіт", dao.getUniverseById("wd:Q900")!!.name)
+    }
+
+    @Test
+    fun `a fresh room membership skips the shared store`() = runBlocking {
+        // The Room layer is first: a membership resolved within the TTL is
+        // the answer — neither the shared store nor Wikidata is consulted.
+        seedBook("Невідомий цикл", null, seriesIndex = 1)
+        dao.upsertSeriesMember(
+            SeriesMemberEntity(workId = "w1", seriesId = "wd:Q900:2", position = 1, resolvedAt = 1_000_000L)
+        )
+        var sharedCalls = 0
+        var wikidataCalls = 0
+        val resolver = sharedResolver(
+            shared = sharedStore("w1" to wikidataResolution, onCall = { sharedCalls++ }),
+            onWikidataCall = { wikidataCalls++ },
+            ttlMillis = 10_000L,
+            now = { 1_005_000L }
+        )
+
+        resolver.resolveForBook("b1")
+
+        assertEquals(0, sharedCalls)
+        assertEquals(0, wikidataCalls)
+    }
+
+    @Test
+    fun `curated wins - the shared store is not consulted for a seeded series`() = runBlocking {
+        seedBook("Епоха божевілля", null, seriesIndex = 1)
+        var sharedCalls = 0
+        val resolver = sharedResolver(
+            shared = sharedStore("w1" to wikidataResolution, onCall = { sharedCalls++ })
+        )
+
+        resolver.resolveForBook("b1")
+
+        assertEquals(0, sharedCalls)
+        assertEquals("Перший закон", dao.getUniverseById("first-law")!!.name)
+        assertNull(dao.getUniverseById("wd:Q900"))
+    }
+
+    @Test
+    fun `without a shared store the read path is unchanged`() = runBlocking {
+        // AC1: no Firebase keys → sharedStore null → exactly the pre-Firestore
+        // path (the existing wikidataResolver has no shared store).
+        seedBook("Невідомий цикл", null, seriesIndex = 1)
+        var wikidataCalls = 0
+        val resolver = wikidataResolver(onCall = { wikidataCalls++ })
+
+        resolver.resolveForBook("b1")
+
+        assertEquals(1, wikidataCalls)
+        assertEquals("Невідомий всесвіт", dao.getUniverseById("wd:Q900")!!.name)
     }
 }

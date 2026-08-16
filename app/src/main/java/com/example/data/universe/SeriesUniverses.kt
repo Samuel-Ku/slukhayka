@@ -8,88 +8,148 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * Spec-25 (#171) — the lazy series-universe resolution. The source provides
- * a book's series (title + page URL) but nothing about the series' context;
- * this module answers "which universe does this series belong to, and where
- * in it does it sit" from the curated [UniverseList] assets and caches the
- * result in the `series` / `series_members` / `universes` tables — so a
- * resolution never repeats (the cache is the read model, the asset is the
- * matching rule).
+ * Spec-25 (#171/#173) — the lazy series-universe resolution. The source
+ * provides a book's series (title + page URL) but nothing about the series'
+ * context; this module answers "which universe does this series belong to,
+ * and where in it does it sit" and caches the result in the `series` /
+ * `series_members` / `universes` tables — so a resolution never repeats (the
+ * cache is the read model, the matching rule is the provider).
+ *
+ * Two providers behind one seam: the curated [UniverseList] assets first
+ * (local, offline, alias-aware), then the [SeriesUniverseProvider] fallback
+ * (Wikidata, T2) for unseeded series — best-effort and gated on the cache: a
+ * work that already carries a series membership is resolved (one resolution
+ * per book, never a duplicate). A book/series neither provider knows, or a
+ * failing provider, contributes NOTHING (no row, no error surfaced). The
+ * persistence is idempotent REPLACE upserts, so re-resolution is a no-op by
+ * construction.
  *
  * Resolution is triggered on book-page open / series-page open, background,
- * best-effort: a book/series the curated set does not know, or a failure,
- * contributes NOTHING (no row, no error surfaced). The persistence is
- * idempotent REPLACE upserts, so re-resolution is a no-op by construction.
- *
- * The Wikidata provider (a later ticket) slots behind this same module: it
- * resolves the series the curated set does not know, and the cache + reads
- * below stay unchanged.
+ * best-effort.
  */
 class SeriesUniverses(
     private val dao: AudiobookDao,
-    private val universes: List<UniverseList>
+    private val curated: List<UniverseList>,
+    private val wikidata: SeriesUniverseProvider? = null
 ) {
 
     /** Resolves one library book's series → universe and caches the result. */
     suspend fun resolveForBook(bookId: String) = withContext(Dispatchers.IO) {
         val book = dao.getAudiobookById(bookId) ?: return@withContext
-        val title = book.seriesTitle?.takeIf { it.isNotBlank() } ?: return@withContext
-        val match = UniverseMatcher.resolve(universes, title, book.seriesUrl) ?: return@withContext
-        persist(match, workId = book.workId ?: book.id, volumeIndex = book.seriesIndex)
+        val seriesTitle = book.seriesTitle?.takeIf { it.isNotBlank() } ?: return@withContext
+        val workId = book.workId ?: book.id
+        // Curated first (local, offline, alias-aware).
+        val curatedMatch = UniverseMatcher.resolve(curated, seriesTitle, book.seriesUrl)
+        if (curatedMatch != null) {
+            persist(curatedMatch.toResolution(), workId, book.seriesIndex)
+            return@withContext
+        }
+        // Wikidata fallback for unseeded series — best-effort and silent, and
+        // gated on the cache: a work that already carries a series membership
+        // is resolved (one resolution per book).
+        val provider = wikidata ?: return@withContext
+        if (dao.getSeriesMembersForWork(workId).isNotEmpty()) return@withContext
+        val resolution = provider.resolve(book.title, book.author) ?: return@withContext
+        persist(resolution, workId, book.seriesIndex)
     }
 
     /** Resolves a series page's universe (no book context) and caches it. */
     suspend fun resolveForSeries(title: String, url: String?) = withContext(Dispatchers.IO) {
         if (title.isBlank()) return@withContext
-        val match = UniverseMatcher.resolve(universes, title, url) ?: return@withContext
-        persist(match, workId = null, volumeIndex = null)
+        // The series page has no book to search Wikidata by — curated only.
+        val match = UniverseMatcher.resolve(curated, title, url) ?: return@withContext
+        persist(match.toResolution(), workId = null, volumeIndex = null)
     }
 
     /**
      * The cached universe context of one series — the read model for the
      * book page's «Всесвіт» line and the series screen's header block. Null
-     * when the series is unseeded (nothing cached — the UI stays silent).
-     * Matching reuses the same pure [UniverseMatcher], so the claimed title
-     * or URL resolves regardless of how the book words it.
+     * when the series is unresolved (nothing cached — the UI stays silent).
+     * The cache is the source of truth: the curated match (asset, alias-
+     * aware) first, then the cached series rows (URL first, normalized title
+     * second) — so Wikidata-resolved universes surface exactly like curated
+     * ones.
      */
     suspend fun contextOf(seriesTitle: String?, seriesUrl: String?): SeriesUniverseContext? =
         withContext(Dispatchers.IO) {
             val title = seriesTitle?.takeIf { it.isNotBlank() } ?: return@withContext null
-            val match = UniverseMatcher.resolve(universes, title, seriesUrl) ?: return@withContext null
-            val universe = dao.getUniverseById(match.universe.id) ?: return@withContext null
-            val ordered = dao.getSeriesInUniverse(match.universe.id)
-            val position = ordered.indexOfFirst { it.id == seriesId(match.universe.id, match.position) }
-            if (position < 0) return@withContext null
-            val precedes = ordered.getOrNull(position - 1)
-            val follows = ordered.getOrNull(position + 1)
-            SeriesUniverseContext(
-                universeName = universe.name,
-                seriesTitle = match.series.title,
-                position = position + 1,
-                totalInUniverse = ordered.size,
-                precedes = precedes?.let { SeriesRef(it.title, it.url) },
-                follows = follows?.let { SeriesRef(it.title, it.url) }
-            )
+            val series = curatedSeriesRow(title, seriesUrl) ?: cachedSeriesRow(title, seriesUrl)
+                ?: return@withContext null
+            contextOfSeriesRow(series)
         }
 
-    /** The cached universe context of one library book (its series' context). */
+    /**
+     * The cached universe context of one library book (its series' context).
+     * The book → series membership is the exact link (the source's volume
+     * index) — preferred over the fuzzy title read, which cannot match a
+     * Wikidata-resolved series label to the source's claimed series title.
+     * Falls back to the title/URL read when the book carries no membership.
+     */
     suspend fun contextOfBook(bookId: String): SeriesUniverseContext? = withContext(Dispatchers.IO) {
         val book = dao.getAudiobookById(bookId) ?: return@withContext null
+        val workId = book.workId ?: book.id
+        val memberSeriesId = dao.getSeriesMembersForWork(workId).firstOrNull()?.seriesId
+        if (memberSeriesId != null) {
+            val series = dao.getAllSeries().firstOrNull { it.id == memberSeriesId }
+                ?: return@withContext null
+            return@withContext contextOfSeriesRow(series)
+        }
         contextOf(book.seriesTitle, book.seriesUrl)
     }
 
-    private suspend fun persist(match: UniverseMatcher.Match, workId: String?, volumeIndex: Int?) {
+    /** The context of one cached series row: universe, position, neighbors. */
+    private suspend fun contextOfSeriesRow(series: SeriesEntity): SeriesUniverseContext? {
+        val universeId = series.universeId ?: return null
+        val universe = dao.getUniverseById(universeId) ?: return null
+        val ordered = dao.getSeriesInUniverse(universeId)
+        val position = ordered.indexOfFirst { it.id == series.id }
+        if (position < 0) return null
+        val precedes = ordered.getOrNull(position - 1)
+        val follows = ordered.getOrNull(position + 1)
+        return SeriesUniverseContext(
+            universeName = universe.name,
+            seriesTitle = series.title,
+            position = position + 1,
+            totalInUniverse = ordered.size,
+            precedes = precedes?.let { SeriesRef(it.title, it.url) },
+            follows = follows?.let { SeriesRef(it.title, it.url) }
+        )
+    }
+
+    /** The cached series row of a curated match (alias-aware, via the asset). */
+    private suspend fun curatedSeriesRow(title: String, url: String?): SeriesEntity? {
+        val match = UniverseMatcher.resolve(curated, title, url) ?: return null
+        return dao.getSeriesInUniverse(match.universe.id)
+            .firstOrNull { it.id == seriesId(match.universe.id, match.position) }
+    }
+
+    /** The cached series row by URL first, normalized title second — the
+     *  Wikidata-resolved rows (and curated rows the claimed title spells
+     *  slightly differently) land here. */
+    private suspend fun cachedSeriesRow(title: String, url: String?): SeriesEntity? {
+        val all = dao.getAllSeries()
+        val normalizedUrl = url?.takeIf { it.isNotBlank() }?.let { UniverseMatcher.normalizeUrl(it) }
+        normalizedUrl?.let { u ->
+            all.firstOrNull { series ->
+                series.url?.let { UniverseMatcher.normalizeUrl(it) == u } == true
+            }?.let { return it }
+        }
+        val normalizedTitle = UniverseMatcher.normalizeSeriesTitle(title)
+        return all.firstOrNull { UniverseMatcher.normalizeSeriesTitle(it.title) == normalizedTitle }
+    }
+
+    private suspend fun persist(resolution: UniverseResolution, workId: String?, volumeIndex: Int?) {
         try {
-            dao.upsertUniverse(UniverseEntity(id = match.universe.id, name = match.universe.name))
-            // One row per curated series, deterministically keyed by
-            // (universe, position) — re-resolution REPLACEs the same rows.
-            match.universe.series.forEachIndexed { index, series ->
+            dao.upsertUniverse(UniverseEntity(id = resolution.universe.id, name = resolution.universe.name))
+            // One row per series, deterministically keyed by (universe,
+            // position) — re-resolution REPLACEs the same rows.
+            resolution.universe.series.forEachIndexed { index, series ->
                 dao.upsertSeries(
                     SeriesEntity(
-                        id = seriesId(match.universe.id, index + 1),
+                        id = seriesId(resolution.universe.id, index + 1),
                         title = series.title,
                         url = series.urls.firstOrNull(),
-                        universeId = match.universe.id,
+                        universeId = resolution.universe.id,
                         positionInUniverse = index + 1
                     )
                 )
@@ -100,15 +160,17 @@ class SeriesUniverses(
                 dao.upsertSeriesMember(
                     com.example.data.db.SeriesMemberEntity(
                         workId = workId,
-                        seriesId = seriesId(match.universe.id, match.position),
+                        seriesId = seriesId(resolution.universe.id, resolution.position),
                         position = volumeIndex
                     )
                 )
             }
         } catch (e: Exception) {
-            Log.w("SeriesUniverses", "Universe resolution failed for $match", e)
+            Log.w("SeriesUniverses", "Universe resolution failed for ${resolution.universe.id}", e)
         }
     }
+
+    private fun UniverseMatcher.Match.toResolution() = UniverseResolution(universe, series, position)
 
     private fun seriesId(universeId: String, position: Int): String = "$universeId:$position"
 }

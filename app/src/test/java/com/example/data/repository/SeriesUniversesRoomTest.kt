@@ -8,7 +8,9 @@ import com.example.data.db.AudiobookDatabase
 import com.example.data.db.AudiobookEntity
 import com.example.data.db.WorkEntity
 import com.example.data.universe.SeriesUniverses
+import com.example.data.universe.SeriesUniverseProvider
 import com.example.data.universe.UniverseList
+import com.example.data.universe.UniverseResolution
 import com.example.data.universe.UniverseSeries
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -239,5 +241,92 @@ class SeriesUniversesRoomTest {
         assertEquals(1, context.position)
         assertNull(context.precedes)
         assertEquals("Епоха божевілля", context.follows!!.title)
+    }
+
+    // ---------------------------------------------------------------------
+    // Wikidata fallback (T2): unseeded series resolve through the provider
+    // ---------------------------------------------------------------------
+
+    /** The curated-shaped view a Wikidata provider would produce. */
+    private val wikidataResolution = UniverseResolution(
+        universe = UniverseList(
+            id = "wd:Q900",
+            name = "Невідомий всесвіт",
+            series = listOf(
+                UniverseSeries(title = "Серія А"),
+                UniverseSeries(title = "Серія Б")
+            )
+        ),
+        matchedSeries = UniverseSeries(title = "Серія Б"),
+        position = 2
+    )
+
+    private fun wikidataResolver(
+        resolution: UniverseResolution? = wikidataResolution,
+        onCall: () -> Unit = {}
+    ): SeriesUniverses = SeriesUniverses(
+        dao,
+        universes,
+        wikidata = object : SeriesUniverseProvider {
+            override suspend fun resolve(bookTitle: String, bookAuthor: String): UniverseResolution? {
+                onCall()
+                return resolution
+            }
+        }
+    )
+
+    @Test
+    fun `the wikidata fallback resolves and caches an unseeded series`() = runBlocking {
+        seedBook("Невідомий цикл", null, seriesIndex = 2)
+        val resolver = wikidataResolver()
+
+        resolver.resolveForBook("b1")
+
+        // The provider's universe and ordered series rows land in the cache.
+        assertEquals("Невідомий всесвіт", dao.getUniverseById("wd:Q900")!!.name)
+        val ordered = dao.getSeriesInUniverse("wd:Q900")
+        assertEquals(listOf("Серія А", "Серія Б"), ordered.map { it.title })
+        assertEquals(listOf(1, 2), ordered.map { it.positionInUniverse })
+        // The book's Work is a member of the matched series at its volume index.
+        val members = dao.getSeriesMembersForWork("w1")
+        assertEquals(listOf("wd:Q900:2"), members.map { it.seriesId })
+        assertEquals(2, members[0].position)
+        // The cached context surfaces exactly like a curated one.
+        val context = resolver.contextOfBook("b1")!!
+        assertEquals("Невідомий всесвіт", context.universeName)
+        assertEquals(2, context.position)
+        assertEquals(2, context.totalInUniverse)
+        assertEquals("Серія А", context.precedes!!.title)
+    }
+
+    @Test
+    fun `curated wins - the provider is never consulted for a seeded series`() = runBlocking {
+        seedBook("Епоха божевілля", null, seriesIndex = 1)
+        var calls = 0
+        val resolver = wikidataResolver(onCall = { calls++ })
+
+        resolver.resolveForBook("b1")
+
+        // The curated asset resolved the book — the provider was never asked.
+        assertEquals(0, calls)
+        assertEquals("Перший закон", dao.getUniverseById("first-law")!!.name)
+        assertNull(dao.getUniverseById("wd:Q900"))
+        assertEquals(listOf("first-law:2"), dao.getSeriesMembersForWork("w1").map { it.seriesId })
+    }
+
+    @Test
+    fun `the membership gate prevents a second provider resolution`() = runBlocking {
+        seedBook("Невідомий цикл", null, seriesIndex = 1)
+        var calls = 0
+        val resolver = wikidataResolver(onCall = { calls++ })
+
+        resolver.resolveForBook("b1")
+        resolver.resolveForBook("b1")
+
+        // The first resolution cached the membership; the second is gated on
+        // the cache — the provider is consulted exactly once.
+        assertEquals(1, calls)
+        assertEquals("Невідомий всесвіт", dao.getUniverseById("wd:Q900")!!.name)
+        assertEquals(1, dao.getSeriesMembersForWork("w1").size)
     }
 }

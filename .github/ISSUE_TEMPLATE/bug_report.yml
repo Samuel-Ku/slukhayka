@@ -1,0 +1,45 @@
+name: Bug report
+description: Повідомити про помилку в застосунку
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Дякуємо за повідомлення! Коротко: що сталося, коли, на якій версії.
+  - type: input
+    id: version
+    attributes:
+      label: Версія застосунку
+      description: З якого релізу встановлена апка (напр. v1.0)
+      placeholder: "v1.0"
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Пристрій і Android
+      description: Модель телефону та версія Android (Налаштування → Про телефон)
+      placeholder: "Pixel 8, Android 15"
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: Що сталося
+      description: Симптоми — що ти робив(ла) і що пішло не так
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Очікувана поведінка
+      description: Що мало статися натомість
+  - type: textarea
+    id: steps
+    attributes:
+      label: Кроки відтворення
+      description: Точна послідовність дій, яка призводить до помилки
+      placeholder: "1. Відкрити Медіатеку\n2. Натиснути …\n3. …"
+    validations:
+      required: true

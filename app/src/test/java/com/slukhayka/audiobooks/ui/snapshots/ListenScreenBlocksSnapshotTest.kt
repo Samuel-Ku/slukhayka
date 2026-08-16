@@ -7,10 +7,15 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import com.slukhayka.audiobooks.testing.TestDataFactory
-import com.slukhayka.audiobooks.ui.screens.ContinueSeriesRow
+import com.slukhayka.audiobooks.ui.components.CompactBookCard
+import com.slukhayka.audiobooks.ui.library.ListenComposer
+import com.slukhayka.audiobooks.ui.library.buildLibraryBooks
+import com.slukhayka.audiobooks.ui.screens.ListenBlockHeader
+import com.slukhayka.audiobooks.ui.screens.ListenBlockShelf
 import com.slukhayka.audiobooks.ui.screens.ListenEmptyState
 import com.slukhayka.audiobooks.ui.screens.ListenHeroCard
 import com.slukhayka.audiobooks.ui.screens.OpenWebSourceRow
@@ -116,27 +121,59 @@ class ListenScreenBlocksSnapshotTest {
         )
     }
 
+    // spec-28 (#191): each Listen block is a horizontal shelf of compact
+    // posters — the block header plus the poster row, pinned as the shelf
+    // form renders on the tab.
     @Test
-    fun continue_series_row() {
-        // ADR-0009: series fields are @Ignore projections — set in place.
-        val nextVolume = book.copy(title = "Наступна книга циклу").also {
-            it.seriesTitle = "Сага про Дріззта"
-            it.seriesIndex = 3
-        }
+    fun listen_block_shelf() {
+        val shelfBooks = buildLibraryBooks(
+            books = TestDataFactory.dataBooks(),
+            progressList = emptyList(),
+            chaptersByBook = emptyMap()
+        )
         composeTestRule.setContent {
             AudiobookTheme(darkTheme = true) {
                 ListenSurface {
-                    ContinueSeriesRow(
-                        seriesTitle = "Сага про Дріззта",
-                        book = nextVolume,
-                        onClick = {},
-                        onPlayClick = {}
-                    )
+                    Column {
+                        ListenBlockHeader(
+                            title = "Щось коротке",
+                            reason = "~1 год прослуховування",
+                            blockId = ListenComposer.BlockId.SHORT,
+                            onMoveUp = {},
+                            onMoveDown = {},
+                            onHide = {}
+                        )
+                        ListenBlockShelf(
+                            books = shelfBooks,
+                            onBookClick = {},
+                            onNotInterested = {}
+                        )
+                    }
                 }
             }
         }
+        // Self-verifying on top of the image: titles and authors render.
+        composeTestRule.onNodeWithText("Нейромант").assertExists()
+        composeTestRule.onNodeWithText("Вільям Гібсон").assertExists()
         composeTestRule.onRoot().captureRoboImage(
-            filePath = "src/test/snapshots/listen_continue_series.png"
+            filePath = "src/test/snapshots/listen_block_shelf.png"
+        )
+    }
+
+    // The Listen shelf keeps the reversible «Не цікаво» dismiss on each
+    // poster (wayfinder #62) — pinned so it cannot silently disappear.
+    @Test
+    fun compact_book_card_with_dismiss() {
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                ListenSurface {
+                    CompactBookCard(book = book, onClick = {}, onNotInterested = {})
+                }
+            }
+        }
+        composeTestRule.onNodeWithTag("not_interested_${book.id}").assertExists()
+        composeTestRule.onRoot().captureRoboImage(
+            filePath = "src/test/snapshots/compact_book_card_dismiss.png"
         )
     }
 

@@ -29,9 +29,12 @@ import com.slukhayka.audiobooks.data.db.PlaybackProgressEntity
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.components.AppSectionHeader
+import com.slukhayka.audiobooks.ui.components.CompactBookCard
 import com.slukhayka.audiobooks.ui.components.EmptyState
 import com.slukhayka.audiobooks.ui.displayAuthor
 import com.slukhayka.audiobooks.ui.library.ListenComposer
+import com.slukhayka.audiobooks.ui.library.LibraryBook
+import com.slukhayka.audiobooks.ui.library.deduplicateListenShelves
 import com.slukhayka.audiobooks.ui.theme.*
 
 /**
@@ -41,7 +44,7 @@ import com.slukhayka.audiobooks.ui.theme.*
  * 4read" rows. On a fresh install the tab shows a placeholder hero and two
  * CTAs instead of raw emptiness.
  *
- * The blocks are pure composables ([ListenHeroCard], [RecentlyListenedRow],
+ * The blocks are pure composables ([ListenHeroCard], [ListenBlockShelf],
  * [ListenEmptyState]) so snapshot tests can render them without a
  * `MainViewModel`.
  */
@@ -108,7 +111,19 @@ fun ListenScreen(
         // Wayfinder #62 — the rule-based block list. Every eligible block
         // renders with its reason; hidden blocks are skipped (still computed).
         val visibleBlocks = listenBlocks.filter { it.id !in hiddenBlocks }
-        for (block in visibleBlocks) {
+
+        // spec-28 (#191): full cross-shelf dedup — a book renders in at most
+        // ONE shelf, the highest on screen. The hero claims its book first
+        // (US-3), then each visible block claims in display order, so the
+        // user's reorder re-prioritises which shelf claims a book. A block
+        // emptied by dedup renders nothing (no empty header).
+        val claimedBookIds = mutableSetOf<String>()
+        visibleBlocks.firstOrNull { it.id == ListenComposer.BlockId.HERO }
+            ?.books?.firstOrNull()
+            ?.let { claimedBookIds.add(it.book.id) }
+        val dedupedBlocks = deduplicateListenShelves(visibleBlocks, claimedBookIds)
+
+        for (block in dedupedBlocks) {
             when (block.id) {
                 ListenComposer.BlockId.HERO -> {
                     val hero = block.books.first()
@@ -128,33 +143,13 @@ fun ListenScreen(
                         )
                     }
                 }
-                ListenComposer.BlockId.NEXT_IN_SERIES -> {
-                    val nextBook = block.books.first().book
-                    item(key = "block-next-series") {
-                        ListenBlockHeader(
-                            title = block.title,
-                            reason = block.reason,
-                            blockId = block.id,
-                            onMoveUp = { viewModel.moveListenBlockUp(block.id) },
-                            onMoveDown = { viewModel.moveListenBlockDown(block.id) },
-                            onHide = { viewModel.hideListenBlock(block.id) }
-                        )
-                    }
-                    item(key = "block-next-series-row") {
-                        ContinueSeriesRow(
-                            seriesTitle = nextBook.seriesTitle.orEmpty(),
-                            book = nextBook,
-                            onClick = { onBookClick(nextBook.id) },
-                            onPlayClick = { onPlayClick(nextBook) }
-                        )
-                    }
-                }
-                ListenComposer.BlockId.ALMOST_DONE,
-                ListenComposer.BlockId.RETURN,
-                ListenComposer.BlockId.TRAVEL,
-                ListenComposer.BlockId.SHORT,
-                ListenComposer.BlockId.FAVORITE_AUTHORS,
-                ListenComposer.BlockId.RECENTLY_ADDED -> {
+                // The seven remaining blocks — one horizontal shelf of
+                // compact posters each (spec-28 #191), replacing the
+                // full-width vertical cards. Reorder and hide stay on the
+                // block header (ADR-0015); a block with no books left after
+                // dedup renders nothing.
+                else -> {
+                    if (block.books.isEmpty()) continue
                     item(key = "block-${block.id.name}") {
                         ListenBlockHeader(
                             title = block.title,
@@ -165,16 +160,12 @@ fun ListenScreen(
                             onHide = { viewModel.hideListenBlock(block.id) }
                         )
                     }
-                    block.books.forEach { entry ->
-                        item(key = "block-${block.id.name}-${entry.book.id}") {
-                            ListenBlockBookRow(
-                                book = entry.book,
-                                progress = entry.progress,
-                                onClick = { onBookClick(entry.book.id) },
-                                onPlayClick = { onPlayClick(entry.book) },
-                                onNotInterested = { viewModel.dismissListenBook(entry.book.id) }
-                            )
-                        }
+                    item(key = "block-${block.id.name}-shelf") {
+                        ListenBlockShelf(
+                            books = block.books,
+                            onBookClick = onBookClick,
+                            onNotInterested = { viewModel.dismissListenBook(it) }
+                        )
                     }
                 }
             }
@@ -389,176 +380,29 @@ fun ListenBlockHeader(
 }
 
 /**
- * One book row inside a Listen block (wayfinder #62): cover, title, author,
- * optional progress, a play button and a «Не цікаво» action that dismisses
- * the Work from every block (reversible).
+ * spec-28 (#191) — one Listen block as a horizontal shelf of compact posters
+ * ([CompactBookCard] in a LazyRow), replacing the old full-width vertical
+ * rows. No default play triangle: tapping a poster opens the book page (the
+ * hero card is the resume CTA); the Listen-only «Не цікаво» dismiss stays on
+ * each poster.
  */
 @Composable
-fun ListenBlockBookRow(
-    book: AudiobookEntity,
-    progress: PlaybackProgressEntity?,
-    onClick: () -> Unit,
-    onPlayClick: () -> Unit,
-    onNotInterested: () -> Unit
+fun ListenBlockShelf(
+    books: List<LibraryBook>,
+    onBookClick: (String) -> Unit,
+    onNotInterested: (String) -> Unit
 ) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 5.dp)
-            .clip(RoundedCornerShape(AppDimens.RadiusCardLg))
-            .clickable { onClick() }
-            .testTag("listen_block_row_${book.id}"),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    LazyRow(
+        contentPadding = PaddingValues(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = Modifier.testTag("listen_block_shelf")
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = 10.dp, top = 10.dp, bottom = 10.dp, end = 4.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            com.slukhayka.audiobooks.ui.components.BookCoverImage(
-                book = book,
-                contentDescription = book.title,
-                modifier = Modifier
-                    .size(48.dp)
-                    .clip(RoundedCornerShape(AppDimens.RadiusInner)),
-                contentScale = ContentScale.Crop
+        items(books, key = { it.book.id }) { entry ->
+            CompactBookCard(
+                book = entry.book,
+                onClick = { onBookClick(entry.book.id) },
+                onNotInterested = { onNotInterested(entry.book.id) }
             )
-            Spacer(modifier = Modifier.width(10.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = book.title,
-                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Text(
-                    text = book.displayAuthor,
-                    style = MaterialTheme.typography.labelSmall,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                progress?.let {
-                    Text(
-                        text = "Розділ ${it.currentChapterIndex + 1} · ${MainViewModel.formatTime(it.currentPositionSeconds)}",
-                        // Spec-22 T2: tabular figures — the live position ticks
-                        // without shifting the row's digit widths.
-                        style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
-                        color = MaterialTheme.colorScheme.secondary
-                    )
-                }
-            }
-            IconButton(
-                onClick = onPlayClick,
-                modifier = Modifier
-                    .size(AppDimens.TouchTarget)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primaryContainer)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.PlayArrow,
-                    contentDescription = "Play",
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                    modifier = Modifier.size(22.dp)
-                )
-            }
-            IconButton(
-                onClick = onNotInterested,
-                modifier = Modifier
-                    .size(AppDimens.TouchTarget)
-                    .testTag("not_interested_${book.id}")
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Close,
-                    contentDescription = "Не цікаво",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(18.dp)
-                )
-            }
-        }
-    }
-}
-
-/**
- * The next volume of the current book's cycle (spec-9 T4): a compact card
- * with the volume number and a one-tap play action.
- */
-@Composable
-fun ContinueSeriesRow(
-    seriesTitle: String,
-    book: AudiobookEntity,
-    onClick: () -> Unit,
-    onPlayClick: () -> Unit
-) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 5.dp)
-            .clip(RoundedCornerShape(AppDimens.RadiusCardLg))
-            .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f), RoundedCornerShape(AppDimens.RadiusCardLg))
-            .clickable { onClick() }
-            .testTag("continue_series_${book.id}"),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(10.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            com.slukhayka.audiobooks.ui.components.BookCoverImage(
-                book = book,
-                contentDescription = book.title,
-                modifier = Modifier
-                    .size(48.dp)
-                    .clip(RoundedCornerShape(AppDimens.RadiusInner)),
-                contentScale = ContentScale.Crop
-            )
-            Spacer(modifier = Modifier.width(10.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = if (seriesTitle.isBlank()) "Наступна частина циклу" else "Наступна частина: $seriesTitle",
-                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                    color = MaterialTheme.colorScheme.secondary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = book.title,
-                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                book.seriesIndex?.let { index ->
-                    if (index > 0) {
-                        Text(
-                            text = "Частина $index",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            }
-            IconButton(
-                onClick = onPlayClick,
-                modifier = Modifier
-                    .size(AppDimens.TouchTarget)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.PlayArrow,
-                    contentDescription = "Play",
-                    tint = MaterialTheme.colorScheme.onPrimary,
-                    modifier = Modifier.size(24.dp)
-                )
-            }
         }
     }
 }

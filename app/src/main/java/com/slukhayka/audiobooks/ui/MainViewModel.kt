@@ -9,6 +9,8 @@ import androidx.paging.PagingData
 import androidx.paging.cachedIn
 import com.slukhayka.audiobooks.App
 import com.slukhayka.audiobooks.data.catalog.CatalogPerson
+import com.slukhayka.audiobooks.data.catalog.CatalogSeries
+import com.slukhayka.audiobooks.data.catalog.CatalogSeriesIndex
 import com.slukhayka.audiobooks.data.db.*
 import com.slukhayka.audiobooks.data.duration.ChapterDurationProbe
 import com.slukhayka.audiobooks.data.duration.DurationEnrichment
@@ -364,6 +366,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _selectedSeries.value = null
         _seriesBooks.value = emptyList()
         _selectedSeriesUniverse.value = null
+    }
+
+    // spec-28 (#189): the «Серії» index — every series aggregated from the
+    // catalogue sections, deduplicated by URL. No new data source: the index
+    // re-shapes what the catalogue parser already produces. One read-only
+    // StateFlow plus an open/close pair, mirroring the series/top-100/people
+    // seam. The index is a snapshot of the sections at open time — reopening
+    // after a catalogue refresh shows the fresh list.
+    private val _seriesIndexOpen = MutableStateFlow(false)
+    val seriesIndexOpen: StateFlow<Boolean> = _seriesIndexOpen.asStateFlow()
+
+    private val _seriesIndex = MutableStateFlow<List<CatalogSeries>>(emptyList())
+    val seriesIndex: StateFlow<List<CatalogSeries>> = _seriesIndex.asStateFlow()
+
+    fun openSeriesIndex() {
+        _seriesIndex.value = CatalogSeriesIndex.aggregate(sourceCatalog.catalogSections.value)
+        _seriesIndexOpen.value = true
+    }
+
+    fun closeSeriesIndex() {
+        _seriesIndexOpen.value = false
+        _seriesIndex.value = emptyList()
     }
 
     // Genre pages ("Аудіокниги жанру:" from the homepage sidebar): one

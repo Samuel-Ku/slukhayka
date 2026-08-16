@@ -352,6 +352,16 @@ fun HomeScreen(
                             }
                         )
                     }
+                    // spec-28 (#189): «Серії» — a pushed index of every series
+                    // aggregated from the catalogue sections (the «Цикли»
+                    // row), deduplicated by URL. Tapping a series opens the
+                    // existing series page.
+                    item {
+                        GenreChip(
+                            title = "Серії",
+                            onClick = { viewModel.openSeriesIndex() }
+                        )
+                    }
                 }
             }
 

@@ -37,6 +37,7 @@ import com.slukhayka.audiobooks.ui.screens.ListenScreen
 import com.slukhayka.audiobooks.ui.screens.PeopleScreen
 import com.slukhayka.audiobooks.ui.screens.PersonBooksScreen
 import com.slukhayka.audiobooks.ui.screens.PlayerScreen
+import com.slukhayka.audiobooks.ui.screens.SeriesIndexScreen
 import com.slukhayka.audiobooks.ui.screens.SeriesScreen
 import com.slukhayka.audiobooks.ui.screens.Top100Screen
 import com.slukhayka.audiobooks.ui.screens.WebSourceBrowserScreen
@@ -87,6 +88,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
 
     val selectedWebSource by viewModel.selectedWebSource.collectAsState()
     val selectedSeries by viewModel.selectedSeries.collectAsState()
+    val seriesIndexOpen by viewModel.seriesIndexOpen.collectAsState()
     val selectedGenre by viewModel.selectedGenre.collectAsState()
     val selectedTop100 by viewModel.selectedTop100.collectAsState()
     val selectedPeopleKind by viewModel.selectedPeopleKind.collectAsState()
@@ -94,14 +96,18 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
 
     // Handle system back press
     BackHandler(enabled = showFullPlayer || selectedBookId != null ||
-        selectedWebSource != null || selectedSeries != null || selectedGenre != null || selectedTop100 ||
-        selectedPeopleKind != null || selectedPerson != null) {
+        selectedWebSource != null || selectedSeries != null || seriesIndexOpen || selectedGenre != null ||
+        selectedTop100 || selectedPeopleKind != null || selectedPerson != null) {
         if (showFullPlayer) {
             viewModel.setShowFullPlayer(false)
         } else if (selectedWebSource != null) {
             viewModel.closeWebSource()
         } else if (selectedSeries != null) {
+            // A series opened FROM the index keeps the index underneath:
+            // back closes the series page first, then the index.
             viewModel.closeSeries()
+        } else if (seriesIndexOpen) {
+            viewModel.closeSeriesIndex()
         } else if (selectedGenre != null) {
             viewModel.closeGenre()
         } else if (selectedTop100) {
@@ -163,6 +169,15 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                         viewModel = viewModel,
                         onBackClick = { viewModel.closeSeries() },
                         onBookClick = { id -> viewModel.selectBook(id) }
+                    )
+
+                    // spec-28 (#189): the «Серії» index — every series from
+                    // the catalogue sections; tapping one pushes the existing
+                    // series page on top of this index.
+                    seriesIndexOpen -> SeriesIndexScreen(
+                        viewModel = viewModel,
+                        onBackClick = { viewModel.closeSeriesIndex() },
+                        onSeriesClick = { series -> viewModel.openSeries(series.title, series.url) }
                     )
 
                     // Genre (category) page ("Аудіокниги жанру:").

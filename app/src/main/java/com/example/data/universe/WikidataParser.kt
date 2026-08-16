@@ -23,6 +23,18 @@ object WikidataParser {
         return search.mapNotNull { (it as? Map<*, *>)?.get("id") as? String }
     }
 
+    /**
+     * Every hit id of a CirrusSearch response (`action=query&list=search`,
+     * spec-26 T2 — the author-narrowed work search). The hits live under
+     * `query.search[].title` (the item's QID).
+     */
+    fun cirrusHitIds(json: String): List<String> {
+        val obj = MiniJson.parse(json) as? Map<*, *> ?: return emptyList()
+        val query = obj["query"] as? Map<*, *> ?: return emptyList()
+        val search = query["search"] as? List<*> ?: return emptyList()
+        return search.mapNotNull { (it as? Map<*, *>)?.get("title") as? String }
+    }
+
     /** Every P50 (author) entity id of one entity in a `wbgetentities` response. */
     fun authorIds(json: String, qid: String): List<String> = claimEntityIds(json, qid, "P50")
 

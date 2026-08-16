@@ -1,6 +1,7 @@
 package com.example.data.universe
 
 import com.example.data.collections.CollectionMatcher
+import com.example.data.merge.MergeKey
 import java.net.URLEncoder
 
 /**
@@ -15,6 +16,15 @@ import java.net.URLEncoder
  * Spec-26 T1 (#175) adds the title-translation fallback: when the direct
  * uk → ru → en search is empty, the uk title is translated uk → ru/en via
  * the [TitleTranslator] seam (ML Kit, on-device) and the search retried.
+ *
+ * Spec-26 T2 (#176) adds the author to the search: the author name is
+ * resolved to its Wikidata QID (wbsearchentities uk → ru → en, verified by
+ * its label against the book's author — the same normalization on both
+ * sides) and the work is searched by CirrusSearch `haswbstatement:P50=<qid>`
+ * + normalized title tokens, so ambiguous titles narrow at search time
+ * instead of relying on P50 candidate verification alone. The author-aware
+ * pass is best-effort: an unresolvable author, an unverified QID or an
+ * empty narrowed search falls through to the plain title pass.
  *
  * Best-effort and silent by design: no network, no search hits in any of
  * uk → ru → en (direct or translated), no author agreement, no P179, a
@@ -33,13 +43,17 @@ class WikidataSeriesProvider(
 
     override suspend fun resolve(bookTitle: String, bookAuthor: String): UniverseResolution? {
         if (bookTitle.isBlank() || bookAuthor.isBlank()) return null
-        // 1. Search the work title, uk → ru → en (the first language with
-        //    hits wins — never a union, so ambiguity stays contained). When
-        //    all three come back empty, the uk title is translated uk → ru/en
-        //    (spec-26 T1, ML Kit via the [TitleTranslator] seam) and the
-        //    search is retried with the translated string — a book whose
-        //    only Wikidata labels are ru/en still resolves.
-        val candidates = search(bookTitle) ?: searchTranslated(bookTitle) ?: return null
+        // 1. Search the work — author-aware first (spec-26 T2: the query
+        //    carries the author as the P50 entity constraint + normalized
+        //    title tokens, so ambiguous titles narrow at search time), then
+        //    the plain title pass uk → ru → en, then the translated pass
+        //    (spec-26 T1). First pass with hits wins — never a union, so
+        //    ambiguity stays contained. A book whose only Wikidata labels
+        //    are ru/en still resolves via the translated pass.
+        val candidates = searchByAuthor(bookTitle, bookAuthor)
+            ?: search(bookTitle)
+            ?: searchTranslated(bookTitle)
+            ?: return null
         // 2. Candidate verification: the first candidate whose P50 author
         //    agrees with the book's author wins; none agreeing → no resolution.
         val workQid = candidates.firstOrNull { authorMatches(it, bookAuthor) } ?: return null
@@ -72,6 +86,56 @@ class WikidataSeriesProvider(
             if (ids.isNotEmpty()) return ids.take(maxCandidates)
         }
         return null
+    }
+
+    /**
+     * Spec-26 T2 (#176) — the author-aware work search. The author name is
+     * resolved to its Wikidata QID (verified by its label against the book's
+     * author — same normalization on both sides), then the work is searched
+     * by CirrusSearch with `haswbstatement:P50=<qid>` + the normalized title
+     * tokens. The label-search endpoint cannot take the author (its tokens
+     * are ANDed against labels only, so the author name would kill the hit);
+     * CirrusSearch indexes the P50 claims, so the author narrows the result
+     * at search time. An unresolvable or unverified author, or an empty
+     * narrowed search, contributes nothing — the caller falls through to the
+     * plain title pass.
+     */
+    private suspend fun searchByAuthor(title: String, author: String): List<String>? {
+        val authorQid = resolveAuthorQid(author) ?: return null
+        val tokens = MergeKey.normalizeTitle(title)
+            .split(" ")
+            .filter { it.isNotBlank() }
+        if (tokens.isEmpty()) return null
+        val json = fetchJson(cirrusSearchUrl(authorQid, tokens.joinToString(" ")))
+        if (json.isBlank()) return null
+        return WikidataParser.cirrusHitIds(json).takeIf { it.isNotEmpty() }
+    }
+
+    /**
+     * Resolves the book's author to a Wikidata QID: wbsearchentities uk → ru
+     * → en, verifying each candidate by its label against the book's author
+     * (the same [CollectionMatcher.normalizeAuthor] rule on both sides — an
+     * author with spaces, diacritics or apostrophes compares identically).
+     * Returns null when no language finds an agreeing author — the caller
+     * falls through, never resolving against a wrong author.
+     */
+    private suspend fun resolveAuthorQid(author: String): String? {
+        for (language in languages) {
+            val json = fetchJson(authorSearchUrl(language, author))
+            if (json.isBlank()) continue
+            for (qid in WikidataParser.searchHitIds(json)) {
+                if (authorNameMatches(qid, author)) return qid
+            }
+        }
+        return null
+    }
+
+    /** True when the author entity's label (uk → ru → en) agrees with the
+     *  book's author under the shared normalization. */
+    private suspend fun authorNameMatches(authorQid: String, bookAuthor: String): Boolean {
+        val json = fetchEntity(authorQid) ?: return false
+        val label = WikidataParser.label(json, authorQid, languages) ?: return false
+        return CollectionMatcher.normalizeAuthor(label) == CollectionMatcher.normalizeAuthor(bookAuthor)
     }
 
     /**
@@ -161,6 +225,20 @@ class WikidataSeriesProvider(
     private fun searchUrl(language: String, title: String): String =
         "https://www.wikidata.org/w/api.php?action=wbsearchentities&format=json" +
             "&language=$language&uselang=$language&type=item&search=${encode(title)}"
+
+    /** The author-name search (wbsearchentities) — the author QID resolution. */
+    private fun authorSearchUrl(language: String, author: String): String =
+        "https://www.wikidata.org/w/api.php?action=wbsearchentities&format=json" +
+            "&language=$language&uselang=$language&type=item&search=${encode(author)}"
+
+    /**
+     * The CirrusSearch work query narrowed to one author: the P50 statement
+     * constraint + the normalized title tokens (spec-26 T2).
+     */
+    private fun cirrusSearchUrl(authorQid: String, titleTokens: String): String =
+        "https://www.wikidata.org/w/api.php?action=query&list=search&format=json" +
+            "&srnamespace=0&srlimit=$maxCandidates" +
+            "&srsearch=${encode("haswbstatement:P50=$authorQid $titleTokens")}"
 
     private fun entitiesUrl(ids: String): String =
         "https://www.wikidata.org/w/api.php?action=wbgetentities&format=json" +

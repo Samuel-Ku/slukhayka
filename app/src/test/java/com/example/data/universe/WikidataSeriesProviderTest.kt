@@ -23,6 +23,9 @@ class WikidataSeriesProviderTest {
     private fun searchJson(vararg ids: String): String =
         """{"search":[${ids.joinToString(",") { """{"id":"$it"}""" }}]}"""
 
+    private fun cirrusJson(vararg ids: String): String =
+        """{"query":{"search":[${ids.joinToString(",") { """{"title":"$it"}""" }}]}}"""
+
     private fun claimJson(vararg claims: Pair<String, List<String>>): String =
         claims.joinToString(",") { (property, ids) ->
             "\"$property\":[${ids.joinToString(",") { """{"mainsnak":{"snaktype":"value","datavalue":{"value":{"id":"$it"}}}}""" }}]"
@@ -62,6 +65,27 @@ class WikidataSeriesProviderTest {
     private fun searchUrl(language: String, title: String): String =
         "https://www.wikidata.org/w/api.php?action=wbsearchentities&format=json" +
             "&language=$language&uselang=$language&type=item&search=${URLEncoder.encode(title, "UTF-8")}"
+
+    private fun authorSearchUrl(language: String, author: String): String =
+        "https://www.wikidata.org/w/api.php?action=wbsearchentities&format=json" +
+            "&language=$language&uselang=$language&type=item&search=${URLEncoder.encode(author, "UTF-8")}"
+
+    /** The CirrusSearch URL the provider builds (spec-26 T2): the author's
+     *  P50 constraint + the normalized title tokens. */
+    private fun cirrusUrl(authorQid: String, title: String): String {
+        // Mirrors MergeKey.normalizeTitle (subtitle cuts + punctuation strip).
+        val tokens = title
+            .substringBefore(':')
+            .substringBefore('—')
+            .substringBefore('–')
+            .lowercase()
+            .replace(Regex("[^\\p{L}\\p{N} ]"), "")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+        return "https://www.wikidata.org/w/api.php?action=query&list=search&format=json" +
+            "&srnamespace=0&srlimit=3" +
+            "&srsearch=${URLEncoder.encode("haswbstatement:P50=$authorQid $tokens", "UTF-8")}"
+    }
 
     private fun entityUrl(ids: String): String =
         "https://www.wikidata.org/w/api.php?action=wbgetentities&format=json&ids=$ids&props=claims|labels"
@@ -299,5 +323,112 @@ class WikidataSeriesProviderTest {
 
         assertNull(provider(responses, translator).resolve(bookTitle, "Джо Аберкромбі"))
         assertEquals(listOf("ru", "en"), translator.calls)
+    }
+
+    // ---------------------------------------------------------------------
+    // Spec-26 T2 (#176): the author-aware search (P50 constraint + title)
+    // ---------------------------------------------------------------------
+
+    /**
+     * The author-aware fixture world: the author resolves to Q10 (verified by
+     * its label), the author-narrowed CirrusSearch returns the work Q1, and
+     * Q1 joins the same Q100/Q101 chain as the anchor fixture. The plain
+     * title search URLs are deliberately ABSENT — a resolution can only
+     * succeed through the author pass, proving the query carried both the
+     * author (P50) and the title tokens.
+     */
+    private fun authorFixture(title: String, author: String): MutableMap<String, String> {
+        val responses = mutableMapOf<String, String>()
+        responses[authorSearchUrl("uk", author)] = searchJson("Q10")
+        responses[entityUrl("Q10")] = entityJson(
+            mapOf("Q10" to """{"labels":{${labelsJson("uk" to author)}}}""")
+        )
+        responses[cirrusUrl("Q10", title)] = cirrusJson("Q1")
+        responses[entityUrl("Q1")] = entityJson(
+            mapOf(
+                "Q1" to """{"labels":{${labelsJson("uk" to title)}},"claims":{${claimJson("P50" to listOf("Q10"), "P179" to listOf("Q100"))}}}"""
+            )
+        )
+        responses[entityUrl("Q100")] = entityJson(
+            mapOf("Q100" to """{"labels":{${labelsJson("uk" to "Епоха божевілля")}},"claims":{${claimJson("P155" to listOf("Q101"))}}}""")
+        )
+        responses[entityUrl("Q101")] = entityJson(
+            mapOf("Q101" to """{"labels":{${labelsJson("uk" to "Перший закон")}},"claims":{${claimJson("P156" to listOf("Q100"))}}}""")
+        )
+        return responses
+    }
+
+    @Test
+    fun `the author-narrowed search resolves an ambiguous title to the right work`() = runBlocking {
+        val title = "A Little Hatred"
+        val author = "Блейк Крауч"
+        // The title search URLs are absent — only the author-aware pass can
+        // resolve, proving the query carried the author (P50) + title tokens.
+        val responses = authorFixture(title, author)
+
+        val resolution = provider(responses).resolve(title, author)!!
+
+        assertEquals("Перший закон", resolution.universe.name)
+        assertEquals(listOf("Перший закон", "Епоха божевілля"), resolution.universe.series.map { it.title })
+    }
+
+    @Test
+    fun `an author with apostrophes normalizes identically on both sides`() = runBlocking {
+        val title = "Книга"
+        val author = "Пат О'Браєн"
+        val responses = authorFixture(title, author)
+
+        // Both the author-search label («Пат О'Браєн») and the book author
+        // normalize to the same key — the apostrophe is stripped on both
+        // sides by the shared rule, so the author QID is accepted.
+        val resolution = provider(responses).resolve(title, author)!!
+
+        assertEquals("Перший закон", resolution.universe.name)
+    }
+
+    @Test
+    fun `the author search falls back uk to ru when uk has no hits`() = runBlocking {
+        val title = "A Little Hatred"
+        val author = "Блейк Крауч"
+        val responses = authorFixture(title, author)
+        // uk finds no author; ru does.
+        responses[authorSearchUrl("uk", author)] = searchJson()
+        responses[authorSearchUrl("ru", author)] = searchJson("Q10")
+
+        val resolution = provider(responses).resolve(title, author)!!
+
+        assertEquals("Перший закон", resolution.universe.name)
+    }
+
+    @Test
+    fun `a wrong author resolution falls through to the title pass`() = runBlocking {
+        val title = "A Little Hatred"
+        val author = "Блейк Крауч"
+        val responses = authorFixture(title, author)
+        // The author search surfaces Q20 whose label does not agree with the
+        // book's author — the QID is rejected and the plain title pass
+        // resolves instead (its URL is present in the fixture).
+        responses[authorSearchUrl("uk", author)] = searchJson("Q20")
+        responses[entityUrl("Q20")] = entityJson(
+            mapOf("Q20" to """{"labels":{${labelsJson("uk" to "Інший автор")}}}""")
+        )
+        responses[searchUrl("uk", title)] = searchJson("Q1")
+
+        val resolution = provider(responses).resolve(title, author)!!
+
+        assertEquals("Перший закон", resolution.universe.name)
+    }
+
+    @Test
+    fun `an unresolvable author with an empty title pass resolves to nothing`() = runBlocking {
+        val title = "A Little Hatred"
+        val author = "Блейк Крауч"
+        val responses = mutableMapOf<String, String>()
+        // No author search hit in any language, no title-search hit either.
+        responses[authorSearchUrl("uk", author)] = searchJson()
+        responses[authorSearchUrl("ru", author)] = searchJson()
+        responses[authorSearchUrl("en", author)] = searchJson()
+
+        assertNull(provider(responses).resolve(title, author))
     }
 }

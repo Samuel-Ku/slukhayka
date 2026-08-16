@@ -16,6 +16,9 @@
 local.properties
 .env
 debug.keystore
+# spec-26 T5: the Firebase config with the project keys is local-only — the
+# shared Firestore layer is absent without it and the app works as before.
+google-services.json
 .audit/
 .freebuff/
 

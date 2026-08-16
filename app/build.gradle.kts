@@ -129,8 +129,10 @@ dependencies {
   implementation(libs.coil.compose)
   implementation(libs.converter.moshi)
   implementation(libs.firebase.ai)
-  // Uncomment to use Firestore:
-  // implementation(libs.firebase.firestore)
+  // Spec-26 T5: the shared universe-knowledge base (Firestore free tier).
+  // Requires a local (gitignored) google-services.json — without it the
+  // shared layer is simply absent and the app works as before.
+  implementation(libs.firebase.firestore)
 
   // Firebase Auth with Google Sign-In requires all of the following to be uncommented together.
   // If you are using Firebase Auth with other providers (e.g. Email/Password), you may only need

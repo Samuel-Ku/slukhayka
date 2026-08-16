@@ -22,6 +22,7 @@ import com.example.data.source.SoundBooksAdapter
 import com.example.data.source.HttpFetcher
 import com.example.data.source.SourceAdapter
 
+import com.example.data.universe.CuratedSeed
 import com.example.data.universe.FirestoreUniverseStore
 import com.example.data.universe.MlKitTitleTranslator
 import com.example.data.universe.SeriesUniverses
@@ -204,6 +205,17 @@ class App : Application() {
         // idempotent — a failing or repeated pass never blocks startup.
         CoroutineScope(Dispatchers.IO).launch {
             runCatching { storedTitleScrub.scrubOnce() }
+        }
+        // Spec-26 T6 (#180): pour the curated universe asset into the shared
+        // base (one document per curated series, idempotent — a re-seed on a
+        // later launch writes the same documents). A no-op without Firebase
+        // keys (FirestoreUniverseStore.create returns null) and silent on any
+        // failure — the local curated asset works either way.
+        CoroutineScope(Dispatchers.IO).launch {
+            CuratedSeed.seed(
+                FirestoreUniverseStore.create(this@App),
+                UniverseAssets.load(this@App)
+            )
         }
     }
 

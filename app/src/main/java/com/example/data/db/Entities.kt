@@ -321,6 +321,10 @@ object CorrectionKind {
     const val SPLIT = "SPLIT"
     const val NEVER_MATCH = "NEVER_MATCH"
     const val FIELD = "FIELD"
+    // Spec-26 T9 (#183): the user's «wrong universe» complaint pins this
+    // kind; its `value` carries the reported (cached) universe id, and the
+    // re-resolution verdict either replaces it or clears the complaint.
+    const val WRONG_UNIVERSE = "WRONG_UNIVERSE"
 }
 
 /** Origin of a [CorrectionEntity] (wayfinder #54 Q9) — user-made outranks derived. */

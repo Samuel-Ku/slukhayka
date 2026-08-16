@@ -338,6 +338,12 @@ interface AudiobookDao {
     @Query("SELECT * FROM series_members WHERE workId = :workId")
     suspend fun getSeriesMembersForWork(workId: String): List<SeriesMemberEntity>
 
+    /** Drops every membership of one work — a re-resolution that moves the
+     *  book to a different series replaces the old membership (spec-26 T9: a
+     *  corrected universe must not leave the stale one behind). */
+    @Query("DELETE FROM series_members WHERE workId = :workId")
+    suspend fun deleteSeriesMembersForWork(workId: String)
+
     /**
      * Spec-26 T7 — all book→series memberships (the background refresh pass
      * enumerates the stale ones over the tier rule and re-resolves them by
@@ -667,4 +673,9 @@ interface AudiobookDao {
             "ORDER BY updatedAt DESC"
     )
     suspend fun getNeverMatchPairs(mergeKey: String): List<CorrectionEntity>
+
+    /** Drops every correction of one kind pinned to one Work (spec-26 T9 —
+     *  the «wrong universe» verdict clears the complaint). */
+    @Query("DELETE FROM corrections WHERE mergeKey = :mergeKey AND kind = :kind")
+    suspend fun deleteCorrection(mergeKey: String, kind: String)
 }

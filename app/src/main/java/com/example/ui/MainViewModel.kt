@@ -908,6 +908,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    // Spec-26 T9 (#183): the «wrong universe» feedback. The universe line
+    // hides immediately; the re-resolution verdict either corrects the
+    // cached + shared resolution or clears the complaint.
+    fun reportWrongUniverse(bookId: String) {
+        _selectedBookUniverse.value = null
+        viewModelScope.launch(Dispatchers.IO) {
+            seriesUniverses.reportWrongUniverseForBook(bookId)
+            // Stale-result guard: only re-surface while the user is on this book.
+            if (_selectedBookId.value == bookId) {
+                _selectedBookUniverse.value = seriesUniverses.contextOfBook(bookId)
+            }
+        }
+    }
+
     // Spec-23 T5: every source carrying the selected book's Work — the
     // «Джерела» section on the book page. Tapping one plays that variant
     // through [playFromSource] (per-source policy, incl. Referer/UA).

@@ -2,6 +2,9 @@ package com.example.data.universe
 
 import android.util.Log
 import com.example.data.db.AudiobookDao
+import com.example.data.db.CorrectionEntity
+import com.example.data.db.CorrectionKind
+import com.example.data.db.CorrectionOrigin
 import com.example.data.db.SeriesEntity
 import com.example.data.db.UniverseEntity
 import kotlinx.coroutines.Dispatchers
@@ -152,6 +155,63 @@ class SeriesUniverses(
     }
 
     /**
+     * Spec-26 T9 (#183) — the «wrong universe» feedback channel. The user's
+     * complaint pins the work as reported (a USER_MADE WRONG_UNIVERSE
+     * correction whose `value` carries the cached universe id the user says
+     * is wrong), the resolution hides, and the work re-resolves immediately
+     * to VERIFY the complaint:
+     *
+     *  - **mismatch** — the re-resolution yields a DIFFERENT universe: the
+     *    fresh chain replaces the cache AND the shared-base document (T6
+     *    write-back), so the correction reaches every user;
+     *  - **match** — the re-resolution agrees with the cached universe: the
+     *    complaint was a false positive, nothing changes;
+     *  - **failure** — the report stays (resolution hidden) and the next book
+     *    open / refresh pass retries.
+     *
+     * Either verdict clears the complaint, so a mistaken report never hides a
+     * correct universe forever. Best-effort and silent throughout.
+     */
+    suspend fun reportWrongUniverseForBook(bookId: String) = withContext(Dispatchers.IO) {
+        val book = dao.getAudiobookById(bookId) ?: return@withContext
+        reportWrongUniverse(book.workId ?: book.id)
+    }
+
+    suspend fun reportWrongUniverse(workId: String) = withContext(Dispatchers.IO) {
+        val work = dao.getWorkById(workId) ?: return@withContext
+        // The universe the user says is wrong: the cached membership's
+        // universe (the affordance only renders when one is cached).
+        val allSeries = dao.getAllSeries()
+        val reportedUniverseId = dao.getSeriesMembersForWork(workId)
+            .mapNotNull { member -> allSeries.firstOrNull { it.id == member.seriesId }?.universeId }
+            .firstOrNull()
+        // Pin the complaint: reported → hidden (the contextOfBook gate).
+        dao.upsertCorrection(
+            CorrectionEntity(
+                mergeKey = workId,
+                kind = CorrectionKind.WRONG_UNIVERSE,
+                value = reportedUniverseId ?: "",
+                origin = CorrectionOrigin.USER_MADE,
+                updatedAt = now()
+            )
+        )
+        // Re-resolve to verify. A failing resolve keeps the report — the
+        // next open retries; there is never a wrong verdict from a failure.
+        val provider = wikidata ?: return@withContext
+        val resolution = provider.resolve(work.title, work.author) ?: return@withContext
+        val sameUniverse = reportedUniverseId != null && resolution.universe.id == reportedUniverseId
+        if (!sameUniverse) {
+            persist(resolution, workId, work.seriesIndex)
+            writeBack(workId, resolution)
+        }
+        dao.deleteCorrection(workId, CorrectionKind.WRONG_UNIVERSE)
+    }
+
+    /** True while a «wrong universe» complaint pins this work (hidden). */
+    private suspend fun isWrongUniverseReported(workId: String): Boolean =
+        dao.getCorrectionsForMergeKey(workId).any { it.kind == CorrectionKind.WRONG_UNIVERSE }
+
+    /**
      * Spec-26 T6 (#180) — the shared-base write-back of a fresh resolution.
      * Best-effort and silent — the local cache persisted first, so a failing
      * write never touches it (AC5). Idempotent: the same workId key replaces.
@@ -209,6 +269,10 @@ class SeriesUniverses(
     suspend fun contextOfBook(bookId: String): SeriesUniverseContext? = withContext(Dispatchers.IO) {
         val book = dao.getAudiobookById(bookId) ?: return@withContext null
         val workId = book.workId ?: book.id
+        // Spec-26 T9 (#183): a reported «wrong universe» hides the resolution
+        // until the re-resolution verdict — mismatch replaces it, match
+        // clears the complaint (the cached one was right).
+        if (isWrongUniverseReported(workId)) return@withContext null
         val memberSeriesId = dao.getSeriesMembersForWork(workId).firstOrNull()?.seriesId
         if (memberSeriesId != null) {
             val series = dao.getAllSeries().firstOrNull { it.id == memberSeriesId }
@@ -310,8 +374,13 @@ class SeriesUniverses(
             }
             // Book → series membership with the source's volume index; the
             // series-page resolution has no book, so nothing to link. The
-            // resolvedAt stamp drives the TTL gate on the Wikidata fallback.
+            // membership reflects the CURRENT resolution: a re-resolution
+            // that moves the book to a different series replaces the old
+            // membership (a corrected universe never leaves the stale one
+            // behind — spec-26 T9). The resolvedAt stamp drives the TTL gate
+            // on the Wikidata fallback.
             if (workId != null && volumeIndex != null && volumeIndex > 0) {
+                dao.deleteSeriesMembersForWork(workId)
                 dao.upsertSeriesMember(
                     com.example.data.db.SeriesMemberEntity(
                         workId = workId,

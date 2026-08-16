@@ -35,6 +35,21 @@ class FirestoreUniverseStore(private val firestore: FirebaseFirestore) : SharedU
         }
     }
 
+    override suspend fun putResolution(
+        workId: String,
+        resolution: UniverseResolution,
+        provenance: ResolutionProvenance
+    ) {
+        // Best-effort fire-and-forget (spec-26 T6 AC5): the write proceeds in
+        // the background; a synchronous failure (a closed Firestore, a bad
+        // document) is caught here and the caller never sees it. set() on a
+        // document key is idempotent — a re-write replaces, never duplicates.
+        runCatching {
+            firestore.collection(COLLECTION).document(workId)
+                .set(SharedResolutionCodec.toMapWithProvenance(resolution, provenance))
+        }
+    }
+
     /** Bridges the Play Services [Task] onto a coroutine: result or null. */
     private suspend fun <T> Task<T>.awaitOrNull(): T? = suspendCancellableCoroutine { cont ->
         addOnSuccessListener { cont.resume(it) }

@@ -8,6 +8,7 @@ import com.example.data.db.AudiobookDatabase
 import com.example.data.db.AudiobookEntity
 import com.example.data.db.SeriesMemberEntity
 import com.example.data.db.WorkEntity
+import com.example.data.universe.ResolutionProvenance
 import com.example.data.universe.SeriesUniverses
 import com.example.data.universe.SeriesUniverseProvider
 import com.example.data.universe.SharedUniverseStore
@@ -78,6 +79,16 @@ class SeriesUniversesRoomTest {
     private fun resolver() = SeriesUniverses(dao, universes)
 
     private suspend fun seedBook(
+        seriesTitle: String?,
+        seriesUrl: String?,
+        seriesIndex: Int?,
+        bookId: String = "b1"
+    ) = seedBookInto(dao, seriesTitle, seriesUrl, seriesIndex, bookId)
+
+    /** Seeds the same book into any DAO — the second client of the shared
+     *  base (spec-26 T6 AC4) uses its own fresh database. */
+    private suspend fun seedBookInto(
+        dao: AudiobookDao,
         seriesTitle: String?,
         seriesUrl: String?,
         seriesIndex: Int?,
@@ -422,6 +433,35 @@ class SeriesUniversesRoomTest {
             onCall()
             return map[workId]
         }
+        override suspend fun putResolution(
+            workId: String,
+            resolution: UniverseResolution,
+            provenance: com.example.data.universe.ResolutionProvenance
+        ) = Unit
+    }
+
+    /**
+     * A shared store that RECORDS write-backs (spec-26 T6): writes land in
+     * a map (so a second client with the same store instance reads them)
+     * and in the [writes] log; [failWrites] makes a write throw — the
+     * silent-failure contract.
+     */
+    private class RecordingStore : SharedUniverseStore {
+        val writes = mutableListOf<Triple<String, UniverseResolution, com.example.data.universe.ResolutionProvenance>>()
+        private val docs = mutableMapOf<String, UniverseResolution>()
+        var failWrites = false
+
+        override suspend fun getResolution(workId: String): UniverseResolution? = docs[workId]
+
+        override suspend fun putResolution(
+            workId: String,
+            resolution: UniverseResolution,
+            provenance: com.example.data.universe.ResolutionProvenance
+        ) {
+            if (failWrites) throw IllegalStateException("offline")
+            writes += Triple(workId, resolution, provenance)
+            docs[workId] = resolution
+        }
     }
 
     private fun sharedResolver(
@@ -491,6 +531,11 @@ class SeriesUniversesRoomTest {
         val resolver = sharedResolver(
             shared = object : SharedUniverseStore {
                 override suspend fun getResolution(workId: String): UniverseResolution? = null
+                override suspend fun putResolution(
+                    workId: String,
+                    resolution: UniverseResolution,
+                    provenance: com.example.data.universe.ResolutionProvenance
+                ) = Unit
             },
             onWikidataCall = { wikidataCalls++ }
         )
@@ -551,5 +596,95 @@ class SeriesUniversesRoomTest {
 
         assertEquals(1, wikidataCalls)
         assertEquals("Невідомий всесвіт", dao.getUniverseById("wd:Q900")!!.name)
+    }
+
+    // ---------------------------------------------------------------------
+    // Write-back (spec-26 T6): a Wikidata resolution is written to the
+    // shared store with provenance; the curated path never writes
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `a wikidata resolution writes back to the shared store with provenance`() = runBlocking {
+        seedBook("Невідомий цикл", null, seriesIndex = 2)
+        val store = RecordingStore()
+        val resolver = sharedResolver(shared = store, ttlMillis = 10_000L, now = { 1_000_000L })
+
+        resolver.resolveForBook("b1")
+
+        // AC1: the write-back carries the provenance — source=wikidata,
+        // author-verified (the provider returns only P50-verified works),
+        // resolvedAt from the injected clock.
+        assertEquals(1, store.writes.size)
+        val (workId, resolution, provenance) = store.writes[0]
+        assertEquals("w1", workId)
+        assertEquals(wikidataResolution, resolution)
+        assertEquals(ResolutionProvenance.SOURCE_WIKIDATA, provenance.source)
+        assertTrue(provenance.authorVerified)
+        assertEquals(1_000_000L, provenance.resolvedAt)
+        // The local cache persisted as before.
+        assertEquals("Невідомий всесвіт", dao.getUniverseById("wd:Q900")!!.name)
+    }
+
+    @Test
+    fun `a failing write-back is silent and the room cache stands`() = runBlocking {
+        // AC5: the write must never surface to the caller — the local cache
+        // already persisted and must not suffer.
+        seedBook("Невідомий цикл", null, seriesIndex = 2)
+        val store = RecordingStore().apply { failWrites = true }
+        val resolver = sharedResolver(shared = store, ttlMillis = 10_000L)
+
+        resolver.resolveForBook("b1") // must not throw
+
+        assertEquals("Невідомий всесвіт", dao.getUniverseById("wd:Q900")!!.name)
+        assertEquals(listOf("wd:Q900:2"), dao.getSeriesMembersForWork("w1").map { it.seriesId })
+    }
+
+    @Test
+    fun `curated resolutions do not write back - the seed owns the curated path`() = runBlocking {
+        // The curated asset pours into the shared base via the first-launch
+        // seed, not per-book — a curated match writes nothing.
+        seedBook("Епоха божевілля", null, seriesIndex = 1)
+        val store = RecordingStore()
+        val resolver = sharedResolver(shared = store)
+
+        resolver.resolveForBook("b1")
+
+        assertTrue(store.writes.isEmpty())
+        assertEquals("Перший закон", dao.getUniverseById("first-law")!!.name)
+    }
+
+    @Test
+    fun `the second client reads what the first wrote back`() = runBlocking {
+        // AC4: client A misses → resolves via Wikidata → writes back; client
+        // B, a FRESH database over the SAME shared base and NO Wikidata
+        // provider, reads the written-back resolution instead of re-resolving.
+        seedBook("Невідомий цикл", null, seriesIndex = 2)
+        val store = RecordingStore()
+        val clientA = sharedResolver(shared = store, ttlMillis = 10_000L, now = { 1_000_000L })
+        clientA.resolveForBook("b1")
+        assertEquals(1, store.writes.size)
+
+        val dbB = Room.inMemoryDatabaseBuilder(context, AudiobookDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        try {
+            val daoB = dbB.audiobookDao()
+            seedBookInto(daoB, "Невідомий цикл", null, seriesIndex = 2)
+            val clientB = SeriesUniverses(
+                daoB,
+                universes,
+                wikidata = null, // must never be needed — the shared base answers
+                sharedStore = store,
+                ttlMillis = 10_000L,
+                now = { 1_000_000L }
+            )
+
+            clientB.resolveForBook("b1")
+
+            assertEquals("Невідомий всесвіт", daoB.getUniverseById("wd:Q900")!!.name)
+            assertEquals(listOf("wd:Q900:2"), daoB.getSeriesMembersForWork("w1").map { it.seriesId })
+        } finally {
+            dbB.close()
+        }
     }
 }

@@ -83,6 +83,25 @@ class SeriesUniverses(
         val provider = wikidata ?: return@withContext
         val resolution = provider.resolve(book.title, book.author) ?: return@withContext
         persist(resolution, workId, book.seriesIndex)
+        // Spec-26 T6 (#180): write the fresh resolution back to the shared
+        // base so the next user reads it instead of re-resolving. Best-effort
+        // and silent — persist ran first, so a failing write never touches
+        // the local cache (AC5). Idempotent: the same workId key replaces.
+        // The provider returns only P50-author-verified works, hence
+        // authorVerified = true.
+        try {
+            sharedStore?.putResolution(
+                workId,
+                resolution,
+                ResolutionProvenance(
+                    source = ResolutionProvenance.SOURCE_WIKIDATA,
+                    authorVerified = true,
+                    resolvedAt = now()
+                )
+            )
+        } catch (e: Exception) {
+            Log.w("SeriesUniverses", "Universe write-back failed for $workId", e)
+        }
     }
 
     /** Resolves a series page's universe (no book context) and caches it. */

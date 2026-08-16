@@ -18,6 +18,45 @@ package com.example.data.universe
 interface SharedUniverseStore {
     /** The shared resolution of one work, or null on miss/failure. */
     suspend fun getResolution(workId: String): UniverseResolution?
+
+    /**
+     * Spec-26 T6 — best-effort write-back of one resolution into the shared
+     * base, keyed by the SAME workId the read path uses, so the next user
+     * reads it instead of re-resolving. Carries the [ResolutionProvenance]
+     * (source, author-verified, resolvedAt). Idempotent by contract: a
+     * document key is replaced, never duplicated (Firestore set()). A
+     * failing write contributes nothing — the caller's local cache already
+     * persisted and must not suffer (AC5).
+     */
+    suspend fun putResolution(
+        workId: String,
+        resolution: UniverseResolution,
+        provenance: ResolutionProvenance
+    )
+}
+
+/**
+ * Spec-26 T6 — the provenance of one shared-base resolution: where it came
+ * from, whether the author was verified, and when it was resolved. Written
+ * with every put; reads ignore the fields, so older documents decode fine.
+ */
+data class ResolutionProvenance(
+    /** The origin of the resolution: [SOURCE_WIKIDATA] or [SOURCE_CURATED]. */
+    val source: String,
+    /**
+     * The author-verified flag: the Wikidata provider returns only works
+     * whose P50 author agrees with the book's (P50 verified), and the
+     * curated asset is human-curated — so both write paths carry true. The
+     * field exists so a future title-only path can mark its unverified
+     * relations.
+     */
+    val authorVerified: Boolean,
+    val resolvedAt: Long
+) {
+    companion object {
+        const val SOURCE_WIKIDATA = "wikidata"
+        const val SOURCE_CURATED = "curated"
+    }
 }
 
 /**
@@ -46,6 +85,21 @@ object SharedResolutionCodec {
         "series" to resolution.universe.series.map { seriesToMap(it) },
         "matchedSeries" to seriesToMap(resolution.matchedSeries),
         "position" to resolution.position.toLong()
+    )
+
+    /**
+     * Spec-26 T6 — the write shape: the resolution plus its provenance. The
+     * provenance fields ride the document; [fromMap] ignores them (reads
+     * never need them), so documents written before and after T6 decode
+     * identically.
+     */
+    fun toMapWithProvenance(
+        resolution: UniverseResolution,
+        provenance: ResolutionProvenance
+    ): Map<String, Any> = toMap(resolution) + mapOf(
+        "source" to provenance.source,
+        "authorVerified" to provenance.authorVerified,
+        "resolvedAt" to provenance.resolvedAt
     )
 
     fun fromMap(map: Map<String, Any>): UniverseResolution? {

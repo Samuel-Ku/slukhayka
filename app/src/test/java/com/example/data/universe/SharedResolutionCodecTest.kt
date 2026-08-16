@@ -39,6 +39,28 @@ class SharedResolutionCodecTest {
     }
 
     @Test
+    fun `provenance rides the document and reads ignore it`() {
+        // Spec-26 T6: the write shape carries the provenance fields; the read
+        // shape is unchanged — fromMap decodes the same resolution and never
+        // needs (nor sees) the provenance.
+        val provenance = ResolutionProvenance(
+            source = ResolutionProvenance.SOURCE_WIKIDATA,
+            authorVerified = true,
+            resolvedAt = 1_234_567L
+        )
+        val map = SharedResolutionCodec.toMapWithProvenance(resolution, provenance)
+
+        assertEquals(ResolutionProvenance.SOURCE_WIKIDATA, map["source"])
+        assertEquals(true, map["authorVerified"])
+        assertEquals(1_234_567L, map["resolvedAt"])
+
+        val decoded = SharedResolutionCodec.fromMap(map)!!
+        assertEquals("wd:Q11835640", decoded.universe.id)
+        assertEquals("Відьмак", decoded.universe.name)
+        assertEquals(2, decoded.position)
+    }
+
+    @Test
     fun `a missing required field decodes to null`() {
         val map = SharedResolutionCodec.toMap(resolution).toMutableMap()
 

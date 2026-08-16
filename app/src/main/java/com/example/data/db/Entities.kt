@@ -362,6 +362,11 @@ data class CorrectionEntity(
  * entity: a series owns an ordered membership (`series_members`), the poster
  * parse of 4read keeps writing the card fields, and the import path upserts
  * the series + membership. `nextInSeries` generalizes over this table.
+ *
+ * Spec-25 (#171): the series also carries its UNIVERSE anchor — a named
+ * world/cycle the series belongs to, with its order inside it. The universe
+ * rows are written by the lazy series-universe resolution ([com.example.data.universe.SeriesUniverses]);
+ * `universeId` / `positionInUniverse` stay null until resolution runs.
  */
 @Entity(tableName = "series")
 data class SeriesEntity(
@@ -369,7 +374,12 @@ data class SeriesEntity(
     val title: String,
     // The catalogue series page (4read poster `poster__series` link); null
     // for local/user-created series.
-    val url: String? = null
+    val url: String? = null,
+    // Spec-25: the [UniverseEntity] this series belongs to; null = unseeded.
+    val universeId: String? = null,
+    // Spec-25: the series' ORDER inside its universe (1-based) — the order
+    // yields the precedes/follows relations; null = unseeded.
+    val positionInUniverse: Int? = null
 )
 
 /** Membership of a Work in a [SeriesEntity] at an ordered [position] (stage-2 S1). */
@@ -384,6 +394,21 @@ data class SeriesMemberEntity(
     val seriesId: String,
     // Authoritative ordering; edited via a FIELD correction (synced).
     val position: Int
+)
+
+/**
+ * Spec-25 (#171) — a named universe: a world/cycle containing ordered Series.
+ * The order of the series inside a universe yields the precedes/follows
+ * relations; the series rows carry their own [SeriesEntity.positionInUniverse].
+ * Written by the lazy series-universe resolution from the curated asset; the
+ * row exists only for universes the user has actually opened a book/series of.
+ */
+@Entity(tableName = "universes")
+data class UniverseEntity(
+    // Stable id of the curated universe asset (e.g. "first-law").
+    @PrimaryKey val id: String,
+    // The display name (e.g. «Перший закон»).
+    val name: String
 )
 
 /**

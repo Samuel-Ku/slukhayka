@@ -1,0 +1,26 @@
+{
+  "id": "drizzt",
+  "name": "Дріззт (Забуті королівства)",
+  "series": [
+    {
+      "title": "Темний ельф",
+      "aliases": [
+        "Темний ельф (трилогія)",
+        "The Dark Elf Trilogy"
+      ],
+      "urls": [
+        "https://4read.org/xfsearch/cikl/temnyj-elf/"
+      ]
+    },
+    {
+      "title": "Долина Крижаного Вітру",
+      "aliases": [
+        "Долина Крижаного Вітру (трилогія)",
+        "Icewind Dale Trilogy"
+      ],
+      "urls": [
+        "https://4read.org/xfsearch/cikl/dolyna-kryzhanoho-vitru/"
+      ]
+    }
+  ]
+}

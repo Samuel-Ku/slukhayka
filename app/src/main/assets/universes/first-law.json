@@ -1,0 +1,27 @@
+{
+  "id": "first-law",
+  "name": "Перший закон",
+  "series": [
+    {
+      "title": "Перший закон",
+      "aliases": [
+        "Трилогія Першого закону",
+        "Перший закон (трилогія)",
+        "The First Law"
+      ],
+      "urls": [
+        "https://4read.org/xfsearch/cikl/pervyj-zakon/"
+      ]
+    },
+    {
+      "title": "Епоха божевілля",
+      "aliases": [
+        "Епоха божевілля (трилогія)",
+        "The Age of Madness"
+      ],
+      "urls": [
+        "https://4read.org/xfsearch/cikl/epoha-bozhevillja/"
+      ]
+    }
+  ]
+}

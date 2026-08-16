@@ -20,6 +20,8 @@ import com.example.data.source.SluhayAdapter
 import com.example.data.source.SluhayuaAdapter
 import com.example.data.source.SoundBooksAdapter
 import com.example.data.source.SourceAdapter
+import com.example.data.universe.SeriesUniverses
+import com.example.data.universe.UniverseAssets
 import com.example.player.AudioPlayerManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -127,6 +129,16 @@ class App : Application() {
             sourceCatalog::getPlayableChapters,
             HttpStreamProber()
         )
+    }
+
+    /**
+     * Spec-25 (#171): the lazy series-universe resolution over the curated
+     * universe assets. The assets are local (offline-capable for the seeded
+     * universes); the Wikidata provider for unseeded series slots behind
+     * this same module in a later ticket.
+     */
+    val seriesUniverses: SeriesUniverses by lazy {
+        SeriesUniverses(database.audiobookDao(), UniverseAssets.load(this))
     }
 
     /**

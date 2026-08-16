@@ -310,6 +310,30 @@ interface AudiobookDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertWorkSource(workSource: WorkSourceEntity)
 
+    // --- Spec-25: series universes (the lazy resolution cache) -------------
+    // The universe rows, the series rows (with their universe anchor + order)
+    // and the book→series memberships are the cache of the lazy resolution;
+    // upserts are idempotent, so re-resolution is a no-op by construction.
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertUniverse(universe: UniverseEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertSeries(series: SeriesEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertSeriesMember(member: SeriesMemberEntity)
+
+    @Query("SELECT * FROM universes WHERE id = :id")
+    suspend fun getUniverseById(id: String): UniverseEntity?
+
+    /** The ordered series of one universe — precedes/follows come from neighbors. */
+    @Query("SELECT * FROM series WHERE universeId = :universeId ORDER BY positionInUniverse ASC")
+    suspend fun getSeriesInUniverse(universeId: String): List<SeriesEntity>
+
+    @Query("SELECT * FROM series_members WHERE workId = :workId")
+    suspend fun getSeriesMembersForWork(workId: String): List<SeriesMemberEntity>
+
     /** Every source carrying a Work, for the «Джерела» section (spec-23 T5). */
     @Query("SELECT * FROM work_sources WHERE workId = :workId ORDER BY addedAt ASC")
     fun observeWorkSourcesForWork(workId: String): Flow<List<WorkSourceEntity>>

@@ -14,6 +14,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.example.data.universe.SeriesRef
+import com.example.data.universe.SeriesUniverseContext
 import com.example.ui.MainViewModel
 import com.example.ui.theme.*
 
@@ -33,6 +35,8 @@ fun SeriesScreen(
     val series by viewModel.selectedSeries.collectAsState()
     val books by viewModel.seriesBooks.collectAsState()
     val isLoading by viewModel.isSeriesLoading.collectAsState()
+    // Spec-25 (#171): the universe of the opened series (header block).
+    val seriesUniverse by viewModel.selectedSeriesUniverse.collectAsState()
 
     val currentSeries = series ?: return
 
@@ -108,6 +112,19 @@ fun SeriesScreen(
                 }
 
                 else -> {
+                    // Spec-25 (#171): the universe block — name, position in
+                    // the universe, tappable precedes/follows chips. Absent
+                    // for an unseeded series (silent).
+                    seriesUniverse?.let { universe ->
+                        item {
+                            SeriesUniverseHeader(
+                                context = universe,
+                                onOpenSeries = { ref ->
+                                    viewModel.openSeries(ref.title, ref.url.orEmpty())
+                                }
+                            )
+                        }
+                    }
                     item {
                         Text(
                             text = "${books.size} книг у циклі",
@@ -126,6 +143,57 @@ fun SeriesScreen(
                             }
                         )
                     }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Spec-25 (#171) — the series screen's universe header: the universe name,
+ * the series' position inside it and the tappable «Передує: …» /
+ * «Продовжує: …» chips that jump between related series in reading order.
+ * Public (not private) so the snapshot seam can pin the block with fixture
+ * data; renders nothing itself for a single-series universe beyond the name.
+ */
+@Composable
+fun SeriesUniverseHeader(
+    context: SeriesUniverseContext,
+    onOpenSeries: (SeriesRef) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .testTag("series_universe_header")
+    ) {
+        Text(
+            text = "Всесвіт: «${context.universeName}»",
+            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+            color = MaterialTheme.colorScheme.primary
+        )
+        if (context.totalInUniverse > 1) {
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = "Цикл ${context.position} з ${context.totalInUniverse}",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        if (context.precedes != null || context.follows != null) {
+            Spacer(modifier = Modifier.height(6.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                context.precedes?.let { ref ->
+                    AssistChip(
+                        onClick = { onOpenSeries(ref) },
+                        label = { Text("Передує: «${ref.title}»") }
+                    )
+                }
+                context.follows?.let { ref ->
+                    AssistChip(
+                        onClick = { onOpenSeries(ref) },
+                        label = { Text("Продовжує: «${ref.title}»") }
+                    )
                 }
             }
         }

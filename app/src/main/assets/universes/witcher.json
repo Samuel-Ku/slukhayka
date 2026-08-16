@@ -1,0 +1,28 @@
+{
+  "id": "witcher",
+  "name": "Відьмак",
+  "series": [
+    {
+      "title": "Відьмак",
+      "aliases": [
+        "Сага про Відьмака",
+        "Відьмак. Сага",
+        "Відьмак (цикл)",
+        "The Witcher"
+      ],
+      "urls": [
+        "https://4read.org/xfsearch/cikl/vidmak/"
+      ]
+    },
+    {
+      "title": "Сезон гроз",
+      "aliases": [
+        "Сезон гроз (Відьмак)",
+        "Season of Storms"
+      ],
+      "urls": [
+        "https://4read.org/xfsearch/cikl/sezon-groz/"
+      ]
+    }
+  ]
+}

@@ -4,6 +4,7 @@ import java.net.URLEncoder
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -33,7 +34,7 @@ class WikidataSeriesProviderTest {
 
     /** The work, its author and the two-series chain (Abercrombie anchor). */
     private fun fixtureResponses(): Map<String, String> {
-        val searchUrl = searchUrl("uk", "A Little Hatred")
+        val searchUrl = searchUrl("uk", "A Little Hatred Блейк Крауч")
         return mapOf(
             searchUrl to searchJson("Q1"),
             entityUrl("Q1") to entityJson(
@@ -120,7 +121,7 @@ class WikidataSeriesProviderTest {
     fun `ambiguity - no candidate author agrees resolves to nothing`() = runBlocking {
         val responses = fixtureResponses().toMutableMap()
         // Two candidates; neither author matches the book's author.
-        responses[searchUrl("uk", "A Little Hatred")] = searchJson("Q1", "Q2")
+        responses[searchUrl("uk", "A Little Hatred Блейк Крауч")] = searchJson("Q1", "Q2")
         responses[entityUrl("Q1")] = entityJson(
             mapOf("Q1" to """{"labels":{},"claims":{${claimJson("P50" to listOf("Q20"))}}}""")
         )
@@ -135,6 +136,72 @@ class WikidataSeriesProviderTest {
     }
 
     // ---------------------------------------------------------------------
+    // Author in the search query (spec-26 T2)
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `the search query carries the title and the author tokens`() = runBlocking {
+        val seen = mutableListOf<String>()
+        val provider = WikidataSeriesProvider(fetchJson = { url -> seen += url; "" })
+
+        provider.resolve("A Little Hatred", "Блейк Крауч")
+
+        assertTrue("a search must be attempted", seen.isNotEmpty())
+        val request = seen.first()
+        assertTrue("title token must be in the query", request.contains(URLEncoder.encode("A Little Hatred", "UTF-8")))
+        assertTrue("author token must be in the query", request.contains(URLEncoder.encode("Блейк Крауч", "UTF-8")))
+    }
+
+    @Test
+    fun `two candidates with different authors - the first agreeing author wins`() = runBlocking {
+        val responses = fixtureResponses().toMutableMap()
+        // The search returns Q9 first (its author does not agree), then Q1.
+        responses[searchUrl("uk", "A Little Hatred Блейк Крауч")] = searchJson("Q9", "Q1")
+        responses[entityUrl("Q9")] = entityJson(
+            mapOf("Q9" to """{"labels":{},"claims":{${claimJson("P50" to listOf("Q20"))}}}""")
+        )
+        responses[entityUrl("Q20")] = entityJson(
+            mapOf("Q20" to """{"labels":{${labelsJson("uk" to "Інший автор")}}}""")
+        )
+
+        val resolution = provider(responses).resolve("A Little Hatred", "Блейк Крауч")!!
+
+        // The first candidate whose P50 author agrees wins — Q1.
+        assertEquals("Епоха божевілля", resolution.matchedSeries.title)
+    }
+
+    @Test
+    fun `an author with an apostrophe variant matches after normalization`() = runBlocking {
+        val responses = fixtureResponses().toMutableMap()
+        // The book's author uses an ASCII apostrophe; the Wikidata label a
+        // typographic one (U+2019) — normalization strips both equally.
+        responses[searchUrl("uk", "A Little Hatred Д'Артаньян")] = searchJson("Q1")
+        responses[entityUrl("Q10")] = entityJson(
+            mapOf("Q10" to """{"labels":{${labelsJson("uk" to "Д’Артаньян")}}}""")
+        )
+
+        val resolution = provider(responses).resolve("A Little Hatred", "Д'Артаньян")!!
+
+        assertEquals("Епоха божевілля", resolution.matchedSeries.title)
+    }
+
+    @Test
+    fun `an author with diacritics matches the plain form`() = runBlocking {
+        val responses = fixtureResponses().toMutableMap()
+        // The book's author carries an acute accent; the Wikidata label does
+        // not — dropDiacritics equalizes both sides of the P50 check. (A
+        // fully Latin author avoids Cyrillic/Latin homoglyph surprises.)
+        responses[searchUrl("uk", "A Little Hatred Raúl")] = searchJson("Q1")
+        responses[entityUrl("Q10")] = entityJson(
+            mapOf("Q10" to """{"labels":{${labelsJson("uk" to "Raul")}}}""")
+        )
+
+        val resolution = provider(responses).resolve("A Little Hatred", "Raúl")!!
+
+        assertEquals("Епоха божевілля", resolution.matchedSeries.title)
+    }
+
+    // ---------------------------------------------------------------------
     // Silent no-ops: no network, no candidates, no series
     // ---------------------------------------------------------------------
 
@@ -145,7 +212,7 @@ class WikidataSeriesProviderTest {
 
     @Test
     fun `no candidates resolve to nothing`() = runBlocking {
-        val responses = mapOf(searchUrl("uk", "A Little Hatred") to searchJson())
+        val responses = mapOf(searchUrl("uk", "A Little Hatred Блейк Крауч") to searchJson())
         assertNull(provider(responses).resolve("A Little Hatred", "Блейк Крауч"))
     }
 
@@ -241,7 +308,7 @@ class WikidataSeriesProviderTest {
     /** Empty direct searches for the anchor title — forces the fallback. */
     private fun emptyDirectSearches(responses: MutableMap<String, String>) {
         for (language in listOf("uk", "ru", "en")) {
-            responses[searchUrl(language, "A Little Hatred")] = searchJson()
+            responses[searchUrl(language, "A Little Hatred Блейк Крауч")] = searchJson()
         }
     }
 
@@ -253,9 +320,9 @@ class WikidataSeriesProviderTest {
         val responses = fixtureResponses().toMutableMap()
         emptyDirectSearches(responses)
         // The translated ru string hits in the ru index; uk/en miss.
-        responses[searchUrl("ru", "Немного ненависти")] = searchJson("Q1")
-        responses[searchUrl("uk", "Немного ненависти")] = searchJson()
-        responses[searchUrl("en", "Немного ненависти")] = searchJson()
+        responses[searchUrl("ru", "Немного ненависти Блейк Крауч")] = searchJson("Q1")
+        responses[searchUrl("uk", "Немного ненависти Блейк Крауч")] = searchJson()
+        responses[searchUrl("en", "Немного ненависти Блейк Крауч")] = searchJson()
 
         val resolution = provider(responses, anchorTranslator()).resolve("A Little Hatred", "Блейк Крауч")!!
 
@@ -270,9 +337,9 @@ class WikidataSeriesProviderTest {
         // whose author does not agree with the book's author is rejected.
         val responses = fixtureResponses().toMutableMap()
         emptyDirectSearches(responses)
-        responses[searchUrl("ru", "Немного ненависти")] = searchJson("Q1")
-        responses[searchUrl("uk", "Немного ненависти")] = searchJson()
-        responses[searchUrl("en", "Немного ненависти")] = searchJson()
+        responses[searchUrl("ru", "Немного ненависти Блейк Крауч")] = searchJson("Q1")
+        responses[searchUrl("uk", "Немного ненависти Блейк Крауч")] = searchJson()
+        responses[searchUrl("en", "Немного ненависти Блейк Крауч")] = searchJson()
         // Q1's author is someone else now.
         responses[entityUrl("Q1")] = entityJson(
             mapOf("Q1" to """{"labels":{},"claims":{${claimJson("P50" to listOf("Q20"))}}}""")
@@ -320,8 +387,8 @@ class WikidataSeriesProviderTest {
     fun `search falls back from uk to ru when uk has no hits`() = runBlocking {
         val responses = fixtureResponses().toMutableMap()
         // uk has no hits; ru finds the work.
-        responses[searchUrl("uk", "A Little Hatred")] = searchJson()
-        responses[searchUrl("ru", "A Little Hatred")] = searchJson("Q1")
+        responses[searchUrl("uk", "A Little Hatred Блейк Крауч")] = searchJson()
+        responses[searchUrl("ru", "A Little Hatred Блейк Крауч")] = searchJson("Q1")
 
         val resolution = provider(responses).resolve("A Little Hatred", "Блейк Крауч")!!
 

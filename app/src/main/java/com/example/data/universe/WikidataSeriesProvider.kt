@@ -35,11 +35,13 @@ class WikidataSeriesProvider(
 
     override suspend fun resolve(bookTitle: String, bookAuthor: String): UniverseResolution? {
         if (bookTitle.isBlank() || bookAuthor.isBlank()) return null
-        // 1. Search the work title, uk → ru → en (the first language with
-        //    hits wins — never a union, so ambiguity stays contained). When
+        // 1. Search the work title + author tokens, uk → ru → en (the first
+        //    language with hits wins — never a union, so ambiguity stays
+        //    contained; the author token disambiguates same-titled works at
+        //    the search stage, and the P50 check below confirms it). When
         //    every direct search is empty, the translated-title fallback
         //    fires (only then — a direct hit never pays for a translation).
-        val candidates = search(bookTitle) ?: searchTranslated(bookTitle) ?: return null
+        val candidates = search(bookTitle, bookAuthor) ?: searchTranslated(bookTitle, bookAuthor) ?: return null
         // 2. Candidate verification: the first candidate whose P50 author
         //    agrees with the book's author wins; none agreeing → no resolution.
         val workQid = candidates.firstOrNull { authorMatches(it, bookAuthor) } ?: return null
@@ -65,9 +67,13 @@ class WikidataSeriesProvider(
         )
     }
 
-    private suspend fun search(title: String): List<String>? {
+    private suspend fun search(title: String, author: String): List<String>? {
+        // Spec-26 T2: the query carries the title AND the author tokens, so
+        // same-titled works by different authors rank apart at the search
+        // stage (a blank author keeps the query title-only).
+        val query = if (author.isBlank()) title else "$title $author"
         for (language in languages) {
-            val json = fetchJson(searchUrl(language, title))
+            val json = fetchJson(searchUrl(language, query))
             if (json.isBlank()) continue
             val ids = WikidataParser.searchHitIds(json)
             if (ids.isNotEmpty()) return ids.take(maxCandidates)
@@ -77,18 +83,19 @@ class WikidataSeriesProvider(
 
     /**
      * The translated-title fallback (spec-26 T1): translate the title to ru,
-     * then en, and search each translation through the same language ladder.
-     * Each hop is independent and failure-tolerant; a translation that fails,
-     * comes back blank or unchanged contributes nothing. The translated path
-     * reuses the SAME candidate verification — the P50 author check applies
-     * to translated hits exactly like direct ones.
+     * then en, and search each translation through the same language ladder
+     * (still with the author token, spec-26 T2). Each hop is independent and
+     * failure-tolerant; a translation that fails, comes back blank or
+     * unchanged contributes nothing. The translated path reuses the SAME
+     * candidate verification — the P50 author check applies to translated
+     * hits exactly like direct ones.
      */
-    private suspend fun searchTranslated(title: String): List<String>? {
+    private suspend fun searchTranslated(title: String, author: String): List<String>? {
         val translator = translator ?: return null
         for (target in listOf("ru", "en")) {
             val translated = translator.translate(title, target) ?: continue
             if (translated.isBlank() || translated.equals(title, ignoreCase = true)) continue
-            val ids = search(translated)
+            val ids = search(translated, author)
             if (!ids.isNullOrEmpty()) return ids
         }
         return null

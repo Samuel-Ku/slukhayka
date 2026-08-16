@@ -705,6 +705,8 @@ class FakeAudiobookDao(
     override suspend fun getSeriesInUniverse(universeId: String): List<SeriesEntity> =
         seriesState.value.filter { it.universeId == universeId }.sortedBy { it.positionInUniverse }
 
+    override suspend fun getAllSeries(): List<SeriesEntity> = seriesState.value
+
     override suspend fun getSeriesMembersForWork(workId: String): List<SeriesMemberEntity> =
         seriesMembersState.value.filter { it.workId == workId }
 

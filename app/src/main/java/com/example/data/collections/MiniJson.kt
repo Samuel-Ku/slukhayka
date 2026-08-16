@@ -39,9 +39,9 @@ object MiniJson {
                 c == '{'.code -> parseObject()
                 c == '['.code -> parseArray()
                 c == '"'.code -> parseString()
-                c == 't'.code -> { expect("true"); true }
-                c == 'f'.code -> { expect("false"); false }
-                c == 'n'.code -> { expect("null"); null }
+                c == 't'.code -> if (expect("true")) true else null
+                c == 'f'.code -> if (expect("false")) false else null
+                c == 'n'.code -> if (expect("null")) null else null
                 else -> parseNumber()
             }
         }
@@ -125,9 +125,10 @@ object MiniJson {
             return input.substring(start, pos).toDoubleOrNull() ?: return null
         }
 
-        private fun expect(literal: String) {
-            if (!input.startsWith(literal, pos)) throw IllegalArgumentException("expected $literal")
+        private fun expect(literal: String): Boolean {
+            if (!input.startsWith(literal, pos)) return false
             pos += literal.length
+            return true
         }
     }
 }

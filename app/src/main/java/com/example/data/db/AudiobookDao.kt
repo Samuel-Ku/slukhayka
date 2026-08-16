@@ -327,6 +327,10 @@ interface AudiobookDao {
     @Query("SELECT * FROM universes WHERE id = :id")
     suspend fun getUniverseById(id: String): UniverseEntity?
 
+    /** Every cached series row — the context read matches across providers. */
+    @Query("SELECT * FROM series")
+    suspend fun getAllSeries(): List<SeriesEntity>
+
     /** The ordered series of one universe — precedes/follows come from neighbors. */
     @Query("SELECT * FROM series WHERE universeId = :universeId ORDER BY positionInUniverse ASC")
     suspend fun getSeriesInUniverse(universeId: String): List<SeriesEntity>

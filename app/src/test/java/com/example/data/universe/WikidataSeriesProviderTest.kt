@@ -58,9 +58,22 @@ class WikidataSeriesProviderTest {
 
     private fun provider(
         responses: Map<String, String>,
-        translator: TitleTranslator? = null
+        translator: TitleTranslator? = null,
+        statusByUrl: (String) -> Int = { 200 },
+        maxAttempts: Int = 3,
+        retryDelayMs: (Int) -> Long = { 0 }
     ): WikidataSeriesProvider =
-        WikidataSeriesProvider(fetchJson = { url -> responses[url] ?: "" }, translator = translator)
+        WikidataSeriesProvider(
+            // Mirrors HttpFetcher.getTextResult: the body is "" on any
+            // non-200 status, so a 429/5xx fixture never leaks a body.
+            fetch = { url ->
+                val status = statusByUrl(url)
+                WikidataResponse(status, if (status == 200) responses[url] ?: "" else "")
+            },
+            translator = translator,
+            maxAttempts = maxAttempts,
+            retryDelayMs = retryDelayMs
+        )
 
     private fun searchUrl(language: String, title: String): String =
         "https://www.wikidata.org/w/api.php?action=wbsearchentities&format=json" +
@@ -430,5 +443,75 @@ class WikidataSeriesProviderTest {
         responses[authorSearchUrl("en", author)] = searchJson()
 
         assertNull(provider(responses).resolve(title, author))
+    }
+
+    // ---------------------------------------------------------------------
+    // Spec-26 T3 (#177): the 429 retry (exponential backoff + jitter)
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `a 429 series retries and resolves after the Nth attempt`() = runBlocking {
+        val title = "A Little Hatred"
+        val author = "Блейк Крауч"
+        val responses = authorFixture(title, author)
+        val cirrus = cirrusUrl("Q10", title)
+        var cirrusAttempts = 0
+        // The author-narrowed search 429s twice, then succeeds on the third.
+        val statusByUrl: (String) -> Int = { url ->
+            if (url == cirrus) {
+                cirrusAttempts += 1
+                if (cirrusAttempts <= 2) WikidataRetryPolicy.HTTP_TOO_MANY_REQUESTS else 200
+            } else 200
+        }
+
+        val resolution = provider(responses, statusByUrl = statusByUrl, retryDelayMs = { 0 })
+            .resolve(title, author)!!
+
+        assertEquals("Перший закон", resolution.universe.name)
+        assertEquals(3, cirrusAttempts)
+    }
+
+    @Test
+    fun `a 429 series past the limit resolves to nothing silently`() = runBlocking {
+        val title = "A Little Hatred"
+        val author = "Блейк Крауч"
+        val responses = authorFixture(title, author)
+        val cirrus = cirrusUrl("Q10", title)
+        var cirrusAttempts = 0
+        // Always 429 — with maxAttempts 2 the second response is returned
+        // as-is (empty body) and the resolution degrades silently.
+        val statusByUrl: (String) -> Int = { url ->
+            if (url == cirrus) {
+                cirrusAttempts += 1
+                WikidataRetryPolicy.HTTP_TOO_MANY_REQUESTS
+            } else 200
+        }
+
+        assertNull(
+            provider(responses, statusByUrl = statusByUrl, maxAttempts = 2, retryDelayMs = { 0 })
+                .resolve(title, author)
+        )
+        assertEquals(2, cirrusAttempts)
+    }
+
+    @Test
+    fun `a non-429 failure does not retry`() = runBlocking {
+        val title = "A Little Hatred"
+        val author = "Блейк Крауч"
+        val responses = authorFixture(title, author)
+        val cirrus = cirrusUrl("Q10", title)
+        var cirrusAttempts = 0
+        // A 500 is not rate-limited — exactly one attempt, then the title
+        // pass (absent here) and a silent null.
+        val statusByUrl: (String) -> Int = { url ->
+            if (url == cirrus) {
+                cirrusAttempts += 1
+                500
+            } else 200
+        }
+
+        assertNull(provider(responses, statusByUrl = statusByUrl, retryDelayMs = { 0 })
+            .resolve(title, author))
+        assertEquals(1, cirrusAttempts)
     }
 }

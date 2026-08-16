@@ -24,6 +24,7 @@ import com.example.data.source.SourceAdapter
 import com.example.data.universe.MlKitTitleTranslator
 import com.example.data.universe.SeriesUniverses
 import com.example.data.universe.UniverseAssets
+import com.example.data.universe.WikidataResponse
 import com.example.data.universe.WikidataSeriesProvider
 import com.example.player.AudioPlayerManager
 import kotlinx.coroutines.CoroutineScope
@@ -147,7 +148,14 @@ class App : Application() {
             database.audiobookDao(),
             UniverseAssets.load(this),
             WikidataSeriesProvider(
-                fetchJson = { url -> wikidataFetcher.getText(url) },
+                // spec-26 T3 (#177): the status-aware transport feeds the
+                // 429 retry policy — a rate-limited response retries with
+                // exponential backoff instead of silently losing the
+                // resolution.
+                fetch = { url ->
+                    val (status, body) = wikidataFetcher.getTextResult(url)
+                    WikidataResponse(status, body)
+                },
                 // spec-26 T1 (#175): on-device uk → ru/en title translation
                 // (ML Kit, free, no key) for books whose only Wikidata
                 // labels are ru/en — best-effort, silent on failure.

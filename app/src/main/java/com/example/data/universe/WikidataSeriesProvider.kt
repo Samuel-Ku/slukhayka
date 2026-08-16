@@ -3,6 +3,7 @@ package com.example.data.universe
 import com.example.data.collections.CollectionMatcher
 import com.example.data.merge.MergeKey
 import java.net.URLEncoder
+import kotlinx.coroutines.delay
 
 /**
  * Spec-25 T2 (#173) — the Wikidata provider behind the [SeriesUniverseProvider]
@@ -26,19 +27,29 @@ import java.net.URLEncoder
  * pass is best-effort: an unresolvable author, an unverified QID or an
  * empty narrowed search falls through to the plain title pass.
  *
+ * Spec-26 T3 (#177) adds the 429 retry: every fetch rides a retry loop with
+ * exponential backoff + jitter ([WikidataRetryPolicy]) — a rate-limited
+ * response is retried up to [maxAttempts] tries instead of silently losing
+ * the resolution; any other status (or an exhausted limit) returns as-is,
+ * and a 429 past the limit carries an empty body, so the caller degrades
+ * silently and the next book open repeats.
+ *
  * Best-effort and silent by design: no network, no search hits in any of
  * uk → ru → en (direct or translated), no author agreement, no P179, a
  * malformed response or an ambiguous candidate set all yield null — the
- * surfaces never degrade. The transport is injected (`fetchJson` returns
- * the raw JSON or "" on failure, the degrade-never-throw convention of the
- * adapter seam); fixture tests serve canned API responses by URL.
+ * surfaces never degrade. The transport is injected (`fetch` returns a
+ * [WikidataResponse] — status + body, the body "" on any failure, the
+ * degrade-never-throw convention of the adapter seam); fixture tests serve
+ * canned API responses by URL.
  */
 class WikidataSeriesProvider(
-    private val fetchJson: suspend (String) -> String,
+    private val fetch: suspend (String) -> WikidataResponse,
     private val languages: List<String> = listOf("uk", "ru", "en"),
     private val maxCandidates: Int = 3,
     private val maxChainHops: Int = 8,
-    private val translator: TitleTranslator? = null
+    private val translator: TitleTranslator? = null,
+    private val maxAttempts: Int = 3,
+    private val retryDelayMs: (Int) -> Long = { WikidataRetryPolicy.backoffDelayMs(it) }
 ) : SeriesUniverseProvider {
 
     override suspend fun resolve(bookTitle: String, bookAuthor: String): UniverseResolution? {
@@ -78,9 +89,28 @@ class WikidataSeriesProvider(
         )
     }
 
+    /**
+     * One fetch with the 429 retry policy (spec-26 T3): a rate-limited
+     * response is retried with exponential backoff + jitter up to
+     * [maxAttempts] tries; the final response (any status) is returned as-is
+     * — a 429 past the limit carries an empty body, so every caller degrades
+     * silently and the next book open repeats the resolution.
+     */
+    private suspend fun fetchWithRetry(url: String): WikidataResponse {
+        var attempt = 0
+        while (true) {
+            val response = fetch(url)
+            if (!WikidataRetryPolicy.shouldRetry(attempt, maxAttempts, response.statusCode)) {
+                return response
+            }
+            delay(retryDelayMs(attempt))
+            attempt++
+        }
+    }
+
     private suspend fun search(title: String): List<String>? {
         for (language in languages) {
-            val json = fetchJson(searchUrl(language, title))
+            val json = fetchWithRetry(searchUrl(language, title)).body
             if (json.isBlank()) continue
             val ids = WikidataParser.searchHitIds(json)
             if (ids.isNotEmpty()) return ids.take(maxCandidates)
@@ -106,7 +136,7 @@ class WikidataSeriesProvider(
             .split(" ")
             .filter { it.isNotBlank() }
         if (tokens.isEmpty()) return null
-        val json = fetchJson(cirrusSearchUrl(authorQid, tokens.joinToString(" ")))
+        val json = fetchWithRetry(cirrusSearchUrl(authorQid, tokens.joinToString(" "))).body
         if (json.isBlank()) return null
         return WikidataParser.cirrusHitIds(json).takeIf { it.isNotEmpty() }
     }
@@ -121,7 +151,7 @@ class WikidataSeriesProvider(
      */
     private suspend fun resolveAuthorQid(author: String): String? {
         for (language in languages) {
-            val json = fetchJson(authorSearchUrl(language, author))
+            val json = fetchWithRetry(authorSearchUrl(language, author)).body
             if (json.isBlank()) continue
             for (qid in WikidataParser.searchHitIds(json)) {
                 if (authorNameMatches(qid, author)) return qid
@@ -153,7 +183,7 @@ class WikidataSeriesProvider(
             if (language !in languages) continue
             val translated = translator.translate(title, language) ?: continue
             if (translated.isBlank() || translated == title) continue
-            val json = fetchJson(searchUrl(language, translated))
+            val json = fetchWithRetry(searchUrl(language, translated)).body
             if (json.isBlank()) continue
             val ids = WikidataParser.searchHitIds(json)
             if (ids.isNotEmpty()) return ids.take(maxCandidates)
@@ -220,7 +250,7 @@ class WikidataSeriesProvider(
     }
 
     private suspend fun fetchEntity(ids: String): String? =
-        fetchJson(entitiesUrl(ids)).takeIf { it.isNotBlank() }
+        fetchWithRetry(entitiesUrl(ids)).body.takeIf { it.isNotBlank() }
 
     private fun searchUrl(language: String, title: String): String =
         "https://www.wikidata.org/w/api.php?action=wbsearchentities&format=json" +
@@ -259,6 +289,17 @@ class WikidataSeriesProvider(
         val followedBy: List<String>
     )
 }
+
+/**
+ * One Wikidata API response: HTTP status + body. The body is "" on any
+ * failure (non-200 or a request error — the degrade-never-throw convention
+ * of the adapter seam); the status lets the 429 retry policy (spec-26 T3)
+ * tell a rate-limited response from any other failure.
+ */
+data class WikidataResponse(
+    val statusCode: Int,
+    val body: String
+)
 
 /** One series of a resolved universe view (the provider seam's result). */
 data class UniverseResolution(

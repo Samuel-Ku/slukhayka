@@ -19,14 +19,27 @@ open class HttpFetcher(
 ) {
 
     /** Open so adapter fixture tests can serve canned content without network. */
-    open fun getText(url: String): String = getText(url, emptyMap())
+    open fun getText(url: String): String = getTextResult(url, emptyMap()).second
 
     /**
      * Like [getText] with additional request headers (e.g. the sluhayua
      * `X-Requested-With: XMLHttpRequest` gate). Open so fixture fakes can serve
      * canned content by URL, ignoring headers.
      */
-    open fun getText(url: String, extraHeaders: Map<String, String>): String {
+    open fun getText(url: String, extraHeaders: Map<String, String>): String =
+        getTextResult(url, extraHeaders).second
+
+    /**
+     * The HTTP status + body of one GET — the status-aware variant of
+     * [getText] (spec-26 T3: the Wikidata 429 retry needs the status code).
+     * The body is "" on any non-200 status or failure; the status is 0 when
+     * the request itself failed before a response code existed. Open so
+     * fixture fakes can serve canned status+content by URL.
+     */
+    open fun getTextResult(url: String): Pair<Int, String> = getTextResult(url, emptyMap())
+
+    /** Like [getTextResult] with additional request headers. */
+    open fun getTextResult(url: String, extraHeaders: Map<String, String>): Pair<Int, String> {
         val connection = try {
             (URL(url).openConnection() as HttpURLConnection).apply {
                 connectTimeout = 12_000
@@ -38,16 +51,17 @@ open class HttpFetcher(
                 instanceFollowRedirects = true
             }
         } catch (e: Exception) {
-            return ""
+            return 0 to ""
         }
         return try {
-            if (connection.responseCode == HttpURLConnection.HTTP_OK) {
-                connection.inputStream.bufferedReader().use { it.readText() }
+            val status = connection.responseCode
+            if (status == HttpURLConnection.HTTP_OK) {
+                status to connection.inputStream.bufferedReader().use { it.readText() }
             } else {
-                ""
+                status to ""
             }
         } catch (e: Exception) {
-            ""
+            0 to ""
         } finally {
             connection.disconnect()
         }

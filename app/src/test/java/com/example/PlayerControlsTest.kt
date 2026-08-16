@@ -22,7 +22,7 @@ import org.robolectric.annotation.Config
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
-class ButtonTesting {
+class PlayerControlsTest {
 
     private lateinit var context: Context
     private lateinit var database: AudiobookDatabase

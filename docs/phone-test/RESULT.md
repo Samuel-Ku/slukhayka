@@ -1,5 +1,8 @@
 # Phase 4 — Phone Test Result
 
+> **Note (ADR-0016):** скриншоти (`audit/round2/`, `docs/phone-test/screenshots/`)
+> вилучено з репозиторію; вони збережені в git-історії.
+
 > Executed: **2026-08-07** against the GitHub-updated build (Ukrainian
 > Netflix-style catalog, spec #8: 2-tab nav, Listen/Library screens, SAF
 > import, redesigned player). Device: **OnePlus 8 Pro** (IN2023), Android 14

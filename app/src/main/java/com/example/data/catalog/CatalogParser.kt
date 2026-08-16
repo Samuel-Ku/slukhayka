@@ -2,8 +2,8 @@ package com.example.data.catalog
 
 /**
  * Pure-JVM parser for the 4read.org catalogue (no Android dependencies, so it
- * is unit-testable with plain JUnit on HTML fixtures — prior art:
- * `AudioParsingTest`).
+ * is unit-testable with plain JUnit on HTML fixtures — see
+ * `CatalogParserTest`).
  *
  * The homepage is a flat list of "poster" blocks:
  *

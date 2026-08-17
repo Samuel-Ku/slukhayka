@@ -338,7 +338,9 @@ fun PlayerScreen(
             onDismiss = { showBookmarkSheet = false },
             onSave = {
                 viewModel.addBookmarkAtCurrentPosition(it)
-                pendingFeedback = "Закладку збережено"
+                // Spec-27 (#207): the feedback names the position where the
+                // bookmark landed (US-19) — «Закладку додано на 2:35:44».
+                pendingFeedback = "Закладку додано на ${MainViewModel.formatTime(playerState.currentPositionMs / 1000L)}"
                 showBookmarkSheet = false
             }
         )
@@ -743,7 +745,11 @@ private fun TransportControls(
         verticalAlignment = Alignment.CenterVertically
     ) {
         TransportIcon(Icons.Default.SkipPrevious, "Попередній розділ", onPreviousChapter)
-        Rewind15Button(onBack)
+        // Spec-27 (#207, BUG-012): the seek buttons carry a visible label
+        // («15 с»/«30 с») below the icon — the bare number on the rewind icon
+        // was unreadable and the forward button had none. contentDescription
+        // keeps the a11y (US-17).
+        SeekButton(Icons.Default.Replay, "Назад на 15 секунд", "15 с", onBack)
         FilledIconButton(
             onClick = onPlayPause,
             modifier = Modifier.size(72.dp).testTag("player_play_pause_button"),
@@ -755,7 +761,7 @@ private fun TransportControls(
                 modifier = Modifier.size(40.dp)
             )
         }
-        TransportIcon(Icons.Default.Forward30, "Вперед на 30 секунд", onForward)
+        SeekButton(Icons.Default.Forward30, "Вперед на 30 секунд", "30 с", onForward)
         TransportIcon(Icons.Default.SkipNext, "Наступний розділ", onNextChapter)
     }
 }
@@ -768,17 +774,21 @@ private fun TransportIcon(icon: androidx.compose.ui.graphics.vector.ImageVector,
 }
 
 @Composable
-private fun Rewind15Button(onClick: () -> Unit) {
-    IconButton(onClick = onClick, modifier = Modifier.size(AppDimens.TouchTarget)) {
-        Box(contentAlignment = Alignment.Center) {
-            Icon(Icons.Default.Replay, contentDescription = "Назад на 15 секунд", modifier = Modifier.size(30.dp))
-            Text(
-                "15",
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface
-            )
+private fun SeekButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    description: String,
+    label: String,
+    onClick: () -> Unit
+) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        IconButton(onClick = onClick, modifier = Modifier.size(AppDimens.TouchTarget)) {
+            Icon(icon, contentDescription = description, modifier = Modifier.size(28.dp))
         }
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 

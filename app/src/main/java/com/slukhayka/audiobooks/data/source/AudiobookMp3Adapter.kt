@@ -53,7 +53,15 @@ class AudiobookMp3Adapter(
             files.forEachIndexed { index, file ->
                 chapters.add(
                     SourceChapter(
-                        title = titles.getOrNull(index)?.takeIf { it.isNotBlank() } ?: "Глава ${index + 1}",
+                        // The playerjs titles are file names («Роберт І. Говард 1 -
+                        // Черепи серед Зірок.mp3») — strip the extension like the
+                        // sluhay parser, so the UI shows the real chapter name, never
+                        // a raw .mp3 (spec-35 #237 player-layer inventory).
+                        title = titles.getOrNull(index)
+                            ?.substringBeforeLast('.')
+                            ?.trim()
+                            ?.takeIf { it.isNotBlank() }
+                            ?: "Глава ${index + 1}",
                         streamUrl = file
                     )
                 )

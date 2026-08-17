@@ -1,6 +1,10 @@
 package com.slukhayka.audiobooks
 
 import android.app.Application
+import android.util.Log
+import com.google.firebase.FirebaseApp
+import com.google.firebase.appcheck.FirebaseAppCheck
+import com.google.firebase.appcheck.recaptcha.RecaptchaAppCheckProviderFactory
 import com.slukhayka.audiobooks.data.catalog.SourceCatalog
 import com.slukhayka.audiobooks.data.collections.CollectionAssets
 import com.slukhayka.audiobooks.data.collections.OpenLibraryTrendingSource
@@ -235,6 +239,10 @@ class App : Application() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        // Spec-30 T1 (#216): attach the App Check attestation provider BEFORE
+        // any Firestore use, so every request to the shared metadata base
+        // carries a token and the security rules accept the app's writes.
+        installAppCheckIfConfigured()
         // ADR-0002 (#138): cold start performs no network I/O during module
         // construction — the catalogue sync is an explicit composition-root
         // call, kicked off here (best-effort, never blocks startup).
@@ -274,6 +282,36 @@ class App : Application() {
                 delay(UNIVERSE_REFRESH_INTERVAL_MILLIS)
             }
         }
+    }
+
+    /**
+     * Spec-30 T1 (#216) — install the reCAPTCHA Enterprise App Check provider
+     * on the default Firebase app when the app is configured for it
+     * (google-services.json present AND its `app_check` section carries the
+     * reCAPTCHA site key — [FirebaseOptions.getRecaptchaSiteKey], written by
+     * the Firebase console when App Check is configured).
+     *
+     * Either way the call is a silent no-op: without Firebase there is no
+     * Firestore at all; without the site key the provider factory would throw
+     * on first use, so it is not installed — Firestore reads stay public and
+     * the shared-cache writes degrade through the stores' existing
+     * best-effort paths (denied by the rules, dropped, never a crash).
+     */
+    private fun installAppCheckIfConfigured() {
+        val app = FirebaseApp.getApps(this).firstOrNull()
+            ?: FirebaseApp.initializeApp(this)
+            ?: return
+        if (app.options.recaptchaSiteKey.isNullOrBlank()) {
+            Log.w(
+                "AppCheck",
+                "No reCAPTCHA site key in google-services.json — App Check skipped; " +
+                    "shared-cache writes will be denied by the Firestore rules (silent degrade)."
+            )
+            return
+        }
+        FirebaseAppCheck.getInstance(app).installAppCheckProviderFactory(
+            RecaptchaAppCheckProviderFactory.getInstance()
+        )
     }
 
     companion object {

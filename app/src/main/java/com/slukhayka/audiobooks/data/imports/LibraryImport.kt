@@ -18,9 +18,16 @@ import com.slukhayka.audiobooks.data.db.SourceTrackEntity
 import com.slukhayka.audiobooks.data.db.WorkEntity
 import com.slukhayka.audiobooks.data.db.WorkSourceEntity
 import com.slukhayka.audiobooks.data.merge.MergeKey
+import com.slukhayka.audiobooks.data.metadata.BookProfile
+import com.slukhayka.audiobooks.data.metadata.BookProfileMapping
 import com.slukhayka.audiobooks.data.metadata.MetadataAssertions
+import com.slukhayka.audiobooks.data.metadata.ProfileFreshness
+import com.slukhayka.audiobooks.data.metadata.ProfileProvenance
+import com.slukhayka.audiobooks.data.metadata.SharedBookMetaStore
 import com.slukhayka.audiobooks.data.source.SourceAdapter
 import com.slukhayka.audiobooks.data.source.SourceBookDetail
+import com.slukhayka.audiobooks.data.source.SourceChapter
+import com.slukhayka.audiobooks.data.source.SeriesRef
 import com.slukhayka.audiobooks.data.source.sourceIdForUrl
 import com.slukhayka.audiobooks.data.source.streamOnlyFor
 import kotlinx.coroutines.Dispatchers
@@ -57,7 +64,12 @@ class LibraryImport(
     // the composition root wires to the universe chain validation. Silent
     // and best-effort by contract: a failing callback never breaks the
     // import.
-    private val onWorkImported: (suspend (String) -> Unit)? = null
+    private val onWorkImported: (suspend (String) -> Unit)? = null,
+    // Spec-32 T2 (#232): the shared book-profile store — a successfully
+    // resolved page writes its full profile back so the next listener skips
+    // the page fetch. Null without Firebase keys: imports behave exactly as
+    // before. Best-effort by contract — a failing write never breaks import.
+    private val profileStore: SharedBookMetaStore? = null
 ) {
 
     // ---------------------------------------------------------------------
@@ -73,7 +85,15 @@ class LibraryImport(
      * DIFFERENT narration creates a NEW card — several rendition cards under
      * one Work, each with its own Edition, chapters, tracks and progress.
      */
-    suspend fun importBookFromSource(sourceId: String, detail: SourceBookDetail): AudiobookEntity =
+    suspend fun importBookFromSource(
+        sourceId: String,
+        detail: SourceBookDetail,
+        // Spec-32 T2/T3 (#232/#233): best-effort write-back of the resolved
+        // profile. FALSE on the read-skip paths — a cache-derived import is
+        // no resolution, and re-writing would roll freshness and burn the
+        // free-tier write quota.
+        writeBackProfile: Boolean = true
+    ): AudiobookEntity =
         withContext(Dispatchers.IO) {
             // ADR-0010: the Work key is bibliographic (title|author) — the
             // narrator is an Edition property, never part of the Work.
@@ -89,6 +109,28 @@ class LibraryImport(
                 null
             }
             val bookId = existing?.id ?: adapterBookId(sourceId, detail.url)
+            // The canonical Edition id the stored rows use (the same formula
+            // as the Edition insert below) — the shared profile is keyed by it.
+            val editionId = EditionId.forBook(mergeKey, bookId, narrator)
+
+            // Spec-32 T2 (#232): a resolved page contributes its full profile
+            // to the shared base, best-effort — the next listener skips the
+            // fetch (import, detail-open AND catalogue hydration all resolve
+            // pages, so all contribute). A failing write never breaks the
+            // import.
+            if (writeBackProfile && detail.chapters.isNotEmpty()) {
+                runCatching {
+                    profileStore?.putProfile(
+                        sourceId = sourceId,
+                        editionId = editionId,
+                        profile = BookProfileMapping.fromDetail(detail),
+                        provenance = ProfileProvenance(
+                            ProfileProvenance.SOURCE_RESOLVED,
+                            System.currentTimeMillis()
+                        )
+                    )
+                }
+            }
 
             if (existing == null) {
                 // Spec-14 T2/T3: the shared import path persists the enriched
@@ -258,19 +300,88 @@ class LibraryImport(
      * book page from the chosen source, import the Work (merging into an
      * existing card when the merge key matches), return the stored book. Null
      * when the source is unknown or the page yields nothing playable.
+     *
+     * Spec-32 T3 (#233) — read-skip: when the caller passes the card's known
+     * identity ([known] — the search/catalogue card already carries it), a
+     * FRESH shared profile for that Source×Edition imports WITHOUT fetching
+     * the page, and a stale one is served fail-open when the re-fetch fails
+     * (the source is down or blocked). Callers without the identity fall
+     * through to the live fetch exactly as before.
      */
-    suspend fun importFromSourceUrl(sourceId: String, url: String): AudiobookEntity? =
+    suspend fun importFromSourceUrl(
+        sourceId: String,
+        url: String,
+        known: KnownBookIdentity? = null
+    ): AudiobookEntity? =
         withContext(Dispatchers.IO) {
             val adapter = sourceAdapters.firstOrNull { it.sourceId == sourceId }
                 ?: return@withContext null
+            val store = profileStore
+            // Read-skip: the shared key is the Edition id, which derives from
+            // title|author|narrator — so only a caller that knows the Work
+            // identity can ask the shared base at all. The entry is fetched
+            // ONCE and serves both the fresh check and the stale fail-open.
+            val entry = if (known != null && store != null) {
+                runCatching { store.getProfileEntry(sourceId, editionIdOf(sourceId, known)) }.getOrNull()
+            } else null
+            if (entry != null && ProfileFreshness.isFresh(entry.resolvedAt, System.currentTimeMillis()) &&
+                entry.profile.chapters.isNotEmpty()
+            ) {
+                // A cache hit is imported WITHOUT the page — and never
+                // re-written back (no resolution happened; a re-write would
+                // roll the freshness forward and burn the write quota).
+                val imported = runCatching {
+                    importBookFromSource(sourceId, detailFromProfile(known!!, entry.profile, url), writeBackProfile = false)
+                }.getOrNull()
+                if (imported != null) return@withContext imported
+            }
             try {
                 val detail = adapter.fetchBookPage(url)
                 if (detail.chapters.isEmpty()) return@withContext null
                 importBookFromSource(sourceId, detail)
             } catch (e: Exception) {
-                null
+                // Fail-open: the re-fetch failed (source down / Cloudflare) —
+                // serve the STALE profile when one exists, never nothing, and
+                // never re-write it (the page was not resolved).
+                if (entry != null && entry.profile.chapters.isNotEmpty()) {
+                    runCatching {
+                        importBookFromSource(sourceId, detailFromProfile(known!!, entry.profile, url), writeBackProfile = false)
+                    }.getOrNull()
+                } else null
             }
         }
+
+    /**
+     * The Edition id of a known card identity — the shared profile key. The
+     * narrator goes through the SAME normalization as the import write path
+     * (blank → the per-source placeholder), so the read key always matches
+     * the key a resolution wrote back under.
+     */
+    private fun editionIdOf(sourceId: String, identity: KnownBookIdentity): String {
+        val narrator = MetadataAssertions.normalizeClaimedText(identity.narrator) ?: "$sourceId narrator"
+        return EditionId.forBook(MergeKey.keyFor(identity.title, identity.author), "", narrator, "")
+    }
+
+    /** Materialises a cached profile back into the import seam's detail shape. */
+    private fun detailFromProfile(
+        identity: KnownBookIdentity,
+        profile: BookProfile,
+        url: String
+    ): SourceBookDetail = SourceBookDetail(
+        title = identity.title,
+        author = identity.author,
+        narrator = identity.narrator,
+        url = url,
+        coverImageUrl = profile.coverImageUrl,
+        chapters = profile.chapters.map { chapter ->
+            SourceChapter(title = chapter.title, streamUrl = chapter.streamUrl, durationSeconds = chapter.durationSeconds)
+        },
+        totalDurationSeconds = profile.totalDurationSeconds,
+        rating = profile.rating,
+        genres = profile.genres,
+        series = profile.seriesTitle?.let { SeriesRef(name = it, position = profile.seriesIndex) },
+        description = profile.description
+    )
 
     /**
      * Spec-13 T3 / ADR-0006 — import a WebView-source book from its CAPTURED
@@ -1284,4 +1395,17 @@ data class LocalChapterInput(
 data class CopiedLocalFile(
     val path: String,
     val sha256Hex: String
+)
+
+/**
+ * Spec-32 T3 (#233) — the Work identity a search/catalogue card already
+ * carries, passed to the import so the shared profile (keyed by Edition id,
+ * which derives from title|author|narrator) can be consulted instead of
+ * fetching the source page. Callers without the card pass null and the live
+ * fetch runs exactly as before.
+ */
+data class KnownBookIdentity(
+    val title: String,
+    val author: String,
+    val narrator: String = ""
 )

@@ -85,6 +85,17 @@ class FirestoreBookMetaStore(private val firestore: FirebaseFirestore) : SharedB
         }
     }
 
+    override suspend fun getProfileEntry(sourceId: String, editionId: String): SharedProfileEntry? {
+        return try {
+            val snapshot = firestore.collection(PROFILE_COLLECTION).document(profileKey(sourceId, editionId)).get()
+                .awaitOrNull() ?: return null
+            if (!snapshot.exists()) null
+            else BookProfileCodec.fromMapEntry(snapshot.data ?: return null)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     override suspend fun putProfile(
         sourceId: String,
         editionId: String,

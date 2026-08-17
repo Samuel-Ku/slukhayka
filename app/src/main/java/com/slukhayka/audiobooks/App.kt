@@ -105,7 +105,12 @@ class App : Application() {
             // chain (cheap — one resolve) and spreads the update through the
             // shared base. Best-effort and silent — the import itself never
             // depends on it.
-            onWorkImported = { workId -> runCatching { seriesUniverses.validateChainFor(workId) } }
+            onWorkImported = { workId -> runCatching { seriesUniverses.validateChainFor(workId) } },
+            // Spec-32 T2/T3 (#232/#233): a resolved page writes its full
+            // profile to the shared base (the next listener skips the page
+            // fetch), and a card import reads a fresh profile back instead of
+            // fetching. Null without Firebase keys: imports behave as before.
+            profileStore = FirestoreBookMetaStore.create(this)
         )
     }
 

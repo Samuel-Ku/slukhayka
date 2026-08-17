@@ -1,6 +1,7 @@
 package com.slukhayka.audiobooks.data.source
 
 import com.slukhayka.audiobooks.data.merge.MergeKey
+import com.slukhayka.audiobooks.data.metadata.MetadataAssertions
 
 /**
  * Spec-10 T4 — the global-search result model (pure JVM).
@@ -104,7 +105,7 @@ fun mergeGlobalSearchResults(results: List<SourceBook>): List<GlobalSearchResult
         .map { books ->
             val first = books.first()
             GlobalSearchResult(
-                title = first.title,
+                title = MetadataAssertions.normalizeTitle(first.title),
                 author = first.author,
                 narrator = first.narrator,
                 mergeKey = MergeKey.keyFor(first.title, first.author),

@@ -120,4 +120,13 @@ class GlobalSearchMergeTest {
     fun `empty input yields empty output`() {
         assertTrue(mergeGlobalSearchResults(emptyList()).isEmpty())
     }
+
+    @Test
+    fun `search result title is scrubbed of SEO suffixes`() {
+        val merged = mergeGlobalSearchResults(
+            listOf(book("Кобзар - аудіокнига слухати онлайн", "Тарас Шевченко", "4read"))
+        )
+
+        assertEquals("Кобзар", merged.single().title)
+    }
 }

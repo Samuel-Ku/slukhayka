@@ -80,12 +80,10 @@ class MetadataAssertionsTest {
             "Книга про аудіокниги",
             // The phrase in the MIDDLE is not a suffix — untouched.
             "Слухати онлайн: гід по аудіокнигах",
-            // A title that ends in a phrase-infix but is not the phrase.
+            // A whole-title bare word is kept (the bare-word strip needs a
+            // separator before it, and a whole-title word has none).
             "Аудіокнига",
-            // Case variants of real words that are NOT the multi-word phrase:
-            // the suffix is a single dictionary word, so nothing is cut.
             "АУДІОКНИГА",
-            "Кобзар - аудіокнига",
             "Нейромант. Аудіокнига українською мовою"
         )
         cases.forEach { claimed ->
@@ -122,6 +120,62 @@ class MetadataAssertionsTest {
         val twice = MetadataAssertions.normalizeTitle(once)
         assertEquals(once, twice)
         assertEquals("Тіні забутих предків", twice)
+    }
+
+    @Test
+    fun `title scrub strips the real multi-word source suffixes`() {
+        // Real suffixes observed in source fixtures (2026-08-17): sluhay.com /
+        // sluhayknigi site brands and sluhay.com.ua's «…Слухай аудіокнигу
+        // онлайн».
+        val cases = listOf<Pair<String, String>>(
+            "Кобзар - слухай аудіокнигу онлайн" to "Кобзар",
+            "Трохи ненависті — слухай безкоштовні аудіокниги онлайн українською мовою" to "Трохи ненависті",
+            "Метаморфоза Землі - аудіокниги українською мовою безкоштовно" to "Метаморфоза Землі",
+            "Кобзар | безкоштовні аудіокниги онлайн українською мовою" to "Кобзар"
+        )
+        cases.forEach { (claimed, expected) ->
+            assertEquals("normalizeTitle($claimed)", expected, MetadataAssertions.normalizeTitle(claimed))
+        }
+    }
+
+    @Test
+    fun `title scrub strips a leading audiobook prefix behind a separator`() {
+        val cases = listOf<Pair<String, String>>(
+            "Аудіокнига: Метро 2033" to "Метро 2033",
+            "Аудіокнига - Метро 2033" to "Метро 2033",
+            "аудіокнига — Метро 2033" to "Метро 2033",
+            "Аудіокнигу: Метро 2033" to "Метро 2033",
+            "АУДІОКНИГА | Метро 2033" to "Метро 2033"
+        )
+        cases.forEach { (claimed, expected) ->
+            assertEquals("normalizeTitle($claimed)", expected, MetadataAssertions.normalizeTitle(claimed))
+        }
+        // The prefix is only a prefix: a mid-title «аудіокнига» is untouched.
+        assertEquals("Книга про аудіокниги", MetadataAssertions.normalizeTitle("Книга про аудіокниги"))
+    }
+
+    @Test
+    fun `title scrub strips a bare audiobook word as a separated suffix`() {
+        val cases = listOf<Pair<String, String>>(
+            "Метро 2033 - аудіокнига" to "Метро 2033",
+            "Кобзар — аудіокнига" to "Кобзар",
+            "Кобзар, аудіокниги" to "Кобзар",
+            "Пасажир | аудіокнигу" to "Пасажир",
+            "Нейромант (аудіокнига)" to "Нейромант"
+        )
+        cases.forEach { (claimed, expected) ->
+            assertEquals("normalizeTitle($claimed)", expected, MetadataAssertions.normalizeTitle(claimed))
+        }
+        // A bare word that is a natural last word (space before, no separator)
+        // is kept: «…про аудіокниги» must not lose its subject.
+        assertEquals("Книга про аудіокниги", MetadataAssertions.normalizeTitle("Книга про аудіокниги"))
+    }
+
+    @Test
+    fun `title scrub strips emoji anywhere`() {
+        assertEquals("Метро 2033", MetadataAssertions.normalizeTitle("💙💛 Метро 2033"))
+        assertEquals("Метро 2033", MetadataAssertions.normalizeTitle("Метро 2033 💙💛"))
+        assertEquals("Метро 2033", MetadataAssertions.normalizeTitle("💙Метро💛 2033"))
     }
 
     // --- Brand-scrub ------------------------------------------------------

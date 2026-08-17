@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -79,6 +80,25 @@ class TitleScrubWritePathTest {
         assertEquals("Кобзар", dao.getAudiobookById(book.id)!!.title)
         // The Work row (ADR-0009: the entry links the book to it) is clean too.
         assertEquals("Кобзар", dao.observeWorks().first().single().title)
+    }
+
+    @Test
+    fun `source-page import stores the real page description instead of a URL`() = runBlocking {
+        val book = imports().importBookFromSource(
+            "soundbooks",
+            detail("Кобзар").copy(description = "Збірка поетичних творів Тараса Шевченка.")
+        )
+
+        assertEquals("Збірка поетичних творів Тараса Шевченка.", dao.getAudiobookById(book.id)!!.description)
+    }
+
+    @Test
+    fun `source-page import fallback description carries no raw URL`() = runBlocking {
+        val book = imports().importBookFromSource("soundbooks", detail("Кобзар"))
+
+        val description = dao.getAudiobookById(book.id)!!.description
+        assertFalse(description.contains("http"))
+        assertFalse(description.contains("sound-books.net"))
     }
 
     // --- Door 2: captured-page import --------------------------------------

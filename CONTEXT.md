@@ -113,3 +113,39 @@ _Avoid_: inline-only series row, new series data source
 **«Колекції» index screen**:
 A pushed screen listing every matched smart collection (Нобелівські лауреати, Шевченківська премія, Букер, live lists); tapping a book resolves-and-plays it exactly like the inline collection cards — the move changes location, not behaviour (spec-28 #190).
 _Avoid_: duplicated collection behaviour, new collection data source
+
+## UX principles (spec-27)
+
+The standing UI rules distilled from the four UX reviews (spec-27 #184). New screens must satisfy them; a change that violates one needs a recorded decision, not silence.
+
+**One book, one card**:
+Every Work renders as exactly one card on a screen — duplicate rows, raw SEO-suffixed titles, and the same book styled two ways at once are defects (write-path normalization + the one-time DuplicateWorkMerger; Listen cross-shelf dedup).
+_Avoid_: «Трохи ненависті» + «… - АудіоКниги Українською» as two rows
+
+**Destructive actions never look neutral**:
+Deleting files is a red, explicitly-labelled action behind a confirmation quoting the exact scope (count + size). A refresh-looking button must never wipe data (ClearCacheConfirmDialog, ⋮ → «Завантаження та пам'ять»).
+_Avoid_: «Очистити» next to neutral storage info without a dialog
+
+**Numbers match the user's experience**:
+A displayed count, percent or duration must be the truth the user can verify — the library counter is live (Room flow), the hero percent is cumulative, unknown durations render as absent, never «00:00» (ADR-0014).
+_Avoid_: stale counters, in-chapter percent passed off as book progress, fabricated 4:00:00
+
+**One tool, one place**:
+Each capability has one obvious home: import is «+ Додати» (a sheet), genre navigation is the «Жанри» chip row while genre filtering lives in the feed, destructive delete lives in ⋮. Duplicate affordances (three genre rows, two import buttons) are the defect this rule kills.
+_Avoid_: the same action reachable from competing buttons/chips
+
+**A landing answers one question**:
+Each tab answers one question — Слухати «що я слухаю?», Огляд «що знайти?», Медіатека «де мої книги?» — with its real content above the fold and the endless feed always last.
+_Avoid_: discovery mixed into the listening tab, an infinite feed burying curated shelves
+
+**Control-to-content ratio**:
+Chrome rows (headers, chips, filters) stay a small fraction of the screen; content starts above the fold. When chrome grows, collapse it (search as an expanding icon, rare filters in a sheet).
+_Avoid_: six stacked chrome rows before the first book
+
+**Only truthful data**:
+While a value is unknown, render the loading state («довантажуємо серію…»), not a provisional number; a failed resolution contributes nothing (best-effort, silent). Numbers only when they are real (ADR-0014).
+_Avoid_: «1 книг у циклі» as a placeholder while resolution runs
+
+**Rare actions live in secondary menus**:
+Frequent actions are first-class buttons; rare or destructive ones hide in ⋮ / long-press / confirmation dialogs — reachable, never in the way.
+_Avoid_: delete/share icons at the same rank as play

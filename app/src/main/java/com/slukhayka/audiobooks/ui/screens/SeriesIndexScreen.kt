@@ -5,19 +5,17 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.data.catalog.CatalogSeries
 import com.slukhayka.audiobooks.ui.MainViewModel
+import com.slukhayka.audiobooks.ui.components.IndexEmptyState
+import com.slukhayka.audiobooks.ui.components.IndexScreenScaffold
 import com.slukhayka.audiobooks.ui.theme.*
 
 /**
@@ -36,30 +34,10 @@ fun SeriesIndexScreen(
 ) {
     val series by viewModel.seriesIndex.collectAsState()
 
-    Scaffold(
-        topBar = {
-            // Host Scaffold in MainActivity already consumed the status bar
-            // (innerPadding.top); don't let this inner TopAppBar add it again.
-            TopAppBar(
-                windowInsets = WindowInsets(0, 0, 0, 0),
-                title = {
-                    Text(
-                        text = "Серії",
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBackClick) {
-                        Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
-            )
-        },
-        containerColor = MaterialTheme.colorScheme.background
-    ) { padding ->
+    // spec-28 (#202): the chrome is the shared index scaffold — title, back
+    // arrow, insets and container colour live in one place; only the content
+    // differs per screen.
+    IndexScreenScaffold(title = "Серії", onBackClick = onBackClick) { padding ->
         SeriesIndexContent(
             series = series,
             onSeriesClick = onSeriesClick,
@@ -83,28 +61,12 @@ fun SeriesIndexContent(
     modifier: Modifier = Modifier
 ) {
     if (series.isEmpty()) {
-        // No-series state: a sensible placeholder, never a crash — the
-        // catalogue may simply not have synced yet (same idiom as the other
-        // catalogue index screens).
-        Box(
-            modifier = modifier.testTag("series_index_screen"),
-            contentAlignment = Alignment.Center
-        ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Icon(
-                    imageVector = Icons.Default.MenuBook,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(48.dp)
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-                Text(
-                    text = "Серії з'являться після завантаження каталогу.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
+        // No-series state: the shared index placeholder, never a crash — the
+        // catalogue may simply not have synced yet (spec-28 #202).
+        IndexEmptyState(
+            message = "Серії з'являться після завантаження каталогу.",
+            modifier = modifier.testTag("series_index_screen")
+        )
         return
     }
 

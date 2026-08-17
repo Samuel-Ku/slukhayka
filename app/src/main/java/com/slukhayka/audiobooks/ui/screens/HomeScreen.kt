@@ -16,10 +16,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.paging.LoadState
 import androidx.paging.compose.collectAsLazyPagingItems
-import androidx.paging.compose.itemContentType
-import androidx.paging.compose.itemKey
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -50,8 +47,6 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import kotlinx.coroutines.launch
 import com.slukhayka.audiobooks.data.catalog.CatalogBook
-import com.slukhayka.audiobooks.data.catalog.CatalogSection
-import com.slukhayka.audiobooks.data.catalog.CatalogSectionId
 import com.slukhayka.audiobooks.data.catalog.CatalogSeries
 import com.slukhayka.audiobooks.data.catalog.SourceCatalog
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
@@ -304,287 +299,41 @@ fun HomeScreen(
             }
         } else {
             // ---- Netflix feed ---------------------------------------------
-            // Loading spinner while the catalogue syncs on a fresh start.
-            if (isCatalogLoading && allBooks.isEmpty() && sections.isEmpty()) {
-                item {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(48.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Text(
-                                text = "Завантажуємо каталог...",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
-            }
-
-            // Empty catalogue (first run, no network): actionable state.
-            if (!isCatalogLoading && sections.isEmpty() && allBooks.isEmpty()) {
-                item {
-                    EmptyCatalogState(
-                        onRefreshClick = { scope.launch { sourceCatalog.fetchCatalogSections() } },
-                        onImportClick = { viewModel.selectTab(com.slukhayka.audiobooks.ui.SelectedTab.LIBRARY) }
-                    )
-                }
-            }
-
-            // Catalogue navigation — the site's header menu: ТОП 100,
-            // Виконавці (narrators) and Автори (authors), plus the spec-28
-            // «Серії» (#189) and «Колекції» (#190) indexes. ADR-0018: these
-            // NAVIGATE, so they are NavigationChips (filled, no outline) —
-            // never filter-shaped chips.
-            item {
-                CatalogRowHeader(title = "Каталог")
-            }
-            item {
-                CatalogNavRow(
-                    onTop100Click = { viewModel.openTop100() },
-                    onPeopleClick = { kind -> viewModel.openPeople(kind) },
-                    onSeriesClick = { viewModel.openSeriesIndex() },
-                    onCollectionsClick = { viewModel.openCollectionsIndex() }
-                )
-            }
-
-            // Genre navigation ("Аудіокниги жанру:") — chips that open the
-            // genre's own book list, mirroring the site's primary sidebar nav.
-            if (catalogGenres.isNotEmpty()) {
-                item {
-                    CatalogRowHeader(title = "Жанри")
-                }
-                item {
-                    LazyRow(
-                        contentPadding = PaddingValues(horizontal = 16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        items(catalogGenres, key = { it.url }) { genre ->
-                            // The genre row NAVIGATES (opens the genre list) —
-                            // NavigationChip per ADR-0018; the genre FILTERS
-                            // inside «Весь каталог» stay FilterChips.
-                            NavigationChip(
-                                title = genre.title,
-                                onClick = { viewModel.openGenre(genre.title, genre.url) }
-                            )
-                        }
-                    }
-                }
-            }
-
-            // Spec-16: «Колекції» — one horizontal cover row per matched
-            // curated collection (Нобелівські лауреати, Шевченківська
-            // премія, Букер), reusing the uniform cover-card look of the
-            // other Огляд rows. Tapping a card resolves the Work like any
-            // other global-search card (import-and-play). Empty collections
-            // are already absent from the flow; when all are empty the whole
-            // block disappears.
-            if (collections.isNotEmpty()) {
-                collections.forEach { collection ->
-                    item {
-                        CatalogRowHeader(title = collection.name)
-                    }
-                    item {
-                        LazyRow(
-                            contentPadding = PaddingValues(horizontal = 16.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            items(collection.books, key = { it.key }) { result ->
-                                CollectionBookCard(
-                                    result = result,
-                                    onClick = { viewModel.playGlobalSearchResult(result) }
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            // spec-28 (#192): «Новинки» — the ONE cross-source new-arrivals
-            // rail (4read's «Новинки» section + every other source's feed,
-            // merged by Work, a source badge per card), re-homed from
-            // Слухати. Tapping a card resolves-and-plays exactly like the
-            // global-search cards. The «Новинки» catalogue section is skipped
-            // below so 4read's new arrivals appear exactly once on the screen.
-            if (newArrivals.isNotEmpty()) {
-                item {
-                    NewArrivalsRail(
-                        results = newArrivals,
-                        onBookClick = { result -> viewModel.playGlobalSearchResult(result) }
-                    )
-                }
-            }
-
-            // spec-28 (#192): «Більше книг на Sluhay» moved from Слухати to
-            // Огляд as a compact exit CTA, not a content shelf. Debug builds
-            // open the in-app browser surface; release hides the row (the
-            // same debug-gating as on Listen, spec-13 T3/T2).
-            if (onOpenWebSource != null) {
-                item {
-                    OpenWebSourceRow(
-                        displayName = "Sluhay",
-                        onClick = onOpenWebSource
-                    )
-                }
-            }
-
-            // Spec-23 T4: the endless merged feed — every Work in the
-            // persisted catalogue, paged via Paging 3. It supersedes the
-            // spec-15 T1 ephemeral union: the same merge key / one card per
-            // Work, but scrolling pages through the whole catalogue instead
-            // of stopping at the session snapshot. Filters (source / genre /
-            // sort) rebuild the Pager; the row header shows the live count.
-            item {
-                CatalogRowHeader(title = "Весь каталог")
-            }
-            item {
-                WorkFeedFilters(
-                    sourceFilter = feedSourceFilter,
-                    genreFilter = feedGenreFilter,
-                    sortByTitle = feedSortByTitle,
-                    genres = catalogGenres.map { it.title },
-                    onSourceChange = viewModel::setFeedSourceFilter,
-                    onGenreChange = viewModel::setFeedGenreFilter,
-                    onSortToggle = { viewModel.setFeedSortByTitle(!feedSortByTitle) }
-                )
-            }
-            if (workFeedItems.itemCount == 0 && workFeedItems.loadState.refresh is LoadState.Loading) {
-                item {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(24.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                    }
-                }
-            }
-            // Paging-compose 3.3 removed LazyListScope.items(LazyPagingItems);
-            // iterate the paged index with the official itemKey/contentType
-            // helpers (placeholders disabled, so rows are non-null).
-            items(
-                count = workFeedItems.itemCount,
-                key = workFeedItems.itemKey { it.workId },
-                contentType = workFeedItems.itemContentType { "WorkFeedRow" }
-            ) { index ->
-                workFeedItems[index]?.let { row ->
-                    WorkFeedCard(
-                        row = row,
-                        onClick = { viewModel.openWorkFeedRow(row) }
-                    )
-                }
-            }
-            when (val append = workFeedItems.loadState.append) {
-                is LoadState.Loading -> item {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(28.dp),
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                }
-                is LoadState.Error -> item {
-                    Text(
-                        text = "Не вдалося завантажити ще: ${append.error.message.orEmpty()}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.padding(16.dp)
-                    )
-                }
-                else -> Unit
-            }
-
-            // Spec-19 Track A: «Рекомендовано для вас» — on-device, local
-            // only. Each card carries a reason chip («схоже на X»); tapping
-            // opens the book page through the same identity resolution as
-            // any other Огляд row (import the Work, then the native page).
-            if (recommendedBooks.isNotEmpty()) {
-                item {
-                    CatalogRowHeader(title = "Рекомендовано для вас")
-                }
-                item {
-                    LazyRow(
-                        contentPadding = PaddingValues(horizontal = 16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        items(recommendedBooks, key = { it.candidate.id }) { rec ->
-                            RecommendedBookCard(
-                                rec = rec,
-                                onClick = { viewModel.openRecommendedBook(rec.candidate.id) }
-                            )
-                        }
-                    }
-                }
-            }
-
-            // spec-18 T3: «За тривалістю» — «Короткі» and «Довгі» cover rows
-            // fed by the bucketed duration rows. Hidden entirely when no book
-            // has a known duration yet; the rows grow as durations arrive.
-            item {
-                DurationSection(
-                    shortBooks = durationBooks.short.map { it.asCatalogBook() },
-                    longBooks = durationBooks.long.map { it.asCatalogBook() },
-                    onBookClick = onBookClick
-                )
-            }
-
-            // Catalogue rows parsed from the 4read.org homepage. Spec-9: the
-            // Continue-Listening card moved to the Слухати tab. Spec-28
-            // (#192): the «Новинки» section is superseded by the cross-source
-            // rail above — 4read's new arrivals must appear exactly once.
-            sections.forEach { section ->
-                // Spec-28 (#197): the skip matches the typed section id — a
-                // rename of the section title in the parser can never render
-                // 4read's new arrivals twice (rail + section row).
-                if (section.id == CatalogSectionId.NEW_ARRIVALS) return@forEach
-                if (section.books.isNotEmpty()) {
-                    item {
-                        CatalogRowHeader(title = section.title)
-                    }
-                    item {
-                        LazyRow(
-                            contentPadding = PaddingValues(horizontal = 16.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            items(section.books, key = { it.id }) { book ->
-                                CatalogBookCard(
-                                    book = book,
-                                    onClick = { onBookClick(book.id) }
-                                )
-                            }
-                        }
-                    }
-                }
-                if (section.series.isNotEmpty()) {
-                    item {
-                        CatalogRowHeader(title = section.title)
-                    }
-                    item {
-                        LazyRow(
-                            contentPadding = PaddingValues(horizontal = 16.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            items(section.series, key = { it.url }) { series ->
-                                CatalogSeriesCard(
-                                    series = series,
-                                    onClick = { viewModel.openSeries(series.title, series.url) }
-                                )
-                            }
-                        }
-                    }
-                }
-            }
+            // spec-28 (#203): the block order is fixed by the spec (curated
+            // content above the endless feed, «Весь каталог» always last) and
+            // pinned by HomeFeedOrderSnapshotTest. The body lives in
+            // [homeFeedContent] so the order is stateless and testable.
+            homeFeedContent(
+                isCatalogLoading = isCatalogLoading,
+                hasLibraryBooks = allBooks.isNotEmpty(),
+                sections = sections,
+                catalogGenres = catalogGenres,
+                collections = collections,
+                newArrivals = newArrivals,
+                recommendedBooks = recommendedBooks,
+                shortBooks = durationBooks.short.map { it.asCatalogBook() },
+                longBooks = durationBooks.long.map { it.asCatalogBook() },
+                workFeedItems = workFeedItems,
+                feedSourceFilter = feedSourceFilter,
+                feedGenreFilter = feedGenreFilter,
+                feedSortByTitle = feedSortByTitle,
+                onRefreshCatalog = { scope.launch { sourceCatalog.fetchCatalogSections() } },
+                onGoToLibrary = { viewModel.selectTab(com.slukhayka.audiobooks.ui.SelectedTab.LIBRARY) },
+                onOpenTop100 = { viewModel.openTop100() },
+                onOpenPeople = { viewModel.openPeople(it) },
+                onOpenSeriesIndex = { viewModel.openSeriesIndex() },
+                onOpenCollectionsIndex = { viewModel.openCollectionsIndex() },
+                onOpenGenre = { title, url -> viewModel.openGenre(title, url) },
+                onOpenSeries = { title, url -> viewModel.openSeries(title, url) },
+                onPlayGlobalSearchResult = { viewModel.playGlobalSearchResult(it) },
+                onOpenRecommendedBook = { viewModel.openRecommendedBook(it) },
+                onOpenWorkFeedRow = { viewModel.openWorkFeedRow(it) },
+                onBookClick = onBookClick,
+                onSetFeedSourceFilter = { viewModel.setFeedSourceFilter(it) },
+                onSetFeedGenreFilter = { viewModel.setFeedGenreFilter(it) },
+                onSetFeedSortByTitle = { viewModel.setFeedSortByTitle(it) },
+                onOpenWebSource = onOpenWebSource
+            )
 
             // Spec-9: the full library list lives in Медіатека (Library tab),
             // not at the bottom of Огляд.

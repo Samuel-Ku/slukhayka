@@ -182,7 +182,9 @@ class App : Application() {
      */
     val durationEnrichment: DurationEnrichment by lazy {
         val fourRead = sourceAdapters.first { it.sourceId == "4read" }
-        DurationEnrichment(database.audiobookDao(), fourRead::fetchBookPage)
+        // Spec-30 T4 (#219): a page-derived duration writes back to the
+        // shared base so the next listener reads it instead of re-fetching.
+        DurationEnrichment(database.audiobookDao(), fourRead::fetchBookPage, sharedStore = sharedMetaStore)
     }
 
     /**
@@ -192,10 +194,13 @@ class App : Application() {
      * only network code (HEAD + ranged GET of the stream head).
      */
     val chapterDurationProbe: ChapterDurationProbe by lazy {
+        // Spec-30 T4 (#219): a book total derived from probed chapters writes
+        // back to the shared base — the costliest derivation must never repeat.
         ChapterDurationProbe(
             database.audiobookDao(),
             sourceCatalog::getPlayableChapters,
-            HttpStreamProber()
+            HttpStreamProber(),
+            sharedStore = sharedMetaStore
         )
     }
 

@@ -3,14 +3,17 @@ package com.slukhayka.audiobooks.data.repository
 import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
+import com.slukhayka.audiobooks.data.EditionId
 import com.slukhayka.audiobooks.data.db.AudiobookDao
 import com.slukhayka.audiobooks.data.db.AudiobookDatabase
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.duration.DurationBuckets
 import com.slukhayka.audiobooks.data.duration.DurationEnrichment
+import com.slukhayka.audiobooks.data.metadata.DurationProvenance
 import com.slukhayka.audiobooks.data.source.SourceAdapter
 import com.slukhayka.audiobooks.data.source.SourceBook
 import com.slukhayka.audiobooks.data.source.SourceBookDetail
+import com.slukhayka.audiobooks.testing.FakeSharedBookMetaStore
 import java.io.IOException
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -93,8 +96,8 @@ class DurationEnrichmentRepositoryTest {
             totalDurationSeconds = durationSeconds
         )
 
-    private fun repo(adapter: FakeBookAdapter) =
-        DurationEnrichment(dao, adapter::fetchBookPage)
+    private fun repo(adapter: FakeBookAdapter, store: FakeSharedBookMetaStore? = null) =
+        DurationEnrichment(dao, adapter::fetchBookPage, sharedStore = store)
 
     private fun runEnrich(repo: DurationEnrichment, batchLimit: Int = 5, now: Long = 1_700_000_000_000L): Int =
         runBlocking { repo.enrichUnknownDurations(batchLimit = batchLimit, now = { now }) }
@@ -233,5 +236,35 @@ class DurationEnrichmentRepositoryTest {
         assertEquals(0, runEnrich(repo))
         assertTrue(adapter.fetchedUrls.isEmpty())
         assertEquals("existing durations are never touched", 3600L, durationOf("known"))
+    }
+
+    // --- T4 (#219): derived duration writes back to the shared base --------
+
+    @Test
+    fun `a derived duration is written back to the shared store`() = runBlocking {
+        val store = FakeSharedBookMetaStore()
+        val adapter = FakeBookAdapter(durationFor = mapOf("https://4read.org/b1.html" to 3_600L))
+        dao.insertAudiobooks(listOf(book("b1", durationSeconds = 0L)))
+
+        runEnrich(repo(adapter, store))
+
+        assertEquals(1, store.durationPuts.size)
+        val (editionId, duration, provenance) = store.durationPuts.single()
+        assertEquals(3_600L, duration)
+        assertEquals(DurationProvenance.SOURCE_DERIVED, provenance.source)
+        // The Edition id matches the book's rendition identity.
+        assertEquals(EditionId.forBook("", "b1", ""), editionId)
+    }
+
+    @Test
+    fun `a failing shared write never breaks the enrichment pass`() = runBlocking {
+        val store = FakeSharedBookMetaStore(throwOnPut = true)
+        val adapter = FakeBookAdapter(durationFor = mapOf("https://4read.org/b1.html" to 3_600L))
+        dao.insertAudiobooks(listOf(book("b1", durationSeconds = 0L)))
+
+        val enriched = runEnrich(repo(adapter, store))
+
+        assertEquals(1, enriched)
+        assertEquals(3_600L, durationOf("b1"))
     }
 }

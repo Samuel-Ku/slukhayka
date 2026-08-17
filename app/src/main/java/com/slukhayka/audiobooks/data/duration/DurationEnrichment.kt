@@ -1,7 +1,11 @@
 package com.slukhayka.audiobooks.data.duration
 
 import android.util.Log
+import com.slukhayka.audiobooks.data.EditionId
 import com.slukhayka.audiobooks.data.db.AudiobookDao
+import com.slukhayka.audiobooks.data.metadata.DurationProvenance
+import com.slukhayka.audiobooks.data.metadata.DurationSanity
+import com.slukhayka.audiobooks.data.metadata.SharedBookMetaStore
 import com.slukhayka.audiobooks.data.source.SourceBookDetail
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.Dispatchers
@@ -28,7 +32,12 @@ import kotlinx.coroutines.withContext
  */
 class DurationEnrichment(
     private val dao: AudiobookDao,
-    private val fetchBookPage: suspend (String) -> SourceBookDetail
+    private val fetchBookPage: suspend (String) -> SourceBookDetail,
+    // Spec-30 T4 (#219): the shared book-metadata store — a derived duration
+    // is written back so the next listener reads it instead of re-fetching
+    // the page. Null without Firebase keys: enrichment behaves exactly as
+    // before. Best-effort by contract — a failing write never breaks a pass.
+    private val sharedStore: SharedBookMetaStore? = null
 ) {
 
     /** Timestamp of the last completed pass, as an atomic CAS gate. */
@@ -63,6 +72,18 @@ class DurationEnrichment(
                 // filters later.
                 if (duration != null && duration > 0L) {
                     dao.updateBookStats(book.id, book.totalChapters, duration)
+                    // Spec-30 T4 (#219): a derived duration contributes to the
+                    // shared base (sanity-gated), keyed by the same Edition id
+                    // the read path uses — the next user never re-fetches.
+                    if (DurationSanity.isPlausible(duration)) {
+                        runCatching {
+                            sharedStore?.putDuration(
+                                editionId = EditionId.forBook(book.mergeKey ?: "", book.id, book.narrator),
+                                durationSeconds = duration,
+                                provenance = DurationProvenance(DurationProvenance.SOURCE_DERIVED, now())
+                            )
+                        }
+                    }
                     enriched++
                 }
             } catch (e: Exception) {

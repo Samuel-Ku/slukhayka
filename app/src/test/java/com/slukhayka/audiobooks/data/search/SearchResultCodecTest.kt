@@ -4,6 +4,7 @@ import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.data.source.GlobalSearchSource
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -142,5 +143,78 @@ class SearchResultCodecTest {
 
         val decoded = SearchResultCodec.fromMap(SearchResultCodec.toMap(fetchedAt, manyCards))
         assertEquals(SearchResultCodec.MAX_RESULTS, decoded?.results?.size)
+    }
+
+    @Test
+    fun `the write cap is about 50 cards`() {
+        // spec-33 T3 (#228): «Ліміт ~50 карток на результат» — the cap sits
+        // in the 50s, not in the hundreds, so the shared base stays bounded.
+        assertTrue(
+            "MAX_RESULTS=${SearchResultCodec.MAX_RESULTS} should be ~50",
+            SearchResultCodec.MAX_RESULTS in 40..60
+        )
+    }
+
+    @Test
+    fun `a card without a title is dropped from the write shape`() {
+        val noTitle = richCard.copy(title = "   ")
+
+        val decoded = SearchResultCodec.fromMap(
+            SearchResultCodec.toMap(fetchedAt, listOf(noTitle, richCard))
+        )
+
+        // The incomplete card never reaches the document — sanitation happens
+        // on the WRITE path (spec-33 T3), not only on a defensive read.
+        assertEquals(listOf(richCard), decoded?.results)
+    }
+
+    @Test
+    fun `a card without any source URL is dropped from the write shape`() {
+        val noUrl = richCard.copy(
+            sources = listOf(
+                GlobalSearchSource("4read", "4read", "   "),
+                GlobalSearchSource("sluhayua", "Sluhay", "")
+            )
+        )
+
+        val decoded = SearchResultCodec.fromMap(
+            SearchResultCodec.toMap(fetchedAt, listOf(noUrl, richCard))
+        )
+
+        assertEquals(listOf(richCard), decoded?.results)
+    }
+
+    @Test
+    fun `a card with at least one usable source URL survives the write shape`() {
+        val mixed = richCard.copy(
+            sources = listOf(
+                GlobalSearchSource("4read", "4read", "   "),
+                GlobalSearchSource("sluhayua", "Sluhay", "https://sluhay.com.ua/kobzar")
+            )
+        )
+
+        val decoded = SearchResultCodec.fromMap(
+            SearchResultCodec.toMap(fetchedAt, listOf(mixed))
+        )
+
+        // The card survives; the unusable source is sanitized out of the
+        // written document (per-source sanitation mirrors the card rule), so
+        // the round-trip carries only the playable source.
+        assertEquals(listOf(mixed.copy(sources = listOf(mixed.sources[1]))), decoded?.results)
+    }
+
+    @Test
+    fun `an all-junk result writes an empty document`() {
+        // Sanitation can empty the list entirely — the write then carries no
+        // cards at all (the caller's no-negative-cache rule keeps it out of
+        // the store; the codec itself stays honest about the shape).
+        val junk = richCard.copy(title = "", sources = listOf(GlobalSearchSource("4read", "4read", "")))
+
+        val document = SearchResultCodec.toMap(fetchedAt, listOf(junk))
+
+        @Suppress("UNCHECKED_CAST")
+        val cards = document["results"] as List<*>
+        assertTrue(cards.isEmpty())
+        assertEquals(fetchedAt, document["fetchedAt"])
     }
 }

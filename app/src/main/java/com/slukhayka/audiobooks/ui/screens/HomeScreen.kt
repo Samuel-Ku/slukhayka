@@ -64,6 +64,7 @@ import com.slukhayka.audiobooks.data.source.sourceDisplayName
 import com.slukhayka.audiobooks.ui.DurationBooks
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.components.EmptyState
+import com.slukhayka.audiobooks.ui.components.NavigationChip
 import com.slukhayka.audiobooks.ui.components.genreAccentColor
 import com.slukhayka.audiobooks.ui.displayAuthor
 import com.slukhayka.audiobooks.ui.durationBooksFrom
@@ -336,57 +337,20 @@ fun HomeScreen(
             }
 
             // Catalogue navigation — the site's header menu: ТОП 100,
-            // Виконавці (narrators) and Автори (authors).
+            // Виконавці (narrators) and Автори (authors), plus the spec-28
+            // «Серії» (#189) and «Колекції» (#190) indexes. ADR-0018: these
+            // NAVIGATE, so they are NavigationChips (filled, no outline) —
+            // never filter-shaped chips.
             item {
                 CatalogRowHeader(title = "Каталог")
             }
             item {
-                LazyRow(
-                    contentPadding = PaddingValues(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    item {
-                        GenreChip(
-                            title = "ТОП 100",
-                            onClick = { viewModel.openTop100() }
-                        )
-                    }
-                    item {
-                        GenreChip(
-                            title = "Виконавці",
-                            onClick = {
-                                viewModel.openPeople(com.slukhayka.audiobooks.ui.PeopleKind("Виконавці", "https://4read.org/readers.html"))
-                            }
-                        )
-                    }
-                    item {
-                        GenreChip(
-                            title = "Автори",
-                            onClick = {
-                                viewModel.openPeople(com.slukhayka.audiobooks.ui.PeopleKind("Автори", "https://4read.org/avtors.html"))
-                            }
-                        )
-                    }
-                    // spec-28 (#189): «Серії» — a pushed index of every series
-                    // aggregated from the catalogue sections (the «Цикли»
-                    // row), deduplicated by URL. Tapping a series opens the
-                    // existing series page.
-                    item {
-                        GenreChip(
-                            title = "Серії",
-                            onClick = { viewModel.openSeriesIndex() }
-                        )
-                    }
-                    // spec-28 (#190): «Колекції» — a pushed index of every
-                    // matched smart collection; tapping a book resolves-and-
-                    // plays exactly like the inline collection cards.
-                    item {
-                        GenreChip(
-                            title = "Колекції",
-                            onClick = { viewModel.openCollectionsIndex() }
-                        )
-                    }
-                }
+                CatalogNavRow(
+                    onTop100Click = { viewModel.openTop100() },
+                    onPeopleClick = { kind -> viewModel.openPeople(kind) },
+                    onSeriesClick = { viewModel.openSeriesIndex() },
+                    onCollectionsClick = { viewModel.openCollectionsIndex() }
+                )
             }
 
             // Genre navigation ("Аудіокниги жанру:") — chips that open the
@@ -401,7 +365,10 @@ fun HomeScreen(
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         items(catalogGenres, key = { it.url }) { genre ->
-                            GenreChip(
+                            // The genre row NAVIGATES (opens the genre list) —
+                            // NavigationChip per ADR-0018; the genre FILTERS
+                            // inside «Весь каталог» stay FilterChips.
+                            NavigationChip(
                                 title = genre.title,
                                 onClick = { viewModel.openGenre(genre.title, genre.url) }
                             )
@@ -1054,25 +1021,54 @@ fun RecommendedBookCard(
     }
 }
 
-/** Tappable genre chip for the "Жанри" row — opens the genre book list. */
+/**
+ * spec-28 (#198) — the Огляд five-chip navigation row (ТОП 100 / Виконавці /
+ * Автори / Серії / Колекції), as [NavigationChip]s per ADR-0018: filled,
+ * outline-free — the «перейти» form, never the filter form. Public and
+ * stateless (pure callbacks) so the snapshot seam pins the real row.
+ */
 @Composable
-fun GenreChip(
-    title: String,
-    onClick: () -> Unit
+fun CatalogNavRow(
+    onTop100Click: () -> Unit,
+    onPeopleClick: (com.slukhayka.audiobooks.ui.PeopleKind) -> Unit,
+    onSeriesClick: () -> Unit,
+    onCollectionsClick: () -> Unit
 ) {
-    Surface(
-        onClick = onClick,
-        shape = RoundedCornerShape(AppDimens.RadiusCardLg),
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        modifier = Modifier.testTag("genre_chip_$title")
+    LazyRow(
+        contentPadding = PaddingValues(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
-        )
+        item {
+            NavigationChip(title = "ТОП 100", onClick = onTop100Click)
+        }
+        item {
+            NavigationChip(
+                title = "Виконавці",
+                onClick = {
+                    onPeopleClick(com.slukhayka.audiobooks.ui.PeopleKind("Виконавці", "https://4read.org/readers.html"))
+                }
+            )
+        }
+        item {
+            NavigationChip(
+                title = "Автори",
+                onClick = {
+                    onPeopleClick(com.slukhayka.audiobooks.ui.PeopleKind("Автори", "https://4read.org/avtors.html"))
+                }
+            )
+        }
+        // spec-28 (#189): «Серії» — a pushed index of every series aggregated
+        // from the catalogue sections (the «Цикли» row), deduplicated by URL.
+        // Tapping a series opens the existing series page.
+        item {
+            NavigationChip(title = "Серії", onClick = onSeriesClick)
+        }
+        // spec-28 (#190): «Колекції» — a pushed index of every matched smart
+        // collection; tapping a book resolves-and-plays exactly like the
+        // inline collection cards.
+        item {
+            NavigationChip(title = "Колекції", onClick = onCollectionsClick)
+        }
     }
 }
 

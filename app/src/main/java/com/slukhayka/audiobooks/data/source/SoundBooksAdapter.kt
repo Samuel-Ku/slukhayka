@@ -112,14 +112,20 @@ class SoundBooksAdapter(
 
     /** Parses one page's cover tiles + text anchors into [SourceBook] rows. */
     private fun parseTiles(html: String, limit: Int): List<SourceBook> {
-        // The cover tile carries the poster: <a class="short-img" href="…">
-        // <img data-src="/uploads/posts/…"></a> — a relative path on this site.
+        // The cover tile carries the poster AND the book's title in the img
+        // alt: <a class="short-img" href="…"><img data-src="/uploads/posts/…"
+        // alt="Назва"></a> — the path is relative on this site.
         val covers = mutableMapOf<String, String>()
+        val altTitles = mutableMapOf<String, String>() // url -> img-alt title
         COVER_TILE.findAll(html).forEach { m ->
             val url = m.groupValues[1]
             if (!covers.containsKey(url)) {
                 val img = m.groupValues[2]
                 covers[url] = if (img.startsWith("http")) img else "https://sound-books.net$img"
+            }
+            val alt = m.groupValues[3].trim()
+            if (alt.length >= 3 && !altTitles.containsKey(url)) {
+                altTitles[url] = alt
             }
         }
         // Each entry renders twice on a listing page: a cover tile with a bare
@@ -128,13 +134,24 @@ class SoundBooksAdapter(
         val best = mutableMapOf<String, Pair<String, Boolean>>() // url -> (anchor, hasSeparator)
         BOOK_LINK.findAll(html).forEach { m ->
             val url = m.groupValues[1]
-            val anchor = m.groupValues[2].trim().takeIf { it.length >= 3 } ?: return@forEach
+            val inner = m.groupValues[2]
+            // The cover tiles (<a class="short-img">…<img …></a>) carry the same
+            // .html href but their inner content is a raw <img> tag, never a
+            // title — skip them so a lazy-loaded cover can't become the book's
+            // title (2026-08-17: «Статут …» books came out titled
+            // `<img data-src=…>`, winning over the real text anchor).
+            if (inner.contains("<img", ignoreCase = true)) return@forEach
+            val anchor = inner.trim().takeIf { it.length >= 3 } ?: return@forEach
             val hasSep = anchor.contains(" - ")
             val prev = best[url]
             if (prev == null || (hasSep && !prev.second)) {
                 best[url] = anchor to hasSep
             }
         }
+        // Text anchors are authoritative; the cover tile's img alt fills in
+        // only the books a listing renders image-only (no text anchor at all),
+        // so a lazy-loaded cover never outranks the real title.
+        altTitles.forEach { (url, alt) -> if (!best.containsKey(url)) best[url] = alt to false }
         return best.entries.take(limit).map { entry ->
             val url = entry.key
             val anchor = entry.value.first
@@ -170,7 +187,10 @@ class SoundBooksAdapter(
         // Real tiles carry attributes before href (`<a class="short-title" href=…>`),
         // so the anchor tag is matched loosely.
         val BOOK_LINK = Regex("""<a\s+[^>]*href="(https://sound-books\.net/[^"]+\.html)"[^>]*>(.*?)</a>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
-        val COVER_TILE = Regex("""<a\s+class="short-img[^"]*"\s+href="(https://sound-books\.net/[^"]+\.html)"[^>]*>\s*<img[^>]*(?:data-src|src)="([^"]+)"""", RegexOption.IGNORE_CASE)
+        // alt is optional (and only captured when it follows the src/data-src
+        // attribute) — an alt-less cover tile must never lose its cover over a
+        // missing title signal (code-review hardening, 2026-08-17).
+        val COVER_TILE = Regex("""<a\s+class="short-img[^"]*"\s+href="(https://sound-books\.net/[^"]+\.html)"[^>]*>\s*<img[^>]*(?:data-src|src)="([^"]+)"(?:[^>]*\s+alt="([^"]*)")?""", RegexOption.IGNORE_CASE)
         // Category sections of the full catalogue (`https://sound-books.net/<slug>/`).
         val CATEGORY_LINK = Regex("""href="(https://sound-books\.net/[a-z-]+/)"""", RegexOption.IGNORE_CASE)
         val AUTHOR_MARK = Regex("""Автор:\s*([^.<]{2,80})""", RegexOption.IGNORE_CASE)

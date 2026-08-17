@@ -74,6 +74,33 @@ class FirestoreBookMetaStore(private val firestore: FirebaseFirestore) : SharedB
         }
     }
 
+    override suspend fun getProfile(sourceId: String, editionId: String): BookProfile? {
+        return try {
+            val snapshot = firestore.collection(PROFILE_COLLECTION).document(profileKey(sourceId, editionId)).get()
+                .awaitOrNull() ?: return null
+            if (!snapshot.exists()) null
+            else BookProfileCodec.fromMap(snapshot.data ?: return null)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    override suspend fun putProfile(
+        sourceId: String,
+        editionId: String,
+        profile: BookProfile,
+        provenance: ProfileProvenance
+    ) {
+        // Best-effort fire-and-forget (same contract as the duration write).
+        runCatching {
+            firestore.collection(PROFILE_COLLECTION).document(profileKey(sourceId, editionId))
+                .set(BookProfileCodec.toMap(profile, provenance))
+        }
+    }
+
+    /** The deterministic document key of one Source×Edition profile. */
+    private fun profileKey(sourceId: String, editionId: String): String = "$sourceId|$editionId"
+
     /** Bridges the Play Services [Task] onto a coroutine: result or null. */
     private suspend fun <T> Task<T>.awaitOrNull(): T? = suspendCancellableCoroutine { cont ->
         addOnSuccessListener { cont.resume(it) }
@@ -82,6 +109,9 @@ class FirestoreBookMetaStore(private val firestore: FirebaseFirestore) : SharedB
 
     companion object {
         private const val COLLECTION = "book_durations"
+
+        /** Spec-32 T1 — the shared profile collection, keyed sourceId|editionId. */
+        private const val PROFILE_COLLECTION = "book_profiles"
 
         /** Firestore's `whereIn` value bound — the batch chunk size. */
         private const val MAX_WHERE_IN = 10

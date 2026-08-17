@@ -58,6 +58,12 @@ class SearchDurationMirrorRoomTest {
             durationSeconds: Long,
             provenance: DurationProvenance
         ) = Unit
+
+        // Spec-32 profile methods — not exercised by the duration mirror.
+        override suspend fun getProfile(sourceId: String, editionId: String): BookProfile? = null
+        override suspend fun putProfile(
+            sourceId: String, editionId: String, profile: BookProfile, provenance: ProfileProvenance
+        ) = Unit
     }
 
     private suspend fun seedLibraryRow(

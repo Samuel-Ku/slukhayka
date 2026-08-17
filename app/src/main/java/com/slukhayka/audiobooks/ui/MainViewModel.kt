@@ -605,11 +605,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /**
      * Spec-10 T4 — tap a global search result: import from the found source
      * (merging into the existing Work card when the merge key matches) and
-     * play through the app player.
+     * open the book's DETAIL page — the user reads description, narrator and
+     * chapters before deciding to listen (same as a recommended card).
      */
-    fun playGlobalSearchResult(result: GlobalSearchResult) {
+    fun openGlobalSearchResult(result: GlobalSearchResult) {
         val source = result.sources.firstOrNull() ?: return
-        playFromSource(source.sourceId, source.url, KnownBookIdentity(result.title, result.author, result.narrator))
+        viewModelScope.launch(Dispatchers.IO) {
+            val book = try {
+                libraryImport.importFromSourceUrl(
+                    source.sourceId, source.url,
+                    KnownBookIdentity(result.title, result.author, result.narrator, result.coverImageUrl)
+                )
+            } catch (e: Exception) {
+                null
+            }
+            if (book != null) {
+                selectBook(book.id)
+            }
+        }
     }
 
     /**
@@ -681,7 +694,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun openWorkFeedRow(row: WorkFeedRow) {
         viewModelScope.launch(Dispatchers.IO) {
             val source = sourceCatalog.workSourcesForWork(row.workId).firstOrNull() ?: return@launch
-            playFromSource(source.sourceId, source.sourceUrl, KnownBookIdentity(row.title, row.author))
+            playFromSource(source.sourceId, source.sourceUrl, KnownBookIdentity(row.title, row.author, coverImageUrl = row.coverImageUrl))
         }
     }
 
@@ -917,7 +930,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * Spec-19 T4 — tapping a recommended card opens that book's page. The
      * identity resolution is the same as any other Огляд row: the Work is
      * imported from its first found source (merge-aware, shared with
-     * playGlobalSearchResult) and the native book page opens — where the
+     * openGlobalSearchResult) and the native book page opens — where the
      * user reads the description, chapters and reviews before deciding to
      * listen.
      */
@@ -928,7 +941,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val book = try {
                 libraryImport.importFromSourceUrl(
                         source.sourceId, source.url,
-                        KnownBookIdentity(result.title, result.author, result.narrator)
+                        KnownBookIdentity(result.title, result.author, result.narrator, result.coverImageUrl)
                     )
             } catch (e: Exception) {
                 null
@@ -1242,7 +1255,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 val book = libraryImport.importFromSourceUrl(
                     source.sourceId, source.url,
-                    KnownBookIdentity(result.title, result.author, result.narrator)
+                    KnownBookIdentity(result.title, result.author, result.narrator, result.coverImageUrl)
                 )
                 if (book != null) {
                     _downloadingBookId.value = book.id

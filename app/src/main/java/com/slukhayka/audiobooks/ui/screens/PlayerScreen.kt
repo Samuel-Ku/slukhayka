@@ -761,7 +761,7 @@ private fun TransportControls(
                 modifier = Modifier.size(40.dp)
             )
         }
-        SeekButton(Icons.Default.Forward30, "Вперед на 30 секунд", "30 с", onForward)
+        SeekButton(Icons.Default.Forward, "Вперед на 30 секунд", "30 с", onForward)
         TransportIcon(Icons.Default.SkipNext, "Наступний розділ", onNextChapter)
     }
 }

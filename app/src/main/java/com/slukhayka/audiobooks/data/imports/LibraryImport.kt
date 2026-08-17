@@ -339,7 +339,12 @@ class LibraryImport(
             try {
                 val detail = adapter.fetchBookPage(url)
                 if (detail.chapters.isEmpty()) return@withContext null
-                importBookFromSource(sourceId, detail)
+                // The card's cover survives a page that carries none (see
+                // KnownBookIdentity.coverImageUrl).
+                val withCover = if (detail.coverImageUrl == null && known?.coverImageUrl != null) {
+                    detail.copy(coverImageUrl = known.coverImageUrl)
+                } else detail
+                importBookFromSource(sourceId, withCover)
             } catch (e: Exception) {
                 // Fail-open: the re-fetch failed (source down / Cloudflare) —
                 // serve the STALE profile when one exists, never nothing, and
@@ -373,7 +378,7 @@ class LibraryImport(
         author = identity.author,
         narrator = identity.narrator,
         url = url,
-        coverImageUrl = profile.coverImageUrl,
+        coverImageUrl = profile.coverImageUrl ?: identity.coverImageUrl,
         chapters = profile.chapters.map { chapter ->
             SourceChapter(title = chapter.title, streamUrl = chapter.streamUrl, durationSeconds = chapter.durationSeconds)
         },
@@ -1485,5 +1490,9 @@ data class CopiedLocalFile(
 data class KnownBookIdentity(
     val title: String,
     val author: String,
-    val narrator: String = ""
+    val narrator: String = "",
+    // The card's own cover (the feed already parsed it) — carried into the
+    // import as a fallback for sources whose book PAGE has no cover signal
+    // (audiobook-mp3: the cover lives on the listing tile, not the page).
+    val coverImageUrl: String? = null
 )

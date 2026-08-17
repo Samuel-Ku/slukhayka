@@ -27,9 +27,15 @@ val AudiobookEntity.displayNarrator: String
  * #40 decision on person links: a person name is a real navigable name only
  * when it is present and not the fabricated fallback; the page otherwise
  * shows the line as plain text. Mirrors the scrub of [displayAuthor].
+ *
+ * The per-source placeholder is `<sourceId> narrator` (e.g. «audiobookmp3
+ * narrator», «soundbooks narrator») — it ALWAYS ends with a lowercase
+ * « narrator», which no real name does, so a suffix scrub blanks it.
  */
 fun isRealPersonName(name: String): Boolean =
-    name.isNotBlank() && !name.contains("4read", ignoreCase = true)
+    name.isNotBlank() &&
+        !name.contains("4read", ignoreCase = true) &&
+        !name.endsWith(" narrator", ignoreCase = true)
 
 /**
  * #40: the fresh person-books path mirrors the site's own URL shape —

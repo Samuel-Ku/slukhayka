@@ -1,4 +1,11 @@
 # Release — build a signed APK on version tags and publish a GitHub Release
+#
+# spec-29 T1 (#210): the artifact carries the version in its name
+# (slukhayka-v1.1.apk). The name is derived from the tag — this workflow fires
+# on `v*` tags and the tag equals v<versionName> by convention (v1.1 ↔
+# versionName "1.1"), so v1.2 and later need no workflow changes. If tag and
+# versionName ever drift, the checksum step fails loudly instead of attaching
+# a misnamed file.
 
 name: Release
 
@@ -13,6 +20,8 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    env:
+      APK_NAME: slukhayka-${{ github.ref_name }}.apk
     steps:
       - uses: actions/checkout@v4
 
@@ -37,15 +46,17 @@ jobs:
           KEY_PASSWORD: "${{ secrets.KEY_PASSWORD }}"
         run: ./gradlew :app:assembleRelease --no-daemon
 
+      # assembleRelease emits app/build/outputs/renamed_apks/release/slukhayka-v1.1.apk
+      # (the versioned copy produced by the renameReleaseApk task).
       - name: Checksum
         run: |
-          cd app/build/outputs/apk/release
-          sha256sum app-release.apk > app-release.apk.sha256
+          cd app/build/outputs/renamed_apks/release
+          sha256sum "$APK_NAME" > "$APK_NAME.sha256"
 
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: false
           files: |
-            app/build/outputs/apk/release/app-release.apk
-            app/build/outputs/apk/release/app-release.apk.sha256
+            app/build/outputs/renamed_apks/release/${{ env.APK_NAME }}
+            app/build/outputs/renamed_apks/release/${{ env.APK_NAME }}.sha256

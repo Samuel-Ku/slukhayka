@@ -189,9 +189,11 @@ class HomeFeedOrderSnapshotTest {
         assertTrue(topOf("Каталог") < topOf("Жанри"))
         assertTrue(topOf("Жанри") < topOf("Рекомендовано для вас"))
         assertTrue(topOf("Рекомендовано для вас") < topOf("Новинки"))
-        assertTrue(topOf("Новинки") < topOf("Короткі"))
-        assertTrue(topOf("Короткі") < topOf("Довгі"))
-        assertTrue(topOf("Довгі") < topOf("Популярне"))
+        // spec-28 (#195): «За тривалістю» headers are human-named shelves
+        // stating the real bucket bounds (US-15, ADR-0014).
+        assertTrue(topOf("Новинки") < topOf("Короткі — до 5 годин"))
+        assertTrue(topOf("Короткі — до 5 годин") < topOf("Довгі — від 10 годин"))
+        assertTrue(topOf("Довгі — від 10 годин") < topOf("Популярне"))
         assertTrue(topOf("Популярне") < topOf("Цикли"))
         assertTrue(topOf("Цикли") < topOf("Нобелівські лауреати"))
         assertTrue(topOf("Нобелівські лауреати") < topOf("Букер"))

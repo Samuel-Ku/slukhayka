@@ -505,12 +505,18 @@ fun CatalogRowHeader(title: String) {
 
 /**
  * spec-18 T3 (#114) — the Огляд «За тривалістю» section: two horizontal
- * cover rows — «Короткі» (under 5 h) and «Довгі» (10 h and up). The
- * bucketing itself is the pure [com.slukhayka.audiobooks.data.duration.DurationBuckets]
- * module; this composable only renders what it is handed, so the snapshot
- * seam pins it from fixture data. Hidden entirely when both rows are empty.
+ * cover rows — «Короткі — до 5 годин» (under 5 h) and «Довгі — від 10 годин»
+ * (10 h and up). The bucketing itself is the pure
+ * [com.slukhayka.audiobooks.data.duration.DurationBuckets] module; this
+ * composable only renders what it is handed, so the snapshot seam pins it
+ * from fixture data. Hidden entirely when both rows are empty.
  * Cards are the same cover-first [CatalogBookCard] as every Огляд row;
  * tapping opens the book page.
+ *
+ * spec-28 (#195): the headers are human-named shelves, not filter labels
+ * (US-15) — the numbers state the REAL bucket bounds (DurationBuckets:
+ * short < 5 h, long >= 10 h), so the label never lies about the content
+ * (ADR-0014).
  */
 @Composable
 fun DurationSection(
@@ -522,7 +528,7 @@ fun DurationSection(
     if (shortBooks.isEmpty() && longBooks.isEmpty()) return
     Column(modifier = modifier.testTag("duration_section")) {
         if (shortBooks.isNotEmpty()) {
-            CatalogRowHeader(title = "Короткі")
+            CatalogRowHeader(title = "Короткі — до 5 годин")
             LazyRow(
                 contentPadding = PaddingValues(horizontal = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -534,7 +540,7 @@ fun DurationSection(
             }
         }
         if (longBooks.isNotEmpty()) {
-            CatalogRowHeader(title = "Довгі")
+            CatalogRowHeader(title = "Довгі — від 10 годин")
             LazyRow(
                 contentPadding = PaddingValues(horizontal = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),

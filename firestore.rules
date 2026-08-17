@@ -1,0 +1,43 @@
+rules_version = '2';
+
+// Spec-30 T1 (#216) — access hardening for the shared book-metadata base.
+//
+// The base holds ANONYMOUS crowd facts — universe resolutions
+// (`universe_resolutions`, spec-26) and book durations (`book_durations`,
+// spec-30) — with no personal data, so reads are public by design: any
+// listener may consult the cache, exactly as the degrade-never client
+// expects. Writes are the only attack surface and are limited to App
+// Check-validated installs of the Слухайка app.
+//
+// Two layers gate the writes:
+//  1. App Check enforcement is ALSO enabled per service in the Firebase
+//     console (App Check → Firestore → Enforce). That layer rejects requests
+//     without a valid App Check token BEFORE these rules run — the primary
+//     verifier (the rules language only sees the token, it cannot verify it).
+//  2. The rules below are the defense-in-depth gate: a request that carries
+//     no App Check token at all is denied here regardless of the console
+//     setting. The client SDK attaches a token once App Check is installed
+//     (App.installAppCheckIfConfigured); until then the app's own writes
+//     degrade silently (best-effort fire-and-forget, never a crash).
+//
+// Deploy: `firebase deploy --only firestore` (or the console Rules tab).
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // True when the request carries an App Check token (defense in depth —
+    // signature verification happens at the enforcement layer above).
+    function isAppCheckValid() {
+      return request.appCheck.token != null;
+    }
+
+    match /universe_resolutions/{document} {
+      allow read: if true;
+      allow write: if isAppCheckValid();
+    }
+
+    match /book_durations/{document} {
+      allow read: if true;
+      allow write: if isAppCheckValid();
+    }
+  }
+}

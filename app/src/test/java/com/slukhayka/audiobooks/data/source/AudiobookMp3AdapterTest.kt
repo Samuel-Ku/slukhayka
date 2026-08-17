@@ -24,7 +24,9 @@ class AudiobookMp3AdapterTest {
         </body></html>
     """.trimIndent()
 
-    private val playlistJson = """[{"title":"001.mp3","file":"https://9giiu0g54k8c.redirectto.cc/s05/2/6/7/2/0/track-0.mp3"},{"title":"002.mp3","file":"https://9giiu0g54k8c.redirectto.cc/s05/2/6/7/2/0/track-1.mp3"}]"""
+    // Real playerjs titles from the live capture (book #6192, «Соломон
+    // Кейн» — playlist `26772.pl.txt`): «Автор N - Назва глави.mp3».
+    private val playlistJson = """[{"title":"Роберт І. Говард 1 - Черепи серед Зірок.mp3","file":"https://9giiu0g54k8c.redirectto.cc/s05/2/6/7/2/0/track-0.mp3"},{"title":"Роберт І. Говард 2 - Правиця Долі.mp3","file":"https://9giiu0g54k8c.redirectto.cc/s05/2/6/7/2/0/track-1.mp3"}]"""
 
     private val homepage = """
         <html><body>
@@ -58,7 +60,33 @@ class AudiobookMp3AdapterTest {
         assertEquals("Студентські страшилки обертаються справжньою грою на виживання.", detail.description)
         assertEquals(2, detail.chapters.size)
         assertEquals("https://9giiu0g54k8c.redirectto.cc/s05/2/6/7/2/0/track-0.mp3", detail.chapters[0].streamUrl)
-        assertEquals("002.mp3", detail.chapters[1].title)
+        // Real chapter names from the playlist JSON, with the .mp3 stripped
+        // (spec-35 #237 — same rule as the sluhay parser).
+        assertEquals("Роберт І. Говард 1 - Черепи серед Зірок", detail.chapters[0].title)
+        assertEquals("Роберт І. Говард 2 - Правиця Долі", detail.chapters[1].title)
+    }
+
+    @Test
+    fun `playlist chapter titles strip the extension and fall back to Глава N`() = runBlocking {
+        // A title without a dot passes through unchanged; blank/whitespace
+        // titles fall back to «Глава N» (absent stays absent, ADR-0014).
+        val json = """[{"title":"Роберт І. Говард 1 - Черепи серед Зірок.mp3","file":"https://9giiu0g54k8c.redirectto.cc/s05/2/6/7/2/0/track-0.mp3"},{"title":"Без розширення","file":"https://9giiu0g54k8c.redirectto.cc/s05/2/6/7/2/0/track-1.mp3"},{"title":"","file":"https://9giiu0g54k8c.redirectto.cc/s05/2/6/7/2/0/track-2.mp3"},{"title":"   ","file":"https://9giiu0g54k8c.redirectto.cc/s05/2/6/7/2/0/track-3.mp3"}]"""
+        val adapter = AudiobookMp3Adapter(
+            FakeFetcher(
+                mapOf(
+                    "https://audiobook-mp3.com/uk-audio-6163-andrij-kokotjuha-klub-bojaguziv" to bookPage,
+                    "https://9giiu0g54k8c.redirectto.cc/s05/2/6/7/2/0/26720.pl.txt" to json
+                )
+            )
+        )
+
+        val detail = adapter.fetchBookPage("https://audiobook-mp3.com/uk-audio-6163-andrij-kokotjuha-klub-bojaguziv")
+
+        assertEquals(4, detail.chapters.size)
+        assertEquals("Роберт І. Говард 1 - Черепи серед Зірок", detail.chapters[0].title)
+        assertEquals("Без розширення", detail.chapters[1].title)
+        assertEquals("Глава 3", detail.chapters[2].title)
+        assertEquals("Глава 4", detail.chapters[3].title)
     }
 
     @Test

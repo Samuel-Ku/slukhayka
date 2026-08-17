@@ -1,13 +1,15 @@
 rules_version = '2';
 
-// Spec-30 T1 (#216) — access hardening for the shared book-metadata base.
+// Spec-30 T1 (#216) + spec-33 T1 (#229) — access hardening for the shared
+// book-metadata base.
 //
 // The base holds ANONYMOUS crowd facts — universe resolutions
-// (`universe_resolutions`, spec-26) and book durations (`book_durations`,
-// spec-30) — with no personal data, so reads are public by design: any
-// listener may consult the cache, exactly as the degrade-never client
-// expects. Writes are the only attack surface and are limited to App
-// Check-validated installs of the Слухайка app.
+// (`universe_resolutions`, spec-26), book durations (`book_durations`,
+// spec-30) and merged search results (`search_results`, spec-33) — with no
+// personal data, so reads are public by design: any listener may consult the
+// cache, exactly as the degrade-never client expects. Writes are the only
+// attack surface and are limited to App Check-validated installs of the
+// Слухайка app.
 //
 // Two layers gate the writes:
 //  1. App Check enforcement is ALSO enabled per service in the Firebase
@@ -36,6 +38,11 @@ service cloud.firestore {
     }
 
     match /book_durations/{document} {
+      allow read: if true;
+      allow write: if isAppCheckValid();
+    }
+
+    match /search_results/{document} {
       allow read: if true;
       allow write: if isAppCheckValid();
     }

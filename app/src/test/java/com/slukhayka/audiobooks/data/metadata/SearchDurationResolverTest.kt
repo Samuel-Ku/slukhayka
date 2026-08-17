@@ -47,6 +47,12 @@ class SearchDurationResolverTest {
         ) {
             puts += Triple(editionId, durationSeconds, provenance)
         }
+
+        // Spec-32 profile methods — not exercised by the duration resolver.
+        override suspend fun getProfile(sourceId: String, editionId: String): BookProfile? = null
+        override suspend fun putProfile(
+            sourceId: String, editionId: String, profile: BookProfile, provenance: ProfileProvenance
+        ) = Unit
     }
 
     private fun book(

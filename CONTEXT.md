@@ -99,3 +99,17 @@ _Avoid_: network lists, Room persistence of match results
 **Live collections**:
 The same matcher also consumes LIVE lists over the `LiveCollectionSource` seam (first source: keyless OpenLibrary trending → «Популярне зараз»), fetched through the shared HttpFetcher on the union refresh, TTL-cached per source like the feeds, best-effort (failure → no collection, never a broken refresh). Static + live feed one `matchAll`; the JSON parser behind the assets is the shared pure-JVM `MiniJson` (ADR-0013).
 _Avoid_: raw connections in live sources, live lists persisted to Room
+
+## Discovery surfaces (spec-28)
+
+**Cross-source «Новинки» rail**:
+One Огляд rail merging the new-arrival books of every Source — 4read's «Новинки» section plus the other sources' new feeds — into a single Work-deduplicated list with a per-Source badge on each card (`SourceCatalog.newArrivals`). It is published on both union triggers (`refreshSourceFeeds` + `fetchCatalogSections`) so it always reflects the fresher input, and the 4read «Новинки» catalogue section row is skipped on Огляд so 4read's new arrivals appear exactly once (spec-28 #192).
+_Avoid_: per-source «Нове» rows, duplicate 4read sections
+
+**«Серії» index screen**:
+A pushed screen listing every Series aggregated from the Source Catalog sections (the «Цикли» row), deduplicated by URL via the pure `CatalogSeriesIndex`; tapping one opens the existing series page with its books and universe context. No new series data source — it only indexes what the catalogue parser already produces (spec-28 #189).
+_Avoid_: inline-only series row, new series data source
+
+**«Колекції» index screen**:
+A pushed screen listing every matched smart collection (Нобелівські лауреати, Шевченківська премія, Букер, live lists); tapping a book resolves-and-plays it exactly like the inline collection cards — the move changes location, not behaviour (spec-28 #190).
+_Avoid_: duplicated collection behaviour, new collection data source

@@ -147,6 +147,21 @@ class ListenComposerTest {
         assertTrue(block.reason!!.contains("Сага"))
     }
 
+    // spec-28 (#201): the shelf card names WHICH part of the series is next.
+    @Test
+    fun `next-series caption names the volume when the series numbers its books`() {
+        val next = card(book("next", "Наступна", seriesTitle = "Сага").also { it.seriesIndex = 2 })
+
+        assertEquals("Частина 2", nextSeriesPartCaption(next))
+    }
+
+    @Test
+    fun `next-series caption falls back to the context line when unnumbered`() {
+        val unnumbered = card(book("next", "Наступна", seriesTitle = "Сага"))
+
+        assertEquals("Наступна частина", nextSeriesPartCaption(unnumbered))
+    }
+
     @Test
     fun `travel block lists downloaded books with offline reason`() {
         val offline = card(book("off", "Офлайн", isDownloaded = true))

@@ -194,6 +194,19 @@ object ListenComposer {
 }
 
 /**
+ * spec-28 (#201) — the «Наступна частина» context caption for the
+ * «Далі у серії» shelf card: WHICH part of the series is next. The volume
+ * number when the series numbers its books, else the plain context line.
+ * The series NAME rides in the block header reason («Наступний том: …»).
+ * The one-tap play triangle is NOT restored (ADR-0018 forbids it on the
+ * shelf card) — only the context returns.
+ */
+fun nextSeriesPartCaption(book: LibraryBook): String {
+    val index = book.book.seriesIndex
+    return if (index != null && index > 0) "Частина $index" else "Наступна частина"
+}
+
+/**
  * Local-only Listen preferences (wayfinder #62): the user's block order,
  * hidden blocks and dismissed works. A preference, not an identity fact —
  * deliberately NEVER synced through the #56 corrections store, and fully

@@ -7,6 +7,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
@@ -14,6 +15,7 @@ import com.slukhayka.audiobooks.testing.TestDataFactory
 import com.slukhayka.audiobooks.ui.components.CompactBookCard
 import com.slukhayka.audiobooks.ui.library.ListenComposer
 import com.slukhayka.audiobooks.ui.library.buildLibraryBooks
+import com.slukhayka.audiobooks.ui.library.nextSeriesPartCaption
 import com.slukhayka.audiobooks.ui.screens.ListenBlockHeader
 import com.slukhayka.audiobooks.ui.screens.ListenBlockShelf
 import com.slukhayka.audiobooks.ui.screens.ListenEmptyState
@@ -207,6 +209,50 @@ class ListenScreenBlocksSnapshotTest {
         composeTestRule.onNodeWithTag("compact_book_progress_${books[1].id}", useUnmergedTree = true).assertExists()
         composeTestRule.onRoot().captureRoboImage(
             filePath = "src/test/snapshots/listen_block_shelf_progress.png"
+        )
+    }
+
+    // spec-28 (#201): the «Далі у серії» shelf restores the series context
+    // that #192 carried away — each card names WHICH part is next. The
+    // one-tap play triangle stays gone (ADR-0018 forbids it on the shelf
+    // card): only the context returns.
+    @Test
+    fun listen_block_shelf_next_in_series() {
+        val nextBook = TestDataFactory.dataBooks()[0]
+            .copy(id = "next-volume", title = "Меч", author = "Максим Темний")
+            .also {
+                it.seriesTitle = "Максим Темний"
+                it.seriesIndex = 2
+            }
+        val next = buildLibraryBooks(listOf(nextBook), emptyList(), emptyMap())
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                ListenSurface {
+                    Column {
+                        ListenBlockHeader(
+                            title = "Продовжити серію",
+                            reason = "Наступний том: Максим Темний",
+                            blockId = ListenComposer.BlockId.NEXT_IN_SERIES,
+                            onMoveUp = {},
+                            onMoveDown = {},
+                            onHide = {}
+                        )
+                        ListenBlockShelf(
+                            books = next,
+                            onBookClick = {},
+                            onNotInterested = {},
+                            captionFor = { entry -> nextSeriesPartCaption(entry) }
+                        )
+                    }
+                }
+            }
+        }
+        // Which part is next, right on the card.
+        composeTestRule.onNodeWithText("Частина 2").assertExists()
+        // No one-tap play triangle anywhere on the shelf (ADR-0018).
+        composeTestRule.onNodeWithContentDescription("Play").assertDoesNotExist()
+        composeTestRule.onRoot().captureRoboImage(
+            filePath = "src/test/snapshots/listen_block_shelf_next_in_series.png"
         )
     }
 

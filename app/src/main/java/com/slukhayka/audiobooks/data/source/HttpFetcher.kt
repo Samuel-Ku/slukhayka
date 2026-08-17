@@ -1,5 +1,6 @@
 package com.slukhayka.audiobooks.data.source
 
+import android.util.Log
 import java.io.FilterInputStream
 import java.io.InputStream
 import java.net.HttpURLConnection
@@ -51,6 +52,11 @@ open class HttpFetcher(
                 instanceFollowRedirects = true
             }
         } catch (e: Exception) {
+            // Failures degrade to an empty body by design (adapters never throw),
+            // but they MUST be logged: the catalogue silently going empty on
+            // device-side DNS failures (e.g. a VPN with a broken resolver) was
+            // undiagnosable before (device debugging, 2026-08-17).
+            Log.w("HttpFetcher", "GET $url failed to connect", e)
             return 0 to ""
         }
         return try {
@@ -61,6 +67,7 @@ open class HttpFetcher(
                 status to ""
             }
         } catch (e: Exception) {
+            Log.w("HttpFetcher", "GET $url failed (status/read)", e)
             0 to ""
         } finally {
             connection.disconnect()

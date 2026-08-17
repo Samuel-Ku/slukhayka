@@ -73,7 +73,7 @@ class SpeedAndRewindManagerTest {
             // ADR-0007: the fetcher yields chapter→track pairs (chapter rows
             // carry no stream URLs); these tests only assert positions/speeds.
             { dao.getChaptersListForBook(it).map { ch -> com.slukhayka.audiobooks.data.catalog.SourceCatalog.PlayableChapter(ch, null) } },
-            factory,
+            injectedPlayerFactory = factory,
             now = { clockMs },
             settings = settings,
             widgetSyncEnabled = false

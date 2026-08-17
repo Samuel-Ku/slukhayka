@@ -70,6 +70,10 @@ _Avoid_: Missing Source, unavailable file
 One pure rule (`SmartRewind.rewoundPositionMs`): the longer the pause, the further back playback resumes (tiers of 3/12/25 s), clamped at zero. It serves both the in-session resume (live engine position) and the across-restart resume (persisted Listening State), so the two paths can never drift (ADR-0003).
 _Avoid_: per-path rewind logic
 
+**Self-healing stream URLs**:
+A 404/403 stream failure re-resolves the book's source page through the `LibraryImport.refreshStreamUrl` door and retries ONCE with the fresh URL — the pure `StreamHealPolicy` decides (404/403 + heal budget of one per user-initiated chapter prepare). The index pairing heals only while the page still serves the other chapters at their own indices (a reordered page never heals — it would play the wrong chapter). An exhausted budget surfaces the honest «Книга недоступна» state — never a fabricated retry (ADR-0019).
+_Avoid_: heal loops, retrying the same dead URL, index-based healing on reordered pages, synthesized substitute audio
+
 ## Architecture
 
 **Module reads**:

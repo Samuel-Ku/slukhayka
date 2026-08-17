@@ -19,6 +19,7 @@ import com.slukhayka.audiobooks.data.db.WorkEntity
 import com.slukhayka.audiobooks.data.db.WorkSourceEntity
 import com.slukhayka.audiobooks.data.merge.MergeKey
 import com.slukhayka.audiobooks.data.metadata.BookProfile
+import com.slukhayka.audiobooks.data.metadata.BookProfileLimits
 import com.slukhayka.audiobooks.data.metadata.BookProfileMapping
 import com.slukhayka.audiobooks.data.metadata.MetadataAssertions
 import com.slukhayka.audiobooks.data.metadata.ProfileFreshness
@@ -382,6 +383,83 @@ class LibraryImport(
         series = profile.seriesTitle?.let { SeriesRef(name = it, position = profile.seriesIndex) },
         description = profile.description
     )
+
+    /**
+     * Spec-32 T4 (#234) — the self-healing door: a 404/403 stream failure
+     * during playback re-resolves the book's source page and swaps the fresh
+     * stream URL into the PRIMARY source's physical track row (ADR-0007 — the
+     * track, never the logical chapter). Returns the fresh URL for ONE retry,
+     * or null when nothing changed / nothing could be healed — the player then
+     * surfaces the honest failure. The index pairing heals only while the
+     * page still serves the OTHER chapters at their own indices (a reordered
+     * page would play the wrong chapter). The refreshed page is written back
+     * to the shared profile base best-effort (a resolved page contributes,
+     * per T2 #232), so the next listener stops being served the dead link.
+     */
+    suspend fun refreshStreamUrl(bookId: String, chapterIndex: Int, failedUrl: String): String? =
+        withContext(Dispatchers.IO) {
+            val book = dao.getAudiobookById(bookId) ?: return@withContext null
+            val sourceUrl = book.sourceUrl
+            if (sourceUrl.isBlank()) return@withContext null
+            val sourceId = sourceIdForUrl(sourceUrl)
+            val adapter = sourceAdapters.firstOrNull { it.sourceId == sourceId }
+                ?: return@withContext null
+            // Fail-open: a dead page contributes nothing — the player keeps
+            // the honest failure instead of a fabricated retry.
+            val detail = runCatching { adapter.fetchBookPage(sourceUrl) }.getOrNull()
+                ?: return@withContext null
+            if (detail.chapters.isEmpty()) return@withContext null
+            // The physical track of the failed chapter, on the book's primary
+            // source — the same pairing the player resolves chapter → track
+            // by index (SourceCatalog.getPlayableChapters).
+            val sources = dao.getSourcesForBookSync(bookId)
+            val primary = sources.firstOrNull { it.type == sourceId } ?: sources.firstOrNull()
+                ?: return@withContext null
+            val tracks = dao.getTracksForSourceSync(primary.id)
+            // Order-stability guard (spec-32 T4): the index pairing is only
+            // sound while the page still serves the OTHER chapters at their
+            // own indices. A reordered page KEEPS the old URLs — just moved
+            // to different slots — and healing by index would swap in the
+            // WRONG chapter's stream URL: audio of another chapter under the
+            // failed one's title. A bulk move (every URL replaced in place)
+            // still heals — no URL survived, nothing to confuse.
+            val others = tracks.filter { it.trackIndex != chapterIndex }
+            val reordered = others.any { other ->
+                if (detail.chapters.getOrNull(other.trackIndex)?.streamUrl == other.url) return@any false
+                // The old URL survived but sits at another index — a swap.
+                detail.chapters.any { it.streamUrl == other.url }
+            }
+            if (reordered) return@withContext null
+            val fresh = detail.chapters.getOrNull(chapterIndex) ?: return@withContext null
+            // The page still serves the same dead link (or a non-http one) —
+            // nothing to heal, and no pointless retry.
+            if (fresh.streamUrl == failedUrl || !BookProfileLimits.isHttpUrl(fresh.streamUrl)) {
+                return@withContext null
+            }
+            val track = tracks.firstOrNull { it.trackIndex == chapterIndex }
+                ?: return@withContext null
+            if (track.url != failedUrl) return@withContext null
+            dao.insertTracks(listOf(track.copy(url = fresh.streamUrl)))
+            // A successfully re-resolved page refreshes the shared profile,
+            // rolling its freshness — best-effort, silent on failure. Keyed by
+            // the STORED source id (the same key the import doors use), so an
+            // aliased URL never forks a second document per Source×Edition.
+            runCatching {
+                val editionId = dao.getEditionForWork(bookId)?.id
+                if (editionId != null) {
+                    profileStore?.putProfile(
+                        sourceId = primary.type,
+                        editionId = editionId,
+                        profile = BookProfileMapping.fromDetail(detail),
+                        provenance = ProfileProvenance(
+                            ProfileProvenance.SOURCE_RESOLVED,
+                            System.currentTimeMillis()
+                        )
+                    )
+                }
+            }
+            fresh.streamUrl
+        }
 
     /**
      * Spec-13 T3 / ADR-0006 — import a WebView-source book from its CAPTURED

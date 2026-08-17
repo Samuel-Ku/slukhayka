@@ -117,6 +117,15 @@ class AudioPlayerManager(
     // physical track of the book's primary source (playback resolves chapter
     // → track one-to-one by index: track.localFilePath ?: track.url).
     private val chapterFetcher: suspend (String) -> List<SourceCatalog.PlayableChapter>,
+    /**
+     * Spec-32 T4 (#234) — the self-healing seam: on a 404/403 stream failure
+     * the manager re-resolves the source page through this lambda
+     * (bookId, chapterIndex, failedUrl) -> freshUrl or null, and re-prepares
+     * ONCE with the fresh URL ([StreamHealPolicy] decides; the budget is
+     * one retry per user-initiated chapter prepare). Null in tests that
+     * exercise the pre-heal behaviour.
+     */
+    private val streamUrlHealer: (suspend (String, Int, String) -> String?)? = null,
     private val injectedPlayerFactory: PlayerFactory? = null,
     /** Wall clock, injectable for deterministic smart-rewind tests. */
     private val now: () -> Long = System::currentTimeMillis,
@@ -285,6 +294,18 @@ class AudioPlayerManager(
     /** The physical track of the currently loaded chapter (null = no stream). */
     private var currentTrack: SourceTrackEntity? = null
 
+    /**
+     * Spec-32 T4 (#234): how many self-heal retries the CURRENT chapter
+     * prepare has already spent ([StreamHealPolicy.MAX_HEAL_ATTEMPTS] at
+     * most). Reset by every user-initiated prepare; the heal retry itself
+     * re-prepares with the budget intact, so a dead fresh URL cannot loop.
+     */
+    private var healAttemptsForChapter = 0
+
+    /** Spec-32 T4 (#234) — honest state after an exhausted heal budget. */
+    private val healFailedDetail =
+        "Книга зараз недоступна: файл джерела переїхав або заблокований, і оновити його не вдалося."
+
     /** Whether the current prepare should auto-start once READY. */
     private var shouldAutoPlay: Boolean = false
 
@@ -418,12 +439,109 @@ class AudioPlayerManager(
         override fun onPlayerError(error: PlaybackException) {
             prepareTimeoutJob?.cancel()
             Log.w("AudioPlayer", "Stream playback error (${error.errorCodeName}) for URL: ${currentTrack?.url}")
+            val responseCode = StreamHealPolicy.responseCodeOf(error)
+            // Spec-32 T4 (#234): a 404/403 on a network stream heals — the
+            // source page is re-fetched once and the chapter re-prepares
+            // with the fresh URL (no heal loops: the budget is one retry per
+            // user-initiated chapter prepare). Everything else keeps the
+            // honest immediate failure.
+            if (StreamHealPolicy.shouldHeal(responseCode, healAttemptsForChapter) &&
+                streamUrlHealer != null &&
+                isNetworkStream(currentTrack)
+            ) {
+                attemptSelfHeal()
+                return
+            }
+            // Spec-32 T4 (#234): a 404/403 that already spent the heal budget
+            // is the honest «book unavailable» state — the file moved, was
+            // retried once with a fresh URL, and is still dead. Any other
+            // status keeps the generic primary-stream message.
+            if (StreamHealPolicy.budgetExhausted(responseCode, healAttemptsForChapter)) {
+                reportHealFailed()
+                return
+            }
             _playerState.value = _playerState.value.copy(
                 lastErrorMsg = "Primary stream error (${error.errorCodeName})"
             )
             reportPlaybackFailure(
                 errorCodeName = error.errorCodeName,
                 detail = "Primary stream error (${error.errorCodeName})"
+            )
+        }
+    }
+
+    /**
+     * Spec-32 T4 (#234): the honest end state of a heal — one re-fetch was
+     * spent and the file is still dead. [reportPlaybackFailure] carries the
+     * message into [PlayerState.lastErrorMsg] and the failure ledger.
+     */
+    private fun reportHealFailed() {
+        reportPlaybackFailure(
+            errorCodeName = "STREAM_HEAL_FAILED",
+            detail = healFailedDetail
+        )
+    }
+
+    /**
+     * Spec-32 T4 (#234): whether a stream failure qualifies for self-healing.
+     * Mirrors [buildMediaItem]'s source decision exactly: a track plays
+     * locally only while its file exists with real content — a stale local
+     * path falls back to the network stream, and THAT stream may heal. Pure
+     * local playback never re-fetches a page.
+     */
+    private fun isNetworkStream(track: SourceTrackEntity?): Boolean {
+        if (track == null) return false
+        val localFile = track.localFilePath?.let { java.io.File(it) }
+        val playsLocally = localFile != null && localFile.exists() && localFile.length() > 100
+        return !playsLocally && track.url?.startsWith("http", ignoreCase = true) == true
+    }
+
+    /**
+     * Spec-32 T4 (#234): re-resolves the failed chapter's source page through
+     * the healer seam and re-prepares ONCE with the fresh URL. Runs off the
+     * player thread (the re-fetch is a suspend network call). A heal that
+     * yields nothing surfaces the honest unavailable state.
+     */
+    private fun attemptSelfHeal() {
+        val state = _playerState.value
+        val failedUrl = currentTrack?.url
+        val bookId = state.currentBook?.id
+        val chapterIndex = state.currentChapterIndex
+        if (failedUrl == null || bookId == null || streamUrlHealer == null) {
+            reportHealFailed()
+            return
+        }
+        healAttemptsForChapter++
+        _playerState.value = state.copy(
+            isBuffering = true,
+            lastErrorMsg = ""
+        )
+        scope.launch {
+            // Fail-open: a dead page contributes nothing — the honest
+            // failure stays, exactly one retry was spent.
+            val freshUrl = runCatching {
+                streamUrlHealer.invoke(bookId, chapterIndex, failedUrl)
+            }.getOrNull()
+            if (freshUrl == null || freshUrl == failedUrl) {
+                reportHealFailed()
+                return@launch
+            }
+            // ADR-0007: swap the physical track's URL (the pairing the next
+            // prepare resolves chapter → track by), then re-prepare the same
+            // chapter from the last known position. The budget stays spent so
+            // a dead fresh URL cannot loop.
+            playableChapters = playableChapters.mapIndexed { index, pair ->
+                if (index == chapterIndex && pair.track?.url == failedUrl) {
+                    pair.copy(track = pair.track!!.copy(url = freshUrl))
+                } else {
+                    pair
+                }
+            }
+            prepareChapter(
+                chapterIndex,
+                startPositionMs = _playerState.value.currentPositionMs,
+                autoPlay = true,
+                resetHealBudget = false
             )
         }
     }
@@ -534,9 +652,18 @@ class AudioPlayerManager(
         prepareChapter(chapterIdx, positionSeconds * 1000L, autoPlay)
     }
 
-    fun prepareChapter(chapterIndex: Int, startPositionMs: Long = 0L, autoPlay: Boolean = true) {
+    fun prepareChapter(
+        chapterIndex: Int,
+        startPositionMs: Long = 0L,
+        autoPlay: Boolean = true,
+        // Spec-32 T4 (#234): every user-initiated prepare resets the heal
+        // budget; the self-heal retry passes FALSE so a dead fresh URL cannot
+        // re-heal in a loop within the same chapter prepare.
+        resetHealBudget: Boolean = true
+    ) {
         val chapters = _playerState.value.chapters
         if (chapters.isEmpty() || chapterIndex !in chapters.indices) return
+        if (resetHealBudget) healAttemptsForChapter = 0
 
         // Spec-16 T2: a deliberate chapter change (next/previous/select or the
         // auto-advance after a chapter ends) is a discrete transition. The

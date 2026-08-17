@@ -101,6 +101,19 @@ class TitleScrubWritePathTest {
         assertFalse(description.contains("sound-books.net"))
     }
 
+    @Test
+    fun `source-page import stores the page total duration over the chapter sum`() = runBlocking {
+        // The page reports a real total ("Триває:"), but the chapters carry no
+        // individual durations — the imported row must keep the page total,
+        // not collapse to 0 from the empty chapter sum.
+        val book = imports().importBookFromSource(
+            "soundbooks",
+            detail("Кобзар").copy(totalDurationSeconds = 3_600L)
+        )
+
+        assertEquals(3_600L, dao.getAudiobookById(book.id)!!.totalDurationSeconds)
+    }
+
     // --- Door 2: captured-page import --------------------------------------
 
     private class FakeAdapter(private val captured: SourceBookDetail) : SourceAdapter {

@@ -118,9 +118,12 @@ class LibraryImport(
                     genre = detail.genres.joinToString(" · ").ifBlank { "Каталог" },
                     sourceUrl = detail.url,
                     isDownloaded = false,
-                    totalDurationSeconds = MetadataAssertions.normalizeDurationSeconds(
-                        detail.chapters.sumOf { it.durationSeconds }
-                    ) ?: 0L,
+                    // The page-reported total ("Триває:" / schema.org) is the
+                    // book's advertised length and wins; the chapter-duration
+                    // sum is only a fallback for pages that carry none.
+                    totalDurationSeconds = MetadataAssertions.normalizeDurationSeconds(detail.totalDurationSeconds)
+                        ?: MetadataAssertions.normalizeDurationSeconds(detail.chapters.sumOf { it.durationSeconds })
+                        ?: 0L,
                     totalChapters = detail.chapters.size,
                     rating = detail.rating?.toFloat() ?: 0f
                 )

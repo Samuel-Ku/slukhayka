@@ -31,13 +31,19 @@ import com.slukhayka.audiobooks.ui.theme.AppDimens
  * The optional [onNotInterested] adds the Listen-shelf «Не цікаво» dismiss ✕
  * over the cover (wayfinder #62, reversible) — when absent the card keeps its
  * canonical shape unchanged.
+ *
+ * US-3 (spec-28 #199): the optional [progress] (0..1) draws a thin progress
+ * hairline along the cover's BOTTOM edge for a STARTED book; an unstarted
+ * book (null or 0 progress) keeps a clean cover. The shelf feeds the real
+ * listening percent; unknown duration (percent 0) honestly shows no line.
  */
 @Composable
 fun CompactBookCard(
     book: AudiobookEntity,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    onNotInterested: (() -> Unit)? = null
+    onNotInterested: (() -> Unit)? = null,
+    progress: Float? = null
 ) {
     Column(
         modifier = modifier
@@ -56,6 +62,27 @@ fun CompactBookCard(
                     .clip(RoundedCornerShape(AppDimens.RadiusCardLg))
                     .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(AppDimens.RadiusCardLg))
             )
+            // US-3: the thin progress hairline along the cover's bottom edge,
+            // clipped to the cover's rounded shape and filled to the consumed
+            // fraction. Only a STARTED book draws it — an unstarted or
+            // unknown-duration book keeps a clean cover (ADR-0014 honest data).
+            if (progress != null && progress > 0f) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .fillMaxWidth()
+                        .height(3.dp)
+                        .clip(RoundedCornerShape(AppDimens.RadiusCardLg))
+                        .testTag("compact_book_progress_${book.id}")
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(progress.coerceIn(0f, 1f))
+                            .fillMaxHeight()
+                            .background(MaterialTheme.colorScheme.primary)
+                    )
+                }
+            }
             if (onNotInterested != null) {
                 Box(
                     modifier = Modifier

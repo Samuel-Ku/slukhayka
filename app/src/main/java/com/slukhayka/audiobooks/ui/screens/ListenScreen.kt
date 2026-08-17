@@ -32,6 +32,7 @@ import com.slukhayka.audiobooks.ui.displayAuthor
 import com.slukhayka.audiobooks.ui.library.ListenComposer
 import com.slukhayka.audiobooks.ui.library.LibraryBook
 import com.slukhayka.audiobooks.ui.library.deduplicateListenShelves
+import com.slukhayka.audiobooks.ui.library.nextSeriesPartCaption
 import com.slukhayka.audiobooks.ui.theme.*
 
 /**
@@ -146,7 +147,15 @@ fun ListenScreen(
                         ListenBlockShelf(
                             books = block.books,
                             onBookClick = onBookClick,
-                            onNotInterested = { viewModel.dismissListenBook(it) }
+                            onNotInterested = { viewModel.dismissListenBook(it) },
+                            // spec-28 (#201): the «Далі у серії» shelf restores
+                            // the series context — each card names which part
+                            // is next. No one-tap play triangle (ADR-0018).
+                            captionFor = if (block.id == ListenComposer.BlockId.NEXT_IN_SERIES) {
+                                { entry -> nextSeriesPartCaption(entry) }
+                            } else {
+                                null
+                            }
                         )
                     }
                 }
@@ -266,7 +275,11 @@ fun ListenBlockHeader(
 fun ListenBlockShelf(
     books: List<LibraryBook>,
     onBookClick: (String) -> Unit,
-    onNotInterested: (String) -> Unit
+    onNotInterested: (String) -> Unit,
+    // spec-28 (#201): an optional per-book context caption — only the
+    // «Далі у серії» shelf passes one (which part is next); every other
+    // shelf keeps the bare canonical card.
+    captionFor: ((LibraryBook) -> String?)? = null
 ) {
     LazyRow(
         contentPadding = PaddingValues(horizontal = 16.dp),
@@ -282,7 +295,8 @@ fun ListenBlockShelf(
                 // REAL listening percent the library module computed from the
                 // playback-progress rows — a started book shows the line, an
                 // unstarted one keeps a clean cover.
-                progress = entry.percent
+                progress = entry.percent,
+                caption = captionFor?.invoke(entry)
             )
         }
     }

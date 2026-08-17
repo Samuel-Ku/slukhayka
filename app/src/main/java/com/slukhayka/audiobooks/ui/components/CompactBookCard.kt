@@ -43,7 +43,11 @@ fun CompactBookCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     onNotInterested: (() -> Unit)? = null,
-    progress: Float? = null
+    progress: Float? = null,
+    // spec-28 (#201): an optional context caption above the title (e.g. the
+    // «Частина N» line of the «Далі у серії» shelf). Absent for every other
+    // shelf — the canonical card shape stays unchanged.
+    caption: String? = null
 ) {
     Column(
         modifier = modifier
@@ -104,6 +108,18 @@ fun CompactBookCard(
             }
         }
         Spacer(modifier = Modifier.height(6.dp))
+        caption?.let {
+            Text(
+                text = it,
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                color = MaterialTheme.colorScheme.secondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+        }
         Text(
             text = book.title,
             style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),

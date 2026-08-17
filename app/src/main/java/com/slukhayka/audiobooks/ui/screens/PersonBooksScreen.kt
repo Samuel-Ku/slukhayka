@@ -2,6 +2,7 @@ package com.slukhayka.audiobooks.ui.screens
 
 import androidx.compose.runtime.*
 import com.slukhayka.audiobooks.ui.MainViewModel
+import com.slukhayka.audiobooks.ui.library.ukPlural
 
 /**
  * Full-screen list of every book narrated (or written) by one person —
@@ -22,7 +23,9 @@ fun PersonBooksScreen(
 
     BookListScreen(
         title = currentPerson.name,
-        countLabel = "${books.size} книг",
+        // Spec-27 (#204) BUG-006: правильна множина — «1 книга», «2 книги»,
+        // «5 книг».
+        countLabel = "${books.size} ${ukPlural(books.size, "книга", "книги", "книг")}",
         emptyMessage = "Не вдалося завантажити книги. Перевірте з'єднання.",
         isLoading = isLoading,
         books = books,

@@ -2,6 +2,7 @@ package com.slukhayka.audiobooks.ui.screens
 
 import androidx.compose.runtime.*
 import com.slukhayka.audiobooks.ui.MainViewModel
+import com.slukhayka.audiobooks.ui.library.ukPlural
 
 /**
  * Full-screen list of every book in a 4read.org genre (category) — e.g.
@@ -23,7 +24,9 @@ fun GenreScreen(
 
     BookListScreen(
         title = currentGenre.title,
-        countLabel = "${books.size} книг у жанрі",
+        // Spec-27 (#204) BUG-006: правильна множина — «1 книга у жанрі»,
+        // «2 книги», «5 книг».
+        countLabel = "${books.size} ${ukPlural(books.size, "книга", "книги", "книг")} у жанрі",
         emptyMessage = "Не вдалося завантажити книги жанру. Перевірте з'єднання.",
         isLoading = isLoading,
         books = books,

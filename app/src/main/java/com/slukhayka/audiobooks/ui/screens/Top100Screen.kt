@@ -16,6 +16,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import com.slukhayka.audiobooks.ui.library.ukPlural
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
@@ -117,7 +118,10 @@ fun Top100Screen(
                 else -> {
                     item {
                         Text(
-                            text = "${books.size} найкращих книг",
+                            // Spec-27 (#204) BUG-006: правильна множина —
+                            // «1 найкраща книга», «2 найкращі книги»,
+                            // «5 найкращих книг».
+                            text = "${books.size} ${ukPlural(books.size, "найкраща книга", "найкращі книги", "найкращих книг")}",
                             style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
                             color = MaterialTheme.colorScheme.secondary,
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)

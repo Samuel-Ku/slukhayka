@@ -51,6 +51,7 @@ import com.slukhayka.audiobooks.ui.library.BookPlayState
 import com.slukhayka.audiobooks.ui.library.bookPlayLabel
 import com.slukhayka.audiobooks.ui.library.bookPlayState
 import com.slukhayka.audiobooks.ui.library.bookPositionAndTotal
+import com.slukhayka.audiobooks.ui.library.ukPlural
 import com.slukhayka.audiobooks.ui.theme.*
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -341,8 +342,10 @@ fun BookDetailScreen(
                     // entirely (ADR-0004 write path), never rendered as text.
                     val narratorName = currentBook.displayNarrator
                     if (narratorName.isNotBlank()) {
+                        // Spec-27 (#204): «Озвучує: …» — never the EN
+                        // «Narrated by …» (US-15).
                         Text(
-                            text = "Narrated by $narratorName",
+                            text = "Озвучує: $narratorName",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
@@ -389,15 +392,22 @@ fun BookDetailScreen(
                         // for a catalogue book whose chapters haven't loaded yet.
                         // Each part renders only when known, so a source with a
                         // real duration but no chapter count shows just the
-                        // duration, never "0 Ch.".
+                        // duration, never "0 розділів".
                         val chaptersKnown = currentBook.totalChapters > 0
                         val durationKnown = currentBook.totalDurationSeconds > 0L
                         if (chaptersKnown || durationKnown) {
+                            // Spec-27 (#204): «N розділів · час» — один
+                            // український формат скрізь (US-15), правильна
+                            // множина через ukPlural.
+                            val chaptersLabel = ukPlural(
+                                currentBook.totalChapters,
+                                "розділ", "розділи", "розділів"
+                            )
                             TagPill(
                                 text = when {
                                     chaptersKnown && durationKnown ->
-                                        "${currentBook.totalChapters} Ch. • ${MainViewModel.formatTime(currentBook.totalDurationSeconds)}"
-                                    chaptersKnown -> "${currentBook.totalChapters} Ch."
+                                        "${currentBook.totalChapters} $chaptersLabel • ${MainViewModel.formatTime(currentBook.totalDurationSeconds)}"
+                                    chaptersKnown -> "${currentBook.totalChapters} $chaptersLabel"
                                     else -> MainViewModel.formatTime(currentBook.totalDurationSeconds)
                                 },
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -649,7 +659,9 @@ fun BookDetailScreen(
                                 )
                             } else {
                                 Text(
-                                    text = if (currentBook.isDownloaded) "Offline" else "Download",
+                                    // Spec-27 (#204): Ukrainian labels —
+                                    // «Офлайн» / «Завантажити» (US-15).
+                                    text = if (currentBook.isDownloaded) "Офлайн" else "Завантажити",
                                     style = MaterialTheme.typography.labelMedium,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
@@ -691,7 +703,7 @@ fun BookDetailScreen(
                         onClick = { activeTab = 0 },
                         text = {
                             Text(
-                                text = "Chapters (${chapters.size})",
+                                text = "Розділи (${chapters.size})",
                                 fontWeight = FontWeight.Bold,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
@@ -703,7 +715,7 @@ fun BookDetailScreen(
                         onClick = { activeTab = 1 },
                         text = {
                             Text(
-                                text = "Bookmarks (${bookmarks.size})",
+                                text = "Закладки (${bookmarks.size})",
                                 fontWeight = FontWeight.Bold,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
@@ -1211,8 +1223,10 @@ fun ChapterRowItem(
                     overflow = TextOverflow.Ellipsis
                 )
                 if (chapter.durationSeconds > 0L) {
+                    // Spec-27 (#204): the duration renders without the
+                    // «Duration:» label (US-15, P1 #8).
                     Text(
-                        text = "Duration: ${MainViewModel.formatTime(chapter.durationSeconds)}",
+                        text = MainViewModel.formatTime(chapter.durationSeconds),
                         // Spec-22 T2: tabular figures for duration counters.
                         style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum"),
                         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -1223,7 +1237,7 @@ fun ChapterRowItem(
             IconButton(onClick = onPlayClick) {
                 Icon(
                     imageVector = if (isPlaying) Icons.Default.PauseCircle else Icons.Default.PlayCircle,
-                    contentDescription = "Play Chapter",
+                    contentDescription = "Відтворити розділ",
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(32.dp)
                 )
@@ -1268,7 +1282,7 @@ fun BookmarkRowItem(
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
-                    text = "At ${MainViewModel.formatTime(bookmark.timestampSeconds)}: ${bookmark.note}",
+                    text = "На ${MainViewModel.formatTime(bookmark.timestampSeconds)}: ${bookmark.note}",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

@@ -808,7 +808,8 @@ fun GlobalBookmarkItem(
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
-                    text = "At ${MainViewModel.formatTime(bookmark.timestampSeconds)}: ${bookmark.note}",
+                    // Spec-27 (#204): «На 2:35:44: …» — never EN «At».
+                    text = "На ${MainViewModel.formatTime(bookmark.timestampSeconds)}: ${bookmark.note}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

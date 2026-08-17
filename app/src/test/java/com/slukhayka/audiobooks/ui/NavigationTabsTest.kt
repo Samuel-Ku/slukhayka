@@ -6,7 +6,6 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import com.slukhayka.audiobooks.AppBottomBar
-import com.slukhayka.audiobooks.ui.screens.LocalAudioImportButton
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
 import org.junit.Assert.assertEquals
@@ -19,9 +18,8 @@ import org.robolectric.annotation.GraphicsMode
 
 /**
  * Spec-9 (listen-first IA): the bottom bar shows exactly Слухати · Огляд ·
- * Медіатека, with the listening panel first. The Library still exposes the
- * local-audio import button (T7). Renders the extracted [AppBottomBar] and
- * [LocalAudioImportButton] directly — no `MainViewModel`, no full app — so the
+ * Медіатека, with the listening panel first. Renders the extracted
+ * [AppBottomBar] directly — no `MainViewModel`, no full app — so the
  * assertions are deterministic and fast.
  */
 @RunWith(RobolectricTestRunner::class)
@@ -105,22 +103,5 @@ class NavigationTabsTest {
         composeTestRule.onNodeWithTag("tab_library").performClick()
 
         assertEquals(SelectedTab.LIBRARY, selected)
-    }
-
-    @Test
-    fun localAudioImportButtonIsPresentAndClickable() {
-        var clicked = false
-        composeTestRule.setContent {
-            AudiobookTheme(darkTheme = true) {
-                LocalAudioImportButton(onClick = { clicked = true })
-            }
-        }
-
-        composeTestRule.onNodeWithTag("import_audio_button")
-            .assertExists()
-            .assertIsDisplayed()
-            .performClick()
-
-        assertEquals(true, clicked)
     }
 }

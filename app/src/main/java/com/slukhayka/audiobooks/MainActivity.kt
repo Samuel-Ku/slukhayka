@@ -40,6 +40,7 @@ import com.slukhayka.audiobooks.ui.screens.PersonBooksScreen
 import com.slukhayka.audiobooks.ui.screens.PlayerScreen
 import com.slukhayka.audiobooks.ui.screens.SeriesIndexScreen
 import com.slukhayka.audiobooks.ui.screens.SeriesScreen
+import com.slukhayka.audiobooks.ui.screens.StorageDestinationScreen
 import com.slukhayka.audiobooks.ui.screens.Top100Screen
 import com.slukhayka.audiobooks.ui.screens.WebSourceBrowserScreen
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
@@ -91,6 +92,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     val selectedSeries by viewModel.selectedSeries.collectAsState()
     val seriesIndexOpen by viewModel.seriesIndexOpen.collectAsState()
     val collectionsIndexOpen by viewModel.collectionsIndexOpen.collectAsState()
+    val storageDestinationOpen by viewModel.storageDestinationOpen.collectAsState()
     val selectedGenre by viewModel.selectedGenre.collectAsState()
     val selectedTop100 by viewModel.selectedTop100.collectAsState()
     val selectedPeopleKind by viewModel.selectedPeopleKind.collectAsState()
@@ -99,7 +101,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     // Handle system back press
     BackHandler(enabled = showFullPlayer || selectedBookId != null ||
         selectedWebSource != null || selectedSeries != null || seriesIndexOpen || collectionsIndexOpen ||
-        selectedGenre != null || selectedTop100 || selectedPeopleKind != null || selectedPerson != null) {
+        storageDestinationOpen || selectedGenre != null || selectedTop100 || selectedPeopleKind != null || selectedPerson != null) {
         if (showFullPlayer) {
             viewModel.setShowFullPlayer(false)
         } else if (selectedWebSource != null) {
@@ -112,6 +114,8 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
             viewModel.closeSeriesIndex()
         } else if (collectionsIndexOpen) {
             viewModel.closeCollectionsIndex()
+        } else if (storageDestinationOpen) {
+            viewModel.closeStorageDestination()
         } else if (selectedGenre != null) {
             viewModel.closeGenre()
         } else if (selectedTop100) {
@@ -191,6 +195,14 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                         viewModel = viewModel,
                         onBackClick = { viewModel.closeCollectionsIndex() },
                         onBookClick = { result -> viewModel.playGlobalSearchResult(result) }
+                    )
+
+                    // spec-28 (#194): the «Завантаження та пам'ять»
+                    // destination — the storage line and the destructive
+                    // delete, reached from the Медіатека ⋮ overflow menu.
+                    storageDestinationOpen -> StorageDestinationScreen(
+                        viewModel = viewModel,
+                        onBackClick = { viewModel.closeStorageDestination() }
                     )
 
                     // Genre (category) page ("Аудіокниги жанру:").

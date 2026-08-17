@@ -415,6 +415,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _collectionsIndex.value = emptyList()
     }
 
+    // spec-28 (#194): the «Завантаження та пам'ять» destination — the
+    // storage line and the destructive delete moved off the main Медіатека
+    // screen into a pushed screen reached from the ⋮ overflow menu. Same
+    // one-read-only-StateFlow + open/close seam as the index screens.
+    private val _storageDestinationOpen = MutableStateFlow(false)
+    val storageDestinationOpen: StateFlow<Boolean> = _storageDestinationOpen.asStateFlow()
+
+    fun openStorageDestination() {
+        _storageDestinationOpen.value = true
+    }
+
+    fun closeStorageDestination() {
+        _storageDestinationOpen.value = false
+    }
+
     // Genre pages ("Аудіокниги жанру:" from the homepage sidebar): one
     // full-screen book list per genre, same shape as the series page.
     private val _selectedGenre = MutableStateFlow<SelectedGenre?>(null)

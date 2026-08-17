@@ -33,6 +33,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.testTag
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
+import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.theme.AppBadgeScrim
 import com.slukhayka.audiobooks.ui.theme.AppBadgeScrimBorder
 import com.slukhayka.audiobooks.ui.theme.AppDimens
@@ -102,6 +103,17 @@ fun GlobalSearchResultCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
+                )
+            }
+            // Spec-30 T2 (#217): the resolved duration when one is known (the
+            // local database or the shared metadata cache) — the search card
+            // used to never show a duration at all.
+            val duration = result.durationSeconds
+            if (duration != null && duration > 0L) {
+                Text(
+                    text = MainViewModel.formatTime(duration),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
             if (result.sources.isNotEmpty()) {

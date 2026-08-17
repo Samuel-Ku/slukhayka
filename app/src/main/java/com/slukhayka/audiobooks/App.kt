@@ -12,6 +12,8 @@ import com.slukhayka.audiobooks.data.duration.HttpStreamProber
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
 import com.slukhayka.audiobooks.data.imports.LibraryImport
 import com.slukhayka.audiobooks.data.listening.ListeningStateStore
+import com.slukhayka.audiobooks.data.metadata.FirestoreBookMetaStore
+import com.slukhayka.audiobooks.data.metadata.SearchDurationResolver
 import com.slukhayka.audiobooks.data.metadata.StoredTitleScrub
 import com.slukhayka.audiobooks.data.merge.DuplicateWorkMerger
 import com.slukhayka.audiobooks.data.source.AudiobookMp3Adapter
@@ -113,7 +115,15 @@ class App : Application() {
             sourceAdapters,
             libraryImport,
             collectionLists = CollectionAssets.load(this),
-            liveCollectionSources = listOf(OpenLibraryTrendingSource())
+            liveCollectionSources = listOf(OpenLibraryTrendingSource()),
+            // Spec-30 T2 (#217): search cards resolve their duration through
+            // the client-first precedence (local DB → shared cache, fill-the-
+            // gap + mirror). Null without Firebase keys — search then behaves
+            // exactly as before.
+            durationResolver = SearchDurationResolver(
+                database.audiobookDao(),
+                FirestoreBookMetaStore.create(this)
+            )
         )
     }
 

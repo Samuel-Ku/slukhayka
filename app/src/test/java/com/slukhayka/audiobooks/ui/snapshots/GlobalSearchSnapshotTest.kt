@@ -88,6 +88,23 @@ class GlobalSearchSnapshotTest {
     }
 
     @Test
+    fun result_card_with_duration() {
+        // Spec-30 T2 (#217): the card renders the resolved duration (from the
+        // local database or the shared metadata cache) under the author.
+        val withDuration = singleSource.copy(durationSeconds = 8_100L)
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                GlobalSearchSurface {
+                    GlobalSearchResultCard(result = withDuration, onClick = {})
+                }
+            }
+        }
+        composeTestRule.onRoot().captureRoboImage(
+            filePath = "src/test/snapshots/global_search_result_duration.png"
+        )
+    }
+
+    @Test
     fun source_badge_pill() {
         composeTestRule.setContent {
             AudiobookTheme(darkTheme = true) {

@@ -15,6 +15,7 @@ import com.slukhayka.audiobooks.data.db.WorkSourceEntity
 import com.slukhayka.audiobooks.data.imports.LibraryImport
 import com.slukhayka.audiobooks.data.merge.MergeKey
 import com.slukhayka.audiobooks.data.metadata.MetadataAssertions
+import com.slukhayka.audiobooks.data.metadata.SearchDurationResolver
 import com.slukhayka.audiobooks.data.source.FourReadAdapter
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.data.source.HttpFetcher
@@ -63,7 +64,12 @@ class SourceCatalog(
     // fetched over the shared HTTP transport on the union refresh. Best-effort
     // per source — a failing source contributes no collection, never breaks
     // the refresh. Empty in tests that don't exercise live lists.
-    private val liveCollectionSources: List<com.slukhayka.audiobooks.data.collections.LiveCollectionSource> = emptyList()
+    private val liveCollectionSources: List<com.slukhayka.audiobooks.data.collections.LiveCollectionSource> = emptyList(),
+    // Spec-30 T2 (#217): the client-first duration resolver for search cards
+    // (local DB → shared Firestore cache, fill-the-gap + mirror). Null in
+    // tests that don't exercise durations — search then behaves exactly as
+    // before (no duration on cards).
+    private val durationResolver: SearchDurationResolver? = null
 ) {
 
     private val fourReadAdapter: SourceAdapter =
@@ -362,7 +368,11 @@ class SourceCatalog(
                         .map { book -> if (book.author.isBlank()) enrichFeedMatch(adapter, book) else book }
                 }
             }
-            mergeGlobalSearchResults(matched)
+            val merged = mergeGlobalSearchResults(matched)
+            // Spec-30 T2 (#217): attach the resolved durations (local DB →
+            // shared cache) to the visible cards. Best-effort and silent — a
+            // resolver-less or failing path leaves the cards unchanged.
+            durationResolver?.resolve(merged) ?: merged
         }
 
     /**

@@ -33,8 +33,11 @@ class CatalogSeriesIndexTest {
     @Test
     fun `aggregates series across sections in first-seen order`() {
         val sections = listOf(
-            CatalogSection(title = "Новинки", books = emptyList(), series = listOf(maksymTemnyi, pershyiZakon)),
-            CatalogSection(title = "Цикли", series = listOf(vidvaha))
+            CatalogSection(
+                title = "Новинки", books = emptyList(), series = listOf(maksymTemnyi, pershyiZakon),
+                id = CatalogSectionId.NEW_ARRIVALS
+            ),
+            CatalogSection(title = "Цикли", series = listOf(vidvaha), id = CatalogSectionId.SERIES)
         )
 
         val result = CatalogSeriesIndex.aggregate(sections)
@@ -48,8 +51,11 @@ class CatalogSeriesIndexTest {
         // not duplicate the entry, and the FIRST cover wins.
         val sameSeriesOtherCover = maksymTemnyi.copy(coverImageUrl = "https://4read.org/uploads/posts/2026-06/medium/other.webp")
         val sections = listOf(
-            CatalogSection(title = "Новинки", books = emptyList(), series = listOf(maksymTemnyi, vidvaha)),
-            CatalogSection(title = "Цикли", series = listOf(sameSeriesOtherCover, pershyiZakon))
+            CatalogSection(
+                title = "Новинки", books = emptyList(), series = listOf(maksymTemnyi, vidvaha),
+                id = CatalogSectionId.NEW_ARRIVALS
+            ),
+            CatalogSection(title = "Цикли", series = listOf(sameSeriesOtherCover, pershyiZakon), id = CatalogSectionId.SERIES)
         )
 
         val result = CatalogSeriesIndex.aggregate(sections)
@@ -67,8 +73,8 @@ class CatalogSeriesIndexTest {
     @Test
     fun `sections without series yield an empty index`() {
         val sections = listOf(
-            CatalogSection(title = "Новинки", books = emptyList()),
-            CatalogSection(title = "Популярне", books = emptyList())
+            CatalogSection(title = "Новинки", books = emptyList(), id = CatalogSectionId.NEW_ARRIVALS),
+            CatalogSection(title = "Популярне", books = emptyList(), id = CatalogSectionId.POPULAR)
         )
 
         assertTrue(CatalogSeriesIndex.aggregate(sections).isEmpty())
@@ -80,10 +86,14 @@ class CatalogSeriesIndexTest {
         // swallowed by the index — but two blank-URL entries share the same
         // dedup key and collapse to the first.
         val sections = listOf(
-            CatalogSection(title = "Цикли", series = listOf(
-                CatalogSeries("Без посилання", "", null),
-                CatalogSeries("Теж без посилання", "", null)
-            ))
+            CatalogSection(
+                title = "Цикли",
+                series = listOf(
+                    CatalogSeries("Без посилання", "", null),
+                    CatalogSeries("Теж без посилання", "", null)
+                ),
+                id = CatalogSectionId.SERIES
+            )
         )
 
         val result = CatalogSeriesIndex.aggregate(sections)

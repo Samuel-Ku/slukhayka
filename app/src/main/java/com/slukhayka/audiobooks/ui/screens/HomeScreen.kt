@@ -51,6 +51,7 @@ import coil.request.ImageRequest
 import kotlinx.coroutines.launch
 import com.slukhayka.audiobooks.data.catalog.CatalogBook
 import com.slukhayka.audiobooks.data.catalog.CatalogSection
+import com.slukhayka.audiobooks.data.catalog.CatalogSectionId
 import com.slukhayka.audiobooks.data.catalog.CatalogSeries
 import com.slukhayka.audiobooks.data.catalog.SourceCatalog
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
@@ -576,7 +577,10 @@ fun HomeScreen(
             // (#192): the «Новинки» section is superseded by the cross-source
             // rail above — 4read's new arrivals must appear exactly once.
             sections.forEach { section ->
-                if (section.title == "Новинки") return@forEach
+                // Spec-28 (#197): the skip matches the typed section id — a
+                // rename of the section title in the parser can never render
+                // 4read's new arrivals twice (rail + section row).
+                if (section.id == CatalogSectionId.NEW_ARRIVALS) return@forEach
                 if (section.books.isNotEmpty()) {
                     item {
                         CatalogRowHeader(title = section.title)

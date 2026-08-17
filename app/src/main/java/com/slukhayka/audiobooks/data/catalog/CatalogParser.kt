@@ -70,11 +70,32 @@ data class CatalogGenre(
     val url: String
 )
 
+/**
+ * spec-28 (#197) — the stable typed identity of a homepage catalogue
+ * section, independent of its display [CatalogSection.title]. The parser
+ * assigns it at construction; every downstream consumer (the cross-source
+ * «Новинки» rail, the Огляд exactly-once skip) matches on this id, never on
+ * the title — so renaming the section in the parser (or on the site) cannot
+ * silently duplicate 4read's new arrivals on Огляд.
+ */
+enum class CatalogSectionId {
+    /** «Новинки» — the recent-additions posters feeding the cross-source rail. */
+    NEW_ARRIVALS,
+
+    /** «Цикли» — the featured series cycles. */
+    SERIES,
+
+    /** «Популярне» — the sidebar most-popular block. */
+    POPULAR
+}
+
 /** A horizontal row of the Explore screen. */
 data class CatalogSection(
     val title: String,
     val books: List<CatalogBook> = emptyList(),
-    val series: List<CatalogSeries> = emptyList()
+    val series: List<CatalogSeries> = emptyList(),
+    /** Stable identity, independent of the display [title] (spec-28 #197). */
+    val id: CatalogSectionId
 )
 
 object CatalogParser {
@@ -145,16 +166,20 @@ object CatalogParser {
         }
 
         val sections = mutableListOf<CatalogSection>()
+        // The typed id is assigned HERE, at the single construction point —
+        // not derived from the title downstream — so the section identity
+        // survives any rename of the SECTION_NEW/SECTION_SERIES strings
+        // (spec-28 #197).
         if (books.isNotEmpty()) {
-            sections.add(CatalogSection(SECTION_NEW, books = books))
+            sections.add(CatalogSection(SECTION_NEW, books = books, id = CatalogSectionId.NEW_ARRIVALS))
         }
         if (seriesByUrl.isNotEmpty()) {
-            sections.add(CatalogSection(SECTION_SERIES, series = seriesByUrl.values.toList()))
+            sections.add(CatalogSection(SECTION_SERIES, series = seriesByUrl.values.toList(), id = CatalogSectionId.SERIES))
         }
         // Sidebar "Популярне" block — the homepage's most-popular cards.
         val popular = parsePopularBooks(html)
         if (popular.isNotEmpty()) {
-            sections.add(CatalogSection("Популярне", books = popular))
+            sections.add(CatalogSection("Популярне", books = popular, id = CatalogSectionId.POPULAR))
         }
         return sections
     }

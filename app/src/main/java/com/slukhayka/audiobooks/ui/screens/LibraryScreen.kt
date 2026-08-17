@@ -4,7 +4,6 @@ import android.content.Intent
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -48,7 +47,6 @@ import com.slukhayka.audiobooks.ui.library.clearCacheConfirmText
 import com.slukhayka.audiobooks.ui.library.SHEET_FILTERS
 import com.slukhayka.audiobooks.ui.library.filterAndSortLibrary
 import com.slukhayka.audiobooks.ui.library.formatRemainingTime
-import com.slukhayka.audiobooks.ui.library.ukPlural
 import com.slukhayka.audiobooks.ui.theme.*
 
 /**
@@ -82,10 +80,6 @@ fun LibraryScreen(
     val allBooks by libraryEntries.allBooks.collectAsState(initial = emptyList())
     val listeningStats by remember { listeningState.getAllListeningStats() }
         .collectAsState(initial = emptyList())
-    val cacheSizeFormatted by viewModel.cacheSizeFormatted.collectAsState()
-    // Spec-27 (#184) BUG-001: the raw bytes back the confirm dialog's exact
-    // scope, and gate the clear button (nothing to delete → no button).
-    val cacheSizeBytes by viewModel.cacheSizeBytes.collectAsState()
     val context = LocalContext.current
     // ADR-0008: suspend module calls from user actions run on the composition
     // scope (same pattern as playerManager's call-through).
@@ -144,21 +138,20 @@ fun LibraryScreen(
     }
 
     var activeTab by remember { mutableStateOf(0) } // 0 = Книги, 1 = Закладки, 2 = Статистика
-    // Spec-27 (#184) BUG-001: deleting every offline file is destructive —
-    // it only ever happens through the confirm dialog, never on a direct tap.
-    var showClearCacheDialog by remember { mutableStateOf(false) }
     var filter by remember { mutableStateOf(LibraryFilter.ALL) }
     var sort by remember { mutableStateOf(LibrarySort.RECENTLY_LISTENED) }
     var query by remember { mutableStateOf("") }
     var gridMode by remember { mutableStateOf(false) }
     // Spec-28 #193: the rare filters, sort and view toggle live in the sheet.
     var showFilterSheet by remember { mutableStateOf(false) }
+    // Spec-28 #194: import is one «+ Додати» action opening a sheet; the
+    // storage destination is reached from the ⋮ overflow menu.
+    var showImportSheet by remember { mutableStateOf(false) }
+    var showOverflowMenu by remember { mutableStateOf(false) }
 
     val visibleBooks = remember(libraryBooks, filter, sort, query) {
         filterAndSortLibrary(libraryBooks, filter, sort, query)
     }
-    val offlineCount = remember(libraryBooks) { libraryBooks.count { it.book.isDownloaded } }
-    val hasLocalBooks = remember(libraryBooks) { libraryBooks.any { it.isLocal } }
 
     Box(modifier = Modifier.fillMaxSize()) {
         Column(
@@ -166,44 +159,78 @@ fun LibraryScreen(
                 .fillMaxSize()
                 .testTag("library_screen")
         ) {
-            // Top Header — the title gets its own full-width line so the
-            // import buttons can never squeeze «Медіатека» into a wrap.
-            Column(
+            // Top Header — one row: title + subtitle, «+ Додати» (the import
+            // sheet) and the ⋮ overflow (the storage destination). Collapsing
+            // the two import buttons into one action and dropping the storage
+            // row (spec-28 #194) lifts the first book above the fold.
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(16.dp)
+                    .padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "Медіатека",
-                    style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Медіатека",
+                        style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1
+                    )
                     Text(
                         // Spec-15 T6: one library for local files and every
                         // online source, not just 4read.
                         text = "Всі книги — в одному місці",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.weight(1f)
+                        maxLines = 1
                     )
-                    Spacer(modifier = Modifier.width(12.dp))
+                }
 
-                    // Import a local audio file / folder (spec #8 T7 + Block 4).
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        LocalAudioImportButton(
+                // Spec-28 #194: import is one action — a sheet with the two
+                // source options (files / folder). Per ADR-0018 the add-audio
+                // picker is a sheet, not two competing buttons.
+                Button(
+                    onClick = { showImportSheet = true },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                    shape = RoundedCornerShape(AppDimens.RadiusCardLg),
+                    modifier = Modifier.testTag("library_add_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "Додати",
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onPrimary
+                    )
+                }
+                Spacer(modifier = Modifier.width(4.dp))
+
+                // ⋮ overflow — the «Завантаження та пам'ять» destination
+                // (spec-28 #194): storage info and the destructive delete,
+                // off the main screen.
+                Box {
+                    IconButton(
+                        onClick = { showOverflowMenu = true },
+                        modifier = Modifier.testTag("library_overflow_button")
+                    ) {
+                        Icon(imageVector = Icons.Default.MoreVert, contentDescription = "Більше")
+                    }
+                    DropdownMenu(
+                        expanded = showOverflowMenu,
+                        onDismissRequest = { showOverflowMenu = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Завантаження та пам'ять") },
                             onClick = {
-                                importLauncher.launch(arrayOf("audio/*", "application/ogg", "application/mpeg"))
-                            }
-                        )
-                        LocalFolderImportButton(
-                            onClick = { folderLauncher.launch(null) }
+                                showOverflowMenu = false
+                                viewModel.openStorageDestination()
+                            },
+                            modifier = Modifier.testTag("library_storage_menu_item")
                         )
                     }
                 }
@@ -292,73 +319,9 @@ fun LibraryScreen(
                         .testTag("library_filter_button")
                 )
 
-                // Compact storage row (cache size + clear), kept slim per the
-                // design system: no nested card, just an icon-and-text row.
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 2.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.SdCard,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        // Spec-27 BUG-006: the count takes the proper Ukrainian
-                        // plural («1 аудіокнига», «2 аудіокниги», «5 аудіокниг»).
-                        text = "Пам'ять пристрою: $cacheSizeFormatted · $offlineCount " +
-                            ukPlural(offlineCount, "аудіокнига", "аудіокниги", "аудіокниг") + " offline",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.weight(1f)
-                    )
-                    if (hasLocalBooks) {
-                        TextButton(
-                            onClick = { viewModel.rescanLocalFolders() },
-                            contentPadding = PaddingValues(horizontal = 8.dp),
-                            modifier = Modifier.testTag("rescan_folders_button")
-                        ) {
-                            Text(
-                                text = "Пересканувати",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    }
-                    // Spec-27 (#184) BUG-001: the button is named by its
-                    // consequence and only appears when there IS something to
-                    // delete; the actual deletion happens on the dialog's
-                    // confirm, never on this tap.
-                    if (offlineCount > 0 || cacheSizeBytes > 0L) {
-                        TextButton(
-                            onClick = { showClearCacheDialog = true },
-                            contentPadding = PaddingValues(horizontal = 8.dp),
-                            modifier = Modifier.testTag("clear_cache_button")
-                        ) {
-                            Text(
-                                text = "Видалити завантажені файли",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.error
-                            )
-                        }
-                    }
-                }
-
-                if (showClearCacheDialog) {
-                    ClearCacheConfirmDialog(
-                        bookCount = offlineCount,
-                        bytes = cacheSizeBytes,
-                        onConfirm = {
-                            showClearCacheDialog = false
-                            viewModel.clearAllAudioCache()
-                        },
-                        onDismiss = { showClearCacheDialog = false }
-                    )
-                }
+                // Spec-28 #194: the storage line and «Видалити завантажені
+                // файли» moved to the «Завантаження та пам'ять» destination
+                // (⋮ overflow) — nothing destructive sits on the main screen.
 
                 if (showFilterSheet) {
                     LibraryFilterSheet(
@@ -369,6 +332,20 @@ fun LibraryScreen(
                         onSortChange = { sort = it },
                         onGridModeChange = { gridMode = it },
                         onDismiss = { showFilterSheet = false }
+                    )
+                }
+
+                if (showImportSheet) {
+                    LibraryImportSheet(
+                        onImportFile = {
+                            showImportSheet = false
+                            importLauncher.launch(arrayOf("audio/*", "application/ogg", "application/mpeg"))
+                        },
+                        onImportFolder = {
+                            showImportSheet = false
+                            folderLauncher.launch(null)
+                        },
+                        onDismiss = { showImportSheet = false }
                     )
                 }
             }
@@ -676,64 +653,6 @@ private fun SourceBadge(book: LibraryBook) {
             text = book.sourceName,
             style = MaterialTheme.typography.labelSmall,
             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-        )
-    }
-}
-
-/**
- * The "Додати аудіо" button that opens the SAF file picker (spec #8 T7).
- * Extracted so the import affordance is unit-testable without a ViewModel.
- */
-@Composable
-fun LocalAudioImportButton(
-    onClick: () -> Unit
-) {
-    Button(
-        onClick = onClick,
-        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-        shape = RoundedCornerShape(AppDimens.RadiusCardLg),
-        modifier = Modifier.testTag("import_audio_button")
-    ) {
-        Icon(
-            imageVector = Icons.Default.FileUpload,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onPrimary,
-            modifier = Modifier.size(16.dp)
-        )
-        Spacer(modifier = Modifier.width(4.dp))
-        Text(
-            text = "Додати аудіо",
-            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-            color = MaterialTheme.colorScheme.onPrimary
-        )
-    }
-}
-
-/**
- * The "Папку" button that opens the SAF tree picker (spec #8 Block 4).
- * Extracted so the import affordance is unit-testable without a ViewModel.
- */
-@Composable
-fun LocalFolderImportButton(
-    onClick: () -> Unit
-) {
-    OutlinedButton(
-        onClick = onClick,
-        shape = RoundedCornerShape(AppDimens.RadiusCardLg),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
-        modifier = Modifier.testTag("import_folder_button")
-    ) {
-        Icon(
-            imageVector = Icons.Default.CreateNewFolder,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(16.dp)
-        )
-        Spacer(modifier = Modifier.width(4.dp))
-        Text(
-            text = "Папку",
-            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-            color = MaterialTheme.colorScheme.primary
         )
     }
 }

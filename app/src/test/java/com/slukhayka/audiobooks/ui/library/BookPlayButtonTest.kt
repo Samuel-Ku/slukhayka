@@ -95,7 +95,10 @@ class BookPlayButtonTest {
         assertEquals("Слухати", label(BookPlayState.Unstarted))
         assertEquals("Продовжити з 0:15:00", label(BookPlayState.InProgress(900L)))
         assertEquals("Почати спочатку", label(BookPlayState.Finished))
-        assertEquals("Грає", label(BookPlayState.Playing))
+        // The playing state labels the ACTION: while this book is on the
+        // player the main button pauses (2026-08-17 bug report — the old
+        // «Грає» re-played instead of toggling).
+        assertEquals("Пауза", label(BookPlayState.Playing))
     }
 
     // ------------------------------------------------------------------

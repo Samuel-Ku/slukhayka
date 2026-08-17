@@ -109,7 +109,7 @@ fun MiniPlayerBar(
                             Spacer(modifier = Modifier.width(6.dp))
                             Icon(
                                 imageVector = Icons.Default.CloudDone,
-                                contentDescription = "Offline Available",
+                                contentDescription = "Доступно офлайн",
                                 tint = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.size(14.dp)
                             )
@@ -140,7 +140,10 @@ fun MiniPlayerBar(
                 ) {
                     Icon(
                         imageVector = if (playerState.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                        contentDescription = if (playerState.isPlaying) "Pause" else "Play",
+                        // Spec-27 (#204): Ukrainian everywhere — the EN
+                        // «Pause»/«Play» descs were a leftover from the
+                        // localization pass (2026-08-17).
+                        contentDescription = if (playerState.isPlaying) "Пауза" else "Відтворити",
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(28.dp)
                     )
@@ -155,7 +158,7 @@ fun MiniPlayerBar(
                 ) {
                     Icon(
                         imageVector = Icons.Default.SkipNext,
-                        contentDescription = "Next Chapter",
+                        contentDescription = "Наступний розділ",
                         tint = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.size(24.dp)
                     )

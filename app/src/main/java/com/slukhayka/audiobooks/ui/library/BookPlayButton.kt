@@ -46,8 +46,11 @@ fun bookPlayState(
  * resume position (injected so the mapper stays Android-free and testable).
  */
 fun bookPlayLabel(state: BookPlayState, formatTime: (Long) -> String): String = when (state) {
-    // Spec-27 (#204): Ukrainian everywhere — the playing state reads «Грає».
-    BookPlayState.Playing -> "Грає"
+    // The playing state reads «Пауза» — the main button is an ACTION control:
+    // while this book is on the player, tapping it pauses (it toggles), so the
+    // label names the action, not the state (2026-08-17 bug report: the old
+    // «Грає» label re-played the book and could never pause).
+    BookPlayState.Playing -> "Пауза"
     BookPlayState.Unstarted -> "Слухати"
     is BookPlayState.InProgress -> "Продовжити з ${formatTime(state.resumePositionSeconds)}"
     BookPlayState.Finished -> "Почати спочатку"

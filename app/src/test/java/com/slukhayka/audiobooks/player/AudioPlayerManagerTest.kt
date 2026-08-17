@@ -1,6 +1,9 @@
 package com.slukhayka.audiobooks.player
 
 import android.content.Context
+import androidx.media3.common.PlaybackException
+import androidx.media3.datasource.DataSpec
+import androidx.media3.datasource.HttpDataSource
 import androidx.test.core.app.ApplicationProvider
 import com.slukhayka.audiobooks.data.catalog.SourceCatalog
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
@@ -26,6 +29,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -859,8 +863,145 @@ class AudioPlayerManagerTest {
      * Spec-16 T2: [clock] injects the manager's wall clock so the event
      * capture filter (1-minute segments, 5-minute seeks) is deterministic.
      */
+    // ---------------------------------------------------------------------
+    // Spec-32 T4 (#234): self-healing stream URLs. A 404/403 stream failure
+    // re-fetches the source page ONCE through the healer seam, re-prepares
+    // with the fresh URL, and only surfaces the honest failure when the fresh
+    // URL is dead too. The decision itself is the pure [StreamHealPolicy]
+    // (JVM-tested in isolation); here we verify the wiring: exactly one heal,
+    // no heal loops, honest state on exhaustion.
+    // ---------------------------------------------------------------------
+
+    /** A real-looking ExoPlayer HTTP failure with the given status. */
+    private fun streamErrorOf(code: Int): PlaybackException {
+        val cause = HttpDataSource.InvalidResponseCodeException(
+            code,
+            "HTTP $code",
+            null,
+            emptyMap(),
+            DataSpec(android.net.Uri.parse(playable[0].track!!.url)),
+            ByteArray(0)
+        )
+        return PlaybackException("HTTP $code", cause, PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS)
+    }
+
+    @Test
+    fun `a 404 stream failure heals once - fresh URL re-prepares the same engine`() =
+        playerTest(healer = HealerSeam { _, _, _ -> HEALED_URL }) { manager, factory ->
+            manager.loadAndPlayBook(book, chapters, playable = playable, initialChapterIndex = 0, autoPlay = true)
+            val engine = factory.current
+
+            engine.simulateError(streamErrorOf(404))
+            runCurrent() // the heal runs on the test dispatcher
+
+            assertEquals("one heal retry", 2, engine.prepareCount)
+            assertEquals(HEALED_URL, engine.lastMediaItemUri)
+            assertEquals(HEALED_URL, manager.playerState.value.currentStreamUrl)
+            assertTrue(manager.playerState.value.isBuffering)
+            assertEquals("a successful heal is not a failure", 0, manager.playbackMetrics.failures())
+
+            engine.simulateReady(90_000L)
+            assertTrue(manager.playerState.value.isPlaying)
+            assertEquals(HEALED_URL, manager.playerState.value.currentStreamUrl)
+        }
+
+    @Test
+    fun `a 403 stream failure heals like a 404`() =
+        playerTest(healer = HealerSeam { _, _, _ -> HEALED_URL }) { manager, factory ->
+            manager.loadAndPlayBook(book, chapters, playable = playable, initialChapterIndex = 0, autoPlay = true)
+            val engine = factory.current
+
+            engine.simulateError(streamErrorOf(403))
+            runCurrent()
+
+            assertEquals(2, engine.prepareCount)
+            assertEquals(HEALED_URL, engine.lastMediaItemUri)
+            assertEquals(0, manager.playbackMetrics.failures())
+        }
+
+    @Test
+    fun `a dead fresh URL surfaces the honest failure - the heal budget allows one retry only`() =
+        playerTest(healer = HealerSeam { _, _, _ -> HEALED_URL }) { manager, factory ->
+            manager.loadAndPlayBook(book, chapters, playable = playable, initialChapterIndex = 0, autoPlay = true)
+            val engine = factory.current
+
+            engine.simulateError(streamErrorOf(404))
+            runCurrent()
+            assertEquals("the heal retry happened", 2, engine.prepareCount)
+
+            // The fresh URL is dead too — the budget is spent, no second heal.
+            engine.simulateError(streamErrorOf(404))
+            runCurrent()
+
+            assertEquals("no heal loop", 2, engine.prepareCount)
+            assertEquals(1, manager.playbackMetrics.failures())
+            val state = manager.playerState.value
+            assertFalse(state.isBuffering)
+            assertFalse(state.isPlaying)
+            assertTrue("honest unavailable message, got: ${state.lastErrorMsg}", state.lastErrorMsg.contains("недоступн"))
+            awaitLedgerRows(1)
+            assertEquals("STREAM_HEAL_FAILED", dao.savedFailures.first().errorCodeName)
+        }
+
+    @Test
+    fun `a server error never heals`() =
+        playerTest(healer = HealerSeam { _, _, _ -> error("a 500 must never reach the healer") }) { manager, factory ->
+            manager.loadAndPlayBook(book, chapters, playable = playable, initialChapterIndex = 0, autoPlay = true)
+            val engine = factory.current
+
+            engine.simulateError(streamErrorOf(500))
+            runCurrent()
+
+            assertEquals("no heal retry", 1, engine.prepareCount)
+            assertEquals(1, manager.playbackMetrics.failures())
+            assertTrue(manager.playerState.value.lastErrorMsg.contains("Primary stream error"))
+        }
+
+    @Test
+    fun `a heal that yields nothing surfaces the honest failure`() =
+        playerTest(healer = HealerSeam { _, _, _ -> null }) { manager, factory ->
+            manager.loadAndPlayBook(book, chapters, playable = playable, initialChapterIndex = 0, autoPlay = true)
+            val engine = factory.current
+
+            engine.simulateError(streamErrorOf(404))
+            runCurrent()
+
+            assertEquals("no retry without a fresh URL", 1, engine.prepareCount)
+            val state = manager.playerState.value
+            assertFalse(state.isBuffering)
+            assertTrue("honest unavailable message, got: ${state.lastErrorMsg}", state.lastErrorMsg.contains("недоступн"))
+            assertEquals(1, manager.playbackMetrics.failures())
+            awaitLedgerRows(1)
+        }
+
+    @Test
+    fun `a user-initiated prepare resets the heal budget`() {
+        var healCalls = 0
+        playerTest(healer = HealerSeam { _, _, _ -> if (++healCalls == 1) HEALED_URL else HEALED_URL_2 }) { manager, factory ->
+            manager.loadAndPlayBook(book, chapters, playable = playable, initialChapterIndex = 0, autoPlay = true)
+            val engine = factory.current
+
+            engine.simulateError(streamErrorOf(404))
+            runCurrent() // heal 1: budget 0 -> 1
+            assertEquals(2, engine.prepareCount)
+            engine.simulateReady(90_000L)
+
+            manager.prepareChapter(0) // user-initiated: budget resets
+            engine.simulateError(streamErrorOf(404))
+            runCurrent() // heal 2 again: budget 0 -> 1
+
+            assertEquals("prepare + heal + user prepare + heal", 4, engine.prepareCount)
+            assertEquals(HEALED_URL_2, engine.lastMediaItemUri)
+            assertEquals(0, manager.playbackMetrics.failures())
+        }
+    }
+
+    /** Spec-32 T4 (#234): non-function-typed holder so the trailing lambda stays the body. */
+    private class HealerSeam(val heal: (suspend (String, Int, String) -> String?)?)
+
     private fun playerTest(
         clock: TestClock? = null,
+        healer: HealerSeam? = null,
         body: suspend TestScope.(AudioPlayerManager, RecordingPlayerFactory) -> Unit
     ) = runTest(dispatcher) {
         val factory = RecordingPlayerFactory()
@@ -869,8 +1010,11 @@ class AudioPlayerManagerTest {
             // ADR-0007: the fetcher yields chapter→track pairs; the explicit
             // playable list below carries the real tracks for URI assertions.
             { dao.getChaptersListForBook(it).map { ch -> SourceCatalog.PlayableChapter(ch, null) } },
-            factory,
+            injectedPlayerFactory = factory,
             now = { clock?.ms ?: System.currentTimeMillis() },
+            // Spec-32 T4 (#234): the self-healing seam — production wires
+            // LibraryImport.refreshStreamUrl here; tests inject a fake.
+            streamUrlHealer = healer?.heal,
             // Spec-16 T3 flake (#101): the undo-candidate restore runs on the
             // test scheduler, so runCurrent() observes it instead of a
             // wall-clock awaitTrue budget that flakes under full-suite load.
@@ -960,5 +1104,8 @@ class AudioPlayerManagerTest {
         const val MILLIS_PER_SECOND = 1_000L
         const val FASTER_SPEED = 1.5f
         const val SPEED_TOLERANCE = 0.001f
+        /** The URL the fake healer "finds" after a 404/403 (spec-32 T4). */
+        const val HEALED_URL = "https://cdn.sound-books.net/kobzar/healed-1.mp3"
+        const val HEALED_URL_2 = "https://cdn.sound-books.net/kobzar/healed-2.mp3"
     }
 }

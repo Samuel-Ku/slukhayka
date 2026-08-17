@@ -245,7 +245,17 @@ class App : Application() {
         // 4read page fallback) stays on the catalog's chapter-fetch path.
         // ADR-0007: the fetcher yields chapter→track pairs (getPlayableChapters)
         // — the physical stream URLs live on the Source tracks.
-        AudioPlayerManager(this, listeningState, sourceCatalog::getPlayableChapters)
+        // Spec-32 T4 (#234): the self-healing seam — a 404/403 stream failure
+        // re-resolves the book's source page and swaps the fresh URL in
+        // (LibraryImport.refreshStreamUrl); the player then retries ONCE.
+        AudioPlayerManager(
+            this,
+            listeningState,
+            sourceCatalog::getPlayableChapters,
+            streamUrlHealer = { bookId, chapterIndex, failedUrl ->
+                libraryImport.refreshStreamUrl(bookId, chapterIndex, failedUrl)
+            }
+        )
     }
 
     override fun onCreate() {

@@ -21,6 +21,7 @@ import com.slukhayka.audiobooks.data.universe.SeriesUniverses
 import com.slukhayka.audiobooks.data.catalog.SourceCatalog
 import com.slukhayka.audiobooks.data.downloads.OfflineDownloads
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
+import com.slukhayka.audiobooks.data.imports.KnownBookIdentity
 import com.slukhayka.audiobooks.data.imports.LibraryImport
 import com.slukhayka.audiobooks.data.listening.ListeningStateStore
 import com.slukhayka.audiobooks.data.imports.ImportPlanner
@@ -608,7 +609,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun playGlobalSearchResult(result: GlobalSearchResult) {
         val source = result.sources.firstOrNull() ?: return
-        playFromSource(source.sourceId, source.url)
+        playFromSource(source.sourceId, source.url, KnownBookIdentity(result.title, result.author, result.narrator))
     }
 
     /**
@@ -617,10 +618,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * Shared by the global-search cards and the «Нове з кожного джерела»
      * feed rows.
      */
-    fun playFromSource(sourceId: String, url: String) {
+    fun playFromSource(sourceId: String, url: String, known: KnownBookIdentity? = null) {
         viewModelScope.launch(Dispatchers.IO) {
             val book = try {
-                libraryImport.importFromSourceUrl(sourceId, url)
+                libraryImport.importFromSourceUrl(sourceId, url, known)
             } catch (e: Exception) {
                 null
             }
@@ -680,7 +681,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun openWorkFeedRow(row: WorkFeedRow) {
         viewModelScope.launch(Dispatchers.IO) {
             val source = sourceCatalog.workSourcesForWork(row.workId).firstOrNull() ?: return@launch
-            playFromSource(source.sourceId, source.sourceUrl)
+            playFromSource(source.sourceId, source.sourceUrl, KnownBookIdentity(row.title, row.author))
         }
     }
 
@@ -925,7 +926,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val source = result.sources.firstOrNull() ?: return
         viewModelScope.launch(Dispatchers.IO) {
             val book = try {
-                libraryImport.importFromSourceUrl(source.sourceId, source.url)
+                libraryImport.importFromSourceUrl(
+                        source.sourceId, source.url,
+                        KnownBookIdentity(result.title, result.author, result.narrator)
+                    )
             } catch (e: Exception) {
                 null
             }
@@ -1236,7 +1240,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _catalogDownloadingKeys.update { it + key }
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val book = libraryImport.importFromSourceUrl(source.sourceId, source.url)
+                val book = libraryImport.importFromSourceUrl(
+                    source.sourceId, source.url,
+                    KnownBookIdentity(result.title, result.author, result.narrator)
+                )
                 if (book != null) {
                     _downloadingBookId.value = book.id
                     offlineDownloads.downloadAudiobookOffline(book.id)

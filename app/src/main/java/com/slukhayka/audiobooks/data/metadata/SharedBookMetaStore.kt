@@ -54,6 +54,13 @@ interface SharedBookMetaStore {
     suspend fun getProfile(sourceId: String, editionId: String): BookProfile?
 
     /**
+     * Spec-32 T3 (#233) — the profile WITH its resolved-at stamp, so the
+     * read-skip path can decide freshness and fail open on a stale entry
+     * (serve the old profile when the re-fetch fails). Null on miss/failure.
+     */
+    suspend fun getProfileEntry(sourceId: String, editionId: String): SharedProfileEntry?
+
+    /**
      * Spec-32 T1 — best-effort write-back of one resolved profile, keyed by
      * the SAME `(sourceId, editionId)` the read path uses, so the next
      * listener reads it instead of re-resolving the source page. Idempotent
@@ -78,7 +85,37 @@ interface SharedBookMetaStore {
 data class ProfileProvenance(
     val source: String,
     val resolvedAt: Long
+) {
+    companion object {
+        /** A profile resolved from the source page by the app. */
+        const val SOURCE_RESOLVED = "resolved"
+    }
+}
+
+/**
+ * Spec-32 T3 — a shared profile together with its resolved-at stamp, as read
+ * back from the base. The stamp is what the read-skip freshness decision and
+ * the fail-open fallback need.
+ */
+data class SharedProfileEntry(
+    val profile: BookProfile,
+    val resolvedAt: Long
 )
+
+/**
+ * Spec-32 T3 — the freshness window of a shared profile: ~90 days. Within it
+ * the profile may replace the source page fetch outright; beyond it the page
+ * is re-fetched, and if that fails the stale profile is still served
+ * (fail-open) rather than nothing.
+ */
+object ProfileFreshness {
+
+    /** ~90 days — the short-TTL counter to spec-30's longer duration floor. */
+    const val FRESHNESS_MILLIS = 90L * 24 * 60 * 60 * 1000
+
+    fun isFresh(resolvedAt: Long, nowMillis: Long): Boolean =
+        nowMillis - resolvedAt < FRESHNESS_MILLIS
+}
 
 /**
  * Spec-32 T1 — one chapter of a shared profile: the playable stream URL
@@ -93,11 +130,15 @@ data class ProfileChapter(
 
 /**
  * Spec-32 T1 — the full resolved profile of one Source×Edition: everything a
- * book page yields (description, narrator, series, genres, rating, cover,
- * ordered chapters with stream URLs, total duration). What a listener who
- * already opened the book has — cached so the next one skips the page fetch.
+ * book page yields (title, author, description, narrator, series, genres,
+ * rating, cover, ordered chapters with stream URLs, total duration). What a
+ * listener who already opened the book has — cached so the next one skips
+ * the page fetch. Title/author are the bibliographic identity a read-skip
+ * import needs to materialise the Work card without the page.
  */
 data class BookProfile(
+    val title: String = "",
+    val author: String = "",
     val description: String = "",
     val narrator: String = "",
     val seriesTitle: String? = null,
@@ -161,6 +202,8 @@ object BookProfileCodec {
     fun toMap(profile: BookProfile, provenance: ProfileProvenance): Map<String, Any> = mapOf(
         "source" to provenance.source,
         "resolvedAt" to provenance.resolvedAt,
+        "title" to profile.title.take(BookProfileLimits.MAX_TITLE_LEN),
+        "author" to profile.author.take(BookProfileLimits.MAX_TITLE_LEN),
         "description" to profile.description.take(BookProfileLimits.MAX_DESCRIPTION_LEN),
         "narrator" to profile.narrator.take(BookProfileLimits.MAX_TITLE_LEN),
         "genres" to profile.genres.take(BookProfileLimits.MAX_GENRES).map { it.take(BookProfileLimits.MAX_TITLE_LEN) },
@@ -170,6 +213,16 @@ object BookProfileCodec {
             .map { chapterToMap(it) }
     ) + optionalFields(profile)
 
+    /**
+     * Spec-32 T3 — decodes the profile AND its resolved-at stamp (the
+     * freshness/fail-open read). A corrupt document is a miss, never a crash.
+     */
+    fun fromMapEntry(map: Map<String, Any>): SharedProfileEntry? {
+        val profile = fromMap(map) ?: return null
+        val resolvedAt = (map["resolvedAt"] as? Number)?.toLong() ?: return null
+        return SharedProfileEntry(profile, resolvedAt)
+    }
+
     fun fromMap(map: Map<String, Any>): BookProfile? {
         val rawChapters = map["chapters"] as? List<*> ?: return null
         if (rawChapters.size > BookProfileLimits.MAX_CHAPTERS) return null
@@ -178,6 +231,8 @@ object BookProfileCodec {
             chapters += chapterFromMap(raw as? Map<*, *> ?: continue) ?: continue
         }
         return BookProfile(
+            title = (map["title"] as? String ?: "").take(BookProfileLimits.MAX_TITLE_LEN),
+            author = (map["author"] as? String ?: "").take(BookProfileLimits.MAX_TITLE_LEN),
             description = (map["description"] as? String ?: "").take(BookProfileLimits.MAX_DESCRIPTION_LEN),
             narrator = (map["narrator"] as? String ?: "").take(BookProfileLimits.MAX_TITLE_LEN),
             seriesTitle = (map["seriesTitle"] as? String)?.take(BookProfileLimits.MAX_TITLE_LEN),

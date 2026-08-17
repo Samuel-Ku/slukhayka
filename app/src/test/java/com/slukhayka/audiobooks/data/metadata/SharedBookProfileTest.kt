@@ -31,6 +31,8 @@ class SharedBookProfileTest {
         override suspend fun getProfile(sourceId: String, editionId: String): BookProfile? =
             profiles["$sourceId|$editionId"]
 
+        override suspend fun getProfileEntry(sourceId: String, editionId: String): SharedProfileEntry? = null
+
         override suspend fun putProfile(
             sourceId: String, editionId: String, profile: BookProfile, provenance: ProfileProvenance
         ) {

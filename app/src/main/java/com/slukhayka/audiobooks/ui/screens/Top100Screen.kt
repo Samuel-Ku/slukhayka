@@ -230,7 +230,7 @@ private fun Top100Row(
             IconButton(onClick = onPlayClick) {
                 Icon(
                     imageVector = Icons.Default.PlayArrow,
-                    contentDescription = "Play",
+                    contentDescription = "Відтворити",
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(26.dp)
                 )

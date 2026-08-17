@@ -46,7 +46,8 @@ fun bookPlayState(
  * resume position (injected so the mapper stays Android-free and testable).
  */
 fun bookPlayLabel(state: BookPlayState, formatTime: (Long) -> String): String = when (state) {
-    BookPlayState.Playing -> "Playing"
+    // Spec-27 (#204): Ukrainian everywhere — the playing state reads «Грає».
+    BookPlayState.Playing -> "Грає"
     BookPlayState.Unstarted -> "Слухати"
     is BookPlayState.InProgress -> "Продовжити з ${formatTime(state.resumePositionSeconds)}"
     BookPlayState.Finished -> "Почати спочатку"

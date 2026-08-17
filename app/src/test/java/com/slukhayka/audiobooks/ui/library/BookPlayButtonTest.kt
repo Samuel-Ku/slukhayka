@@ -95,7 +95,7 @@ class BookPlayButtonTest {
         assertEquals("Слухати", label(BookPlayState.Unstarted))
         assertEquals("Продовжити з 0:15:00", label(BookPlayState.InProgress(900L)))
         assertEquals("Почати спочатку", label(BookPlayState.Finished))
-        assertEquals("Playing", label(BookPlayState.Playing))
+        assertEquals("Грає", label(BookPlayState.Playing))
     }
 
     // ------------------------------------------------------------------

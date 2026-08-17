@@ -1,5 +1,18 @@
+import com.android.build.api.artifact.SingleArtifact
+import com.android.build.api.variant.BuiltArtifactsLoader
 import com.google.gms.googleservices.GoogleServicesPlugin.MissingGoogleServicesStrategy
+import java.io.File
 import java.util.Properties
+import org.gradle.api.DefaultTask
+import org.gradle.api.GradleException
+import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.provider.Property
+import org.gradle.api.tasks.InputDirectory
+import org.gradle.api.tasks.Internal
+import org.gradle.api.tasks.PathSensitive
+import org.gradle.api.tasks.PathSensitivity
+import org.gradle.api.tasks.TaskAction
+import org.gradle.kotlin.dsl.register
 
 plugins {
   alias(libs.plugins.android.application)
@@ -45,8 +58,10 @@ android {
     applicationId = "com.slukhayka.audiobooks"
     minSdk = 24
     targetSdk = 36
-    versionCode = 1
-    versionName = "1.0"
+    // spec-29 T1 (#210): first release under the permanent applicationId.
+    // versionCode grows monotonically across the Слухайка line (v1.0 was 1).
+    versionCode = 2
+    versionName = "1.1"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -93,6 +108,49 @@ android {
     buildConfig = true
   }
   testOptions { unitTests { isIncludeAndroidResources = true } }
+}
+
+// spec-29 T1 (#210): the release artifact carries the version in its name
+// (slukhayka-v1.1.apk, then v1.2, ...) so downloads are unambiguous across
+// releases (US-13). AGP 9 removed the old outputFileName hook, so this reacts
+// to SingleArtifact.APK creation with the public Variant API (the documented
+// listenToArtifacts replacement) and copies the built APK to the versioned
+// name under app/build/outputs/renamed_apks/release/. The name comes from the
+// APK's own metadata (BuiltArtifact.versionName), so it can never drift from
+// what is actually inside the file. Debug keeps its AGP default name.
+androidComponents {
+  onVariants(selector().withBuildType("release")) { variant ->
+    val renameTask = tasks.register<RenameReleaseApk>("renameReleaseApk") {
+      output.set(layout.buildDirectory.dir("outputs/renamed_apks/release"))
+      builtArtifactsLoader.set(variant.artifacts.getBuiltArtifactsLoader())
+    }
+    variant.artifacts.use(renameTask).wiredWith { it.input }.toListenTo(SingleArtifact.APK)
+  }
+}
+
+// Copies the built release APK to slukhayka-v<versionName>.apk. The input is
+// the directory AGP publishes for SingleArtifact.APK; the loader enumerates
+// the APKs inside it with their metadata (single APK in our case — no splits).
+abstract class RenameReleaseApk : DefaultTask() {
+  @get:InputDirectory
+  @get:PathSensitive(PathSensitivity.RELATIVE)
+  abstract val input: DirectoryProperty
+
+  @get:OutputDirectory
+  abstract val output: DirectoryProperty
+
+  @get:Internal
+  abstract val builtArtifactsLoader: Property<BuiltArtifactsLoader>
+
+  @TaskAction
+  fun rename() {
+    val builtArtifacts = builtArtifactsLoader.get().load(input.get())
+      ?: throw GradleException("Cannot load built APKs from ${input.get()}")
+    builtArtifacts.elements.forEach { artifact ->
+      val targetName = "slukhayka-v${artifact.versionName}.apk"
+      File(artifact.outputFile).copyTo(output.get().file(targetName).asFile, overwrite = true)
+    }
+  }
 }
 
 // Configure the Secrets Gradle Plugin to use .env and .env.example files

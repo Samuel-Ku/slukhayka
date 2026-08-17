@@ -69,11 +69,12 @@
 ## Встановлення
 
 1. Відкрий [Releases](https://github.com/Samuel-Ku/slukhayka/releases)
-2. Завантаж останній `app-release.apk`
+2. Завантаж `slukhayka-v1.1.apk` з останнього релізу
 3. Відкрий файл на телефоні — Android один раз попросить дозволити
    встановлення з невідомих джерел; дозволь і готово. ADB не потрібен.
 
-Цілісність файлу можна перевірити за SHA-256, опублікованим поруч з APK.
+Цілісність файлу можна перевірити за SHA-256 (`slukhayka-v1.1.apk.sha256`),
+опублікованим поруч з APK.
 
 > Play Store — у планах. iOS — не планується.
 
@@ -91,7 +92,7 @@ Release-збірка підписується власним keystore. Лока�
 
 ```bash
 bash scripts/generate-keystore.sh   # створює my-upload-key.jks + keystore.properties (обидва в .gitignore)
-./gradlew :app:assembleRelease      # APK: app/build/outputs/apk/release/app-release.apk
+./gradlew :app:assembleRelease      # APK: app/build/outputs/renamed_apks/release/slukhayka-v1.1.apk
 ```
 
 > ⚠️ Keystore і паролі — єдиний спосіб оновлювати додаток під цим підписом.

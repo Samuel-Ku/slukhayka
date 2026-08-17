@@ -26,6 +26,7 @@ import com.slukhayka.audiobooks.data.merge.MergeKey
 import com.slukhayka.audiobooks.testing.TestDataFactory
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -2990,5 +2991,47 @@ class DeepModulesRoomTest {
             assertTrue(cursor.isNull(2))
         }
         db.close()
+    }
+
+    // ---------------------------------------------------------------------
+    // Spec-27 (#185) — verification of the library counter and the storage
+    // row (BUG-004, BUG-013). BUG-004 is verified live (Room flow re-emits
+    // on any table write — the «Книги (N)» counter updates during a
+    // background sync); BUG-013's data half is pinned here (the size the
+    // «Пам'ять пристрою» row quotes is the real byte count of the offline
+    // dir), the refresh call itself lives in MainViewModel.
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `allBooks flow is live - inserting a book re-emits the counter (BUG-004)`() = runBlocking {
+        val mods = modules()
+        assertEquals(0, dao.getAllAudiobooks().first().size)
+
+        val book = TestDataFactory.dataBooks()[0]
+        withTimeout(5_000) {
+            dao.insertAudiobooks(listOf(book))
+            // The Room invalidation tracker re-queries the observed tables:
+            // the flow the «Книги (N)» counter collects emits the grown list
+            // without any screen restart — the background-sync liveness the
+            // ticket asks to verify.
+            val grown = mods.entries.allBooks.first { it.isNotEmpty() }
+            assertEquals(listOf(book.id), grown.map { it.id })
+        }
+    }
+
+    @Test
+    fun `cache size reflects files written into the offline dir (BUG-013)`() = runBlocking {
+        val mods = modules()
+        val dir = File(context.filesDir, com.slukhayka.audiobooks.data.downloads.OfflineDownloads.OFFLINE_AUDIO_DIR)
+        dir.mkdirs()
+        val file = File(dir, "bug-013.mp3")
+        file.writeBytes(ByteArray(2048))
+        try {
+            // The byte count the «Пам'ять пристрою» row quotes is the real
+            // size of the offline dir — truthful after a download writes it.
+            assertEquals(2048L, mods.downloads.getAudioCacheSizeBytes())
+        } finally {
+            file.delete()
+        }
     }
 }

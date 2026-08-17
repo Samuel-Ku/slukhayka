@@ -1246,6 +1246,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             } finally {
                 _downloadingBookId.value = null
                 _catalogDownloadingKeys.update { it - key }
+                // Spec-27 (#185) BUG-013: the storage row must reflect a
+                // finished download without a screen restart — the byte
+                // counter refreshes after every download attempt.
+                refreshCacheSize()
             }
         }
     }
@@ -1270,6 +1274,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             } finally {
                 _downloadingBookId.value = null
+                // Spec-27 (#185) BUG-013: the storage row must reflect a
+                // finished download without a screen restart — the byte
+                // counter refreshes after every download attempt.
+                refreshCacheSize()
             }
         }
     }

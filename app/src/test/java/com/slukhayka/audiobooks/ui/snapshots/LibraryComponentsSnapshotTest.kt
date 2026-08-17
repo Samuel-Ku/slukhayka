@@ -8,15 +8,24 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.testing.TestDataFactory
 import com.slukhayka.audiobooks.ui.library.buildLibraryBooks
 import com.slukhayka.audiobooks.ui.library.LibraryBook
+import com.slukhayka.audiobooks.ui.library.LibraryFilter
+import com.slukhayka.audiobooks.ui.library.LibrarySort
+import com.slukhayka.audiobooks.ui.library.STATUS_FILTERS
 import com.slukhayka.audiobooks.ui.screens.ClearCacheConfirmDialog
 import com.slukhayka.audiobooks.ui.screens.LibraryBookCard
+import com.slukhayka.audiobooks.ui.screens.LibraryFilterSheetContent
+import com.slukhayka.audiobooks.ui.screens.LibraryStatusRow
 import com.slukhayka.audiobooks.ui.screens.ListeningStatsCard
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
+import org.junit.Assert.assertEquals
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
 import com.github.takahirom.roborazzi.captureRoboImage
 import org.junit.Rule
@@ -137,6 +146,87 @@ class LibraryComponentsSnapshotTest {
         composeTestRule.onRoot().captureRoboImage(
             filePath = "src/test/snapshots/library_stats_card_populated.png"
         )
+    }
+
+    // Spec-28 #193: the segmented status row — five one-tap statuses, the
+    // selected one filled with the accent (the visible highlight of the
+    // active non-default filter). «Слухаю» selected here.
+    @Test
+    fun status_row_segmented() {
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                LibrarySurface {
+                    LibraryStatusRow(selected = LibraryFilter.LISTENING, onSelect = {})
+                }
+            }
+        }
+        composeTestRule.onRoot().captureRoboImage(
+            filePath = "src/test/snapshots/library_status_row.png"
+        )
+    }
+
+    // Spec-28 #193: «Нові» is the never-started status completing the
+    // Нові/Слухаю/Завершені trilogy — pinned with it selected.
+    @Test
+    fun status_row_new_selected() {
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                LibrarySurface {
+                    LibraryStatusRow(selected = LibraryFilter.NEW, onSelect = {})
+                }
+            }
+        }
+        composeTestRule.onRoot().captureRoboImage(
+            filePath = "src/test/snapshots/library_status_row_new.png"
+        )
+    }
+
+    // Spec-28 #193: the filter sheet body — the rare filters (Обрані /
+    // Локальні / Онлайн), the six sort modes and the view toggle, with
+    // «Локальні» and the default sort selected.
+    @Test
+    fun filter_sheet_content() {
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.surfaceContainerLow
+                ) {
+                    LibraryFilterSheetContent(
+                        filter = LibraryFilter.LOCAL,
+                        sort = LibrarySort.RECENTLY_LISTENED,
+                        gridMode = false,
+                        onFilterChange = {},
+                        onSortChange = {},
+                        onGridModeChange = {}
+                    )
+                }
+            }
+        }
+        composeTestRule.onRoot().captureRoboImage(
+            filePath = "src/test/snapshots/library_filter_sheet.png"
+        )
+    }
+
+    // Spec-28 #193 AC: «one tap each» — tapping every status chip reports
+    // exactly that status, including the off-screen tail of the scrollable row.
+    @Test
+    fun status_row_one_tap_per_status() {
+        var selected: LibraryFilter? = null
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                LibrarySurface {
+                    LibraryStatusRow(selected = LibraryFilter.ALL, onSelect = { selected = it })
+                }
+            }
+        }
+
+        STATUS_FILTERS.forEach { f ->
+            composeTestRule.onNodeWithText(f.label)
+                .performScrollTo()
+                .performClick()
+            assertEquals(f, selected)
+        }
     }
 
     // Spec-27 (#184) BUG-001: the destructive-action confirm quotes the exact

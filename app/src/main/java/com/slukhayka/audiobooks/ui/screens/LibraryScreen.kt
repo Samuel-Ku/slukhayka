@@ -9,7 +9,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -46,6 +45,7 @@ import com.slukhayka.audiobooks.ui.library.LibraryBook
 import com.slukhayka.audiobooks.ui.library.LibraryFilter
 import com.slukhayka.audiobooks.ui.library.LibrarySort
 import com.slukhayka.audiobooks.ui.library.clearCacheConfirmText
+import com.slukhayka.audiobooks.ui.library.SHEET_FILTERS
 import com.slukhayka.audiobooks.ui.library.filterAndSortLibrary
 import com.slukhayka.audiobooks.ui.library.formatRemainingTime
 import com.slukhayka.audiobooks.ui.library.ukPlural
@@ -53,11 +53,12 @@ import com.slukhayka.audiobooks.ui.theme.*
 
 /**
  * Wayfinder #39 — Медіатека as one unified library. Local files and 4read
- * books live side by side; quick filters (Усі · Слухаю · Завершені ·
- * Завантажені · Локальні · 4read · Обрані), six sort modes, client-side
- * search and a grid/list toggle sit above a single book card that always
- * shows author, series+volume, progress, remaining time, download status and
- * a small source badge. Закладки and Статистика remain as sub-tabs.
+ * books live side by side; the segmented status row (Усі / Нові / Слухаю /
+ * Завершені / Завантажені, spec-28 #193) plus a filter sheet (Обрані /
+ * Локальні / Онлайн, six sort modes, grid/list toggle) and client-side
+ * search sit above a single book card that always shows author,
+ * series+volume, progress, remaining time, download status and a small
+ * source badge. Закладки and Статистика remain as sub-tabs.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -150,6 +151,8 @@ fun LibraryScreen(
     var sort by remember { mutableStateOf(LibrarySort.RECENTLY_LISTENED) }
     var query by remember { mutableStateOf("") }
     var gridMode by remember { mutableStateOf(false) }
+    // Spec-28 #193: the rare filters, sort and view toggle live in the sheet.
+    var showFilterSheet by remember { mutableStateOf(false) }
 
     val visibleBooks = remember(libraryBooks, filter, sort, query) {
         filterAndSortLibrary(libraryBooks, filter, sort, query)
@@ -253,58 +256,41 @@ fun LibraryScreen(
                     shape = RoundedCornerShape(AppDimens.RadiusCard)
                 )
 
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    contentPadding = PaddingValues(horizontal = 16.dp)
-                ) {
-                    items(LibraryFilter.entries) { f ->
-                        FilterChip(
-                            selected = filter == f,
-                            onClick = { filter = f },
-                            label = { Text(f.label) },
-                            modifier = Modifier.testTag("library_filter_${f.name.lowercase()}")
-                        )
-                    }
-                }
+                // Spec-28 #193: the five one-tap statuses as a segmented row.
+                LibraryStatusRow(selected = filter, onSelect = { filter = it })
 
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    var sortMenu by remember { mutableStateOf(false) }
-                    TextButton(
-                        onClick = { sortMenu = true },
-                        modifier = Modifier.testTag("library_sort_button")
-                    ) {
-                        Icon(imageVector = Icons.Default.Sort, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(sort.label)
-                        Icon(imageVector = Icons.Default.ArrowDropDown, contentDescription = null)
-                    }
-                    DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
-                        LibrarySort.entries.forEach { s ->
-                            DropdownMenuItem(
-                                text = { Text(s.label) },
-                                onClick = {
-                                    sort = s
-                                    sortMenu = false
-                                }
-                            )
-                        }
-                    }
-                    Spacer(modifier = Modifier.weight(1f))
-                    IconButton(
-                        onClick = { gridMode = !gridMode },
-                        modifier = Modifier.testTag("library_view_toggle")
-                    ) {
+                // Spec-28 #193: the rare filters (Обрані / Локальні / Онлайн),
+                // sort and view toggle collapse into the filter sheet. The
+                // launcher chip turns accent and names the active rare filter,
+                // so a non-default filter stays visible at a glance.
+                val isSheetFilterActive = filter in SHEET_FILTERS
+                FilterChip(
+                    selected = isSheetFilterActive,
+                    onClick = { showFilterSheet = true },
+                    label = { Text(if (isSheetFilterActive) filter.label else "Фільтр") },
+                    leadingIcon = {
                         Icon(
-                            imageVector = if (gridMode) Icons.Default.ViewList else Icons.Default.GridView,
-                            contentDescription = if (gridMode) "Показати списком" else "Показати сіткою"
+                            imageVector = Icons.Default.Tune,
+                            contentDescription = null,
+                            modifier = Modifier.size(FilterChipDefaults.IconSize)
                         )
-                    }
-                }
+                    },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = MaterialTheme.colorScheme.primary,
+                        selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        labelColor = MaterialTheme.colorScheme.onSurface
+                    ),
+                    border = FilterChipDefaults.filterChipBorder(
+                        enabled = true,
+                        selected = isSheetFilterActive,
+                        borderColor = MaterialTheme.colorScheme.outlineVariant,
+                        selectedBorderColor = MaterialTheme.colorScheme.primary
+                    ),
+                    modifier = Modifier
+                        .padding(horizontal = 16.dp)
+                        .testTag("library_filter_button")
+                )
 
                 // Compact storage row (cache size + clear), kept slim per the
                 // design system: no nested card, just an icon-and-text row.
@@ -371,6 +357,18 @@ fun LibraryScreen(
                             viewModel.clearAllAudioCache()
                         },
                         onDismiss = { showClearCacheDialog = false }
+                    )
+                }
+
+                if (showFilterSheet) {
+                    LibraryFilterSheet(
+                        filter = filter,
+                        sort = sort,
+                        gridMode = gridMode,
+                        onFilterChange = { filter = it },
+                        onSortChange = { sort = it },
+                        onGridModeChange = { gridMode = it },
+                        onDismiss = { showFilterSheet = false }
                     )
                 }
             }

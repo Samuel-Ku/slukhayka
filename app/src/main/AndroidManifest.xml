@@ -4,6 +4,8 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- Shake-to-extend haptic feedback (ShakeDetector). -->
+    <uses-permission android:name="android.permission.VIBRATE" />
     <!-- Background playback (audit PERF-002): foreground service hosting the
          MediaSession, plus the runtime notification permission on 13+. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />

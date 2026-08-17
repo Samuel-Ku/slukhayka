@@ -132,3 +132,7 @@ Firestore (заповнити прогалину) → джерело», з дз�
 - The feature reuses the universe pattern end-to-end rather than inventing a new
   data flow, so it fits the existing architecture without new transport or
   parsing code.
+- The local duration passes (`DurationEnrichment`, `ChapterDurationProbe`) stay
+  as the **first-resolver fallback** for books not yet in the shared cache: the
+  duration they derive/probe is exactly what gets written back, so the cache
+  grows from them — the cache does not replace them, it propagates their work.

@@ -16,9 +16,16 @@ import java.util.Locale
  * filter/sort is selected); [filterAndSortLibrary] does the work.
  */
 
-/** The quick filters of the unified library (Усі · Слухаю · … · Обрані). */
+/**
+ * The library filters (spec-28 #193). The five one-tap statuses live in the
+ * visible segmented row (Усі / Нові / Слухаю / Завершені / Завантажені); the
+ * three rare filters (Обрані / Локальні / Онлайн) live in the filter sheet.
+ */
 enum class LibraryFilter(val label: String) {
     ALL("Усі"),
+    // Spec-28 #193: «Нові» = never started — a book with no playback progress
+    // row at all, completing the Нові/Слухаю/Завершені trilogy.
+    NEW("Нові"),
     LISTENING("Слухаю"),
     COMPLETED("Завершені"),
     DOWNLOADED("Завантажені"),
@@ -28,6 +35,22 @@ enum class LibraryFilter(val label: String) {
     ONLINE("Онлайн"),
     FAVORITE("Обрані")
 }
+
+/** The visible one-tap statuses of the segmented row (spec-28 #193). */
+val STATUS_FILTERS: List<LibraryFilter> = listOf(
+    LibraryFilter.ALL,
+    LibraryFilter.NEW,
+    LibraryFilter.LISTENING,
+    LibraryFilter.COMPLETED,
+    LibraryFilter.DOWNLOADED
+)
+
+/** The rare filters hosted in the filter sheet (Обрані / Локальні / Онлайн). */
+val SHEET_FILTERS: List<LibraryFilter> = listOf(
+    LibraryFilter.FAVORITE,
+    LibraryFilter.LOCAL,
+    LibraryFilter.ONLINE
+)
 
 /** The six library sort modes (нещодавно слухані … за тривалістю). */
 enum class LibrarySort(val label: String) {
@@ -57,6 +80,10 @@ data class LibraryBook(
 
     val remainingSeconds: Long
         get() = (totalDurationSeconds - cumulativePositionSeconds).coerceAtLeast(0L)
+
+    /** Spec-28 #193 — «Нові»: never started, i.e. no playback progress row at all. */
+    val isNew: Boolean
+        get() = progress == null
 
     val isListening: Boolean
         get() = progress != null && !isCompleted && percent < 1f
@@ -158,6 +185,7 @@ fun filterAndSortLibrary(
 
 private fun matchesFilter(book: LibraryBook, filter: LibraryFilter): Boolean = when (filter) {
     LibraryFilter.ALL -> true
+    LibraryFilter.NEW -> book.isNew
     LibraryFilter.LISTENING -> book.isListening
     LibraryFilter.COMPLETED -> book.isCompleted
     LibraryFilter.DOWNLOADED -> book.book.isDownloaded

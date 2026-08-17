@@ -239,12 +239,66 @@ class LibraryModelTest {
     @Test
     fun `every quick filter selects exactly its set`() {
         assertEquals(setOf("local", "online-b", "online-c"), idSet(filterAndSortLibrary(filterItems, LibraryFilter.ALL, LibrarySort.TITLE, "")))
+        // Spec-28 #193: «Нові» = never started — only the book with no progress
+        // row at all (online-b) qualifies; a started or completed book does not.
+        assertEquals(setOf("online-b"), idSet(filterAndSortLibrary(filterItems, LibraryFilter.NEW, LibrarySort.TITLE, "")))
         assertEquals(setOf("local"), idSet(filterAndSortLibrary(filterItems, LibraryFilter.LISTENING, LibrarySort.TITLE, "")))
         assertEquals(setOf("online-c"), idSet(filterAndSortLibrary(filterItems, LibraryFilter.COMPLETED, LibrarySort.TITLE, "")))
         assertEquals(setOf("local"), idSet(filterAndSortLibrary(filterItems, LibraryFilter.DOWNLOADED, LibrarySort.TITLE, "")))
         assertEquals(setOf("local"), idSet(filterAndSortLibrary(filterItems, LibraryFilter.LOCAL, LibrarySort.TITLE, "")))
         assertEquals(setOf("online-b", "online-c"), idSet(filterAndSortLibrary(filterItems, LibraryFilter.ONLINE, LibrarySort.TITLE, "")))
         assertEquals(setOf("local"), idSet(filterAndSortLibrary(filterItems, LibraryFilter.FAVORITE, LibrarySort.TITLE, "")))
+    }
+
+    // Spec-28 #193: «Нові» means "never started" — no playback progress row
+    // at all, not even one at 0:00. It completes the Нові/Слухаю/Завершені
+    // trilogy and is a pure predicate (progress == null), not a schema change.
+    @Test
+    fun `new status means never started - an opened book is not new even at zero position`() {
+        val neverStarted = buildLibraryBooks(listOf(book("n", "Нова")), emptyList(), emptyMap()).single()
+        // A progress row at 0:00 still proves the book was opened/started.
+        val openedOnce = buildLibraryBooks(
+            listOf(book("o", "Відкрита")),
+            listOf(progress("o", chapterIndex = 0, position = 0L)),
+            emptyMap()
+        ).single()
+
+        assertTrue(neverStarted.isNew)
+        assertFalse(openedOnce.isNew)
+        assertNull(neverStarted.progress)
+
+        assertEquals(
+            setOf("n"),
+            idSet(filterAndSortLibrary(listOf(openedOnce, neverStarted), LibraryFilter.NEW, LibrarySort.TITLE, ""))
+        )
+    }
+
+    @Test
+    fun `new status is independent of downloaded and favorite flags`() {
+        val items = buildLibraryBooks(
+            listOf(
+                book("downloaded-new", "Завантажена нова", isDownloaded = true),
+                book("downloaded-started", "Завантажена відкрита", isDownloaded = true),
+                book("favorite-new", "Обрана нова", isFavorite = true)
+            ),
+            listOf(progress("downloaded-started", position = 10L)),
+            emptyMap()
+        )
+
+        // «Нові» cares only about progress: both untouched books qualify, the
+        // started one does not — downloaded/favorite flags play no part.
+        assertEquals(
+            setOf("downloaded-new", "favorite-new"),
+            idSet(filterAndSortLibrary(items, LibraryFilter.NEW, LibrarySort.TITLE, ""))
+        )
+        assertEquals(
+            setOf("downloaded-new", "downloaded-started"),
+            idSet(filterAndSortLibrary(items, LibraryFilter.DOWNLOADED, LibrarySort.TITLE, ""))
+        )
+        assertEquals(
+            setOf("favorite-new"),
+            idSet(filterAndSortLibrary(items, LibraryFilter.FAVORITE, LibrarySort.TITLE, ""))
+        )
     }
 
     @Test

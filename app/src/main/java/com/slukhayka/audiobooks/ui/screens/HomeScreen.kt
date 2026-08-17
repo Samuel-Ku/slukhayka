@@ -164,23 +164,23 @@ fun HomeScreen(
     val haptic = LocalHapticFeedback.current
     var searchExpanded by rememberSaveable { mutableStateOf(false) }
 
-    val genres = listOf("Усі", "Фантастика", "Cyberpunk", "Детективи", "Класика", "Антиутопія", "Короткі", "Завантажені")
+    // Spec-27 (#205, BUG-007): the search-mode filter chips are the LIVE
+    // catalogue genres — never a hardcoded list (the old one duplicated the
+    // sources' genre sidebar and shipped an EN «Cyberpunk»). «Усі» stays as
+    // the clear-filter chip; the row appears once the homepage sync delivers
+    // the genre sidebar.
+    val genres = remember(catalogGenres) { listOf("Усі") + catalogGenres.map { it.title } }
 
     val filteredBooks = allBooks.filter { book ->
         val matchesSearch = searchQuery.isBlank() ||
             book.title.contains(searchQuery, ignoreCase = true) ||
             book.author.contains(searchQuery, ignoreCase = true)
 
+        // Any selected chip filters the in-library results by the book's
+        // genre text; «Усі» clears the filter. The special-case branches
+        // (Завантажені/Короткі/Cyberpunk/…) died with the hardcoded list.
         val matchesGenre = when (selectedGenre) {
             "Усі", "All" -> true
-            "Завантажені", "Downloaded" -> book.isDownloaded
-            // Spec-22 T3 mood chip: a short book = up to ~3 hours.
-            "Короткі" -> book.totalDurationSeconds in 1..3 * 3600
-            "Фантастика" -> book.genre.contains("фантастика", ignoreCase = true) || book.genre.contains("sci-fi", ignoreCase = true)
-            "Cyberpunk" -> book.genre.contains("cyberpunk", ignoreCase = true) || book.genre.contains("киберпанк", ignoreCase = true) || book.genre.contains("кіберпанк", ignoreCase = true)
-            "Детективи" -> book.genre.contains("детектив", ignoreCase = true)
-            "Класика" -> book.genre.contains("классика", ignoreCase = true) || book.genre.contains("класика", ignoreCase = true)
-            "Антиутопія" -> book.genre.contains("антиутопия", ignoreCase = true) || book.genre.contains("антиутопія", ignoreCase = true)
             else -> book.genre.contains(selectedGenre, ignoreCase = true)
         }
 

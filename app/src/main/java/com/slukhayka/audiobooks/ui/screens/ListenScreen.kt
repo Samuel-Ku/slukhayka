@@ -280,7 +280,12 @@ fun ListenBlockShelf(
             CompactBookCard(
                 book = entry.book,
                 onClick = { onBookClick(entry.book.id) },
-                onNotInterested = { onNotInterested(entry.book.id) }
+                onNotInterested = { onNotInterested(entry.book.id) },
+                // US-3 (spec-28 #199): the card's hairline is fed by the
+                // REAL listening percent the library module computed from the
+                // playback-progress rows — a started book shows the line, an
+                // unstarted one keeps a clean cover.
+                progress = entry.percent
             )
         }
     }

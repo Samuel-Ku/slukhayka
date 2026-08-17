@@ -123,11 +123,13 @@ class ListenScreenBlocksSnapshotTest {
 
     // spec-28 (#191): each Listen block is a horizontal shelf of compact
     // posters — the block header plus the poster row, pinned as the shelf
-    // form renders on the tab.
+    // form renders on the tab. US-3 (#199): with no playback rows every
+    // cover stays CLEAN — the «без прогресу» pin of the progress hairline.
     @Test
     fun listen_block_shelf() {
+        val books = TestDataFactory.dataBooks()
         val shelfBooks = buildLibraryBooks(
-            books = TestDataFactory.dataBooks(),
+            books = books,
             progressList = emptyList(),
             chaptersByBook = emptyMap()
         )
@@ -152,11 +154,59 @@ class ListenScreenBlocksSnapshotTest {
                 }
             }
         }
-        // Self-verifying on top of the image: titles and authors render.
+        // Self-verifying on top of the image: titles and authors render, and
+        // an unstarted book draws NO progress hairline (clean cover).
         composeTestRule.onNodeWithText("Нейромант").assertExists()
         composeTestRule.onNodeWithText("Вільям Гібсон").assertExists()
+        composeTestRule.onNodeWithTag("compact_book_progress_${books.first().id}").assertDoesNotExist()
         composeTestRule.onRoot().captureRoboImage(
             filePath = "src/test/snapshots/listen_block_shelf.png"
+        )
+    }
+
+    // US-3 (spec-28 #199): a STARTED book on a shelf draws the thin progress
+    // hairline along the cover's bottom edge, filled to the consumed
+    // fraction; an unstarted book keeps a clean cover. The percent comes
+    // from the library module's real playback rows (buildLibraryBooks).
+    @Test
+    fun listen_block_shelf_with_progress() {
+        val books = TestDataFactory.dataBooks()
+        val chapters = TestDataFactory.dataChapters(books)
+        // The first book stays unstarted (no row) — a clean cover next to
+        // the hairlines; the rest get distinct in-book positions so the
+        // hairlines differ visibly.
+        val progressList = TestDataFactory.seedPlaybackProgress(books, chapterIndex = 1, positionSeconds = 300L)
+            .drop(1)
+            .mapIndexed { index, row -> row.copy(currentPositionSeconds = 300L + 600L * index) }
+        val shelfBooks = buildLibraryBooks(books, progressList, chapters.groupBy { it.bookId })
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                ListenSurface {
+                    Column {
+                        ListenBlockHeader(
+                            title = "Далі по серії",
+                            reason = "книги, які ви почали",
+                            blockId = ListenComposer.BlockId.NEXT_IN_SERIES,
+                            onMoveUp = {},
+                            onMoveDown = {},
+                            onHide = {}
+                        )
+                        ListenBlockShelf(
+                            books = shelfBooks,
+                            onBookClick = {},
+                            onNotInterested = {}
+                        )
+                    }
+                }
+            }
+        }
+        // The unstarted first book draws nothing; the started ones do. The
+        // hairline's tag is merged into the card's clickable semantics, so
+        // the finder needs the unmerged tree.
+        composeTestRule.onNodeWithTag("compact_book_progress_${books.first().id}", useUnmergedTree = true).assertDoesNotExist()
+        composeTestRule.onNodeWithTag("compact_book_progress_${books[1].id}", useUnmergedTree = true).assertExists()
+        composeTestRule.onRoot().captureRoboImage(
+            filePath = "src/test/snapshots/listen_block_shelf_progress.png"
         )
     }
 

@@ -136,12 +136,6 @@ class AudiobookMp3Adapter(
             .toList()
     }
 
-    private fun ogMeta(html: String, property: String): String? =
-        Regex("""<meta\s+property="$property"\s+content="([^"]+)"""", RegexOption.IGNORE_CASE)
-            .find(html)?.groupValues?.get(1)
-            ?: Regex("""<meta\s+content="([^"]+)"\s+property="$property"""", RegexOption.IGNORE_CASE)
-            .find(html)?.groupValues?.get(1)
-
     /**
      * The /uk slugs are transliterated `author-title` after the numeric id;
      * the author/title boundary is not delimited, so the whole remainder is
@@ -151,10 +145,7 @@ class AudiobookMp3Adapter(
     private fun slugTitle(url: String): String {
         val slug = url.substringAfterLast('/').substringBefore('?')
         val remainder = slug.substringAfter("uk-audio-", slug).substringAfter("-", slug)
-        return remainder.replace("-", " ")
-            .trim()
-            .replaceFirstChar { if (it.isLowerCase()) it.titlecase(java.util.Locale.getDefault()) else it.toString() }
-            .ifBlank { slug }
+        return titleFromSlug(remainder).ifBlank { slug }
     }
 
     private companion object {

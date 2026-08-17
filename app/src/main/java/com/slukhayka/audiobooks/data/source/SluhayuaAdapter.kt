@@ -181,12 +181,6 @@ class SluhayuaAdapter(
             ?.groupValues?.get(1)?.trim()
             .orEmpty()
 
-    private fun ogMeta(html: String, property: String): String? =
-        Regex("""<meta\s+property="$property"\s+content="([^"]+)"\s*/?>""", RegexOption.IGNORE_CASE)
-            .find(html)?.groupValues?.get(1)
-            ?: Regex("""<meta\s+content="([^"]+)"\s+property="$property"\s*/?>""", RegexOption.IGNORE_CASE)
-            .find(html)?.groupValues?.get(1)
-
     /** A `"name": 123` numeric field. */
     private fun numberField(obj: String, name: String): String? =
         Regex(""""$name"\s*:\s*(-?\d+)""").find(obj)?.groupValues?.get(1)

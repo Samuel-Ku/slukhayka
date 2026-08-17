@@ -105,6 +105,20 @@ class SearchCacheTest {
     }
 
     @Test
+    fun `an entry stamped in the future is a miss, never a forever-fresh pin`() = runBlocking {
+        // A device whose clock runs ahead would write a fetchedAt far in the
+        // future; without the guard the entry would stay "fresh" for years,
+        // pinning a stale result for every listener.
+        val store = FakeStore()
+        store.documents["шевченко"] = SearchResultCodec.toMap(
+            fetchedAt = store.nowMillis + 365L * 24 * 60 * 60 * 1000,
+            results = listOf(card)
+        )
+
+        assertNull(store.getResults("Шевченко"))
+    }
+
+    @Test
     fun `an empty result list is not written - negatives are never cached`() = runBlocking {
         val store = FakeStore()
 

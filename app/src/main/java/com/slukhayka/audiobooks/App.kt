@@ -19,6 +19,7 @@ import com.slukhayka.audiobooks.data.listening.ListeningStateStore
 import com.slukhayka.audiobooks.data.metadata.FirestoreBookMetaStore
 import com.slukhayka.audiobooks.data.metadata.SearchDurationResolver
 import com.slukhayka.audiobooks.data.metadata.StoredTitleScrub
+import com.slukhayka.audiobooks.data.search.FirestoreSearchCache
 import com.slukhayka.audiobooks.data.merge.DuplicateWorkMerger
 import com.slukhayka.audiobooks.data.source.AudiobookMp3Adapter
 import com.slukhayka.audiobooks.data.source.FourReadAdapter
@@ -127,7 +128,13 @@ class App : Application() {
             durationResolver = SearchDurationResolver(
                 database.audiobookDao(),
                 FirestoreBookMetaStore.create(this)
-            )
+            ),
+            // Spec-33 T2 (#227): the shared search-result cache — a fresh
+            // hit serves the merged result without touching the 4read /
+            // sluhayua search endpoints; a miss or a stale entry resolves
+            // live and writes back best-effort. Null without Firebase keys:
+            // search then behaves exactly as before.
+            searchCache = FirestoreSearchCache.create(this)
         )
     }
 

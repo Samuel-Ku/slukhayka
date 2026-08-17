@@ -38,14 +38,17 @@ interface SearchCache {
     /**
      * Best-effort write-back of a merged result, keyed by the SAME normalized
      * query the read path uses, so the next listener reads it instead of
-     * re-resolving. Empty result lists are never cached (spec-33 US-8 — the
-     * long tail of unique miss queries stays unbounded-free); a failing write
-     * contributes nothing.
+     * re-resolving. Write-path sanitation (spec-33 T3 #228) runs BEFORE the
+     * no-negative decision: junk cards are dropped and the list is bounded
+     * ([SearchResultCodec.sanitize]) — an empty survivor is a negative result
+     * and is never cached (spec-33 US-8: the long tail of unique miss queries
+     * stays unbounded-free). A failing write contributes nothing.
      */
     suspend fun putResults(query: String, results: List<GlobalSearchResult>) {
-        if (results.isEmpty()) return
         val key = SearchQueryKey.normalize(query) ?: return
-        runCatching { writeDocument(key, SearchResultCodec.toMap(nowMillis(), results)) }
+        val usable = SearchResultCodec.sanitize(results)
+        if (usable.isEmpty()) return
+        runCatching { writeDocument(key, SearchResultCodec.toMap(nowMillis(), usable)) }
     }
 
     /** The raw document for a normalized query key, or null on miss/failure. */
@@ -88,8 +91,14 @@ object SearchFreshness {
     /** ~24 hours — the short TTL keeps the cache from hiding new releases. */
     const val FRESHNESS_MILLIS = 24L * 60 * 60 * 1000
 
+    /**
+     * A document is fresh only when it is not older than the window AND not
+     * stamped in the future — a device whose clock runs ahead would
+     * otherwise write a `fetchedAt` that keeps the entry "fresh" for years,
+     * pinning a stale result for every listener (US-5).
+     */
     fun isFresh(fetchedAt: Long, nowMillis: Long): Boolean =
-        nowMillis - fetchedAt < FRESHNESS_MILLIS
+        fetchedAt <= nowMillis && nowMillis - fetchedAt < FRESHNESS_MILLIS
 }
 
 /** One decoded cache document: when it was fetched and the merged result. */
@@ -108,21 +117,45 @@ data class SearchCacheEntry(
  *                durationSeconds?, sources: [ {sourceId, sourceName, url} ] } ]
  * ```
  *
- * [toMap] bounds the write to [MAX_RESULTS] cards (spec-33 — "a result is
- * bounded to a sane number of cards"); [fromMap] is defensive: any
- * missing/mistyped required field, an empty or oversized result list, a card
- * without a title, or a card without at least one source URL yields null (a
- * corrupt document is a miss, never a crash).
+ * [toMap] is the WRITE-path sanitation (spec-33 T3 #228): a card without a
+ * title or without at least one non-blank source URL is dropped before
+ * encoding, and the surviving list is bounded to [MAX_RESULTS] cards — the
+ * shared base only ever sees complete, bounded documents. [fromMap] is
+ * defensive on the read side: any missing/mistyped required field, an empty
+ * or oversized result list, a card without a title, or a card without at
+ * least one source URL yields null (a corrupt document is a miss, never a
+ * crash).
  */
 object SearchResultCodec {
 
-    /** The card cap — a sane, bounded result (spec-33 write limits). */
-    const val MAX_RESULTS = 100
+    /** The card cap — ~50, a sane, bounded result (spec-33 T3 #228 write limits). */
+    const val MAX_RESULTS = 50
 
+    /**
+     * The write shape of one result. Sanitation happens HERE, on the write
+     * path: junk cards (blank title, no usable source URL) never reach the
+     * shared base, and the list is capped at [MAX_RESULTS]. [fetchedAt]
+     * rides every document as provenance (spec-33 T3 — when the result was
+     * fetched).
+     */
     fun toMap(fetchedAt: Long, results: List<GlobalSearchResult>): Map<String, Any> = mapOf(
         "fetchedAt" to fetchedAt,
-        "results" to results.take(MAX_RESULTS).map { resultToMap(it) }
+        "results" to sanitize(results).map { resultToMap(it) }
     )
+
+    /**
+     * Spec-33 T3 (#228) — the write-path sanitation of a result list: junk
+     * cards (blank title, or no source with a usable URL) are dropped and
+     * the survivors are capped at [MAX_RESULTS]. Shared by the write shape
+     * ([toMap]) and the seam's no-negative decision ([SearchCache.putResults])
+     * so both see the SAME post-sanitation list.
+     */
+    fun sanitize(results: List<GlobalSearchResult>): List<GlobalSearchResult> =
+        results.filter { usableForCache(it) }.take(MAX_RESULTS)
+
+    /** A card is cacheable only with a title AND at least one usable source URL. */
+    private fun usableForCache(result: GlobalSearchResult): Boolean =
+        result.title.isNotBlank() && result.sources.any { it.url.isNotBlank() }
 
     fun fromMap(map: Map<String, Any>): SearchCacheEntry? {
         val fetchedAt = (map["fetchedAt"] as? Number)?.toLong() ?: return null
@@ -143,13 +176,20 @@ object SearchResultCodec {
             "author" to result.author,
             "narrator" to result.narrator,
             "mergeKey" to result.mergeKey,
-            "sources" to result.sources.map { source ->
-                mapOf(
-                    "sourceId" to source.sourceId,
-                    "sourceName" to source.sourceName,
-                    "url" to source.url
-                )
-            }
+            // Per-card source sanitation mirrors the card-level rule: only
+            // sources with a usable URL are written, so every document the
+            // write path produces is one the defensive read path accepts
+            // (a junk source would otherwise make the card unreadable — a
+            // poison document).
+            "sources" to result.sources
+                .filter { it.url.isNotBlank() }
+                .map { source ->
+                    mapOf(
+                        "sourceId" to source.sourceId,
+                        "sourceName" to source.sourceName,
+                        "url" to source.url
+                    )
+                }
         ) + optionalFields(result)
 
     /** Optional fields ride the document only when present; reads default null. */

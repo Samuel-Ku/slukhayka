@@ -7,6 +7,11 @@ import com.slukhayka.audiobooks.data.catalog.SourceCatalog
 import com.slukhayka.audiobooks.data.db.AudiobookDao
 import com.slukhayka.audiobooks.data.db.AudiobookDatabase
 import com.slukhayka.audiobooks.data.imports.LibraryImport
+import com.slukhayka.audiobooks.data.search.SearchCache
+import com.slukhayka.audiobooks.data.search.SearchFreshness
+import com.slukhayka.audiobooks.data.search.SearchResultCodec
+import com.slukhayka.audiobooks.data.source.GlobalSearchResult
+import com.slukhayka.audiobooks.data.source.GlobalSearchSource
 import com.slukhayka.audiobooks.data.source.SourceAdapter
 import com.slukhayka.audiobooks.data.source.SourceBook
 import com.slukhayka.audiobooks.data.source.sourceIdForUrl
@@ -72,8 +77,8 @@ class GlobalSearchRepositoryTest {
     // ADR-0002 (#138): the catalog tests construct the Source Catalog module
     // directly — no god module, no auto-sync on construction. The import door
     // tests below construct the Library Import module beside it (DAG edge).
-    private fun repo(vararg adapters: SourceAdapter) =
-        SourceCatalog(dao, adapters.toList(), LibraryImport(dao, context, adapters.toList()))
+    private fun repo(vararg adapters: SourceAdapter, searchCache: SearchCache? = null) =
+        SourceCatalog(dao, adapters.toList(), LibraryImport(dao, context, adapters.toList()), searchCache = searchCache)
 
     private fun imports(vararg adapters: SourceAdapter) =
         LibraryImport(dao, context, adapters.toList())
@@ -227,6 +232,134 @@ class GlobalSearchRepositoryTest {
         </div>
         </body></html>
     """.trimIndent()
+
+    // ---------------------------------------------------------------------
+    // spec-33 T2 (#227): the shared search cache in the search flow — a
+    // fresh hit suppresses the source adapters, a miss resolves and writes
+    // back, a stale entry re-fetches and refreshes, and the cached path
+    // returns the same result shape as the live path.
+    // ---------------------------------------------------------------------
+
+    /** In-memory [SearchCache] with a controllable clock — the flow's fake store. */
+    private class FakeSearchCache : SearchCache {
+        val documents = mutableMapOf<String, Map<String, Any>>()
+        var nowMillis: Long = 1_000_000L
+
+        override suspend fun readDocument(queryKey: String): Map<String, Any>? = documents[queryKey]
+
+        override suspend fun writeDocument(queryKey: String, document: Map<String, Any>) {
+            documents[queryKey] = document
+        }
+
+        override fun nowMillis(): Long = nowMillis
+    }
+
+    /** A fake adapter that counts search invocations — to prove suppression. */
+    private class CountingAdapter(
+        override val sourceId: String,
+        private val searchBooks: List<SourceBook> = emptyList()
+    ) : SourceAdapter {
+        var searchCalls = 0
+
+        override suspend fun search(query: String): List<SourceBook> {
+            searchCalls++
+            return searchBooks
+        }
+
+        override suspend fun fetchBookPage(url: String): SourceBookDetail =
+            SourceBookDetail("", "", url = url, chapters = emptyList())
+
+        override suspend fun fetchNew(limit: Int): List<SourceBook> = emptyList()
+    }
+
+    private fun cachedCard() = GlobalSearchResult(
+        title = "Кобзар",
+        author = "Тарас Шевченко",
+        mergeKey = "кобзар|тарас шевченко",
+        sources = listOf(GlobalSearchSource("4read", "4read", "https://4read.org/5359-taras-shevchenko-kobzar.html"))
+    )
+
+    @Test
+    fun `a fresh cached search hit suppresses the source adapters`() = runBlocking {
+        val cache = FakeSearchCache()
+        val adapter = CountingAdapter("4read", searchBooks = listOf(book("Кобзар", "Тарас Шевченко", "4read")))
+        val repository = repo(adapter, searchCache = cache)
+        // The cache holds the merged card for the query — as if another
+        // listener resolved it earlier today.
+        cache.putResults("кобзар", listOf(cachedCard()))
+
+        val results = repository.searchAllSources("кобзар")
+
+        assertEquals(1, results.size)
+        assertEquals("Кобзар", results.single().title)
+        // The adapter was never asked — the fresh cached result served the query.
+        assertEquals(0, adapter.searchCalls)
+    }
+
+    @Test
+    fun `a cache miss resolves from the sources and writes the result back`() = runBlocking {
+        val cache = FakeSearchCache()
+        val repository = repo(
+            CountingAdapter("4read", searchBooks = listOf(book("Кобзар", "Тарас Шевченко", "4read"))),
+            searchCache = cache
+        )
+
+        val results = repository.searchAllSources("кобзар")
+
+        assertEquals(1, results.size)
+        // The merged result was written back under the normalized key, so the
+        // NEXT listener reads it instead of re-resolving.
+        val document = cache.documents["кобзар"]
+        assertNotNull(document)
+        assertEquals(results, SearchResultCodec.fromMap(document!!)?.results)
+    }
+
+    @Test
+    fun `a cache miss with an empty result writes nothing back`() = runBlocking {
+        val cache = FakeSearchCache()
+        val repository = repo(CountingAdapter("4read"), searchCache = cache)
+
+        val results = repository.searchAllSources("нічого немає")
+
+        assertTrue(results.isEmpty())
+        // Negatives are never cached — the empty survivor is a no-op write.
+        assertTrue(cache.documents.isEmpty())
+    }
+
+    @Test
+    fun `a stale cached entry re-fetches from the sources and refreshes the cache`() = runBlocking {
+        val cache = FakeSearchCache()
+        val adapter = CountingAdapter("4read", searchBooks = listOf(book("Кобзар", "Тарас Шевченко", "4read")))
+        val repository = repo(adapter, searchCache = cache)
+        // A yesterday-old entry — past the ~24h freshness window.
+        cache.putResults("кобзар", listOf(cachedCard()))
+        cache.nowMillis += SearchFreshness.FRESHNESS_MILLIS + 60_000
+
+        val results = repository.searchAllSources("кобзар")
+
+        assertEquals(1, results.size)
+        // The stale entry did not serve the query — the source was asked again.
+        assertEquals(1, adapter.searchCalls)
+        // ... and the entry was refreshed with the new fetch time.
+        val refreshed = SearchResultCodec.fromMap(cache.documents["кобзар"]!!)!!
+        assertEquals(cache.nowMillis, refreshed.fetchedAt)
+    }
+
+    @Test
+    fun `the cached path returns the same result shape as the live path`() = runBlocking {
+        val cache = FakeSearchCache()
+        val adapter = CountingAdapter("4read", searchBooks = listOf(book("Кобзар", "Тарас Шевченко", "4read")))
+        val repository = repo(adapter, searchCache = cache)
+
+        val live = repository.searchAllSources("кобзар")
+        val cached = repository.searchAllSources("кобзар")
+
+        // Identical cards — the cached path serves exactly what the live path
+        // would have produced (spec-33 US-12).
+        assertEquals(live, cached)
+        // The second search never reached the source — it was a cache hit.
+        assertEquals(1, adapter.searchCalls)
+    }
 
     @Test
     fun `4read search runs through the real adapter and the shared HTTP client`() = runBlocking {

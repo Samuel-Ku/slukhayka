@@ -16,6 +16,7 @@ import com.slukhayka.audiobooks.data.imports.LibraryImport
 import com.slukhayka.audiobooks.data.merge.MergeKey
 import com.slukhayka.audiobooks.data.metadata.MetadataAssertions
 import com.slukhayka.audiobooks.data.metadata.SearchDurationResolver
+import com.slukhayka.audiobooks.data.search.SearchCache
 import com.slukhayka.audiobooks.data.source.FourReadAdapter
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.data.source.HttpFetcher
@@ -69,7 +70,13 @@ class SourceCatalog(
     // (local DB → shared Firestore cache, fill-the-gap + mirror). Null in
     // tests that don't exercise durations — search then behaves exactly as
     // before (no duration on cards).
-    private val durationResolver: SearchDurationResolver? = null
+    private val durationResolver: SearchDurationResolver? = null,
+    // Spec-33 T2 (#227): the shared search-result cache. Search consults it
+    // first — a fresh hit returns the merged result without touching the
+    // source adapters; a miss or a stale entry resolves live and writes the
+    // result back best-effort. Null without Firebase keys (or in tests that
+    // don't exercise the cache): search then behaves exactly as before.
+    private val searchCache: SearchCache? = null
 ) {
 
     private val fourReadAdapter: SourceAdapter =
@@ -341,11 +348,22 @@ class SourceCatalog(
      * are merged by the Work-level [MergeKey] — one card per Work with all
      * matching sources (see [mergeGlobalSearchResults]). Ephemeral: nothing is
      * imported into Room until the user taps a result.
+     *
+     * Spec-33 T2 (#227): a FRESH shared-cache hit ([searchCache]) returns the
+     * cached merged result without touching any source; a miss or a stale
+     * entry resolves live and writes the result back best-effort.
      */
     suspend fun searchAllSources(query: String): List<GlobalSearchResult> =
         withContext(Dispatchers.IO) {
             val cleanQuery = query.trim()
             if (cleanQuery.isBlank()) return@withContext emptyList()
+
+            // Spec-33 T2 (#227): the shared cache answers first. A FRESH hit
+            // returns the post-merge result (covers, narrators, durations
+            // included — the exact shape the UI renders) without touching any
+            // source adapter; a miss or a stale entry falls through to the
+            // live resolution below, whose result is written back.
+            searchCache?.getResults(cleanQuery)?.let { return@withContext it }
 
             val matched = mutableListOf<SourceBook>()
             for (adapter in sourceAdapters) {
@@ -372,7 +390,14 @@ class SourceCatalog(
             // Spec-30 T2 (#217): attach the resolved durations (local DB →
             // shared cache) to the visible cards. Best-effort and silent — a
             // resolver-less or failing path leaves the cards unchanged.
-            durationResolver?.resolve(merged) ?: merged
+            val resolved = durationResolver?.resolve(merged) ?: merged
+            // Spec-33 T2 (#227): write the merged result back best-effort so
+            // the next listener with the same query reads the cache instead
+            // of re-resolving (US-1/US-2). Negatives are never written — the
+            // seam's no-negative rule keeps the long tail of unique misses
+            // unbounded-free; a failing write contributes nothing (US-11).
+            searchCache?.putResults(cleanQuery, resolved)
+            resolved
         }
 
     /**

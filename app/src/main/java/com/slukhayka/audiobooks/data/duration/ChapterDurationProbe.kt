@@ -1,9 +1,13 @@
 package com.slukhayka.audiobooks.data.duration
 
 import android.util.Log
+import com.slukhayka.audiobooks.data.EditionId
 import com.slukhayka.audiobooks.data.catalog.SourceCatalog
 import com.slukhayka.audiobooks.data.db.AudiobookDao
 import com.slukhayka.audiobooks.data.db.BookRow
+import com.slukhayka.audiobooks.data.metadata.DurationProvenance
+import com.slukhayka.audiobooks.data.metadata.DurationSanity
+import com.slukhayka.audiobooks.data.metadata.SharedBookMetaStore
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -37,7 +41,12 @@ import kotlinx.coroutines.withContext
 class ChapterDurationProbe(
     private val dao: AudiobookDao,
     private val playableChapters: suspend (String) -> List<SourceCatalog.PlayableChapter>,
-    private val prober: StreamProber
+    private val prober: StreamProber,
+    // Spec-30 T4 (#219): the shared book-metadata store — a book whose total
+    // becomes known from probed chapters contributes it to the shared base.
+    // Null without Firebase keys: probing behaves exactly as before.
+    // Best-effort by contract — a failing write never breaks a pass.
+    private val sharedStore: SharedBookMetaStore? = null
 ) {
 
     /** Timestamp of the last completed pass, as an atomic CAS gate. */
@@ -96,7 +105,23 @@ class ChapterDurationProbe(
         if (book.totalDurationSeconds == 0L) {
             val chapters = dao.getChaptersListForBook(book.id)
             if (chapters.isNotEmpty() && chapters.all { it.durationSeconds > 0L }) {
-                dao.updateBookStats(book.id, chapters.size, chapters.sumOf { it.durationSeconds })
+                val total = chapters.sumOf { it.durationSeconds }
+                dao.updateBookStats(book.id, chapters.size, total)
+                // Spec-30 T4 (#219): a book total derived from probed chapters
+                // contributes to the shared base (sanity-gated) — the most
+                // expensive derivation, so the one that must never repeat.
+                if (DurationSanity.isPlausible(total)) {
+                    runCatching {
+                        sharedStore?.putDuration(
+                            editionId = EditionId.forBook(book.mergeKey ?: "", book.id, book.narrator),
+                            durationSeconds = total,
+                            provenance = DurationProvenance(
+                                DurationProvenance.SOURCE_DERIVED,
+                                System.currentTimeMillis()
+                            )
+                        )
+                    }
+                }
             }
         }
         return probed

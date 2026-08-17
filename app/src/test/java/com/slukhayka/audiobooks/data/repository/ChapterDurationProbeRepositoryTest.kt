@@ -13,6 +13,9 @@ import com.slukhayka.audiobooks.data.duration.ChapterDurationProbe
 import com.slukhayka.audiobooks.data.duration.MpegAudioFrame
 import com.slukhayka.audiobooks.data.duration.ProbeResult
 import com.slukhayka.audiobooks.data.duration.StreamProber
+import com.slukhayka.audiobooks.data.EditionId
+import com.slukhayka.audiobooks.data.metadata.DurationProvenance
+import com.slukhayka.audiobooks.testing.FakeSharedBookMetaStore
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -114,9 +117,13 @@ class ChapterDurationProbeRepositoryTest {
     }
 
     /** One pass instance — the CAS throttle lives on it, so reuse matters. */
-    private fun pass(prober: FakeProber, tracks: Map<String, Map<Int, SourceTrackEntity>> = emptyMap()): ChapterDurationProbe {
+    private fun pass(
+        prober: FakeProber,
+        tracks: Map<String, Map<Int, SourceTrackEntity>> = emptyMap(),
+        store: FakeSharedBookMetaStore? = null
+    ): ChapterDurationProbe {
         val provider: suspend (String) -> List<PlayableChapter> = { bookId -> pairs(bookId, tracks[bookId].orEmpty()) }
-        return ChapterDurationProbe(dao, provider, prober)
+        return ChapterDurationProbe(dao, provider, prober, sharedStore = store)
     }
 
     private fun run(pass: ChapterDurationProbe, batchLimit: Int = 10, now: Long = START_EPOCH): Int =
@@ -289,5 +296,33 @@ class ChapterDurationProbeRepositoryTest {
     companion object {
         /** Realistic epoch so the very first pass is never throttled. */
         private const val START_EPOCH = 1_700_000_000_000L
+    }
+
+    // --- T4 (#219): a probed book total writes back to the shared store ----
+
+    @Test
+    fun `a book total derived from probed chapters writes back`() = runBlocking {
+        val store = FakeSharedBookMetaStore()
+        seed(listOf(book("b1")), listOf(chapter("b1", 0, 0L), chapter("b1", 1, 0L)))
+        val tr0 = track("b1", 0, "https://provider.example/b1/1.mp3")
+        val tr1 = track("b1", 1, "https://provider.example/b1/2.mp3")
+        dao.insertTracks(listOf(tr0, tr1))
+        // 96_000*8/(128*1000) = 6 s; 48_000*8/(128*1000) = 3 s → total 9 s.
+        val prober = FakeProber(
+            resultFor = mapOf(
+                "https://provider.example/b1/1.mp3" to ProbeResult(contentLength = 96_000L, frame = cbr128),
+                "https://provider.example/b1/2.mp3" to ProbeResult(contentLength = 48_000L, frame = cbr128)
+            )
+        )
+
+        val probed = run(pass(prober, tracks = mapOf("b1" to mapOf(0 to tr0, 1 to tr1)), store = store))
+
+        assertTrue(probed > 0)
+        assertEquals(1, store.durationPuts.size)
+        val (editionId, total, provenance) = store.durationPuts.single()
+        assertEquals(EditionId.forBook("", "b1", ""), editionId)
+        assertEquals(DurationProvenance.SOURCE_DERIVED, provenance.source)
+        // 96_000*8/128/1000 + 48_000*8/128/1000 = 6 + 3 = 9 seconds.
+        assertEquals(9L, total)
     }
 }

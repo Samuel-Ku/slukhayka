@@ -20,6 +20,7 @@ import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.data.source.HttpFetcher
 import com.slukhayka.audiobooks.data.source.SourceAdapter
 import com.slukhayka.audiobooks.data.source.SourceBook
+import com.slukhayka.audiobooks.data.source.SourceIds
 import com.slukhayka.audiobooks.data.source.mergeGlobalSearchResults
 import com.slukhayka.audiobooks.data.source.sourceDisplayName
 import com.slukhayka.audiobooks.data.source.sourceIdForUrl
@@ -66,7 +67,7 @@ class SourceCatalog(
 ) {
 
     private val fourReadAdapter: SourceAdapter =
-        sourceAdapters.firstOrNull { it.sourceId == "4read" } ?: FourReadAdapter()
+        sourceAdapters.firstOrNull { it.sourceId == SourceIds.FOUR_READ } ?: FourReadAdapter()
 
     // ---------------------------------------------------------------------
     // Global search (spec-10 T4)
@@ -99,7 +100,7 @@ class SourceCatalog(
     // surface. 4read is excluded on purpose — its new-arrivals are already
     // rendered by the existing «Нове на 4read» rows (spec-9), which carry the
     // richer curated sections (incl. series) from the homepage parse.
-    private val feedAdapters: List<SourceAdapter> = sourceAdapters.filterNot { it.sourceId == "4read" }
+    private val feedAdapters: List<SourceAdapter> = sourceAdapters.filterNot { it.sourceId == SourceIds.FOUR_READ }
 
     // Spec-15 T1: the unified catalogue union. 4read is excluded the same way
     // as the feeds — its full catalogue is natively browsed through the Огляд
@@ -263,7 +264,11 @@ class SourceCatalog(
                 }
             }
             _sourceFeeds.value = feeds
-            publishNewArrivals()
+            // The rail's own half is the feeds just computed; the section half
+            // comes from the latest published catalogue (spec-28 #197: never a
+            // re-read of a half this call did not produce — each caller passes
+            // its own result).
+            publishNewArrivals(catalogSections.value, feeds)
             feeds
         } finally {
             _isFeedsLoading.value = false
@@ -272,18 +277,26 @@ class SourceCatalog(
 
     /**
      * spec-28 (#192) — recomputes the cross-source «Новинки» rail from the
-     * current inputs: 4read's «Новинки» section books (already tombstone-
-     * filtered by the upsert pass) plus every other source's new-feed books,
-     * merged by Work via [mergeGlobalSearchResults] — one card per Work with
-     * a badge per source. Called at the end of both [refreshSourceFeeds] and
-     * [fetchCatalogSections] so the rail tracks the fresher of the two.
+     * inputs handed in by the caller: 4read's «Новинки» section books (already
+     * tombstone-filtered by the upsert pass) plus every other source's
+     * new-feed books, merged by Work via [mergeGlobalSearchResults] — one card
+     * per Work with a badge per source. Called at the end of both
+     * [refreshSourceFeeds] and [fetchCatalogSections] so the rail tracks the
+     * fresher of the two.
+     *
+     * spec-28 (#197): the inputs are PARAMETERS, not re-reads of the two
+     * flows — each caller passes the half it just computed, so the rail is
+     * always assembled from the update's own result and never from a stale
+     * section/feed list read between updates. The 4read section is matched by
+     * its typed [CatalogSectionId.NEW_ARRIVALS] id, never by title — a rename
+     * in the parser cannot silently drop or duplicate 4read's new arrivals.
      */
-    private fun publishNewArrivals() {
-        val fourReadBooks = catalogSections.value
-            .firstOrNull { it.title == "Новинки" }
+    private fun publishNewArrivals(sections: List<CatalogSection>, feeds: List<SourceNewFeed>) {
+        val fourReadBooks = sections
+            .firstOrNull { it.id == CatalogSectionId.NEW_ARRIVALS }
             ?.books.orEmpty()
             .map { it.toSourceBook() }
-        val otherBooks = sourceFeeds.value.flatMap { it.books }
+        val otherBooks = feeds.flatMap { it.books }
         _newArrivals.value = mergeGlobalSearchResults(fourReadBooks + otherBooks)
     }
 
@@ -294,7 +307,7 @@ class SourceCatalog(
         coverImageUrl = coverImageUrl,
         seriesTitle = seriesTitle,
         seriesIndex = seriesIndex,
-        sourceId = "4read"
+        sourceId = SourceIds.FOUR_READ
     )
 
     private suspend fun newFeedFor(adapter: SourceAdapter, skipCache: Boolean = false): List<SourceBook> {
@@ -733,7 +746,7 @@ class SourceCatalog(
      * already-known Works (merged) vs failed pages.
      */
     suspend fun hydrateFourReadCatalog(): HydrationResult = withContext(Dispatchers.IO) {
-        val sourceId = "4read"
+        val sourceId = SourceIds.FOUR_READ
         val homepage = try {
             fourReadFetcher.getText("https://4read.org/")
         } catch (e: Exception) {
@@ -925,7 +938,9 @@ class SourceCatalog(
                     section.copy(books = section.books.filter { it.id in landedIds })
                 }
                 _catalogSections.value = sections
-                publishNewArrivals()
+                // The rail's own half is the sections just parsed; the feed
+                // half comes from the latest published feeds (spec-28 #197).
+                publishNewArrivals(sections, _sourceFeeds.value)
                 sections
             } catch (e: Exception) {
                 Log.w("SourceCatalog", "Catalogue sync failed", e)

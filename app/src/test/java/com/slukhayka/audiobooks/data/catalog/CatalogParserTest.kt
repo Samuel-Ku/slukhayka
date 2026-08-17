@@ -75,6 +75,12 @@ class CatalogParserTest {
         val news = sections.first { it.title == "Новинки" }
         val cycles = sections.first { it.title == "Цикли" }
 
+        // spec-28 (#197): each section carries its stable typed id — the
+        // identity is assigned at construction, so the rail and the Огляд
+        // skip can never depend on the display title string.
+        assertEquals(CatalogSectionId.NEW_ARRIVALS, news.id)
+        assertEquals(CatalogSectionId.SERIES, cycles.id)
+
         // Promo post filtered out: only the two real books remain.
         assertEquals(2, news.books.size)
         assertEquals(1, cycles.series.size)
@@ -336,6 +342,7 @@ class CatalogParserTest {
         val sections = CatalogParser.parseHomepage(html)
 
         val popular = sections.first { it.title == "Популярне" }
+        assertEquals(CatalogSectionId.POPULAR, popular.id)
         assertEquals("Пасажир", popular.books.first().title)
         assertEquals(24 * 3600L + 54 * 60L + 14L, popular.books.first().totalDurationSeconds)
     }

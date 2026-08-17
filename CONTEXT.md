@@ -46,6 +46,10 @@ _Avoid_: Canonical metadata, truth
 A listener-authored replacement for a metadata value. It takes precedence over Metadata Assertions and survives source refreshes and rescans.
 _Avoid_: Metadata Assertion, corrected source data
 
+**Canonical cover**:
+The one cover URL of a Work in the shared metadata base (`book_covers`, keyed by the Work mergeKey — one cover per Work, shared across narrations). Covers are URL-only (never rehosted) and curated/seeded first: the curated seed pours the bundled asset idempotently, untrusted device write-backs are deferred until AppCheck + reporting exist. Reads are client-first — a locally known cover wins, the shared base fills the gap and mirrors into the local database via the existing cover write path (`updateCoverImageUrl`), the source's own claim is the last resort; corrupt documents are misses (spec-30 T3, ADR-0020).
+_Avoid_: per-source cover claims, rehosting covers, fabricated URLs
+
 ## Listener relationship
 
 **Library Entry**:

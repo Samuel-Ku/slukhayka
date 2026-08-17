@@ -6,6 +6,7 @@ import androidx.test.core.app.ApplicationProvider
 import com.slukhayka.audiobooks.data.db.AudiobookDao
 import com.slukhayka.audiobooks.data.db.AudiobookDatabase
 import com.slukhayka.audiobooks.data.metadata.BookProfile
+import com.slukhayka.audiobooks.data.metadata.CoverProvenance
 import com.slukhayka.audiobooks.data.metadata.ProfileChapter
 import com.slukhayka.audiobooks.data.metadata.ProfileProvenance
 import com.slukhayka.audiobooks.data.metadata.SharedBookMetaStore
@@ -112,6 +113,9 @@ class StreamHealDoorTest {
         override suspend fun putProfile(sourceId: String, editionId: String, profile: BookProfile, provenance: ProfileProvenance) {
             puts += profile
         }
+        override suspend fun getCover(mergeKey: String): String? = null
+        override suspend fun getCovers(mergeKeys: List<String>): Map<String, String> = emptyMap()
+        override suspend fun putCover(mergeKey: String, coverUrl: String, provenance: CoverProvenance) = Unit
     }
 
     private suspend fun tracksOf(bookId: String) = dao.getTracksForBookSync(bookId)

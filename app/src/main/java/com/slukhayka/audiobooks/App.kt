@@ -17,6 +17,10 @@ import com.slukhayka.audiobooks.data.entries.LibraryEntries
 import com.slukhayka.audiobooks.data.imports.LibraryImport
 import com.slukhayka.audiobooks.data.listening.ListeningStateStore
 import com.slukhayka.audiobooks.data.metadata.FirestoreBookMetaStore
+import com.slukhayka.audiobooks.data.metadata.CuratedCoverAssets
+import com.slukhayka.audiobooks.data.metadata.CuratedCoverSeed
+import com.slukhayka.audiobooks.data.metadata.LibraryCoverResolver
+import com.slukhayka.audiobooks.data.metadata.SearchCoverResolver
 import com.slukhayka.audiobooks.data.metadata.SearchDurationResolver
 import com.slukhayka.audiobooks.data.metadata.StoredTitleScrub
 import com.slukhayka.audiobooks.data.search.FirestoreSearchCache
@@ -69,6 +73,17 @@ class App : Application() {
 
     private val database by lazy { AudiobookDatabase.getDatabase(this) }
 
+    /**
+     * The ONE shared metadata store behind every consumer (imports, search
+     * durations, search covers, the library cover pass) — a single Firestore
+     * client wrapping the default app, or null without Firebase keys
+     * (no google-services.json): every shared-cache consumer then degrades
+     * to today's behaviour by contract.
+     */
+    private val sharedMetaStore: FirestoreBookMetaStore? by lazy {
+        FirestoreBookMetaStore.create(this)
+    }
+
     /** ADR-0002: one Listening State Store shared by the player and the ViewModel. */
     val listeningState: ListeningStateStore by lazy { ListeningStateStore(database.audiobookDao()) }
 
@@ -110,7 +125,7 @@ class App : Application() {
             // profile to the shared base (the next listener skips the page
             // fetch), and a card import reads a fresh profile back instead of
             // fetching. Null without Firebase keys: imports behave as before.
-            profileStore = FirestoreBookMetaStore.create(this)
+            profileStore = sharedMetaStore
         )
     }
 
@@ -132,7 +147,14 @@ class App : Application() {
             // exactly as before.
             durationResolver = SearchDurationResolver(
                 database.audiobookDao(),
-                FirestoreBookMetaStore.create(this)
+                sharedMetaStore
+            ),
+            // Spec-30 T3 (#218): search cards resolve their canonical cover
+            // the same way — a locally known cover wins, the shared cache
+            // fills the gap and mirrors hits into the local database.
+            coverResolver = SearchCoverResolver(
+                database.audiobookDao(),
+                sharedMetaStore
             ),
             // Spec-33 T2 (#227): the shared search-result cache — a fresh
             // hit serves the merged result without touching the 4read /
@@ -230,6 +252,16 @@ class App : Application() {
     }
 
     /**
+     * Spec-30 T3 (#218) — the library cover pass: fills the Медіатека rows
+     * with NO local cover from the shared canonical base through the
+     * existing cover write path. A startup one-shot (the library flow
+     * re-emits on the write); the search resolver keeps it fresh afterwards.
+     */
+    val libraryCoverResolver: LibraryCoverResolver by lazy {
+        LibraryCoverResolver(database.audiobookDao(), sharedMetaStore)
+    }
+
+    /**
      * Spec-27 (#184) BUG-002 — the one-time duplicate-Work merge runner.
      * Collapses library rows that share a hardened merge key (SEO-suffix
      * variants of one title), moving progress and bookmarks onto the
@@ -292,6 +324,20 @@ class App : Application() {
                 FirestoreUniverseStore.create(this@App),
                 UniverseAssets.load(this@App)
             )
+        }
+        // Spec-30 T3 (#218): pour the curated canonical covers into the
+        // shared base (one document per Work mergeKey — the SAME key the
+        // read paths use, so the app's own reads see the curated value;
+        // idempotent by contract), then fill the coverless library rows
+        // from the shared base through the existing cover write path.
+        // Both are best-effort and silent — a no-op without Firebase keys.
+        CoroutineScope(Dispatchers.IO).launch {
+            CuratedCoverSeed.seed(
+                sharedMetaStore,
+                CuratedCoverAssets.load(this@App)
+            )
+            // resolve() is degrade-never by contract — no wrap needed.
+            libraryCoverResolver.resolve()
         }
         // Spec-26 T7 (#181): the background universe-refresh pass — re-resolves
         // expired-tier memberships by priority (bounded per run, paced below

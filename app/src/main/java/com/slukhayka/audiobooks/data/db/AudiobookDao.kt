@@ -519,6 +519,24 @@ interface AudiobookDao {
     @Query("UPDATE audiobooks SET coverImageUrl = :coverUrl WHERE id = :bookId")
     suspend fun updateCoverImageUrl(bookId: String, coverUrl: String)
 
+    /**
+     * Spec-30 T3 (#218) — the library rows the cover resolver may fill: a
+     * row whose cover is blank (never a listener's known cover) AND whose
+     * Work identity is present (the key the shared canonical base is keyed
+     * by). Bounded by [limit] — the resolver processes the visible library,
+     * not the whole base. A row with a known cover is never returned, so the
+     * write path can never clobber it.
+     */
+    @Query(
+        BOOK_SELECT + """
+        WHERE (a.coverImageUrl IS NULL OR a.coverImageUrl = '')
+          AND w.mergeKey IS NOT NULL AND w.mergeKey != ''
+        ORDER BY a.title ASC
+        LIMIT :limit
+        """
+    )
+    suspend fun getLibraryRowsMissingCovers(limit: Int): List<BookRow>
+
     @Query("UPDATE library_entries SET downloadProgress = 0 WHERE id = :bookId")
     suspend fun resetEntryDownloadProgress(bookId: String)
 

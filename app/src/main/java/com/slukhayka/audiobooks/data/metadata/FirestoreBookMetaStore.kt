@@ -109,6 +109,52 @@ class FirestoreBookMetaStore(private val firestore: FirebaseFirestore) : SharedB
         }
     }
 
+    override suspend fun getCover(mergeKey: String): String? {
+        return try {
+            val snapshot = firestore.collection(COVER_COLLECTION).document(mergeKey).get()
+                .awaitOrNull() ?: return null
+            if (!snapshot.exists()) null
+            else CoverCodec.fromMap(snapshot.data ?: return null)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    override suspend fun getCovers(mergeKeys: List<String>): Map<String, String> {
+        val keys = mergeKeys.distinct().filter { it.isNotBlank() }
+        if (keys.isEmpty()) return emptyMap()
+        val result = mutableMapOf<String, String>()
+        for (chunk in keys.chunked(MAX_WHERE_IN)) {
+            try {
+                val snapshots = firestore.collection(COVER_COLLECTION)
+                    .whereIn(FieldPath.documentId(), chunk)
+                    .get()
+                    .awaitOrNull() ?: continue
+                for (doc in snapshots.documents) {
+                    val decoded = CoverCodec.fromMap(doc.data ?: continue) ?: continue
+                    result[doc.id] = decoded
+                }
+            } catch (e: Exception) {
+                // Degrade-never: a failing chunk contributes nothing.
+            }
+        }
+        return result
+    }
+
+    override suspend fun putCover(
+        mergeKey: String,
+        coverUrl: String,
+        provenance: CoverProvenance
+    ) {
+        // Best-effort fire-and-forget (same contract as the duration write);
+        // set() on the mergeKey document key is idempotent — a re-seed
+        // replaces, never duplicates.
+        runCatching {
+            firestore.collection(COVER_COLLECTION).document(mergeKey)
+                .set(CoverCodec.toMap(coverUrl, provenance))
+        }
+    }
+
     /** The deterministic document key of one Source×Edition profile. */
     private fun profileKey(sourceId: String, editionId: String): String = "$sourceId|$editionId"
 
@@ -123,6 +169,12 @@ class FirestoreBookMetaStore(private val firestore: FirebaseFirestore) : SharedB
 
         /** Spec-32 T1 — the shared profile collection, keyed sourceId|editionId. */
         private const val PROFILE_COLLECTION = "book_profiles"
+
+        /**
+         * Spec-30 T3 (#218) — the shared canonical-cover collection, keyed by
+         * the Work mergeKey (one cover per Work, shared across narrations).
+         */
+        private const val COVER_COLLECTION = "book_covers"
 
         /** Firestore's `whereIn` value bound — the batch chunk size. */
         private const val MAX_WHERE_IN = 10

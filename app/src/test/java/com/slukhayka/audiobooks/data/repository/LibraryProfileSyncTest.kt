@@ -10,6 +10,7 @@ import com.slukhayka.audiobooks.data.imports.KnownBookIdentity
 import com.slukhayka.audiobooks.data.imports.LibraryImport
 import com.slukhayka.audiobooks.data.merge.MergeKey
 import com.slukhayka.audiobooks.data.metadata.BookProfile
+import com.slukhayka.audiobooks.data.metadata.CoverProvenance
 import com.slukhayka.audiobooks.data.metadata.ProfileChapter
 import com.slukhayka.audiobooks.data.metadata.ProfileFreshness
 import com.slukhayka.audiobooks.data.metadata.ProfileProvenance
@@ -142,6 +143,10 @@ class LibraryProfileSyncTest {
             puts += ("$sourceId|$editionId" to profile)
             entries["$sourceId|$editionId"] = SharedProfileEntry(profile, provenance.resolvedAt)
         }
+
+        override suspend fun getCover(mergeKey: String): String? = null
+        override suspend fun getCovers(mergeKeys: List<String>): Map<String, String> = emptyMap()
+        override suspend fun putCover(mergeKey: String, coverUrl: String, provenance: CoverProvenance) = Unit
     }
 
     // --- T2 (#232): write-back on resolution ------------------------------

@@ -74,6 +74,97 @@ interface SharedBookMetaStore {
         profile: BookProfile,
         provenance: ProfileProvenance
     )
+
+    /**
+     * Spec-30 T3 (#218) — the shared CANONICAL cover URL of one Work, or
+     * null on a miss or a failure. Keyed by the Work **mergeKey** (one cover
+     * per Work, shared across narrations — the identity covers live on,
+     * unlike the Edition-scoped duration and the Source×Edition profile).
+     * The document holds the URL only; the image itself is never rehosted.
+     */
+    suspend fun getCover(mergeKey: String): String?
+
+    /**
+     * Spec-30 T3 — BATCH read for the covers actually visible on screen: one
+     * shared-base read for the whole set (chunked internally where the
+     * transport demands), never a request per Work. A miss or a failing
+     * chunk contributes nothing — the map simply lacks those keys.
+     */
+    suspend fun getCovers(mergeKeys: List<String>): Map<String, String>
+
+    /**
+     * Spec-30 T3 — best-effort write-back of one canonical cover URL, keyed
+     * by the SAME Work mergeKey the read path uses. Covers are curated
+     * first (the curated seed pours them idempotently); untrusted device
+     * write-backs are deferred until AppCheck + reporting are in place. The
+     * [CoverProvenance] (source, resolvedAt) rides with the write; reads
+     * ignore the fields. Idempotent by contract (a document key is replaced,
+     * never duplicated); a failing write contributes nothing.
+     */
+    suspend fun putCover(
+        mergeKey: String,
+        coverUrl: String,
+        provenance: CoverProvenance
+    )
+}
+
+/**
+ * Spec-30 T3 (#218) — the provenance of one shared canonical cover: where it
+ * came from and when it was written. Written with every put; reads ignore
+ * the fields, so older documents decode fine. Covers are curated/seeded
+ * first — [SOURCE_CURATED] is the only origin until AppCheck + reporting
+ * are in place for untrusted device write-backs.
+ */
+data class CoverProvenance(
+    val source: String,
+    val resolvedAt: Long
+) {
+    companion object {
+        /** A cover poured from the bundled curated asset (the seed). */
+        const val SOURCE_CURATED = "curated"
+    }
+}
+
+/**
+ * Spec-30 T3 — the honest-data sanity gate for a shared canonical cover: a
+ * real http(s) URL, non-blank and below a generous length bound (the same
+ * bound the profile codec uses). Enforced on every read (a wild/corrupt
+ * document is a miss, never a crash) and by the curated seed's write path.
+ */
+object CoverSanity {
+
+    fun isPlausible(coverUrl: String?): Boolean =
+        !coverUrl.isNullOrBlank() &&
+            coverUrl.length <= BookProfileLimits.MAX_URL_LEN &&
+            BookProfileLimits.isHttpUrl(coverUrl)
+}
+
+/**
+ * The Firestore document codec for a shared canonical cover — pure JVM so
+ * the shape is unit-testable without Firebase. Document fields:
+ *
+ * ```
+ * coverImageUrl: String  (the canonical URL — http(s), bounded)
+ * source:        String  (provenance — e.g. "curated")
+ * resolvedAt:    Long    (provenance — when the cover was written)
+ * ```
+ *
+ * [fromMap] is defensive: a missing/mistyped/blank/non-http/overlong URL
+ * yields null (a corrupt document is a miss, never a crash); the provenance
+ * fields are ignored on read, so older documents decode fine.
+ */
+object CoverCodec {
+
+    fun toMap(coverUrl: String, provenance: CoverProvenance): Map<String, Any> = mapOf(
+        "coverImageUrl" to coverUrl,
+        "source" to provenance.source,
+        "resolvedAt" to provenance.resolvedAt
+    )
+
+    fun fromMap(map: Map<String, Any>): String? {
+        val url = (map["coverImageUrl"] as? String)?.trim().orEmpty()
+        return url.takeIf { CoverSanity.isPlausible(it) }
+    }
 }
 
 /**

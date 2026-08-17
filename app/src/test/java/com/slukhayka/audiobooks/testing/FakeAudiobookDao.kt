@@ -440,6 +440,14 @@ class FakeAudiobookDao(
     override suspend fun findByMergeKey(mergeKey: String): BookRow? =
         booksState.value.firstOrNull { it.mergeKey == mergeKey && it.mergeKey.isNotEmpty() }?.toBookRow()
 
+    // Spec-30 T3 (#218): the coverless library rows with a Work identity.
+    override suspend fun getLibraryRowsMissingCovers(limit: Int): List<BookRow> =
+        booksState.value
+            .filter { it.coverImageUrl.isNullOrBlank() && !it.mergeKey.isNullOrBlank() }
+            .sortedBy { it.title }
+            .take(limit)
+            .map { it.toBookRow() }
+
     // ADR-0011: the card of a rendition — resolve the edition's owner book.
     override suspend fun findBookByEditionId(editionId: String): BookRow? {
         val bookId = editionsState.value.firstOrNull { it.id == editionId }?.workId ?: return null

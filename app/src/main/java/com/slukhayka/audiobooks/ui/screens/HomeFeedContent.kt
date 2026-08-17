@@ -28,10 +28,15 @@ import com.slukhayka.audiobooks.ui.components.NavigationChip
  * stateless `LazyListScope` emitter so the block order (spec-28 lines
  * 150-153) is testable and snapshot-pinned:
  *
- * search → 5-chip nav row → genres → [Колекції] → Рекомендовано для вас →
- * «Новинки» → За тривалістю → 4read sections → «Більше книг на Sluhay» CTA
+ * search → 5-chip nav row → genres → Рекомендовано для вас → «Новинки» →
+ * За тривалістю → 4read sections → [Колекції] → «Більше книг на Sluhay» CTA
  * → «Весь каталог» (always last). Curated content sits above the endless
- * feed; the feed is the final element of the screen.
+ * feed; the feed is the final element of the screen. The inline «Колекції»
+ * blocks (ADR-0017 closing pass, #203) sit AFTER the 4read sections: they
+ * now have a dedicated index screen (US-12, #190), so they must not occupy
+ * the marquee position and push «Рекомендовано для вас» below the fold —
+ * the spec order line (spec-28 lines 150-153) names Рекомендовано directly
+ * after the genres row.
  */
 fun LazyListScope.homeFeedContent(
     isCatalogLoading: Boolean,
@@ -137,34 +142,6 @@ fun LazyListScope.homeFeedContent(
         }
     }
 
-    // Spec-16: «Колекції» — one horizontal cover row per matched
-    // curated collection (Нобелівські лауреати, Шевченківська
-    // премія, Букер), reusing the uniform cover-card look of the
-    // other Огляд rows. Tapping a card resolves the Work like any
-    // other global-search card (import-and-play). Empty collections
-    // are already absent from the flow; when all are empty the whole
-    // block disappears.
-    if (collections.isNotEmpty()) {
-        collections.forEach { collection ->
-            item {
-                CatalogRowHeader(title = collection.name)
-            }
-            item {
-                LazyRow(
-                    contentPadding = PaddingValues(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    items(collection.books, key = { it.key }) { result ->
-                        CollectionBookCard(
-                            result = result,
-                            onClick = { onPlayGlobalSearchResult(result) }
-                        )
-                    }
-                }
-            }
-        }
-    }
-
     // Spec-19 Track A: «Рекомендовано для вас» — on-device, local
     // only. Each card carries a reason chip («схоже на X»); tapping
     // opens the book page through the same identity resolution as
@@ -254,6 +231,37 @@ fun LazyListScope.homeFeedContent(
                         CatalogSeriesCard(
                             series = series,
                             onClick = { onOpenSeries(series.title, series.url) }
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    // Spec-16: «Колекції» — one horizontal cover row per matched curated
+    // collection (Нобелівські лауреати, Шевченківська премія, Букер),
+    // reusing the uniform cover-card look of the other Огляд rows. Tapping
+    // a card resolves the Work like any other global-search card
+    // (import-and-play). ADR-0017 closing pass (#203): these blocks render
+    // AFTER the 4read sections — the «Колекції» chip in the nav row opens
+    // the dedicated index (US-12), and the marquee «Рекомендовано для вас»
+    // must be the first curated shelf per the spec order line. Empty
+    // collections are already absent from the flow; when all are empty the
+    // whole block disappears.
+    if (collections.isNotEmpty()) {
+        collections.forEach { collection ->
+            item {
+                CatalogRowHeader(title = collection.name)
+            }
+            item {
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    items(collection.books, key = { it.key }) { result ->
+                        CollectionBookCard(
+                            result = result,
+                            onClick = { onPlayGlobalSearchResult(result) }
                         )
                     }
                 }

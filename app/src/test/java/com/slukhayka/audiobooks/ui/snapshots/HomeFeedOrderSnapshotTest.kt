@@ -178,21 +178,24 @@ class HomeFeedOrderSnapshotTest {
         composeTestRule.waitForIdle()
 
         // Every block composes on the tall viewport — assert the spec-28
-        // order by y-position: nav → genres → collections → recommended →
-        // rail → duration → 4read sections → CTA → «Весь каталог» (last).
+        // order by y-position: nav → genres → recommended → rail → duration
+        // → 4read sections → collections → CTA → «Весь каталог» (last). The
+        // inline «Колекції» blocks sit AFTER the 4read sections (ADR-0017
+        // closing pass): «Рекомендовано для вас» is the first curated shelf
+        // per the spec order line (spec-28 lines 150-153).
         fun topOf(text: String): Dp =
             composeTestRule.onNodeWithText(text, ignoreCase = true).getBoundsInRoot().top
 
         assertTrue(topOf("Каталог") < topOf("Жанри"))
-        assertTrue(topOf("Жанри") < topOf("Нобелівські лауреати"))
-        assertTrue(topOf("Нобелівські лауреати") < topOf("Букер"))
-        assertTrue(topOf("Букер") < topOf("Рекомендовано для вас"))
+        assertTrue(topOf("Жанри") < topOf("Рекомендовано для вас"))
         assertTrue(topOf("Рекомендовано для вас") < topOf("Новинки"))
         assertTrue(topOf("Новинки") < topOf("Короткі"))
         assertTrue(topOf("Короткі") < topOf("Довгі"))
         assertTrue(topOf("Довгі") < topOf("Популярне"))
         assertTrue(topOf("Популярне") < topOf("Цикли"))
-        assertTrue(topOf("Цикли") < topOf("Більше книг на Sluhay"))
+        assertTrue(topOf("Цикли") < topOf("Нобелівські лауреати"))
+        assertTrue(topOf("Нобелівські лауреати") < topOf("Букер"))
+        assertTrue(topOf("Букер") < topOf("Більше книг на Sluhay"))
         assertTrue(topOf("Більше книг на Sluhay") < topOf("Весь каталог"))
         // «Весь каталог» is the last element: its feed cards render below it.
         assertTrue(topOf("Весь каталог") < topOf("Місто"))

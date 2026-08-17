@@ -97,16 +97,13 @@ fun ListenScreen(
         // renders with its reason; hidden blocks are skipped (still computed).
         val visibleBlocks = listenBlocks.filter { it.id !in hiddenBlocks }
 
-        // spec-28 (#191): full cross-shelf dedup — a book renders in at most
-        // ONE shelf, the highest on screen. The hero claims its book first
-        // (US-3), then each visible block claims in display order, so the
-        // user's reorder re-prioritises which shelf claims a book. A block
-        // emptied by dedup renders nothing (no empty header).
-        val claimedBookIds = mutableSetOf<String>()
-        visibleBlocks.firstOrNull { it.id == ListenComposer.BlockId.HERO }
-            ?.books?.firstOrNull()
-            ?.let { claimedBookIds.add(it.book.id) }
-        val dedupedBlocks = deduplicateListenShelves(visibleBlocks, claimedBookIds)
+        // spec-28 (#191 + #200): full cross-shelf dedup — a book renders in
+        // at most ONE shelf, the highest on screen. deduplicateListenShelves
+        // owns the entire claimed set (hero book included): it claims the
+        // hero's book first (US-3), then each visible block claims in display
+        // order, so the user's reorder re-prioritises which shelf claims a
+        // book. A block emptied by dedup renders nothing (no empty header).
+        val dedupedBlocks = deduplicateListenShelves(visibleBlocks)
 
         for (block in dedupedBlocks) {
             when (block.id) {

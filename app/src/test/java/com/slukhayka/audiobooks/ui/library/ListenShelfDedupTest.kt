@@ -76,6 +76,9 @@ class ListenShelfDedupTest {
         )
     }
 
+    // spec-28 (#200): the hero-exception lives in ONE place — the function
+    // claims the hero's book itself (no caller pre-seeds a set). The hero
+    // keeps its book and no shelf below can show it.
     @Test
     fun `the hero keeps its book and claims it before any shelf`() {
         val hero = block(
@@ -88,14 +91,33 @@ class ListenShelfDedupTest {
             "Майже дочитали",
             listOf("fixture-book-neuromancer", "fixture-book-1984")
         )
-        // The screen pre-seeds the claimed set with the hero book (US-3).
-        val claimed = mutableSetOf<String>()
-        hero.books.firstOrNull()?.let { claimed.add(it.book.id) }
 
-        val result = deduplicateListenShelves(listOf(hero, almostDone), claimed)
+        val result = deduplicateListenShelves(listOf(hero, almostDone))
 
         assertEquals(hero, result[0]) // hero untouched
         assertEquals(listOf("fixture-book-1984"), result[1].books.map { it.book.id })
+    }
+
+    // The hero's claim happens before the walk, not positionally: even when
+    // a shelf appears ABOVE the hero in the list, the hero's book is still
+    // claimed first and never renders in any shelf.
+    @Test
+    fun `the hero claims its book regardless of its position in the list`() {
+        val hero = block(
+            ListenComposer.BlockId.HERO,
+            "Продовжити слухати",
+            listOf("fixture-book-neuromancer")
+        )
+        val travel = block(
+            ListenComposer.BlockId.TRAVEL,
+            "Готово до поїздки",
+            listOf("fixture-book-neuromancer", "fixture-book-fahrenheit")
+        )
+
+        val result = deduplicateListenShelves(listOf(travel, hero))
+
+        assertEquals(listOf("fixture-book-fahrenheit"), result[0].books.map { it.book.id })
+        assertEquals(hero, result[1]) // hero untouched
     }
 
     @Test
@@ -116,8 +138,10 @@ class ListenShelfDedupTest {
         assertTrue("the second shelf must render nothing", result[1].books.isEmpty())
     }
 
+    // Display-order claiming is observable through the RESULTS: the higher
+    // shelf keeps its books in order, the lower shelf loses what was claimed.
     @Test
-    fun `claimed ids are built in display order`() {
+    fun `each book is claimed exactly once in display order`() {
         val a = block(
             ListenComposer.BlockId.ALMOST_DONE,
             "Майже дочитали",
@@ -129,12 +153,15 @@ class ListenShelfDedupTest {
             listOf("fixture-book-1984", "fixture-book-fahrenheit")
         )
 
-        val claimed = mutableSetOf<String>()
-        deduplicateListenShelves(listOf(a, b), claimed)
+        val result = deduplicateListenShelves(listOf(a, b))
 
+        // The claimed set is internal (spec-28 #200) — the visible proof is
+        // that no book appears twice across the shelves.
+        val allIds = result.flatMap { it.books.map { book -> book.book.id } }
+        assertEquals(allIds.size, allIds.toSet().size)
         assertEquals(
-            setOf("fixture-book-neuromancer", "fixture-book-1984", "fixture-book-fahrenheit"),
-            claimed
+            listOf("fixture-book-neuromancer", "fixture-book-1984", "fixture-book-fahrenheit"),
+            allIds
         )
     }
 }

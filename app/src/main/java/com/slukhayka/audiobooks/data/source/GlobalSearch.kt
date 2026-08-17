@@ -33,6 +33,11 @@ data class GlobalSearchResult(
     val narrator: String = "",
     val mergeKey: String,
     val coverImageUrl: String? = null,
+    // Spec-30 T2 (#217): the card's duration when one is resolvable from the
+    // local database or the shared metadata cache (client-first precedence),
+    // null when unknown — the card then renders without a duration, never a
+    // fabricated number.
+    val durationSeconds: Long? = null,
     val sources: List<GlobalSearchSource>
 ) {
     /** Stable identity for list keys: the merge key, else the first source url. */

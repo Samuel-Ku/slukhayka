@@ -244,12 +244,6 @@ class SluhayAdapter(
         }
     }
 
-    private fun ogMeta(html: String, property: String): String? =
-        Regex("""<meta\s+property="$property"\s+content="([^"]+)"\s*/?>""", RegexOption.IGNORE_CASE)
-            .find(html)?.groupValues?.get(1)
-            ?: Regex("""<meta\s+content="([^"]+)"\s+property="$property"\s*/?>""", RegexOption.IGNORE_CASE)
-            .find(html)?.groupValues?.get(1)
-
     /** Value of the page's `<li><span>Key</span> <span>value</span></li>` row. */
     private fun metaRow(html: String, key: String): String =
         Regex(
@@ -266,15 +260,6 @@ class SluhayAdapter(
             .find(html)?.groupValues?.get(1)
             ?: Regex("""data-poster="([^"]*(?:uploads|books)[^"]*)"""", RegexOption.IGNORE_CASE)
             .find(html)?.groupValues?.get(1)
-
-    private fun parseDurationSeconds(hhmmss: String): Long? {
-        val parts = hhmmss.trim().split(":")
-        if (parts.size != 3) return null
-        val h = parts[0].toLongOrNull() ?: return null
-        val m = parts[1].toLongOrNull() ?: return null
-        val s = parts[2].toLongOrNull() ?: return null
-        return h * 3600 + m * 60 + s
-    }
 
     private companion object {
         const val HOME_URL = "https://sluhay.com/"

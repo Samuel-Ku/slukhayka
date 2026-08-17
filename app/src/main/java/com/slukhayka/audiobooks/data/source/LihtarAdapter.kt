@@ -108,26 +108,11 @@ class LihtarAdapter(
     private fun authorFrom(html: String): String =
         decodeEntities(ogMeta(html, "og:description")?.trim()?.take(80) ?: "")
 
-    private fun decodeEntities(s: String): String = s
-        .replace("&#039;", "'")
-        .replace("&#39;", "'")
-        .replace("&quot;", "\"")
-        .replace("&amp;", "&")
-
-    private fun ogMeta(html: String, property: String): String? =
-        Regex("""<meta\s+property="$property"\s+content="([^"]+)"""", RegexOption.IGNORE_CASE)
-            .find(html)?.groupValues?.get(1)
-            ?: Regex("""<meta\s+content="([^"]+)"\s+property="$property"""", RegexOption.IGNORE_CASE)
-            .find(html)?.groupValues?.get(1)
-
     private fun h1(html: String): String? =
         Regex("""<h1>([^<]+)</h1>""", RegexOption.IGNORE_CASE).find(html)?.groupValues?.get(1)?.trim()
 
     private fun slugTitle(url: String): String =
-        url.substringAfterLast('/').substringBefore('?')
-            .replace("-", " ")
-            .trim()
-            .replaceFirstChar { if (it.isLowerCase()) it.titlecase(java.util.Locale.getDefault()) else it.toString() }
+        titleFromSlug(url.substringAfterLast('/').substringBefore('?'))
 
     private companion object {
         val LISTEN_LINK = Regex("""href="(https://web\.lihtar\.in\.ua/library/[^"]+)"""", RegexOption.IGNORE_CASE)

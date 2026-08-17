@@ -167,19 +167,10 @@ class SoundBooksAdapter(
         }
     }
 
-    private fun ogMeta(html: String, property: String): String? =
-        Regex("""<meta\s+property="$property"\s+content="([^"]+)"""", RegexOption.IGNORE_CASE)
-            .find(html)?.groupValues?.get(1)
-            ?: Regex("""<meta\s+content="([^"]+)"\s+property="$property"""", RegexOption.IGNORE_CASE)
-            .find(html)?.groupValues?.get(1)
-
     private fun slugTitle(url: String): String {
         // Book URLs are <category>/<id>-<slug>.html; the title is the slug.
         val slug = url.substringAfterLast('/').substringBeforeLast('.')
-        val title = slug.substringAfter('-', slug)
-        return title.replace("-", " ")
-            .trim()
-            .replaceFirstChar { if (it.isLowerCase()) it.titlecase(java.util.Locale.getDefault()) else it.toString() }
+        return titleFromSlug(slug.substringAfter('-', slug))
     }
 
     private companion object {

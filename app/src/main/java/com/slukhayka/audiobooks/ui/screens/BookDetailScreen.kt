@@ -157,7 +157,12 @@ fun BookDetailScreen(
         bookTotalDurationSeconds = currentBook.totalDurationSeconds
     )
     val playState = bookPlayState(
-        isPlayingThisBook = playerState.currentBook?.id == currentBook.id,
+        // "Playing" means the audio is ACTUALLY playing, not merely that the
+        // player has this book loaded: a restored-but-paused session must read
+        // «Продовжити з …», never a play/pause label (2026-08-17 bug report —
+        // the old check was loaded-only, so the button always showed «Грає»
+        // whether paused or playing).
+        isPlayingThisBook = playerState.currentBook?.id == currentBook.id && playerState.isPlaying,
         progress = progress,
         cumulativePositionSeconds = cumulativePosition,
         totalDurationSeconds = totalDuration
@@ -588,13 +593,22 @@ fun BookDetailScreen(
                         Button(
                             onClick = {
                                 // #40 decision 1: a finished book asks to
-                                // restart from the top (RELISTEN); everything
-                                // else starts or resumes.
+                                // restart from the top (RELISTEN); a PLAYING
+                                // book toggles to pause — the one control that
+                                // stops audio without leaving the page (the
+                                // old code re-played the book, so the button
+                                // could never pause: 2026-08-17 bug report);
+                                // everything else starts or resumes.
                                 when (playState) {
+                                    BookPlayState.Playing -> viewModel.playerManager.pause()
                                     BookPlayState.Finished -> viewModel.relistenBook(currentBook)
                                     else -> viewModel.playAudiobook(currentBook)
                                 }
-                                viewModel.setShowFullPlayer(true)
+                                // Pausing stays on the page; starting/resuming
+                                // opens the full player as before.
+                                if (playState !is BookPlayState.Playing) {
+                                    viewModel.setShowFullPlayer(true)
+                                }
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                             shape = RoundedCornerShape(AppDimens.RadiusPanel),
@@ -1237,7 +1251,7 @@ fun ChapterRowItem(
             IconButton(onClick = onPlayClick) {
                 Icon(
                     imageVector = if (isPlaying) Icons.Default.PauseCircle else Icons.Default.PlayCircle,
-                    contentDescription = "Відтворити розділ",
+                    contentDescription = if (isPlaying) "Пауза розділ" else "Відтворити розділ",
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(32.dp)
                 )

@@ -57,19 +57,34 @@ fun GlobalSearchResultCard(
             .testTag("global_search_result_${result.key}"),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Cover placeholder: the first letter on the surface container.
-        Box(
-            modifier = Modifier
-                .size(56.dp)
-                .clip(RoundedCornerShape(AppDimens.RadiusCover))
-                .background(MaterialTheme.colorScheme.surfaceContainerHighest),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = result.title.firstOrNull()?.toString()?.uppercase() ?: "?",
-                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+        // Cover: the real artwork when the source carries one — the global
+        // search used to render only the letter placeholder, so EVERY result
+        // (4read, sound-books, audiobook-mp3, …) looked imageless
+        // (2026-08-17 bug report). [CatalogCoverImage] falls back to its own
+        // typographic placeholder when the cover is absent or fails to load;
+        // the letter placeholder below stays for the (rare) blank-URL case.
+        if (!result.coverImageUrl.isNullOrBlank()) {
+            CatalogCoverImage(
+                coverImageUrl = result.coverImageUrl,
+                title = result.title,
+                modifier = Modifier
+                    .size(56.dp)
+                    .clip(RoundedCornerShape(AppDimens.RadiusCover))
             )
+        } else {
+            Box(
+                modifier = Modifier
+                    .size(56.dp)
+                    .clip(RoundedCornerShape(AppDimens.RadiusCover))
+                    .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = result.title.firstOrNull()?.toString()?.uppercase() ?: "?",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
         Spacer(modifier = Modifier.width(AppDimens.SpaceMd))
         Column(modifier = Modifier.weight(1f)) {

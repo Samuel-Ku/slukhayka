@@ -17,6 +17,7 @@ import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.data.universe.SeriesRef
 import com.slukhayka.audiobooks.data.universe.SeriesUniverseContext
 import com.slukhayka.audiobooks.ui.MainViewModel
+import com.slukhayka.audiobooks.ui.library.ukPlural
 import com.slukhayka.audiobooks.ui.theme.*
 
 /**
@@ -126,8 +127,11 @@ fun SeriesScreen(
                         }
                     }
                     item {
+                        // Spec-27 (#186) BUG-005/006: the count is honest (the
+                        // series page really has N books) and pluralized
+                        // correctly — «1 книга у циклі», «2 книги», «5 книг».
                         Text(
-                            text = "${books.size} книг у циклі",
+                            text = "${books.size} ${ukPlural(books.size, "книга", "книги", "книг")} у циклі",
                             style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
                             color = MaterialTheme.colorScheme.secondary,
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)

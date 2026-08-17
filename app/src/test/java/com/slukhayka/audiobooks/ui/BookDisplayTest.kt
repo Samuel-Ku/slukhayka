@@ -66,6 +66,11 @@ class BookDisplayTest {
         assertFalse(isRealPersonName("4read.org"))
         assertFalse(isRealPersonName("4read Voice Narrator"))
         assertFalse(isRealPersonName("Аудиокнига 4read.org"))
+        // The per-source placeholder `<sourceId> narrator` (no real name ends
+        // in a lowercase « narrator»).
+        assertFalse(isRealPersonName("audiobookmp3 narrator"))
+        assertFalse(isRealPersonName("soundbooks narrator"))
+        assertFalse(isRealPersonName("sluhay narrator"))
     }
 
     // ------------------------------------------------------------------

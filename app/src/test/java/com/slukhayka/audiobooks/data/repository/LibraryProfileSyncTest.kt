@@ -168,6 +168,23 @@ class LibraryProfileSyncTest {
     }
 
     @Test
+    fun `the card's cover survives a page that carries none`() = runBlocking {
+        val store = FakeProfileStore()
+        // The book page has no og:image (audiobook-mp3-style) — the cover
+        // lives on the listing tile, which the card already parsed.
+        val adapter = FakeAdapter(detailOf("Кобзар").copy(coverImageUrl = null))
+        val known = identity.copy(coverImageUrl = "https://cdn.audiobook-mp3.com/covers/kobzar.webp")
+        val book = imports(store, listOf(adapter))
+            .importFromSourceUrl("soundbooks", "https://sound-books.net/kobzar.html", known)
+
+        assertNotNull(book)
+        assertEquals(
+            "https://cdn.audiobook-mp3.com/covers/kobzar.webp",
+            dao.getAudiobookById(book!!.id)!!.coverImageUrl
+        )
+    }
+
+    @Test
     fun `a failing profile write never breaks the import`() = runBlocking {
         val store = FakeProfileStore(throwOnPut = true)
         val adapter = FakeAdapter(detailOf("Кобзар"))

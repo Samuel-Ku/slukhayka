@@ -293,7 +293,7 @@ fun HomeScreen(
                 items(globalResults, key = { it.key }) { result ->
                     GlobalSearchResultCard(
                         result = result,
-                        onClick = { viewModel.playGlobalSearchResult(result) }
+                        onClick = { viewModel.openGlobalSearchResult(result) }
                     )
                 }
             }
@@ -325,7 +325,7 @@ fun HomeScreen(
                 onOpenCollectionsIndex = { viewModel.openCollectionsIndex() },
                 onOpenGenre = { title, url -> viewModel.openGenre(title, url) },
                 onOpenSeries = { title, url -> viewModel.openSeries(title, url) },
-                onPlayGlobalSearchResult = { viewModel.playGlobalSearchResult(it) },
+                onPlayGlobalSearchResult = { viewModel.openGlobalSearchResult(it) },
                 onOpenRecommendedBook = { viewModel.openRecommendedBook(it) },
                 onOpenWorkFeedRow = { viewModel.openWorkFeedRow(it) },
                 onBookClick = onBookClick,

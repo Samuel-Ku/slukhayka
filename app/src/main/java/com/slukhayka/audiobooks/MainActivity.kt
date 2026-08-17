@@ -194,7 +194,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                     collectionsIndexOpen -> CollectionsIndexScreen(
                         viewModel = viewModel,
                         onBackClick = { viewModel.closeCollectionsIndex() },
-                        onBookClick = { result -> viewModel.playGlobalSearchResult(result) }
+                        onBookClick = { result -> viewModel.openGlobalSearchResult(result) }
                     )
 
                     // spec-28 (#194): the «Завантаження та пам'ять»

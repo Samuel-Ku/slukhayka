@@ -70,6 +70,14 @@ object MetadataAssertions {
      * not just «слухати онлайн».
      */
     val SEO_TITLE_PHRASES: List<String> = listOf(
+        // Real multi-word suffixes observed in source fixtures (2026-08-17):
+        // sluhay.com / sluhayknigi site brands and sluhay.com.ua's
+        // «…Слухай аудіокнигу онлайн». Multi-word only — a bare «аудіокнига»
+        // is never a phrase, or «Книга про аудіокниги» would be mangled.
+        "слухай безкоштовні аудіокниги онлайн українською мовою",
+        "безкоштовні аудіокниги онлайн українською мовою",
+        "аудіокниги українською мовою безкоштовно",
+        "слухай аудіокнигу онлайн",
         "аудіокнига слухати онлайн",
         "слухати онлайн безкоштовно",
         "аудіокнига українською",
@@ -89,6 +97,37 @@ object MetadataAssertions {
     private val TRAILING_SEPARATOR = Regex("""(?:\s*-\s*|\s*[—–]\s*|\s*\(\s*|,\s*|\s*\|\s*)+$""")
 
     /**
+     * Emoji characters (and their variation selectors / ZWJ joiners) stripped
+     * from a claimed title — sources prefix their site brand with emoji
+     * («💙💛Аудіокниги українською…»), and no real book title carries them.
+     * `\p{So}` (symbol, other) is the portable Unicode property that covers the
+     * pictographic emoji planes on both the JVM and Android's regex engine.
+     */
+    private val EMOJI = Regex("[\\p{So}\uFE0F\u200D]")
+
+    /**
+     * A leading «Аудіокнига» prefix (singular, or accusative «аудіокнигу»)
+     * followed by a punctuation separator. Stripped only at the START and only
+     * behind a separator, so «Книга про аудіокниги» and the whole-title brand
+     * «АудіоКниги Українською» are never touched.
+     */
+    private val LEADING_AUDIOBOOK_PREFIX = Regex(
+        """^\s*(?:аудіокнига|аудіокнигу)\s*(?:[:\-–—|.]\s*)""",
+        RegexOption.IGNORE_CASE
+    )
+
+    /**
+     * A bare «аудіокнига»/«аудіокниги»/«аудіокнигу» as the LAST word, gated on
+     * a separator before it («Метро 2033 - аудіокнига» → «Метро 2033»). The
+     * separator gate keeps a real title ending in «…про аудіокниги» intact —
+     * only a SEPARATED suffix is cut, never a natural last word.
+     */
+    private val TRAILING_BARE_AUDIOBOOK = Regex(
+        """(?:\s*-\s*|\s*[—–]\s*|\s*\(\s*|,\s*|\s*\|\s*)\s*(?:аудіокнига|аудіокниги|аудіокнигу)\s*\)?\s*$""",
+        RegexOption.IGNORE_CASE
+    )
+
+    /**
      * Strips the curated [SEO_TITLE_PHRASES] from the END of a claimed title,
      * case-insensitive and across separators (a phrase in parentheses ends
      * with the closing `)`, which is cut with it); trims. If nothing is left
@@ -98,6 +137,11 @@ object MetadataAssertions {
     fun normalizeTitle(claimed: String?): String {
         val original = claimed?.trim().orEmpty()
         var title = original
+        // Emoji anywhere, then a leading «Аудіокнига» prefix, then the curated
+        // trailing phrases. Each pass is idempotent and never blanks.
+        title = EMOJI.replace(title, "").trim()
+        title = LEADING_AUDIOBOOK_PREFIX.replace(title, "").trim()
+        title = TRAILING_BARE_AUDIOBOOK.replace(title, "").trim()
         var changed = true
         while (changed) {
             changed = false

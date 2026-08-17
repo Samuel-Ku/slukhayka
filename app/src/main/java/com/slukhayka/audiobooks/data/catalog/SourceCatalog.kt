@@ -15,6 +15,7 @@ import com.slukhayka.audiobooks.data.db.WorkSourceEntity
 import com.slukhayka.audiobooks.data.imports.LibraryImport
 import com.slukhayka.audiobooks.data.merge.MergeKey
 import com.slukhayka.audiobooks.data.metadata.MetadataAssertions
+import com.slukhayka.audiobooks.data.metadata.SearchCoverResolver
 import com.slukhayka.audiobooks.data.metadata.SearchDurationResolver
 import com.slukhayka.audiobooks.data.search.SearchCache
 import com.slukhayka.audiobooks.data.source.FourReadAdapter
@@ -71,6 +72,11 @@ class SourceCatalog(
     // tests that don't exercise durations — search then behaves exactly as
     // before (no duration on cards).
     private val durationResolver: SearchDurationResolver? = null,
+    // Spec-30 T3 (#218): the client-first COVER resolver for search cards
+    // (local row cover → shared Firestore cache, fill-the-gap + mirror via
+    // the existing cover write path). Null in tests that don't exercise
+    // covers — search then behaves exactly as before.
+    private val coverResolver: SearchCoverResolver? = null,
     // Spec-33 T2 (#227): the shared search-result cache. Search consults it
     // first — a fresh hit returns the merged result without touching the
     // source adapters; a miss or a stale entry resolves live and writes the
@@ -390,7 +396,12 @@ class SourceCatalog(
             // Spec-30 T2 (#217): attach the resolved durations (local DB →
             // shared cache) to the visible cards. Best-effort and silent — a
             // resolver-less or failing path leaves the cards unchanged.
-            val resolved = durationResolver?.resolve(merged) ?: merged
+            // Spec-30 T3 (#218): attach the canonical covers the same way —
+            // a locally known cover wins, the shared cache fills the gap and
+            // mirrors hits into the local database (the existing cover write
+            // path), and the source's own claim is the last resort.
+            val resolved = durationResolver?.let { it.resolve(merged) }
+                ?.let { coverResolver?.resolve(it) } ?: merged
             // Spec-33 T2 (#227): write the merged result back best-effort so
             // the next listener with the same query reads the cache instead
             // of re-resolving (US-1/US-2). Negatives are never written — the

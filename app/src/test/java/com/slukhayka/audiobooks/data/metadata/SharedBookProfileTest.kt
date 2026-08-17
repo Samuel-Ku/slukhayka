@@ -38,6 +38,10 @@ class SharedBookProfileTest {
         ) {
             profiles["$sourceId|$editionId"] = profile
         }
+
+        override suspend fun getCover(mergeKey: String): String? = null
+        override suspend fun getCovers(mergeKeys: List<String>): Map<String, String> = emptyMap()
+        override suspend fun putCover(mergeKey: String, coverUrl: String, provenance: CoverProvenance) = Unit
     }
 
     @Test

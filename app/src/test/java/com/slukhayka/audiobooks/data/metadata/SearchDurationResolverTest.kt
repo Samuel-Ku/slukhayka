@@ -55,6 +55,11 @@ class SearchDurationResolverTest {
         override suspend fun putProfile(
             sourceId: String, editionId: String, profile: BookProfile, provenance: ProfileProvenance
         ) = Unit
+
+        // Spec-30 T3 cover methods — not exercised here.
+        override suspend fun getCover(mergeKey: String): String? = null
+        override suspend fun getCovers(mergeKeys: List<String>): Map<String, String> = emptyMap()
+        override suspend fun putCover(mergeKey: String, coverUrl: String, provenance: CoverProvenance) = Unit
     }
 
     private fun book(

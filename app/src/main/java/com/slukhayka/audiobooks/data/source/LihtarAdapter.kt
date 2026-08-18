@@ -12,6 +12,22 @@ package com.slukhayka.audiobooks.data.source
  *
  * No search endpoint exists — [search] returns empty; [fetchNew] enumerates
  * the library category pages.
+ *
+ * ## True profile completeness (spec-35 T3, inventory #237)
+ *
+ * What lihtar really provides, verified live: the book page carries the cover
+ * (`og:image`), the real title (`og:title`/`<h1>`), the real author (the `<h4>`
+ * right after the `<h1>`; fallback the full `og:description` — which IS the
+ * author name, never truncated), and — on pages that have one — a full
+ * duration (accepted via `«Тривалість:»` / `«Триває:»` / `itemprop="duration"`;
+ * no live page carries it today). Measured negative findings, never
+ * fabricated (ADR-0014):
+ * - **No narrator anywhere** (no «Читає/Виконавець» on the book page or the
+ *   `web.lihtar.in.ua` player host).
+ * - **`og:description` is the AUTHOR, not a blurb** — so [SourceBookDetail.description]
+ *   stays empty; the author is never substituted as a description.
+ * - **No genres** on the book page (only the breadcrumb category), no series,
+ *   no rating, no related rail — on both surfaces.
  */
 class LihtarAdapter(
     private val fetcher: HttpFetcher = HttpFetcher()
@@ -27,9 +43,24 @@ class LihtarAdapter(
 
         val title = decodeEntities(ogMeta(html, "og:title") ?: h1(html) ?: "").ifBlank { slugTitle(url) }
         val author = authorFrom(html)
+        // Spec-35 T3: the book page's own og:image is the cover (the card
+        // covers live on listing pages only). Narrator and description stay
+        // absent: lihtar has no narrator anywhere and og:description IS the
+        // author, never a blurb — the author is never substituted as a
+        // description (ADR-0014; see class KDoc for the #237 negative
+        // findings).
+        val coverImageUrl = ogMeta(html, "og:image")?.takeIf { it.isNotBlank() }
+        val totalDurationSeconds = durationFrom(html)
 
         val playerUrl = LISTEN_LINK.find(html)?.groupValues?.get(1)
-            ?: return SourceBookDetail(title = title, author = author, url = url, chapters = emptyList())
+            ?: return SourceBookDetail(
+                title = title,
+                author = author,
+                url = url,
+                coverImageUrl = coverImageUrl,
+                totalDurationSeconds = totalDurationSeconds,
+                chapters = emptyList()
+            )
 
         val playerHtml = fetcher.getText(playerUrl)
         val audioSrc = AUDIO_SRC.find(playerHtml)?.groupValues?.get(1)
@@ -48,6 +79,8 @@ class LihtarAdapter(
             title = title,
             author = author,
             url = url,
+            coverImageUrl = coverImageUrl,
+            totalDurationSeconds = totalDurationSeconds,
             chapters = chapters
         )
     }
@@ -71,13 +104,16 @@ class LihtarAdapter(
                 val url = m.groupValues[1]
                 if (!seen.add(url)) continue
                 // Best-effort: a failed fetch keeps the transliterated slug.
-                val (title, author, cover) = pageMeta(url)
+                val meta = pageMeta(url)
                 books += SourceBook(
-                    title = title.ifBlank { slugTitle(url) },
-                    author = author,
+                    title = meta.title.ifBlank { slugTitle(url) },
+                    author = meta.author,
                     url = url,
                     sourceId = sourceId,
-                    coverImageUrl = cover.ifBlank { null }
+                    coverImageUrl = meta.cover.ifBlank { null },
+                    // Spec-35 T3: the card carries the page's duration when
+                    // the page provides one (no live page does today).
+                    totalDurationSeconds = meta.durationSeconds ?: 0L
                 )
                 if (books.size >= limit) break
             }
@@ -85,28 +121,75 @@ class LihtarAdapter(
         return books
     }
 
+    /** Real title, author, cover and duration of a book page, best-effort. */
+    private data class PageMeta(
+        val title: String,
+        val author: String,
+        val cover: String,
+        val durationSeconds: Long?
+    )
+
     /**
-     * Fetches a book page and extracts its real title, author and cover
-     * (og:image), best-effort — a failed fetch keeps the slug and an empty
-     * cover.
+     * Fetches a book page and extracts its real title, author, cover (og:image)
+     * and duration (when present), best-effort — a failed fetch keeps the slug
+     * and empty values.
      */
-    private suspend fun pageMeta(url: String): Triple<String, String, String> {
+    private suspend fun pageMeta(url: String): PageMeta {
         return try {
             val html = fetcher.getText(url)
-            if (html.isEmpty()) return Triple("", "", "")
-            Triple(
+            if (html.isEmpty()) return PageMeta("", "", "", null)
+            PageMeta(
                 decodeEntities(ogMeta(html, "og:title") ?: h1(html) ?: ""),
                 authorFrom(html),
-                ogMeta(html, "og:image") ?: ""
+                ogMeta(html, "og:image") ?: "",
+                durationFrom(html)
             )
         } catch (e: Exception) {
-            Triple("", "", "")
+            PageMeta("", "", "", null)
         }
     }
 
-    /** lihtar renders the author in og:description / meta description. */
-    private fun authorFrom(html: String): String =
-        decodeEntities(ogMeta(html, "og:description")?.trim()?.take(80) ?: "")
+    /**
+     * The real author. Primary source: the `<h4>` subtitle right after the
+     * `<h1>` title (live pages render «Чарівні історії нашого лісу» /
+     * «Ольга Гура»). Fallback: the FULL og:description — on lihtar it IS the
+     * author name, never truncated (spec-35 T3: the old `take(80)` cut real
+     * names).
+     */
+    private fun authorFrom(html: String): String {
+        val h1Match = Regex("""<h1[^>]*>(.*?)</h1>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+            .find(html)
+        val h4AfterH1 = h1Match?.let { m ->
+            Regex("""<h4[^>]*>(.*?)</h4>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+                .find(html, m.range.last)
+                ?.groupValues?.get(1)
+        }
+        val visible = h4AfterH1
+            ?.let { Regex("""<[^>]+>""").replace(it, "") }
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+        if (visible != null) return decodeEntities(visible)
+        return decodeEntities(ogMeta(html, "og:description")?.trim().orEmpty())
+    }
+
+    /**
+     * Full duration when the page carries one. No live lihtar page provides it
+     * (#237 negative finding) — the parser accepts the standard markers
+     * («Тривалість:» / «Триває:» / `itemprop="duration"`) so a page that gains
+     * the field is preserved; absent stays null (ADR-0014).
+     */
+    private fun durationFrom(html: String): Long? {
+        val raw = Regex(
+            """(?:itemprop="duration"\s+content="|Тривалість:\s*|Триває:\s*)(\d{1,2}:\d{2}(?::\d{2})?)""",
+            RegexOption.IGNORE_CASE
+        ).find(html)?.groupValues?.get(1) ?: return null
+        val parts = raw.split(":").map { it.toLongOrNull() ?: return null }
+        return when (parts.size) {
+            3 -> parts[0] * 3600L + parts[1] * 60L + parts[2]
+            2 -> parts[0] * 60L + parts[1]
+            else -> null
+        }
+    }
 
     private fun decodeEntities(s: String): String = s
         .replace("&#039;", "'")

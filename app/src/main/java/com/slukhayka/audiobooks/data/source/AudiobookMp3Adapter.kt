@@ -12,6 +12,26 @@ package com.slukhayka.audiobooks.data.source
  * Search: genre pages (`/uk-genre-*`) are the site's discovery; a dedicated
  * /uk search endpoint was not verified in the spike, so [search] stays empty
  * and [fetchNew] parses the homepage's recent additions.
+ *
+ * ## True profile completeness (spec-35 T4, inventory #237)
+ *
+ * Verified live: the book page carries the cover (visible `abook_image`), the
+ * narrator («Виконавець:» panel row), the full duration (`fa-clock-o`,
+ * HH:MM:SS), the genres («Жанр:» panel links) and the real blurb (the first
+ * `<p>` of `.abook-desc`); the listing cards carry the narrator
+ * (`a-info-item` fa-microphone), the duration (fa-clock-o) and the genre
+ * (`abook-genre` links) next to the cover and the «Автор - Назва» anchor.
+ * Measured negative findings, never fabricated (ADR-0014):
+ * - **og:image is broken** — `https://audiobook-mp3.comhttps://cdn.…` (double
+ *   prefix), so the cover is only ever the visible `abook_image`.
+ * - **og:description is a TEMPLATE** («Слухати аудіокниги онлайн — <Назва>,
+ *   безкоштовно та без реєстрації.»), never a blurb — the description is
+ *   taken from the visible `.abook-desc` `<p>`.
+ * - **No series/cycle** on either surface (no «Серія/Цикл» markers on the
+ *   page or the cards), **no rating**.
+ * - The page has a «Подібні аудіокнижки» related rail (cover + title + url),
+ *   but the adapter does not take it yet (the app's related feature is
+ *   4read-gated; out of T4 scope).
  */
 class AudiobookMp3Adapter(
     private val fetcher: HttpFetcher = HttpFetcher(referer = "https://audiobook-mp3.com/uk")
@@ -26,19 +46,40 @@ class AudiobookMp3Adapter(
         if (html.isEmpty()) return SourceBookDetail("", "", url = url, chapters = emptyList())
 
         val title = ogMeta(html, "og:title") ?: slugTitle(url)
-        // The real author lives in the «Автор:» breadcrumb link (and in the
-        // page's JSON-LD as "author": "…"). The slug carries a transliterated
+        // The real author lives in the «Автор:» panel row (and in the page's
+        // JSON-LD as "author": "…"). The slug carries a transliterated
         // author-title blob with no delimiter, so it is never usable.
         val author = AUTHOR_LINK.find(html)?.groupValues?.get(1)?.trim()
             ?: JSONLD_AUTHOR.find(html)?.groupValues?.get(1)?.trim()
             ?: ""
 
-        // Spec-15 T5: og:description is the book's own blurb — carry it for
-        // the per-source detail blocks.
-        val description = ogMeta(html, "og:description")?.trim().orEmpty()
+        // Spec-35 T4: the page's own cover is the visible abook_image — the
+        // og:image carries a broken double-prefix URL (#237) and is never
+        // used. The narrator, the full duration and the genres are the
+        // «Виконавець:» / fa-clock-o / «Жанр:» panel rows when present;
+        // absent stays absent (ADR-0014).
+        val coverImageUrl = ABOOK_IMAGE.find(html)?.groupValues?.get(1)?.takeIf { it.isNotBlank() }
+        val narrator = NARRATOR_LINK.find(html)?.groupValues?.get(1)?.trim().orEmpty()
+        val totalDurationSeconds = durationSecondsFrom(html)
+        val genres = genresFrom(html)
+
+        // The real blurb is the first <p> of .abook-desc; og:description is a
+        // site-wide TEMPLATE («Слухати аудіокниги онлайн — <Назва>, …», #237
+        // negative finding) and is never substituted as the description.
+        val description = descriptionFrom(html)
 
         val playlistUrl = PLAYLIST_URL.find(html)?.groupValues?.get(1)
-            ?: return SourceBookDetail(title = title, author = author, url = url, chapters = emptyList(), description = description)
+            ?: return SourceBookDetail(
+                title = title,
+                author = author,
+                narrator = narrator,
+                url = url,
+                coverImageUrl = coverImageUrl,
+                chapters = emptyList(),
+                totalDurationSeconds = totalDurationSeconds,
+                genres = genres,
+                description = description
+            )
 
         val playlistJson = fetcher.getText(playlistUrl)
         val chapters = mutableListOf<SourceChapter>()
@@ -71,8 +112,12 @@ class AudiobookMp3Adapter(
         return SourceBookDetail(
             title = title,
             author = author,
+            narrator = narrator,
             url = url,
+            coverImageUrl = coverImageUrl,
             chapters = chapters,
+            totalDurationSeconds = totalDurationSeconds,
+            genres = genres,
             description = description
         )
     }
@@ -116,6 +161,7 @@ class AudiobookMp3Adapter(
         // src="https://cdn.audiobook-mp3.com/audiobooks/uk/…"></a>.
         val covers = mutableMapOf<String, String>()
         COVER_TILE.findAll(html).forEach { m -> covers[m.groupValues[1]] = m.groupValues[2] }
+        val extras = cardExtras(html)
         val seen = mutableSetOf<String>()
         return BOOK_LINK.findAll(html)
             .mapNotNull { m ->
@@ -132,17 +178,90 @@ class AudiobookMp3Adapter(
                 val sep = anchor.indexOf(" - ")
                 val author = if (sep >= 0) anchor.substring(0, sep).trim() else ""
                 val title = if (sep >= 0) anchor.substring(sep + 3).trim() else anchor
+                val extra = extras[path] ?: CardExtras()
                 SourceBook(
                     title = title.ifBlank { slugTitle(url) },
                     author = author,
+                    narrator = extra.narrator,
                     url = url,
                     sourceId = sourceId,
-                    coverImageUrl = covers[path]
+                    coverImageUrl = covers[path],
+                    genre = extra.genre,
+                    totalDurationSeconds = extra.durationSeconds
                 )
             }
             .take(limit)
             .toList()
     }
+
+    /** The narrator/duration/genre a listing card carries, keyed by its /uk-audio path. */
+    private data class CardExtras(
+        val narrator: String = "",
+        val durationSeconds: Long = 0L,
+        val genre: String = ""
+    )
+
+    /**
+     * Spec-35 T4 — the listing cards carry the narrator (`a-info-item`
+     * fa-microphone), the duration (fa-clock-o) and the genre (`abook-genre`
+     * links) in the same article block as the cover; cards without the rows
+     * keep the fields empty (ADR-0014).
+     */
+    private fun cardExtras(html: String): Map<String, CardExtras> {
+        val extras = mutableMapOf<String, CardExtras>()
+        for (m in CARD_BLOCK.findAll(html)) {
+            val block = m.value
+            val path = CARD_URL.find(block)?.groupValues?.get(1) ?: continue
+            val narrator = CARD_NARRATOR.find(block)?.groupValues?.get(1)?.trim().orEmpty()
+            val duration = durationSecondsFrom(block) ?: 0L
+            val genre = CARD_GENRE_BLOCK.find(block)?.groupValues?.get(1)
+                ?.let { links -> LINK_TEXT.findAll(links).joinToString(", ") { decodeEntities(it.groupValues[1].trim()) } }
+                .orEmpty()
+            extras[path] = CardExtras(narrator = narrator, durationSeconds = duration, genre = genre)
+        }
+        return extras
+    }
+
+    /** Full duration (HH:MM:SS) from a fa-clock-o row, null when absent. */
+    private fun durationSecondsFrom(html: String): Long? {
+        // The row is <i class="fa fa-clock-o"></i> HH:MM:SS — the closing
+        // </i> tag sits between the icon and the digits, so the optional tag
+        // must be crossed before the digits (a bare `[^>]*>` stops at the
+        // first `>` and can never reach the duration).
+        val raw = Regex("""fa-clock-o[^>]*>(?:\s*</i>)?\s*(\d{1,2}:\d{2}(?::\d{2})?)""", RegexOption.IGNORE_CASE)
+            .find(html)?.groupValues?.get(1) ?: return null
+        val parts = raw.split(":").map { it.toLongOrNull() ?: return null }
+        return when (parts.size) {
+            3 -> parts[0] * 3600L + parts[1] * 60L + parts[2]
+            2 -> parts[0] * 60L + parts[1]
+            else -> null
+        }
+    }
+
+    /** The «Жанр:» panel links of the book page, in order; empty when absent. */
+    private fun genresFrom(html: String): List<String> {
+        val block = Regex("""Жанр:</span>(.*?)</div>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+            .find(html)?.groupValues?.get(1) ?: return emptyList()
+        return LINK_TEXT.findAll(block)
+            .map { decodeEntities(it.groupValues[1].trim()) }
+            .toList()
+    }
+
+    /**
+     * The real blurb: the first `<p>` of `.abook-desc`. Empty when the page
+     * carries none — og:description is a site template, never used (#237).
+     */
+    private fun descriptionFrom(html: String): String {
+        val raw = Regex("""class="abook-desc".*?<p[^>]*>(.*?)</p>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+            .find(html)?.groupValues?.get(1) ?: return ""
+        return decodeEntities(Regex("""<[^>]+>""").replace(raw, "").trim())
+    }
+
+    private fun decodeEntities(s: String): String = s
+        .replace("&#039;", "'")
+        .replace("&#39;", "'")
+        .replace("&quot;", "\"")
+        .replace("&amp;", "&")
 
     private fun ogMeta(html: String, property: String): String? =
         Regex("""<meta\s+property="$property"\s+content="([^"]+)"""", RegexOption.IGNORE_CASE)
@@ -171,7 +290,16 @@ class AudiobookMp3Adapter(
         val COVER_TILE = Regex("""<a\s+class="image-abook"\s+href="([^"]+)"[^>]*>\s*<img[^>]*src="([^"]+)"""", RegexOption.IGNORE_CASE)
         // Genre (category) pages of the full catalogue — `/uk-genre-<id>-<slug>`.
         val GENRE_LINK = Regex("""href="(/uk-genre-\d+-[^"]+)"""", RegexOption.IGNORE_CASE)
-        val AUTHOR_LINK = Regex("""Автор:\s*<a[^>]*>([^<]+)</a>""", RegexOption.IGNORE_CASE)
+        // The «Автор:» panel row (<span>Автор:</span> <a …>) and the older
+        // plain «Автор: <a …>» form both resolve to the same link.
+        val AUTHOR_LINK = Regex("""Автор:(?:\s*</span>)?\s*<a[^>]*>([^<]+)</a>""", RegexOption.IGNORE_CASE)
         val JSONLD_AUTHOR = Regex(""""author"\s*:\s*"([^"]+)"""", RegexOption.IGNORE_CASE)
+        val ABOOK_IMAGE = Regex("""class="abook_image"[^>]*src="([^"]+)"""", RegexOption.IGNORE_CASE)
+        val NARRATOR_LINK = Regex("""Виконавець:</span>\s*<a[^>]*>([^<]+)</a>""", RegexOption.IGNORE_CASE)
+        val CARD_BLOCK = Regex("""<article class="abook-item">(.*?)</article>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+        val CARD_URL = Regex("""href="(/uk-audio-\d+-[^"]+)"[^>]*>\s*<img""", RegexOption.IGNORE_CASE)
+        val CARD_NARRATOR = Regex("""fa-microphone[^>]*>.*?<a[^>]*>([^<]+)</a>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+        val CARD_GENRE_BLOCK = Regex("""abook-genre">(.*?)</div>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+        val LINK_TEXT = Regex("""<a[^>]*>([^<]+)</a>""", RegexOption.IGNORE_CASE)
     }
 }

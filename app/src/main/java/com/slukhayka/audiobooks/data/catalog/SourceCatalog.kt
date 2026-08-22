@@ -510,7 +510,8 @@ class SourceCatalog(
         val found: Int,
         val imported: Int,
         val merged: Int = 0,
-        val failed: Int
+        val failed: Int,
+        val pages: Int = 0
     )
 
     // ---------------------------------------------------------------------
@@ -780,6 +781,11 @@ class SourceCatalog(
         return WorkWriteResult(work = work, workCreated = existing == null, editionCreated = !sourceAlreadyKnown)
     }
 
+    // Spec-37 depth budget: a polite crawl deepens the catalogue across daily
+    // runs instead of walking every listing page in one go.
+    private val maxPagesPerListing = 5
+    private val maxPagesPerRun = 40
+
     /**
      * Spec-23 T2 — hydrates 4read's full catalogue into the persisted
      * Works/Editions layer: the homepage (Новинки + Популярне posters), every
@@ -790,6 +796,13 @@ class SourceCatalog(
      * per page: a failing page counts as failed, never aborts the crawl.
      * The run reports honest counts — new Works (imported) vs writes into
      * already-known Works (merged) vs failed pages.
+     *
+     * Spec-37: category and series listings are PAGINATED on 4read (DLE
+     * `/page/N/` blocks), so each listing is now followed page by page under
+     * a double budget — at most [maxPagesPerListing] pages per listing
+     * and [maxPagesPerRun] pages per run. A daily run therefore deepens
+     * the catalogue gradually instead of hammering the source in one go;
+     * merge-on-write keeps every run idempotent.
      */
     suspend fun hydrateFourReadCatalog(): HydrationResult = withContext(Dispatchers.IO) {
         val sourceId = SourceIds.FOUR_READ
@@ -822,6 +835,7 @@ class SourceCatalog(
         var imported = 0
         var merged = 0
         var failed = 0
+        var pages = 0
         val seen = mutableSetOf<String>()
 
         suspend fun write(book: CatalogBook) {
@@ -848,28 +862,40 @@ class SourceCatalog(
         homepageBooks.forEach { write(it) }
 
         for (url in categoryUrls) {
-            val html = try {
-                fourReadFetcher.getText(url)
-            } catch (e: Exception) {
-                ""
+            // Follow the listing's own pagination until a budget stops us:
+            // the run-wide cap keeps one crawl polite to the source; the
+            // per-listing cap keeps one huge genre from eating the budget.
+            var currentUrl: String? = url
+            val visitedUrls = mutableSetOf(url)
+            while (currentUrl != null && pages < maxPagesPerRun) {
+                val html = try {
+                    fourReadFetcher.getText(currentUrl)
+                } catch (e: Exception) {
+                    ""
+                }
+                if (html.isBlank()) {
+                    failed++
+                    break
+                }
+                pages++
+                val books = try {
+                    CatalogParser.parseSeriesPage(html)
+                } catch (e: Exception) {
+                    emptyList()
+                }
+                if (books.isEmpty()) {
+                    failed++
+                    break
+                }
+                books.forEach { write(it) }
+                currentUrl = CatalogParser.parseNextPageUrl(html)?.takeIf { next ->
+                    visitedUrls.add(next) && visitedUrls.size <= maxPagesPerListing
+                }
             }
-            if (html.isBlank()) {
-                failed++
-                continue
-            }
-            val books = try {
-                CatalogParser.parseSeriesPage(html)
-            } catch (e: Exception) {
-                emptyList()
-            }
-            if (books.isEmpty()) {
-                failed++
-                continue
-            }
-            books.forEach { write(it) }
+            if (pages >= maxPagesPerRun) break
         }
 
-        HydrationResult(sourceId, found = found, imported = imported, merged = merged, failed = failed)
+        HydrationResult(sourceId, found = found, imported = imported, merged = merged, failed = failed, pages = pages)
     }
 
     // ---------------------------------------------------------------------

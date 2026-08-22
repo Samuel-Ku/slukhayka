@@ -383,4 +383,47 @@ class CatalogParserTest {
         assertEquals("Тест & Ще", sections.first().books.first().title)
         assertEquals("Сага про Дріззта До'Урдена", sections.first { it.title == "Цикли" }.series.first().title)
     }
+
+    /** Real DLE pagination block served on 4read category pages (2026-08-22). */
+    private val paginationBlock = """
+        <div class="pagination ignore-select" id="pagination">
+            <div class="pagination__pages d-flex jc-center">
+                <span>1</span> <a href="https://4read.org/fentezi/page/2/">2</a> <a href="https://4read.org/fentezi/page/3/">3</a> <span class="nav_ext">...</span> <a href="https://4read.org/fentezi/page/16/">16</a>
+                <div class="pagination__pages-btn"><a href="https://4read.org/fentezi/page/2/"><span class="fal fa-chevron-right"></span></a></div>
+            </div>
+        </div>
+    """.trimIndent()
+
+    @Test
+    fun `next page url picks the lowest numbered page link`() {
+        assertEquals("https://4read.org/fentezi/page/2/", CatalogParser.parseNextPageUrl(paginationBlock))
+    }
+
+    @Test
+    fun `next page url absolutizes relative hrefs and skips page 1 links`() {
+        val html = """
+            <div id="pagination"><a href="/fentezi/page/1/">1</a><a href="/fentezi/page/2/">2</a></div>
+        """.trimIndent()
+        assertEquals("https://4read.org/fentezi/page/2/", CatalogParser.parseNextPageUrl(html))
+    }
+
+    @Test
+    fun `next page url degrades to null without pagination or numbers`() {
+        assertNull(CatalogParser.parseNextPageUrl(""))
+        assertNull(CatalogParser.parseNextPageUrl("<html><body><p>no pagination</p></body></html>"))
+        assertNull(
+            CatalogParser.parseNextPageUrl(
+                "<div id=\"pagination\"><span>1</span></div>"
+            )
+        )
+    }
+
+    @Test
+    fun `unrelated page-like links outside the pagination block never match`() {
+        val html = """
+            <a href="https://example.org/page/9/">decoy</a>
+            $plainPoster
+        """.trimIndent()
+        assertNull(CatalogParser.parseNextPageUrl(html))
+    }
 }

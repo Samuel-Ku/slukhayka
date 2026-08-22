@@ -8,6 +8,8 @@ import com.google.firebase.appcheck.recaptcha.RecaptchaAppCheckProviderFactory
 import com.slukhayka.audiobooks.data.catalog.SourceCatalog
 import com.slukhayka.audiobooks.data.collections.CollectionAssets
 import com.slukhayka.audiobooks.data.collections.OpenLibraryTrendingSource
+import com.slukhayka.audiobooks.data.collections.SluhayuaPopularSource
+import com.slukhayka.audiobooks.data.collections.SoundBooksTopSource
 import com.slukhayka.audiobooks.data.db.AudiobookDatabase
 import com.slukhayka.audiobooks.data.downloads.OfflineDownloads
 import com.slukhayka.audiobooks.data.duration.ChapterDurationProbe
@@ -34,6 +36,8 @@ import com.slukhayka.audiobooks.data.source.SoundBooksAdapter
 import com.slukhayka.audiobooks.data.source.HttpFetcher
 import com.slukhayka.audiobooks.data.source.SourceAdapter
 
+import com.slukhayka.audiobooks.data.update.SharedPreferencesUpdateCheckStore
+import com.slukhayka.audiobooks.data.update.UpdateChecker
 import com.slukhayka.audiobooks.data.universe.CuratedSeed
 import com.slukhayka.audiobooks.data.universe.FirestoreUniverseStore
 import com.slukhayka.audiobooks.data.universe.UniverseRefreshPass
@@ -133,14 +137,19 @@ class App : Application() {
     val sourceCatalog: SourceCatalog by lazy {
         // Spec-16: the curated smart-collection lists ride the context seam —
         // one JSON file per collection, loaded once at the composition root.
-        // The live «Популярне зараз» list (OpenLibrary trending, keyless) is
+        // The live «Популярне зараз» list (OpenLibrary trending, keyless) and
+        // the «Популярне у sluhay.com.ua» most-viewed list (spec-37) are
         // fetched over the shared HTTP transport on the union refresh.
         SourceCatalog(
             database.audiobookDao(),
             sourceAdapters,
             libraryImport,
             collectionLists = CollectionAssets.load(this),
-            liveCollectionSources = listOf(OpenLibraryTrendingSource()),
+            liveCollectionSources = listOf(
+                OpenLibraryTrendingSource(),
+                SluhayuaPopularSource(),
+                SoundBooksTopSource()
+            ),
             // Spec-30 T2 (#217): search cards resolve their duration through
             // the client-first precedence (local DB → shared cache, fill-the-
             // gap + mirror). Null without Firebase keys — search then behaves
@@ -276,6 +285,19 @@ class App : Application() {
         DuplicateWorkMerger(database.audiobookDao())
     }
 
+    /**
+     * Spec-36 T1 (#244): the app-release check — the shared GitHub Releases
+     * API is the source of truth, the daily throttle lives inside the module,
+     * and the Огляд screen reads its flow directly (ADR-0008).
+     */
+    val updateChecker: UpdateChecker by lazy {
+        UpdateChecker(
+            fetcher = HttpFetcher(),
+            store = SharedPreferencesUpdateCheckStore(this),
+            installedVersionName = BuildConfig.VERSION_NAME
+        )
+    }
+
     /** Single player manager; created lazily on first playback/service access. */
     val playerManager: AudioPlayerManager by lazy {
         // The player runs on the store; chapter materialisation (incl. the
@@ -355,6 +377,34 @@ class App : Application() {
                 delay(UNIVERSE_REFRESH_INTERVAL_MILLIS)
             }
         }
+        // Spec-37: the daily catalogue-depth pass — the persisted Works layer
+        // only ever grew from the homepage sections (~60 books), so the
+        // «Весь каталог» endless feed ran dry after a few hundred rows even
+        // though paging itself worked. Once per day (persisted throttle,
+        // lazy after startup) the bounded 4read crawl walks the category and
+        // series listings — pagination included, under the module's own page
+        // budget — so depth accumulates run over run via merge-on-write.
+        // Best-effort and silent; never blocks startup.
+        CoroutineScope(Dispatchers.IO).launch {
+            delay(CATALOG_HYDRATION_START_DELAY_MILLIS)
+            val prefs = getSharedPreferences(PREFS_CATALOG_HYDRATION, MODE_PRIVATE)
+            if (System.currentTimeMillis() - prefs.getLong(KEY_LAST_HYDRATED_AT, 0L) <
+                CATALOG_HYDRATION_INTERVAL_MILLIS
+            ) {
+                return@launch
+            }
+            runCatching { sourceCatalog.hydrateFourReadCatalog() }
+            prefs.edit()
+                .putLong(KEY_LAST_HYDRATED_AT, System.currentTimeMillis())
+                .apply()
+        }
+        // Spec-36 T1 (#244): the daily app-release check — lazy (seconds after
+        // startup), throttled to once per day inside the module, best-effort
+        // and silent. The Огляд screen reads the module's flow directly.
+        CoroutineScope(Dispatchers.IO).launch {
+            delay(UPDATE_CHECK_START_DELAY_MILLIS)
+            runCatching { updateChecker.checkNow() }
+        }
     }
 
     /**
@@ -394,5 +444,14 @@ class App : Application() {
 
         /** How often the background universe-refresh pass wakes (6 hours). */
         private const val UNIVERSE_REFRESH_INTERVAL_MILLIS: Long = 6L * 60 * 60 * 1000
+
+        /** Spec-36 T1 (#244): the release check starts this many ms after launch. */
+        private const val UPDATE_CHECK_START_DELAY_MILLIS: Long = 10_000L
+
+        /** Spec-37: the daily catalogue-depth pass cadence and its lazy start. */
+        private const val CATALOG_HYDRATION_INTERVAL_MILLIS: Long = 24L * 60 * 60 * 1000
+        private const val CATALOG_HYDRATION_START_DELAY_MILLIS: Long = 20_000L
+        private const val PREFS_CATALOG_HYDRATION = "catalog_hydration"
+        private const val KEY_LAST_HYDRATED_AT = "last_hydrated_at"
     }
 }

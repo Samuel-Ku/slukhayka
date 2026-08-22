@@ -111,9 +111,15 @@ object CatalogParser {
     private val seriesRegex = Regex("""class="poster__series anim"><a href="([^"]+)">([^<]+)</a>""")
     // Volume badge on a poster: the book's number inside its series (cycle).
     private val seriesIndexRegex = Regex("""<div class="poster__label poster__label--blue">(\d+)</div>""")
-
     private val htmlEntityRegex = Regex("""&#(\d+);""")
+
     private val htmlEntityNamedRegex = Regex("""&(amp|quot|apos|lt|gt);""")
+
+    /** `/page/N/` links of the DLE pagination block — group 1 = href, group 2 = N. */
+    private val paginationHrefRegex = Regex("""href="([^"]*/page/(\d+)/?)"""")
+
+    /** How far past `id="pagination"` the link scan reaches (the block is small). */
+    private const val PAGINATION_WINDOW = 4000
 
     /**
      * Parses the 4read.org homepage into catalogue sections ("Новинки" and
@@ -281,6 +287,28 @@ object CatalogParser {
      * its books. The page reuses the poster markup of the homepage.
      */
     fun parseSeriesPage(html: String): List<CatalogBook> = parsePosterBooks(html)
+
+    /**
+     * The next page of a paginated listing (category / series), or null when
+     * the page carries no DLE pagination. The block is
+     * `<div class="pagination …" id="pagination">` whose links are
+     * `/page/N/` hrefs (`…/fentezi/page/2/`); the chevron button repeats the
+     * first next link, so picking the LOWEST page number is always «the next
+     * one after this page». Scoped to a window after the pagination id so
+     * unrelated `/page/` links elsewhere on the page never match. Unknown
+     * markup degrades to null — the caller stops paging, never crashes.
+     */
+    fun parseNextPageUrl(html: String): String? {
+        val start = html.indexOf("""id="pagination"""")
+        if (start < 0) return null
+        val scope = html.substring(start, minOf(html.length, start + PAGINATION_WINDOW))
+        return paginationHrefRegex.findAll(scope)
+            .map { it.groupValues[2].toIntOrNull() to it.groupValues[1] }
+            .filter { (number, _) -> number != null && number >= 2 }
+            .minByOrNull { (number, _) -> number!! }
+            ?.second
+            ?.let { toAbsoluteUrl(it) ?: it }
+    }
 
     /**
      * Parses the "Можливо, Тебе зацікавить:" related-books section of a book

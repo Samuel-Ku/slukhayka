@@ -1,6 +1,8 @@
 package com.slukhayka.audiobooks.ui.screens
 
 import androidx.activity.compose.BackHandler
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -55,11 +57,13 @@ import com.slukhayka.audiobooks.data.duration.DurationEnrichment
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
 import com.slukhayka.audiobooks.data.db.WorkFeedRow
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
+import com.slukhayka.audiobooks.data.update.UpdateChecker
 import com.slukhayka.audiobooks.data.source.sourceDisplayName
 import com.slukhayka.audiobooks.ui.DurationBooks
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.components.EmptyState
 import com.slukhayka.audiobooks.ui.components.NavigationChip
+import com.slukhayka.audiobooks.ui.components.UpdateBanner
 import com.slukhayka.audiobooks.ui.components.genreAccentColor
 import com.slukhayka.audiobooks.ui.displayAuthor
 import com.slukhayka.audiobooks.ui.durationBooksFrom
@@ -87,6 +91,9 @@ fun HomeScreen(
     durationEnrichment: DurationEnrichment,
     // spec-24 T8 (#169): the throttled chapter-duration probing pass.
     chapterDurationProbe: ChapterDurationProbe,
+    // Spec-36 T1 (#244): the app-release check — the screen reads the
+    // module's flow directly (ADR-0008) and renders the update banner.
+    updateChecker: UpdateChecker,
     onBookClick: (String) -> Unit,
     onPlayClick: (AudiobookEntity) -> Unit,
     // spec-28 (#192): the «Більше книг на Sluhay» exit CTA — wired from the
@@ -130,6 +137,10 @@ fun HomeScreen(
     // is skipped so 4read appears exactly once).
     val newArrivals by sourceCatalog.newArrivals.collectAsState()
 
+    // Spec-36 T1 (#244): an available app release, resolved by the module's
+    // own throttled check — null means everything is current.
+    val availableRelease by updateChecker.available.collectAsState()
+
     // Spec-15 T1: refresh the ephemeral union once per Огляд composition —
     // the ViewModel still needs it for the recommendation enrichment, even
     // though the browse surface is now the spec-23 T4 persisted feed.
@@ -162,6 +173,7 @@ fun HomeScreen(
     // demand with auto-focus. Closing (✕ or Back) clears the query and
     // resets the filter to «Усі».
     val haptic = LocalHapticFeedback.current
+    val context = androidx.compose.ui.platform.LocalContext.current
     var searchExpanded by rememberSaveable { mutableStateOf(false) }
 
     // Spec-27 (#205, BUG-007): the search-mode filter chips are the LIVE
@@ -303,6 +315,24 @@ fun HomeScreen(
             // content above the endless feed, «Весь каталог» always last) and
             // pinned by HomeFeedOrderSnapshotTest. The body lives in
             // [homeFeedContent] so the order is stateless and testable.
+
+            // Spec-36 T1 (#244): the non-blocking update banner sits above
+            // every content row; «Завантажити» hands off to the browser on
+            // the release's direct apk link.
+            availableRelease?.let { release ->
+                item(key = "app_update_banner") {
+                    UpdateBanner(
+                        update = release,
+                        onDownload = {
+                            context.startActivity(
+                                Intent(Intent.ACTION_VIEW, Uri.parse(release.apkUrl))
+                            )
+                        },
+                        onDismiss = { /* T2 (#245): the dismissal lifecycle */ }
+                    )
+                }
+            }
+
             homeFeedContent(
                 isCatalogLoading = isCatalogLoading,
                 hasLibraryBooks = allBooks.isNotEmpty(),

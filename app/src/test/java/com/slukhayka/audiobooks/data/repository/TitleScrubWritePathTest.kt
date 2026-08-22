@@ -93,6 +93,35 @@ class TitleScrubWritePathTest {
     }
 
     @Test
+    fun `source-page import scrubs an SEO template description to the honest fallback`() {
+        runBlocking {
+            val book = imports().importBookFromSource(
+                "soundbooks",
+                detail("Розповіді та фейлетони").copy(
+                    // audiobook-mp3.com serves this INSTEAD of a blurb (#264).
+                    description = "Слушать аудиокниги онлайн — Розповіді та фейлетони, бесплатно и без регистрации."
+                )
+            )
+
+            assertEquals("Аудіокнига з джерела soundbooks", dao.getAudiobookById(book.id)!!.description)
+        }
+    }
+
+    @Test
+    fun `source-page import strips the sluhayua prefix keeping the real blurb`() {
+        runBlocking {
+            val book = imports().importBookFromSource(
+                "sluhayua",
+                detail("Тореадори з Васюківки").copy(
+                    description = "Аудіокнігу онлайн Тореадори з Васюківки, читає Валерій Клименко. Справжня анотація книги."
+                )
+            )
+
+            assertEquals("Справжня анотація книги.", dao.getAudiobookById(book.id)!!.description)
+        }
+    }
+
+    @Test
     fun `source-page import fallback description carries no raw URL`() = runBlocking {
         val book = imports().importBookFromSource("soundbooks", detail("Кобзар"))
 

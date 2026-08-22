@@ -26,8 +26,8 @@ app/src/main/java/com/slukhayka/audiobooks/data/catalog/CatalogParser.kt   453 l
 app/src/main/java/com/slukhayka/audiobooks/data/entries/LibraryEntries.kt 354 lines
 app/src/main/java/com/slukhayka/audiobooks/data/listening/ListeningStateStore.kt 204 lines
 app/src/main/java/com/slukhayka/audiobooks/data/downloads/OfflineDownloads.kt    241 lines
-app/src/main/java/com/slukhayka/audiobooks/data/metadata/MetadataAssertions.kt   231 lines
-app/src/main/java/com/slukhayka/audiobooks/data/metadata/StoredTitleScrub.kt      34 lines
+app/src/main/java/com/slukhayka/audiobooks/data/metadata/MetadataAssertions.kt   367 lines
+app/src/main/java/com/slukhayka/audiobooks/data/metadata/StoredMetadataScrub.kt  47 lines
 app/src/main/java/com/slukhayka/audiobooks/data/merge/MergeKey.kt                 59 lines
 app/src/main/java/com/slukhayka/audiobooks/data/duration/DurationEnrichment.kt    79 lines
 app/src/main/java/com/slukhayka/audiobooks/data/duration/ChapterDurationProbe.kt 111 lines
@@ -80,9 +80,10 @@ and the ViewModel (ADR-0002).
 ### OfflineDownloads (data/downloads/)
 Download/remove/cache-clear over the catalog's chapter fetch.
 
-### MetadataAssertions + StoredTitleScrub (data/metadata/)
-Single place applying metadata rules on the write path (ADR-0004); the scrub
-pass fixes pre-rule rows idempotently (spec-24 T1).
+### MetadataAssertions + StoredMetadataScrub (data/metadata/)
+Single place applying metadata rules on the write path (ADR-0004): titles
+(spec-24 T1) and descriptions (#264). The startup scrub pass fixes pre-rule
+rows idempotently.
 
 ### MergeKey (data/merge/)
 Work-level dedup key for multi-source import (spec-10).

@@ -65,7 +65,7 @@ object MetadataAssertions {
      * («аудіокнига слухати онлайн», «слухати онлайн»…) to every title; they
      * render everywhere — catalog cards, book page, player — so they are
      * scrubbed at the write path (the one metadata-assertions seam, ADR-0004)
-     * and by the one-time startup pass ([StoredTitleScrub]). Longest phrase
+     * and by the one-time startup pass ([StoredMetadataScrub]). Longest phrase
      * first so «Книга - аудіокнига слухати онлайн» cuts the whole suffix,
      * not just «слухати онлайн».
      */
@@ -169,6 +169,86 @@ object MetadataAssertions {
             }
         }
         return title.ifBlank { original }
+    }
+
+    // ---------------------------------------------------------------------
+    // Description scrub (#264)
+    // ---------------------------------------------------------------------
+
+    /**
+     * Full-line SEO templates a source serves INSTEAD of a book blurb — the
+     * whole claim is marketing noise, so nothing about the book remains and
+     * the caller falls back to its honest phrase. Matched as a WHOLE string
+     * (`^…$`): a real blurb that merely contains these words survives. The
+     * verb list is curated from live probes (2026-08-22, #264):
+     * audiobook-mp3.com answers every page with «Слушать аудиокниги онлайн —
+     * …, бесплатно и без регистрации.»; Ukrainian mirrors say «Слухати…» /
+     * «Завантажити…».
+     */
+    /**
+     * Full-line SEO templates a source serves INSTEAD of a book blurb — the
+     * whole claim is marketing noise, so nothing about the book remains and
+     * the caller falls back to its honest phrase. The match is WHOLE-STRING
+     * and SINGLE-LINE (`[^\n]*`): a multi-paragraph text that merely BEGINS
+     * with the template sentence survives untouched — only a claim that is
+     * nothing but the template scrubs away. Verbs curated from live probes
+     * (2026-08-22, #264): audiobook-mp3.com answers every page with
+     * «Слушать аудиокниги онлайн — …, бесплатно и без регистрации.»;
+     * Ukrainian mirrors say «Слухати…» / «Завантажити…». No `\b` after
+     * «онлайн»: Java's `\b` is ASCII-word-based and never fires next to a
+     * Cyrillic letter — `(?:\s…)?` enforces the same separator honestly.
+     * `(?iu)` inline: [RegexOption.IGNORE_CASE] alone folds ASCII only, so
+     * «СЛУХАТИ» would never match «слушати».
+     */
+    private val FULL_LINE_SEO_TEMPLATES = listOf(
+        Regex(
+            """(?iu)^(?:слушать|слухати|скачать|скачати|завантажити)\s+(?:аудио|аудіо)книг\p{L}*\s+онлайн[^\n]*$"""
+        )
+    )
+
+    /**
+     * sluhay.com.ua prefixes its og:description with one template sentence —
+     * «Аудіокнігу онлайн {назва}, читає {диктор}.» — followed by the REAL
+     * blurb. Only the sentence is cut (the site spells it both «Аудіокнігу»
+     * and «Аудіокнигу»); the text after it stays untouched. The title part
+     * cannot cross a line break, so a multi-paragraph blurb is never eaten.
+     */
+    private val SLUHAYUA_PREFIX = Regex(
+        """(?iu)^\s*(?:Аудіокнігу|Аудіокнигу)\s+онлайн\s+[^\n]+?,\s+читає\s+[^\n.]+?\.\s*"""
+    )
+
+    /** Horizontal whitespace runs created by the cuts — line breaks survive. */
+    private val SPACE_RUNS = Regex("""[ \t]+""")
+
+    /**
+     * The description rule beside [normalizeTitle]: strips curated SEO noise
+     * from a claimed description so only honest text about the book is stored
+     * (#264). A full-line template scrubs to EMPTY — the write path then
+     * applies its own fallback («Аудіокнига з джерела …»), never a fabricated
+     * annotation. Idempotent: a second application changes nothing.
+     */
+    /**
+     * The description rule beside [normalizeTitle]: strips curated SEO noise
+     * from a claimed description so only honest text about the book is stored
+     * (#264). A claim that IS a full-line template scrubs to EMPTY — the
+     * write path then applies its own fallback («Аудіокнига з джерела …»),
+     * never a fabricated annotation. Rules apply SEQUENTIALLY until stable:
+     * a sluhayua prefix whose remainder is itself an mp3 template scrubs to
+     * empty too. Idempotent: a second application changes nothing.
+     */
+    fun normalizeDescription(claimed: String?): String {
+        var text = claimed?.trim().orEmpty()
+        var changed = true
+        while (changed && text.isNotEmpty()) {
+            changed = false
+            if (FULL_LINE_SEO_TEMPLATES.any { it.matches(text) }) return ""
+            val stripped = SLUHAYUA_PREFIX.replace(text, "")
+            if (stripped != text) {
+                text = stripped.trim()
+                changed = true
+            }
+        }
+        return text.replace(SPACE_RUNS, " ").trim()
     }
 
     // ---------------------------------------------------------------------

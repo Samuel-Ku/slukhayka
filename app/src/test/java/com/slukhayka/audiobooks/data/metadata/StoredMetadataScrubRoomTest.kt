@@ -17,14 +17,15 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 /**
- * Room seam (spec-24 T1): the one-time startup scrub rewrites stored titles
- * (audiobooks + works) through the pure [MetadataAssertions.normalizeTitle]
- * rule and is idempotent — a second run matches nothing. In-memory Room,
- * same style as the DAO / migration Room tests.
+ * Room seam (spec-24 T1 + #264): the one-time startup scrub rewrites stored
+ * titles (audiobooks + works) and stored descriptions (audiobooks) through
+ * the pure [MetadataAssertions] rules and is idempotent — a second run
+ * matches nothing. In-memory Room, same style as the DAO / migration Room
+ * tests.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
-class StoredTitleScrubRoomTest {
+class StoredMetadataScrubRoomTest {
 
     private lateinit var context: Context
     private lateinit var db: AudiobookDatabase
@@ -44,12 +45,12 @@ class StoredTitleScrubRoomTest {
         db.close()
     }
 
-    private fun book(id: String, title: String) = AudiobookEntity(
+    private fun book(id: String, title: String, description: String = "") = AudiobookEntity(
         id = id,
         title = title,
         author = "Автор",
         narrator = "",
-        description = "",
+        description = description,
         coverDrawableRes = 0,
         coverImageUrl = null,
         genre = "",
@@ -71,7 +72,7 @@ class StoredTitleScrubRoomTest {
         dao.upsertWork(WorkEntity(id = "w1", mergeKey = "w1", title = "Нейромант, слухати онлайн", author = "Автор"))
         dao.upsertWork(WorkEntity(id = "w2", mergeKey = "w2", title = "1984", author = "Автор"))
 
-        val changed = StoredTitleScrub(dao).scrubOnce()
+        val changed = StoredMetadataScrub(dao).scrubOnce()
 
         assertEquals(2, changed)
         assertEquals("Тіні забутих предків", dao.getAllBookTitleRows().first { it.id == "b1" }.title)
@@ -85,7 +86,7 @@ class StoredTitleScrubRoomTest {
         dao.insertAudiobooks(listOf(book("b1", "Тіні забутих предків — аудіокнига слухати онлайн")))
         dao.upsertWork(WorkEntity(id = "w1", mergeKey = "w1", title = "Пасажир (аудіокнига онлайн)", author = "Автор"))
 
-        val scrub = StoredTitleScrub(dao)
+        val scrub = StoredMetadataScrub(dao)
         val first = scrub.scrubOnce()
         val second = scrub.scrubOnce()
 
@@ -93,5 +94,59 @@ class StoredTitleScrubRoomTest {
         assertEquals(0, second)
         assertEquals("Тіні забутих предків", dao.getAllBookTitleRows().single().title)
         assertEquals("Пасажир", dao.getAllWorkTitleRows().single().title)
+    }
+
+    @Test
+    fun `description scrub is idempotent at the Room level too`() = runBlocking {
+        dao.insertAudiobooks(
+            listOf(
+                book("b1", "Кобзар", "Аудіокнігу онлайн Кобзар, читає Хтось. Справжній текст."),
+                book("b2", "1984", "Слушать аудиокниги онлайн — 1984, бесплатно и без регистрации.")
+            )
+        )
+
+        val scrub = StoredMetadataScrub(dao)
+        assertEquals(2, scrub.scrubOnce())
+        assertEquals("Справжній текст.", dao.getAudiobookById("b1")!!.description)
+        assertEquals("", dao.getAudiobookById("b2")!!.description)
+        // The second pass matches nothing — the rules are stable on stored rows.
+        assertEquals(0, scrub.scrubOnce())
+    }
+
+    // --- #264: stored descriptions -----------------------------------------
+
+    @Test
+    fun `startup scrub rewrites a stored SEO template description to empty`() = runBlocking {
+        dao.insertAudiobooks(
+            listOf(
+                book("b1", "Кобзар", "Слушать аудиокниги онлайн — Кобзар, бесплатно и без регистрации."),
+                book("b2", "1984", "Честный текст аннотации.") // honest — untouched
+            )
+        )
+
+        val changed = StoredMetadataScrub(dao).scrubOnce()
+
+        assertEquals(1, changed)
+        // A template scrubs to EMPTY — an unknown annotation renders as
+        // absent, never a fabricated one.
+        assertEquals("", dao.getAudiobookById("b1")!!.description)
+        assertEquals("Честный текст аннотации.", dao.getAudiobookById("b2")!!.description)
+    }
+
+    @Test
+    fun `startup scrub strips a stored sluhayua prefix keeping the blurb`() = runBlocking {
+        dao.insertAudiobooks(
+            listOf(
+                book(
+                    "b1", "Тореадори з Васюківки",
+                    "Аудіокнігу онлайн Тореадори з Васюківки, читає Валерій Клименко. Справжній текст анотації."
+                )
+            )
+        )
+
+        val changed = StoredMetadataScrub(dao).scrubOnce()
+
+        assertEquals(1, changed)
+        assertEquals("Справжній текст анотації.", dao.getAudiobookById("b1")!!.description)
     }
 }

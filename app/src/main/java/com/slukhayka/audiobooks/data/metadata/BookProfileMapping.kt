@@ -14,7 +14,9 @@ object BookProfileMapping {
     fun fromDetail(detail: SourceBookDetail): BookProfile = BookProfile(
         title = detail.title,
         author = detail.author,
-        description = detail.description,
+        // #264: the shared base receives only scrubbed descriptions — a
+        // source's SEO template must never spread to other devices.
+        description = MetadataAssertions.normalizeDescription(detail.description),
         narrator = detail.narrator,
         seriesTitle = detail.series?.name,
         seriesIndex = detail.series?.position,

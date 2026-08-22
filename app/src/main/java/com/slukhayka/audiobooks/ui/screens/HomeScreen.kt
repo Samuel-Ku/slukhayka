@@ -125,6 +125,12 @@ fun HomeScreen(
     // signals, computed locally, with a per-card reason chip.
     val recommendedBooks by viewModel.recommendedBooks.collectAsState()
 
+    // Spec-39 T1 (#261): «Ваші цикли» — derived purely from the local base
+    // (library rows + Listening State + every known Work), no network and no
+    // loading states; recomputed only when an input actually changes.
+    val recentProgress by libraryEntries.recentProgress.collectAsState(initial = emptyList())
+    val allWorks by sourceCatalog.allWorks.collectAsState(initial = emptyList())
+
     // Spec-16 T2: the «Колекції» block — curated lists matched against the
     // union, recomputed on every union refresh (same trigger). The flow
     // already excludes empty collections; the block itself hides when all are
@@ -167,6 +173,16 @@ fun HomeScreen(
     // through the pure DurationBuckets module — only books with a known
     // duration surface, never guesses.
     val durationBooks: DurationBooks = remember(allBooks) { durationBooksFrom(allBooks) }
+
+    // Spec-39 T1 (#261): the pure builder turns the same shaped rows into
+    // the shelf; an empty result leaves Огляд byte-for-byte as before.
+    val personalCycles = remember(allBooks, recentProgress, allWorks) {
+        com.slukhayka.audiobooks.ui.library.PersonalCycles.build(
+            libraryBooks = allBooks,
+            progress = recentProgress,
+            works = allWorks
+        )
+    }
 
     // Spec-22 T3: the search bar and filter chips are collapsible — the
     // header shows brand + [🔍] + [🔄], and the field + chips expand on
@@ -341,6 +357,7 @@ fun HomeScreen(
                 collections = collections,
                 newArrivals = newArrivals,
                 recommendedBooks = recommendedBooks,
+                personalCycles = personalCycles,
                 shortBooks = durationBooks.short.map { it.asCatalogBook() },
                 longBooks = durationBooks.long.map { it.asCatalogBook() },
                 workFeedItems = workFeedItems,
@@ -889,6 +906,59 @@ fun CatalogSeriesCard(
             textAlign = TextAlign.Center,
             modifier = Modifier.fillMaxWidth()
         )
+    }
+}
+
+/**
+ * Spec-39 T1 (#261) — one «Ваші цикли» card: the same landscape form as the
+ * catalogue series card (visual unity with Огляд), the cover of the cycle's
+ * representative member, and the honest «Прослухано X із Y» line — rendered
+ * only from real numbers, never as a placeholder (ADR-0014). Tapping opens
+ * the same series page as every other series entry.
+ */
+@Composable
+fun PersonalCycleCard(
+    cycle: com.slukhayka.audiobooks.ui.library.PersonalCycle,
+    onClick: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .width(132.dp)
+            .clickable { onClick() }
+            .testTag("personal_cycle_${cycle.url.hashCode()}"),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        CatalogCoverImage(
+            coverImageUrl = cycle.coverImageUrl,
+            title = cycle.title,
+            modifier = Modifier
+                .width(132.dp)
+                .height(78.dp)
+                .clip(RoundedCornerShape(AppDimens.RadiusCard))
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(AppDimens.RadiusCard))
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = cycle.title,
+            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+            color = MaterialTheme.colorScheme.primary,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth()
+        )
+        // The honest progress magnet — only when both numbers are real.
+        if (cycle.totalCount > 0) {
+            Text(
+                text = "Прослухано ${cycle.listenedCount} із ${cycle.totalCount}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
     }
 }
 

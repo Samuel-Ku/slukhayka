@@ -140,6 +140,11 @@ class SourceCatalog(
     val smartCollections: StateFlow<List<com.slukhayka.audiobooks.data.collections.CollectionMatcher.MatchedCollection>> =
         _smartCollections.asStateFlow()
 
+    // Spec-39 T1 (#261): every locally known Work — the library ∪ synced
+    // catalogue union rows. The honest Y of the «Ваші цикли» shelf counts
+    // against this base; the flow is read-only, nothing here persists.
+    val allWorks: kotlinx.coroutines.flow.Flow<List<WorkEntity>> = dao.observeWorks()
+
     // Spec-16 follow-up: the last fetched LIVE collections (static + live are
     // matched together; this flow lets tests pin what a live source actually
     // contributed). TTL-cached per source like the feeds — repeated refreshes

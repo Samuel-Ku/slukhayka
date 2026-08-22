@@ -230,6 +230,7 @@ class HomeFeedPhoneFoldSnapshotTest {
                         collections = collections,
                         newArrivals = results,
                         recommendedBooks = recommendations,
+                        personalCycles = emptyList(),
                         shortBooks = books,
                         longBooks = books,
                         workFeedItems = feedItems,

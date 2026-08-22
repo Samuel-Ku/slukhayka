@@ -243,6 +243,65 @@ class AudiobookMp3AdapterTest {
         assertNull(detail.rating)
     }
 
+    private val mistoPage = """
+        <html><head>
+        <meta property="og:title" content="Валер’ян Підмогильний — Місто слухати онлайн аудіокнигу безкоштовно audiobook-mp3.com/uk">
+        <meta property="og:description" content="Слухати аудіокниги онлайн — Валер’ян Підмогильний — Місто.">
+        <meta property="og:image" content="https://audiobook-mp3.comhttps://cdn.audiobook-mp3.com/audiobooks/uk/7/9/4/valerjan-pidmogilnij-misto.jpg">
+        </head><body>
+        <p>Автор: <a href="/uk-avtor-794-valerjan-pidmogilnij">Валер’ян Підмогильний</a>.</p>
+        <img class="abook_image" title="Слухати онлайн аудіокнигу Валер’ян Підмогильний — Місто" src="https://cdn.audiobook-mp3.com/audiobooks/uk/7/9/4/valerjan-pidmogilnij-misto.jpg" alt="Аудіокнига Валер’ян Підмогильний — Місто">
+        <script>var player = new Playerjs({file:"https://9giiu0g54k8c.redirectto.cc/s05/2/6/7/2/0/26720.pl.txt"});</script>
+        </body></html>
+    """.trimIndent()
+
+    @Test
+    fun `book page splits author and title from og-title and parses the real cover`() = runBlocking {
+        val adapter = AudiobookMp3Adapter(
+            FakeFetcher(
+                mapOf(
+                    "https://audiobook-mp3.com/uk-audio-794-valerjan-pidmogilnij-misto" to mistoPage,
+                    "https://9giiu0g54k8c.redirectto.cc/s05/2/6/7/2/0/26720.pl.txt" to playlistJson
+                )
+            )
+        )
+
+        val detail = adapter.fetchBookPage("https://audiobook-mp3.com/uk-audio-794-valerjan-pidmogilnij-misto")
+
+        // The adapter strips the author + the site-URL tail; the generic
+        // «слухати онлайн аудіокнигу безкоштовно» suffix is scrubbed later
+        // by MetadataAssertions.normalizeTitle (tested separately).
+        assertEquals("Місто слухати онлайн аудіокнигу безкоштовно", detail.title)
+        assertEquals("Валер’ян Підмогильний", detail.author)
+        // og:image is malformed (two URLs); the real cover is the abook_image.
+        assertEquals(
+            "https://cdn.audiobook-mp3.com/audiobooks/uk/7/9/4/valerjan-pidmogilnij-misto.jpg",
+            detail.coverImageUrl
+        )
+    }
+
+    private val emDashFeed = """
+        <html><body>
+        <a class="image-abook" href="/uk-audio-794-valerjan-pidmogilnij-misto"><img class="b-showshort__cover_image" src="https://cdn.audiobook-mp3.com/audiobooks/uk/7/9/4/valerjan-pidmogilnij-misto.jpg"></a>
+        <a href="/uk-audio-794-valerjan-pidmogilnij-misto">"Валер’ян Підмогильний — Місто"</a>
+        </body></html>
+    """.trimIndent()
+
+    @Test
+    fun `feed splits an em-dash quoted anchor into author and title`() = runBlocking {
+        val adapter = AudiobookMp3Adapter(FakeFetcher(mapOf("https://audiobook-mp3.com/uk" to emDashFeed)))
+
+        val books = adapter.fetchNew(limit = 10)
+
+        assertEquals(1, books.size)
+        assertEquals("Місто", books[0].title)
+        assertEquals("Валер’ян Підмогильний", books[0].author)
+        assertEquals(
+            "https://cdn.audiobook-mp3.com/audiobooks/uk/7/9/4/valerjan-pidmogilnij-misto.jpg",
+            books[0].coverImageUrl
+        )
+    }
+
     @Test
     fun `new feed parses real cyrillic title and author from the anchors`() = runBlocking {
         val adapter = AudiobookMp3Adapter(FakeFetcher(mapOf("https://audiobook-mp3.com/uk" to homepage)))

@@ -746,9 +746,9 @@ private fun TransportControls(
     ) {
         TransportIcon(Icons.Default.SkipPrevious, "Попередній розділ", onPreviousChapter)
         // Spec-27 (#207, BUG-012): the seek buttons carry a visible label
-        // («15 с»/«30 с») below the icon — the bare number on the rewind icon
-        // was unreadable and the forward button had none. contentDescription
-        // keeps the a11y (US-17).
+        // («15 с»/«30 с») below the icon. The forward button reuses Redo (the
+        // clockwise circular arrow — the numberless mirror of Replay) so the
+        // "30" lives only in the label, never baked into the icon.
         SeekButton(Icons.Default.Replay, "Назад на 15 секунд", "15 с", onBack)
         FilledIconButton(
             onClick = onPlayPause,
@@ -761,7 +761,7 @@ private fun TransportControls(
                 modifier = Modifier.size(40.dp)
             )
         }
-        SeekButton(Icons.Default.Forward, "Вперед на 30 секунд", "30 с", onForward)
+        SeekButton(Icons.Default.Redo, "Вперед на 30 секунд", "30 с", onForward)
         TransportIcon(Icons.Default.SkipNext, "Наступний розділ", onNextChapter)
     }
 }

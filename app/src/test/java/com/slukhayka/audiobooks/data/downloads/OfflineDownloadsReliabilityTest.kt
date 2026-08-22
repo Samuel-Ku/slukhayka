@@ -101,10 +101,12 @@ class OfflineDownloadsReliabilityTest {
     fun `concurrent streams never exceed three - observable via fake transport counter`() = runBlocking {
         val numChapters = 6
         val urls = (0 until numChapters).map { "https://cdn.example.com/track-$it.mp3" }
-        val audio = ByteArray(2048) { 0x42 }
+        // Distinct content per chapter so hash dedup (T2) does not collapse them.
+        val audios = urls.mapIndexed { idx, _ -> ByteArray(2048) { (it + idx).toByte() } }
+        val responses = urls.mapIndexed { idx, url -> url to (audios[idx] to audios[idx].size.toLong()) }.toMap()
         // Small delay keeps streams open long enough to observe concurrency.
         val fetcher = FakeFetcher(
-            sizedStreamResponses = urls.associateWith { audio to audio.size.toLong() },
+            sizedStreamResponses = responses,
             delayMs = 30
         )
         val (imports, _, downloads) = harness(numChapters, { i -> urls[i] }, fetcher)

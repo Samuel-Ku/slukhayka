@@ -19,16 +19,31 @@ object OutcomeMessages {
      * The snackbar text for a finished offline-download attempt. `totalChapters
      * == 0` means no audio could be found at all; a partial download reports
      * how many chapters made it to disk; a full one confirms the book is
-     * offline-ready.
+     * offline-ready. When chapters were shared/reused via dedup (spec-37 T2),
+     * the message reports the honest breakdown.
      */
-    fun downloadOutcome(result: OfflineDownloads.OfflineDownloadResult): String = when {
-        result.totalChapters == 0 ->
-            "Не вдалося знайти аудіо для завантаження. Перевірте з'єднання."
-        result.downloadedChapters == 0 ->
-            "Не вдалося завантажити книгу. Спробуйте пізніше."
-        result.downloadedChapters < result.totalChapters ->
-            "Завантажено ${result.downloadedChapters} з ${result.totalChapters} глав"
-        else -> "Книгу завантажено для офлайн-прослуховування"
+    fun downloadOutcome(result: OfflineDownloads.OfflineDownloadResult): String {
+        val totalOk = result.downloadedChapters + result.sharedChapters + result.reusedChapters
+        return when {
+            result.totalChapters == 0 ->
+                "Не вдалося знайти аудіо для завантаження. Перевірте з'єднання."
+            totalOk == 0 ->
+                "Не вдалося завантажити книгу. Спробуйте пізніше."
+            totalOk < result.totalChapters -> {
+                val base = "Завантажено $totalOk з ${result.totalChapters} глав"
+                val extras = mutableListOf<String>()
+                if (result.sharedChapters > 0) extras.add("${result.sharedChapters} спільно")
+                if (result.reusedChapters > 0) extras.add("${result.reusedChapters} повторно")
+                if (extras.isEmpty()) base else "$base · ${extras.joinToString(" · ")}"
+            }
+            else -> {
+                val base = "Книгу завантажено для офлайн-прослуховування"
+                val extras = mutableListOf<String>()
+                if (result.sharedChapters > 0) extras.add("${result.sharedChapters} спільно")
+                if (result.reusedChapters > 0) extras.add("${result.reusedChapters} повторно")
+                if (extras.isEmpty()) base else "$base · ${extras.joinToString(" · ")}"
+            }
+        }
     }
 
     /** The snackbar text when the download attempt itself threw. */

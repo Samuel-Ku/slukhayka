@@ -243,6 +243,21 @@ interface AudiobookDao {
     @Query("SELECT contentHash FROM source_tracks WHERE contentHash IS NOT NULL")
     suspend fun getAllTrackContentHashes(): List<String>
 
+    // Spec-37 T2: content hash of a downloaded track — computed after a
+    // successful download with the same SHA-256 infra as local imports.
+    @Query("UPDATE source_tracks SET contentHash = :hash WHERE id = :trackId")
+    suspend fun updateTrackContentHash(trackId: String, hash: String?)
+
+    // Spec-37 T2: URL-based reuse — a chapter whose stream URL already has a
+    // downloaded copy reuses that file without a network request.
+    @Query("SELECT * FROM source_tracks WHERE url = :url AND isDownloaded = 1 AND localFilePath IS NOT NULL LIMIT 1")
+    suspend fun getDownloadedTrackByUrl(url: String): SourceTrackEntity?
+
+    // Spec-37 T2: file-sharing reference counting — a file is deleted only when
+    // no downloaded track still points at it.
+    @Query("SELECT * FROM source_tracks WHERE localFilePath = :path AND isDownloaded = 1")
+    suspend fun getTracksByFilePath(path: String): List<SourceTrackEntity>
+
     /**
      * Forget the content hashes of a book's tracks (wayfinder #48 + #50):
      * when an offline copy is removed from disk, its hash must not block a

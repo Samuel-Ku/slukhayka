@@ -236,6 +236,21 @@ object MetadataAssertions {
      * a sluhayua prefix whose remainder is itself an mp3 template scrubs to
      * empty too. Idempotent: a second application changes nothing.
      */
+    /** The template description the write path applies when nothing real
+     *  was extracted («Аудіокнига з джерела …»). */
+    const val FALLBACK_DESCRIPTION_PREFIX = "Аудіокнига з джерела "
+
+    /**
+     * #266 — the best real blurb among a Work's carrier profiles: each
+     * candidate goes through [normalizeDescription] (scrub first), template
+     * fallbacks and blanks never win; the longest survivor wins. Null when
+     * no candidate is a real blurb.
+     */
+    fun pickBestBlurb(candidates: List<String>): String? = candidates.asSequence()
+        .map { normalizeDescription(it) }
+        .filter { it.isNotBlank() && !it.startsWith(FALLBACK_DESCRIPTION_PREFIX) }
+        .maxByOrNull { it.length }
+
     fun normalizeDescription(claimed: String?): String {
         var text = claimed?.trim().orEmpty()
         var changed = true

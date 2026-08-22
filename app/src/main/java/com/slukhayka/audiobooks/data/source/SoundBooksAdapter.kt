@@ -12,6 +12,21 @@ package com.slukhayka.audiobooks.data.source
  * Search: the DLE search endpoint is robots-discouraged (robots.txt disallows
  * the `do=search` route), so [search] returns empty and discovery goes through
  * [fetchNew] (homepage recent) and category pages (T4's job).
+ *
+ * ## True profile completeness (spec-35 T5, inventory #237)
+ *
+ * Verified live: the book page carries the cover (og:image), the narrator
+ * («Читає:»), the full duration («Триває: HH:MM:SS»), the genres («Жанр:»
+ * links with category prefixes stripped), the rating («Рейтинг: N») and a
+ * real blurb (og:description). The listing cards carry the duration («Триває:»
+ * in `short-meta`), the genre (breadcrumb links), and a description blurb
+ * (`short-text`). Measured negative findings, never fabricated (ADR-0014):
+ * - **No narrator** on listing cards («Читає» exists only on book pages).
+ * - **No rating** on listing cards (the word «rating» on the homepage is
+ *   only a sort button `dle_change_sort('rating','desc')`, not a card score).
+ * - **No series/cycle** on either surface (no «Серія/Цикл» markers).
+ * - **No related rail** — the only cross-link is a filtered author search
+ *   («Переглянути всі книги цього автора/читача»), not a «схожі» rail.
  */
 class SoundBooksAdapter(
     private val fetcher: HttpFetcher = HttpFetcher()
@@ -46,6 +61,14 @@ class SoundBooksAdapter(
             if (cover.startsWith("http")) cover else "https://sound-books.net$cover"
         }
 
+        // Spec-35 T5: the full duration from «Триває: HH:MM:SS», the genre
+        // breadcrumb links (with the «Аудіокниги» category prefix stripped)
+        // and the rating («Рейтинг: N») — all present on the book page;
+        // absent stays null/empty (ADR-0014).
+        val totalDurationSeconds = durationFrom(html)
+        val genres = genresFrom(html)
+        val rating = ratingFrom(html)
+
         val m3uUrl = PLAYLIST_URL.find(html)?.groupValues?.get(1) ?: return SourceBookDetail(
             title = title,
             author = author,
@@ -53,7 +76,10 @@ class SoundBooksAdapter(
             url = url,
             chapters = emptyList(),
             description = description,
-            coverImageUrl = coverImageUrl
+            coverImageUrl = coverImageUrl,
+            totalDurationSeconds = totalDurationSeconds,
+            genres = genres,
+            rating = rating
         )
 
         val playlist = fetcher.getText(m3uUrl)
@@ -74,7 +100,10 @@ class SoundBooksAdapter(
             url = url,
             chapters = chapters,
             description = description,
-            coverImageUrl = coverImageUrl
+            coverImageUrl = coverImageUrl,
+            totalDurationSeconds = totalDurationSeconds,
+            genres = genres,
+            rating = rating
         )
     }
 
@@ -108,6 +137,44 @@ class SoundBooksAdapter(
             }
         }
         return books
+    }
+
+    /** The duration/genre a listing card carries, keyed by its .html url. */
+    private data class CardExtras(
+        val durationSeconds: Long = 0L,
+        val genre: String = ""
+    )
+
+    /**
+     * Spec-35 T5 — the listing cards carry the duration («Триває:» in
+     * `short-meta-item`), the genre (breadcrumb links in `short-meta-item`)
+     * and the description (the `short-text` div), keyed by the book's url.
+     * Cards without these rows keep the fields empty (ADR-0014).
+     *
+     * The page's `short-item` nesting is deep (short-cols > short-desc >
+     * short-text plus short-meta > meta-item). A single regex for the outer
+     * div would be fragile, so we split on the delimiter instead.
+     */
+    private fun cardExtras(html: String): Map<String, CardExtras> {
+        val extras = mutableMapOf<String, CardExtras>()
+        val parts = html.split("""<div class="short-item">""")
+        for (part in parts.drop(1)) {
+            val block = part
+            val cardUrl = CARD_URL.find(block)?.groupValues?.get(1) ?: continue
+            val duration = durationFrom(block) ?: 0L
+            val genre = CARD_GENRE_BLOCK.find(block)?.groupValues?.get(1)
+                ?.let { links ->
+                    GENRE_LINK.findAll(links)
+                        .map {
+                            val raw = decodeEntities(it.groupValues[1].trim())
+                            if (raw.startsWith("Аудіокниги ")) raw.removePrefix("Аудіокниги ") else raw
+                        }
+                        .joinToString(", ")
+                }
+                .orEmpty()
+            extras[cardUrl] = CardExtras(durationSeconds = duration, genre = genre)
+        }
+        return extras
     }
 
     /** Parses one page's cover tiles + text anchors into [SourceBook] rows. */
@@ -152,19 +219,71 @@ class SoundBooksAdapter(
         // only the books a listing renders image-only (no text anchor at all),
         // so a lazy-loaded cover never outranks the real title.
         altTitles.forEach { (url, alt) -> if (!best.containsKey(url)) best[url] = alt to false }
+        val extras = cardExtras(html)
         return best.entries.take(limit).map { entry ->
             val url = entry.key
             val anchor = entry.value.first
             val sep = if (entry.value.second) anchor.indexOf(" - ") else -1
+            val extra = extras[url] ?: CardExtras()
             SourceBook(
                 title = (if (sep >= 0) anchor.substring(0, sep).trim() else anchor)
                     .ifBlank { slugTitle(url) },
                 author = if (sep >= 0) anchor.substring(sep + 3).trim() else "",
                 url = url,
                 sourceId = sourceId,
-                coverImageUrl = covers[url]
+                coverImageUrl = covers[url],
+                totalDurationSeconds = extra.durationSeconds,
+                genre = extra.genre
             )
         }
+    }
+
+    /**
+     * Full duration from «Триває: HH:MM:SS» or «Триває: HH:MM» on the page.
+     * Null when absent (ADR-0014). Delegates to the shared [parseDurationSeconds]
+     * so HH:MM:SS vs MM:SS handling cannot drift across adapters (spec-35 T1).
+     *
+     * The label may be wrapped as `<b>Триває:</b>` or `<b>Триває: HH:MM:SS</b>`
+     * with optional `<strong>` around the value; the regex allows an optional
+     * closing tag and any inline tags before the digits.
+     */
+    private fun durationFrom(html: String): Long? {
+        val raw = Regex(
+            """Триває:\s*(?:</b>\s*)?(?:<[^>]+>\s*)*(\d{1,2}:\d{2}(?::\d{2})?)""",
+            RegexOption.IGNORE_CASE
+        ).find(html)?.groupValues?.get(1) ?: return null
+        return parseDurationSeconds(raw)
+    }
+
+    /**
+     * Genre names from the «Жанр:» links on the book page. The site prefixes
+     * each link text with «Аудіокниги » (e.g. «Аудіокниги Зарубіжна література»);
+     * the prefix is stripped to yield the real genre name.
+     */
+    private fun genresFrom(html: String): List<String> {
+        val block = Regex(
+            """Жанр:\s*(?:</b>\s*)?(.*?)</li>""",
+            setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)
+        ).find(html)?.groupValues?.get(1) ?: return emptyList()
+        return GENRE_LINK.findAll(block)
+            .map {
+                val raw = decodeEntities(it.groupValues[1].trim())
+                if (raw.startsWith("Аудіокниги ")) raw.removePrefix("Аудіокниги ") else raw
+            }
+            .toList()
+    }
+
+    /**
+     * Rating from «Рейтинг: N» on the book page; null when absent.
+     * Like [durationFrom], the label may be `<b>Рейтинг:</b>` with optional
+     * tags before the number.
+     */
+    private fun ratingFrom(html: String): Double? {
+        val raw = Regex(
+            """Рейтинг:\s*(?:</b>\s*)?(?:<[^>]+>\s*)*(\d+\.?\d*)""",
+            RegexOption.IGNORE_CASE
+        ).find(html)?.groupValues?.get(1) ?: return null
+        return raw.toDoubleOrNull()
     }
 
     private fun slugTitle(url: String): String {
@@ -187,5 +306,10 @@ class SoundBooksAdapter(
         val AUTHOR_MARK = Regex("""Автор:\s*([^.<]{2,80})""", RegexOption.IGNORE_CASE)
         val NARRATOR_MARK = Regex("""Читає:\s*([^.<]{2,80})""", RegexOption.IGNORE_CASE)
         val JSONLD_AUTHOR = Regex(""""author"\s*:\s*"([^"]+)"""", RegexOption.IGNORE_CASE)
+        // Spec-35 T5 — listing card sub-elements (CARD_ITEM split is via
+        // `html.split("<div class=\"short-item\">")`, not a regex).
+        val CARD_URL = Regex("""href="(https://sound-books\.net/[^"]+\.html)"[^>]*>\s*<img""", RegexOption.IGNORE_CASE)
+        val CARD_GENRE_BLOCK = Regex("""<span class="fal fa-folder"[^>]*></span>(.*?)</div>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+        val GENRE_LINK = Regex("""<a[^>]*>([^<]+)</a>""", RegexOption.IGNORE_CASE)
     }
 }

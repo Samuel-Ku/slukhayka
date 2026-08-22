@@ -3,13 +3,14 @@ package com.slukhayka.audiobooks.data.source
 import com.slukhayka.audiobooks.testing.FakeFetcher
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
  * Fixture tests for the spec-10 T3 SoundBooksAdapter. Markup mirrors real
  * sound-books.net pages captured during the T1 spike (book #4111, «Темна
- * матерія»).
+ * матерія») and the spec-35 #237 field inventory (live fetch).
  */
 class SoundBooksAdapterTest {
 
@@ -58,6 +59,42 @@ class SoundBooksAdapterTest {
         </body></html>
     """.trimIndent()
 
+    // Spec-35 T5 — live page shape with the profile fields inventory #237
+    // verified: duration («Триває: HH:MM:SS» in <li>), genres («Жанр:» links
+    // with category prefixes stripped), rating («Рейтинг: N»), cover (og:image),
+    // narrator («Читає:») and a real blurb (og:description).
+    private val bookPageFull = """
+        <html><head>
+        <meta property="og:title" content="Темна матерія">
+        <meta property="og:description" content="Роман Блейка Крауча про квантову фізику, паралельні світи та ціну вибору.">
+        <meta property="og:image" content="https://sound-books.net/uploads/posts/2026-07/bleik-krauch-temna-materiia.webp">
+        </head><body>
+        <p>Автор: Блейк Крауч. Читає: Pik CAH4E3. Триває: 09:28:09.</p>
+        <ul>
+            <li><b>Триває:</b> <strong>09:28:09</strong></li>
+            <li><b>Жанр:</b> <a href="https://sound-books.net/zarubizhna-literatura/">Аудіокниги Зарубіжна література</a> / <a href="https://sound-books.net/fantastyka/">Аудіокниги Фантастика</a></li>
+            <li><b>Рейтинг:</b> 4 (1 голосів)</li>
+        </ul>
+        <script>
+        PlayerLang     = {prev: 'Попередній'}
+        var player = new Playerjs({file:"https://sound-books.net/uploads/public_files/2026-07/4111-krauch-bleik-temna-materiia.m3u"});
+        </script>
+        </body></html>
+    """.trimIndent()
+
+    // Same as [bookPageFull] minus duration/genres/rating — negative fixture.
+    private val bookPageMinimal = """
+        <html><head>
+        <meta property="og:title" content="Темна матерія">
+        <meta property="og:description" content="Роман Блейка Крауча про квантову фізику, паралельні світи та ціну вибору.">
+        </head><body>
+        <p>Автор: Блейк Крауч. Читає: Pik CAH4E3.</p>
+        <script>
+        var player = new Playerjs({file:"https://sound-books.net/uploads/public_files/2026-07/4111-krauch-bleik-temna-materiia.m3u"});
+        </script>
+        </body></html>
+    """.trimIndent()
+
     // The homepage renders each entry twice: a bare-title cover tile and a
     // «Назва - Автор» tile — both pointing at the same url (real markup).
     private val homepage = """
@@ -66,6 +103,34 @@ class SoundBooksAdapterTest {
         <a class="short-title" href="https://sound-books.net/zarubizhna-literatura/2851-temna-materiia.html">Темна матерія 15.07.26 970 2</a>
         <a class="short-title" href="https://sound-books.net/zarubizhna-literatura/2851-temna-materiia.html">Темна матерія - Блейк Крауч</a>
         <a class="short-title" href="https://sound-books.net/ukrainska-literatura/2850-statut-vnutrishnoi-sluzhby-zbroinykh-syl-ukrainy.html">Статут внутрішньої служби Збройних Сил України</a>
+        </body></html>
+    """.trimIndent()
+
+    // Live card shape (spec-35 #237): listing cards in <div class="short-item">
+    // carry duration («Триває: HH:MM:SS»), genre breadcrumb links and a
+    // short-text blurb in short-meta/short-text blocks.
+    private val homepageWithCardExtras = """
+        <html><body>
+        <div class="short-item">
+            <div class="short-cols fx-row">
+                <a class="short-img img-fit" href="https://sound-books.net/zarubizhna-literatura/2851-temna-materiia.html"><img data-src="/uploads/posts/2026-07/bleik-krauch-temna-materiia.webp" alt="Темна матерія"></a>
+                <div class="short-desc fx-1">
+                    <a class="short-title" href="https://sound-books.net/zarubizhna-literatura/2851-temna-materiia.html">Темна матерія - Блейк Крауч</a>
+                    <div class="short-text">«Чи задоволений ти своїм життям?» — це останні слова, які чує Джейсон Дессен.</div>
+                </div>
+            </div>
+            <div class="short-meta fx-row fx-middle">
+                <div class="short-meta-item"><span class="fal fa-folder"></span><a href="https://sound-books.net/zarubizhna-literatura/">Аудіокниги Зарубіжна література</a> / <a href="https://sound-books.net/fantastyka/">Аудіокниги Фантастика</a></div>
+                <div class="short-meta-item fx-1"><b>Триває: 09:28:00</b></div>
+            </div>
+        </div>
+        <div class="short-item">
+            <div class="short-cols fx-row">
+                <div class="short-desc fx-1">
+                    <a class="short-title" href="https://sound-books.net/ukrainska-literatura/2850-statut.html">Статут внутрішньої служби Збройних Сил України</a>
+                </div>
+            </div>
+        </div>
         </body></html>
     """.trimIndent()
 
@@ -97,12 +162,153 @@ class SoundBooksAdapterTest {
         assertEquals("https://arch.sound-books.net/4111/Темна матерія-02.mp3", detail.chapters[1].streamUrl)
         // Chapter title comes from the m3u file name.
         assertEquals("Темна матерія-01", detail.chapters[0].title)
-    }    @Test
+    }
+
+    // Spec-35 T5 — page profile fields, per field.
+    @Test
+    fun `book page preserves duration from Триває`() = runBlocking {
+        val adapter = SoundBooksAdapter(
+            FakeFetcher(
+                mapOf(
+                    "https://sound-books.net/zarubizhna-literatura/2851-temna-materiia.html" to bookPageFull,
+                    "https://sound-books.net/uploads/public_files/2026-07/4111-krauch-bleik-temna-materiia.m3u" to m3u
+                )
+            )
+        )
+
+        val detail = adapter.fetchBookPage("https://sound-books.net/zarubizhna-literatura/2851-temna-materiia.html")
+
+        assertEquals(9 * 3600L + 28 * 60L + 9L, detail.totalDurationSeconds)
+    }
+
+    @Test
+    fun `book page preserves genres from Жанр links with prefix stripped`() = runBlocking {
+        val adapter = SoundBooksAdapter(
+            FakeFetcher(
+                mapOf(
+                    "https://sound-books.net/zarubizhna-literatura/2851-temna-materiia.html" to bookPageFull,
+                    "https://sound-books.net/uploads/public_files/2026-07/4111-krauch-bleik-temna-materiia.m3u" to m3u
+                )
+            )
+        )
+
+        val detail = adapter.fetchBookPage("https://sound-books.net/zarubizhna-literatura/2851-temna-materiia.html")
+
+        assertEquals(listOf("Зарубіжна література", "Фантастика"), detail.genres)
+    }
+
+    @Test
+    fun `book page preserves rating from Рейтинг`() = runBlocking {
+        val adapter = SoundBooksAdapter(
+            FakeFetcher(
+                mapOf(
+                    "https://sound-books.net/zarubizhna-literatura/2851-temna-materiia.html" to bookPageFull,
+                    "https://sound-books.net/uploads/public_files/2026-07/4111-krauch-bleik-temna-materiia.m3u" to m3u
+                )
+            )
+        )
+
+        val detail = adapter.fetchBookPage("https://sound-books.net/zarubizhna-literatura/2851-temna-materiia.html")
+
+        assertEquals(4.0, detail.rating!!, 0.01)
+    }
+
+    @Test
+    fun `book page preserves cover narrator and blurb together`() = runBlocking {
+        val adapter = SoundBooksAdapter(
+            FakeFetcher(
+                mapOf(
+                    "https://sound-books.net/zarubizhna-literatura/2851-temna-materiia.html" to bookPageFull,
+                    "https://sound-books.net/uploads/public_files/2026-07/4111-krauch-bleik-temna-materiia.m3u" to m3u
+                )
+            )
+        )
+
+        val detail = adapter.fetchBookPage("https://sound-books.net/zarubizhna-literatura/2851-temna-materiia.html")
+
+        assertEquals("Темна матерія", detail.title)
+        assertEquals("Блейк Крауч", detail.author)
+        assertEquals("Pik CAH4E3", detail.narrator)
+        assertEquals("Роман Блейка Крауча про квантову фізику, паралельні світи та ціну вибору.", detail.description)
+        assertEquals(
+            "https://sound-books.net/uploads/posts/2026-07/bleik-krauch-temna-materiia.webp",
+            detail.coverImageUrl
+        )
+        // Negative findings on the page (inventory #237): no series/cycle,
+        // no related rail — never fabricated (ADR-0014).
+        assertNull(detail.series)
+        assertTrue(detail.related.isEmpty())
+    }
+
+    // Negative tests — absent stays absent (ADR-0014).
+    @Test
+    fun `book page without duration keeps it null`() = runBlocking {
+        val adapter = SoundBooksAdapter(
+            FakeFetcher(
+                mapOf(
+                    "https://sound-books.net/x.html" to bookPageMinimal,
+                    "https://sound-books.net/uploads/public_files/2026-07/4111-krauch-bleik-temna-materiia.m3u" to m3u
+                )
+            )
+        )
+
+        val detail = adapter.fetchBookPage("https://sound-books.net/x.html")
+        assertNull(detail.totalDurationSeconds)
+    }
+
+    @Test
+    fun `book page without genres keeps them empty`() = runBlocking {
+        val adapter = SoundBooksAdapter(
+            FakeFetcher(
+                mapOf(
+                    "https://sound-books.net/x.html" to bookPageMinimal,
+                    "https://sound-books.net/uploads/public_files/2026-07/4111-krauch-bleik-temna-materiia.m3u" to m3u
+                )
+            )
+        )
+
+        val detail = adapter.fetchBookPage("https://sound-books.net/x.html")
+        assertTrue(detail.genres.isEmpty())
+    }
+
+    @Test
+    fun `book page without rating keeps it null`() = runBlocking {
+        val adapter = SoundBooksAdapter(
+            FakeFetcher(
+                mapOf(
+                    "https://sound-books.net/x.html" to bookPageMinimal,
+                    "https://sound-books.net/uploads/public_files/2026-07/4111-krauch-bleik-temna-materiia.m3u" to m3u
+                )
+            )
+        )
+
+        val detail = adapter.fetchBookPage("https://sound-books.net/x.html")
+        assertNull(detail.rating)
+    }
+
+    @Test
+    fun `book page without series and related keeps them empty`() = runBlocking {
+        // Inventory #237: soundbooks has no series/cycle markers and no
+        // related rail — the KDoc documents the negative finding.
+        val adapter = SoundBooksAdapter(
+            FakeFetcher(
+                mapOf(
+                    "https://sound-books.net/x.html" to bookPageFull,
+                    "https://sound-books.net/uploads/public_files/2026-07/4111-krauch-bleik-temna-materiia.m3u" to m3u
+                )
+            )
+        )
+
+        val detail = adapter.fetchBookPage("https://sound-books.net/x.html")
+        assertNull(detail.series)
+        assertTrue(detail.related.isEmpty())
+    }
+
+    @Test
     fun `book page without a playlist yields no chapters`() = runBlocking {
         val adapter = SoundBooksAdapter(
             FakeFetcher(mapOf("https://sound-books.net/x.html" to "<html><body>no player</body></html>"))
         )
-
 
         assertTrue(adapter.fetchBookPage("https://sound-books.net/x.html").chapters.isEmpty())
     }
@@ -113,17 +319,22 @@ class SoundBooksAdapterTest {
     @Test
     fun `book page without a cover yields a null cover`() = runBlocking {
         val adapter = SoundBooksAdapter(
-            FakeFetcher(mapOf("https://sound-books.net/y.html" to bookPageWithoutCover))
+            FakeFetcher(mapOf("https://sound-books.net/y.html" to bookPageMinimal))
         )
 
         val detail = adapter.fetchBookPage("https://sound-books.net/y.html")
-        assertEquals(null, detail.coverImageUrl)
+        assertNull(detail.coverImageUrl)
     }
 
     @Test
     fun `relative og-image is resolved against the site origin`() = runBlocking {
         val adapter = SoundBooksAdapter(
-            FakeFetcher(mapOf("https://sound-books.net/z.html" to bookPageRelativeCover))
+            FakeFetcher(
+                mapOf(
+                    "https://sound-books.net/z.html" to bookPageRelativeCover,
+                    "https://sound-books.net/uploads/public_files/2026-07/3001-soniachna-mashyna.m3u" to ""
+                )
+            )
         )
 
         val detail = adapter.fetchBookPage("https://sound-books.net/z.html")
@@ -131,6 +342,74 @@ class SoundBooksAdapterTest {
             "https://sound-books.net/uploads/posts/2026-07/soniachna-mashyna.webp",
             detail.coverImageUrl
         )
+    }
+
+    // Spec-35 T5 — card fields, per field.
+
+    @Test
+    fun `feed cards carry duration and genre from the listing`() = runBlocking {
+        val adapter = SoundBooksAdapter(FakeFetcher(mapOf("https://sound-books.net/" to homepageWithCardExtras)))
+
+        val books = adapter.fetchNew(limit = 10)
+
+        assertEquals(2, books.size)
+        // First card has duration, genre.
+        assertEquals("Темна матерія", books[0].title)
+        assertEquals("Блейк Крауч", books[0].author)
+        assertEquals(
+            "https://sound-books.net/uploads/posts/2026-07/bleik-krauch-temna-materiia.webp",
+            books[0].coverImageUrl
+        )
+        assertEquals(9 * 3600L + 28 * 60L, books[0].totalDurationSeconds)
+        assertEquals("Зарубіжна література, Фантастика", books[0].genre)
+        // Negative findings on card #237: no narrator, no rating, no series.
+        assertEquals("", books[0].narrator)
+        assertNull(books[0].seriesTitle)
+        assertNull(books[0].seriesIndex)
+        // Second card has no duration/genre — absent stays empty.
+        assertEquals("Статут внутрішньої служби Збройних Сил України", books[1].title)
+        assertEquals(0L, books[1].totalDurationSeconds)
+        assertEquals("", books[1].genre)
+    }
+
+    @Test
+    fun `feed card without duration and genre keeps them empty`() = runBlocking {
+        val minimalListing = """
+            <html><body>
+            <div class="short-item">
+                <div class="short-cols fx-row">
+                    <a class="short-img img-fit" href="https://sound-books.net/kazka/2845-kin-vogon.html"><img data-src="/uploads/posts/2026-06/kin-vogon.webp" alt="Кінь-вогонь"></a>
+                    <div class="short-desc fx-1">
+                        <a class="short-title" href="https://sound-books.net/kazka/2845-kin-vogon.html">Кінь-вогонь - Автор</a>
+                    </div>
+                </div>
+            </div>
+            </body></html>
+        """.trimIndent()
+        val adapter = SoundBooksAdapter(FakeFetcher(mapOf("https://sound-books.net/" to minimalListing)))
+
+        val books = adapter.fetchNew(limit = 10)
+
+        assertEquals(1, books.size)
+        assertEquals("Кінь-вогонь", books[0].title)
+        assertEquals(0L, books[0].totalDurationSeconds)
+        assertEquals("", books[0].genre)
+        assertNull(books[0].seriesTitle)
+    }
+
+    @Test
+    fun `feed narrator stays empty and rating is never on cards`() = runBlocking {
+        // Inventory #237 negative findings: the listing never carries a
+        // narrator («Читає» only on book pages) and the word «rating» on
+        // the homepage is only a sort button, never a card score.
+        val adapter = SoundBooksAdapter(FakeFetcher(mapOf("https://sound-books.net/" to homepageWithCardExtras)))
+
+        val books = adapter.fetchNew(limit = 10)
+
+        assertEquals("", books[0].narrator)
+        // SourceBook has no rating field; the page detail's rating stays on
+        // the page surface only — no card should synthesize one.
+        assertNull(books[0].seriesTitle)
     }
 
     // Real homepage markup (2026-08-17): the lazy-loaded cover tile

@@ -445,6 +445,9 @@ class App : Application() {
         /** How often the background universe-refresh pass wakes (6 hours). */
         private const val UNIVERSE_REFRESH_INTERVAL_MILLIS: Long = 6L * 60 * 60 * 1000
 
+        /** Spec-36 T1 (#244): the release check starts this many ms after launch. */
+        private const val UPDATE_CHECK_START_DELAY_MILLIS: Long = 10_000L
+
         /** Spec-37: the daily catalogue-depth pass cadence and its lazy start. */
         private const val CATALOG_HYDRATION_INTERVAL_MILLIS: Long = 24L * 60 * 60 * 1000
         private const val CATALOG_HYDRATION_START_DELAY_MILLIS: Long = 20_000L

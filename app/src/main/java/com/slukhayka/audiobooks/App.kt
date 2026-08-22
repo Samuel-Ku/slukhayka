@@ -360,6 +360,27 @@ class App : Application() {
                 delay(UNIVERSE_REFRESH_INTERVAL_MILLIS)
             }
         }
+        // Spec-37: the daily catalogue-depth pass — the persisted Works layer
+        // only ever grew from the homepage sections (~60 books), so the
+        // «Весь каталог» endless feed ran dry after a few hundred rows even
+        // though paging itself worked. Once per day (persisted throttle,
+        // lazy after startup) the bounded 4read crawl walks the category and
+        // series listings — pagination included, under the module's own page
+        // budget — so depth accumulates run over run via merge-on-write.
+        // Best-effort and silent; never blocks startup.
+        CoroutineScope(Dispatchers.IO).launch {
+            delay(CATALOG_HYDRATION_START_DELAY_MILLIS)
+            val prefs = getSharedPreferences(PREFS_CATALOG_HYDRATION, MODE_PRIVATE)
+            if (System.currentTimeMillis() - prefs.getLong(KEY_LAST_HYDRATED_AT, 0L) <
+                CATALOG_HYDRATION_INTERVAL_MILLIS
+            ) {
+                return@launch
+            }
+            runCatching { sourceCatalog.hydrateFourReadCatalog() }
+            prefs.edit()
+                .putLong(KEY_LAST_HYDRATED_AT, System.currentTimeMillis())
+                .apply()
+        }
     }
 
     /**
@@ -399,5 +420,11 @@ class App : Application() {
 
         /** How often the background universe-refresh pass wakes (6 hours). */
         private const val UNIVERSE_REFRESH_INTERVAL_MILLIS: Long = 6L * 60 * 60 * 1000
+
+        /** Spec-37: the daily catalogue-depth pass cadence and its lazy start. */
+        private const val CATALOG_HYDRATION_INTERVAL_MILLIS: Long = 24L * 60 * 60 * 1000
+        private const val CATALOG_HYDRATION_START_DELAY_MILLIS: Long = 20_000L
+        private const val PREFS_CATALOG_HYDRATION = "catalog_hydration"
+        private const val KEY_LAST_HYDRATED_AT = "last_hydrated_at"
     }
 }

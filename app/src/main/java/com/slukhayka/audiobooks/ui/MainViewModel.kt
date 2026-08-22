@@ -18,6 +18,7 @@ import com.slukhayka.audiobooks.data.imports.ImportGrantStore
 import com.slukhayka.audiobooks.data.imports.ImportPlan
 import com.slukhayka.audiobooks.data.universe.SeriesUniverseContext
 import com.slukhayka.audiobooks.data.universe.SeriesUniverses
+import com.slukhayka.audiobooks.data.update.UpdateChecker
 import com.slukhayka.audiobooks.data.catalog.SourceCatalog
 import com.slukhayka.audiobooks.data.downloads.OfflineDownloads
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
@@ -106,6 +107,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // Spec-25 (#171): the lazy series-universe resolution over the curated assets.
     val seriesUniverses: SeriesUniverses = App.instance.seriesUniverses
     val playerManager: AudioPlayerManager = App.instance.playerManager
+
+    // Spec-36 T1 (#244): the app-release check — a pass-through module
+    // reference like the fields above (the screen reads its flow directly,
+    // ADR-0008; no forwarding StateFlows here).
+    val updateChecker: UpdateChecker = App.instance.updateChecker
 
     val playerState: StateFlow<PlayerState> = playerManager.playerState
 

@@ -20,13 +20,55 @@ import java.io.InputStream
 class FakeFetcher(
     private val responses: Map<String, String> = emptyMap(),
     private val fallback: String = "",
-    private val streamResponses: Map<String, ByteArray> = emptyMap()
+    private val streamResponses: Map<String, ByteArray> = emptyMap(),
+    private val sizedStreamResponses: Map<String, Pair<ByteArray, Long?>> = emptyMap(),
+    private val delayMs: Long = 0L
 ) : HttpFetcher() {
 
     /** Extra headers of each headerful request, in call order. Thread-safe:
      *  the offline download loop records from several async workers at once,
      *  and a plain mutable list would lose appends under that race. */
     val recordedHeaders = java.util.concurrent.CopyOnWriteArrayList<Map<String, String>>()
+
+    /** Concurrency observability for spec-37 T1: counts simultaneously open
+     *  streams. `maxConcurrentStreams` is the high-water mark observed. */
+    private val concurrentStreams = java.util.concurrent.atomic.AtomicInteger(0)
+    val maxConcurrentStreams: Int get() = _maxConcurrentStreams.get()
+    private val _maxConcurrentStreams = java.util.concurrent.atomic.AtomicInteger(0)
+
+    private fun trackConcurrency(): Int {
+        val cur = concurrentStreams.incrementAndGet()
+        _maxConcurrentStreams.updateAndGet { max -> maxOf(max, cur) }
+        return cur
+    }
+
+    private fun untrackConcurrency() {
+        concurrentStreams.decrementAndGet()
+    }
+
+    private fun wrappingStream(bytes: ByteArray): InputStream {
+        trackConcurrency()
+        return object : ByteArrayInputStream(bytes) {
+            override fun read(b: ByteArray, off: Int, len: Int): Int {
+                if (delayMs > 0) {
+                    try { Thread.sleep(delayMs) } catch (_: InterruptedException) {}
+                }
+                return super.read(b, off, len)
+            }
+
+            override fun read(): Int {
+                if (delayMs > 0) {
+                    try { Thread.sleep(delayMs) } catch (_: InterruptedException) {}
+                }
+                return super.read()
+            }
+
+            override fun close() {
+                super.close()
+                untrackConcurrency()
+            }
+        }
+    }
 
     override fun getText(url: String): String = responses[url] ?: fallback
 
@@ -37,6 +79,22 @@ class FakeFetcher(
 
     override fun getStream(url: String, extraHeaders: Map<String, String>): InputStream? {
         recordedHeaders += extraHeaders
-        return streamResponses[url]?.let { ByteArrayInputStream(it) }
+        // Prefer sized responses for getStream too, to keep one source of truth.
+        sizedStreamResponses[url]?.let { (bytes, _) -> return wrappingStream(bytes) }
+        return streamResponses[url]?.let { wrappingStream(it) }
+    }
+
+    override fun getSizedStream(url: String, extraHeaders: Map<String, String>): SizedStream? {
+        recordedHeaders += extraHeaders
+        sizedStreamResponses[url]?.let { (bytes, declaredLength) ->
+            val stream = wrappingStream(bytes)
+            // If declaredLength is null, treat as unknown (fallback to minimal-size check).
+            return SizedStream(stream, declaredLength)
+        }
+        streamResponses[url]?.let { bytes ->
+            val stream = wrappingStream(bytes)
+            return SizedStream(stream, bytes.size.toLong())
+        }
+        return null
     }
 }

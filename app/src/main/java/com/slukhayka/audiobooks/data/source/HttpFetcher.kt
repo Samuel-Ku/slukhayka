@@ -75,6 +75,54 @@ open class HttpFetcher(
     }
 
     /**
+     * Spec-37 T1 — sized binary GET: the download path's verified transport.
+     * Like [getStream] but the response's `Content-Length` travels alongside the
+     * stream so the caller can honestly reject a short body. Null when the
+     * server omits the header (the caller then falls back to the existing
+     * minimal-size threshold). Never throws. Open so fixture fakes can serve
+     * in-memory bytes with a canned length.
+     */
+    data class SizedStream(val stream: InputStream, val contentLength: Long?)
+
+    open fun getSizedStream(url: String, extraHeaders: Map<String, String> = emptyMap()): SizedStream? {
+        val connection = try {
+            (URL(url).openConnection() as HttpURLConnection).apply {
+                connectTimeout = 12_000
+                readTimeout = 18_000
+                requestMethod = "GET"
+                setRequestProperty("User-Agent", userAgent)
+                if (referer != null) setRequestProperty("Referer", referer)
+                extraHeaders.forEach { (name, value) -> setRequestProperty(name, value) }
+                instanceFollowRedirects = true
+            }
+        } catch (e: Exception) {
+            return null
+        }
+        return try {
+            if (connection.responseCode == HttpURLConnection.HTTP_OK) {
+                val length = connection.getHeaderFieldLong("Content-Length", -1)
+                    .let { if (it >= 0) it else null }
+                val wrapped = object : FilterInputStream(connection.inputStream) {
+                    override fun close() {
+                        try {
+                            super.close()
+                        } finally {
+                            connection.disconnect()
+                        }
+                    }
+                }
+                SizedStream(wrapped, length)
+            } else {
+                connection.disconnect()
+                null
+            }
+        } catch (e: Exception) {
+            connection.disconnect()
+            null
+        }
+    }
+
+    /**
      * ADR-0006 — binary GET: the ONE transport the offline download path
      * uses. Returns null on any failure — the same degrade-never-throw
      * convention as [getText]. The caller owns reading and must close the

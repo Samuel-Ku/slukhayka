@@ -13,6 +13,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
@@ -48,11 +50,14 @@ class OfflineDownloads(
      * Outcome of an offline download attempt. `totalChapters == 0` means no
      * audio could be found at all (the caller shows a "no audio" message);
      * `downloadedChapters` counts how many chapters made it to disk.
+     * `failedChapters` is derived for convenience (total - downloaded).
      */
     data class OfflineDownloadResult(
         val downloadedChapters: Int,
         val totalChapters: Int
-    )
+    ) {
+        val failedChapters: Int get() = totalChapters - downloadedChapters
+    }
 
     suspend fun downloadAudiobookOffline(bookId: String): OfflineDownloadResult {
         // Spec-10 T6: a stream-only source must never download — refuse before
@@ -99,89 +104,171 @@ class OfflineDownloads(
         if (!audioDir.exists()) audioDir.mkdirs()
 
         val completedCount = AtomicInteger(0)
-        var successCount = 0
+        val successCount = AtomicInteger(0)
+        val semaphore = Semaphore(3)
 
         dao.updateDownloadState(bookId, isDownloaded = false, progress = 0.05f)
 
         coroutineScope {
             playable.map { playableChapter ->
                 async(Dispatchers.IO) {
-                    val chapter = playableChapter.chapter
-                    val track = playableChapter.track
-                    val localFile = File(audioDir, "${chapter.id}.mp3")
-                    var chapterOk = false
+                    semaphore.withPermit {
+                        val chapter = playableChapter.chapter
+                        val track = playableChapter.track
+                        val targetFile = File(audioDir, "${chapter.id}.mp3")
+                        val tempFile = File(audioDir, "${chapter.id}.mp3.tmp")
+                        var chapterOk = false
 
-                    try {
-                        // A chapter without a track (per-source topology
-                        // mismatch) has nothing to download — stays failed.
-                        if (track == null) {
-                            // No playable stream for this chapter.
-                        } else if (!localFile.exists() || localFile.length() < 100) {
-                            val streamUrl = track.url
-                            if (streamUrl.startsWith("http")) {
-                                // ADR-0006: the download loop consumes the
-                                // shared fetcher's stream method (null on
-                                // failure, degrade-never-throw). The fetcher
-                                // sends the offline user agent; the per-source
-                                // Referer rules (spec-10 T6 + spec-13 T2: the
-                                // playerjs CDN 403s without the owning
-                                // source's Referer) ride along as extra
-                                // headers. Closing the stream disconnects.
-                                val stream = fetcher.getStream(streamUrl, headersFor(sourceId, streamUrl))
-                                if (stream != null) {
-                                    BufferedInputStream(stream, 65536).use { input ->
-                                        BufferedOutputStream(localFile.outputStream(), 65536).use { output ->
-                                            val buffer = ByteArray(65536)
-                                            var read: Int
-                                            while (input.read(buffer).also { read = it } != -1) {
-                                                output.write(buffer, 0, read)
+                        try {
+                            // A chapter without a track (per-source topology
+                            // mismatch) has nothing to download — stays failed.
+                            if (track == null) {
+                                // No playable stream for this chapter.
+                            } else if (targetFile.exists() && targetFile.length() > 100) {
+                                // Already downloaded and verified (minimal-size check).
+                                // The temp file from a previous interrupted run, if any,
+                                // is irrelevant — the target is already good.
+                                chapterOk = true
+                                // Clean any stale temp that might have been left
+                                // by a previous crash before the rename.
+                                if (tempFile.exists()) {
+                                    try { tempFile.delete() } catch (_: Exception) {}
+                                }
+                            } else {
+                                // Need to download — ensure stale files are gone.
+                                if (tempFile.exists()) {
+                                    try { tempFile.delete() } catch (_: Exception) {}
+                                }
+                                if (targetFile.exists() && targetFile.length() <= 100) {
+                                    try { targetFile.delete() } catch (_: Exception) {}
+                                }
+                                val streamUrl = track.url
+                                if (streamUrl.startsWith("http")) {
+                                    // Spec-37 T1: use the sized transport so the
+                                    // declared Content-Length can be verified.
+                                    val sized = fetcher.getSizedStream(streamUrl, headersFor(sourceId, streamUrl))
+                                    if (sized != null) {
+                                        var streamClosed = false
+                                        try {
+                                            BufferedInputStream(sized.stream, 65536).use { input ->
+                                                BufferedOutputStream(tempFile.outputStream(), 65536).use { output ->
+                                                    val buffer = ByteArray(65536)
+                                                    var read: Int
+                                                    while (input.read(buffer).also { read = it } != -1) {
+                                                        output.write(buffer, 0, read)
+                                                    }
+                                                    output.flush()
+                                                }
                                             }
-                                            output.flush()
+                                            streamClosed = true
+                                            try { sized.stream.close() } catch (_: Exception) {}
+                                            // Verification: when the server
+                                            // declared a length, the body must
+                                            // match it exactly. Shorter (or
+                                            // longer) than declared → honestly
+                                            // rejected, no target file, not
+                                            // marked downloaded. When the
+                                            // server omits the length, the
+                                            // existing minimal-size threshold
+                                            // applies (behaviour not worse).
+                                            val expected = sized.contentLength
+                                            val actual = tempFile.length()
+                                            val valid = if (expected != null && expected >= 0) {
+                                                actual == expected
+                                            } else {
+                                                actual > 100
+                                            }
+                                            if (valid) {
+                                                if (targetFile.exists()) {
+                                                    try { targetFile.delete() } catch (_: Exception) {}
+                                                }
+                                                val renamed = tempFile.renameTo(targetFile)
+                                                if (!renamed) {
+                                                    // Rename can fail across
+                                                    // filesystems — fallback to copy.
+                                                    try {
+                                                        tempFile.copyTo(targetFile, overwrite = true)
+                                                        tempFile.delete()
+                                                    } catch (_: Exception) {
+                                                        // Leave temp for next run to retry.
+                                                    }
+                                                }
+                                                if (tempFile.exists()) {
+                                                    try { tempFile.delete() } catch (_: Exception) {}
+                                                }
+                                                chapterOk = targetFile.exists() && targetFile.length() > 100
+                                                if (chapterOk && expected != null && expected >= 0) {
+                                                    if (targetFile.length() != expected) {
+                                                        try { targetFile.delete() } catch (_: Exception) {}
+                                                        chapterOk = false
+                                                    }
+                                                }
+                                            } else {
+                                                // Verification failed — short body.
+                                                try { tempFile.delete() } catch (_: Exception) {}
+                                                Log.w(
+                                                    "OfflineDownloads",
+                                                    "Verification failed for ${chapter.id}: expected=$expected actual=$actual"
+                                                )
+                                                chapterOk = false
+                                            }
+                                        } catch (e: Exception) {
+                                            Log.w("OfflineDownloads", "Download failed for chapter ${chapter.id}: ${e.message}")
+                                            try { tempFile.delete() } catch (_: Exception) {}
+                                            if (!streamClosed) {
+                                                try { sized.stream.close() } catch (_: Exception) {}
+                                            }
+                                            chapterOk = false
                                         }
+                                    } else {
+                                        // Fetcher returned null (network failure / non-200).
+                                        if (tempFile.exists()) {
+                                            try { tempFile.delete() } catch (_: Exception) {}
+                                        }
+                                        chapterOk = false
                                     }
-                                    chapterOk = localFile.length() > 100
+                                } else {
+                                    if (tempFile.exists()) {
+                                        try { tempFile.delete() } catch (_: Exception) {}
+                                    }
+                                    chapterOk = false
                                 }
                             }
-                        } else if (localFile.length() > 100) {
-                            // Already downloaded.
-                            chapterOk = true
+                        } catch (e: Exception) {
+                            Log.w("OfflineDownloads", "Download failed for chapter ${chapter.id}: ${e.message}")
+                            if (tempFile.exists()) {
+                                try { tempFile.delete() } catch (_: Exception) {}
+                            }
+                            // Do not leave a partial target.
+                            // The chapter is failed — honest state.
                         }
-                    } catch (e: Exception) {
-                        Log.w("OfflineDownloads", "Download failed for chapter ${chapter.id}: ${e.message}")
-                        // Phase 2.5 hotfix (HI-001 / SF-001): the previous
-                        // catch wrote a literal "OFFLINE_AUDIO_<id>" text
-                        // marker into the .mp3 path and then set
-                        // chapter.isDownloaded = true. The player tried to
-                        // decode text and the user saw a "Downloaded" badge
-                        // over unplayable content. Surface the failure
-                        // instead.
-                        if (localFile.exists()) localFile.delete()
-                    }
 
-                    val finished = completedCount.incrementAndGet()
-                    val currentProgress = finished.toFloat() / total
-                    dao.updateDownloadState(bookId, isDownloaded = false, progress = currentProgress)
-                    // ADR-0007: download state lives on the TRACK rows — the
-                    // chapter rows never change on download.
-                    track?.let {
-                        dao.updateTrackDownloadState(
-                            it.id,
-                            isDownloaded = chapterOk,
-                            filePath = if (chapterOk) localFile.absolutePath else null
-                        )
+                        val finished = completedCount.incrementAndGet()
+                        val currentProgress = finished.toFloat() / total
+                        dao.updateDownloadState(bookId, isDownloaded = false, progress = currentProgress)
+                        // ADR-0007: download state lives on the TRACK rows — the
+                        // chapter rows never change on download.
+                        track?.let {
+                            dao.updateTrackDownloadState(
+                                it.id,
+                                isDownloaded = chapterOk,
+                                filePath = if (chapterOk) targetFile.absolutePath else null
+                            )
+                        }
+                        if (chapterOk) successCount.incrementAndGet()
                     }
-                    if (chapterOk) successCount++
                 }
             }.awaitAll()
         }
 
-        val allOk = successCount == total
+        val success = successCount.get()
+        val allOk = success == total
         dao.updateDownloadState(
             bookId,
             isDownloaded = allOk,
-            progress = if (allOk) 1.0f else successCount.toFloat() / total
+            progress = if (allOk) 1.0f else success.toFloat() / total
         )
-        return OfflineDownloadResult(successCount, total)
+        return OfflineDownloadResult(success, total)
     }
 
     suspend fun removeOfflineDownload(bookId: String) {

@@ -105,7 +105,7 @@ The «Колекції» Огляд block is curated external lists (Нобел�
 _Avoid_: network lists, Room persistence of match results
 
 **Live collections**:
-The same matcher also consumes LIVE lists over the `LiveCollectionSource` seam (first source: keyless OpenLibrary trending → «Популярне зараз»), fetched through the shared HttpFetcher on the union refresh, TTL-cached per source like the feeds, best-effort (failure → no collection, never a broken refresh). Static + live feed one `matchAll`; the JSON parser behind the assets is the shared pure-JVM `MiniJson` (ADR-0013).
+The same matcher also consumes LIVE lists over the `LiveCollectionSource` seam (keyless OpenLibrary trending → «Популярне зараз»; sluhay.com.ua most-viewed → «Популярне у sluhay.com.ua», spec-37), fetched through the shared HttpFetcher on the union refresh, TTL-cached per source like the feeds, best-effort (failure → no collection, never a broken refresh). Static + live feed one `matchAll`; the JSON parser behind the assets is the shared pure-JVM `MiniJson` (ADR-0013).
 _Avoid_: raw connections in live sources, live lists persisted to Room
 
 ## Discovery surfaces (spec-28)

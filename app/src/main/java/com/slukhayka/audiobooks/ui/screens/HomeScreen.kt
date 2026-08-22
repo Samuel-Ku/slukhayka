@@ -344,7 +344,7 @@ fun HomeScreen(
                                 Intent(Intent.ACTION_VIEW, Uri.parse(release.apkUrl))
                             )
                         },
-                        onDismiss = { /* T2 (#245): the dismissal lifecycle */ }
+                        onDismiss = updateChecker::dismiss
                     )
                 }
             }

@@ -27,7 +27,9 @@ data class AvailableAppRelease(
  *  - a NEWER tag than the installed version emits an [AvailableAppRelease];
  *    equal/older/malformed tags emit nothing;
  *  - empty body, garbage JSON, missing/non-string tag_name — silence, and
- *    the window stays unanchored.
+ *    the window stays unanchored;
+ *  - [dismiss] hides the shown release until a STRICTLY newer one appears;
+ *    once installed >= latest, the dismissal clears itself.
  *
  * The transport is the shared [HttpFetcher] (ADR-0006); the response is
  * decoded by the shared pure-JVM MiniJson (the ADR-0013 collections
@@ -65,10 +67,32 @@ class UpdateChecker(
         store.lastCheckAtMillis = clock()
 
         if (!ReleaseVersion.isNewer(latest, installedVersionName)) {
+            // The installed build caught up — the dismissal has nothing left
+            // to suppress, so it clears itself (spec-36 #245).
+            store.dismissedVersionName = null
+            _available.value = null
+            return
+        }
+
+        // A dismissed release keeps the banner hidden until a STRICTLY newer
+        // one appears (spec-36 #245).
+        val dismissed = store.dismissedVersionName
+        if (dismissed != null && !ReleaseVersion.isNewer(latest, dismissed)) {
             _available.value = null
             return
         }
         _available.value = AvailableAppRelease(latest, downloadUrlFor(latest))
+    }
+
+    /**
+     * «Приховати» — the currently shown release stops nagging; it stays
+     * suppressed across restarts until a strictly newer release is published.
+     * No-op when nothing is shown.
+     */
+    fun dismiss() {
+        val current = _available.value ?: return
+        store.dismissedVersionName = current.versionName
+        _available.value = null
     }
 
     companion object {

@@ -156,6 +156,32 @@ class SluhayuaAdapterTest {
     }
 
     @Test
+    fun `book page prefers the full body itemprop blurb over the og template`() = runBlocking {
+        // Live shape (#265): the body's bookDescription[itemprop=description]
+        // carries the CLEAN blurb (no «Аудіокнігу онлайн…» prefix) and a
+        // trailing «Автор озвучки:» meta line that must be cut.
+        val page = multiChapterPage.replace(
+            "</body>",
+            """
+            <div class="bookDescription" itemprop="description">
+                «Сердешна Оксана» — повість про перше кохання, яке випало на важкі часи.<br />
+                <br />
+                Другий абзац справжньої анотації.
+                Автор озвучки: Діана Гончаренко
+            </div>
+            </body>"""
+        )
+        val adapter = SluhayuaAdapter(FakeFetcher(mapOf(multiChapterUrl to page)))
+
+        val detail = adapter.fetchBookPage(multiChapterUrl)
+
+        assertEquals(
+            "«Сердешна Оксана» — повість про перше кохання, яке випало на важкі часи.\nДругий абзац справжньої анотації.",
+            detail.description
+        )
+    }
+
+    @Test
     fun `single-file book yields one chapter`() = runBlocking {
         val fetcher = FakeFetcher(
             mapOf(

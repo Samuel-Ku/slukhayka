@@ -55,7 +55,7 @@ class SluhayuaAdapter(
                 narrator = narratorFromPage(html),
                 url = url,
                 chapters = emptyList(),
-                description = ogMeta(html, "og:description")?.trim().orEmpty()
+                description = pageDescription(html)
             )
         }
 
@@ -74,7 +74,7 @@ class SluhayuaAdapter(
             coverImageUrl = ogMeta(html, "og:image")
                 ?.replace("//uploads", "/uploads"),
             chapters = chapters,
-            description = ogMeta(html, "og:description")?.trim().orEmpty()
+            description = pageDescription(html)
         )
     }
 
@@ -149,6 +149,34 @@ class SluhayuaAdapter(
 
     private fun urlEncode(s: String): String =
         URLEncoder.encode(s, "UTF-8").replace("+", "%20")
+
+    /**
+     * #265 — the book annotation: the body's `bookDescription[itemprop=
+     * description]` container carries the CLEAN blurb (no «Аудіокнігу
+     * онлайн…» prefix the og:description template adds), so it wins when
+     * present; og:description stays the fallback for pages without it. The
+     * trailing «Автор озвучки:» meta line inside the container is cut — the
+     * narrator is already a field of its own. `<br>` becomes a line break,
+     * other tags become spaces, entities decode, blank lines drop.
+     */
+    private fun pageDescription(html: String): String {
+        val ogFallback = ogMeta(html, "og:description")?.trim().orEmpty()
+        val open = Regex("""<div[^>]*itemprop="description"[^>]*>""", RegexOption.IGNORE_CASE).find(html)
+            ?: return ogFallback
+        val close = html.indexOf("</div>", open.range.last)
+        if (close < 0) return ogFallback
+        val text = html.substring(open.range.last + 1, close)
+        val cut = Regex("""Автор озвучки\s*:""", RegexOption.IGNORE_CASE).find(text)?.range?.first ?: text.length
+        val cleaned = text.substring(0, cut)
+            .replace(Regex("""<br\s*/?>""", RegexOption.IGNORE_CASE), "\n")
+            .replace(TAGS, " ")
+            .let(::decodeEntities)
+            .lines()
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .joinToString("\n")
+        return cleaned.ifBlank { ogFallback }
+    }
 
     /** Number of files in the page's inline `var playlist = [["0",0],…]`. */
     private fun playlistCount(html: String): Int {
@@ -267,5 +295,6 @@ class SluhayuaAdapter(
 
     private companion object {
         val XHR = mapOf("X-Requested-With" to "XMLHttpRequest")
+        val TAGS = Regex("""<[^>]+>""")
     }
 }

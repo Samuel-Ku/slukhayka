@@ -26,17 +26,20 @@ import com.slukhayka.audiobooks.ui.components.NavigationChip
 /**
  * spec-28 (#203) — the Огляд feed body, extracted from HomeScreen as a
  * stateless `LazyListScope` emitter so the block order (spec-28 lines
- * 150-153) is testable and snapshot-pinned:
+ * 150-153, amended by spec-39) is testable and snapshot-pinned:
  *
- * search → 5-chip nav row → genres → Рекомендовано для вас → «Новинки» →
- * За тривалістю → 4read sections → [Колекції] → «Більше книг на Sluhay» CTA
- * → «Весь каталог» (always last). Curated content sits above the endless
- * feed; the feed is the final element of the screen. The inline «Колекції»
- * blocks (ADR-0017 closing pass, #203) sit AFTER the 4read sections: they
- * now have a dedicated index screen (US-12, #190), so they must not occupy
- * the marquee position and push «Рекомендовано для вас» below the fold —
- * the spec order line (spec-28 lines 150-153) names Рекомендовано directly
- * after the genres row.
+ * search → 5-chip nav row → genres → «Ваші цикли» (spec-39; only when the
+ * listener owns cycles) → Рекомендовано для вас → «Новинки» → За тривалістю
+ * → 4read sections («Цикли» row skipped while «Ваші цикли» renders) →
+ * [Колекції] → «Більше книг на Sluhay» CTA → «Весь каталог» (always last).
+ * Curated content sits above the endless feed; the feed is the final
+ * element of the screen. The inline «Колекції» blocks (ADR-0017 closing
+ * pass, #203) sit AFTER the 4read sections: they now have a dedicated index
+ * screen (US-12, #190), so they must not occupy the marquee position and
+ * push the first curated shelf below the fold. The spec-39 shelf takes the
+ * position right after the genres — the most personal content leads — and
+ * the editorial 4read «Цикли» row hides while it does (a recorded amendment
+ * of the spec-28 order line, spec-39 Р1/Р7).
  */
 fun LazyListScope.homeFeedContent(
     isCatalogLoading: Boolean,
@@ -46,6 +49,7 @@ fun LazyListScope.homeFeedContent(
     collections: List<CollectionMatcher.MatchedCollection>,
     newArrivals: List<GlobalSearchResult>,
     recommendedBooks: List<RecommendationEngine.Recommendation>,
+    personalCycles: List<com.slukhayka.audiobooks.ui.library.PersonalCycle>,
     shortBooks: List<CatalogBook>,
     longBooks: List<CatalogBook>,
     workFeedItems: LazyPagingItems<WorkFeedRow>,
@@ -142,6 +146,29 @@ fun LazyListScope.homeFeedContent(
         }
     }
 
+    // Spec-39 T1 (#261): «Ваші цикли» — the listener's own cycles, built
+    // purely from the local base (no network, no loading states). Sits right
+    // after the genres; while it renders, the editorial 4read «Цикли»
+    // section row below is skipped (gradual replacement, spec-39 Р1).
+    if (personalCycles.isNotEmpty()) {
+        item {
+            CatalogRowHeader(title = "Ваші цикли")
+        }
+        item {
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                items(personalCycles, key = { it.url }) { cycle ->
+                    PersonalCycleCard(
+                        cycle = cycle,
+                        onClick = { onOpenSeries(cycle.title, cycle.url) }
+                    )
+                }
+            }
+        }
+    }
+
     // Spec-19 Track A: «Рекомендовано для вас» — on-device, local
     // only. Each card carries a reason chip («схоже на X»); tapping
     // opens the book page through the same identity resolution as
@@ -200,6 +227,9 @@ fun LazyListScope.homeFeedContent(
         // rename of the section title in the parser can never render
         // 4read's new arrivals twice (rail + section row).
         if (section.id == CatalogSectionId.NEW_ARRIVALS) return@forEach
+        // Spec-39 Р1: while «Ваші цикли» renders above, the editorial
+        // 4read «Цикли» row is noise — skipped by typed id, same doctrine.
+        if (section.id == CatalogSectionId.SERIES && personalCycles.isNotEmpty()) return@forEach
         if (section.books.isNotEmpty()) {
             item {
                 CatalogRowHeader(title = section.title)

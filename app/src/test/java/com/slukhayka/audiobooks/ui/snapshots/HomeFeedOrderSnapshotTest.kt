@@ -148,6 +148,7 @@ class HomeFeedOrderSnapshotTest {
                             collections = collections,
                             newArrivals = results,
                             recommendedBooks = recommendations,
+                            personalCycles = emptyList(),
                             shortBooks = books,
                             longBooks = books,
                             workFeedItems = feedItems,
@@ -209,6 +210,89 @@ class HomeFeedOrderSnapshotTest {
 
         composeTestRule.onRoot().captureRoboImage(
             filePath = "src/test/snapshots/home_feed_order.png"
+        )
+    }
+
+    /**
+     * spec-39 T1 (#261) — with own cycles on the shelf, «Ваші цикли» sits
+     * between the genres and «Рекомендовано для вас» (the recorded spec-28
+     * order amendment), and the editorial 4read «Цикли» section row is
+     * hidden while the personal shelf renders.
+     */
+    @Test
+    fun personal_cycles_shelf_sits_after_genres_and_hides_the_editorial_cycles_row() {
+        val cycles = listOf(
+            com.slukhayka.audiobooks.ui.library.PersonalCycle(
+                title = "Відьмак",
+                url = "https://4read.org/xfsearch/cikl/vidmak/",
+                coverImageUrl = null,
+                listenedCount = 2,
+                totalCount = 8,
+                finished = false
+            )
+        )
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                    val feedFlow = remember { MutableStateFlow(PagingData.from(feedRows)) }
+                    val feedItems = feedFlow.collectAsLazyPagingItems()
+                    LazyColumn(modifier = Modifier.fillMaxSize().testTag("home_feed")) {
+                        homeFeedContent(
+                            isCatalogLoading = false,
+                            hasLibraryBooks = true,
+                            sections = sections,
+                            catalogGenres = listOf(
+                                CatalogGenre("Фантастика", "https://4read.org/fant"),
+                                CatalogGenre("Детективи", "https://4read.org/det")
+                            ),
+                            collections = collections,
+                            newArrivals = results,
+                            recommendedBooks = recommendations,
+                            personalCycles = cycles,
+                            shortBooks = books,
+                            longBooks = books,
+                            workFeedItems = feedItems,
+                            feedSourceFilter = null,
+                            feedGenreFilter = null,
+                            feedSortByTitle = false,
+                            onRefreshCatalog = {},
+                            onGoToLibrary = {},
+                            onOpenTop100 = {},
+                            onOpenPeople = {},
+                            onOpenSeriesIndex = {},
+                            onOpenCollectionsIndex = {},
+                            onOpenGenre = { _, _ -> },
+                            onOpenSeries = { _, _ -> },
+                            onPlayGlobalSearchResult = {},
+                            onOpenRecommendedBook = {},
+                            onOpenWorkFeedRow = {},
+                            onBookClick = {},
+                            onSetFeedSourceFilter = {},
+                            onSetFeedGenreFilter = {},
+                            onSetFeedSortByTitle = {},
+                            onOpenWebSource = {}
+                        )
+                    }
+                }
+            }
+        }
+        composeTestRule.waitForIdle()
+
+        fun topOf(text: String): Dp =
+            composeTestRule.onNodeWithText(text, ignoreCase = true).getBoundsInRoot().top
+
+        assertTrue(topOf("Жанри") < topOf("Ваші цикли"))
+        assertTrue(topOf("Ваші цикли") < topOf("Рекомендовано для вас"))
+        // The rest of the order is unchanged behind the new shelf.
+        assertTrue(topOf("Рекомендовано для вас") < topOf("Новинки"))
+
+        // The editorial 4read «Цикли» header is gone while the shelf renders;
+        // the honest progress line shows real numbers exactly once.
+        assertEquals(0, composeTestRule.onAllNodesWithText("Цикли", useUnmergedTree = true).fetchSemanticsNodes().size)
+        assertEquals(1, composeTestRule.onAllNodesWithText("Прослухано 2 із 8").fetchSemanticsNodes().size)
+
+        composeTestRule.onRoot().captureRoboImage(
+            filePath = "src/test/snapshots/home_feed_personal_cycles.png"
         )
     }
 }

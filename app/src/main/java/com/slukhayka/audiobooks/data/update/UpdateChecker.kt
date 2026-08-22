@@ -48,7 +48,10 @@ class UpdateChecker(
 
     /** One throttled, silent, best-effort check. Safe to call often. */
     suspend fun checkNow() {
-        if (clock() - store.lastCheckAtMillis < CHECK_INTERVAL_MILLIS) return
+        // A zero timestamp means «never checked» — a fresh install always
+        // runs its first check regardless of what the clock says.
+        val lastCheckAt = store.lastCheckAtMillis
+        if (lastCheckAt != 0L && clock() - lastCheckAt < CHECK_INTERVAL_MILLIS) return
         val body = try {
             fetcher.getText(releasesUrl)
         } catch (e: Exception) {

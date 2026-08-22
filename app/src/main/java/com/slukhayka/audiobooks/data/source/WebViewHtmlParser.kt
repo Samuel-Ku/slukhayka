@@ -36,9 +36,12 @@ class WebViewHtmlParser {
         val totalDurationSeconds = parsePageDuration(html)
         val author = parsePmovieText(html, "Автор") ?: ""
         val narrator = parsePmovieText(html, "Читає") ?: ""
-        // Spec-15 T5: the page's og:description is the book's own blurb (a
-        // real description, unlike lihtar where og:description is the author).
-        val description = parseOgDescription(html)
+        // Spec-15 T5 + #265: the FULL annotation lives in the body container
+        // (itemprop="description", ~800 chars of real blurbs); DLE crops
+        // og:description to ~295. Fallback keeps the meta path for pages
+        // without the container.
+        val description = parseItempropDescription(html)
+            .ifBlank { parseOgDescription(html) }
         val genres = parsePmovieGenres(html)
         val rating = parseRatingScore(html)
         val series = parsePmovieCycle(html)
@@ -140,6 +143,42 @@ class WebViewHtmlParser {
         )
     }
 
+    /**
+     * #265 — the full book annotation from the body container
+     * `<div ... itemprop="description">`: its paragraphs up to the curated
+     * tail markers («Теги#», «Подякувати», «Ютуб канал», PayPal), tags and
+     * entities stripped, whitespace collapsed. Tail junk that shares a
+     * paragraph is cut mid-text too. Absent/malformed container → empty
+     * (the caller falls back to og:description). Never throws.
+     */
+    private fun parseItempropDescription(html: String): String {
+        val start = html.indexOf("""itemprop="description"""")
+        if (start < 0) return ""
+        val scope = html.substring(start, minOf(html.length, start + DESCRIPTION_WINDOW))
+        val result = StringBuilder()
+        for (match in paragraphRegex.findAll(scope)) {
+            var text = match.groupValues[1]
+                .replace(TAG_REGEX, " ")
+                .let { decodeEntities(it) }
+                .replace(WHITESPACE_REGEX, " ")
+                .trim()
+            if (text.isEmpty()) continue
+            val cut = TAIL_MARKERS.firstOrNull { text.contains(it, ignoreCase = true) }
+            if (cut != null) {
+                text = text.substring(0, text.indexOf(cut, ignoreCase = true)).trim()
+                if (text.isNotEmpty()) {
+                    if (result.isNotEmpty()) result.append("\n")
+                    result.append(text)
+                }
+                break
+            }
+            if (result.isNotEmpty()) result.append("\n")
+            result.append(text)
+            if (result.length >= MIN_FULL_ANNOTATION) break
+        }
+        return result.toString().trim()
+    }
+
     /** The page's og:description blurb, trimmed; absent when not present. */
     private fun parseOgDescription(html: String): String =
         Regex("""<meta\s+property="og:description"\s+content="([^"]+)"\s*/?>""", RegexOption.IGNORE_CASE)
@@ -147,6 +186,23 @@ class WebViewHtmlParser {
             ?: Regex("""<meta\s+content="([^"]+)"\s+property="og:description"\s*/?>""", RegexOption.IGNORE_CASE)
             .find(html)?.groupValues?.get(1)
             ?.trim().orEmpty()
+
+    private companion object {
+        /** How far past itemprop="description" the paragraph scan reaches. */
+        const val DESCRIPTION_WINDOW = 30_000
+
+        /** A full annotation is around this size — longer scanning is waste. */
+        const val MIN_FULL_ANNOTATION = 1200
+
+        private val paragraphRegex =
+            Regex("""<p[^>]*>(.*?)</p>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+        private val TAG_REGEX = Regex("""<[^>]+>""")
+        private val WHITESPACE_REGEX = Regex("""\s+""")
+        private val TAIL_MARKERS = listOf("Теги#", "Теги", "Подякувати", "Ютуб канал", "PayPal")
+
+        /** Percent-encoding alphabet for [encodeUrl]. */
+        const val HEX = "0123456789ABCDEF"
+    }
 
     /** The book page's real total duration (formats `10:57:18` / `53:42`). */
     private fun parsePageDuration(html: String): Long? {
@@ -321,9 +377,5 @@ class WebViewHtmlParser {
             }
         }
         return sb.toString()
-    }
-
-    private companion object {
-        const val HEX = "0123456789ABCDEF"
     }
 }

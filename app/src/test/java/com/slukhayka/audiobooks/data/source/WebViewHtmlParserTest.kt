@@ -1,6 +1,7 @@
 package com.slukhayka.audiobooks.data.source
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -122,6 +123,71 @@ class WebViewHtmlParserTest {
     }
 
     @Test
+    fun `full annotation comes from the itemprop container with tail junk stripped`() {
+        // Live page shape (#265): og:description is DLE-truncated (~295 chars),
+        // while the body's itemprop="description" carries the FULL blurb —
+        // followed by «Теги# …», YouTube and donation junk inside the SAME
+        // container. The parser must take the blurb and cut at «Теги».
+        val page = fullBookPage.replace(
+            "</body>",
+            """
+            <div class="pmovie__text full-text clearfix" itemprop="description">
+                <p>Кажуть, після справи «Дому шовку» Шерлок Голмс довгі роки відмовлявся згадувати про неї. Таємниче прохання торговця мистецтвом приводить Голмса й доктора Ватсона до розслідування.</p>
+                <p>Ентоні Горовіц майстерно відтворює атмосферу класичних пригод Шерлока Голмса.</p>
+                Теги# Шерлок Голмс , доктор Ватсон , детектив
+                Ютуб канал диктора Подякувати диктору: Приват: 5457082257277959 PayPal: example@mail.com
+            </div>
+            </body>"""
+        )
+        val parser = WebViewHtmlParser()
+
+        val detail = parser.parse(page, "https://4read.org/7978-dim-shovku.html")
+
+        val expected = "Кажуть, після справи «Дому шовку» Шерлок Голмс довгі роки відмовлявся згадувати про неї. " +
+            "Таємниче прохання торговця мистецтвом приводить Голмса й доктора Ватсона до розслідування.\n" +
+            "Ентоні Горовіц майстерно відтворює атмосферу класичних пригод Шерлока Голмса."
+        assertEquals(expected, detail.description)
+        // The tail junk never reaches the stored field.
+        assertTrue(!detail.description.contains("Теги"))
+        assertTrue(!detail.description.contains("PayPal"))
+        assertTrue(detail.description.length > 200)
+    }
+
+    @Test
+    fun `tail junk sharing the last paragraph is cut and still newline-joined`() {
+        // Live variant (#265): DLE sometimes keeps the tags line INSIDE the
+        // final blurb paragraph — the cut must leave the kept part joined
+        // like any other paragraph, never glued to the previous one.
+        val page = fullBookPage.replace(
+            "</body>",
+            """
+            <div class="pmovie__text full-text clearfix" itemprop="description">
+                <p>Перший абзац справжньої анотації.</p>
+                <p>Другий абзац анотації. Теги# детектив, класика Ютуб канал диктора</p>
+            </div>
+            </body>"""
+        )
+        val parser = WebViewHtmlParser()
+
+        val detail = parser.parse(page, "https://4read.org/7978-dim-shovku.html")
+
+        assertEquals("Перший абзац справжньої анотації.\nДругий абзац анотації.", detail.description)
+    }
+
+    @Test
+    fun `an empty itemprop container falls back to og description`() {
+        val page = fullBookPage.replace(
+            "</body>",
+            """<div class="pmovie__text full-text clearfix" itemprop="description"></div></body>"""
+        )
+        val parser = WebViewHtmlParser()
+
+        val detail = parser.parse(page, "https://4read.org/7589-neostannij-bij.html")
+
+        assertEquals("Максим Темний повертається. Його чекає найважчий бій — бій з власним минулим.", detail.description)
+    }
+
+    @Test
     fun `cyrillic chapter paths stay percent-encoded - regression from device session`() {
         // Found on-device in spec-14 T6: a chapter file with a Cyrillic name
         // (e.g. 1984) 403'd because encodeUrl let Latin-1 re-mappings of
@@ -142,5 +208,36 @@ class WebViewHtmlParserTest {
             "https://reasd.org/4984/01.%20%D0%94%D0%B6%D0%BE%D1%80%D0%B4%D0%B6%20%D0%9E%D1%80%D0%B2%D0%B5%D0%BB%D0%BB%201984%20%D1%87%D0%B0%D1%81%D1%82%D0%B8%D0%BD%D0%B0%201%20%D1%80%D0%BE%D0%B7%D0%B4%D1%96%D0%BB%201.mp3",
             url
         )
+    }
+
+
+    /** #265 — live DLE body annotation with curated tail junk. */
+    @Test
+    fun `full annotation comes from itemprop container without tail junk`() {
+        val parser = WebViewHtmlParser()
+        val html = """
+            <meta property="og:description" content="Короткий блурб 295">
+            <div class="pmovie__text full-text clearfix" itemprop="description">
+            <p>Перший абзац анотації про книгу.</p>
+            <p>Другий абзац з продовженням історії.</p>
+            <p>Теги# фентезі, пригоди</p>
+            <p>Ютуб канал диктора Подякувати PayPal: x</p>
+            </div>
+        """.trimIndent()
+        val detail = parser.parse(html, "https://4read.org/x.html") { "" }
+        val d = detail.description
+        assertTrue(d.contains("Перший абзац"))
+        assertTrue(d.contains("Другий абзац"))
+        assertFalse(d.contains("Теги"))
+        assertFalse(d.contains("PayPal"))
+    }
+
+    /** #265 — no body container keeps the og:description path. */
+    @Test
+    fun `page without itemprop falls back to og description`() {
+        val parser = WebViewHtmlParser()
+        val html = """<meta property="og:description" content="Лише мета-блурб">"""
+        val detail = parser.parse(html, "https://4read.org/y.html") { "" }
+        assertEquals("Лише мета-блурб", detail.description)
     }
 }

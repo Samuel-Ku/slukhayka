@@ -351,20 +351,6 @@ class FakeAudiobookDao(
         tracksState.update { current -> current.filterNot { it.id in incomingIds } + tracks }
     }
 
-    override suspend fun getDownloadedTrackByUrl(excludeTrackId: String, url: String): SourceTrackEntity? =
-        tracksState.value.firstOrNull {
-            it.url == url && it.isDownloaded && it.localFilePath != null && it.id != excludeTrackId
-        }
-
-    override suspend fun updateTrackContentHash(trackId: String, hash: String) {
-        tracksState.update { current ->
-            current.map { if (it.id == trackId) it.copy(contentHash = hash) else it }
-        }
-    }
-
-    override suspend fun getTracksByLocalFilePath(path: String): List<SourceTrackEntity> =
-        tracksState.value.filter { it.localFilePath == path }
-
     override suspend fun updateTrackDownloadState(trackId: String, isDownloaded: Boolean, filePath: String?) {
         tracksState.update { current ->
             current.map { track ->
@@ -383,14 +369,16 @@ class FakeAudiobookDao(
     override suspend fun getAllTrackContentHashes(): List<String> =
         tracksState.value.mapNotNull { it.contentHash }
 
+    // Spec-37 T2 (#251): URL-based reuse + hash bookkeeping — the same
+    // projections the real DAO serves.
+    override suspend fun getDownloadedTrackByUrl(url: String): SourceTrackEntity? =
+        tracksState.value.firstOrNull { it.url == url && it.isDownloaded && it.localFilePath != null }
+
     override suspend fun updateTrackContentHash(trackId: String, hash: String?) {
         tracksState.update { current ->
             current.map { if (it.id == trackId) it.copy(contentHash = hash) else it }
         }
     }
-
-    override suspend fun getDownloadedTrackByUrl(url: String): SourceTrackEntity? =
-        tracksState.value.firstOrNull { it.url == url && it.isDownloaded && it.localFilePath != null }
 
     override suspend fun getTracksByFilePath(path: String): List<SourceTrackEntity> =
         tracksState.value.filter { it.localFilePath == path && it.isDownloaded }

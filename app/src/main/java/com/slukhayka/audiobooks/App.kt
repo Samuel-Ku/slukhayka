@@ -8,6 +8,7 @@ import com.google.firebase.appcheck.recaptcha.RecaptchaAppCheckProviderFactory
 import com.slukhayka.audiobooks.data.catalog.SourceCatalog
 import com.slukhayka.audiobooks.data.collections.CollectionAssets
 import com.slukhayka.audiobooks.data.collections.OpenLibraryTrendingSource
+import com.slukhayka.audiobooks.data.collections.SluhayuaPopularSource
 import com.slukhayka.audiobooks.data.db.AudiobookDatabase
 import com.slukhayka.audiobooks.data.downloads.OfflineDownloads
 import com.slukhayka.audiobooks.data.duration.ChapterDurationProbe
@@ -133,14 +134,18 @@ class App : Application() {
     val sourceCatalog: SourceCatalog by lazy {
         // Spec-16: the curated smart-collection lists ride the context seam —
         // one JSON file per collection, loaded once at the composition root.
-        // The live «Популярне зараз» list (OpenLibrary trending, keyless) is
+        // The live «Популярне зараз» list (OpenLibrary trending, keyless) and
+        // the «Популярне у sluhay.com.ua» most-viewed list (spec-37) are
         // fetched over the shared HTTP transport on the union refresh.
         SourceCatalog(
             database.audiobookDao(),
             sourceAdapters,
             libraryImport,
             collectionLists = CollectionAssets.load(this),
-            liveCollectionSources = listOf(OpenLibraryTrendingSource()),
+            liveCollectionSources = listOf(
+                OpenLibraryTrendingSource(),
+                SluhayuaPopularSource()
+            ),
             // Spec-30 T2 (#217): search cards resolve their duration through
             // the client-first precedence (local DB → shared cache, fill-the-
             // gap + mirror). Null without Firebase keys — search then behaves

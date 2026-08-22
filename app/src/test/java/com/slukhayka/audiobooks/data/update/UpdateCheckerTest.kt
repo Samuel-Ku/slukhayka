@@ -16,7 +16,7 @@ import org.junit.Test
 class UpdateCheckerTest {
 
     /** Canned-body transport that counts requests (throttle observability). */
-    private class CountingFetcher(private val body: String) : HttpFetcher() {
+    private class CountingFetcher(var body: String) : HttpFetcher() {
         var calls = 0
         override fun getText(url: String): String {
             calls++
@@ -24,7 +24,10 @@ class UpdateCheckerTest {
         }
     }
 
-    private class MemoryStore(override var lastCheckAtMillis: Long = 0L) : UpdateCheckStore
+    private class MemoryStore(
+        override var lastCheckAtMillis: Long = 0L,
+        override var dismissedVersionName: String? = null
+    ) : UpdateCheckStore
 
     private fun releaseBody(tag: String?) = """{"tag_name": ${tag?.let { "\"$it\"" } ?: "null"}, "name": "x"}"""
 
@@ -122,5 +125,83 @@ class UpdateCheckerTest {
         val checker = checker(CountingFetcher(releaseBody("v1.10")), installed = "1.9")
         runBlocking { checker.checkNow() }
         assertEquals("1.10", checker.available.value?.versionName)
+    }
+
+    // ---- Spec-36 T2 (#245): the dismissal lifecycle ----
+
+    @Test
+    fun `dismiss hides the shown release and remembers it`() = runBlocking {
+        val store = MemoryStore()
+        val checker = checker(CountingFetcher(releaseBody("v1.2")), store = store)
+
+        checker.checkNow()
+        assertEquals("1.2", checker.available.value?.versionName)
+
+        checker.dismiss()
+
+        assertNull(checker.available.value)
+        assertEquals("1.2", store.dismissedVersionName)
+    }
+
+    @Test
+    fun `dismissed release stays hidden across re-checks`() = runBlocking {
+        val now = mutableListOf(1_000_000L)
+        val store = MemoryStore()
+        val checker = checker(CountingFetcher(releaseBody("v1.2")), store = store, now = { now[0] })
+
+        checker.checkNow()
+        checker.dismiss()
+        now[0] += UpdateChecker.CHECK_INTERVAL_MILLIS
+        checker.checkNow()
+
+        assertNull(checker.available.value)
+    }
+
+    @Test
+    fun `strictly newer release re-shows after a dismissal`() = runBlocking {
+        val now = mutableListOf(1_000_000L)
+        val store = MemoryStore()
+        val fetcher = CountingFetcher(releaseBody("v1.2"))
+        val checker = checker(fetcher, store = store, now = { now[0] })
+
+        checker.checkNow()
+        checker.dismiss()
+        fetcher.body = releaseBody("v1.3")
+        now[0] += UpdateChecker.CHECK_INTERVAL_MILLIS
+        checker.checkNow()
+
+        assertEquals("1.3", checker.available.value?.versionName)
+    }
+
+    @Test
+    fun `release older than the dismissal stays hidden`() = runBlocking {
+        val now = mutableListOf(1_000_000L)
+        val store = MemoryStore(dismissedVersionName = "1.5")
+        val checker = checker(CountingFetcher(releaseBody("v1.4")), store = store, now = { now[0] })
+
+        checker.checkNow()
+
+        assertNull(checker.available.value)
+    }
+
+    @Test
+    fun `catching up clears the stale dismissal`() = runBlocking {
+        val store = MemoryStore(dismissedVersionName = "1.9")
+        val checker = checker(CountingFetcher(releaseBody("v1.9")), installed = "1.9", store = store)
+
+        checker.checkNow()
+
+        assertNull(checker.available.value)
+        assertNull(store.dismissedVersionName)
+    }
+
+    @Test
+    fun `dismiss without a shown release is a no-op`() {
+        val store = MemoryStore()
+        val checker = checker(CountingFetcher(""), store = store)
+
+        checker.dismiss()
+
+        assertNull(store.dismissedVersionName)
     }
 }

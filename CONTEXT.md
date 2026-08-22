@@ -50,6 +50,12 @@ _Avoid_: Metadata Assertion, corrected source data
 The one cover URL of a Work in the shared metadata base (`book_covers`, keyed by the Work mergeKey — one cover per Work, shared across narrations). Covers are URL-only (never rehosted) and curated/seeded first: the curated seed pours the bundled asset idempotently, untrusted device write-backs are deferred until AppCheck + reporting exist. Reads are client-first — a locally known cover wins, the shared base fills the gap and mirrors into the local database via the existing cover write path (`updateCoverImageUrl`), the source's own claim is the last resort; corrupt documents are misses (spec-30 T3, ADR-0020).
 _Avoid_: per-source cover claims, rehosting covers, fabricated URLs
 
+## App
+
+**Release**:
+A published build of the app itself, tagged `v<versionName>` on GitHub Releases — the single source of truth for the in-app update banner. Not a book concept: never use «version» for an Edition or narration (that word is reserved here).
+_Avoid_: version (for an Edition), update feed
+
 ## Listener relationship
 
 **Library Entry**:

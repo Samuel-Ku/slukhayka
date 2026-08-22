@@ -155,7 +155,11 @@ class LibraryImport(
                     title = MetadataAssertions.normalizeTitle(detail.title),
                     author = MetadataAssertions.normalizeClaimedText(detail.author) ?: sourceId,
                     narrator = narrator,
-                    description = detail.description.trim().ifBlank { "Аудіокнига з джерела $sourceId" },
+                    // #264: the claimed description passes the same one-rule
+                    // treatment as the title — SEO templates scrub to empty
+                    // and fall back to the honest source phrase.
+                    description = MetadataAssertions.normalizeDescription(detail.description)
+                        .ifBlank { "Аудіокнига з джерела $sourceId" },
                     coverDrawableRes = R.drawable.img_neuromancer_cover_1785247475170,
                     coverImageUrl = MetadataAssertions.coverDelta(detail.coverImageUrl),
                     genre = detail.genres.joinToString(" · ").ifBlank { "Каталог" },
@@ -386,7 +390,10 @@ class LibraryImport(
         rating = profile.rating,
         genres = profile.genres,
         series = profile.seriesTitle?.let { SeriesRef(name = it, position = profile.seriesIndex) },
-        description = profile.description
+        // #264: a profile read back from the shared base may predate the
+        // description scrub — it passes the same rule before flowing on (the
+        // import door below applies its fallback when this scrubs to empty).
+        description = MetadataAssertions.normalizeDescription(profile.description)
     )
 
     /**
@@ -598,7 +605,10 @@ class LibraryImport(
             title = MetadataAssertions.normalizeTitle(book.title),
             author = book.author.ifBlank { "4read.org" },
             narrator = "4read Voice Narrator",
-            description = "Аудіокнига з каталогу 4read.org",
+            // #264: the constant catalog phrase passes the rule like every
+            // other stored description — the invariant is uniform, the call
+            // is a no-op on honest text.
+            description = MetadataAssertions.normalizeDescription("Аудіокнига з каталогу 4read.org"),
             coverDrawableRes = R.drawable.img_neuromancer_cover_1785247475170,
             coverImageUrl = MetadataAssertions.coverDelta(book.coverImageUrl),
             genre = "4read Каталог",

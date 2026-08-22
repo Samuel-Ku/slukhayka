@@ -239,6 +239,29 @@ interface AudiobookDao {
     @Query("SELECT * FROM source_tracks WHERE contentHash = :hash LIMIT 1")
     suspend fun getTrackByContentHash(hash: String): SourceTrackEntity?
 
+    /** Spec-37 T2 (#251): another ALREADY-downloaded track carrying the same
+     *  stream URL — the reuse fast-path (one copy per URL, no second fetch).
+     *  [excludeTrackId] skips the asking row itself. */
+    @Query(
+        """
+        SELECT * FROM source_tracks
+        WHERE url = :url AND isDownloaded = 1 AND localFilePath IS NOT NULL
+          AND id <> :excludeTrackId
+        LIMIT 1
+        """
+    )
+    suspend fun getDownloadedTrackByUrl(excludeTrackId: String, url: String): SourceTrackEntity?
+
+    /** Spec-37 T2 (#251): the SHA-256 of a verified download lands on the
+     *  track row — the same column the local-import dedupe uses. */
+    @Query("UPDATE source_tracks SET contentHash = :hash WHERE id = :trackId")
+    suspend fun updateTrackContentHash(trackId: String, hash: String)
+
+    /** Spec-37 T2 (#251): every track pointing at one physical file — the
+     *  delete-by-last-reference rule reads this before unlinking. */
+    @Query("SELECT * FROM source_tracks WHERE localFilePath = :path")
+    suspend fun getTracksByLocalFilePath(path: String): List<SourceTrackEntity>
+
     /** Every stored content hash — the library-wide re-scan dedupe pool. */
     @Query("SELECT contentHash FROM source_tracks WHERE contentHash IS NOT NULL")
     suspend fun getAllTrackContentHashes(): List<String>
@@ -312,6 +335,14 @@ interface AudiobookDao {
 
     @Query("UPDATE works SET title = :title WHERE id = :id")
     suspend fun updateWorkTitle(id: String, title: String)
+
+    // --- #264: the stored-description scrub (same pass, same contract) -----
+
+    @Query("SELECT id, description FROM audiobooks")
+    suspend fun getAllBookDescriptionRows(): List<DescriptionRow>
+
+    @Query("UPDATE audiobooks SET description = :description WHERE id = :id")
+    suspend fun updateBookDescription(id: String, description: String)
 
     // --- Persisted catalogue: Works + Sources (spec-23 T1, ADR-0007) -------
 

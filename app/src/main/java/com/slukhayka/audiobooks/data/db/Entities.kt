@@ -583,3 +583,15 @@ data class TitleRow(
     val id: String,
     val title: String
 )
+
+/**
+ * #264 — one (id, description) row of the stored-description scrub: the
+ * startup pass reads the `audiobooks` descriptions through this projection,
+ * applies [com.slukhayka.audiobooks.data.metadata.MetadataAssertions.normalizeDescription]
+ * in Kotlin, and rewrites only the rows that change. A row projection of a
+ * Room query, not a stored table.
+ */
+data class DescriptionRow(
+    val id: String,
+    val description: String
+)

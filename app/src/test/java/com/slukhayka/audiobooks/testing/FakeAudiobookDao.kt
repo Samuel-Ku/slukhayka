@@ -17,6 +17,7 @@ import com.slukhayka.audiobooks.data.db.SeriesEntity
 import com.slukhayka.audiobooks.data.db.SeriesMemberEntity
 import com.slukhayka.audiobooks.data.db.SourceEntity
 import com.slukhayka.audiobooks.data.db.SourceTrackEntity
+import com.slukhayka.audiobooks.data.db.DescriptionRow
 import com.slukhayka.audiobooks.data.db.TitleRow
 import com.slukhayka.audiobooks.data.db.UniverseEntity
 import com.slukhayka.audiobooks.data.db.TombstoneEntity
@@ -349,6 +350,20 @@ class FakeAudiobookDao(
         val incomingIds = tracks.map { it.id }.toSet()
         tracksState.update { current -> current.filterNot { it.id in incomingIds } + tracks }
     }
+
+    override suspend fun getDownloadedTrackByUrl(excludeTrackId: String, url: String): SourceTrackEntity? =
+        tracksState.value.firstOrNull {
+            it.url == url && it.isDownloaded && it.localFilePath != null && it.id != excludeTrackId
+        }
+
+    override suspend fun updateTrackContentHash(trackId: String, hash: String) {
+        tracksState.update { current ->
+            current.map { if (it.id == trackId) it.copy(contentHash = hash) else it }
+        }
+    }
+
+    override suspend fun getTracksByLocalFilePath(path: String): List<SourceTrackEntity> =
+        tracksState.value.filter { it.localFilePath == path }
 
     override suspend fun updateTrackDownloadState(trackId: String, isDownloaded: Boolean, filePath: String?) {
         tracksState.update { current ->
@@ -786,6 +801,15 @@ class FakeAudiobookDao(
 
     override suspend fun updateWorkTitle(id: String, title: String) {
         worksState.update { current -> current.map { if (it.id == id) it.copy(title = title) else it } }
+    }
+
+    // #264: the stored-description scrub reads through the same projection
+    // the real DAO serves.
+    override suspend fun getAllBookDescriptionRows(): List<DescriptionRow> =
+        booksState.value.map { DescriptionRow(it.id, it.description) }
+
+    override suspend fun updateBookDescription(id: String, description: String) {
+        booksState.update { current -> current.map { if (it.id == id) it.copy(description = description) else it } }
     }
 
     override suspend fun countWorks(): Int = worksState.value.size

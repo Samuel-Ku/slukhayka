@@ -24,7 +24,7 @@ import com.slukhayka.audiobooks.data.metadata.CuratedCoverSeed
 import com.slukhayka.audiobooks.data.metadata.LibraryCoverResolver
 import com.slukhayka.audiobooks.data.metadata.SearchCoverResolver
 import com.slukhayka.audiobooks.data.metadata.SearchDurationResolver
-import com.slukhayka.audiobooks.data.metadata.StoredTitleScrub
+import com.slukhayka.audiobooks.data.metadata.StoredMetadataScrub
 import com.slukhayka.audiobooks.data.search.FirestoreSearchCache
 import com.slukhayka.audiobooks.data.merge.DuplicateWorkMerger
 import com.slukhayka.audiobooks.data.source.AudiobookMp3Adapter
@@ -257,12 +257,12 @@ class App : Application() {
     }
 
     /**
-     * Spec-24 T1 — the one-time stored-title scrub runner (audiobooks +
-     * works rows). Idempotent: a second run matches nothing, so repeated
-     * starts are safe.
+     * Spec-24 T1 + #264 — the one-time stored-metadata scrub runner (titles
+     * on audiobooks + works rows, descriptions on audiobooks). Idempotent: a
+     * second run matches nothing, so repeated starts are safe.
      */
-    val storedTitleScrub: StoredTitleScrub by lazy {
-        StoredTitleScrub(database.audiobookDao())
+    val storedMetadataScrub: StoredMetadataScrub by lazy {
+        StoredMetadataScrub(database.audiobookDao())
     }
 
     /**
@@ -338,7 +338,7 @@ class App : Application() {
         // rows sharing a hardened identity — one card per book, with progress
         // and bookmarks carried onto the survivor.
         CoroutineScope(Dispatchers.IO).launch {
-            runCatching { storedTitleScrub.scrubOnce() }
+            runCatching { storedMetadataScrub.scrubOnce() }
             runCatching { duplicateWorkMerger.mergeOnce() }
         }
         // Spec-26 T6 (#180): pour the curated universe asset into the shared

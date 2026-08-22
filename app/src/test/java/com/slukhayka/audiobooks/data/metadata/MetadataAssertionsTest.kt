@@ -300,4 +300,71 @@ class MetadataAssertionsTest {
         assertEquals("https://s/3.mp3", tracks[2].url)
         assertEquals(setOf("4read"), tracks.map { it.sourceId }.toSet())
     }
+
+    // --- Description scrub (#264) ------------------------------------------
+
+    @Test
+    fun `description scrub collapses a full-line SEO template to empty`() {
+        val cases = listOf(
+            // audiobook-mp3.com serves this INSTEAD of a blurb (live probe
+            // 2026-08-22) — the whole claim is the template, nothing remains.
+            "Слушать аудиокниги онлайн — Рассказы и фельетоны, бесплатно и без регистрации.",
+            "Слушать аудиокнигу онлайн — Кобзар, бесплатно и без регистрации.",
+            // Ukrainian variants of the same template family.
+            "Слухати аудіокниги онлайн — Кобзар, безкоштовно та без реєстрації.",
+            "Скачать аудиокнигу онлайн — 1984, бесплатно и без регистрации."
+        )
+        cases.forEach { claimed ->
+            assertEquals("normalizeDescription($claimed)", "", MetadataAssertions.normalizeDescription(claimed))
+        }
+    }
+
+    @Test
+    fun `description scrub strips only the sluhayua prefix sentence and keeps the real blurb`() {
+        val claimed = "Аудіокнігу онлайн Тореадори з Васюківки, читає Валерій Клименко. «Тореадори з Васюківки» Всеволода Нестайко — це історія про щиру дружбу."
+        val expected = "«Тореадори з Васюківки» Всеволода Нестайко — це історія про щиру дружбу."
+        assertEquals(expected, MetadataAssertions.normalizeDescription(claimed))
+        // The «з я» spelling variant scrubs identically.
+        val withYa = claimed.replace("Аудіокнігу", "Аудіокнигу")
+        assertEquals(expected, MetadataAssertions.normalizeDescription(withYa))
+    }
+
+    @Test
+    fun `description scrub keeps honest text untouched`() {
+        val honest = "«1984» — дивовижна, шокуюча, карколомна книга, яка руйнує стереотипи. Антиутопія фантастики."
+        assertEquals(honest, MetadataAssertions.normalizeDescription(honest))
+        // Multi-line text keeps its paragraphs; only space runs collapse.
+        val multiline = "Перший абзац анотації.\nДругий абзац  з подвійними   пробілами."
+        assertEquals("Перший абзац анотації.\nДругий абзац з подвійними пробілами.", MetadataAssertions.normalizeDescription(multiline))
+    }
+
+    @Test
+    fun `description scrub is empty-safe and idempotent`() {
+        assertEquals("", MetadataAssertions.normalizeDescription(null))
+        assertEquals("", MetadataAssertions.normalizeDescription("   "))
+        // A scrubbed template stays scrubbed; a stripped prefix stays stripped.
+        val template = "Слушать аудиокниги онлайн — X, бесплатно и без регистрации."
+        assertEquals("", MetadataAssertions.normalizeDescription(MetadataAssertions.normalizeDescription(template)))
+        val prefixed = "Аудіокнігу онлайн Кобзар, читає Хтось. Справжній текст."
+        val once = MetadataAssertions.normalizeDescription(prefixed)
+        assertEquals("Справжній текст.", once)
+        assertEquals(once, MetadataAssertions.normalizeDescription(once))
+    }
+
+    @Test
+    fun `description scrub applies both rules sequentially - prefix over template empties`() {
+        // A sluhayua-style prefix whose remainder IS an mp3 template: the
+        // sequential application must land on empty, not on the template.
+        val both = "Аудіокнігу онлайн Кобзар, читає Хтось. " +
+            "Слушать аудиокниги онлайн — Кобзар, бесплатно и без регистрации."
+        assertEquals("", MetadataAssertions.normalizeDescription(both))
+    }
+
+    @Test
+    fun `description scrub spares a multiline text that merely begins with the template sentence`() {
+        // Whole-string single-line semantics: only a claim that is NOTHING
+        // but the template dies; a real blurb after it survives untouched.
+        val leading = "Слухати аудіокниги онлайн — Кобзар.\n\nСправжня анотація другим абзацем."
+        assertEquals(leading, MetadataAssertions.normalizeDescription(leading))
+    }
 }

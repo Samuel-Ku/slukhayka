@@ -96,7 +96,7 @@ class UpdateCheckerTest {
         val checker = checker(fetcher, store = store, now = { now.first() })
 
         checker.checkNow()
-        now.first() += 23L * 60 * 60 * 1000
+        now[0] += 23L * 60 * 60 * 1000
         checker.checkNow()
 
         assertEquals(1, fetcher.calls)
@@ -111,7 +111,7 @@ class UpdateCheckerTest {
         val checker = checker(fetcher, store = store, now = { now.first() })
 
         checker.checkNow()
-        now.first() += UpdateChecker.CHECK_INTERVAL_MILLIS
+        now[0] += UpdateChecker.CHECK_INTERVAL_MILLIS
         checker.checkNow()
 
         assertEquals(2, fetcher.calls)

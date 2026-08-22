@@ -9,6 +9,7 @@ import com.slukhayka.audiobooks.data.catalog.SourceCatalog
 import com.slukhayka.audiobooks.data.collections.CollectionAssets
 import com.slukhayka.audiobooks.data.collections.OpenLibraryTrendingSource
 import com.slukhayka.audiobooks.data.collections.SluhayuaPopularSource
+import com.slukhayka.audiobooks.data.collections.SoundBooksTopSource
 import com.slukhayka.audiobooks.data.db.AudiobookDatabase
 import com.slukhayka.audiobooks.data.downloads.OfflineDownloads
 import com.slukhayka.audiobooks.data.duration.ChapterDurationProbe
@@ -144,7 +145,8 @@ class App : Application() {
             collectionLists = CollectionAssets.load(this),
             liveCollectionSources = listOf(
                 OpenLibraryTrendingSource(),
-                SluhayuaPopularSource()
+                SluhayuaPopularSource(),
+                SoundBooksTopSource()
             ),
             // Spec-30 T2 (#217): search cards resolve their duration through
             // the client-first precedence (local DB → shared cache, fill-the-

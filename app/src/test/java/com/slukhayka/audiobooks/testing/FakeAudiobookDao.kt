@@ -368,6 +368,18 @@ class FakeAudiobookDao(
     override suspend fun getAllTrackContentHashes(): List<String> =
         tracksState.value.mapNotNull { it.contentHash }
 
+    override suspend fun updateTrackContentHash(trackId: String, hash: String?) {
+        tracksState.update { current ->
+            current.map { if (it.id == trackId) it.copy(contentHash = hash) else it }
+        }
+    }
+
+    override suspend fun getDownloadedTrackByUrl(url: String): SourceTrackEntity? =
+        tracksState.value.firstOrNull { it.url == url && it.isDownloaded && it.localFilePath != null }
+
+    override suspend fun getTracksByFilePath(path: String): List<SourceTrackEntity> =
+        tracksState.value.filter { it.localFilePath == path && it.isDownloaded }
+
     override suspend fun clearTrackContentHashesForBook(bookId: String) {
         val sourceIds = sourcesState.value.filter { it.bookId == bookId }.map { it.id }.toSet()
         tracksState.update { current ->

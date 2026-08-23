@@ -144,28 +144,41 @@ class WebViewHtmlParser {
     }
 
     /**
-     * #265 — the full book annotation from the body container
+     * #265/#267 — the full book annotation from the body container
      * `<div ... itemprop="description">`: its paragraphs up to the curated
-     * tail markers («Теги#», «Подякувати», «Ютуб канал», PayPal), tags and
-     * entities stripped, whitespace collapsed. Tail junk that shares a
-     * paragraph is cut mid-text too. Absent/malformed container → empty
-     * (the caller falls back to og:description). Never throws.
+     * tail markers («Теги», «Телеграм канал», «Подякувати», «Ютуб канал»,
+     * PayPal), tags and entities stripped, whitespace collapsed.
+     *
+     * #267 — two hardening rules proven on live pages:
+     * - the scan stops at the container's MATCHING `</div>` (depth-counted,
+     *   nested divs included): user comments and series lists that follow the
+     *   container never leak into the description even when no marker
+     *   paragraph exists;
+     * - a marker-bearing paragraph is cut at the EARLIEST marker position,
+     *   not by list order — «Телеграм канал автора t.me/… Подякувати…» must
+     *   cut before «Телеграм», not after it.
+     *
+     * Absent/malformed container → empty (the caller falls back to
+     * og:description). Never throws.
      */
     private fun parseItempropDescription(html: String): String {
-        val start = html.indexOf("""itemprop="description"""")
-        if (start < 0) return ""
-        val scope = html.substring(start, minOf(html.length, start + DESCRIPTION_WINDOW))
+        val open = DIV_OPEN_REGEX.find(html) ?: return ""
+        val bodyStart = open.range.last + 1
+        val close = matchingDivClose(html, bodyStart) ?: return ""
         val result = StringBuilder()
-        for (match in paragraphRegex.findAll(scope)) {
+        for (match in paragraphRegex.findAll(html.substring(bodyStart, close))) {
             var text = match.groupValues[1]
                 .replace(TAG_REGEX, " ")
                 .let { decodeEntities(it) }
                 .replace(WHITESPACE_REGEX, " ")
                 .trim()
             if (text.isEmpty()) continue
-            val cut = TAIL_MARKERS.firstOrNull { text.contains(it, ignoreCase = true) }
-            if (cut != null) {
-                text = text.substring(0, text.indexOf(cut, ignoreCase = true)).trim()
+            val cutIndex = TAIL_MARKERS.fold(-1) { acc, marker ->
+                val idx = text.indexOf(marker, ignoreCase = true)
+                if (idx >= 0 && (acc < 0 || idx < acc)) idx else acc
+            }
+            if (cutIndex >= 0) {
+                text = text.substring(0, cutIndex).trim()
                 if (text.isNotEmpty()) {
                     if (result.isNotEmpty()) result.append("\n")
                     result.append(text)
@@ -179,6 +192,20 @@ class WebViewHtmlParser {
         return result.toString().trim()
     }
 
+    /** Position of the `</div>` matching a `<div …>` whose body starts at [from]. */
+    private fun matchingDivClose(html: String, from: Int): Int? {
+        var depth = 1
+        for (boundary in DIV_BOUNDARY_REGEX.findAll(html, from)) {
+            if (boundary.value[1] == '/') {
+                depth--
+                if (depth == 0) return boundary.range.first
+            } else {
+                depth++
+            }
+        }
+        return null
+    }
+
     /** The page's og:description blurb, trimmed; absent when not present. */
     private fun parseOgDescription(html: String): String =
         Regex("""<meta\s+property="og:description"\s+content="([^"]+)"\s*/?>""", RegexOption.IGNORE_CASE)
@@ -188,17 +215,17 @@ class WebViewHtmlParser {
             ?.trim().orEmpty()
 
     private companion object {
-        /** How far past itemprop="description" the paragraph scan reaches. */
-        const val DESCRIPTION_WINDOW = 30_000
-
         /** A full annotation is around this size — longer scanning is waste. */
         const val MIN_FULL_ANNOTATION = 1200
 
         private val paragraphRegex =
             Regex("""<p[^>]*>(.*?)</p>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+        private val DIV_OPEN_REGEX =
+            Regex("""<div\b[^>]*itemprop="description"[^>]*>""", RegexOption.IGNORE_CASE)
+        private val DIV_BOUNDARY_REGEX = Regex("""<div\b|</div""", RegexOption.IGNORE_CASE)
         private val TAG_REGEX = Regex("""<[^>]+>""")
         private val WHITESPACE_REGEX = Regex("""\s+""")
-        private val TAIL_MARKERS = listOf("Теги#", "Теги", "Подякувати", "Ютуб канал", "PayPal")
+        private val TAIL_MARKERS = listOf("Теги#", "Теги", "Телеграм канал", "Подякувати", "Ютуб канал", "PayPal")
 
         /** Percent-encoding alphabet for [encodeUrl]. */
         const val HEX = "0123456789ABCDEF"

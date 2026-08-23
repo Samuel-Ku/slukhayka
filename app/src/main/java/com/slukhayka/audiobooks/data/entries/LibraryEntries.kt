@@ -132,6 +132,34 @@ class LibraryEntries(
      * Best-effort per source — a failing source simply contributes no block,
      * never a blank page. Uses the existing adapter seam, no third parser.
      */
+    /**
+     * #266 — lazy description backfill on card open: when the book's stored
+     * description is blank or the template fallback, take the best real
+     * blurb among the Work's carrier profiles and persist it locally.
+     * Returns true when a row was updated. Best-effort: never throws.
+     */
+    suspend fun fillMissingDescriptionFromProfiles(
+        bookId: String,
+        profileBlurbs: List<String>
+    ): Boolean {
+        return try {
+            if (profileBlurbs.isEmpty()) return false
+            val row = dao.getAudiobookById(bookId) ?: return false
+            val current = com.slukhayka.audiobooks.data.metadata.MetadataAssertions
+                .normalizeDescription(row.description)
+            val needsFill = current.isBlank() ||
+                current.startsWith(com.slukhayka.audiobooks.data.metadata.MetadataAssertions.FALLBACK_DESCRIPTION_PREFIX)
+            if (!needsFill) return false
+            val best = com.slukhayka.audiobooks.data.metadata.MetadataAssertions
+                .pickBestBlurb(profileBlurbs) ?: return false
+            dao.updateBookDescription(bookId, best)
+            true
+        } catch (e: Exception) {
+            Log.w("LibraryEntries", "fillMissingDescriptionFromProfiles failed", e)
+            false
+        }
+    }
+
     suspend fun fetchSourceProfiles(bookId: String): List<SourceProfile> =
         withContext(Dispatchers.IO) {
             val sources = dao.getSourcesForBookSync(bookId)

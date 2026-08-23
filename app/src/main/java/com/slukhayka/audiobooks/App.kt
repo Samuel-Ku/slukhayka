@@ -29,6 +29,7 @@ import com.slukhayka.audiobooks.data.metadata.LibraryCoverResolver
 import com.slukhayka.audiobooks.data.metadata.SearchCoverResolver
 import com.slukhayka.audiobooks.data.metadata.SearchDurationResolver
 import com.slukhayka.audiobooks.data.metadata.StoredMetadataScrub
+import com.slukhayka.audiobooks.data.reviews.FirestoreListenerReviewsStore
 import com.slukhayka.audiobooks.data.search.FirestoreSearchCache
 import com.slukhayka.audiobooks.data.merge.DuplicateWorkMerger
 import com.slukhayka.audiobooks.data.privacy.BrowserIdentity
@@ -94,6 +95,16 @@ class App : Application() {
      */
     private val sharedMetaStore: FirestoreBookMetaStore? by lazy {
         FirestoreBookMetaStore.create(this)
+    }
+
+    /**
+     * Spec-40 #277 (#278, #280) — listener reviews of a Work over Firestore
+     * (`book_reviews`, keyed `${workId}_${uid}`). Null without Firebase keys
+     * (no google-services.json): the book page then simply shows no «Відгуки»
+     * block — degrade-never by contract.
+     */
+    val listenerReviews: FirestoreListenerReviewsStore? by lazy {
+        FirestoreListenerReviewsStore.create(this)
     }
 
     /** ADR-0002: one Listening State Store shared by the player and the ViewModel. */

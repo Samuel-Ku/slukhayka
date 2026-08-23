@@ -94,6 +94,13 @@ fun BookDetailScreen(
     var showDeleteSheet by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
 
+    // Spec-40 #277/#278/#280 — «Відгуки»: form open/edit state, delete
+    // confirmation target. The store itself rides MainViewModel (null
+    // without Firebase keys → no block rendered).
+    var showReviewForm by remember { mutableStateOf(false) }
+    var editingReview by remember { mutableStateOf<com.slukhayka.audiobooks.data.reviews.ListenerReview?>(null) }
+    var reviewToDelete by remember { mutableStateOf<com.slukhayka.audiobooks.data.reviews.ListenerReview?>(null) }
+
     val currentBook = book ?: return
     val isDownloadingThis = downloadingBookId == currentBook.id
     // ADR-0011: the other rendition cards of this Work — the «Інші начитки»
@@ -111,6 +118,31 @@ fun BookDetailScreen(
     // ADR-0008: suspend module calls from user actions run on the composition
     // scope (same pattern as playerManager's call-through).
     val scope = rememberCoroutineScope()
+
+    // Spec-40 #277 — reviews anchor to the WORK (shared across narrations);
+    // a row without a Works identity anchors to itself.
+    val reviewsWorkId = currentBook.workId?.takeIf { it.isNotBlank() } ?: currentBook.id
+
+    // Spec-40 #277/#278/#280 — «Відгуки» state. Collected at the composable
+    // root (LazyListScope blocks are not composable contexts); the store
+    // itself rides MainViewModel (null without Firebase keys → no block).
+    val listenerProfile by viewModel.listenerIdentity.collectAsState()
+    val bookReviews by viewModel.bookReviews.collectAsState()
+    val pendingReviewKeys by viewModel.pendingReviewKeys.collectAsState()
+    LaunchedEffect(reviewsWorkId) {
+        viewModel.loadReviews(reviewsWorkId)
+    }
+
+    // Spec-40 #278 — THIS Work's editions from the local DB, labeled by
+    // narrator: the edition-tag dropdown's options.
+    val workEditionNarrators = remember(currentBook.id, currentBook.mergeKey, allBooks) {
+        if (currentBook.mergeKey.isBlank()) emptyList()
+        else allBooks
+            .filter { it.mergeKey == currentBook.mergeKey }
+            .map { it.displayNarrator }
+            .filter { it.isNotBlank() }
+            .distinct()
+    }
 
     // Offline-download outcome feedback: the repository may find no audio for
     // a catalogue book whose page could not be fetched — surface that instead
@@ -846,6 +878,69 @@ fun BookDetailScreen(
                     }
                 }
             }
+
+            // Spec-40 #277/#278/#280 — «Відгуки», the bottom block of the
+            // book page. Reviews anchor to the WORK (shared across
+            // narrations); without the store (no Firebase keys) the block
+            // degrades to absent — never a fake state.
+            if (viewModel.listenerReviews != null) {
+                item(key = "reviews_header") {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 16.dp, end = 16.dp, top = 20.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "Відгуки (${bookReviews.size})",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        // Writing needs a listener identity — until lane-a's
+                        // seam answers, the block stays honestly read-only.
+                        if (listenerProfile != null) {
+                            Button(
+                                onClick = {
+                                    editingReview = null
+                                    showReviewForm = true
+                                },
+                                shape = RoundedCornerShape(AppDimens.RadiusCard)
+                            ) {
+                                Text("Написати відгук")
+                            }
+                        }
+                    }
+                }
+
+                if (bookReviews.isEmpty()) {
+                    item(key = "reviews_empty") {
+                        Text(
+                            text = "Ще немає відгуків — станьте першим",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                        )
+                    }
+                } else {
+                    items(
+                        bookReviews,
+                        key = { com.slukhayka.audiobooks.data.reviews.ListenerReviewCodec.documentId(it.workId, it.uid) }
+                    ) { review ->
+                        ReviewCard(
+                            review = review,
+                            isOwn = listenerProfile?.uid == review.uid,
+                            isPending = com.slukhayka.audiobooks.data.reviews.ListenerReviewCodec
+                                .documentId(review.workId, review.uid) in pendingReviewKeys,
+                            onEdit = {
+                                editingReview = review
+                                showReviewForm = true
+                            },
+                            onDelete = { reviewToDelete = review }
+                        )
+                    }
+                }
+            }
         }
     }
 
@@ -1003,6 +1098,66 @@ fun BookDetailScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showDeleteDialog = false }) {
+                    Text("Скасувати", color = MaterialTheme.colorScheme.onSurface)
+                }
+            }
+        )
+    }
+
+    // Spec-40 #277/#278 — the review write/edit form (one form for both
+    // modes; edit prefills stars/body/tag and re-sets under the same key).
+    if (showReviewForm && viewModel.listenerReviews != null) {
+        ListenerReviewFormSheet(
+            bookTitle = currentBook.title,
+            editing = editingReview,
+            editionOptions = workEditionNarrators,
+            defaultEditionTag = currentBook.displayNarrator,
+            onSave = { rating, body, tag ->
+                viewModel.saveReview(reviewsWorkId, rating, body, tag, editingReview)
+                showReviewForm = false
+                editingReview = null
+            },
+            onDismiss = {
+                showReviewForm = false
+                editingReview = null
+            }
+        )
+    }
+
+    // Spec-40 #277 — deleting a review is destructive: a confirmation that
+    // quotes exactly what is removed (spec-27 «destructive never neutral»).
+    reviewToDelete?.let { doomed ->
+        AlertDialog(
+            onDismissRequest = { reviewToDelete = null },
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+            title = {
+                Text(
+                    text = "Видалити відгук?",
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            },
+            text = {
+                Text(
+                    text = "Буде видалено ваш відгук про \"${currentBook.title}\" — оцінка ${doomed.rating}★" +
+                        (doomed.body?.takeIf { it.isNotBlank() }?.let { " і текст відгуку" } ?: "") +
+                        ". Дію не можна скасувати.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.deleteOwnReview(doomed.workId, doomed.uid)
+                        reviewToDelete = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Видалити", color = MaterialTheme.colorScheme.onError, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { reviewToDelete = null }) {
                     Text("Скасувати", color = MaterialTheme.colorScheme.onSurface)
                 }
             }

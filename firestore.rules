@@ -32,6 +32,42 @@ service cloud.firestore {
       return request.appCheck.token != null;
     }
 
+    // Spec-40 #277 — the shape gate for one listener review: identity fields
+    // real and bounded, rating exactly 1..5, optional strings within their
+    // limits when present, timestamps numeric. Mirrors the client codec's
+    // bounds so a document the rules accept is one the app can decode.
+    function isWellFormedReview(d) {
+      return d.workId is string && d.workId.size() > 0 && d.workId.size() <= 300
+        && d.uid is string && d.uid.size() > 0
+        && d.authorName is string && d.authorName.size() > 0 && d.authorName.size() <= 100
+        && d.rating is int && d.rating >= 1 && d.rating <= 5
+        && d.createdAt is number
+        && (!('body' in d) || (d.body is string && d.body.size() <= 2000))
+        && (!('editionTag' in d) || (d.editionTag is string && d.editionTag.size() <= 200))
+        && (!('editedAt' in d) || d.editedAt is number);
+    }
+
+    // Spec-40 #277 — listener reviews of a Work: readable by everyone (the
+    // block renders on every book page), writable only by the review's own
+    // author under App Check. The document key is `${workId}_${uid}` but the
+    // FIELD uid is the ownership anchor: create/update require the payload's
+    // uid to be the caller's; delete requires the stored row's uid to be.
+    match /book_reviews/{document} {
+      allow read: if true;
+      allow create: if isAppCheckValid()
+        && request.auth != null
+        && request.resource.data.uid == request.auth.uid
+        && isWellFormedReview(request.resource.data);
+      allow update: if isAppCheckValid()
+        && request.auth != null
+        && resource.data.uid == request.auth.uid
+        && request.resource.data.uid == request.auth.uid
+        && isWellFormedReview(request.resource.data);
+      allow delete: if isAppCheckValid()
+        && request.auth != null
+        && resource.data.uid == request.auth.uid;
+    }
+
     match /universe_resolutions/{document} {
       allow read: if true;
       allow write: if isAppCheckValid();

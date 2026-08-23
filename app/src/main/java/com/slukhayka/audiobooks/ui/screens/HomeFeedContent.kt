@@ -50,6 +50,7 @@ fun LazyListScope.homeFeedContent(
     newArrivals: List<GlobalSearchResult>,
     recommendedBooks: List<RecommendationEngine.Recommendation>,
     personalCycles: List<com.slukhayka.audiobooks.ui.library.PersonalCycle>,
+    similarCycles: List<com.slukhayka.audiobooks.ui.library.SimilarCycle> = emptyList(),
     shortBooks: List<CatalogBook>,
     longBooks: List<CatalogBook>,
     workFeedItems: LazyPagingItems<WorkFeedRow>,
@@ -161,6 +162,29 @@ fun LazyListScope.homeFeedContent(
             ) {
                 items(personalCycles, key = { it.url }) { cycle ->
                     PersonalCycleCard(
+                        cycle = cycle,
+                        onClick = { onOpenSeries(cycle.title, cycle.url) }
+                    )
+                }
+            }
+        }
+    }
+
+    // Spec-39 T2 (#262): «схожі цикли» — the recommendation engine's top
+    // picks lifted to serial identity, own cycles excluded. Same card form
+    // as «Ваші цикли», the magnet line is the reason chip («схоже на X»).
+    // Best-effort: an empty tier renders nothing at all.
+    if (similarCycles.isNotEmpty()) {
+        item {
+            CatalogRowHeader(title = "Схожі цикли")
+        }
+        item {
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                items(similarCycles, key = { it.url }) { cycle ->
+                    SimilarCycleCard(
                         cycle = cycle,
                         onClick = { onOpenSeries(cycle.title, cycle.url) }
                     )

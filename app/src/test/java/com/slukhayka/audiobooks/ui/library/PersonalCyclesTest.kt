@@ -3,7 +3,9 @@ package com.slukhayka.audiobooks.ui.library
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.PlaybackProgressEntity
 import com.slukhayka.audiobooks.data.db.WorkEntity
+import com.slukhayka.audiobooks.data.recommend.RecommendationEngine
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -11,9 +13,11 @@ import org.junit.Test
  * Pure JVM tests for the spec-39 «Ваші цикли» shelf builder: grouping by the
  * normalized series title, unfinished-first ranking with a recency order,
  * the 15-card cap, the deterministic canonical 4read URL, and honest counts —
- * a progress line only from real numbers. No Robolectric, no Room, no Compose:
- * the builder's input is plain entities (the same shaped rows the screens
- * already read, ADR-0008/ADR-0009).
+ * a progress line only from real numbers. The spec-39 T2 tier pins the lift
+ * of RecommendationEngine picks to cycle level: own cycles first, similar
+ * after with a reason, never a suggestion of something already owned.
+ * No Robolectric, no Room, no Compose: the builder's input is plain entities
+ * (the same shaped rows the screens already read, ADR-0008/ADR-0009).
  */
 class PersonalCyclesTest {
 
@@ -56,14 +60,31 @@ class PersonalCyclesTest {
 
     private fun work(
         id: String,
-        seriesTitle: String?
+        seriesTitle: String?,
+        seriesUrl: String? = null,
+        mergeKey: String = "",
+        coverImageUrl: String? = null
     ) = WorkEntity(
         id = id,
-        mergeKey = "",
+        mergeKey = mergeKey,
         title = "Праця $id",
         author = "Автор",
-        seriesTitle = seriesTitle
+        seriesTitle = seriesTitle,
+        seriesUrl = seriesUrl,
+        coverImageUrl = coverImageUrl
     )
+
+    /** One engine pick over a catalogue card (the id is the Work merge key). */
+    private fun rec(candidateMergeKey: String, reason: String, score: Double = 0.5) =
+        RecommendationEngine.Recommendation(
+            candidate = RecommendationEngine.Candidate(
+                id = candidateMergeKey,
+                title = "Кандидат",
+                author = "Автор"
+            ),
+            score = score,
+            reasonTitle = reason
+        )
 
     // --- grouping -----------------------------------------------------------
 
@@ -318,5 +339,173 @@ class PersonalCyclesTest {
     @Test
     fun `empty library yields an empty shelf`() {
         assertTrue(PersonalCycles.build(emptyList(), emptyList(), emptyList()).isEmpty())
+    }
+
+    // --- spec-39 T2: the similar tier ---------------------------------------
+
+    @Test
+    fun `empty recommendations keep the shelf identical to own-only`() {
+        val library = listOf(book("b1", "Відьмак", "https://4read.org/v/"))
+        val withParam = PersonalCycles.build(library, emptyList(), emptyList(), emptyList())
+        val without = PersonalCycles.build(library, emptyList(), emptyList())
+        assertEquals(without, withParam)
+    }
+
+    @Test
+    fun `a recommended work lifts into a similar cycle after the own ones`() {
+        val shelf = PersonalCycles.build(
+            libraryBooks = listOf(
+                book("own", seriesTitle = "Відьмак", seriesUrl = "https://4read.org/v/")
+            ),
+            progress = emptyList(),
+            works = listOf(
+                work("w-own", "Відьмак"),
+                // The recommended candidate's Work — a different cycle.
+                work("w-rec", "Гіперіон (цикл)", seriesUrl = "https://4read.org/g/", mergeKey = "гіперіон|автор"),
+                // A second volume of the same identity carries the plain
+                // spelling — the most frequent one becomes the display title.
+                work("w-rec2", "Гіперіон", seriesUrl = "https://4read.org/g/"),
+                work("w-rec3", "Гіперіон")
+            ),
+            recommendations = listOf(rec("гіперіон|автор", reason = "Книга own"))
+        )
+        assertEquals(listOf("Відьмак", "Гіперіон"), shelf.map { it.title })
+        assertEquals("Книга own", shelf.last().reasonTitle)
+        assertNull(shelf.first().reasonTitle)
+    }
+
+    @Test
+    fun `similar cycle counts every locally known work of its identity`() {
+        val shelf = PersonalCycles.build(
+            libraryBooks = emptyList(),
+            progress = emptyList(),
+            works = listOf(
+                work("w1", "Гіперіон", seriesUrl = "https://4read.org/g/"),
+                work("w2", "Гіперіон (цикл)", mergeKey = "к|а")
+            ),
+            recommendations = listOf(rec("к|а", reason = "Щось"))
+        )
+        val similar = shelf.single()
+        assertEquals(0, similar.listenedCount)
+        assertEquals(2, similar.totalCount)
+    }
+
+    @Test
+    fun `a candidate without a work row or without a series contributes nothing`() {
+        val shelf = PersonalCycles.build(
+            libraryBooks = emptyList(),
+            progress = emptyList(),
+            works = listOf(
+                // Known merge key but no cycle on the Work.
+                work("w1", null, mergeKey = "без-циклу|а")
+            ),
+            recommendations = listOf(
+                rec("невідомий|ключ", reason = "X"),
+                rec("без-циклу|а", reason = "Y")
+            )
+        )
+        assertTrue(shelf.isEmpty())
+    }
+
+    @Test
+    fun `a similar cycle needs an openable 4read url somewhere in its group`() {
+        val shelf = PersonalCycles.build(
+            libraryBooks = emptyList(),
+            progress = emptyList(),
+            works = listOf(
+                // The candidate's own Work is stream-only elsewhere; another
+                // same-identity Work carries the 4read page — openable.
+                work("w1", "Цикл", seriesUrl = "https://sluhay.com.ua/s/x/", mergeKey = "ц|а"),
+                work("w2", "Цикл", seriesUrl = "https://4read.org/c/")
+            ),
+            recommendations = listOf(rec("ц|а", reason = "R"))
+        )
+        assertEquals(1, shelf.size)
+        assertEquals("https://4read.org/c/", shelf.single().url)
+    }
+
+    @Test
+    fun `an identity group with no 4read url anywhere never renders`() {
+        val shelf = PersonalCycles.build(
+            libraryBooks = emptyList(),
+            progress = emptyList(),
+            works = listOf(
+                work("w1", "Тільки sluhay", seriesUrl = "https://sluhay.com.ua/s/y/", mergeKey = "т|а")
+            ),
+            recommendations = listOf(rec("т|а", reason = "R"))
+        )
+        assertTrue(shelf.isEmpty())
+    }
+
+    @Test
+    fun `own cycles are never suggested as similar`() {
+        val shelf = PersonalCycles.build(
+            libraryBooks = listOf(
+                book("own", seriesTitle = "Відьмак", seriesUrl = "https://4read.org/v/")
+            ),
+            progress = emptyList(),
+            works = listOf(
+                work("w-own", "Відьмак"),
+                // A catalogue volume of the SAME owned cycle.
+                work("w-other", "Відьмак (цикл)", seriesUrl = "https://4read.org/v/", mergeKey = "в|а")
+            ),
+            recommendations = listOf(rec("в|а", reason = "Схоже на Відьмак"))
+        )
+        assertEquals(1, shelf.size)
+        assertNull(shelf.single().reasonTitle)
+    }
+
+    @Test
+    fun `an omitted own cycle is still excluded from the similar tier`() {
+        // The listener owns «Мертвий цикл» but it renders nowhere: no member
+        // carries a 4read url. The engine may still propose a catalogue book
+        // of that same named cycle — it must not appear as a suggestion.
+        val shelf = PersonalCycles.build(
+            libraryBooks = listOf(
+                book("own", seriesTitle = "Мертвий цикл", seriesUrl = null)
+            ),
+            progress = emptyList(),
+            works = listOf(
+                work("w-catalog", "Мертвий цикл", seriesUrl = "https://4read.org/m/", mergeKey = "м|а")
+            ),
+            recommendations = listOf(rec("м|а", reason = "R"))
+        )
+        assertTrue(shelf.isEmpty())
+    }
+
+    @Test
+    fun `duplicate lifts of one cycle collapse keeping the strongest reason`() {
+        val shelf = PersonalCycles.build(
+            libraryBooks = emptyList(),
+            progress = emptyList(),
+            works = listOf(
+                work("w1", "Гіперіон", seriesUrl = "https://4read.org/g/", mergeKey = "г|а"),
+                work("w2", "Гіперіон (цикл)", mergeKey = "г2|а")
+            ),
+            recommendations = listOf(
+                rec("г|а", reason = "Перша причина", score = 0.9),
+                rec("г2|а", reason = "Друга причина", score = 0.5)
+            )
+        )
+        assertEquals(1, shelf.size)
+        assertEquals("Перша причина", shelf.single().reasonTitle)
+    }
+
+    @Test
+    fun `the cap covers both tiers with own cycles first`() {
+        val library = (1..10).map { i ->
+            book("b$i", seriesTitle = "Свій $i", seriesUrl = "https://4read.org/o$i/", createdAt = i.toLong())
+        }
+        val works = (11..20).map { i ->
+            work("w$i", "Чужий $i", seriesUrl = "https://4read.org/t$i/", mergeKey = "ч$i|а")
+        }
+        val recommendations = (11..20).map { i -> rec("ч$i|а", reason = "Причина $i") }
+        val shelf = PersonalCycles.build(library, emptyList(), works, recommendations)
+        assertEquals(PersonalCycles.SHELF_LIMIT, shelf.size)
+        assertEquals(10, shelf.count { it.reasonTitle == null })
+        assertEquals(5, shelf.count { it.reasonTitle != null })
+        // Own tier keeps its ranking; the similar tier appends after it.
+        assertEquals("Свій 10", shelf.first().title)
+        assertTrue(shelf.drop(10).all { it.reasonTitle != null })
     }
 }

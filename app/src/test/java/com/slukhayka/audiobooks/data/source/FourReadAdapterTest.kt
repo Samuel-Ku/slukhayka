@@ -253,4 +253,103 @@ class FourReadAdapterTest {
 
         assertNull(plain.parseCapturedPage("<html></html>", "https://plain.example/book.html"))
     }
+
+    // ---------------------------------------------------------------------
+    // Spec-40 #282 — коментарі відвідувачів 4read (parseComments). Markup
+    // mirrors the live 4read DLE comment tree: page__comments-list container,
+    // each comment's text in a dedicated comm-id-N div, replies nested inside
+    // their parent li.
+    // ---------------------------------------------------------------------
+
+    // Real comment-tree shape (captured during this session's live fetch):
+    // header/meta/footer noise around each text div, a nested reply, entities
+    // and inline tags inside the texts.
+    private val commentsPage = """
+        <html><body>
+        <div class="page__comments-title"></div>
+        <div data-comms="3" class="page__comments-list" id="page__comments-list">
+            <form method="post" name="dlemasscomments"><div id="dle-comments-list"></div></form>
+            <ol class="comments-tree-list">
+              <li id="comments-tree-item-47709" class="comments-tree-item">
+                <div id='comment-id-47709'><div class="comment-item js-comm">
+                  <div class="comment-item__header d-flex ai-center">
+                    <div class="comment-item__author ws-nowrap js-comm-author"><span>Lisa</span></div>
+                  </div>
+                  <div class="comment-item__main full-text clearfix">
+                    <div id='comm-id-47709'><p>Дякуємо за &quot;Неостанній бій&quot;! Чекаємо на продовження…</p></div>
+                  </div>
+                  <div class="comment-item__footer d-flex ai-center">
+                    <div class="comment-item__date ws-nowrap"><span>У п'ятницю у 03:20</span></div>
+                  </div>
+                </div></div>
+                <ol class="comments-tree-list">
+                  <li id="comments-tree-item-47723" class="comments-tree-item">
+                    <div id='comment-id-47723'><div class="comment-item js-comm">
+                      <div class="comment-item__main full-text clearfix">
+                        <div id='comm-id-47723'><p>Приєднуюсь: <b>міцного здоров'я</b> і нових творчих здобутків!</p></div>
+                      </div>
+                      <div class="signature">--------------------<br>Підпис</div>
+                    </div></div>
+                  </li>
+                </ol>
+              </li>
+              <li id="comments-tree-item-47800" class="comments-tree-item">
+                <div id='comment-id-47800'><div class="comment-item js-comm">
+                  <div class="comment-item__main full-text clearfix">
+                    <div id='comm-id-47800'>   </div>
+                  </div>
+                </div></div>
+              </li>
+            </ol>
+        </div>
+        </body></html>
+    """.trimIndent()
+
+    @Test
+    fun `page comments are parsed as plain texts in page order`() = runBlocking {
+        val adapter = FourReadAdapter(FakeFetcher(emptyMap()))
+
+        val comments = adapter.parseComments(commentsPage)
+
+        // Page order preserved (parent before its nested reply); tags and
+        // entities decoded; blanks dropped.
+        assertEquals(2, comments.size)
+        assertEquals("""Дякуємо за "Неостанній бій"! Чекаємо на продовження…""", comments[0])
+        assertEquals("Приєднуюсь: міцного здоров'я і нових творчих здобутків!", comments[1])
+    }
+
+    @Test
+    fun `a page without comments yields empty instead of fabricated texts`() = runBlocking {
+        val adapter = FourReadAdapter(FakeFetcher(emptyMap()))
+
+        assertTrue(adapter.parseComments("<html><body><p>no comments here</p></body></html>").isEmpty())
+        assertTrue(adapter.parseComments("").isEmpty())
+    }
+
+    @Test
+    fun `comment output stays bounded - one hundred texts of five hundred chars`() = runBlocking {
+        val adapter = FourReadAdapter(FakeFetcher(emptyMap()))
+        val longText = "Слово ".repeat(200) // 1200 chars — must truncate to 500
+        val many = (1..105).joinToString("\n") { i ->
+            """<div id='comm-id-$i'><p>$longText</p></div>"""
+        }
+        val html = """<div id="page__comments-list">$many</div>"""
+
+        val comments = adapter.parseComments(html)
+
+        assertEquals(100, comments.size)
+        assertEquals(500, comments[0].length)
+        assertTrue(comments[99].isNotBlank())
+    }
+
+    @Test
+    fun `the comments capability defaults to empty on adapters without proven comments`() = runBlocking {
+        // Spec-40 #282: the interface carries the default — a source without
+        // provable page comments (sound-books, sluhay, audiobookmp3, …)
+        // inherits "none" for ANY input, costing nothing and changing no
+        // parsing behavior of its own.
+        val soundbooks: SourceAdapter = SoundBooksAdapter()
+
+        assertTrue(soundbooks.parseComments(commentsPage).isEmpty())
+    }
 }

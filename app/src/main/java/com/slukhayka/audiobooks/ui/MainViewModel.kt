@@ -1056,6 +1056,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (_selectedBookId.value == bookId) {
                 _sourceProfiles.value = profiles
                 _isSourceProfilesLoading.value = false
+                // #266 — lazy backfill from sibling carriers; local persist
+                // survives restart, shared-base write-back rides the
+                // existing metadata sync (best-effort).
+                libraryEntries.fillMissingDescriptionFromProfiles(
+                    bookId,
+                    profiles.map { it.description }
+                )
             }
         }
     }

@@ -3,6 +3,7 @@ package com.slukhayka.audiobooks.data.source
 import com.slukhayka.audiobooks.testing.FakeFetcher
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -180,6 +181,124 @@ class SluhayuaAdapterTest {
             "«Сердешна Оксана» — повість про перше кохання, яке випало на важкі часи.\nДругий абзац справжньої анотації.",
             detail.description
         )
+    }
+
+    @Test
+    fun `book page carries total duration from the Час запису row`() = runBlocking {
+        // Live shape (spec-35 T6, #237): the meta row is
+        // «<span class="rowName">… Час запису:</span>  01:44» — MM:SS here,
+        // HH:MM:SS on longer books; both go through the shared parser.
+        val mmss = multiChapterPage.replace(
+            "<body>",
+                """<body><div class="bookLayoutTitle">
+                   <span class="rowName"><i class="fa fa-clock-o" aria-hidden="true"></i> Час запису:</span>  01:44
+                   </div>"""
+            )
+        val hhmmss = multiChapterPage.replace(
+            "<body>",
+            """<body><div class="bookLayoutTitle">
+               <span class="rowName"><i class="fa fa-clock-o" aria-hidden="true"></i> Час запису:</span>  1:02:03
+               </div>"""
+        )
+        val adapter = SluhayuaAdapter(FakeFetcher(mapOf(multiChapterUrl to mmss, "https://sluhay.com.ua/x:y" to hhmmss)))
+
+        assertEquals(104L, adapter.fetchBookPage(multiChapterUrl).totalDurationSeconds)
+        assertEquals(3723L, adapter.fetchBookPage("https://sluhay.com.ua/x:y").totalDurationSeconds)
+    }
+
+    @Test
+    fun `book page without the duration row keeps it absent`() = runBlocking {
+        // Negative finding (spec-35 T6): pages without the «Час запису:» row
+        // must keep totalDurationSeconds null — never fabricated.
+        val adapter = SluhayuaAdapter(FakeFetcher(mapOf(multiChapterUrl to multiChapterPage)))
+
+        assertNull(adapter.fetchBookPage(multiChapterUrl).totalDurationSeconds)
+    }
+
+    @Test
+    fun `book page carries genres from the Жанр row`() = runBlocking {
+        // Live shape (spec-35 T6): «Жанр:</span><div class="rowData"><a
+        // class="filterLink" type="bookGenre" itemprop="genre">казка</a>…».
+        val page = multiChapterPage.replace(
+            "<body>",
+            """<body><div class="bookLayoutTitle">
+               <span class="rowName"><i class="fa fa-map-signs" aria-hidden="true"></i> Жанр:</span>
+               <div class="rowData">
+                 <a class="filterLink" type="bookGenre" href="/find/genre=казка" itemprop="genre">казка</a>
+                 <a class="filterLink" type="bookGenre" href="/find/genre=поема" itemprop="genre">поема</a>
+               </div>
+               </div>"""
+        )
+        val adapter = SluhayuaAdapter(FakeFetcher(mapOf(multiChapterUrl to page)))
+
+        assertEquals(listOf("казка", "поема"), adapter.fetchBookPage(multiChapterUrl).genres)
+    }
+
+    @Test
+    fun `related books come from the card rolls excluding the book itself`() = runBlocking {
+        // Live shape (spec-35 T6): each rail is a
+        // «cardRollCategoryDescription» header followed by cards whose
+        // «titlePreviewText» blurb precedes the /id:slug anchor. The SELF
+        // book appears in the author rail too and must be excluded; an
+        // anchor without the «Автор - Назва» separator keeps author empty.
+        val page = multiChapterPage.replace(
+            "</body>",
+            """
+            <div class="cardRollCategoryDescription bigText">
+                Інші книги автора «Григорій Квітка-Основяненко»
+                <span style="display:none">x</span>
+            </div>
+            <div>
+              <span class="titlePreviewText">Превʼю самої книги в райлі.</span>
+              <a href="$multiChapterUrl">Григорій Квітка-Основяненко - Сердешна Оксана</a>
+            </div>
+            <div>
+              <span class="titlePreviewText">Інша книга того ж автора.</span>
+              <a href="/3444041:grigorij-kvitka-insha-knyga">Григорій Квітка-Основяненко - Інша книга</a>
+            </div>
+            <div class="cardRollCategoryDescription bigText">
+                Схожі книги
+            </div>
+            <div>
+              <span class="titlePreviewText">Анфіса без роздільника автор - назва.</span>
+              <a href="/1013262:anfіsa-zolotі-kosi">Анфіса – золоті коси</a>
+            </div>
+            </body>"""
+        )
+        val adapter = SluhayuaAdapter(FakeFetcher(mapOf(multiChapterUrl to page)))
+
+        val related = adapter.fetchBookPage(multiChapterUrl).related
+
+        assertEquals(2, related.size)
+        assertEquals("Інша книга", related[0].title)
+        assertEquals("Григорій Квітка-Основяненко", related[0].author)
+        assertEquals("https://sluhay.com.ua/3444041:grigorij-kvitka-insha-knyga", related[0].url)
+        assertEquals("Анфіса – золоті коси", related[1].title)
+        assertEquals("", related[1].author)
+    }
+
+    @Test
+    fun `cards carry genre and duration from the allcards json`() = runBlocking {
+        // Live allcards keys (spec-35 T6 inventory): «genre» is an array,
+        // duration arrives as either «totalSeconds» (number, preferred) or
+        // «timeLength» («01:00:00» / «01:44»). Rating and text exist in the
+        // card but have no field in the SourceBook seam — documented, unused.
+        val richJson = """
+            {"cards":[
+              {"_id":111,"slug":"a","bookName":"Книга А","bookAuthor":["Автор А"],"audioAuthor":["Диктор"],"kindSrc":"/uploads/a.png","genre":["поема","казка"],"timeLength":"01:44"},
+              {"_id":222,"slug":"b","bookName":"Книга Б","bookAuthor":["Автор Б"],"audioAuthor":["Диктор"],"kindSrc":"/uploads/b.png","genre":[],"totalSeconds":3723}
+            ],"pageCount":1}
+        """.trimIndent()
+        val adapter = SluhayuaAdapter(
+            FakeFetcher(mapOf("https://sluhay.com.ua/find/allcards?sort=time&order=desc&page=1" to richJson))
+        )
+
+        val books = adapter.fetchNew(limit = 2)
+
+        assertEquals("поема, казка", books[0].genre)
+        assertEquals(104L, books[0].totalDurationSeconds)
+        assertEquals("", books[1].genre)
+        assertEquals(3723L, books[1].totalDurationSeconds)
     }
 
     @Test

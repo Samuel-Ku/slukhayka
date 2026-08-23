@@ -5,14 +5,17 @@ import android.util.Log
 import com.slukhayka.audiobooks.data.catalog.SourceCatalog
 import com.slukhayka.audiobooks.data.contentHashOf
 import com.slukhayka.audiobooks.data.db.AudiobookDao
+import com.slukhayka.audiobooks.data.privacy.PacingPolicy
 import com.slukhayka.audiobooks.data.source.HttpFetcher
 import com.slukhayka.audiobooks.data.source.headersFor
 import com.slukhayka.audiobooks.data.source.sourceIdForUrl
 import com.slukhayka.audiobooks.data.source.streamOnlyFor
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
@@ -46,7 +49,18 @@ class OfflineDownloads(
     // so downloads look like ordinary browsing too — the old dedicated
     // «4read-Audio-Engine» agent was a fingerprint. Injectable so fixture
     // tests serve in-memory bytes with no network.
-    private val fetcher: HttpFetcher = HttpFetcher()
+    private val fetcher: HttpFetcher = HttpFetcher(),
+    // Spec-38 T5 (#257): the human rhythm lives in the privacy door's policy;
+    // this loop only consumes it (a random pause, then a burst slot) and owns
+    // no pacing thresholds of its own. Injectable so tests pin exact timing
+    // with a seeded generator and a virtual clock.
+    private val pacing: PacingPolicy = PacingPolicy(),
+    private val nowMillis: () -> Long = System::currentTimeMillis,
+    // The one suspension the rhythm costs. Injectable because the chapter
+    // workers run on Dispatchers.IO — real time, invisible to a test
+    // scheduler — so tests substitute a virtual pause (and, for cancellation,
+    // an endless one) instead of sleeping.
+    private val pauseFor: suspend (Long) -> Unit = { pauseMillis -> delay(pauseMillis) }
 ) {
 
     /**
@@ -71,6 +85,14 @@ class OfflineDownloads(
     } catch (e: Exception) {
         Log.w("OfflineDownloads", "hash failed for ${file.name}: ${e.message}")
         null
+    }
+
+    /** The burst budget is per domain (spec-38 T5); a URL that refuses to
+     *  parse counts as its own domain rather than bypassing the gate. */
+    private fun domainOf(url: String): String = try {
+        java.net.URI(url).host ?: url
+    } catch (_: Exception) {
+        url
     }
 
     suspend fun downloadAudiobookOffline(bookId: String): OfflineDownloadResult {
@@ -190,6 +212,19 @@ class OfflineDownloads(
                                     }
                                     val streamUrl = track.url
                                     if (streamUrl.startsWith("http")) {
+                                        // Spec-38 T5 (#257): the human rhythm —
+                                        // every fresh fetch first waits a random
+                                        // pause from the policy range (never
+                                        // zero), then asks the policy for a
+                                        // burst slot on the track's domain. A
+                                        // refusal costs another policy pause;
+                                        // this loop owns no thresholds. The
+                                        // pause is a suspension point, so a
+                                        // cancel during it aborts promptly.
+                                        pauseFor(pacing.nextPauseMillis())
+                                        while (!pacing.allowsRequest(domainOf(streamUrl), nowMillis())) {
+                                            pauseFor(pacing.nextPauseMillis())
+                                        }
                                         // Spec-37 T1: use the sized transport so the
                                         // declared Content-Length can be verified.
                                         val sized = fetcher.getSizedStream(streamUrl, headersFor(sourceId, streamUrl))
@@ -287,6 +322,11 @@ class OfflineDownloads(
                                     }
                                 }
                             }
+                        } catch (e: CancellationException) {
+                            // Spec-38 T5 (#257): a cancel during a pacing pause
+                            // (or mid-stream) must stop the loop honestly, not
+                            // be miscounted as a failed chapter.
+                            throw e
                         } catch (e: Exception) {
                             Log.w("OfflineDownloads", "Download failed for chapter ${chapter.id}: ${e.message}")
                             if (tempFile.exists()) {

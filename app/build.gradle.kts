@@ -183,6 +183,9 @@ dependencies {
   implementation(libs.androidx.documentfile)
   implementation(libs.androidx.glance.appwidget)
   implementation(libs.androidx.glance.material3)
+  // Spec-38 T3 (#255): the official webkit controller rides the privacy route
+  // (ProxyController) and the document-start sensor lockdown (WebViewCompat).
+  implementation(libs.androidx.webkit)
   implementation(libs.androidx.media3.exoplayer)
   implementation(libs.androidx.media3.session)
   // implementation(libs.androidx.datastore.preferences)

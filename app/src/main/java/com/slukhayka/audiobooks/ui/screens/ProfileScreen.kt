@@ -1,5 +1,11 @@
 package com.slukhayka.audiobooks.ui.screens
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.content.ContextWrapper
+import androidx.biometric.BiometricManager
+import androidx.biometric.BiometricPrompt
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -14,6 +20,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -23,6 +30,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -37,12 +45,15 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.data.identity.ListenerIdentity
 import com.slukhayka.audiobooks.data.identity.ListenerProfile
 import com.slukhayka.audiobooks.ui.theme.AppDimens
+import androidx.core.content.ContextCompat
+import androidx.fragment.app.FragmentActivity
 import kotlinx.coroutines.launch
 
 /**
@@ -176,8 +187,181 @@ fun ProfileScreen(
             Spacer(modifier = Modifier.height(24.dp))
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
-            // spec-40 #276 (t2): «Код відновлення профілю» lands here — shown
-            // only behind BiometricPrompt, copyable, plus restore-from-code.
+            // spec-40 #276 (t2): «Код відновлення профілю» — the encoded
+            // credential pair. Shown ONLY behind BiometricPrompt, copyable,
+            // and the one way onto a phone where neither Auto Backup nor the
+            // device binding reached.
+            RecoverySection(identity, scope)
         }
+    }
+}
+
+@Composable
+private fun RecoverySection(identity: ListenerIdentity, scope: kotlinx.coroutines.CoroutineScope) {
+    Spacer(modifier = Modifier.height(16.dp))
+    Text(
+        text = "Код відновлення профілю",
+        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+    )
+    Text(
+        text = "Код переносить профіль на новий телефон: встановіть застосунок, відкрийте Профіль і введіть код. Показ коду вимагає підтвердження біометрією або PIN-кодом пристрою.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+    Spacer(modifier = Modifier.height(8.dp))
+
+    val context = LocalContext.current
+    var recoveryCode by remember { mutableStateOf<String?>(null) }
+    var biometricError by remember { mutableStateOf<String?>(null) }
+    var restoreDraft by remember { mutableStateOf("") }
+    var restoreNotice by remember { mutableStateOf<String?>(null) }
+
+    // BiometricPrompt lives on a FragmentActivity (MainActivity is one for
+    // exactly this reason); without one the section degrades honestly.
+    val fragmentActivity = remember(context) {
+        var current: Context = context
+        while (current is ContextWrapper) {
+            if (current is FragmentActivity) return@remember current
+            current = current.baseContext
+        }
+        current as? FragmentActivity
+    }
+
+    fun revealCode() {
+        val activity = fragmentActivity ?: run {
+            biometricError = "Біометричне підтвердження недоступне на цьому пристрої."
+            return
+        }
+        val prompt = BiometricPrompt(
+            activity,
+            ContextCompat.getMainExecutor(activity),
+            object : BiometricPrompt.AuthenticationCallback() {
+                override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                    scope.launch {
+                        recoveryCode = identity.recoveryCode()
+                        if (recoveryCode == null) {
+                            biometricError =
+                                "Для цього профілю ще немає коду — він з'явиться після першого підключення до мережі."
+                        } else {
+                            biometricError = null
+                        }
+                    }
+                }
+
+                override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                    if (errorCode == BiometricPrompt.ERROR_NEGATIVE_BUTTON ||
+                        errorCode == BiometricPrompt.ERROR_USER_CANCELED
+                    ) return
+                    biometricError = errString.toString()
+                }
+            }
+        )
+        val info = BiometricPrompt.PromptInfo.Builder()
+            .setTitle("Підтвердіть, що це ви")
+            .setSubtitle("Щоб показати код відновлення профілю")
+            .setAllowedAuthenticators(
+                BiometricManager.Authenticators.BIOMETRIC_WEAK or
+                    BiometricManager.Authenticators.DEVICE_CREDENTIAL
+            )
+            .build()
+        prompt.authenticate(info)
+    }
+
+    OutlinedButton(
+        onClick = { revealCode() },
+        shape = RoundedCornerShape(AppDimens.RadiusCard),
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(48.dp)
+            .testTag("profile_recovery_reveal")
+    ) {
+        Text(if (recoveryCode == null) "Показати код" else "Приховати код")
+    }
+
+    if (biometricError != null) {
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = biometricError.orEmpty(),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.error,
+            modifier = Modifier.testTag("profile_recovery_error")
+        )
+    }
+
+    if (recoveryCode != null) {
+        Spacer(modifier = Modifier.height(8.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = recoveryCode.orEmpty(),
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 3,
+                modifier = Modifier
+                    .weight(1f)
+                    .testTag("profile_recovery_code")
+            )
+            IconButton(
+                onClick = {
+                    val clipboard =
+                        context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    clipboard.setPrimaryClip(ClipData.newPlainText("slukhayka_recovery", recoveryCode))
+                },
+                modifier = Modifier.testTag("profile_recovery_copy")
+            ) {
+                Icon(imageVector = Icons.Default.ContentCopy, contentDescription = "Копіювати код")
+            }
+        }
+    }
+
+    Spacer(modifier = Modifier.height(24.dp))
+    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+    Spacer(modifier = Modifier.height(16.dp))
+
+    Text(
+        text = "Відновити з коду",
+        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+    )
+    Spacer(modifier = Modifier.height(8.dp))
+    OutlinedTextField(
+        value = restoreDraft,
+        onValueChange = {
+            restoreDraft = it.trim()
+            restoreNotice = null
+        },
+        label = { Text("Код із попереднього телефона") },
+        singleLine = true,
+        isError = restoreNotice?.startsWith("Не") == true,
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("profile_restore_field")
+    )
+    Spacer(modifier = Modifier.height(12.dp))
+    Button(
+        onClick = {
+            scope.launch {
+                val restored = identity.restoreFromCode(restoreDraft)
+                restoreNotice = if (restored != null) {
+                    "Профіль відновлено: ${restored.nickname}"
+                } else {
+                    "Не вдалося відновити — перевірте код і з'єднання."
+                }
+            }
+        },
+        enabled = restoreDraft.isNotBlank(),
+        shape = RoundedCornerShape(AppDimens.RadiusCard),
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(48.dp)
+            .testTag("profile_restore_button")
+    ) {
+        Text("Відновити профіль")
+    }
+    if (restoreNotice != null) {
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = restoreNotice.orEmpty(),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.testTag("profile_restore_notice")
+        )
     }
 }

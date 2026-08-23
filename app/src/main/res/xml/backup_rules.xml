@@ -1,13 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?><!--
-   Sample backup rules file; uncomment and customize as necessary.
-   See https://developer.android.com/guide/topics/data/autobackup
-   for details.
-   Note: This file is ignored for devices older than API 31
-   See https://developer.android.com/about/versions/12/backup-restore
+    Spec-40 #276 (t2) — Android Auto Backup allowlist (API < 31).
+
+    The listener identity MUST survive reinstall: the generated credentials
+    live in SharedPreferences `listener_identity` and ride the sharedpref
+    domain below. Listing any <include> turns this file into an explicit
+    allowlist, so the OTHER durable user state travels with it: the Room
+    database (Listening State — progress, bookmarks) plus every settings
+    store. Everything else (caches, downloads, transient prefs) stays out of
+    the backup on purpose — audio files would burn the cloud quota for
+    nothing. See data_extraction_rules.xml for the API 31+ half.
 -->
 <full-backup-content>
-    <!--
-   <include domain="sharedpref" path="."/>
-   <exclude domain="sharedpref" path="device.xml"/>
--->
+    <!-- The silent listener identity (spec-40 #275/#276): uid + generated
+         email/password credentials + nickname. -->
+    <include domain="sharedpref" path="listener_identity.xml"/>
+
+    <!-- Durable listener state that must travel with the profile. -->
+    <include domain="database" path="read4_audiobook_database"/>
+    <include domain="database" path="read4_audiobook_database-wal"/>
+    <include domain="database" path="read4_audiobook_database-shm"/>
+    <include domain="sharedpref" path="listen_prefs.xml"/>
+    <include domain="sharedpref" path="network_privacy_settings.xml"/>
+    <include domain="sharedpref" path="playback_settings.xml"/>
 </full-backup-content>

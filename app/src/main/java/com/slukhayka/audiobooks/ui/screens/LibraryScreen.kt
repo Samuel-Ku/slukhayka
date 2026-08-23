@@ -232,6 +232,17 @@ fun LibraryScreen(
                             },
                             modifier = Modifier.testTag("library_storage_menu_item")
                         )
+                        // spec-40 #275 (t1): the silent listener profile —
+                        // ⚙️ Профіль lives in the same overflow (a rare
+                        // surface, off the main screen, ADR-0018).
+                        DropdownMenuItem(
+                            text = { Text("Профіль") },
+                            onClick = {
+                                showOverflowMenu = false
+                                viewModel.openProfileSettings()
+                            },
+                            modifier = Modifier.testTag("library_profile_menu_item")
+                        )
                         // spec-38 T2 (#254): the network privacy route lives in
                         // the same overflow — a rare surface, off the main screen.
                         DropdownMenuItem(

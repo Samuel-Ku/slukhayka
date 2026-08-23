@@ -1,5 +1,6 @@
 package com.slukhayka.audiobooks.data.identity
 
+import android.app.Application
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import org.junit.Assert.assertEquals
@@ -10,6 +11,9 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
+/** A bare Application: the real App's startup ensure() must not race this test. */
+private class BareApp : Application()
+
 /**
  * Spec-40 #275 (t1) — the SharedPreferences credential store round-trips
  * and clears. The file it writes (`listener_identity`) IS the Android Auto
@@ -17,7 +21,7 @@ import org.robolectric.annotation.Config
  * already configured, which it is.
  */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [36])
+@Config(sdk = [36], application = BareApp::class)
 class SharedPreferencesLocalCredentialStoreTest {
 
     private lateinit var store: LocalCredentialStore

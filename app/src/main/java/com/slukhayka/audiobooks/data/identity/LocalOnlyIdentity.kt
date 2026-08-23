@@ -47,11 +47,30 @@ class LocalOnlyIdentity(
         local.save(stored.copy(nickname = clean))
     }
 
-    /** Spec-40 #276 fills this together with the codec. */
-    override suspend fun recoveryCode(): String? = null
+    /**
+     * Spec-40 #276 (t2): the encoded stored pair when one exists — always
+     * null here in practice, because the local-only profile has no
+     * credentials to encode.
+     */
+    override suspend fun recoveryCode(): String? {
+        val stored = local.load() ?: return null
+        val email = stored.email ?: return null
+        val password = stored.password ?: return null
+        return runCatching { RecoveryCodec.encode(email, password) }.getOrNull()
+    }
 
-    /** Spec-40 #276 fills this together with the codec. */
-    override suspend fun restoreFromCode(code: String): ListenerProfile? = null
+    /**
+     * Spec-40 #276 (t2): offline adoption of a foreign code — the pair is
+     * stored so a later Firebase upgrade can claim the same account; the
+     * local uid is kept (there is no server identity to switch to).
+     */
+    override suspend fun restoreFromCode(code: String): ListenerProfile? {
+        val (email, password) = RecoveryCodec.decode(code) ?: return null
+        val stored = ensure().let { local.load() } ?: return null
+        val upgraded = stored.copy(email = email, password = password)
+        local.save(upgraded)
+        return ListenerProfile(upgraded.uid, upgraded.nickname.orEmpty())
+    }
 
     private fun randomHex(): String = buildString {
         repeat(LOCAL_UID_HEX_LENGTH) { append(HEX[random.nextInt(HEX.length)]) }

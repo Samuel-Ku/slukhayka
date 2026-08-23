@@ -26,14 +26,16 @@ import kotlinx.coroutines.suspendCancellableCoroutine
  * Firebase is unreachable/not configured. The real account bootstrap simply
  * retries on a later launch.
  *
- * The Firestore handle is injected for spec-40 #276 (`device_bindings` —
- * silent same-phone restore); unused until that ticket lands.
+ * The Firestore-backed [FirestoreDeviceBindings] (spec-40 #276) gives the
+ * silent same-phone restore: after every successful bootstrap/sign-in the
+ * device's binding is refreshed; a fresh install looks its ANDROID_ID up
+ * before bootstrapping a new account.
  */
 class FirebaseListenerIdentity(
     private val auth: FirebaseAuth,
-    private val firestore: FirebaseFirestore?,
     private val local: LocalCredentialStore,
     private val fallback: LocalOnlyIdentity,
+    private val bindings: FirestoreDeviceBindings? = null,
     private val random: Random = Random.Default
 ) : ListenerIdentity {
 
@@ -52,9 +54,20 @@ class FirebaseListenerIdentity(
             return profileFor(user.uid)
         }
 
-        // 2. Credentials persisted by an earlier install (Android Auto Backup
-        //    restore or the same-phone device binding) — sign back in with them.
-        if (signInFromLocalStore()) return currentOrBootstrap()
+        // 2. Credentials persisted by an earlier install — Android Auto
+        //    Backup restore first, then the same-phone device binding.
+        if (signInFromLocalStore()) {
+            refreshBinding()
+            return currentOrBootstrap()
+        }
+        bindings?.restoreCredentials()?.let { restored ->
+            if (signInWith(restored.email!!, restored.password!!)) {
+                // Adopt the restored account and persist its credentials.
+                runCatching { local.save(restored) }
+                refreshBinding()
+                return currentOrBootstrap()
+            }
+        }
 
         // 3. Fresh install: anonymous auth immediately elevated to a
         //    permanent generated email/password pair.
@@ -100,11 +113,50 @@ class FirebaseListenerIdentity(
         runCatching { local.save(base) }
     }
 
-    /** Spec-40 #276 fills this together with [RecoveryCodec]. */
-    override suspend fun recoveryCode(): String? = null
+    /**
+     * Spec-40 #276 (t2): the encoded stored credential pair — null when no
+     * permanent credentials exist (bare anonymous session, local-only
+     * profile) or nothing is stored.
+     */
+    override suspend fun recoveryCode(): String? {
+        val stored = local.load() ?: return null
+        val email = stored.email ?: return null
+        val password = stored.password ?: return null
+        return runCatching { RecoveryCodec.encode(email, password) }.getOrNull()
+    }
 
-    /** Spec-40 #276 fills this together with [RecoveryCodec]. */
-    override suspend fun restoreFromCode(code: String): ListenerProfile? = null
+    /**
+     * Spec-40 #276 (t2): signs in from a recovery code and adopts that same
+     * account (same uid). Null on garbage or failed sign-in; never throws.
+     */
+    override suspend fun restoreFromCode(code: String): ListenerProfile? {
+        val (email, password) = RecoveryCodec.decode(code) ?: return null
+        if (!signInWith(email, password)) return null
+        val uid = runCatching { auth.currentUser?.uid }.getOrNull() ?: return null
+        // Replace any previous record — the restored account is THE profile.
+        val nickname = local.load()
+            ?.takeIf { it.uid == uid }?.nickname
+            ?: Nicknames.generate(random)
+        runCatching {
+            local.save(
+                StoredCredentials(uid = uid, email = email, password = password, nickname = nickname)
+            )
+        }
+        refreshBinding()
+        return ListenerProfile(uid, nickname)
+    }
+
+    /**
+     * Signs in with an explicit credential pair. Returns true when a session
+     * is now live; false leaves everything untouched.
+     */
+    private suspend fun signInWith(email: String, password: String): Boolean =
+        try {
+            auth.signInWithCredential(EmailAuthProvider.getCredential(email, password))
+                .await().user != null
+        } catch (e: Exception) {
+            false
+        }
 
     /**
      * Signs in with the locally persisted generated pair. Returns true when
@@ -115,12 +167,17 @@ class FirebaseListenerIdentity(
         val stored = local.load() ?: return false
         val email = stored.email ?: return false
         val password = stored.password ?: return false
-        return try {
-            auth.signInWithCredential(EmailAuthProvider.getCredential(email, password))
-                .await().user != null
-        } catch (e: Exception) {
-            false
-        }
+        return signInWith(email, password)
+    }
+
+    /**
+     * Spec-40 #276 (t2): after a successful bootstrap/sign-in, refresh this
+     * device's binding so a future reinstall can silently sign back in.
+     */
+    private suspend fun refreshBinding() {
+        val code = recoveryCode() ?: return
+        val uid = runCatching { auth.currentUser?.uid }.getOrNull() ?: return
+        bindings?.bind(uid, code)
     }
 
     /**
@@ -153,6 +210,9 @@ class FirebaseListenerIdentity(
                         nickname = nickname
                     )
                 )
+                // Spec-40 #276: the fresh account is immediately bound to
+                // this device for a silent same-phone restore later.
+                refreshBinding()
                 return ListenerProfile(linked.uid, nickname)
             } catch (e: Exception) {
                 // Collision or transient failure → another pair.
@@ -201,11 +261,14 @@ class FirebaseListenerIdentity(
                 ?: FirebaseApp.initializeApp(context)
                 ?: return null
             val local = SharedPreferencesLocalCredentialStore(context)
+            val firestore = runCatching { FirebaseFirestore.getInstance(app) }.getOrNull()
             val firebase = FirebaseListenerIdentity(
                 auth = FirebaseAuth.getInstance(app),
-                firestore = runCatching { FirebaseFirestore.getInstance(app) }.getOrNull(),
                 local = local,
                 fallback = LocalOnlyIdentity(local, random),
+                // Spec-40 #276: the silent same-phone restore rides Firestore
+                // when it exists; without it only Auto Backup covers reinstall.
+                bindings = firestore?.let { FirestoreDeviceBindings(it) { DeviceIds.androidId(context) } },
                 random = random
             )
             return firebase

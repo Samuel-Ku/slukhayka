@@ -175,6 +175,74 @@ class WebViewHtmlParserTest {
     }
 
     @Test
+    fun `telegram promo sharing the last container paragraph never reaches the description`() {
+        // Live page /7589-neostannij-bij.html (#267): the promo paragraph holds
+        // «Телеграм канал автора t.me/…» BEFORE «Подякувати…» — cutting at the
+        // first marker BY LIST ORDER left the whole promo line in the blurb.
+        // The cut must land on the EARLIEST marker position («Телеграм канал»).
+        val page = fullBookPage.replace(
+            "</body>",
+            """
+            <div class="pmovie__text full-text clearfix" itemprop="description">
+                <p>Це сьома частина дуже довгої історії…</p>
+                <p>Ти вже маг. Ти можеш усе.<br>Але відповіді створюють лише нові запитання.<br>І той бій, що ти вважав останнім, лише новий початок.<br><br></p>
+                <p>Телеграм канал автора <a href="https://4read.org/go.html" title="Телеграм автора">t.me/KShelest_books_UA</a><br><br>Подякувати диктору за озвучку:<br><b>Приват</b>: 4149499095167902. Підтримати на Patreon.</p>
+            </div>
+            </body>"""
+        )
+        val parser = WebViewHtmlParser()
+
+        val detail = parser.parse(page, "https://4read.org/7589-neostannij-bij.html")
+
+        assertEquals(
+            "Це сьома частина дуже довгої історії…\n" +
+                "Ти вже маг. Ти можеш усе. Але відповіді створюють лише нові запитання. " +
+                "І той бій, що ти вважав останнім, лише новий початок.",
+            detail.description
+        )
+        assertTrue(!detail.description.contains("Телеграм"))
+        assertTrue(!detail.description.contains("t.me"))
+        assertTrue(!detail.description.contains("Подякувати"))
+        assertTrue(!detail.description.contains("Patreon"))
+    }
+
+    @Test
+    fun `paragraphs outside the container never reach the description even without markers`() {
+        // Live pages carry user comments and the series list right after (and
+        // on 7589 even inside, past the promo) the container. A page whose
+        // annotation has NO marker paragraph must still yield exactly the
+        // container's own paragraphs — including through a nested div.
+        val page = fullBookPage.replace(
+            "</body>",
+            """
+            <div class="pmovie__text full-text clearfix" itemprop="description">
+                <p>Чистий перший абзац анотації.</p>
+                <div class="quote"><p>Вкладений цитатний блок теж всередині.</p></div>
+                <p>Чистий останній абзац анотації.</p>
+            </div>
+            <div class="comments">
+                <p>Коментар відвідувача один.</p>
+                <p>Коментар відвідувача два.</p>
+            </div>
+            <h2>Всі книги серії:</h2>
+            <p>1. Книга перша 2. Книга друга</p>
+            </body>"""
+        )
+        val parser = WebViewHtmlParser()
+
+        val detail = parser.parse(page, "https://4read.org/7589-neostannij-bij.html")
+
+        assertEquals(
+            "Чистий перший абзац анотації.\n" +
+                "Вкладений цитатний блок теж всередині.\n" +
+                "Чистий останній абзац анотації.",
+            detail.description
+        )
+        assertTrue(!detail.description.contains("Коментар"))
+        assertTrue(!detail.description.contains("Книга перша"))
+    }
+
+    @Test
     fun `an empty itemprop container falls back to og description`() {
         val page = fullBookPage.replace(
             "</body>",

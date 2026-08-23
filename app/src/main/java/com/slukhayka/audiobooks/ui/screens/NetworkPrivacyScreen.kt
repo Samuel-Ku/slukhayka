@@ -46,7 +46,8 @@ import com.slukhayka.audiobooks.ui.MainViewModel
 
 /**
  * spec-38 T2 (#254) — the «Приватність мережі» destination: the route the
- * transport rides (direct / custom proxy / Tor), reached from the Медіатека ⋮
+ * transport rides (direct / custom proxy / Tor / relay prototype, spec-38
+ * T6), reached from the Медіатека ⋮
  * overflow menu like the storage destination beside it (ADR-0018: a rare
  * settings surface is a pushed screen, not a tab). Saving persists through
  * the store and re-installs the resolved route into the process-wide door;
@@ -137,22 +138,42 @@ fun NetworkPrivacyScreen(
                 selected = mode == RouteMode.MAX_PRIVACY,
                 onSelect = { mode = RouteMode.MAX_PRIVACY }
             )
+            // spec-38 T6 (#258): the relay prototype rides the same route
+            // machinery — never a default, only this conscious choice.
+            RouteOption(
+                tag = "privacy_route_relay",
+                title = "Реле (прототип Workers)",
+                subtitle = "Ваше саморозгорнуте реле: джерела бачать адресу реле, а не вашу. Довіра — оператору реле.",
+                selected = mode == RouteMode.RELAY,
+                onSelect = { mode = RouteMode.RELAY }
+            )
 
-            if (mode == RouteMode.CUSTOM_PROXY) {
+            if (mode == RouteMode.CUSTOM_PROXY || mode == RouteMode.RELAY) {
                 Spacer(modifier = Modifier.height(8.dp))
                 OutlinedTextField(
                     value = address,
                     onValueChange = { address = it },
-                    label = { Text("Адреса проксі") },
-                    placeholder = { Text("192.168.1.10:8080") },
+                    label = { Text(if (mode == RouteMode.RELAY) "Адреса реле" else "Адреса проксі") },
+                    placeholder = {
+                        Text(
+                            if (mode == RouteMode.RELAY) "https://slukhayka-relay.example.workers.dev"
+                            else "192.168.1.10:8080"
+                        )
+                    },
                     supportingText = {
-                        Text("Формат: host:порт або socks5://host:порт")
+                        Text(
+                            if (mode == RouteMode.RELAY) "Формат: повне https://-посилання на воркер-реле"
+                            else "Формат: host:порт або socks5://host:порт"
+                        )
                     },
                     isError = error != null,
                     singleLine = true,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .testTag("privacy_proxy_address_field")
+                        .testTag(
+                            if (mode == RouteMode.RELAY) "privacy_relay_address_field"
+                            else "privacy_proxy_address_field"
+                        )
                 )
             }
 

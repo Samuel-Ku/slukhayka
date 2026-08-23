@@ -35,6 +35,7 @@ import com.slukhayka.audiobooks.ui.screens.GenreScreen
 import com.slukhayka.audiobooks.ui.screens.HomeScreen
 import com.slukhayka.audiobooks.ui.screens.LibraryScreen
 import com.slukhayka.audiobooks.ui.screens.ListenScreen
+import com.slukhayka.audiobooks.ui.screens.NetworkPrivacyScreen
 import com.slukhayka.audiobooks.ui.screens.PeopleScreen
 import com.slukhayka.audiobooks.ui.screens.PersonBooksScreen
 import com.slukhayka.audiobooks.ui.screens.PlayerScreen
@@ -51,8 +52,34 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         
         // Globally disable hardware bitmaps in Coil to prevent E/ashmem Pinning is deprecated errors
+        // Spec-38 (#252): cover-image traffic is transport traffic too — it rides
+        // the same browser identity (real WebView UA) and the same privacy route
+        // as the shared fetcher, via one OkHttp client for the image loader.
         val imageLoader = coil.ImageLoader.Builder(this)
             .allowHardware(false)
+            .okHttpClient {
+                okhttp3.OkHttpClient.Builder()
+                    .proxySelector(object : java.net.ProxySelector() {
+                        override fun select(uri: java.net.URI?): List<java.net.Proxy> =
+                            listOfNotNull(com.slukhayka.audiobooks.data.privacy.TransportPrivacy.currentJavaProxy())
+
+                        override fun connectFailed(uri: java.net.URI?, sa: java.net.SocketAddress?, ioe: java.io.IOException?) {
+                            // Honest failure: OkHttp surfaces the exception; no
+                            // direct fallback is attempted here.
+                        }
+                    })
+                    .addInterceptor { chain ->
+                        chain.proceed(
+                            chain.request().newBuilder()
+                                .header(
+                                    "User-Agent",
+                                    com.slukhayka.audiobooks.data.privacy.BrowserIdentity.currentUserAgent()
+                                )
+                                .build()
+                        )
+                    }
+                    .build()
+            }
             .build()
         coil.Coil.setImageLoader(imageLoader)
 
@@ -93,6 +120,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     val seriesIndexOpen by viewModel.seriesIndexOpen.collectAsState()
     val collectionsIndexOpen by viewModel.collectionsIndexOpen.collectAsState()
     val storageDestinationOpen by viewModel.storageDestinationOpen.collectAsState()
+    val privacySettingsOpen by viewModel.privacySettingsOpen.collectAsState()
     val selectedGenre by viewModel.selectedGenre.collectAsState()
     val selectedTop100 by viewModel.selectedTop100.collectAsState()
     val selectedPeopleKind by viewModel.selectedPeopleKind.collectAsState()
@@ -101,7 +129,8 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     // Handle system back press
     BackHandler(enabled = showFullPlayer || selectedBookId != null ||
         selectedWebSource != null || selectedSeries != null || seriesIndexOpen || collectionsIndexOpen ||
-        storageDestinationOpen || selectedGenre != null || selectedTop100 || selectedPeopleKind != null || selectedPerson != null) {
+        storageDestinationOpen || privacySettingsOpen || selectedGenre != null || selectedTop100 ||
+        selectedPeopleKind != null || selectedPerson != null) {
         if (showFullPlayer) {
             viewModel.setShowFullPlayer(false)
         } else if (selectedWebSource != null) {
@@ -116,6 +145,8 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
             viewModel.closeCollectionsIndex()
         } else if (storageDestinationOpen) {
             viewModel.closeStorageDestination()
+        } else if (privacySettingsOpen) {
+            viewModel.closePrivacySettings()
         } else if (selectedGenre != null) {
             viewModel.closeGenre()
         } else if (selectedTop100) {
@@ -203,6 +234,13 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                     storageDestinationOpen -> StorageDestinationScreen(
                         viewModel = viewModel,
                         onBackClick = { viewModel.closeStorageDestination() }
+                    )
+
+                    // spec-38 T2 (#254): the «Приватність мережі» destination —
+                    // the route choice, reached from the same ⋮ overflow menu.
+                    privacySettingsOpen -> NetworkPrivacyScreen(
+                        viewModel = viewModel,
+                        onBackClick = { viewModel.closePrivacySettings() }
                     )
 
                     // Genre (category) page ("Аудіокниги жанру:").

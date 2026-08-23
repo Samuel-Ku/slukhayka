@@ -27,6 +27,10 @@ import com.slukhayka.audiobooks.data.metadata.SearchDurationResolver
 import com.slukhayka.audiobooks.data.metadata.StoredMetadataScrub
 import com.slukhayka.audiobooks.data.search.FirestoreSearchCache
 import com.slukhayka.audiobooks.data.merge.DuplicateWorkMerger
+import com.slukhayka.audiobooks.data.privacy.BrowserIdentity
+import com.slukhayka.audiobooks.data.privacy.PrivacySettingsStore
+import com.slukhayka.audiobooks.data.privacy.SharedPreferencesPrivacySettingsStore
+import com.slukhayka.audiobooks.data.privacy.TransportPrivacy
 import com.slukhayka.audiobooks.data.source.AudiobookMp3Adapter
 import com.slukhayka.audiobooks.data.source.FourReadAdapter
 import com.slukhayka.audiobooks.data.source.LihtarAdapter
@@ -90,6 +94,15 @@ class App : Application() {
 
     /** ADR-0002: one Listening State Store shared by the player and the ViewModel. */
     val listeningState: ListeningStateStore by lazy { ListeningStateStore(database.audiobookDao()) }
+
+    /**
+     * Spec-38 T2 (#254): the persisted privacy choice — the settings screen
+     * reads and writes it, startup installs it into [TransportPrivacy]. The
+     * store itself is dumb; the route decision lives behind the door.
+     */
+    val privacySettings: PrivacySettingsStore by lazy {
+        SharedPreferencesPrivacySettingsStore(this)
+    }
 
     /**
      * Every verified source behind the adapter seam (spec-10 T4 + spec-13 T2).
@@ -320,6 +333,16 @@ class App : Application() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        // Spec-38 T1 (#253): install the persisted privacy route BEFORE any
+        // module can touch the network, and warm the real system WebView
+        // User-Agent off the main thread (it initialises the WebView engine;
+        // until it answers, requests carry the static fallback identity).
+        TransportPrivacy.install(privacySettings.load())
+        CoroutineScope(Dispatchers.IO).launch {
+            runCatching {
+                android.webkit.WebSettings.getDefaultUserAgent(this@App)
+            }.onSuccess { BrowserIdentity.reportSystemUserAgent(it) }
+        }
         // Spec-30 T1 (#216): attach the App Check attestation provider BEFORE
         // any Firestore use, so every request to the shared metadata base
         // carries a token and the security rules accept the app's writes.

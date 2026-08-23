@@ -1008,7 +1008,7 @@ fun CatalogCoverImage(
         val request = remember(coverImageUrl) {
             ImageRequest.Builder(context)
                 .data(coverImageUrl)
-                .setHeader("User-Agent", "Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36")
+                // Spec-38: UA rides the shared image loader's browser identity.
                 .setHeader("Referer", "https://4read.org/")
                 .crossfade(true)
                 .allowHardware(false)

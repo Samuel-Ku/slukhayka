@@ -1,9 +1,12 @@
 package com.slukhayka.audiobooks.data.source
 
 import android.util.Log
+import com.slukhayka.audiobooks.data.privacy.BrowserIdentity
+import com.slukhayka.audiobooks.data.privacy.TransportPrivacy
 import java.io.FilterInputStream
 import java.io.InputStream
 import java.net.HttpURLConnection
+import java.net.Proxy
 import java.net.URL
 
 /**
@@ -13,10 +16,20 @@ import java.net.URL
  * `X-Requested-With` (sluhay.com.ua — verified in the spec-11 T1 spike).
  * Returns an empty string on any failure — adapters degrade to no results,
  * never throw.
+ *
+ * Spec-38 (#252): every request looks like ordinary mobile browsing — the UA
+ * is the device's real system WebView one ([BrowserIdentity], cached once per
+ * process; static fallback in JVM), standard Accept/Accept-Language travel by
+ * default, and when the listener chose a privacy route the connection opens
+ * through it ([TransportPrivacy]). A chosen route that cannot connect fails
+ * the request — there is NO silent fallback to a direct connection. Per-source
+ * [referer] rules (spec-13) are unaffected. Explicit [userAgent] overrides
+ * exist only for tests; production callers leave it null.
  */
 open class HttpFetcher(
-    private val userAgent: String = DEFAULT_USER_AGENT,
-    private val referer: String? = null
+    private val userAgent: String? = null,
+    private val referer: String? = null,
+    private val proxyProvider: () -> Proxy? = { TransportPrivacy.currentJavaProxy() }
 ) {
 
     /** Open so adapter fixture tests can serve canned content without network. */
@@ -41,22 +54,22 @@ open class HttpFetcher(
 
     /** Like [getTextResult] with additional request headers. */
     open fun getTextResult(url: String, extraHeaders: Map<String, String>): Pair<Int, String> {
+        val viaPrivacyRoute = proxyProvider() != null
         val connection = try {
-            (URL(url).openConnection() as HttpURLConnection).apply {
-                connectTimeout = 12_000
-                readTimeout = 18_000
-                requestMethod = "GET"
-                setRequestProperty("User-Agent", userAgent)
-                if (referer != null) setRequestProperty("Referer", referer)
-                extraHeaders.forEach { (name, value) -> setRequestProperty(name, value) }
-                instanceFollowRedirects = true
-            }
+            openConnection(url, extraHeaders)
         } catch (e: Exception) {
             // Failures degrade to an empty body by design (adapters never throw),
             // but they MUST be logged: the catalogue silently going empty on
             // device-side DNS failures (e.g. a VPN with a broken resolver) was
-            // undiagnosable before (device debugging, 2026-08-17).
-            Log.w("HttpFetcher", "GET $url failed to connect", e)
+            // undiagnosable before (device debugging, 2026-08-17). With a
+            // privacy route enabled this is ALSO where its honest failure lands:
+            // the request failed THROUGH the chosen route — no direct retry.
+            Log.w(
+                "HttpFetcher",
+                "GET $url failed to connect" +
+                    if (viaPrivacyRoute) " (privacy route active — no direct fallback)" else "",
+                e
+            )
             return 0 to ""
         }
         return try {
@@ -86,15 +99,7 @@ open class HttpFetcher(
 
     open fun getSizedStream(url: String, extraHeaders: Map<String, String> = emptyMap()): SizedStream? {
         val connection = try {
-            (URL(url).openConnection() as HttpURLConnection).apply {
-                connectTimeout = 12_000
-                readTimeout = 18_000
-                requestMethod = "GET"
-                setRequestProperty("User-Agent", userAgent)
-                if (referer != null) setRequestProperty("Referer", referer)
-                extraHeaders.forEach { (name, value) -> setRequestProperty(name, value) }
-                instanceFollowRedirects = true
-            }
+            openConnection(url, extraHeaders)
         } catch (e: Exception) {
             return null
         }
@@ -132,15 +137,7 @@ open class HttpFetcher(
      */
     open fun getStream(url: String, extraHeaders: Map<String, String> = emptyMap()): InputStream? {
         val connection = try {
-            (URL(url).openConnection() as HttpURLConnection).apply {
-                connectTimeout = 12_000
-                readTimeout = 18_000
-                requestMethod = "GET"
-                setRequestProperty("User-Agent", userAgent)
-                if (referer != null) setRequestProperty("Referer", referer)
-                extraHeaders.forEach { (name, value) -> setRequestProperty(name, value) }
-                instanceFollowRedirects = true
-            }
+            openConnection(url, extraHeaders)
         } catch (e: Exception) {
             return null
         }
@@ -165,9 +162,23 @@ open class HttpFetcher(
         }
     }
 
-    companion object {
-        private const val DEFAULT_USER_AGENT =
-            "Mozilla/5.0 (Linux; Android 13; Mobile; SM-S918B) AppleWebKit/537.36 " +
-                "(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
-    }
+    /**
+     * The single place a request takes shape: the privacy route decides how
+     * the socket opens (direct or through the chosen proxy — NO_PROXY pins
+     * «прямо» deterministically instead of inheriting JVM system properties),
+     * then the browser identity headers, the per-source Referer, and finally
+     * the caller's own headers (so they can override defaults).
+     */
+    private fun openConnection(url: String, extraHeaders: Map<String, String>): HttpURLConnection =
+        (URL(url).openConnection(proxyProvider() ?: Proxy.NO_PROXY) as HttpURLConnection).apply {
+            connectTimeout = 12_000
+            readTimeout = 18_000
+            requestMethod = "GET"
+            setRequestProperty("User-Agent", userAgent ?: BrowserIdentity.currentUserAgent())
+            setRequestProperty("Accept", BrowserIdentity.ACCEPT_HEADER)
+            setRequestProperty("Accept-Language", BrowserIdentity.ACCEPT_LANGUAGE_HEADER)
+            if (referer != null) setRequestProperty("Referer", referer)
+            extraHeaders.forEach { (name, value) -> setRequestProperty(name, value) }
+            instanceFollowRedirects = true
+        }
 }

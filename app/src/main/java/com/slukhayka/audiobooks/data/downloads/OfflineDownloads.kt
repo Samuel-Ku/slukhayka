@@ -6,7 +6,6 @@ import com.slukhayka.audiobooks.data.catalog.SourceCatalog
 import com.slukhayka.audiobooks.data.contentHashOf
 import com.slukhayka.audiobooks.data.db.AudiobookDao
 import com.slukhayka.audiobooks.data.source.HttpFetcher
-import com.slukhayka.audiobooks.data.source.OFFLINE_USER_AGENT
 import com.slukhayka.audiobooks.data.source.headersFor
 import com.slukhayka.audiobooks.data.source.sourceIdForUrl
 import com.slukhayka.audiobooks.data.source.streamOnlyFor
@@ -42,10 +41,12 @@ class OfflineDownloads(
     private val context: Context? = null,
     private val sourceCatalog: SourceCatalog,
     // ADR-0006: the download path performs no HTTP of its own — it consumes
-    // the shared fetcher's stream method, constructed with the offline user
-    // agent from the download policy. Injectable so fixture tests serve
-    // in-memory bytes with no network.
-    private val fetcher: HttpFetcher = HttpFetcher(userAgent = OFFLINE_USER_AGENT)
+    // the shared fetcher's stream method. Spec-38 (#252): the fetcher now
+    // rides the browser identity (system WebView UA) and the privacy route,
+    // so downloads look like ordinary browsing too — the old dedicated
+    // «4read-Audio-Engine» agent was a fingerprint. Injectable so fixture
+    // tests serve in-memory bytes with no network.
+    private val fetcher: HttpFetcher = HttpFetcher()
 ) {
 
     /**

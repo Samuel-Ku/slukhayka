@@ -1096,6 +1096,147 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    // ---------------------------------------------------------------------
+    // Spec-40 #277/#278/#280 — «Відгуки» on the book page. The store is the
+    // composition-root module (null without Firebase keys → no block at
+    // all); the identity seam arrives from lane-a's composition wiring via
+    // [attachListenerIdentity] — until then the block stays read-only,
+    // because writing needs a listener identity but reading does not.
+    // ---------------------------------------------------------------------
+
+    val listenerReviews: com.slukhayka.audiobooks.data.reviews.ListenerReviewsStore? =
+        App.instance.listenerReviews
+
+    /** The resolved listener profile, once lane-a's identity answered [ensure]. */
+    private val _listenerIdentity =
+        MutableStateFlow<com.slukhayka.audiobooks.data.identity.ListenerProfile?>(null)
+    val listenerIdentity: StateFlow<com.slukhayka.audiobooks.data.identity.ListenerProfile?> =
+        _listenerIdentity.asStateFlow()
+
+    /**
+     * Lane-a wiring point: attach the [com.slukhayka.audiobooks.data.identity.ListenerIdentity]
+     * module once it exists in the composition root. Resolves the profile in
+     * the background ([ensure] may sign in anonymously over the network);
+     * a failure keeps the block read-only — degrade-never.
+     */
+    fun attachListenerIdentity(identity: com.slukhayka.audiobooks.data.identity.ListenerIdentity) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val profile = runCatching { identity.ensure() }.getOrNull()
+            if (profile != null) _listenerIdentity.value = profile
+        }
+    }
+
+    private val _serverBookReviews = MutableStateFlow<List<com.slukhayka.audiobooks.data.reviews.ListenerReview>>(emptyList())
+
+    /** Optimistically submitted reviews not yet confirmed online (#280). */
+    private val _pendingReviews =
+        MutableStateFlow<Map<String, com.slukhayka.audiobooks.data.reviews.ListenerReview>>(emptyMap())
+    val pendingReviewKeys: StateFlow<Set<String>> = _pendingReviews
+        .map { it.keys }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
+
+    /** Server truth overlaid with the honest pending cards, newest first. */
+    val bookReviews: StateFlow<List<com.slukhayka.audiobooks.data.reviews.ListenerReview>> = combine(
+        _serverBookReviews,
+        _pendingReviews
+    ) { server, pending ->
+        (server.filterNot { com.slukhayka.audiobooks.data.reviews.ListenerReviewCodec.documentId(it.workId, it.uid) in pending.keys } +
+            pending.values)
+            .sortedByDescending { it.createdAt }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** Best-effort refresh of one Work's reviews; offline serves the cache silently (#280). */
+    fun loadReviews(workId: String) {
+        val store = listenerReviews ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            val fresh = try {
+                store.getReviews(workId)
+            } catch (e: Exception) {
+                emptyList()
+            }
+            if (_selectedBookId.value == workId) _serverBookReviews.value = fresh
+            // A queued write has reached the server when a live read carries
+            // its card back — only then does the «надішлемо при мережі»
+            // badge honestly retire.
+            if (!fresh.isEmpty()) retireConfirmedPending(fresh)
+        }
+    }
+
+    private fun retireConfirmedPending(serverReviews: List<com.slukhayka.audiobooks.data.reviews.ListenerReview>) {
+        if (_pendingReviews.value.isEmpty() || !isOnline()) return
+        val serverKeys = serverReviews
+            .map { com.slukhayka.audiobooks.data.reviews.ListenerReviewCodec.documentId(it.workId, it.uid) }
+            .toSet()
+        _pendingReviews.value = _pendingReviews.value.filterKeys { it !in serverKeys }
+    }
+
+    /**
+     * #277/#278 — create or EDIT one review (idempotent `set()` under the
+     * same `${workId}_${uid}` key). The card appears optimistically with the
+     * honest pending state; the Firestore persistence queue does the actual
+     * sending (survives kill-and-restart, #280).
+     */
+    fun saveReview(
+        workId: String,
+        rating: Int,
+        body: String?,
+        editionTag: String?,
+        editing: com.slukhayka.audiobooks.data.reviews.ListenerReview?
+    ) {
+        val store = listenerReviews ?: return
+        val profile = _listenerIdentity.value ?: return
+        val now = System.currentTimeMillis()
+        val review = com.slukhayka.audiobooks.data.reviews.ListenerReview(
+            workId = workId,
+            uid = profile.uid,
+            authorName = profile.nickname.ifBlank { profile.uid },
+            rating = rating,
+            body = body?.trim()?.takeIf { it.isNotEmpty() },
+            editionTag = editionTag?.trim()?.takeIf { it.isNotEmpty() },
+            createdAt = editing?.createdAt ?: now,
+            editedAt = if (editing != null) now else null
+        )
+        val key = com.slukhayka.audiobooks.data.reviews.ListenerReviewCodec.documentId(review.workId, review.uid)
+        // Optimistic insert FIRST — the user sees their card instantly.
+        _pendingReviews.value = _pendingReviews.value + (key to review)
+        viewModelScope.launch(Dispatchers.IO) {
+            val accepted = try {
+                store.putReview(review)
+            } catch (e: Exception) {
+                false
+            }
+            // Online: the local ack IS the send — retire the badge. Offline:
+            // true means durably queued locally; the badge stays («надішлемо
+            // при мережі») until a later live refresh carries the card back.
+            if (accepted && isOnline()) {
+                _pendingReviews.value = _pendingReviews.value - key
+            }
+            loadReviews(workId)
+        }
+    }
+
+    /** Best-effort delete of the listener's own review; the list re-reads the truth. */
+    fun deleteOwnReview(workId: String, uid: String) {
+        val store = listenerReviews ?: return
+        val key = com.slukhayka.audiobooks.data.reviews.ListenerReviewCodec.documentId(workId, uid)
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                store.deleteReview(workId, uid)
+            } catch (e: Exception) {
+                // Silent — the refresh below restores whatever is real.
+            }
+            _pendingReviews.value = _pendingReviews.value - key
+            loadReviews(workId)
+        }
+    }
+
+    /** The cheap connectivity gate behind the pending-badge honesty (#280). */
+    private fun isOnline(): Boolean = runCatching {
+        val cm = getApplication<Application>().getSystemService(android.content.Context.CONNECTIVITY_SERVICE)
+            as? android.net.ConnectivityManager ?: return false
+        val caps = cm.getNetworkCapabilities(cm.activeNetwork) ?: return false
+        caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+    }.getOrDefault(false)
+
     // Spec-15 T5: the labelled per-source detail blocks of the selected book.
     private val _sourceProfiles = MutableStateFlow<List<LibraryEntries.SourceProfile>>(emptyList())
     val sourceProfiles: StateFlow<List<LibraryEntries.SourceProfile>> = _sourceProfiles.asStateFlow()

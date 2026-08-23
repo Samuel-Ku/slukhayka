@@ -17,7 +17,7 @@ A provenance-bearing origin or copy through which one Edition may be played, suc
 _Avoid_: Edition, book
 
 **Source Binding**:
-A device's locator, permission, and availability relationship to a Source. Bindings are device-specific even when the Source identity is shared. No Binding rows exist yet — with a single device, locator and permission stay on the Source row; the Binding table arrives with device sync, not before.
+A device's locator, permission, and availability relationship to a Source. Bindings are device-specific even when the Source identity is shared. No Binding rows exist yet — with a single device, locator and permission stay on the Source row; the Binding table arrives with device sync, not before. NOTE (spec-40): the Firestore collection `device_bindings` is NOT this domain concept — it is the reinstall-recovery anchor mapping a device id to the listener's own uid.
 _Avoid_: Source, download
 
 **Source Catalog**:
@@ -73,6 +73,14 @@ _Avoid_: sleep timer, resume offset
 **Tombstone**:
 A durable record that a listener intentionally removed or rejected a relationship, preventing imports, catalog refreshes, or sync from silently recreating it. Its identity anchors at the Work: one tombstone blocks every Edition and Source of that Work.
 _Avoid_: Missing Source, unavailable file
+
+**Listener Review**:
+The one shared review («Відгук») a listener may leave per Work — a required 1–5 star rating plus optional bounded text and an optional narration tag (`editionTag`). Anchored at the Work mergeKey like Canonical covers; document identity `workId_uid` in the shared base's `book_reviews` collection makes double-voting impossible by construction. The headline score above the cards is the honest flat average over every source WITH a rating and every review (ADR-0022); a source's own ★ stays a separate row. A source page's visitors' comments are NOT reviews — they render as a plainly-labelled simple subblock, never mixed into community cards.
+_Avoid_: source visitor comment, Edition-scoped rating, fabricated zeros
+
+**Recovery Code**:
+The encoded credential pair of the silent anonymous profile («Код відновлення профілю»), shown in ⚙️ Профіль only behind BiometricPrompt and accepted on a fresh install to restore the same uid. Surviving reinstall also rides Android Auto Backup of the generated credentials and the Firestore `device_bindings/{ANDROID_ID} → uid` silent restore — the binding exists ONLY for recovery of one's own profile, written solely for the caller's own uid.
+_Avoid_: login screen, hardware identifiers (IMEI), password reset
 
 ## Playback
 

@@ -30,7 +30,12 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.webkit.ProxyConfig
+import androidx.webkit.ProxyController
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
 import com.slukhayka.audiobooks.BuildConfig
+import com.slukhayka.audiobooks.data.privacy.WebViewSessionPrivacy
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.theme.*
 
@@ -46,6 +51,16 @@ import com.slukhayka.audiobooks.ui.theme.*
  * data crosses through `evaluateJavascript` with an origin check against the
  * source's own domain; only http(s) navigation is allowed; mixed content,
  * file/content access and third-party cookies stay disabled.
+ *
+ * Spec-38 T3 (#255) — sessions live under the same privacy route as the
+ * transport ([WebViewSessionPrivacy]): navigation goes through the official
+ * webkit proxy controller when a route is installed (a route WebView cannot
+ * carry refuses honestly instead of silently going direct); third-party
+ * cookies are rejected; geolocation is hard-off with prompt-deny; the
+ * sensor/geolocation JS-API surface is removed by a document-start lockdown
+ * script; entering a source purges stored cookies so two sources' sessions
+ * never coexist (per-source isolation). No configured route = exactly the
+ * pre-spec behaviour («прямо», system defaults).
  */
 @SuppressLint("SetJavaScriptEnabled")
 @OptIn(ExperimentalMaterial3Api::class)
@@ -68,6 +83,40 @@ fun WebSourceBrowserScreen(
     var canGoForward by remember { mutableStateOf(false) }
     var isImporting by remember { mutableStateOf(false) }
     var importResult by remember { mutableStateOf("") }
+
+    // Spec-38 T3 (#255): the WebView session rides the SAME resolved route as
+    // the transport (WebViewSessionPrivacy reads TransportPrivacy). Resolved
+    // once per screen entry; a routed session on a WebView without proxy
+    // override support (or under the relay route) refuses below instead of
+    // silently navigating direct.
+    val proxyOverrideSupported = runCatching {
+        WebViewFeature.isFeatureSupported(WebViewFeature.PROXY_OVERRIDE)
+    }.getOrDefault(false)
+    val sessionRoute = remember(proxyOverrideSupported) {
+        WebViewSessionPrivacy.resolve(proxyOverrideSupported = proxyOverrideSupported)
+    }
+    val lockdownScript = remember { WebViewSessionPrivacy.lockdownScript() }
+
+    // Install / clear the webkit proxy override to match the transport's exit.
+    // No addDirect() fallback rule exists in the config: a chosen proxy that
+    // cannot connect fails navigation honestly, like the shared fetcher.
+    LaunchedEffect(sessionRoute) {
+        if (!proxyOverrideSupported) return@LaunchedEffect
+        val resolution = sessionRoute as? WebViewSessionPrivacy.RouteResolution.Ok ?: return@LaunchedEffect
+        runCatching {
+            val controller = ProxyController.getInstance()
+            val executor = java.util.concurrent.Executor { it.run() }
+            when (val route = resolution.route) {
+                is WebViewSessionPrivacy.SessionRoute.SystemDefault ->
+                    controller.clearProxyOverride(executor) {}
+                is WebViewSessionPrivacy.SessionRoute.Routed ->
+                    controller.setProxyOverride(
+                        ProxyConfig.Builder().addProxyRule(route.proxyRule).build(),
+                        executor
+                    ) {}
+            }
+        }.onFailure { Log.w("WebSource", "WebView privacy-route override failed", it) }
+    }
 
     // Spec-13 T3: intercepted audio URLs of the session, in order. The adapter
     // reads chapters from the inline playlist in the page HTML, so this is a
@@ -324,8 +373,63 @@ fun WebSourceBrowserScreen(
         }
 
         Box(modifier = Modifier.weight(1f)) {
+            when (sessionRoute) {
+                // Spec-38 T3: honest refusal — the chosen route cannot ride
+                // this device's WebView (or is the relay route), so the
+                // session does not happen at all rather than leaking direct.
+                is WebViewSessionPrivacy.RouteResolution.Refused -> {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.secondary),
+                        shape = RoundedCornerShape(AppDimens.RadiusCard),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp)
+                            .align(Alignment.TopCenter)
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Warning,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.secondary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Браузер джерела вимкнено маршрутом приватності",
+                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                IconButton(onClick = onClose) {
+                                    Icon(imageVector = Icons.Default.Close, contentDescription = "Закрити", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                            Text(
+                                text = sessionRoute.reason,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+                else -> Box(modifier = Modifier.fillMaxSize()) {
             AndroidView(
                 factory = { ctx ->
+                    // Spec-38 T3 per-source cookie isolation: entering a
+                    // source purges every stored cookie, so two sources'
+                    // sessions can never coexist in the single WebView jar
+                    // (third-party cookies stay rejected below). The current
+                    // source re-earns its own clearance during this session;
+                    // cookies survive the close so the adapter's server-side
+                    // playlist fetches keep riding them until the next entry.
+                    runCatching {
+                        android.webkit.CookieManager.getInstance().apply {
+                            removeAllCookies(null)
+                            flush()
+                        }
+                    }
                     WebView(ctx).apply {
                         android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(this@apply, false)
                         settings.apply {
@@ -338,12 +442,45 @@ fun WebSourceBrowserScreen(
                             loadWithOverviewMode = false
                             allowFileAccess = false
                             allowContentAccess = false
-                            // Same UA as the #71 prototype: cf_clearance is
-                            // UA-bound, so the session must not be invalidated
-                            // by a UA mismatch.
-                            userAgentString = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
+                            // Spec-38 T3: geolocation JS-API hard-off; the
+                            // prompt below denies as a second layer.
+                            // (setter only — no getter to synthesize from)
+                            @Suppress("DEPRECATION")
+                            setGeolocationEnabled(false)
+                            // Spec-38 T3: NO UA override — the WebView sends
+                            // its own genuine system UA, which is exactly the
+                            // identity the transport reports into
+                            // BrowserIdentity (spec-38 T1). The old hardcoded
+                            // Chrome/124 string was itself a fingerprint.
                         }
-                        webChromeClient = android.webkit.WebChromeClient()
+                        webChromeClient = object : android.webkit.WebChromeClient() {
+                            override fun onGeolocationPermissionsShowPrompt(
+                                origin: String?,
+                                callback: android.webkit.GeolocationPermissions.Callback?
+                            ) {
+                                // Deny always — belt and braces over
+                                // geolocationEnabled=false above.
+                                callback?.invoke(origin, false, false)
+                            }
+                        }
+                        // Spec-38 T3: remove the sensor/geolocation JS-API
+                        // surface before any page script runs. Document-start
+                        // injection where supported; otherwise a best-effort
+                        // page-start fallback (timing races page scripts — an
+                        // honest degradation, not a guarantee).
+                        val documentStartSupported = runCatching {
+                            WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)
+                        }.getOrDefault(false)
+                        var injectLockdownOnPageStart = false
+                        if (documentStartSupported) {
+                            runCatching {
+                                WebViewCompat.addDocumentStartJavaScript(
+                                    this@apply, lockdownScript, setOf("*")
+                                )
+                            }.onFailure { injectLockdownOnPageStart = true }
+                        } else {
+                            injectLockdownOnPageStart = true
+                        }
                         webViewClient = object : WebViewClient() {
                             override fun shouldOverrideUrlLoading(view: WebView?, request: android.webkit.WebResourceRequest?): Boolean {
                                 val url = request?.url?.toString() ?: return false
@@ -359,6 +496,11 @@ fun WebSourceBrowserScreen(
 
                             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                                 super.onPageStarted(view, url, favicon)
+                                // Spec-38 T3 lockdown fallback for WebViews
+                                // without document-start injection.
+                                if (injectLockdownOnPageStart) {
+                                    view?.evaluateJavascript(lockdownScript, null)
+                                }
                                 isLoading = true
                                 hasWebError = false
                                 url?.let {
@@ -512,6 +654,8 @@ fun WebSourceBrowserScreen(
                     }
                 }
             }
+                }
+            }
         }
     }
 
@@ -524,6 +668,10 @@ fun WebSourceBrowserScreen(
                 } catch (_: Exception) {}
             }
             webViewInstance = null
+            // Spec-38 T3 session hygiene: persist the jar state cleanly; the
+            // current source's cookies stay until the next source entry
+            // purges them (per-source isolation happens at entry).
+            runCatching { android.webkit.CookieManager.getInstance().flush() }
         }
     }
 }

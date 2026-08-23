@@ -214,10 +214,12 @@ class HomeFeedOrderSnapshotTest {
     }
 
     /**
-     * spec-39 T1 (#261) — with own cycles on the shelf, «Ваші цикли» sits
-     * between the genres and «Рекомендовано для вас» (the recorded spec-28
-     * order amendment), and the editorial 4read «Цикли» section row is
-     * hidden while the personal shelf renders.
+     * spec-39 T1/T2 (#261/#262) — the mixed shelf: «Ваші цикли» sits between
+     * the genres and «Рекомендовано для вас» (the recorded spec-28 order
+     * amendment); own cycles come first with their honest progress line, a
+     * similar cycle appends after them carrying the engine's reason chip,
+     * and the editorial 4read «Цикли» section row is hidden while the
+     * personal shelf renders.
      */
     @Test
     fun personal_cycles_shelf_sits_after_genres_and_hides_the_editorial_cycles_row() {
@@ -229,6 +231,16 @@ class HomeFeedOrderSnapshotTest {
                 listenedCount = 2,
                 totalCount = 8,
                 finished = false
+            ),
+            // T2 similar tier — the engine's pick with its reason.
+            com.slukhayka.audiobooks.ui.library.PersonalCycle(
+                title = "Гіперіон",
+                url = "https://4read.org/xfsearch/cikl/giperion/",
+                coverImageUrl = null,
+                listenedCount = 0,
+                totalCount = 4,
+                finished = false,
+                reasonTitle = "Тигролови"
             )
         )
         composeTestRule.setContent {
@@ -287,9 +299,18 @@ class HomeFeedOrderSnapshotTest {
         assertTrue(topOf("Рекомендовано для вас") < topOf("Новинки"))
 
         // The editorial 4read «Цикли» header is gone while the shelf renders;
-        // the honest progress line shows real numbers exactly once.
+        // the own card shows real numbers once; the similar card carries the
+        // engine's reason chip instead of progress.
         assertEquals(0, composeTestRule.onAllNodesWithText("Цикли", useUnmergedTree = true).fetchSemanticsNodes().size)
         assertEquals(1, composeTestRule.onAllNodesWithText("Прослухано 2 із 8").fetchSemanticsNodes().size)
+        assertEquals(1, composeTestRule.onAllNodesWithText("Схоже на «Тигролови»").fetchSemanticsNodes().size)
+
+        // Own tier precedes the similar one inside the rail (a horizontal
+        // row — order is along x, unlike the vertical block checks above).
+        assertTrue(
+            composeTestRule.onNodeWithText("Відьмак").getBoundsInRoot().left <
+                composeTestRule.onNodeWithText("Гіперіон").getBoundsInRoot().left
+        )
 
         composeTestRule.onRoot().captureRoboImage(
             filePath = "src/test/snapshots/home_feed_personal_cycles.png"

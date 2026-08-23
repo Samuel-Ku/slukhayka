@@ -4,15 +4,19 @@ import com.slukhayka.audiobooks.data.collections.CollectionMatcher
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.PlaybackProgressEntity
 import com.slukhayka.audiobooks.data.db.WorkEntity
+import com.slukhayka.audiobooks.data.recommend.RecommendationEngine
 import com.slukhayka.audiobooks.data.source.SourceIds
 import com.slukhayka.audiobooks.data.source.sourceIdForUrl
 
 /**
  * One card of the spec-39 «Ваші цикли» shelf: a Series (cycle) the listener
- * owns at least one Work of, ready to render. [listenedCount] /
- * [totalCount] are the honest «Прослухано X із Y» inputs — the UI hides the
- * line unless both numbers are real (ADR-0014). [finished] marks a cycle
- * whose every owned member is completed; unfinished cycles rank first.
+ * owns at least one Work of, ready to render.
+ *
+ * Count honesty (ADR-0014): [listenedCount] / [totalCount] carry real
+ * numbers ONLY on own cards ([reasonTitle] == null) — the UI hides the line
+ * unless both are real. Similar-tier cards ([reasonTitle] != null) mean the
+ * listener owns nothing there: the UI must render the reason chip instead
+ * of progress, never the count fields.
  */
 data class PersonalCycle(
     val title: String,
@@ -20,11 +24,12 @@ data class PersonalCycle(
     val coverImageUrl: String?,
     val listenedCount: Int,
     val totalCount: Int,
-    val finished: Boolean
+    val finished: Boolean,
+    val reasonTitle: String? = null
 )
 
 /**
- * Spec-39 T1 (#261) — the ONE pure builder behind the «Ваші цикли» shelf
+ * Spec-39 (#261/#262) — the ONE pure builder behind the «Ваші цикли» shelf
  * (the single new seam of this feature, beside `computeResumeStart` per
  * ADR-0008/ADR-0014). Pure JVM: no Android, no I/O, no Compose.
  *
@@ -35,24 +40,32 @@ data class PersonalCycle(
  *  - [progress] — the Listening State rows; the latest one per book decides
  *    completion and recency;
  *  - [works] — every locally known Work (library ∪ synced catalogue);
- *    counts the honest Y against the same identity as grouping.
+ *    counts the honest Y against the same identity as grouping;
+ *  - [recommendations] — the ranked output of the existing on-device engine
+ *    (spec-19); each candidate (whose id is the Work merge key) lifts into
+ *    the similar tier, T2.
  *
  * Rules:
  *
  *  - **Identity** — members group by the normalized series title (the
  *    MergeKey rule + parenthetical trimming + diacritics fold behind the
  *    collection matcher, ADR-0012), so «Відьмак» ≡ «Відьмак (цикл)»;
- *  - **Openability** — a cycle renders only when some member carries a 4read
- *    series URL (the series page path parses 4read pages only); otherwise it
- *    is omitted — a dead card is worse than an absent one;
- *  - **Canonical URL / display title** — the most frequent spelling among
- *    members, ties to the earliest member's one (deterministic for tests
+ *  - **Openability** — a cycle renders only when some Work of its identity
+ *    group carries a 4read series URL (the series page path parses 4read
+ *    pages only); otherwise it is omitted — a dead card is worse than an
+ *    absent one;
+ *  - **Canonical URL / display title** — the most frequent spelling within
+ *    the identity group, ties to the earliest one (deterministic for tests
  *    and UI);
- *  - **Ranking** — unfinished cycles first; within both groups by the most
- *    recent Listening State activity, falling back per member to its Library
- *    Entry creation time;
- *  - **Cap** — [SHELF_LIMIT] cards total, so a huge library cannot balloon
- *    the rail.
+ *  - **Own ranking** — unfinished cycles first; within both groups by the
+ *    most recent Listening State activity, falling back per member to its
+ *    Library Entry creation time;
+ *  - **Similar tier (T2)** — engine picks lift through their Work's series
+ *    identity, in engine order (score-ranked); own identities are never
+ *    suggested — including owned cycles omitted from the shelf for lacking
+ *    an openable URL; duplicate lifts collapse keeping the strongest reason;
+ *    best-effort by construction — empty picks simply yield no tier;
+ *  - **Cap** — [SHELF_LIMIT] cards across BOTH tiers, own first.
  */
 object PersonalCycles {
 
@@ -62,7 +75,8 @@ object PersonalCycles {
     fun build(
         libraryBooks: List<AudiobookEntity>,
         progress: List<PlaybackProgressEntity>,
-        works: List<WorkEntity>
+        works: List<WorkEntity>,
+        recommendations: List<RecommendationEngine.Recommendation> = emptyList()
     ): List<PersonalCycle> {
         // The latest Listening State row wins per book (several editions of
         // one rendition-card collapse to their most recent activity).
@@ -87,59 +101,114 @@ object PersonalCycles {
         data class Ranked(val cycle: PersonalCycle, val finished: Boolean, val activityAt: Long)
 
         // --- grouping: normalized title -> members --------------------------
-        return libraryBooks
+        val ownedBooks = libraryBooks.filter { !it.seriesTitle.isNullOrBlank() }
+        val ownGroups = ownedBooks.groupBy { CollectionMatcher.normalizeTitle(it.seriesTitle!!) }
+
+        val ownCycles = ownGroups.mapNotNull { (identity, members) ->
+            val built = members.map(::memberOf)
+
+            // Openability: at least one member must carry a 4read URL.
+            val fourReadUrls = fourReadUrlsOf(members.map { it.seriesUrl })
+            if (fourReadUrls.isEmpty()) return@mapNotNull null
+
+            val canonicalUrl =
+                mostFrequentSpelling(fourReadUrls) ?: return@mapNotNull null
+            val displayTitle =
+                mostFrequentSpelling(members.mapNotNull { it.seriesTitle }) ?: identity
+
+            // Honest counts: X = owned members actually completed; Y = every
+            // distinct locally known Work of this cycle — the union of the
+            // catalogue's Works sharing the identity and the members' own
+            // Work rows (an import without a Works row is still known).
+            val listenedCount = built.count { it.completed }
+            val knownWorkIds = works.asSequence()
+                .filter { normalizeOrNull(it.seriesTitle) == identity }
+                .map { it.id }
+                .toSet() +
+                members.mapNotNull { it.workId }.toSet()
+
+            // Representative cover: the unfinished member with the freshest
+            // activity, else the first member in stable order.
+            val representative = built.filter { !it.completed }
+                .maxByOrNull { it.activityAt } ?: built.first()
+            val finished = built.all { it.completed }
+
+            Ranked(
+                cycle = PersonalCycle(
+                    title = displayTitle,
+                    url = canonicalUrl,
+                    coverImageUrl = representative.book.coverImageUrl,
+                    listenedCount = listenedCount,
+                    totalCount = knownWorkIds.size,
+                    finished = finished
+                ),
+                finished = finished,
+                activityAt = built.maxOf { it.activityAt }
+            )
+        }
+
+        // --- T2: the similar tier (best-effort by construction) -------------
+
+        // Every Work indexed by merge key (the candidate id) and by identity:
+        // the lift resolves the recommended card's Work, then reuses the SAME
+        // identity machinery as the own tier. First Work wins a merge-key
+        // collision — the earliest spelling doctrine, deterministic.
+        val worksByMergeKey = HashMap<String, WorkEntity>()
+        for (work in works) {
+            if (work.mergeKey.isNotBlank() && work.mergeKey !in worksByMergeKey) {
+                worksByMergeKey[work.mergeKey] = work
+            }
+        }
+        val worksByIdentity = works
             .filter { !it.seriesTitle.isNullOrBlank() }
             .groupBy { CollectionMatcher.normalizeTitle(it.seriesTitle!!) }
-            .mapNotNull { (identity, members) ->
-                val built = members.map(::memberOf)
 
-                // Openability: at least one member must carry a 4read URL.
-                val fourReadUrls = members.mapNotNull { m ->
-                    m.seriesUrl?.takeIf { sourceIdForUrl(it) == SourceIds.FOUR_READ }
-                }
-                if (fourReadUrls.isEmpty()) return@mapNotNull null
+        // Owned identities are excluded from suggestions even when the own
+        // cycle itself is omitted from the shelf (no openable URL): proposing
+        // a named cycle the listener already owns is noise either way.
+        val ownedIdentities = ownGroups.keys.toMutableSet()
+        val similarSeen = mutableSetOf<String>()
+        val similarCycles = mutableListOf<PersonalCycle>()
 
-                val canonicalUrl =
-                    mostFrequentSpelling(fourReadUrls) ?: return@mapNotNull null
-                val displayTitle =
-                    mostFrequentSpelling(members.mapNotNull { it.seriesTitle }) ?: identity
+        // The recommendations arrive score-ranked from the engine (spec-19
+        // sorts by similarity descending), so first occurrence = strongest
+        // pick; dedup keeps exactly that reason.
+        for (rec in recommendations) {
+            val work = worksByMergeKey[rec.candidate.id] ?: continue
+            val identity = normalizeOrNull(work.seriesTitle) ?: continue
+            if (identity in ownedIdentities || identity in similarSeen) continue
 
-                // Honest counts: X = owned members actually completed; Y =
-                // every distinct locally known Work of this cycle — the union
-                // of the catalogue's Works sharing the identity and the
-                // members' own Work rows (an import without a Works row is
-                // still locally known).
-                val listenedCount = built.count { it.completed }
-                val knownWorkIds = works.asSequence()
-                    .filter { normalizeOrNull(it.seriesTitle) == identity }
-                    .map { it.id }
-                    .toSet() +
-                    members.mapNotNull { it.workId }.toSet()
+            val group = worksByIdentity[identity].orEmpty()
+            val fourReadUrls = fourReadUrlsOf(group.map { it.seriesUrl })
+            if (fourReadUrls.isEmpty()) continue
 
-                // Representative cover: the unfinished member with the
-                // freshest activity, else the first member in stable order.
-                val representative = built.filter { !it.completed }
-                    .maxByOrNull { it.activityAt } ?: built.first()
+            similarSeen += identity
+            similarCycles += PersonalCycle(
+                title = mostFrequentSpelling(group.mapNotNull { it.seriesTitle }) ?: identity,
+                url = mostFrequentSpelling(fourReadUrls)!!,
+                coverImageUrl = group.firstOrNull { !it.coverImageUrl.isNullOrBlank() }?.coverImageUrl,
+                // The listener owns nothing here — the chip replaces progress.
+                listenedCount = 0,
+                totalCount = group.size,
+                finished = false,
+                reasonTitle = rec.reasonTitle
+            )
+        }
 
-                Ranked(
-                    cycle = PersonalCycle(
-                        title = displayTitle,
-                        url = canonicalUrl,
-                        coverImageUrl = representative.book.coverImageUrl,
-                        listenedCount = listenedCount,
-                        totalCount = knownWorkIds.size,
-                        finished = built.all { it.completed }
-                    ),
-                    finished = built.all { it.completed },
-                    activityAt = built.maxOf { it.activityAt }
-                )
-            }
+        return ownCycles
             .sortedWith(
                 compareBy<Ranked> { it.finished }.thenByDescending { it.activityAt }
             )
-            .take(SHELF_LIMIT)
             .map { it.cycle }
+            .plus(similarCycles)
+            .take(SHELF_LIMIT)
     }
+
+    /** The subset of series URLs the series-page path can actually open. */
+    private fun fourReadUrlsOf(seriesUrls: List<String?>): List<String> =
+        seriesUrls.mapNotNull { url ->
+            url?.takeIf { sourceIdForUrl(it) == SourceIds.FOUR_READ }
+        }
 
     /**
      * The most frequent spelling in first-seen order; strict `>` keeps the

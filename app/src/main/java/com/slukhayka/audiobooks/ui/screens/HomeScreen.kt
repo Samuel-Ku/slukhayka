@@ -174,13 +174,16 @@ fun HomeScreen(
     // duration surface, never guesses.
     val durationBooks: DurationBooks = remember(allBooks) { durationBooksFrom(allBooks) }
 
-    // Spec-39 T1 (#261): the pure builder turns the same shaped rows into
-    // the shelf; an empty result leaves Огляд byte-for-byte as before.
-    val personalCycles = remember(allBooks, recentProgress, allWorks) {
+    // Spec-39 T1/T2 (#261/#262): the pure builder turns the same shaped rows
+    // into the shelf; the T2 similar tier lifts the engine's ranked picks to
+    // cycle level (best-effort — empty picks yield no tier). An empty result
+    // leaves Огляд byte-for-byte as before.
+    val personalCycles = remember(allBooks, recentProgress, allWorks, recommendedBooks) {
         com.slukhayka.audiobooks.ui.library.PersonalCycles.build(
             libraryBooks = allBooks,
             progress = recentProgress,
-            works = allWorks
+            works = allWorks,
+            recommendations = recommendedBooks
         )
     }
 
@@ -910,11 +913,13 @@ fun CatalogSeriesCard(
 }
 
 /**
- * Spec-39 T1 (#261) — one «Ваші цикли» card: the same landscape form as the
- * catalogue series card (visual unity with Огляд), the cover of the cycle's
- * representative member, and the honest «Прослухано X із Y» line — rendered
- * only from real numbers, never as a placeholder (ADR-0014). Tapping opens
- * the same series page as every other series entry.
+ * Spec-39 T1/T2 (#261/#262) — one «Ваші цикли» card: the same landscape form
+ * as the catalogue series card (visual unity with Огляд). Own cycles carry
+ * the honest «Прослухано X із Y» line — rendered only from real numbers,
+ * never as a placeholder (ADR-0014). Similar-tier cycles ([PersonalCycle]
+ * with a [PersonalCycle.reasonTitle]) carry the engine's reason chip
+ * («схоже на X») instead of progress — the listener owns nothing there.
+ * Tapping opens the same series page as every other series entry.
  */
 @Composable
 fun PersonalCycleCard(
@@ -947,17 +952,39 @@ fun PersonalCycleCard(
             textAlign = TextAlign.Center,
             modifier = Modifier.fillMaxWidth()
         )
-        // The honest progress magnet — only when both numbers are real.
-        if (cycle.totalCount > 0) {
-            Text(
-                text = "Прослухано ${cycle.listenedCount} із ${cycle.totalCount}",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth()
-            )
+        val subtitle = when {
+            // Similar tier: the engine's reason explains the pick.
+            cycle.reasonTitle != null -> "Схоже на «${cycle.reasonTitle}»"
+            // The honest progress magnet — only when both numbers are real.
+            cycle.totalCount > 0 -> "Прослухано ${cycle.listenedCount} із ${cycle.totalCount}"
+            else -> null
+        }
+        if (subtitle != null) {
+            Spacer(modifier = Modifier.height(4.dp))
+            Surface(
+                color = if (cycle.reasonTitle != null) {
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                } else {
+                    Color.Transparent
+                },
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (cycle.reasonTitle != null) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .padding(horizontal = 8.dp, vertical = 2.dp)
+                        .fillMaxWidth()
+                )
+            }
         }
     }
 }

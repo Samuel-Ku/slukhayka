@@ -54,31 +54,15 @@ class MainActivity : ComponentActivity() {
         // Globally disable hardware bitmaps in Coil to prevent E/ashmem Pinning is deprecated errors
         // Spec-38 (#252): cover-image traffic is transport traffic too — it rides
         // the same browser identity (real WebView UA) and the same privacy route
-        // as the shared fetcher, via one OkHttp client for the image loader.
+        // as the shared fetcher.
+        // Spec-38 T4 (#256): that one client is now the shared
+        // [TransportClients.okHttp] — same pool, same route trampoline, and
+        // domain names resolved through the DoH door, so cover lookups no
+        // longer leak to the system resolver either.
         val imageLoader = coil.ImageLoader.Builder(this)
             .allowHardware(false)
             .okHttpClient {
-                okhttp3.OkHttpClient.Builder()
-                    .proxySelector(object : java.net.ProxySelector() {
-                        override fun select(uri: java.net.URI?): List<java.net.Proxy> =
-                            listOfNotNull(com.slukhayka.audiobooks.data.privacy.TransportPrivacy.currentJavaProxy())
-
-                        override fun connectFailed(uri: java.net.URI?, sa: java.net.SocketAddress?, ioe: java.io.IOException?) {
-                            // Honest failure: OkHttp surfaces the exception; no
-                            // direct fallback is attempted here.
-                        }
-                    })
-                    .addInterceptor { chain ->
-                        chain.proceed(
-                            chain.request().newBuilder()
-                                .header(
-                                    "User-Agent",
-                                    com.slukhayka.audiobooks.data.privacy.BrowserIdentity.currentUserAgent()
-                                )
-                                .build()
-                        )
-                    }
-                    .build()
+                com.slukhayka.audiobooks.data.privacy.TransportClients.okHttp
             }
             .build()
         coil.Coil.setImageLoader(imageLoader)

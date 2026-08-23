@@ -21,7 +21,8 @@ import java.net.URL
  * is the device's real system WebView one ([BrowserIdentity], cached once per
  * process; static fallback in JVM), standard Accept/Accept-Language travel by
  * default, and when the listener chose a privacy route the connection opens
- * through it ([TransportPrivacy]). A chosen route that cannot connect fails
+ * through it ([TransportPrivacy] — wire-level proxy, or URL rewrite for the
+ * relay prototype). A chosen route that cannot connect fails
  * the request — there is NO silent fallback to a direct connection. Per-source
  * [referer] rules (spec-13) are unaffected. Explicit [userAgent] overrides
  * exist only for tests; production callers leave it null.
@@ -54,7 +55,7 @@ open class HttpFetcher(
 
     /** Like [getTextResult] with additional request headers. */
     open fun getTextResult(url: String, extraHeaders: Map<String, String>): Pair<Int, String> {
-        val viaPrivacyRoute = proxyProvider() != null
+        val viaPrivacyRoute = proxyProvider() != null || TransportPrivacy.isRelayActive()
         val connection = try {
             openConnection(url, extraHeaders)
         } catch (e: Exception) {
@@ -168,9 +169,16 @@ open class HttpFetcher(
      * «прямо» deterministically instead of inheriting JVM system properties),
      * then the browser identity headers, the per-source Referer, and finally
      * the caller's own headers (so they can override defaults).
+     *
+     * Spec-38 T6 (#258): when the relay route is active, the URL is first
+     * rewritten through the relay ([TransportPrivacy.rewriteThroughRelay]) —
+     * the connection itself opens directly to the relay origin (no
+     * `java.net.Proxy`), and the relay fetches the original target. The relay
+     * forwards the browser-identity headers below and passes statuses through,
+     * so degrade-on-failure behaviour here is unchanged.
      */
     private fun openConnection(url: String, extraHeaders: Map<String, String>): HttpURLConnection =
-        (URL(url).openConnection(proxyProvider() ?: Proxy.NO_PROXY) as HttpURLConnection).apply {
+        (URL(TransportPrivacy.rewriteThroughRelay(url)).openConnection(proxyProvider() ?: Proxy.NO_PROXY) as HttpURLConnection).apply {
             connectTimeout = 12_000
             readTimeout = 18_000
             requestMethod = "GET"

@@ -1,6 +1,7 @@
 package com.slukhayka.audiobooks.data.privacy
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -134,5 +135,104 @@ class NetworkPrivacyPolicyTest {
         assertTrue(result is RouteResolution.Invalid)
         // The reason names the expected shape so the user can fix the input.
         assertTrue("порт" in (result as RouteResolution.Invalid).reason.lowercase())
+    }
+
+    // --- relay prototype route (spec-38 T6, #258) ---
+
+    @Test
+    fun `a https workers address resolves to a normalized relay base`() {
+        val result = NetworkPrivacy.resolve(
+            PrivacyPrefs(routeMode = RouteMode.RELAY, proxyAddress = "https://slukhayka-relay.example.workers.dev/")
+        )
+        assertEquals(
+            RouteResolution.Ok(NetworkRoute.Relay("https://slukhayka-relay.example.workers.dev")),
+            result
+        )
+    }
+
+    @Test
+    fun `a relay base keeps its path and explicit port but drops trailing slashes`() {
+        assertEquals(
+            "https://relay.example.dev/relay",
+            NetworkPrivacy.parseRelayBase("https://relay.example.dev/relay///")
+        )
+        assertEquals(
+            "http://127.0.0.1:8787",
+            NetworkPrivacy.parseRelayBase("http://127.0.0.1:8787")
+        )
+    }
+
+    @Test
+    fun `an http localhost base parses for wrangler dev`() {
+        val result = NetworkPrivacy.resolve(
+            PrivacyPrefs(routeMode = RouteMode.RELAY, proxyAddress = "http://127.0.0.1:8787")
+        )
+        assertTrue(result is RouteResolution.Ok)
+        assertEquals(NetworkRoute.Relay("http://127.0.0.1:8787"), (result as RouteResolution.Ok).route)
+    }
+
+    @Test
+    fun `a blank relay address rejects with a reason`() {
+        val result = NetworkPrivacy.resolve(
+            PrivacyPrefs(routeMode = RouteMode.RELAY, proxyAddress = "   ")
+        )
+        assertTrue(result is RouteResolution.Invalid)
+        assertTrue((result as RouteResolution.Invalid).reason.contains("реле"))
+    }
+
+    @Test
+    fun `garbage relay text rejects`() {
+        assertNull(NetworkPrivacy.parseRelayBase("не адреса"))
+        assertNull(NetworkPrivacy.parseRelayBase("relay.example.workers.dev"))
+        assertNull(NetworkPrivacy.parseRelayBase("https://"))
+    }
+
+    @Test
+    fun `a non-http relay scheme rejects`() {
+        assertNull(NetworkPrivacy.parseRelayBase("ftp://relay.example.dev"))
+        assertNull(NetworkPrivacy.parseRelayBase("socks5://127.0.0.1:9050"))
+    }
+
+    @Test
+    fun `a relay base with query fragment or credentials rejects`() {
+        assertNull(NetworkPrivacy.parseRelayBase("https://relay.example.dev/?token=x"))
+        assertNull(NetworkPrivacy.parseRelayBase("https://relay.example.dev/#frag"))
+        assertNull(NetworkPrivacy.parseRelayBase("https://user:pass@relay.example.dev"))
+    }
+
+    @Test
+    fun `the relay rewrite is total and appends the encoded target`() {
+        val relay = NetworkRoute.Relay("https://relay.example.dev")
+        assertEquals(
+            "https://relay.example.dev?url=https%3A%2F%2Fsluhay.com%2Fbook.html",
+            relay.rewrite("https://sluhay.com/book.html")
+        )
+        // Special characters survive round-trip encoding — the worker decodes.
+        assertEquals(
+            "https://relay.example.dev/prefix?url=https%3A%2F%2Fcdn.example.com%2Fa%3Fb%3D1%26c%3D2",
+            NetworkRoute.Relay("https://relay.example.dev/prefix")
+                .rewrite("https://cdn.example.com/a?b=1&c=2")
+        )
+    }
+
+    @Test
+    fun `rewriteThroughRelay touches nothing unless the relay route is resolved`() {
+        TransportPrivacy.install(PrivacyPrefs(routeMode = RouteMode.DIRECT))
+        assertEquals("https://sluhay.com/book.html", TransportPrivacy.rewriteThroughRelay("https://sluhay.com/book.html"))
+        assertFalse(TransportPrivacy.isRelayActive())
+        try {
+            TransportPrivacy.install(PrivacyPrefs(routeMode = RouteMode.RELAY, proxyAddress = "https://relay.example.dev"))
+            assertEquals(
+                "https://relay.example.dev?url=https%3A%2F%2Fsluhay.com%2Fbook.html",
+                TransportPrivacy.rewriteThroughRelay("https://sluhay.com/book.html")
+            )
+            assertTrue(TransportPrivacy.isRelayActive())
+            // The relay is NOT a wire-level proxy: the connection opens straight
+            // to the relay origin, indirection lives in the rewritten URL.
+            assertNull(TransportPrivacy.currentJavaProxy())
+        } finally {
+            // Never leak the relay into other tests in this JVM.
+            TransportPrivacy.install(PrivacyPrefs(routeMode = RouteMode.DIRECT))
+        }
     }
 }

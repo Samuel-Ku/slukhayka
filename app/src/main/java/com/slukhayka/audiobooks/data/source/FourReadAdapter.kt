@@ -72,7 +72,10 @@ class FourReadAdapter(
         // only owns transport (HttpFetcher, with the source Referer) — the
         // page profile, cover and playlist expansion are pure DOM work.
         val html = fetcher.getText(url)
+        // Spec-40 #282 — visitors' comments ride the SAME response: parsed
+        // once from the html this detail was built from, never a second fetch.
         return WebViewHtmlParser().parse(html, url, resolveContent = { fetcher.getText(it) })
+            .copy(visitorComments = parseComments(html))
     }
 
     /**

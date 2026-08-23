@@ -12,6 +12,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material3.Card
@@ -103,6 +104,7 @@ fun ReviewCard(
     isPending: Boolean,
     onEdit: () -> Unit = {},
     onDelete: () -> Unit = {},
+    onHideAuthor: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Card(
@@ -200,6 +202,33 @@ fun ReviewCard(
                             contentDescription = "Видалити відгук",
                             tint = MaterialTheme.colorScheme.error,
                             modifier = Modifier.size(16.dp)
+                        )
+                    }
+                } else {
+                    // Spec-40 #281 — the ONLY moderation v1 offers: hide this
+                    // author's reviews locally, reversibly, without a server.
+                    var muteMenuOpen by remember { mutableStateOf(false) }
+                    androidx.compose.material3.IconButton(
+                        onClick = { muteMenuOpen = true },
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.MoreVert,
+                            contentDescription = "Дії з автором",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                    androidx.compose.material3.DropdownMenu(
+                        expanded = muteMenuOpen,
+                        onDismissRequest = { muteMenuOpen = false }
+                    ) {
+                        androidx.compose.material3.DropdownMenuItem(
+                            text = { Text("Приховувати відгуки цього автора") },
+                            onClick = {
+                                muteMenuOpen = false
+                                onHideAuthor()
+                            }
                         )
                     }
                 }
@@ -338,6 +367,35 @@ fun ListenerReviewFormSheet(
                     Text(if (editing == null) "Опублікувати" else "Зберегти")
                 }
             }
+        }
+    }
+}
+
+/**
+ * Spec-40 #282 — the source site's own visitors' comments as a plainly
+ * labelled simple list UNDER our review cards, never mixed into them: parsed
+ * texts carry no author/date/rating and do not survive card form. A source
+ * without comments renders nothing (absent, never filler).
+ */
+@Composable
+fun VisitorCommentsSubblock(
+    profile: com.slukhayka.audiobooks.data.entries.LibraryEntries.SourceProfile,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
+        Text(
+            text = "Коментарі відвідувачів ${profile.sourceName}",
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        profile.visitorComments.forEach { comment ->
+            Text(
+                text = "• $comment",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(vertical = 2.dp)
+            )
         }
     }
 }

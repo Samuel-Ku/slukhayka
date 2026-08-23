@@ -122,7 +122,9 @@ class LibraryEntries(
         val description: String = "",
         val rating: Double? = null,
         val narrator: String = "",
-        val genres: List<String> = emptyList()
+        val genres: List<String> = emptyList(),
+        /** Spec-40 #282 — visitors' comments parsed from the same page fetch. */
+        val visitorComments: List<String> = emptyList()
     )
 
     /**
@@ -178,7 +180,8 @@ class LibraryEntries(
                         description = detail.description,
                         rating = detail.rating,
                         narrator = detail.narrator,
-                        genres = detail.genres
+                        genres = detail.genres,
+                        visitorComments = detail.visitorComments
                     )
                 } catch (e: Exception) {
                     null

@@ -72,7 +72,14 @@ data class SourceBookDetail(
      * og:description is not a description — lihtar renders its AUTHOR there,
      * so lihtar stays empty). Never fabricated.
      */
-    val description: String = ""
+    val description: String = "",
+    /**
+     * Spec-40 #282 — the source page's visitors' comments, parsed by the SAME
+     * request that produced this detail ([SourceAdapter.parseComments]).
+     * Empty for sources without provable comments; never fabricated. They
+     * ride the profile as-is — no separate store, no separate fetch.
+     */
+    val visitorComments: List<String> = emptyList()
 )
 
 /**

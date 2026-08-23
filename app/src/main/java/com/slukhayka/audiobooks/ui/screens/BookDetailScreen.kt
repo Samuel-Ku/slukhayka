@@ -131,6 +131,8 @@ fun BookDetailScreen(
     val pendingReviewKeys by viewModel.pendingReviewKeys.collectAsState()
     LaunchedEffect(reviewsWorkId) {
         viewModel.loadReviews(reviewsWorkId)
+        // Spec-40 #281 — the local mute list rides every branch read.
+        viewModel.loadHiddenAuthors()
     }
 
     // Spec-40 #278 — THIS Work's editions from the local DB, labeled by
@@ -913,6 +915,44 @@ fun BookDetailScreen(
                     }
                 }
 
+                // Spec-40 #279 — the honest headline average: flat mean over
+                // every source WITH a rating and every listener review. No
+                // addends → no row at all (ADR-0014: zeros are never drawn);
+                // the source's own ★ stays a separate row as before.
+                item(key = "reviews_average") {
+                    val average = com.slukhayka.audiobooks.data.reviews.CombinedAverage.average(
+                        sourceRatings = sourceProfiles.map { it.rating },
+                        listenerRatings = bookReviews.map { it.rating }
+                    )
+                    if (average != null) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = androidx.compose.material.icons.Icons.Default.Star,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.secondary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.size(6.dp))
+                            Text(
+                                text = "%.1f".format(java.util.Locale.US, average.value),
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Spacer(modifier = Modifier.size(8.dp))
+                            Text(
+                                text = "джерела і слухачі · ${average.count} оцінок",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+
                 if (bookReviews.isEmpty()) {
                     item(key = "reviews_empty") {
                         Text(
@@ -936,11 +976,23 @@ fun BookDetailScreen(
                                 editingReview = review
                                 showReviewForm = true
                             },
-                            onDelete = { reviewToDelete = review }
+                            onDelete = { reviewToDelete = review },
+                            onHideAuthor = { viewModel.hideAuthor(review.authorName) }
                         )
                     }
-                }
-            }
+
+                    // Spec-40 #282 — the source's own visitors' comments: a
+                    // plainly-labelled simple list UNDER our cards, never mixed
+                    // into them (parsed texts have no author/date/rating and do
+                    // not survive card form). Absent sources render nothing.
+                    sourceProfiles
+                        .filter { it.visitorComments.isNotEmpty() }
+                        .forEach { profile ->
+                            item(key = "visitor_comments_${profile.sourceId}") {
+                                VisitorCommentsSubblock(profile)
+                            }
+                        }
+                }            }
         }
     }
 

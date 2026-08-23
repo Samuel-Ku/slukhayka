@@ -271,7 +271,7 @@ class SluhayAdapter(
             """<li[^>]*>\s*<span>$key</span>\s*<span>(.*?)</span>\s*</li>""",
             RegexOption.IGNORE_CASE
         ).find(html)?.groupValues?.get(1)
-            ?.let { Regex("""<[^>]+>""").replace(it, "") }
+            ?.let { stripTags(it) }
             ?.trim()
             ?: ""
 

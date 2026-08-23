@@ -55,3 +55,50 @@ fun parseDurationSeconds(input: String): Long? {
         else -> numbers[0] * 60L + numbers[1]
     }
 }
+
+/** The input with every `<tag>` replaced by [replacement] (default: removed). */
+fun stripTags(input: String, replacement: String = ""): String =
+    Regex("""<[^>]+>""").replace(input, replacement)
+
+/**
+ * #268 — [text] cut before the EARLIEST occurrence of any of [markers]
+ * (case-insensitive), trimmed; null when no marker occurs. Cutting by marker
+ * list order instead of by position is what once left «Телеграм канал автора
+ * t.me/…» inside a 4read blurb (#267): the promo paragraph held a later
+ * marker earlier in the list. The earliest POSITION is the only honest cut.
+ */
+fun cutAtEarliestMarker(text: String, markers: Collection<String>): String? {
+    val earliest = markers.fold(-1) { acc, marker ->
+        val idx = text.indexOf(marker, ignoreCase = true)
+        if (idx >= 0 && (acc < 0 || idx < acc)) idx else acc
+    }
+    return if (earliest >= 0) text.substring(0, earliest).trim() else null
+
+}
+
+/**
+ * #268 — the body interval (`bodyStart` inclusive, `close` exclusive) of the
+ * page's `<div … itemprop="description">` annotation container: the opening
+ * tag's MATCHING `</div>`, found with a depth count so nested divs (the live
+ * DLE container nests a quote div) cannot truncate it, and content AFTER the
+ * container (user comments, series lists) can never leak in (#267). Null
+ * when absent or unbalanced — callers fall back to their og:description path.
+ */
+fun itempropDescriptionContainer(html: String): Pair<Int, Int>? {
+    val open = DIV_ITEMPROP_OPEN.find(html) ?: return null
+    val bodyStart = open.range.last + 1
+    var depth = 1
+    for (boundary in DIV_BOUNDARY.findAll(html, bodyStart)) {
+        if (boundary.value[1] == '/') {
+            depth--
+            if (depth == 0) return bodyStart to boundary.range.first
+        } else {
+            depth++
+        }
+    }
+    return null
+}
+
+private val DIV_ITEMPROP_OPEN =
+    Regex("""<div\b[^>]*itemprop="description"[^>]*>""", RegexOption.IGNORE_CASE)
+private val DIV_BOUNDARY = Regex("""<div\b|</div""", RegexOption.IGNORE_CASE)

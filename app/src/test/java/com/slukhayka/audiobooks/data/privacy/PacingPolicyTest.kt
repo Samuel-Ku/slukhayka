@@ -86,4 +86,19 @@ class PacingPolicyTest {
         repeat(params.burstLimit) { policy.allowsRequest("sluhay.com", 1_000) }
         assertTrue(policy.allowsRequest("4read.org", 1_001))
     }
+
+    @Test
+    fun `a refused request spends nothing`() {
+        val policy = PacingPolicy(params, Random(0))
+        repeat(params.burstLimit) { policy.allowsRequest("sluhay.com", 1_000) }
+        assertFalse(policy.allowsRequest("sluhay.com", 2_000))
+        assertFalse(policy.allowsRequest("sluhay.com", 3_000))
+        // The refusals themselves never entered the window: once the original
+        // hits slide out, the FULL budget is back — exactly burstLimit more
+        // requests fit, nothing was silently consumed by the refusals.
+        repeat(params.burstLimit) {
+            assertTrue(policy.allowsRequest("sluhay.com", 11_001))
+        }
+        assertFalse(policy.allowsRequest("sluhay.com", 11_002))
+    }
 }

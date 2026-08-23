@@ -21,6 +21,11 @@ data class PacingParams(
  *
  * Deterministic by injection: callers pass a seeded [Random] in tests and
  * pin exact sequences without sleeping (spec-38 Testing Decisions).
+ *
+ * Spec-38 T5 (#257): one instance is shared by all concurrent download
+ * workers, so both decisions are synchronized — the burst bookkeeping must
+ * stay exact under racing workers, and a seeded generator must not be
+ * corrupted by parallel draws.
  */
 class PacingPolicy(
     private val params: PacingParams = PacingParams(),
@@ -30,6 +35,7 @@ class PacingPolicy(
     private val hits = HashMap<String, MutableList<Long>>()
 
     /** One pause length, uniformly inside [minPauseMillis, maxPauseMillis]. */
+    @Synchronized
     fun nextPauseMillis(): Long =
         params.minPauseMillis +
             random.nextLong(params.maxPauseMillis - params.minPauseMillis + 1)
@@ -38,6 +44,7 @@ class PacingPolicy(
      * Whether another request to [domain] at [nowMillis] fits the burst
      * budget. Accepted hits are recorded; refused ones are not.
      */
+    @Synchronized
     fun allowsRequest(domain: String, nowMillis: Long): Boolean {
         val list = hits.getOrPut(domain) { mutableListOf() }
         val windowStart = nowMillis - params.burstWindowMillis

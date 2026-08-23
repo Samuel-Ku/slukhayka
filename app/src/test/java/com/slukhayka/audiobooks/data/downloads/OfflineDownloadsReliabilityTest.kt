@@ -84,7 +84,14 @@ class OfflineDownloadsReliabilityTest {
         val adapter = FakeAdapter("sluhay", book, numChapters, streamUrl)
         val imports = LibraryImport(dao, context, listOf(adapter))
         val catalog = SourceCatalog(dao, listOf(adapter), imports)
-        val downloads = OfflineDownloads(dao, context, catalog, fetcher)
+        // Spec-37 isolates bounded concurrency from spec-38's human rhythm:
+        // the injected no-op pause removes the pacing stagger these timing
+        // observations depend on (the rhythm itself is pinned in
+        // OfflineDownloadsPacingTest).
+        val downloads = OfflineDownloads(
+            dao, context, catalog, fetcher,
+            pauseFor = { }
+        )
         return Triple(imports, catalog, downloads)
     }
 

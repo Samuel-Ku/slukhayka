@@ -221,6 +221,9 @@ dependencies {
   implementation(libs.logging.interceptor)
   implementation(libs.moshi.kotlin)
   implementation(libs.okhttp)
+  // spec-38 T4 (#256): the RFC-8484 DoH resolver behind the privacy door —
+  // same OkHttp version, one small artifact.
+  implementation(libs.okhttp.dnsoverhttps)
   // implementation(libs.play.services.location)
   implementation(libs.retrofit)
   // spec-19 T3: on-device ONNX inference for the recommendation embedder

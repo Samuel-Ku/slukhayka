@@ -25,6 +25,27 @@ package com.slukhayka.audiobooks.data.source
  * measured negative finding — **no narrator anywhere** (only a «Ютуб канал
  * диктора» link), so narrator stays empty.
  *
+ * ## True profile completeness (spec-35 T7, inventory #237)
+ *
+ * The adapter already sits at the source's completeness ceiling — every
+ * positive finding of the field inventory is implemented and fixture-tested:
+ * cover (`data-src`), author/title (meta rows + og:title fallback), full
+ * duration («Тривалість HH:MM:SS» row → [parseDurationSeconds]), real
+ * description (og:description — a genuine blurb here), card genre
+ * (`poster-item__meta`, slash-separated), and real chapter names from the
+ * playerjs JSON playlist («01-Благословення і прокляття»). Measured negative
+ * findings, never fabricated (ADR-0014):
+ * - **No narrator** on any surface (the «Ютуб канал диктора» link is a
+ *   handle, not a name; the sluhayua template does NOT transfer here).
+ * - **No genres / rating / related / series on the book page** — the meta-row
+ *   block carries exactly Назва/Автор/Тривалість.
+ * - **No listing duration** in the committed homepage fixture's poster rows;
+ *   the spike's «Нові» time marker belongs to a row shape with no committed
+ *   capture, so it stays unimplemented rather than guessed.
+ * - **No listing description; no series/cycle anywhere.**
+ * - Server-fetch 403 (Cloudflare) without the live WebView session is itself
+ *   the verified boundary of every surface ([sessionBound]).
+ *
  * The «Нове з Sluhay» feed (T4) hydrates the homepage **through the live
  * WebView session**: [fetchNew] server-fetches the homepage WITH the session
  * cookies (T1 verdict: 200, cfChallenge=false — the user's session does the

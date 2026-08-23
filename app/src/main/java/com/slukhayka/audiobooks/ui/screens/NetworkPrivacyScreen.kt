@@ -25,6 +25,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -64,6 +65,7 @@ fun NetworkPrivacyScreen(
     // Local draft state: edits stay local until «Застосувати» validates them.
     var mode by remember { mutableStateOf(savedPrefs.routeMode) }
     var address by remember { mutableStateOf(savedPrefs.proxyAddress) }
+    var dohEnabled by remember { mutableStateOf(savedPrefs.dohEnabled) }
 
     Scaffold(
         topBar = {
@@ -164,13 +166,43 @@ fun NetworkPrivacyScreen(
                 )
             }
 
+            // spec-38 T4 (#256): the DNS half of the door — independent of the
+            // route above, on by default, transparent system fallback.
+            Spacer(modifier = Modifier.height(16.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 6.dp)
+                    .testTag("privacy_doh_row"),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Шифрування DNS (DoH)",
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+                    )
+                    Text(
+                        text = "Імена доменів ідуть зашифрованими до публічного DNS, тож провайдер не бачить, які сайти відкриває застосунок. Якщо DoH недоступний — автоматично працює системний резолвер.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(
+                    checked = dohEnabled,
+                    onCheckedChange = { dohEnabled = it },
+                    modifier = Modifier.testTag("privacy_doh_switch")
+                )
+            }
+
             Spacer(modifier = Modifier.height(24.dp))
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             Spacer(modifier = Modifier.height(16.dp))
 
             Button(
                 onClick = {
-                    viewModel.savePrivacyPrefs(PrivacyPrefs(mode, address.trim()))
+                    viewModel.savePrivacyPrefs(PrivacyPrefs(mode, address.trim(), dohEnabled))
                 },
                 modifier = Modifier
                     .fillMaxWidth()

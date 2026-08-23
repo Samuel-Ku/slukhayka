@@ -204,7 +204,10 @@ class SluhayuaAdapter(
         val ogFallback = ogMeta(html, "og:description")?.trim().orEmpty()
         val (bodyStart, close) = itempropDescriptionContainer(html) ?: return ogFallback
         val raw = html.substring(bodyStart, close)
-        val kept = cutAtEarliestMarker(raw, listOf("Автор озвучки:")) ?: raw
+        // Both live spellings of the narrator promo marker — the shared cut
+        // is a plain indexOf, so the whitespace-tolerant variant is spelled
+        // out (the old local regex was «Автор озвучки\s*:»).
+        val kept = cutAtEarliestMarker(raw, listOf("Автор озвучки:", "Автор озвучки :")) ?: raw
         val cleaned = kept
             .replace(Regex("""<br\s*/?>""", RegexOption.IGNORE_CASE), "\n")
             .let { stripTags(it, " ") }

@@ -73,7 +73,6 @@ fun cutAtEarliestMarker(text: String, markers: Collection<String>): String? {
         if (idx >= 0 && (acc < 0 || idx < acc)) idx else acc
     }
     return if (earliest >= 0) text.substring(0, earliest).trim() else null
-
 }
 
 /**

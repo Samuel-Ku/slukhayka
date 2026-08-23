@@ -2,6 +2,7 @@ package com.slukhayka.audiobooks.data.source
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -69,5 +70,35 @@ class SourceParsingTest {
         assertNull(parseDurationSeconds("1:2:3:4"))
         assertNull(parseDurationSeconds("abc"))
         assertNull(parseDurationSeconds("16:41:xx"))
+    }
+
+    @Test
+    fun `stripTags removes tags or replaces them with the given string`() {
+        assertEquals("текст", stripTags("<p>те<em>к</em>ст</p>"))
+        assertEquals(" a   b ", stripTags("<i>a</i> <b>b</b>", " "))
+    }
+
+    @Test
+    fun `cutAtEarliestMarker cuts at the earliest position across markers`() {
+        // #267: the promo paragraph holds «Телеграм канал автора t.me/…»
+        // BEFORE «Подякувати» — list order would keep the promo, position wins.
+        val text = "Телеграм канал автора t.me/x Подякувати диктору"
+        assertEquals("", cutAtEarliestMarker(text, listOf("Теги", "Подякувати", "Телеграм канал")))
+        assertEquals("Блурб.", cutAtEarliestMarker("Блурб. Теги# детектив", listOf("Подякувати", "Теги#")))
+        assertNull(cutAtEarliestMarker("Чистий текст", listOf("Теги", "PayPal")))
+    }
+
+    @Test
+    fun `itempropDescriptionContainer bounds the container past nested divs`() {
+        val html = """<div itemprop="description"><p>Абзац.</p><div class="quote">Цитата</div><p>Ще.</p></div><p>Після контейнера</p>"""
+        val (bodyStart, close) = itempropDescriptionContainer(html)!!
+        assertTrue(html.substring(bodyStart, close).contains("Цитата"))
+        assertTrue(!html.substring(bodyStart, close).contains("Після контейнера"))
+    }
+
+    @Test
+    fun `itempropDescriptionContainer stays null when absent or unbalanced`() {
+        assertNull(itempropDescriptionContainer("<p>без контейнера</p>"))
+        assertNull(itempropDescriptionContainer("""<div itemprop="description"><div>незакрито"""))
     }
 }

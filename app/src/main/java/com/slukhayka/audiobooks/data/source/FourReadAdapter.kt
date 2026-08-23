@@ -48,7 +48,8 @@ class FourReadAdapter(
                 continue
             }
             val author = POSTER_SUBTITLE.findAll(block)
-                .map { stripTags(it.groupValues[1]).trim() }                .firstOrNull { it.isNotBlank() }
+                .map { stripTags(it.groupValues[1]).trim() }
+                .firstOrNull { it.isNotBlank() }
                 ?: ""
             val cover = POSTER_IMG.find(block)?.groupValues?.get(1)
                 ?.takeIf { it.contains("/uploads/posts/") }

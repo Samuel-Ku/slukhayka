@@ -84,6 +84,70 @@ class FourReadAdapter(
     override suspend fun parseCapturedPage(html: String, url: String): SourceBookDetail =
         WebViewHtmlParser().parse(html, url, resolveContent = { fetcher.getText(it) })
 
+    /**
+     * Spec-40 #282 — коментарі відвідувачів 4read. The page's DLE comment
+     * tree (the `page__comments-list` container; replies nest inside their
+     * parent `<li>`) carries every comment's text in a dedicated
+     * `<div id='comm-id-N'>…</div>` block. The scan walks those blocks in
+     * document order (parents before their replies), strips tags and
+     * entities, collapses whitespace, drops blanks, truncates each text to
+     * [MAX_COMMENT_LENGTH] and stops at [MAX_COMMENTS] — bounded output for
+     * an unbounded page. No container / no comment blocks → empty (absent,
+     * never fabricated). Same pure parse helpers as the rest of the adapter;
+     * never throws.
+     */
+    override suspend fun parseComments(html: String): List<String> {
+        if (html.isBlank()) return emptyList()
+        val scope = commentsScope(html)
+        val result = mutableListOf<String>()
+        for (open in COMMENT_TEXT_DIV.findAll(scope)) {
+            if (result.size >= MAX_COMMENTS) break
+            val bodyStart = open.range.last + 1
+            var depth = 1
+            var close = -1
+            for (boundary in DIV_BOUNDARY.findAll(scope, bodyStart)) {
+                if (boundary.value[1] == '/') {
+                    depth--
+                    if (depth == 0) {
+                        close = boundary.range.first
+                        break
+                    }
+                } else {
+                    depth++
+                }
+            }
+            if (close < 0) continue
+            val text = stripTags(scope.substring(bodyStart, close), " ")
+                .let { decodeEntities(it) }
+                .replace(WHITESPACE_REGEX, " ")
+                .trim()
+            if (text.isEmpty()) continue
+            result += if (text.length > MAX_COMMENT_LENGTH) text.take(MAX_COMMENT_LENGTH).trim() else text
+        }
+        return result
+    }
+
+    /**
+     * The comment-tree interval to scan: the `page__comments-list`
+     * container's full body (depth-counted close, so nested reply lists stay
+     * inside), or the whole page when the container is absent — the
+     * `comm-id-N` marker is specific enough to scan safely either way.
+     */
+    private fun commentsScope(html: String): String {
+        val open = COMMENTS_CONTAINER_OPEN.find(html) ?: return html
+        val bodyStart = open.range.last + 1
+        var depth = 1
+        for (boundary in DIV_BOUNDARY.findAll(html, bodyStart)) {
+            if (boundary.value[1] == '/') {
+                depth--
+                if (depth == 0) return html.substring(bodyStart, boundary.range.first)
+            } else {
+                depth++
+            }
+        }
+        return html.substring(bodyStart)
+    }
+
     override suspend fun fetchNew(limit: Int): List<SourceBook> {
         val html = fetcher.getText("https://4read.org/")
         if (html.isEmpty()) return emptyList()
@@ -117,5 +181,15 @@ class FourReadAdapter(
             setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)
         )
         val POSTER_IMG = Regex("""<img[^>]+src="([^"]+)"[^>]*>""", RegexOption.IGNORE_CASE)
+
+        /** Spec-40 #282 — the comment tree container and its per-comment text divs. */
+        const val MAX_COMMENTS = 100
+        const val MAX_COMMENT_LENGTH = 500
+        val COMMENTS_CONTAINER_OPEN =
+            Regex("""<div\b[^>]*id="page__comments-list"[^>]*>""", RegexOption.IGNORE_CASE)
+        val COMMENT_TEXT_DIV =
+            Regex("""<div\s+id=['"]comm-id-\d+['"]\s*>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+        val DIV_BOUNDARY = Regex("""<div\b|</div""", RegexOption.IGNORE_CASE)
+        val WHITESPACE_REGEX = Regex("""\s+""")
     }
 }

@@ -128,6 +128,16 @@ interface SourceAdapter {
     suspend fun parseCapturedPage(html: String, url: String): SourceBookDetail? = null
 
     /**
+     * Spec-40 (#282) — visitors' comments of the source book page, in page
+     * order. The default is "none" — empty — so sources without provable
+     * comments cost nothing and no consumer has to downcast to a concrete
+     * adapter (the [parseCapturedPage] pattern). Only a source whose live
+     * pages demonstrably carry comments overrides it; the texts are plain
+     * trimmed strings bounded by each override's own limits.
+     */
+    suspend fun parseComments(html: String): List<String> = emptyList()
+
+    /**
      * The stable Work id for [url], produced in exactly this one place
      * (spec-14 T5): no import door derives ids itself. The default is the
      * generic "<sourceId>-<slug>" scheme; sources with a catalogue slug

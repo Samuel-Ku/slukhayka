@@ -2,12 +2,13 @@ package com.slukhayka.audiobooks.data.source
 
 import android.util.Log
 import com.slukhayka.audiobooks.data.privacy.BrowserIdentity
+import com.slukhayka.audiobooks.data.privacy.TransportClients
 import com.slukhayka.audiobooks.data.privacy.TransportPrivacy
+import okhttp3.Request
+import okhttp3.Response
+import okhttp3.ResponseBody
 import java.io.FilterInputStream
 import java.io.InputStream
-import java.net.HttpURLConnection
-import java.net.Proxy
-import java.net.URL
 
 /**
  * Minimal JVM HTTP GET used by [SourceAdapter]s. Configurable [referer] so the
@@ -21,16 +22,24 @@ import java.net.URL
  * is the device's real system WebView one ([BrowserIdentity], cached once per
  * process; static fallback in JVM), standard Accept/Accept-Language travel by
  * default, and when the listener chose a privacy route the connection opens
- * through it ([TransportPrivacy] — wire-level proxy, or URL rewrite for the
- * relay prototype). A chosen route that cannot connect fails
- * the request — there is NO silent fallback to a direct connection. Per-source
- * [referer] rules (spec-13) are unaffected. Explicit [userAgent] overrides
- * exist only for tests; production callers leave it null.
+ * through it ([TransportPrivacy]) — wire-level proxy, or URL rewrite for the
+ * relay prototype. A chosen route that cannot connect fails the request —
+ * there is NO silent fallback to a direct connection.
+ *
+ * Spec-38 T4 (#256): the engine is the shared OkHttp client
+ * ([TransportClients.okHttp]) — one pool, one identity, one route trampoline,
+ * and domain names resolved through the DoH door ([TransportDns], encrypted
+ * by default with a transparent system-resolver fallback); HttpURLConnection
+ * has no seam for a custom resolver, and audit PERF-013 already pointed here.
+ * The observable contract is unchanged: same budgets (12 s connect / 18 s
+ * read), same headers and override order, redirects followed, `status to
+ * body` semantics, streams that disconnect-on-close. Per-source [referer]
+ * rules (spec-13) are unaffected. Explicit [userAgent] overrides exist only
+ * for tests; production callers leave it null.
  */
 open class HttpFetcher(
     private val userAgent: String? = null,
-    private val referer: String? = null,
-    private val proxyProvider: () -> Proxy? = { TransportPrivacy.currentJavaProxy() }
+    private val referer: String? = null
 ) {
 
     /** Open so adapter fixture tests can serve canned content without network. */
@@ -55,36 +64,29 @@ open class HttpFetcher(
 
     /** Like [getTextResult] with additional request headers. */
     open fun getTextResult(url: String, extraHeaders: Map<String, String>): Pair<Int, String> {
-        val viaPrivacyRoute = proxyProvider() != null || TransportPrivacy.isRelayActive()
-        val connection = try {
-            openConnection(url, extraHeaders)
+        val viaPrivacyRoute = TransportPrivacy.currentJavaProxy() != null ||
+            TransportPrivacy.isRelayActive()
+        return try {
+            TransportClients.okHttp.newCall(buildRequest(url, extraHeaders)).execute()
+                .use { response ->
+                    val status = response.code
+                    if (status == HTTP_OK) status to response.body.stringOrEmpty()
+                    else status to ""
+                }
         } catch (e: Exception) {
             // Failures degrade to an empty body by design (adapters never throw),
             // but they MUST be logged: the catalogue silently going empty on
-            // device-side DNS failures (e.g. a VPN with a broken resolver) was
-            // undiagnosable before (device debugging, 2026-08-17). With a
-            // privacy route enabled this is ALSO where its honest failure lands:
-            // the request failed THROUGH the chosen route — no direct retry.
+            // device-side DNS failures was undiagnosable before (device
+            // debugging, 2026-08-17). With a privacy route enabled this is ALSO
+            // where its honest failure lands: the request failed THROUGH the
+            // chosen route — no direct retry.
             Log.w(
                 "HttpFetcher",
-                "GET $url failed to connect" +
+                "GET $url failed" +
                     if (viaPrivacyRoute) " (privacy route active — no direct fallback)" else "",
                 e
             )
-            return 0 to ""
-        }
-        return try {
-            val status = connection.responseCode
-            if (status == HttpURLConnection.HTTP_OK) {
-                status to connection.inputStream.bufferedReader().use { it.readText() }
-            } else {
-                status to ""
-            }
-        } catch (e: Exception) {
-            Log.w("HttpFetcher", "GET $url failed (status/read)", e)
             0 to ""
-        } finally {
-            connection.disconnect()
         }
     }
 
@@ -99,31 +101,19 @@ open class HttpFetcher(
     data class SizedStream(val stream: InputStream, val contentLength: Long?)
 
     open fun getSizedStream(url: String, extraHeaders: Map<String, String> = emptyMap()): SizedStream? {
-        val connection = try {
-            openConnection(url, extraHeaders)
-        } catch (e: Exception) {
-            return null
-        }
+        val response = execute(url, extraHeaders) ?: return null
         return try {
-            if (connection.responseCode == HttpURLConnection.HTTP_OK) {
-                val length = connection.getHeaderFieldLong("Content-Length", -1)
-                    .let { if (it >= 0) it else null }
-                val wrapped = object : FilterInputStream(connection.inputStream) {
-                    override fun close() {
-                        try {
-                            super.close()
-                        } finally {
-                            connection.disconnect()
-                        }
-                    }
-                }
-                SizedStream(wrapped, length)
+            if (response.code == HTTP_OK) {
+                val length = response.header("Content-Length")
+                    ?.substringBefore(';')?.trim()?.toLongOrNull()
+                    ?.takeIf { it >= 0 }
+                SizedStream(ownedStream(response), length)
             } else {
-                connection.disconnect()
+                response.close()
                 null
             }
         } catch (e: Exception) {
-            connection.disconnect()
+            response.close()
             null
         }
     }
@@ -132,61 +122,77 @@ open class HttpFetcher(
      * ADR-0006 — binary GET: the ONE transport the offline download path
      * uses. Returns null on any failure — the same degrade-never-throw
      * convention as [getText]. The caller owns reading and must close the
-     * stream: closing it disconnects the underlying connection (the returned
-     * stream is a [FilterInputStream] over the connection's input). Never
+     * stream: closing it closes the underlying response (the returned stream
+     * owns the response; the pooled connection is released with it). Never
      * throws. Open so fixture fakes can serve in-memory bytes.
      */
     open fun getStream(url: String, extraHeaders: Map<String, String> = emptyMap()): InputStream? {
-        val connection = try {
-            openConnection(url, extraHeaders)
-        } catch (e: Exception) {
-            return null
-        }
+        val response = execute(url, extraHeaders) ?: return null
         return try {
-            if (connection.responseCode == HttpURLConnection.HTTP_OK) {
-                object : FilterInputStream(connection.inputStream) {
-                    override fun close() {
-                        try {
-                            super.close()
-                        } finally {
-                            connection.disconnect()
-                        }
-                    }
-                }
-            } else {
-                connection.disconnect()
+            if (response.code == HTTP_OK) ownedStream(response)
+            else {
+                response.close()
                 null
             }
         } catch (e: Exception) {
-            connection.disconnect()
+            response.close()
             null
         }
     }
 
     /**
-     * The single place a request takes shape: the privacy route decides how
-     * the socket opens (direct or through the chosen proxy — NO_PROXY pins
-     * «прямо» deterministically instead of inheriting JVM system properties),
+     * The single place a request takes shape: the URL goes through the relay
+     * seam first (spec-38 T6 — untouched unless the relay route is resolved),
      * then the browser identity headers, the per-source Referer, and finally
-     * the caller's own headers (so they can override defaults).
-     *
-     * Spec-38 T6 (#258): when the relay route is active, the URL is first
-     * rewritten through the relay ([TransportPrivacy.rewriteThroughRelay]) —
-     * the connection itself opens directly to the relay origin (no
-     * `java.net.Proxy`), and the relay fetches the original target. The relay
-     * forwards the browser-identity headers below and passes statuses through,
-     * so degrade-on-failure behaviour here is unchanged.
+     * the caller's own headers (so they can override defaults). Route, DNS
+     * and timeouts live on the shared client.
      */
-    private fun openConnection(url: String, extraHeaders: Map<String, String>): HttpURLConnection =
-        (URL(TransportPrivacy.rewriteThroughRelay(url)).openConnection(proxyProvider() ?: Proxy.NO_PROXY) as HttpURLConnection).apply {
-            connectTimeout = 12_000
-            readTimeout = 18_000
-            requestMethod = "GET"
-            setRequestProperty("User-Agent", userAgent ?: BrowserIdentity.currentUserAgent())
-            setRequestProperty("Accept", BrowserIdentity.ACCEPT_HEADER)
-            setRequestProperty("Accept-Language", BrowserIdentity.ACCEPT_LANGUAGE_HEADER)
-            if (referer != null) setRequestProperty("Referer", referer)
-            extraHeaders.forEach { (name, value) -> setRequestProperty(name, value) }
-            instanceFollowRedirects = true
+    private fun buildRequest(url: String, extraHeaders: Map<String, String>): Request {
+        val target = TransportPrivacy.rewriteThroughRelay(url)
+        return Request.Builder()
+            .url(target)
+            .get()
+            .header("User-Agent", userAgent ?: BrowserIdentity.currentUserAgent())
+            .header("Accept", BrowserIdentity.ACCEPT_HEADER)
+            .header("Accept-Language", BrowserIdentity.ACCEPT_LANGUAGE_HEADER)
+            .apply { if (referer != null) header("Referer", referer!!) }
+            .apply { extraHeaders.forEach { (name, value) -> header(name, value) } }
+            .build()
+    }
+
+    /** One network attempt; any failure degrades to null (never throws). */
+    private fun execute(url: String, extraHeaders: Map<String, String>): Response? = try {
+        TransportClients.okHttp.newCall(buildRequest(url, extraHeaders)).execute()
+    } catch (e: Exception) {
+        val viaPrivacyRoute = TransportPrivacy.currentJavaProxy() != null ||
+            TransportPrivacy.isRelayActive()
+        Log.w(
+            "HttpFetcher",
+            "GET $url failed to connect" +
+                if (viaPrivacyRoute) " (privacy route active — no direct fallback)" else "",
+            e
+        )
+        null
+    }
+
+    /** A stream that closes the whole [Response] with it (pool release). */
+    private fun ownedStream(response: Response): InputStream =
+        object : FilterInputStream(response.body.requireStream()) {
+            override fun close() {
+                try {
+                    super.close()
+                } finally {
+                    response.close()
+                }
+            }
         }
+
+    private fun ResponseBody?.stringOrEmpty(): String = this?.string() ?: ""
+
+    private fun ResponseBody?.requireStream(): InputStream =
+        this?.byteStream() ?: throw IllegalStateException("empty body")
+
+    private companion object {
+        private const val HTTP_OK = 200
+    }
 }

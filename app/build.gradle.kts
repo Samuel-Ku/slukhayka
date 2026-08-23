@@ -207,14 +207,10 @@ dependencies {
   // Requires a local (gitignored) google-services.json — without it the
   // shared layer is simply absent and the app works as before.
   implementation(libs.firebase.firestore)
-
-  // Firebase Auth with Google Sign-In requires all of the following to be uncommented together.
-  // If you are using Firebase Auth with other providers (e.g. Email/Password), you may only need
-  // firebase-auth.
-  // implementation(libs.firebase.auth)
-  // implementation(libs.androidx.credentials)
-  // implementation(libs.androidx.credentials.play.services)
-  // implementation(libs.googleid)
+  // Spec-40 #275 (t1): the silent listener identity — Anonymous Auth
+  // immediately elevated with generated credentials. Without Firebase keys
+  // the identity degrades to the local-only profile.
+  implementation(libs.firebase.auth)
   implementation(libs.firebase.appcheck.recaptcha)
   implementation(libs.kotlinx.coroutines.android)
   implementation(libs.kotlinx.coroutines.core)

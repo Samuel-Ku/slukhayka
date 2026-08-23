@@ -33,3 +33,9 @@ google-services.json
 # unit tests use an inline mini fixture; the real tokenizer only loads
 # together with the model at runtime / in the eval gate.
 /app/src/main/assets/models/e5/
+
+# Stray JVM/Robolectric test reports dumped in the repo root (#269).
+/TEST-*.xml
+
+# Local binary scratch dir (#269).
+/binary/

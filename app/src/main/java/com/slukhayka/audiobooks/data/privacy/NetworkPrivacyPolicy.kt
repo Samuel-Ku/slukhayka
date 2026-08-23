@@ -78,6 +78,47 @@ object NetworkPrivacy {
         "socks5://" to RouteProxyType.SOCKS5,
         "socks://" to RouteProxyType.SOCKS5
     )
+
+    /**
+     * Spec-38 T4 (#256) — the public encrypted-DNS endpoint (RFC 8484
+     * wireformat) every domain lookup rides while DoH is enabled. The query
+     * itself is ordinary HTTPS pinned to [DOH_BOOTSTRAP_IPS], so the provider
+     * and the local network see only a connection to dns.google — never which
+     * book domains were opened.
+     */
+    const val DOH_URL = "https://dns.google/dns-query"
+
+    /**
+     * dns.google's addresses — the DoH server must be reachable WITHOUT any
+     * DNS lookup (bootstrap by IP), or resolving the resolver would leak the
+     * very names DoH hides.
+     */
+    val DOH_BOOTSTRAP_IPS = listOf("8.8.8.8", "8.8.4.4")
+
+    /**
+     * Resolves the DNS half of the prefs into a strategy. Deliberately
+     * INDEPENDENT of [resolve] (spec-38 T4 AC): the route (прямо / проксі /
+     * Tor / реле) and name resolution are two separate decisions — DoH
+     * behaves identically on any route, because a lookup is itself just
+     * transport traffic and rides whatever route is installed.
+     */
+    fun resolveDns(prefs: PrivacyPrefs): DnsStrategy =
+        if (prefs.dohEnabled) DnsStrategy.DohFirst(DOH_URL) else DnsStrategy.SystemOnly
+}
+
+/**
+ * Spec-38 T4 (#256) — how the transport turns hostnames into addresses.
+ * Availability above secrecy: even the DoH-first strategy never fails a
+ * request over an unreachable resolver — its fallback chain degrades to the
+ * system resolver transparently ([FallbackDns], thin glue beside this door).
+ */
+sealed interface DnsStrategy {
+
+    /** Encrypted lookups first; the system resolver only as silent fallback. */
+    data class DohFirst(val serverUrl: String) : DnsStrategy
+
+    /** Plain system resolution — the pre-spec-38 behaviour, opt-out via settings. */
+    object SystemOnly : DnsStrategy
 }
 
 /** The door's outcome: either a usable route or a reason for the UI. */

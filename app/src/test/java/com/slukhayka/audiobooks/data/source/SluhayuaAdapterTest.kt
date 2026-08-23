@@ -278,6 +278,28 @@ class SluhayuaAdapterTest {
     }
 
     @Test
+    fun `pages without genre rows or rails keep genres and related empty`() = runBlocking {
+        // Negative findings (spec-35 T6): absent «Жанр:» row → empty genres;
+        // no cardRoll rails → empty related; a card BEFORE any rail header is
+        // orphaned and must never become a related book.
+        val page = multiChapterPage.replace(
+            "</body>",
+            """
+            <div>
+              <span class="titlePreviewText">Карта-сирота поза райлом.</span>
+              <a href="/9999999:orphan-knyha">Сирота - Книга</a>
+            </div>
+            </body>"""
+        )
+        val adapter = SluhayuaAdapter(FakeFetcher(mapOf(multiChapterUrl to page)))
+
+        val detail = adapter.fetchBookPage(multiChapterUrl)
+
+        assertTrue(detail.genres.isEmpty())
+        assertTrue(detail.related.isEmpty())
+    }
+
+    @Test
     fun `cards carry genre and duration from the allcards json`() = runBlocking {
         // Live allcards keys (spec-35 T6 inventory): «genre» is an array,
         // duration arrives as either «totalSeconds» (number, preferred) or

@@ -36,5 +36,12 @@ enum class RouteMode { DIRECT, CUSTOM_PROXY, MAX_PRIVACY }
 
 data class PrivacyPrefs(
     val routeMode: RouteMode = RouteMode.DIRECT,
-    val proxyAddress: String = ""
+    val proxyAddress: String = "",
+    /**
+     * Spec-38 T4 (#256) — encrypted DNS (DoH). Stored verbatim; the
+     * interpretation lives in [NetworkPrivacy.resolveDns]. The ticket's own
+     * default: увімкнений — availability is guarded by the transparent
+     * system-resolver fallback, not by a disabled feature.
+     */
+    val dohEnabled: Boolean = true
 )

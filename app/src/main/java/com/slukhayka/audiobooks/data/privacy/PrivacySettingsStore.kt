@@ -25,19 +25,23 @@ class SharedPreferencesPrivacySettingsStore(context: Context) : PrivacySettingsS
                 RouteMode.entries.firstOrNull { it.name == stored }
             }
             ?: RouteMode.DIRECT,
-        proxyAddress = prefs.getString(KEY_PROXY_ADDRESS, null).orEmpty()
+        proxyAddress = prefs.getString(KEY_PROXY_ADDRESS, null).orEmpty(),
+        // Spec-38 T4 (#256): absent key = the ticket's own default — увімкнений.
+        dohEnabled = prefs.getBoolean(KEY_DOH_ENABLED, true)
     )
 
     override fun save(prefs: PrivacyPrefs) {
         this.prefs.edit()
             .putString(KEY_ROUTE_MODE, prefs.routeMode.name)
             .putString(KEY_PROXY_ADDRESS, prefs.proxyAddress)
+            .putBoolean(KEY_DOH_ENABLED, prefs.dohEnabled)
             .apply()
     }
 
-    companion object {
-        private const val PREFS_NAME = "network_privacy_settings"
-        private const val KEY_ROUTE_MODE = "route_mode"
-        private const val KEY_PROXY_ADDRESS = "proxy_address"
+    private companion object {
+        const val PREFS_NAME = "network_privacy_settings"
+        const val KEY_ROUTE_MODE = "route_mode"
+        const val KEY_PROXY_ADDRESS = "proxy_address"
+        const val KEY_DOH_ENABLED = "doh_enabled"
     }
 }

@@ -4,7 +4,6 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -25,6 +24,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.SelectedTab
@@ -47,7 +47,10 @@ import com.slukhayka.audiobooks.ui.screens.Top100Screen
 import com.slukhayka.audiobooks.ui.screens.WebSourceBrowserScreen
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
 
-class MainActivity : ComponentActivity() {
+// FragmentActivity (not plain ComponentActivity): spec-40 #276 (t2) —
+// androidx.biometric's BiometricPrompt attaches to a FragmentActivity, and
+// the recovery-code gate in ⚙️ Профіль needs it. Compose is unaffected.
+class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()

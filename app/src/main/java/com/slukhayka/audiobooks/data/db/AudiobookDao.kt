@@ -731,4 +731,21 @@ interface AudiobookDao {
      *  the «wrong universe» verdict clears the complaint). */
     @Query("DELETE FROM corrections WHERE mergeKey = :mergeKey AND kind = :kind")
     suspend fun deleteCorrection(mergeKey: String, kind: String)
+
+    // --- Local reviewer mute (spec-40 #281) ---------------------------------
+    // The listener's own hidden-author list: reviews of a muted author leave
+    // THIS listener's feed; unhiding removes the row. REPLACE keeps re-hiding
+    // idempotent — one row per author, the stamp refreshed.
+
+    /** Mutes one reviewer (upsert — a re-hide refreshes [HiddenReviewerEntity.hiddenAt]). */
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun hideAuthor(author: HiddenReviewerEntity)
+
+    /** Un-mutes one reviewer — hiding is reversible (settings, US-15). */
+    @Query("DELETE FROM hidden_reviewers WHERE authorName = :authorName")
+    suspend fun unhideAuthor(authorName: String)
+
+    /** The muted authors, alphabetical — the settings list and feed filters. */
+    @Query("SELECT * FROM hidden_reviewers ORDER BY authorName ASC")
+    suspend fun hiddenAuthors(): List<HiddenReviewerEntity>
 }

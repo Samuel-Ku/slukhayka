@@ -7,6 +7,7 @@ import com.slukhayka.audiobooks.data.db.BookmarkEntity
 import com.slukhayka.audiobooks.data.db.ChapterEntity
 import com.slukhayka.audiobooks.data.db.CorrectionEntity
 import com.slukhayka.audiobooks.data.db.EditionEntity
+import com.slukhayka.audiobooks.data.db.HiddenReviewerEntity
 import com.slukhayka.audiobooks.data.db.LibraryEntryEntity
 import com.slukhayka.audiobooks.data.db.ListeningStatEntity
 import com.slukhayka.audiobooks.data.db.toBookRow
@@ -64,6 +65,8 @@ class FakeAudiobookDao(
     private val eventsState = MutableStateFlow(emptyList<PlaybackEventEntity>())
     private val tombstonesState = MutableStateFlow(emptyList<TombstoneEntity>())
     private val correctionsState = MutableStateFlow(emptyList<CorrectionEntity>())
+    // Spec-40 (#281): the local reviewer mute.
+    private val hiddenReviewersState = MutableStateFlow(emptyList<HiddenReviewerEntity>())
     private val worksState = MutableStateFlow(emptyList<WorkEntity>())
     private val workSourcesState = MutableStateFlow(emptyList<WorkSourceEntity>())
     private val libraryEntriesState = MutableStateFlow(emptyList<LibraryEntryEntity>())
@@ -710,6 +713,19 @@ class FakeAudiobookDao(
     override suspend fun deleteCorrection(mergeKey: String, kind: String) {
         correctionsState.update { current -> current.filterNot { it.mergeKey == mergeKey && it.kind == kind } }
     }
+
+    // --- Local reviewer mute (spec-40 #281) ---------------------------------
+
+    override suspend fun hideAuthor(author: HiddenReviewerEntity) {
+        hiddenReviewersState.update { current -> current.filterNot { it.authorName == author.authorName } + author }
+    }
+
+    override suspend fun unhideAuthor(authorName: String) {
+        hiddenReviewersState.update { current -> current.filterNot { it.authorName == authorName } }
+    }
+
+    override suspend fun hiddenAuthors(): List<HiddenReviewerEntity> =
+        hiddenReviewersState.value.sortedBy { it.authorName }
 
     // --- Persisted catalogue: Works + Sources (spec-23 T1, ADR-0007) --------
 

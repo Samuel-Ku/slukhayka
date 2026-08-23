@@ -546,6 +546,21 @@ data class WorkSourceEntity(
 )
 
 /**
+ * Spec-40 #281 — локальний м'ют автора відгуків: one row per reviewer the
+ * listener muted («сховати всі відгуки цього автора»). Local-only by design —
+ * the mute acts in THIS listener's feed and never claims to moderate anyone
+ * else; hiding is reversible (unhide in settings). Keyed by [authorName]
+ * exactly as reviews denormalize it at publication time.
+ */
+@Entity(tableName = "hidden_reviewers", primaryKeys = ["authorName"])
+data class HiddenReviewerEntity(
+    val authorName: String,
+    // Epoch millis of the hide — informational (a settings list may show it);
+    // a re-hide replaces the row, it never duplicates.
+    val hiddenAt: Long
+)
+
+/**
  * One row of the endless merged feed (spec-23 T4): a Work with the number of
  * Sources carrying it (the «N джерел» badge input) and its optional
  * library-side genre (LEFT JOIN — null until the Work is linked into

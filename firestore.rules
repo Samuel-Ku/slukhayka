@@ -51,5 +51,20 @@ service cloud.firestore {
       allow read: if true;
       allow write: if isAppCheckValid();
     }
+
+    // Spec-40 #276 (t2) — the silent same-phone restore. One document per
+    // device (`{ANDROID_ID} → { uid, cred }`), written only by the owner of
+    // that uid. Reads are public BY DESIGN: the fresh-install lookup happens
+    // before any auth exists. The `cred` payload is sealed client-side with
+    // a key derived from the device's ANDROID_ID (DeviceBindingCipher), so
+    // the publicly readable document yields usable credentials on THIS
+    // phone alone; another reader gets opaque bytes and a pseudonymous uid.
+    match /device_bindings/{deviceId} {
+      allow read: if true;
+      allow write: if isAppCheckValid()
+        && request.auth != null
+        && request.auth.uid == request.resource.data.uid
+        && request.resource.data.uid is string;
+    }
   }
 }

@@ -10,6 +10,7 @@ import com.slukhayka.audiobooks.data.collections.CollectionAssets
 import com.slukhayka.audiobooks.data.collections.OpenLibraryTrendingSource
 import com.slukhayka.audiobooks.data.collections.SluhayuaPopularSource
 import com.slukhayka.audiobooks.data.collections.SoundBooksTopSource
+import com.slukhayka.audiobooks.data.db.AudiobookDao
 import com.slukhayka.audiobooks.data.db.AudiobookDatabase
 import com.slukhayka.audiobooks.data.downloads.OfflineDownloads
 import com.slukhayka.audiobooks.data.duration.ChapterDurationProbe
@@ -85,6 +86,9 @@ import kotlinx.coroutines.launch
 class App : Application() {
 
     private val database by lazy { AudiobookDatabase.getDatabase(this) }
+
+    /** Spec-40 #281 — the local mute table's DAO, for the reviews' hide flow. */
+    val audiobookDao: AudiobookDao get() = database.audiobookDao()
 
     /**
      * The ONE shared metadata store behind every consumer (imports, search

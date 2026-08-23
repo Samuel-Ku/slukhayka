@@ -104,6 +104,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     }
 
     val selectedWebSource by viewModel.selectedWebSource.collectAsState()
+    val hiddenAuthors by viewModel.hiddenAuthors.collectAsState()
     val selectedSeries by viewModel.selectedSeries.collectAsState()
     val seriesIndexOpen by viewModel.seriesIndexOpen.collectAsState()
     val collectionsIndexOpen by viewModel.collectionsIndexOpen.collectAsState()
@@ -238,8 +239,10 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                     // silent listener identity's visible surface, reached
                     // from the same ⋮ overflow menu.
                     profileOpen -> ProfileScreen(
-                        identity = viewModel.listenerIdentity,
-                        onBackClick = { viewModel.closeProfileSettings() }
+                        identity = viewModel.listenerIdentityModule,
+                        onBackClick = { viewModel.closeProfileSettings() },
+                        hiddenAuthors = hiddenAuthors,
+                        onUnhideAuthor = { viewModel.unhideAuthor(it) }
                     )
 
                     // Genre (category) page ("Аудіокниги жанру:").

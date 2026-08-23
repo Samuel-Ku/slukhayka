@@ -32,6 +32,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -68,7 +69,9 @@ import kotlinx.coroutines.launch
 @Composable
 fun ProfileScreen(
     identity: ListenerIdentity,
-    onBackClick: () -> Unit
+    onBackClick: () -> Unit,
+    hiddenAuthors: List<String> = emptyList(),
+    onUnhideAuthor: (String) -> Unit = {}
 ) {
     // The module is read directly (ADR-0008); suspend calls ride the
     // composition scope like every other screen.
@@ -185,6 +188,40 @@ fun ProfileScreen(
             }
 
             Spacer(modifier = Modifier.height(24.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+            // spec-40 #281 (t7) — the reversible local mute: the device's own
+            // hidden-reviewers list. Un-muting here restores the author's
+            // reviews on THIS phone only; nothing ever leaves for a server.
+            if (hiddenAuthors.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = "Приховані автори",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                hiddenAuthors.forEach { author ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = author,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f),
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                        )
+                        TextButton(onClick = { onUnhideAuthor(author) }) {
+                            Text("Розмютити")
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
             // spec-40 #276 (t2): «Код відновлення профілю» — the encoded

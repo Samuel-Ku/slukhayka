@@ -132,6 +132,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         refreshCacheSize()
+        // Spec-40 integration — lane-a's identity module feeds lane-b's
+        // resolved-profile state; the reviews block unlocks for writing the
+        // moment ensure() answers (or degrades to local-only, its contract).
+        attachListenerIdentity(App.instance.listenerIdentity)
     }
 
     fun refreshCacheSize() {
@@ -483,7 +487,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // identity's one visible surface, reached from the same Медіатека ⋮
     // overflow menu. The module itself is exposed for direct screen reads
     // (ADR-0008); the ViewModel only owns the pushed-screen navigation.
-    val listenerIdentity: ListenerIdentity = App.instance.listenerIdentity
+    // (Named …Module: the `listenerIdentity` STATE below carries the
+    // resolved profile for the reviews block.)
+    val listenerIdentityModule: ListenerIdentity = App.instance.listenerIdentity
 
     private val _profileOpen = MutableStateFlow(false)
     val profileOpen: StateFlow<Boolean> = _profileOpen.asStateFlow()
@@ -1134,14 +1140,59 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val pendingReviewKeys: StateFlow<Set<String>> = _pendingReviews
         .map { it.keys }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
 
+    // Spec-40 #281 — the LOCAL mute list: purely per-device, server-free.
+    private val _hiddenAuthors = MutableStateFlow<Set<String>>(emptySet())
+    val hiddenAuthors: StateFlow<List<String>> = _hiddenAuthors
+        .map { it.sorted() }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** Best-effort load of the mute list; a failure hides nobody. */
+    fun loadHiddenAuthors() {
+        viewModelScope.launch(Dispatchers.IO) {
+            _hiddenAuthors.value = try {
+                App.instance.audiobookDao.hiddenAuthors().map { it.authorName }.toSet()
+            } catch (e: Exception) {
+                emptySet()
+            }
+        }
+    }
+
+    /** Hide every review of one author on THIS device, immediately (#281). */
+    fun hideAuthor(authorName: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                App.instance.audiobookDao.hideAuthor(
+                    com.slukhayka.audiobooks.data.db.HiddenReviewerEntity(
+                        authorName = authorName,
+                        hiddenAt = System.currentTimeMillis()
+                    )
+                )
+            } catch (e: Exception) {
+            }
+            _hiddenAuthors.value = _hiddenAuthors.value + authorName
+        }
+    }
+
+    /** Un-mute from ⚙️ — the action is reversible by contract (#281). */
+    fun unhideAuthor(authorName: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                App.instance.audiobookDao.unhideAuthor(authorName)
+            } catch (e: Exception) {
+            }
+            _hiddenAuthors.value = _hiddenAuthors.value - authorName
+        }
+    }
+
     /** Server truth overlaid with the honest pending cards, newest first. */
     val bookReviews: StateFlow<List<com.slukhayka.audiobooks.data.reviews.ListenerReview>> = combine(
         _serverBookReviews,
-        _pendingReviews
-    ) { server, pending ->
-        (server.filterNot { com.slukhayka.audiobooks.data.reviews.ListenerReviewCodec.documentId(it.workId, it.uid) in pending.keys } +
+        _pendingReviews,
+        _hiddenAuthors
+    ) { server, pending, hidden ->
+        ((server.filterNot { com.slukhayka.audiobooks.data.reviews.ListenerReviewCodec.documentId(it.workId, it.uid) in pending.keys } +
             pending.values)
-            .sortedByDescending { it.createdAt }
+            .sortedByDescending { it.createdAt })
+            .filterNot { it.authorName in hidden }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     /** Best-effort refresh of one Work's reviews; offline serves the cache silently (#280). */

@@ -187,6 +187,17 @@ fun HomeScreen(
         )
     }
 
+    // Spec-39 T2 (#262): the pure builder lifts the engine's top picks to
+    // cycles through the local Work rows (series identity); the listener's
+    // own cycle titles are excluded so nothing owned is recommended back.
+    val similarCycles = remember(recommendedBooks, allWorks, personalCycles) {
+        com.slukhayka.audiobooks.ui.library.SimilarCycles.build(
+            picks = recommendedBooks,
+            works = allWorks,
+            ownCycleTitles = personalCycles.map { it.title }
+        )
+    }
+
     // Spec-22 T3: the search bar and filter chips are collapsible — the
     // header shows brand + [🔍] + [🔄], and the field + chips expand on
     // demand with auto-focus. Closing (✕ or Back) clears the query and
@@ -361,6 +372,7 @@ fun HomeScreen(
                 newArrivals = newArrivals,
                 recommendedBooks = recommendedBooks,
                 personalCycles = personalCycles,
+                similarCycles = similarCycles,
                 shortBooks = durationBooks.short.map { it.asCatalogBook() },
                 longBooks = durationBooks.long.map { it.asCatalogBook() },
                 workFeedItems = workFeedItems,
@@ -986,6 +998,54 @@ fun PersonalCycleCard(
                 )
             }
         }
+    }
+}
+
+/**
+ * Spec-39 T2 (#262) — one «Схожі цикли» card: the same landscape form as
+ * [PersonalCycleCard], but the magnet line is the engine's reason chip
+ * («схоже на X») instead of a progress count (ADR-0014: only real data).
+ */
+@Composable
+fun SimilarCycleCard(
+    cycle: com.slukhayka.audiobooks.ui.library.SimilarCycle,
+    onClick: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .width(132.dp)
+            .clickable { onClick() }
+            .testTag("similar_cycle_" + cycle.url.hashCode()),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        CatalogCoverImage(
+            coverImageUrl = cycle.coverImageUrl,
+            title = cycle.title,
+            modifier = Modifier
+                .width(132.dp)
+                .height(78.dp)
+                .clip(RoundedCornerShape(AppDimens.RadiusCard))
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(AppDimens.RadiusCard))
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = cycle.title,
+            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+            color = MaterialTheme.colorScheme.primary,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text(
+            text = "схоже на ${cycle.reasonTitle}",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth()
+        )
     }
 }
 

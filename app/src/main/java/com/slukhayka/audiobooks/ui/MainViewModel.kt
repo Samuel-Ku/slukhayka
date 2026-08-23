@@ -26,6 +26,7 @@ import com.slukhayka.audiobooks.data.imports.KnownBookIdentity
 import com.slukhayka.audiobooks.data.imports.LibraryImport
 import com.slukhayka.audiobooks.data.listening.ListeningStateStore
 import com.slukhayka.audiobooks.data.imports.ImportPlanner
+import com.slukhayka.audiobooks.data.identity.ListenerIdentity
 import com.slukhayka.audiobooks.data.privacy.NetworkPrivacy
 import com.slukhayka.audiobooks.data.privacy.PrivacyPrefs
 import com.slukhayka.audiobooks.data.privacy.RouteResolution
@@ -476,6 +477,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _privacyError.value = null
             }
         }
+    }
+
+    // Spec-40 #275 (t1): the ⚙️ Профіль destination — the silent listener
+    // identity's one visible surface, reached from the same Медіатека ⋮
+    // overflow menu. The module itself is exposed for direct screen reads
+    // (ADR-0008); the ViewModel only owns the pushed-screen navigation.
+    val listenerIdentity: ListenerIdentity = App.instance.listenerIdentity
+
+    private val _profileOpen = MutableStateFlow(false)
+    val profileOpen: StateFlow<Boolean> = _profileOpen.asStateFlow()
+
+    fun openProfileSettings() {
+        _profileOpen.value = true
+    }
+
+    fun closeProfileSettings() {
+        _profileOpen.value = false
     }
 
     // Genre pages ("Аудіокниги жанру:" from the homepage sidebar): one

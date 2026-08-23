@@ -17,6 +17,10 @@ import com.slukhayka.audiobooks.data.duration.DurationEnrichment
 import com.slukhayka.audiobooks.data.duration.HttpStreamProber
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
 import com.slukhayka.audiobooks.data.imports.LibraryImport
+import com.slukhayka.audiobooks.data.identity.FirebaseListenerIdentity
+import com.slukhayka.audiobooks.data.identity.ListenerIdentity
+import com.slukhayka.audiobooks.data.identity.LocalOnlyIdentity
+import com.slukhayka.audiobooks.data.identity.SharedPreferencesLocalCredentialStore
 import com.slukhayka.audiobooks.data.listening.ListeningStateStore
 import com.slukhayka.audiobooks.data.metadata.FirestoreBookMetaStore
 import com.slukhayka.audiobooks.data.metadata.CuratedCoverAssets
@@ -102,6 +106,17 @@ class App : Application() {
      */
     val privacySettings: PrivacySettingsStore by lazy {
         SharedPreferencesPrivacySettingsStore(this)
+    }
+
+    /**
+     * Spec-40 #275 (t1): the silent listener identity — bootstraps itself on
+     * first launch (anonymous auth elevated with generated credentials) and
+     * answers ⚙️ Профіль. Without Firebase keys (no google-services.json)
+     * it degrades to a local-only profile, so ⚙️ Профіль works everywhere.
+     */
+    val listenerIdentity: ListenerIdentity by lazy {
+        FirebaseListenerIdentity.create(this)
+            ?: LocalOnlyIdentity(SharedPreferencesLocalCredentialStore(this))
     }
 
     /**
@@ -427,6 +442,13 @@ class App : Application() {
         CoroutineScope(Dispatchers.IO).launch {
             delay(UPDATE_CHECK_START_DELAY_MILLIS)
             runCatching { updateChecker.checkNow() }
+        }
+        // Spec-40 #275 (t1): the silent listener identity bootstrap. First
+        // launch creates the profile (anonymous auth + generated credentials),
+        // every later launch is a no-op returning the same one. Best-effort
+        // and silent by contract — ensure() never throws outward anyway.
+        CoroutineScope(Dispatchers.IO).launch {
+            runCatching { listenerIdentity.ensure() }
         }
     }
 

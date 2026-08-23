@@ -165,7 +165,7 @@ class LihtarAdapter(
                 ?.groupValues?.get(1)
         }
         val visible = h4AfterH1
-            ?.let { Regex("""<[^>]+>""").replace(it, "") }
+            ?.let { stripTags(it) }
             ?.trim()
             ?.takeIf { it.isNotBlank() }
         if (visible != null) return decodeEntities(visible)

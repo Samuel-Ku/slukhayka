@@ -41,7 +41,7 @@ class WebViewHtmlParser {
         // og:description to ~295. Fallback keeps the meta path for pages
         // without the container.
         val description = parseItempropDescription(html)
-            .ifBlank { parseOgDescription(html) }
+            .ifBlank { ogMeta(html, "og:description")?.trim().orEmpty() }
         val genres = parsePmovieGenres(html)
         val rating = parseRatingScore(html)
         val series = parsePmovieCycle(html)
@@ -162,26 +162,19 @@ class WebViewHtmlParser {
      * og:description). Never throws.
      */
     private fun parseItempropDescription(html: String): String {
-        val open = DIV_OPEN_REGEX.find(html) ?: return ""
-        val bodyStart = open.range.last + 1
-        val close = matchingDivClose(html, bodyStart) ?: return ""
+        val (bodyStart, close) = itempropDescriptionContainer(html) ?: return ""
         val result = StringBuilder()
         for (match in paragraphRegex.findAll(html.substring(bodyStart, close))) {
-            var text = match.groupValues[1]
-                .replace(TAG_REGEX, " ")
+            var text = stripTags(match.groupValues[1], " ")
                 .let { decodeEntities(it) }
                 .replace(WHITESPACE_REGEX, " ")
                 .trim()
             if (text.isEmpty()) continue
-            val cutIndex = TAIL_MARKERS.fold(-1) { acc, marker ->
-                val idx = text.indexOf(marker, ignoreCase = true)
-                if (idx >= 0 && (acc < 0 || idx < acc)) idx else acc
-            }
-            if (cutIndex >= 0) {
-                text = text.substring(0, cutIndex).trim()
-                if (text.isNotEmpty()) {
+            val kept = cutAtEarliestMarker(text, TAIL_MARKERS)
+            if (kept != null) {
+                if (kept.isNotEmpty()) {
                     if (result.isNotEmpty()) result.append("\n")
-                    result.append(text)
+                    result.append(kept)
                 }
                 break
             }
@@ -192,38 +185,12 @@ class WebViewHtmlParser {
         return result.toString().trim()
     }
 
-    /** Position of the `</div>` matching a `<div …>` whose body starts at [from]. */
-    private fun matchingDivClose(html: String, from: Int): Int? {
-        var depth = 1
-        for (boundary in DIV_BOUNDARY_REGEX.findAll(html, from)) {
-            if (boundary.value[1] == '/') {
-                depth--
-                if (depth == 0) return boundary.range.first
-            } else {
-                depth++
-            }
-        }
-        return null
-    }
-
-    /** The page's og:description blurb, trimmed; absent when not present. */
-    private fun parseOgDescription(html: String): String =
-        Regex("""<meta\s+property="og:description"\s+content="([^"]+)"\s*/?>""", RegexOption.IGNORE_CASE)
-            .find(html)?.groupValues?.get(1)
-            ?: Regex("""<meta\s+content="([^"]+)"\s+property="og:description"\s*/?>""", RegexOption.IGNORE_CASE)
-            .find(html)?.groupValues?.get(1)
-            ?.trim().orEmpty()
-
     private companion object {
         /** A full annotation is around this size — longer scanning is waste. */
         const val MIN_FULL_ANNOTATION = 1200
 
         private val paragraphRegex =
             Regex("""<p[^>]*>(.*?)</p>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
-        private val DIV_OPEN_REGEX =
-            Regex("""<div\b[^>]*itemprop="description"[^>]*>""", RegexOption.IGNORE_CASE)
-        private val DIV_BOUNDARY_REGEX = Regex("""<div\b|</div""", RegexOption.IGNORE_CASE)
-        private val TAG_REGEX = Regex("""<[^>]+>""")
         private val WHITESPACE_REGEX = Regex("""\s+""")
         private val TAIL_MARKERS = listOf("Теги#", "Теги", "Телеграм канал", "Подякувати", "Ютуб канал", "PayPal")
 
@@ -253,7 +220,7 @@ class WebViewHtmlParser {
             ?.groupValues
             ?.get(1)
             ?: return null
-        val clean = Regex("""<[^>]+>""").replace(marker, "")
+        val clean = stripTags(marker)
             .replace("&quot;", "\"")
             .replace("&#039;", "'")
             .replace("&amp;", "&")

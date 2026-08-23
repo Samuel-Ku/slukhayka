@@ -202,15 +202,12 @@ class SluhayuaAdapter(
      */
     private fun pageDescription(html: String): String {
         val ogFallback = ogMeta(html, "og:description")?.trim().orEmpty()
-        val open = Regex("""<div[^>]*itemprop="description"[^>]*>""", RegexOption.IGNORE_CASE).find(html)
-            ?: return ogFallback
-        val close = html.indexOf("</div>", open.range.last)
-        if (close < 0) return ogFallback
-        val text = html.substring(open.range.last + 1, close)
-        val cut = Regex("""Автор озвучки\s*:""", RegexOption.IGNORE_CASE).find(text)?.range?.first ?: text.length
-        val cleaned = text.substring(0, cut)
+        val (bodyStart, close) = itempropDescriptionContainer(html) ?: return ogFallback
+        val raw = html.substring(bodyStart, close)
+        val kept = cutAtEarliestMarker(raw, listOf("Автор озвучки:")) ?: raw
+        val cleaned = kept
             .replace(Regex("""<br\s*/?>""", RegexOption.IGNORE_CASE), "\n")
-            .replace(TAGS, " ")
+            .let { stripTags(it, " ") }
             .let(::decodeEntities)
             .lines()
             .map { it.trim() }
@@ -407,7 +404,6 @@ class SluhayuaAdapter(
 
     private companion object {
         val XHR = mapOf("X-Requested-With" to "XMLHttpRequest")
-        val TAGS = Regex("""<[^>]+>""")
 
         // Spec-35 T6 — one pass over the page's cardRoll region: a rail
         // header (cardRollCategoryDescription) or a rail card (blurb span

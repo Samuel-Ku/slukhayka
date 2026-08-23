@@ -258,7 +258,7 @@ class AudiobookMp3Adapter(
     private fun descriptionFrom(html: String): String {
         val raw = Regex("""class="abook-desc".*?<p[^>]*>(.*?)</p>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
             .find(html)?.groupValues?.get(1) ?: return ""
-        return decodeEntities(Regex("""<[^>]+>""").replace(raw, "").trim())
+        return decodeEntities(stripTags(raw)).trim()
     }
 
     /**

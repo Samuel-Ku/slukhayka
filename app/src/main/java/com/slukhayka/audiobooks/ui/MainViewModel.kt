@@ -26,6 +26,10 @@ import com.slukhayka.audiobooks.data.imports.KnownBookIdentity
 import com.slukhayka.audiobooks.data.imports.LibraryImport
 import com.slukhayka.audiobooks.data.listening.ListeningStateStore
 import com.slukhayka.audiobooks.data.imports.ImportPlanner
+import com.slukhayka.audiobooks.data.privacy.NetworkPrivacy
+import com.slukhayka.audiobooks.data.privacy.PrivacyPrefs
+import com.slukhayka.audiobooks.data.privacy.RouteResolution
+import com.slukhayka.audiobooks.data.privacy.TransportPrivacy
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.player.AudioPlayerManager
 import com.slukhayka.audiobooks.player.PlayerState
@@ -435,6 +439,43 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun closeStorageDestination() {
         _storageDestinationOpen.value = false
+    }
+
+    // spec-38 T2 (#254): the «Приватність мережі» destination — the route
+    // choice (direct / custom proxy / Tor) reached from the same ⋮ overflow
+    // menu, with the identical pushed-screen seam as the storage destination
+    // above. Saving persists through the store and re-installs the resolved
+    // route into the process-wide door immediately; an invalid address is
+    // rejected with its reason and changes nothing.
+    private val _privacySettingsOpen = MutableStateFlow(false)
+    val privacySettingsOpen: StateFlow<Boolean> = _privacySettingsOpen.asStateFlow()
+
+    private val _privacyPrefs = MutableStateFlow(App.instance.privacySettings.load())
+    val privacyPrefs: StateFlow<PrivacyPrefs> = _privacyPrefs.asStateFlow()
+
+    /** The rejection reason of the last save attempt; null when clean. */
+    private val _privacyError = MutableStateFlow<String?>(null)
+    val privacyError: StateFlow<String?> = _privacyError.asStateFlow()
+
+    fun openPrivacySettings() {
+        _privacySettingsOpen.value = true
+    }
+
+    fun closePrivacySettings() {
+        _privacySettingsOpen.value = false
+        _privacyError.value = null
+    }
+
+    fun savePrivacyPrefs(prefs: PrivacyPrefs) {
+        when (val resolution = NetworkPrivacy.resolve(prefs)) {
+            is RouteResolution.Invalid -> _privacyError.value = resolution.reason
+            is RouteResolution.Ok -> {
+                App.instance.privacySettings.save(prefs)
+                TransportPrivacy.install(prefs)
+                _privacyPrefs.value = prefs
+                _privacyError.value = null
+            }
+        }
     }
 
     // Genre pages ("Аудіокниги жанру:" from the homepage sidebar): one

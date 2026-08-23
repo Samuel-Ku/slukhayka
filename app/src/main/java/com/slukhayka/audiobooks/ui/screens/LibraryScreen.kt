@@ -232,6 +232,16 @@ fun LibraryScreen(
                             },
                             modifier = Modifier.testTag("library_storage_menu_item")
                         )
+                        // spec-38 T2 (#254): the network privacy route lives in
+                        // the same overflow — a rare surface, off the main screen.
+                        DropdownMenuItem(
+                            text = { Text("Приватність мережі") },
+                            onClick = {
+                                showOverflowMenu = false
+                                viewModel.openPrivacySettings()
+                            },
+                            modifier = Modifier.testTag("library_privacy_menu_item")
+                        )
                     }
                 }
             }

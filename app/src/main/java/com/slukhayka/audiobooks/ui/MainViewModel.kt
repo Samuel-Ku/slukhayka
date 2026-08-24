@@ -130,12 +130,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _cacheSizeFormatted = MutableStateFlow("0 МБ")
     val cacheSizeFormatted: StateFlow<String> = _cacheSizeFormatted.asStateFlow()
 
+    // Spec-40: these fields must be initialized before the init block starts
+    // identity resolution on Dispatchers.IO. Keeping them below init made a
+    // fast local-only ensure() race the constructor and write into a field
+    // that Kotlin had not initialized yet.
+    val listenerIdentityModule: ListenerIdentity = App.instance.listenerIdentity
+    private val _listenerIdentity =
+        MutableStateFlow<com.slukhayka.audiobooks.data.identity.ListenerProfile?>(null)
+    val listenerIdentity: StateFlow<com.slukhayka.audiobooks.data.identity.ListenerProfile?> =
+        _listenerIdentity.asStateFlow()
+
     init {
         refreshCacheSize()
         // Spec-40 integration — lane-a's identity module feeds lane-b's
         // resolved-profile state; the reviews block unlocks for writing the
         // moment ensure() answers (or degrades to local-only, its contract).
-        attachListenerIdentity(App.instance.listenerIdentity)
+        attachListenerIdentity(listenerIdentityModule)
     }
 
     fun refreshCacheSize() {
@@ -487,10 +497,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // identity's one visible surface, reached from the same Медіатека ⋮
     // overflow menu. The module itself is exposed for direct screen reads
     // (ADR-0008); the ViewModel only owns the pushed-screen navigation.
-    // (Named …Module: the `listenerIdentity` STATE below carries the
-    // resolved profile for the reviews block.)
-    val listenerIdentityModule: ListenerIdentity = App.instance.listenerIdentity
-
+    // (Named …Module: the `listenerIdentity` state initialized before init
+    // carries the resolved profile for the reviews block.)
     private val _profileOpen = MutableStateFlow(false)
     val profileOpen: StateFlow<Boolean> = _profileOpen.asStateFlow()
 
@@ -1112,12 +1120,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     val listenerReviews: com.slukhayka.audiobooks.data.reviews.ListenerReviewsStore? =
         App.instance.listenerReviews
-
-    /** The resolved listener profile, once lane-a's identity answered [ensure]. */
-    private val _listenerIdentity =
-        MutableStateFlow<com.slukhayka.audiobooks.data.identity.ListenerProfile?>(null)
-    val listenerIdentity: StateFlow<com.slukhayka.audiobooks.data.identity.ListenerProfile?> =
-        _listenerIdentity.asStateFlow()
 
     /**
      * Lane-a wiring point: attach the [com.slukhayka.audiobooks.data.identity.ListenerIdentity]

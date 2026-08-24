@@ -9,6 +9,12 @@ AI agents working in this repository should first read:
 All other guidance lives in the documentation tree; this file only points to
 it. The repository welcomes external contributions (see `CONTRIBUTING.md`).
 
+## Voice
+
+Every text that leaves this repository (README, release notes, posts, issue
+replies) must sound like the author's own voice. Read `docs/voice.md` before
+writing any of them.
+
 ## Agent skills
 
 ### Issue tracker

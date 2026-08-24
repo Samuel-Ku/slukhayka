@@ -217,6 +217,11 @@ object MetadataAssertions {
         """(?iu)^\s*(?:Аудіокнігу|Аудіокнигу)\s+онлайн\s+[^\n]+?,\s+читає\s+[^\n.]+?\.\s*"""
     )
 
+    /** Provenance is useful metadata, but it is never a Work description. */
+    private val PROVENANCE_ONLY_DESCRIPTION = Regex(
+        """(?iu)^(?:аудіокнига\s+з\s+(?:джерела|каталогу)|аудиокнига\s+из\s+(?:источника|каталога))\s*[:—–-]?\s*[^\s:\n][^\n]*?[.!]?$"""
+    )
+
     /** Horizontal whitespace runs created by the cuts — line breaks survive. */
     private val SPACE_RUNS = Regex("""[ \t]+""")
 
@@ -257,6 +262,7 @@ object MetadataAssertions {
         while (changed && text.isNotEmpty()) {
             changed = false
             if (FULL_LINE_SEO_TEMPLATES.any { it.matches(text) }) return ""
+            if (PROVENANCE_ONLY_DESCRIPTION.matches(text)) return ""
             val stripped = SLUHAYUA_PREFIX.replace(text, "")
             if (stripped != text) {
                 text = stripped.trim()

@@ -23,12 +23,9 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 /**
- * Repository seam (spec-15 T5): the per-source detail aggregation. For every
- * Source row carrying the Work, the source's own page is fetched through its
- * adapter and rendered as a labelled block (description, rating, narrator,
- * genres). Tests external behaviour: one block per source, a failing source
- * degrades to the remaining blocks, and a page that yields nothing is a
- * failure, never an empty block.
+ * Repository seam: per-Source assertions used by the canonical book-detail
+ * presentation. Tests external behaviour: one claim per Source, graceful
+ * degradation, and truthful description enrichment for existing entries.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
@@ -66,13 +63,16 @@ class SourceProfileRepositoryTest {
     private fun repo(vararg adapters: SourceAdapter) =
         LibraryEntries(dao, adapters.toList())
 
-    private suspend fun seedBook(vararg sources: SourceEntity): String {
+    private suspend fun seedBook(
+        vararg sources: SourceEntity,
+        description: String = ""
+    ): String {
         val book = AudiobookEntity(
             id = "sluhay-pasazhir",
             title = "Пасажир",
             author = "Жан-Крістоф Гранже",
             narrator = "sluhay narrator",
-            description = "",
+            description = description,
             coverDrawableRes = 0,
             genre = "",
             sourceUrl = sources.firstOrNull()?.url ?: "",
@@ -91,7 +91,7 @@ class SourceProfileRepositoryTest {
     )
 
     @Test
-    fun `one labelled block per source carrying the Work`() = runBlocking {
+    fun `one profile per source carrying the Work`() = runBlocking {
         val sluhayDetail = SourceBookDetail(
             title = "Пасажир",
             author = "Жан-Крістоф Гранже",
@@ -183,5 +183,22 @@ class SourceProfileRepositoryTest {
         val profiles = repository.fetchSourceProfiles(bookId)
 
         assertTrue(profiles.isEmpty())
+    }
+
+    @Test
+    fun `real source blurb replaces a stored catalog fallback`() = runBlocking {
+        val repository = repo()
+        val bookId = seedBook(description = "Аудіокнига з каталогу 4read.org")
+
+        val changed = repository.fillMissingDescriptionFromProfiles(
+            bookId,
+            listOf("Над Адуа зависочіли промислові труби, тож світ закипає, бо зароджується нова ера.")
+        )
+
+        assertTrue(changed)
+        assertEquals(
+            "Над Адуа зависочіли промислові труби, тож світ закипає, бо зароджується нова ера.",
+            dao.getAudiobookById(bookId)!!.description
+        )
     }
 }

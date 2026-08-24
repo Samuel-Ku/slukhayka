@@ -27,6 +27,11 @@ class BestBlurbPickerTest {
         val picked = MetadataAssertions.pickBestBlurb(
             listOf(
                 "Аудіокнига з джерела 4read",
+                "Аудіокнига з каталогу 4read.org",
+                "Аудіокнига з каталогу sound-books.net.",
+                "Аудіокнига з каталогу: 4read.org",
+                "Аудіокнига з джерела — SomeSource",
+                "Аудиокнига из источника: example.org",
                 "",
                 "   "
             )

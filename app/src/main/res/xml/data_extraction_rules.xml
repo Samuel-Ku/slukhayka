@@ -14,6 +14,7 @@
         <include domain="sharedpref" path="listen_prefs.xml"/>
         <include domain="sharedpref" path="network_privacy_settings.xml"/>
         <include domain="sharedpref" path="playback_settings.xml"/>
+        <include domain="sharedpref" path="recommendation_settings.xml"/>
     </cloud-backup>
     <device-transfer>
         <include domain="sharedpref" path="listener_identity.xml"/>
@@ -23,5 +24,6 @@
         <include domain="sharedpref" path="listen_prefs.xml"/>
         <include domain="sharedpref" path="network_privacy_settings.xml"/>
         <include domain="sharedpref" path="playback_settings.xml"/>
+        <include domain="sharedpref" path="recommendation_settings.xml"/>
     </device-transfer>
 </data-extraction-rules>

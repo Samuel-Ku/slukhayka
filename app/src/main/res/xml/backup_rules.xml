@@ -22,4 +22,5 @@
     <include domain="sharedpref" path="listen_prefs.xml"/>
     <include domain="sharedpref" path="network_privacy_settings.xml"/>
     <include domain="sharedpref" path="playback_settings.xml"/>
+    <include domain="sharedpref" path="recommendation_settings.xml"/>
 </full-backup-content>

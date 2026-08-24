@@ -748,4 +748,19 @@ interface AudiobookDao {
     /** The muted authors, alphabetical — the settings list and feed filters. */
     @Query("SELECT * FROM hidden_reviewers ORDER BY authorName ASC")
     suspend fun hiddenAuthors(): List<HiddenReviewerEntity>
+
+    // --- Explicit recommendation feedback (#290) --------------------------
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertRecommendationPreference(preference: RecommendationPreferenceEntity)
+
+    @Query("DELETE FROM recommendation_preferences WHERE kind = :kind AND targetKey = :targetKey")
+    suspend fun deleteRecommendationPreference(kind: String, targetKey: String)
+
+    @Query("SELECT * FROM recommendation_preferences ORDER BY createdAt DESC")
+    fun observeRecommendationPreferences(): Flow<List<RecommendationPreferenceEntity>>
+
+    /** Scoped reset: never touches Library Entry, progress or playback events. */
+    @Query("DELETE FROM recommendation_preferences")
+    suspend fun clearRecommendationPreferences()
 }

@@ -8,6 +8,7 @@ import com.slukhayka.audiobooks.data.db.ChapterEntity
 import com.slukhayka.audiobooks.data.db.CorrectionEntity
 import com.slukhayka.audiobooks.data.db.EditionEntity
 import com.slukhayka.audiobooks.data.db.HiddenReviewerEntity
+import com.slukhayka.audiobooks.data.db.RecommendationPreferenceEntity
 import com.slukhayka.audiobooks.data.db.LibraryEntryEntity
 import com.slukhayka.audiobooks.data.db.ListeningStatEntity
 import com.slukhayka.audiobooks.data.db.toBookRow
@@ -67,6 +68,7 @@ class FakeAudiobookDao(
     private val correctionsState = MutableStateFlow(emptyList<CorrectionEntity>())
     // Spec-40 (#281): the local reviewer mute.
     private val hiddenReviewersState = MutableStateFlow(emptyList<HiddenReviewerEntity>())
+    private val recommendationPreferencesState = MutableStateFlow(emptyList<RecommendationPreferenceEntity>())
     private val worksState = MutableStateFlow(emptyList<WorkEntity>())
     private val workSourcesState = MutableStateFlow(emptyList<WorkSourceEntity>())
     private val libraryEntriesState = MutableStateFlow(emptyList<LibraryEntryEntity>())
@@ -726,6 +728,25 @@ class FakeAudiobookDao(
 
     override suspend fun hiddenAuthors(): List<HiddenReviewerEntity> =
         hiddenReviewersState.value.sortedBy { it.authorName }
+
+    override suspend fun upsertRecommendationPreference(preference: RecommendationPreferenceEntity) {
+        recommendationPreferencesState.update { current ->
+            current.filterNot { it.kind == preference.kind && it.targetKey == preference.targetKey } + preference
+        }
+    }
+
+    override suspend fun deleteRecommendationPreference(kind: String, targetKey: String) {
+        recommendationPreferencesState.update { current ->
+            current.filterNot { it.kind == kind && it.targetKey == targetKey }
+        }
+    }
+
+    override fun observeRecommendationPreferences(): Flow<List<RecommendationPreferenceEntity>> =
+        recommendationPreferencesState
+
+    override suspend fun clearRecommendationPreferences() {
+        recommendationPreferencesState.value = emptyList()
+    }
 
     // --- Persisted catalogue: Works + Sources (spec-23 T1, ADR-0007) --------
 

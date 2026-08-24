@@ -561,6 +561,29 @@ data class HiddenReviewerEntity(
 )
 
 /**
+ * #290 — only an explicit recommendation verdict is persisted. The row
+ * contains stable Work/author keys and never duplicates an embedding,
+ * listening history, title, description or other private content.
+ */
+@Entity(
+    tableName = "recommendation_preferences",
+    primaryKeys = ["kind", "targetKey"],
+    indices = [Index("sourceWorkId")]
+)
+data class RecommendationPreferenceEntity(
+    val kind: String,
+    val targetKey: String,
+    val sourceWorkId: String,
+    val createdAt: Long = System.currentTimeMillis()
+) {
+    companion object {
+        const val HIDE_WORK = "HIDE_WORK"
+        const val REDUCE_SIMILAR = "REDUCE_SIMILAR"
+        const val HIDE_AUTHOR = "HIDE_AUTHOR"
+    }
+}
+
+/**
  * One row of the endless merged feed (spec-23 T4): a Work with the number of
  * Sources carrying it (the «N джерел» badge input) and its optional
  * library-side genre (LEFT JOIN — null until the Work is linked into

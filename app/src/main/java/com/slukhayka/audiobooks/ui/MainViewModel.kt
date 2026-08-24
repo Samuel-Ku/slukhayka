@@ -112,6 +112,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // Spec-25 (#171): the lazy series-universe resolution over the curated assets.
     val seriesUniverses: SeriesUniverses = App.instance.seriesUniverses
     val playerManager: AudioPlayerManager = App.instance.playerManager
+    val recommendationPersonalization = App.instance.recommendationPreferences
 
     // Spec-36 T1 (#244): the app-release check — a pass-through module
     // reference like the fields above (the screen reads its flow directly,
@@ -481,6 +482,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _privacyError.value = null
     }
 
+    private val _recommendationSettingsOpen = MutableStateFlow(false)
+    val recommendationSettingsOpen: StateFlow<Boolean> = _recommendationSettingsOpen.asStateFlow()
+    val recommendationSettings = recommendationPersonalization.settings
+
+    fun openRecommendationSettings() { _recommendationSettingsOpen.value = true }
+    fun closeRecommendationSettings() { _recommendationSettingsOpen.value = false }
+
     fun savePrivacyPrefs(prefs: PrivacyPrefs) {
         when (val resolution = NetworkPrivacy.resolve(prefs)) {
             is RouteResolution.Invalid -> _privacyError.value = resolution.reason
@@ -847,6 +855,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Single-flight guard: a running embedding pass is never re-launched. */
     private val _embeddingPassInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val recommendationWorks = sourceCatalog.allWorks
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     fun refreshEmbeddingVectors() {
         if (!_embeddingPassInFlight.compareAndSet(false, true)) return
@@ -854,11 +864,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 val catalog = sourceCatalog.unifiedCatalog.value
                 val library = libraryBooks.value
+                val worksByKey = recommendationWorks.value.associateBy { it.mergeKey.ifBlank { it.id } }
                 val candidates = catalog.map { result ->
+                    val work = worksByKey[result.key]
                     com.slukhayka.audiobooks.data.recommend.RecommendationEngine.Candidate(
                         id = result.key,
                         title = result.title,
-                        author = result.author
+                        author = result.author,
+                        series = work?.seriesTitle.orEmpty()
                     )
                 }
                 if (candidates.isEmpty()) {
@@ -923,64 +936,82 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun currentSignals(
         library: List<com.slukhayka.audiobooks.ui.library.LibraryBook>
     ): List<com.slukhayka.audiobooks.data.recommend.RecommendationEngine.Signal> {
-        val weighted = library.flatMap { lb ->
-            val weight = when {
-                lb.book.isFavorite -> 1.0
-                lb.isCompleted -> 0.8
-                else -> 0.0
-            }
-            if (weight > 0.0) {
-                listOf(
-                    com.slukhayka.audiobooks.data.recommend.RecommendationEngine.Signal(
-                        id = lb.book.id,
-                        title = lb.book.title,
-                        author = lb.book.author,
-                        genre = lb.book.genre,
-                        weight = weight
-                    )
+        return com.slukhayka.audiobooks.data.recommend.RecommendationPersonalization.signalsFor(
+            behaviors = library.map { lb ->
+                com.slukhayka.audiobooks.data.recommend.RecommendationPersonalization.WorkBehavior(
+                    workId = lb.book.mergeKey.ifBlank { lb.book.workId.orEmpty().ifBlank { lb.book.id } },
+                    title = lb.book.title,
+                    author = lb.book.author,
+                    genre = lb.book.genre,
+                    series = lb.book.seriesTitle.orEmpty(),
+                    isFavorite = lb.book.isFavorite,
+                    progressFraction = lb.percent.toDouble(),
+                    progressRecordedAt = lb.progress?.lastListenedAt,
+                    completed = lb.isCompleted
                 )
-            } else emptyList()
-        }
-        val recentlyListened = recentProgress.value
-            .sortedByDescending { it.lastListenedAt }
-            .take(5)
-            .mapNotNull { row ->
-                library.firstOrNull { it.book.id == row.bookId }?.let { lb ->
-                    com.slukhayka.audiobooks.data.recommend.RecommendationEngine.Signal(
-                        id = lb.book.id,
-                        title = lb.book.title,
-                        author = lb.book.author,
-                        genre = lb.book.genre,
-                        weight = 0.6
-                    )
-                }
-            }
-        return weighted + recentlyListened
+            },
+            nowEpochMs = System.currentTimeMillis()
+        )
     }
+
+    val recommendationPreferences: StateFlow<List<RecommendationPreferenceEntity>> =
+        recommendationPersonalization.preferences
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val recommendedBooks: StateFlow<List<com.slukhayka.audiobooks.data.recommend.RecommendationEngine.Recommendation>> = combine(
         libraryBooks,
         sourceCatalog.unifiedCatalog,
-        catalogVectors
-    ) { library, catalog, vectors ->
+        catalogVectors,
+        recommendationPreferences,
+        recommendationSettings
+    ) { library, catalog, vectors, preferences, settings ->
+        if (!settings.localPersonalizationEnabled) return@combine emptyList()
         // T2: an empty (or not-yet-computed) vector map means the background
         // pass has not finished — degrade to an empty row, never compute on
         // the UI thread and never crash.
         if (vectors.isEmpty()) return@combine emptyList()
-        val allSignals = currentSignals(library)
+        val reducedWorkIds = preferences
+            .filter { it.kind == RecommendationPreferenceEntity.REDUCE_SIMILAR }
+            .mapTo(mutableSetOf()) { it.targetKey }
+        val feedbackSignals = catalog.asSequence()
+            .filter { it.key in reducedWorkIds }
+            .map { result ->
+                com.slukhayka.audiobooks.data.recommend.RecommendationEngine.Signal(
+                    id = result.key,
+                    title = result.title,
+                    author = result.author,
+                    weight = -1.0
+                )
+            }
+            .toList()
+        val allSignals = currentSignals(library) + feedbackSignals
         // Candidates are catalogue cards only: every library book is excluded
         // anyway, and the row's job is to surface books the user does not
         // know yet. The card id is the Work key, so tapping opens the book
         // page through the same identity resolution as any other Огляд row
         // (openRecommendedBook).
         val candidates = catalog.map { result ->
+            val work = recommendationWorks.value.firstOrNull {
+                it.mergeKey.ifBlank { it.id } == result.key
+            }
             com.slukhayka.audiobooks.data.recommend.RecommendationEngine.Candidate(
                 id = result.key,
                 title = result.title,
-                author = result.author
+                author = result.author,
+                series = work?.seriesTitle.orEmpty()
             )
         }
-        val knownIds = library.map { it.book.id }.toSet()
+        val knownIds = library.flatMap { lb ->
+            listOfNotNull(lb.book.id, lb.book.workId, lb.book.mergeKey.takeIf { it.isNotBlank() })
+        }.toMutableSet().apply {
+            addAll(preferences.filter {
+                it.kind == RecommendationPreferenceEntity.HIDE_WORK ||
+                    it.kind == RecommendationPreferenceEntity.REDUCE_SIMILAR
+            }.map { it.targetKey })
+        }
+        val hiddenAuthors = preferences
+            .filter { it.kind == RecommendationPreferenceEntity.HIDE_AUTHOR }
+            .mapTo(mutableSetOf()) { it.targetKey }
         if (candidates.isEmpty() || allSignals.isEmpty()) return@combine emptyList()
         // Catalogue vectors come from the background pass (T2), signal
         // vectors too (T4) — nothing embeds on the UI thread. With the ONNX
@@ -996,14 +1027,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 for (signal in missing) merged[signal.id] = embedder.embed(signal.text)
             }
         }
-        com.slukhayka.audiobooks.data.recommend.RecommendationEngine.recommendWithVectors(
+        com.slukhayka.audiobooks.data.recommend.RecommendationPersonalization.rank(
             candidates = candidates,
             signals = allSignals,
             vectors = merged,
-            excludeIds = knownIds,
+            excludedWorkIds = knownIds,
+            excludedAuthors = hiddenAuthors,
+            weights = settings.weights,
             topN = 10
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private val pendingRecommendationBookId = java.util.concurrent.atomic.AtomicReference<String?>(null)
 
     /**
      * Spec-19 T4 — tapping a recommended card opens that book's page. The
@@ -1026,6 +1061,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 null
             }
             if (book != null) {
+                pendingRecommendationBookId.set(book.id)
+                recommendationPersonalization.recordDetailOpen()
                 selectBook(book.id)
             }
         }
@@ -1338,6 +1375,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun playAudiobook(book: AudiobookEntity, chapterIndex: Int? = null, autoPlay: Boolean = true) {
+        if (autoPlay && pendingRecommendationBookId.compareAndSet(book.id, null)) {
+            recommendationPersonalization.recordPlaybackStart()
+        }
         startAudiobookPlayback(book, chapterIndex = chapterIndex, autoPlay = autoPlay, forceRelisten = false)
     }
 

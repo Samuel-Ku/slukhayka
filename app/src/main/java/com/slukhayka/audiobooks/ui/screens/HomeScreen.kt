@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import com.slukhayka.audiobooks.data.catalog.CatalogBook
 import com.slukhayka.audiobooks.data.catalog.CatalogSeries
 import com.slukhayka.audiobooks.data.catalog.SourceCatalog
@@ -124,6 +125,8 @@ fun HomeScreen(
     // similarity of catalogue descriptions to favourite/completed/recent
     // signals, computed locally, with a per-card reason chip.
     val recommendedBooks by viewModel.recommendedBooks.collectAsState()
+    val recommendationSettings by viewModel.recommendationSettings.collectAsState()
+    var showRecommendationDisclosure by rememberSaveable { mutableStateOf(false) }
 
     // Spec-39 T1 (#261): «Ваші цикли» — derived purely from the local base
     // (library rows + Listening State + every known Work), no network and no
@@ -155,6 +158,7 @@ fun HomeScreen(
     // ADR-0008: the module call is made directly from the composition scope;
     // the embedding pass stays orchestrated by the ViewModel (single-flight).
     val scope = rememberCoroutineScope()
+    val recommendationSnackbar = remember { SnackbarHostState() }
     LaunchedEffect(Unit) {
         sourceCatalog.refreshUnifiedCatalog()
         sourceCatalog.refreshSourceFeeds()
@@ -232,12 +236,13 @@ fun HomeScreen(
     // Search/genre mode: a plain result list, no rows.
     val inSearchMode = searchQuery.isNotBlank() || selectedGenre != "Усі"
 
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .testTag("home_screen"),
-        contentPadding = PaddingValues(bottom = 120.dp)
-    ) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .testTag("home_screen"),
+            contentPadding = PaddingValues(bottom = 120.dp)
+        ) {
         // Header & collapsible search (spec-22 T3) — the field and chips
         // expand from the header's [🔍] and close via ✕ or the Back gesture.
         item {
@@ -394,12 +399,64 @@ fun HomeScreen(
                 onSetFeedSourceFilter = { viewModel.setFeedSourceFilter(it) },
                 onSetFeedGenreFilter = { viewModel.setFeedGenreFilter(it) },
                 onSetFeedSortByTitle = { viewModel.setFeedSortByTitle(it) },
-                onOpenWebSource = onOpenWebSource
+                onOpenWebSource = onOpenWebSource,
+                onRecommendationFeedback = { rec, kind ->
+                    scope.launch {
+                        val token = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                            viewModel.recommendationPersonalization.applyFeedback(
+                                rec.candidate.id,
+                                rec.candidate.author,
+                                kind
+                            )
+                        } ?: return@launch
+                        val result = recommendationSnackbar.showSnackbar(
+                            message = "Рекомендацію оновлено",
+                            actionLabel = "Скасувати",
+                            withDismissAction = true
+                        )
+                        if (result == SnackbarResult.ActionPerformed) {
+                            withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                viewModel.recommendationPersonalization.undo(token)
+                            }
+                        }
+                    }
+                },
+                showRecommendationConsent = recommendationSettings.shouldOfferSharedLearning(System.currentTimeMillis()),
+                onOpenRecommendationConsent = { showRecommendationDisclosure = true },
+                onDeclineRecommendationConsent = viewModel.recommendationPersonalization::declineSharedLearning
             )
 
             // Spec-9: the full library list lives in Медіатека (Library tab),
             // not at the bottom of Огляд.
         }
+        }
+        SnackbarHost(
+            hostState = recommendationSnackbar,
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 80.dp)
+        )
+    }
+    if (showRecommendationDisclosure) {
+        AlertDialog(
+            onDismissRequest = { showRecommendationDisclosure = false },
+            title = { Text("Спільне покращення рекомендацій") },
+            text = {
+                Text(
+                    "Мета — покращувати п’ять ваг ранжування. Після запуску телефон зможе підготувати не більше одного update на ISO-тиждень: версії, тижневий псевдонім і п’ять чисел gradient. Назви, Work ID, автори, жанри, оцінки, прогрес, UID, дані пристрою та точний час не входять у payload. Сирі внески видаляються після epoch. Згоду можна відкликати в налаштуваннях; локальні рекомендації від цього не зміняться. Передавання зараз технічно вимкнене до privacy/legal/security перевірки."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.recommendationPersonalization.setSharedLearningConsent(true)
+                    showRecommendationDisclosure = false
+                }) { Text("Погоджуюсь") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    viewModel.recommendationPersonalization.declineSharedLearning()
+                    showRecommendationDisclosure = false
+                }) { Text("Не зараз") }
+            }
+        )
     }
 }
 
@@ -791,8 +848,11 @@ fun CollectionBookCard(
 @Composable
 fun RecommendedBookCard(
     rec: com.slukhayka.audiobooks.data.recommend.RecommendationEngine.Recommendation,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onFeedback: (String) -> Unit = {}
 ) {
+    var menuExpanded by remember { mutableStateOf(false) }
+    var feedbackExpanded by remember { mutableStateOf(false) }
     Card(
         onClick = onClick,
         modifier = Modifier
@@ -804,13 +864,49 @@ fun RecommendedBookCard(
         )
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
-            Text(
-                text = rec.candidate.title,
-                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
+            Row(verticalAlignment = Alignment.Top) {
+                Text(
+                    text = rec.candidate.title,
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+                Box {
+                    IconButton(
+                        onClick = { menuExpanded = true },
+                        modifier = Modifier.size(32.dp).testTag("recommendation_menu_${rec.candidate.id}")
+                    ) {
+                        Icon(Icons.Default.MoreVert, contentDescription = "Дії з рекомендацією")
+                    }
+                    DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                        DropdownMenuItem(
+                            text = { Text("Не рекомендувати…") },
+                            onClick = {
+                                menuExpanded = false
+                                feedbackExpanded = true
+                            }
+                        )
+                    }
+                    DropdownMenu(expanded = feedbackExpanded, onDismissRequest = { feedbackExpanded = false }) {
+                        FeedbackMenuItem("Цю книгу") {
+                            onFeedback(com.slukhayka.audiobooks.data.db.RecommendationPreferenceEntity.HIDE_WORK)
+                            feedbackExpanded = false
+                        }
+                        FeedbackMenuItem("Менше схожих") {
+                            onFeedback(com.slukhayka.audiobooks.data.db.RecommendationPreferenceEntity.REDUCE_SIMILAR)
+                            feedbackExpanded = false
+                        }
+                        if (rec.candidate.author.isNotBlank()) {
+                            FeedbackMenuItem("Цього автора") {
+                                onFeedback(com.slukhayka.audiobooks.data.db.RecommendationPreferenceEntity.HIDE_AUTHOR)
+                                feedbackExpanded = false
+                            }
+                        }
+                    }
+                }
+            }
             if (rec.candidate.author.isNotBlank()) {
                 Text(
                     text = rec.candidate.author,
@@ -836,6 +932,11 @@ fun RecommendedBookCard(
             }
         }
     }
+}
+
+@Composable
+private fun FeedbackMenuItem(label: String, onClick: () -> Unit) {
+    DropdownMenuItem(text = { Text(label) }, onClick = onClick)
 }
 
 /**

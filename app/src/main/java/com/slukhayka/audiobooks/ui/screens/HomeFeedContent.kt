@@ -72,7 +72,11 @@ fun LazyListScope.homeFeedContent(
     onSetFeedSourceFilter: (String?) -> Unit,
     onSetFeedGenreFilter: (String?) -> Unit,
     onSetFeedSortByTitle: (Boolean) -> Unit,
-    onOpenWebSource: (() -> Unit)? = null
+    onOpenWebSource: (() -> Unit)? = null,
+    onRecommendationFeedback: (RecommendationEngine.Recommendation, String) -> Unit = { _, _ -> },
+    showRecommendationConsent: Boolean = false,
+    onOpenRecommendationConsent: () -> Unit = {},
+    onDeclineRecommendationConsent: () -> Unit = {}
 ) {
     // Loading spinner while the catalogue syncs on a fresh start.
     if (isCatalogLoading && !hasLibraryBooks && sections.isEmpty()) {
@@ -209,8 +213,27 @@ fun LazyListScope.homeFeedContent(
                 items(recommendedBooks, key = { it.candidate.id }) { rec ->
                     RecommendedBookCard(
                         rec = rec,
-                        onClick = { onOpenRecommendedBook(rec.candidate.id) }
+                        onClick = { onOpenRecommendedBook(rec.candidate.id) },
+                        onFeedback = { kind -> onRecommendationFeedback(rec, kind) }
                     )
+                }
+            }
+        }
+    }
+    if (showRecommendationConsent) {
+        item(key = "recommendation_consent_card") {
+            ElevatedCard(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                Column(Modifier.padding(16.dp)) {
+                    Text("Допомогти рекомендаціям ставати кращими?", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        "Локальні рекомендації вже працюють приватно. За окремою згодою майбутнє спільне навчання використовуватиме лише тижневе оновлення п’яти ваг — без книг та історії.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        TextButton(onClick = onDeclineRecommendationConsent) { Text("Не зараз") }
+                        TextButton(onClick = onOpenRecommendationConsent) { Text("Докладніше") }
+                    }
                 }
             }
         }

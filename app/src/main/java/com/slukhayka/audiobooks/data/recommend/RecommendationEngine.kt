@@ -19,10 +19,13 @@ object RecommendationEngine {
         val id: String,
         val title: String,
         val author: String = "",
-        val genre: String = ""
+        val genre: String = "",
+        val series: String = "",
+        val description: String = "",
+        val publishedAtEpochMs: Long? = null
     ) {
         /** The text embeddings are computed over (Q3: descriptions/fields). */
-        val text: String get() = listOf(title, author, genre).joinToString(" ")
+        val text: String get() = BookRecommendationText.build(title, author, genre, series, description)
     }
 
     /** One positive listener signal, weighted (favourite > completed > recent). */
@@ -31,10 +34,11 @@ object RecommendationEngine {
         val title: String,
         val author: String = "",
         val genre: String = "",
+        val series: String = "",
         val weight: Double
     ) {
         /** The text the signal's vector is computed over. */
-        val text: String get() = listOf(title, author, genre).joinToString(" ")
+        val text: String get() = BookRecommendationText.build(title, author, genre, series)
     }
 
     /** One recommendation: a candidate + similarity score + why. */
@@ -42,7 +46,9 @@ object RecommendationEngine {
         val candidate: Candidate,
         val score: Double,
         /** The strongest signal behind this pick («схоже на <title>»). */
-        val reasonTitle: String
+        val reasonTitle: String,
+        val semanticScore: Double = score,
+        val isExploration: Boolean = false
     )
 
     /**
@@ -76,30 +82,14 @@ object RecommendationEngine {
         excludeIds: Set<String>,
         topN: Int = 10
     ): List<Recommendation> {
-        if (signals.isEmpty()) return emptyList()
-        val signalVectors = signals.mapNotNull { signal ->
-            vectors[signal.id]?.let { signal to it }
-        }
-        if (signalVectors.isEmpty()) return emptyList()
-        return candidates
-            .asSequence()
-            .filter { it.id !in excludeIds }
-            .mapNotNull { candidate ->
-                val vector = vectors[candidate.id] ?: return@mapNotNull null
-                val best = signalVectors
-                    .map { (signal, sVec) -> cosine(vector, sVec) to signal }
-                    .maxByOrNull { it.first }
-                    ?: return@mapNotNull null
-                if (best.first <= 0.0) return@mapNotNull null
-                Recommendation(
-                    candidate = candidate,
-                    score = best.first * best.second.weight,
-                    reasonTitle = best.second.title
-                )
-            }
-            .sortedByDescending { it.score }
-            .take(topN)
-            .toList()
+        return RecommendationPersonalization.rank(
+            candidates = candidates,
+            signals = signals,
+            vectors = vectors,
+            excludedWorkIds = excludeIds,
+            topN = topN,
+            explorationCount = if (topN >= 10) 2 else 0
+        )
     }
 
     /** Cosine similarity in [0, 1]; zero for empty or degenerate vectors. */
@@ -118,4 +108,3 @@ object RecommendationEngine {
     }
 
 }
-

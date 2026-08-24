@@ -40,6 +40,7 @@ import com.slukhayka.audiobooks.ui.screens.PeopleScreen
 import com.slukhayka.audiobooks.ui.screens.PersonBooksScreen
 import com.slukhayka.audiobooks.ui.screens.PlayerScreen
 import com.slukhayka.audiobooks.ui.screens.ProfileScreen
+import com.slukhayka.audiobooks.ui.screens.RecommendationSettingsScreen
 import com.slukhayka.audiobooks.ui.screens.SeriesIndexScreen
 import com.slukhayka.audiobooks.ui.screens.SeriesScreen
 import com.slukhayka.audiobooks.ui.screens.StorageDestinationScreen
@@ -110,6 +111,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     val collectionsIndexOpen by viewModel.collectionsIndexOpen.collectAsState()
     val storageDestinationOpen by viewModel.storageDestinationOpen.collectAsState()
     val privacySettingsOpen by viewModel.privacySettingsOpen.collectAsState()
+    val recommendationSettingsOpen by viewModel.recommendationSettingsOpen.collectAsState()
     val profileOpen by viewModel.profileOpen.collectAsState()
     val selectedGenre by viewModel.selectedGenre.collectAsState()
     val selectedTop100 by viewModel.selectedTop100.collectAsState()
@@ -119,7 +121,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     // Handle system back press
     BackHandler(enabled = showFullPlayer || selectedBookId != null ||
         selectedWebSource != null || selectedSeries != null || seriesIndexOpen || collectionsIndexOpen ||
-        storageDestinationOpen || privacySettingsOpen || profileOpen || selectedGenre != null ||
+        storageDestinationOpen || privacySettingsOpen || recommendationSettingsOpen || profileOpen || selectedGenre != null ||
         selectedTop100 || selectedPeopleKind != null || selectedPerson != null) {
         if (showFullPlayer) {
             viewModel.setShowFullPlayer(false)
@@ -137,6 +139,8 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
             viewModel.closeStorageDestination()
         } else if (privacySettingsOpen) {
             viewModel.closePrivacySettings()
+        } else if (recommendationSettingsOpen) {
+            viewModel.closeRecommendationSettings()
         } else if (profileOpen) {
             viewModel.closeProfileSettings()
         } else if (selectedGenre != null) {
@@ -233,6 +237,11 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                     privacySettingsOpen -> NetworkPrivacyScreen(
                         viewModel = viewModel,
                         onBackClick = { viewModel.closePrivacySettings() }
+                    )
+
+                    recommendationSettingsOpen -> RecommendationSettingsScreen(
+                        viewModel = viewModel,
+                        onBackClick = { viewModel.closeRecommendationSettings() }
                     )
 
                     // spec-40 #275 (t1): the «Профіль» destination — the

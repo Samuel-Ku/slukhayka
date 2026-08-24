@@ -78,6 +78,10 @@ _Avoid_: Missing Source, unavailable file
 The one shared review («Відгук») a listener may leave per Work — a required 1–5 star rating plus optional bounded text and an optional narration tag (`editionTag`). Anchored at the Work mergeKey like Canonical covers; document identity `workId_uid` in the shared base's `book_reviews` collection makes double-voting impossible by construction. The headline score above the cards is the honest flat average over every source WITH a rating and every review (ADR-0022); a source's own ★ stays a separate row. A source page's visitors' comments are NOT reviews — they render as a plainly-labelled simple subblock, never mixed into community cards.
 _Avoid_: source visitor comment, Edition-scoped rating, fabricated zeros
 
+**Recommendation Preference**:
+An explicit, local-only listener verdict that changes discovery ranking without changing a Work, Library Entry, Listening State or Listener Review. It is one of `HIDE_WORK`, `REDUCE_SIMILAR` or `HIDE_AUTHOR`, keyed by normalized Work/author identity and reversible from recommendation settings. It stores no embedding or listening history.
+_Avoid_: deletion, tombstone, implicit dislike, server-side listening profile
+
 **Recovery Code**:
 The encoded credential pair of the silent anonymous profile («Код відновлення профілю»), shown in ⚙️ Профіль only behind BiometricPrompt and accepted on a fresh install to restore the same uid. Surviving reinstall also rides Android Auto Backup of the generated credentials and the Firestore `device_bindings/{ANDROID_ID} → uid` silent restore — the binding exists ONLY for recovery of one's own profile, written solely for the caller's own uid.
 _Avoid_: login screen, hardware identifiers (IMEI), password reset
@@ -123,6 +127,10 @@ The same matcher also consumes LIVE lists over the `LiveCollectionSource` seam (
 _Avoid_: raw connections in live sources, live lists persisted to Room
 
 ## Discovery surfaces (spec-28)
+
+**Private recommendation adaptation**:
+The bundled E5 encoder remains frozen and local; `RecommendationPersonalization` adapts the transparent positive/negative profile and five ranking coefficients over Work-level vectors. Weak 30%/70% progress fades only after day 30 and reaches zero at day 180, while deliberate durable signals do not decay. Explicit preferences live in their own Room table. Shared weekly learning has a pure validation/aggregation contract but no production upload path; `PRODUCTION_UPLOAD_ENABLED` remains false until the privacy, legal and security gates in #290 pass.
+_Avoid_: fine-tuning E5 on-device, treating pauses/non-completion as dislike, uploading Works or history, calling weekly IDs anonymous
 
 **Cross-source «Новинки» rail**:
 One Огляд rail merging the new-arrival books of every Source — 4read's «Новинки» section plus the other sources' new feeds — into a single Work-deduplicated list with a per-Source badge on each card (`SourceCatalog.newArrivals`). It is published on both union triggers (`refreshSourceFeeds` + `fetchCatalogSections`) so it always reflects the fresher input, and the 4read «Новинки» catalogue section row is skipped on Огляд so 4read's new arrivals appear exactly once (spec-28 #192).

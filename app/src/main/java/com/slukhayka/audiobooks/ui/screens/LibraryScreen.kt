@@ -253,6 +253,14 @@ fun LibraryScreen(
                             },
                             modifier = Modifier.testTag("library_privacy_menu_item")
                         )
+                        DropdownMenuItem(
+                            text = { Text("Персональні рекомендації") },
+                            onClick = {
+                                showOverflowMenu = false
+                                viewModel.openRecommendationSettings()
+                            },
+                            modifier = Modifier.testTag("library_recommendations_menu_item")
+                        )
                     }
                 }
             }

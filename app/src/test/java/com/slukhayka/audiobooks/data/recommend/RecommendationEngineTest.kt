@@ -103,8 +103,8 @@ class RecommendationEngineTest {
             excludeIds = emptySet()
         )
         assertEquals(1, recommendations.size)
-        // The weight multiplies the same cosine, so the score is the 1.0 signal's.
-        assertEquals(1.0, recommendations.first().score, 1e-6)
+        // Personalized score = semantic .60 + matching author .15.
+        assertEquals(.75, recommendations.first().score, 1e-6)
     }
 
     @Test
@@ -120,7 +120,7 @@ class RecommendationEngineTest {
 
     @Test
     fun `topN caps the row size`() {
-        val candidates = (1..20).map { candidate("c$it", "Книга $it", "Автор") }
+        val candidates = (1..20).map { candidate("c$it", "Книга $it", "Автор $it") }
         val recommendations = RecommendationEngine.recommend(
             candidates = candidates,
             signals = listOf(

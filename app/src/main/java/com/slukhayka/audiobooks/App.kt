@@ -31,6 +31,8 @@ import com.slukhayka.audiobooks.data.metadata.SearchCoverResolver
 import com.slukhayka.audiobooks.data.metadata.SearchDurationResolver
 import com.slukhayka.audiobooks.data.metadata.StoredMetadataScrub
 import com.slukhayka.audiobooks.data.reviews.FirestoreListenerReviewsStore
+import com.slukhayka.audiobooks.data.recommend.RecommendationSettingsStore
+import com.slukhayka.audiobooks.data.recommend.RecommendationPreferences
 import com.slukhayka.audiobooks.data.search.FirestoreSearchCache
 import com.slukhayka.audiobooks.data.merge.DuplicateWorkMerger
 import com.slukhayka.audiobooks.data.privacy.BrowserIdentity
@@ -89,6 +91,14 @@ class App : Application() {
 
     /** Spec-40 #281 — the local mute table's DAO, for the reviews' hide flow. */
     val audiobookDao: AudiobookDao get() = database.audiobookDao()
+
+    /** #290 — local personalization controls; shared upload is not part of this graph. */
+    val recommendationSettings: RecommendationSettingsStore by lazy {
+        RecommendationSettingsStore(this)
+    }
+    val recommendationPreferences: RecommendationPreferences by lazy {
+        RecommendationPreferences(audiobookDao, recommendationSettings)
+    }
 
     /**
      * The ONE shared metadata store behind every consumer (imports, search

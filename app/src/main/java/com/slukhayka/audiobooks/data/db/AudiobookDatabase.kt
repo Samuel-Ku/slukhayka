@@ -28,9 +28,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         EditionEntity::class,
         WorkSourceEntity::class,
         LibraryEntryEntity::class,
-        HiddenReviewerEntity::class
+        HiddenReviewerEntity::class,
+        RecommendationPreferenceEntity::class
     ],
-    version = 20,
+    version = 21,
     exportSchema = true
 )
 abstract class AudiobookDatabase : RoomDatabase() {
@@ -54,7 +55,7 @@ abstract class AudiobookDatabase : RoomDatabase() {
                     // upgrades, so a schema change fails loudly at runtime
                     // instead of silently dropping the database.
                     .addMigrations(
-                        MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20
+                        MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21
                     )
                     .build()
                 INSTANCE = instance
@@ -995,6 +996,24 @@ abstract class AudiobookDatabase : RoomDatabase() {
                         "authorName TEXT NOT NULL, " +
                         "hiddenAt INTEGER NOT NULL, " +
                         "PRIMARY KEY(authorName))"
+                )
+            }
+        }
+
+        /** #290: local-only explicit recommendation feedback. */
+        internal val MIGRATION_20_21 = object : Migration(20, 21) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS recommendation_preferences (" +
+                        "kind TEXT NOT NULL, " +
+                        "targetKey TEXT NOT NULL, " +
+                        "sourceWorkId TEXT NOT NULL, " +
+                        "createdAt INTEGER NOT NULL, " +
+                        "PRIMARY KEY(kind, targetKey))"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_recommendation_preferences_sourceWorkId " +
+                        "ON recommendation_preferences(sourceWorkId)"
                 )
             }
         }

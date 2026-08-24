@@ -60,8 +60,8 @@ android {
     targetSdk = 36
     // spec-29 T1 (#210): first release under the permanent applicationId.
     // versionCode grows monotonically across the Слухайка line (v1.0 was 1).
-    versionCode = 3
-    versionName = "1.2"
+    versionCode = 4
+    versionName = "1.3"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -116,7 +116,7 @@ android {
 }
 
 // spec-29 T1 (#210): the release artifact carries the version in its name
-// (slukhayka-v1.1.apk, then v1.2, ...) so downloads are unambiguous across
+// (slukhayka-v1.1.apk, v1.2, v1.3, ...) so downloads are unambiguous across
 // releases (US-13). AGP 9 removed the old outputFileName hook, so this reacts
 // to SingleArtifact.APK creation with the public Variant API (the documented
 // listenToArtifacts replacement) and copies the built APK to the versioned

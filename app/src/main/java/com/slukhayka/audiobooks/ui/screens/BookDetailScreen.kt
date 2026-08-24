@@ -81,7 +81,6 @@ fun BookDetailScreen(
     val downloadMessage by viewModel.downloadMessage.collectAsState()
     // Spec-15 T5: what every source carrying the Work says about it.
     val sourceProfiles by viewModel.sourceProfiles.collectAsState()
-    val isSourceProfilesLoading by viewModel.isSourceProfilesLoading.collectAsState()
     // Spec-23 T5: every Edition carrying the Work — the «Джерела» section.
     val bookSources by viewModel.bookSources.collectAsState()
 
@@ -129,6 +128,14 @@ fun BookDetailScreen(
     val listenerProfile by viewModel.listenerIdentity.collectAsState()
     val bookReviews by viewModel.bookReviews.collectAsState()
     val pendingReviewKeys by viewModel.pendingReviewKeys.collectAsState()
+    val detailPresentation = remember(currentBook, sourceProfiles, bookSources, bookReviews) {
+        bookDetailPresentation(
+            book = currentBook,
+            sourceProfiles = sourceProfiles,
+            playableSources = bookSources,
+            listenerRatings = bookReviews.map { it.rating }
+        )
+    }
     LaunchedEffect(reviewsWorkId) {
         viewModel.loadReviews(reviewsWorkId)
         // Spec-40 #281 — the local mute list rides every branch read.
@@ -210,7 +217,7 @@ fun BookDetailScreen(
             // height too low.
             TopAppBar(
                 windowInsets = WindowInsets(0, 0, 0, 0),
-                title = { Text(currentBook.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                title = { Text(detailPresentation.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 navigationIcon = {
                     IconButton(onClick = onBackClick) {
                         Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -332,7 +339,7 @@ fun BookDetailScreen(
                     ) {
                         com.slukhayka.audiobooks.ui.components.BookCoverImage(
                             book = currentBook,
-                            contentDescription = currentBook.title,
+                            contentDescription = detailPresentation.title,
                             modifier = Modifier.fillMaxSize(),
                             contentScale = ContentScale.Crop
                         )
@@ -340,239 +347,26 @@ fun BookDetailScreen(
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    Text(
-                        text = currentBook.title,
-                        style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.testTag("book_detail_title")
+                    BookDetailCanonicalSummary(
+                        presentation = detailPresentation,
+                        universeName = bookUniverse?.universeName,
+                        onAuthorClick = { author ->
+                            viewModel.openPersonBooks(
+                                CatalogPerson(author, bookPersonPath("avtor", author), 0)
+                            )
+                        },
+                        onNarratorClick = { narrator ->
+                            viewModel.openPersonBooks(
+                                CatalogPerson(narrator, bookPersonPath("chitaet", narrator), 0)
+                            )
+                        },
+                        onSeriesClick = { title, url -> viewModel.openSeries(title, url) },
+                        onWrongUniverse = { viewModel.reportWrongUniverse(currentBook.id) }
                     )
-
-                    Spacer(modifier = Modifier.height(4.dp))
-
-                    // "4read.org" is a placeholder author, not a real one — the
-                    // Source pill below already names the catalog. #40: a real
-                    // author's name opens their catalogue page
-                    // (`/xfsearch/avtor/…`), a blank renders nothing.
-                    if (currentBook.displayAuthor.isNotBlank()) {
-                        Text(
-                            text = "By ${currentBook.displayAuthor}",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier
-                                .testTag("book_detail_author_link")
-                                .clickable {
-                                    viewModel.openPersonBooks(
-                                        CatalogPerson(
-                                            name = currentBook.displayAuthor,
-                                            path = bookPersonPath("avtor", currentBook.displayAuthor),
-                                            bookCount = 0
-                                        )
-                                    )
-                                }
-                        )
-                    }
-
-                    // #40: a real narrator is a tappable person link
-                    // (`/xfsearch/chitaet/…`); the fabricated
-                    // "4read Voice Narrator" placeholder is scrubbed away
-                    // entirely (ADR-0004 write path), never rendered as text.
-                    val narratorName = currentBook.displayNarrator
-                    if (narratorName.isNotBlank()) {
-                        // Spec-27 (#204): «Озвучує: …» — never the EN
-                        // «Narrated by …» (US-15).
-                        Text(
-                            text = "Озвучує: $narratorName",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    viewModel.openPersonBooks(
-                                        CatalogPerson(
-                                            name = narratorName,
-                                            path = bookPersonPath("chitaet", narratorName),
-                                            bookCount = 0
-                                        )
-                                    )
-                                }
-                                .testTag("book_detail_narrator_link"),
-                            textAlign = TextAlign.Center
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    // Tags row — FlowRow so long labels wrap instead of being
-                    // clipped off-screen or split mid-word.
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        // "4read Каталог" is the placeholder genre for catalog
-                        // books — the Source pill below already says it.
-                        if (currentBook.genre.isNotBlank() &&
-                            !currentBook.genre.contains("4read", ignoreCase = true)
-                        ) {
-                            TagPill(
-                                text = currentBook.genre,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                container = MaterialTheme.colorScheme.surfaceContainerHigh,
-                                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-                            )
-                        }
-
-                        // Only render the stats pill when at least one value is
-                        // actually known — never a fabricated "5 Ch. • 4:00:00"
-                        // for a catalogue book whose chapters haven't loaded yet.
-                        // Each part renders only when known, so a source with a
-                        // real duration but no chapter count shows just the
-                        // duration, never "0 розділів".
-                        val chaptersKnown = currentBook.totalChapters > 0
-                        val durationKnown = currentBook.totalDurationSeconds > 0L
-                        if (chaptersKnown || durationKnown) {
-                            // Spec-27 (#204): «N розділів · час» — один
-                            // український формат скрізь (US-15), правильна
-                            // множина через ukPlural.
-                            val chaptersLabel = ukPlural(
-                                currentBook.totalChapters,
-                                "розділ", "розділи", "розділів"
-                            )
-                            TagPill(
-                                text = when {
-                                    chaptersKnown && durationKnown ->
-                                        "${currentBook.totalChapters} $chaptersLabel • ${MainViewModel.formatTime(currentBook.totalDurationSeconds)}"
-                                    chaptersKnown -> "${currentBook.totalChapters} $chaptersLabel"
-                                    else -> MainViewModel.formatTime(currentBook.totalDurationSeconds)
-                                },
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                container = MaterialTheme.colorScheme.surfaceContainerHigh,
-                                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-                            )
-                        }
-
-                        // Real site rating — repositories seed 0f for unknown,
-                        // so a positive value means the page actually carried one.
-                        if (currentBook.rating > 0f) {
-                            TagPill(
-                                text = "★ ${currentBook.rating}",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                container = MaterialTheme.colorScheme.surfaceContainerHigh,
-                                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-                            )
-                        }
-
-                        // The one canonical source label — only for books that
-                        // actually came from the catalog, never for local imports.
-                        // Spec-22 T2: solid scrim instead of a translucent wash,
-                        // so the pill stays readable on any background.
-                        if (currentBook.sourceUrl.contains("4read.org")) {
-                            TagPill(
-                                text = "4read.org Source",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                container = AppBadgeScrim,
-                                border = androidx.compose.foundation.BorderStroke(1.dp, AppBadgeScrimBorder)
-                            )
-                        }
-
-                        // #40 decision 1: the book's series names its
-                        // neighbours — the pill opens the series page
-                        // (spec-9 T1), where the volume order and the
-                        // next-unread CTA live.
-                        val seriesTitle = currentBook.seriesTitle.orEmpty()
-                        if (seriesTitle.isNotBlank()) {
-                            SeriesPill(
-                                seriesTitle = seriesTitle,
-                                seriesIndex = currentBook.seriesIndex ?: 0,
-                                onClick = {
-                                    currentBook.seriesUrl?.takeIf { it.isNotBlank() }?.let { url ->
-                                        viewModel.openSeries(seriesTitle, url)
-                                    }
-                                }
-                            )
-                        }
-                        // Spec-25 (#171): the universe line under the series
-                        // pill — renders only when the series' universe
-                        // resolved (a missing universe stays silent). The
-                        // adjacent affordance (spec-26 T9) reports a wrong
-                        // universe: the line hides, the work re-resolves, and
-                        // the verdict either corrects the resolution (cache +
-                        // shared base) or restores it.
-                        bookUniverse?.let { universe ->
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                BookUniverseLine(universe.universeName)
-                                TextButton(
-                                    onClick = { viewModel.reportWrongUniverse(currentBook.id) },
-                                    contentPadding = PaddingValues(horizontal = 6.dp),
-                                    modifier = Modifier.testTag("book_detail_report_wrong_universe")
-                                ) {
-                                    Text(
-                                        text = "Всесвіт неправильний?",
-                                        style = MaterialTheme.typography.labelSmall
-                                    )
-                                }
-                            }
-                        }
-                    }
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // Description — the Source pill above already names the
-                    // catalog, so strip the repeated domain/prefix from the
-                    // stored template and keep only the meaningful part.
-                    val displayDescription = remember(currentBook.description) {
-                        currentBook.description
-                            .replace("Аудіокнига з каталогу 4read.org. ", "")
-                            .replace("Аудиокнига с портала 4read.org. ", "")
-                            .replace("Книга знайдена на порталі 4read.org за запитом \"", "")
-                            .replace("\". Джерело: ", ". Джерело: ")
-                            .replace(Regex("""https?://4read\.org/"""), "")
-                            .trim()
-                    }
-                    if (displayDescription.isNotBlank()) {
-                        Text(
-                            text = displayDescription,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 8.dp)
-                        )
-                    }
-
-                    // Spec-15 T5: what every source carrying this Work says
-                    // about it — one labelled block per source (description,
-                    // rating, narrator, genres), loaded through the source's
-                    // own adapter. A source whose page fails degrades to the
-                    // remaining blocks, never a blank page.
-                    if (sourceProfiles.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(20.dp))
-                        Text(
-                            text = "Що кажуть джерела",
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                            color = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.padding(horizontal = 8.dp)
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        sourceProfiles.forEach { profile ->
-                            SourceProfileBlock(profile = profile)
-                        }
-                    } else if (isSourceProfilesLoading) {
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.Center
-                        ) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(20.dp),
-                                strokeWidth = 2.dp,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    }
+                    BookDetailDescription(detailPresentation)
 
                     // ADR-0011: «Інші начитки» — the other rendition cards of
                     // the same Work. Tapping one opens that card (its own
@@ -599,22 +393,8 @@ fun BookDetailScreen(
                     // `editions` rows. Tapping one plays that variant through
                     // the existing per-source policy (incl. Referer/UA). The
                     // current book's own source is marked.
-                    if (bookSources.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(20.dp))
-                        Text(
-                            text = "Джерела",
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                            color = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.padding(horizontal = 8.dp)
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        bookSources.forEach { source ->
-                            WorkSourceRowCard(
-                                source = source,
-                                isCurrent = source.url == currentBook.sourceUrl,
-                                onClick = { viewModel.playFromSource(source.sourceId, source.url) }
-                            )
-                        }
+                    BookDetailSourceSection(detailPresentation) { source ->
+                        viewModel.playFromSource(source.sourceId, source.url)
                     }
 
                     Spacer(modifier = Modifier.height(20.dp))
@@ -920,10 +700,7 @@ fun BookDetailScreen(
                 // addends → no row at all (ADR-0014: zeros are never drawn);
                 // the source's own ★ stays a separate row as before.
                 item(key = "reviews_average") {
-                    val average = com.slukhayka.audiobooks.data.reviews.CombinedAverage.average(
-                        sourceRatings = sourceProfiles.map { it.rating },
-                        listenerRatings = bookReviews.map { it.rating }
-                    )
+                    val average = detailPresentation.combinedAverage
                     if (average != null) {
                         Row(
                             modifier = Modifier
@@ -1311,74 +1088,6 @@ fun BookUniverseLine(universeName: String) {
     )
 }
 
-/**
- * Spec-15 T5 — one labelled per-source block of the book detail page: what a
- * single source carrying the Work says about it (description, rating,
- * narrator, genres), loaded through that source's own adapter. Only the
- * fields the source's page actually carried render — a source with no
- * description contributes its rating/narrator/genres, never filler. Pure
- * `@Composable` (no ViewModel) so the snapshot seam can pin it from fixture
- * data.
- */
-@Composable
-fun SourceProfileBlock(
-    profile: com.slukhayka.audiobooks.data.entries.LibraryEntries.SourceProfile,
-    modifier: Modifier = Modifier
-) {
-    Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 6.dp)
-            .testTag("source_profile_${profile.sourceId}"),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
-    ) {
-        Column(modifier = Modifier.padding(14.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                SourceBadgePill(label = profile.sourceName)
-                Spacer(modifier = Modifier.width(8.dp))
-                if (profile.rating != null) {
-                    Text(
-                        text = "★ ${profile.rating}",
-                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                        color = MaterialTheme.colorScheme.secondary
-                    )
-                }
-            }
-            if (profile.narrator.isNotBlank()) {
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = "Читає: ${profile.narrator}",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            if (profile.description.isNotBlank()) {
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = profile.description,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 6,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-            if (profile.genres.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    profile.genres.take(3).forEach { genre ->
-                        TagPill(
-                            text = genre,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            container = MaterialTheme.colorScheme.surfaceContainerHigh,
-                            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
 @Composable
 fun ChapterRowItem(
     chapter: ChapterEntity,
@@ -1528,6 +1237,142 @@ fun BookmarkRowItem(
     }
 }
 
+/** The production Work/Edition summary consumed by both the page and snapshots. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun BookDetailCanonicalSummary(
+    presentation: BookDetailPresentation,
+    universeName: String? = null,
+    onAuthorClick: (String) -> Unit = {},
+    onNarratorClick: (String) -> Unit = {},
+    onSeriesClick: (String, String) -> Unit = { _, _ -> },
+    onWrongUniverse: () -> Unit = {}
+) {
+    Text(
+        text = presentation.title,
+        style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
+        color = MaterialTheme.colorScheme.onSurface,
+        maxLines = 2,
+        overflow = TextOverflow.Ellipsis,
+        textAlign = TextAlign.Center,
+        modifier = Modifier.testTag("book_detail_title")
+    )
+    Spacer(modifier = Modifier.height(4.dp))
+    if (presentation.author.isNotBlank()) {
+        Text(
+            text = "Автор: ${presentation.author}",
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier
+                .testTag("book_detail_author_link")
+                .clickable { onAuthorClick(presentation.author) }
+        )
+    }
+    if (presentation.narrator.isNotBlank()) {
+        Text(
+            text = "Озвучує: ${presentation.narrator}",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onNarratorClick(presentation.narrator) }
+                .testTag("book_detail_narrator_link"),
+            textAlign = TextAlign.Center
+        )
+    }
+    Spacer(modifier = Modifier.height(12.dp))
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        if (presentation.genre.isNotBlank() && !presentation.genre.contains("4read", ignoreCase = true)) {
+            TagPill(
+                text = presentation.genre,
+                color = MaterialTheme.colorScheme.onSurface,
+                container = MaterialTheme.colorScheme.surfaceContainerHigh,
+                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+            )
+        }
+        val chaptersKnown = presentation.totalChapters > 0
+        val durationKnown = presentation.totalDurationSeconds > 0L
+        if (chaptersKnown || durationKnown) {
+            val chaptersLabel = ukPlural(
+                presentation.totalChapters,
+                "розділ", "розділи", "розділів"
+            )
+            TagPill(
+                text = when {
+                    chaptersKnown && durationKnown ->
+                        "${presentation.totalChapters} $chaptersLabel • ${MainViewModel.formatTime(presentation.totalDurationSeconds)}"
+                    chaptersKnown -> "${presentation.totalChapters} $chaptersLabel"
+                    else -> MainViewModel.formatTime(presentation.totalDurationSeconds)
+                },
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                container = MaterialTheme.colorScheme.surfaceContainerHigh,
+                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+            )
+        }
+        val seriesTitle = presentation.seriesTitle.orEmpty()
+        if (seriesTitle.isNotBlank()) {
+            SeriesPill(
+                seriesTitle = seriesTitle,
+                seriesIndex = presentation.seriesIndex ?: 0,
+                onClick = {
+                    presentation.seriesUrl?.takeIf(String::isNotBlank)?.let { url ->
+                        onSeriesClick(seriesTitle, url)
+                    }
+                }
+            )
+        }
+        universeName?.let { name ->
+            Spacer(modifier = Modifier.height(4.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                BookUniverseLine(name)
+                TextButton(
+                    onClick = onWrongUniverse,
+                    contentPadding = PaddingValues(horizontal = 6.dp),
+                    modifier = Modifier.testTag("book_detail_report_wrong_universe")
+                ) {
+                    Text("Всесвіт неправильний?", style = MaterialTheme.typography.labelSmall)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun BookDetailDescription(presentation: BookDetailPresentation) {
+    if (presentation.description.isNotBlank()) {
+        Text(
+            text = presentation.description,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 8.dp)
+        )
+    }
+}
+
+@Composable
+fun BookDetailSourceSection(
+    presentation: BookDetailPresentation,
+    onSourceClick: (BookDetailSourcePresentation) -> Unit = {}
+) {
+    if (presentation.sources.isEmpty()) return
+    Spacer(modifier = Modifier.height(20.dp))
+    Text(
+        text = presentation.sourceHeading,
+        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+        color = MaterialTheme.colorScheme.onSurface,
+        modifier = Modifier.padding(horizontal = 8.dp)
+    )
+    Spacer(modifier = Modifier.height(8.dp))
+    presentation.sources.forEach { source ->
+        WorkSourceRowCard(source = source, onClick = { onSourceClick(source) })
+    }
+}
+
 /**
  * Spec-23 T5 — one row of the book page's «Джерела» section: a source that
  * carries the Work, with its stream-only marker («Тільки стрімінг»). Tapping
@@ -1537,29 +1382,28 @@ fun BookmarkRowItem(
  */
 @Composable
 fun WorkSourceRowCard(
-    source: com.slukhayka.audiobooks.data.catalog.SourceCatalog.WorkSourceRow,
-    isCurrent: Boolean,
+    source: BookDetailSourcePresentation,
     onClick: () -> Unit
 ) {
     Surface(
-        onClick = onClick,
         shape = RoundedCornerShape(AppDimens.RadiusPanel),
-        color = if (isCurrent) MaterialTheme.colorScheme.surfaceContainerHigh else MaterialTheme.colorScheme.surfaceContainer,
+        color = if (source.isCurrent) MaterialTheme.colorScheme.surfaceContainerHigh else MaterialTheme.colorScheme.surfaceContainer,
         border = androidx.compose.foundation.BorderStroke(
             1.dp,
-            if (isCurrent) MaterialTheme.colorScheme.primary.copy(alpha = 0.5f) else MaterialTheme.colorScheme.outlineVariant
+            if (source.isCurrent) MaterialTheme.colorScheme.primary.copy(alpha = 0.5f) else MaterialTheme.colorScheme.outlineVariant
         ),
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 8.dp, vertical = 4.dp)
             .testTag("work_source_${source.sourceId}")
+            .then(if (source.selectable) Modifier.clickable(onClick = onClick) else Modifier)
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)
         ) {
             Icon(
-                imageVector = Icons.Default.PlayArrow,
+                imageVector = if (source.selectable) Icons.Default.PlayArrow else Icons.Default.Public,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(22.dp)
@@ -1568,14 +1412,44 @@ fun WorkSourceRowCard(
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = source.sourceName,
+                        text = source.name,
                         style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                         color = MaterialTheme.colorScheme.onSurface
                     )
-                    if (isCurrent) {
+                    if (source.isCurrent) {
                         Spacer(modifier = Modifier.width(6.dp))
                         SourceBadgePill(label = "Поточна")
                     }
+                }
+                source.rating?.let { rating ->
+                    Text(
+                        text = "Оцінка джерела: ★ ${"%.1f".format(java.util.Locale.US, rating)}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                source.differingNarrator?.let { narrator ->
+                    Text(
+                        text = "Озвучує за даними джерела: $narrator",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                if (source.differingGenres.isNotEmpty()) {
+                    Text(
+                        text = "Жанри за даними джерела: ${source.differingGenres.joinToString(" · ")}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                source.differingDescription?.let { description ->
+                    Text(
+                        text = "Інший опис від джерела: $description",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 4,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
                 if (source.streamOnly) {
                     Text(

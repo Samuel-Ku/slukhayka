@@ -1085,6 +1085,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun selectBook(bookId: String?) {
         _selectedBookId.value = bookId
+        bookDetailSourceState.select(bookId)
         if (bookId != null) {
             _selectedBookUniverse.value = null
             viewModelScope.launch(Dispatchers.IO) {
@@ -1107,8 +1108,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             loadBookSources(bookId)
         } else {
             _relatedBooks.value = emptyList()
-            _sourceProfiles.value = emptyList()
-            _bookSources.value = emptyList()
             _selectedBookUniverse.value = null
         }
     }
@@ -1130,8 +1129,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // Spec-23 T5: every source carrying the selected book's Work — the
     // «Джерела» section on the book page. Tapping one plays that variant
     // through [playFromSource] (per-source policy, incl. Referer/UA).
-    private val _bookSources = MutableStateFlow<List<SourceCatalog.WorkSourceRow>>(emptyList())
-    val bookSources: StateFlow<List<SourceCatalog.WorkSourceRow>> = _bookSources.asStateFlow()
+    private val bookDetailSourceState = BookDetailSourceState()
+    val bookSources: StateFlow<List<SourceCatalog.WorkSourceRow>> = bookDetailSourceState.sources
 
     fun loadBookSources(bookId: String) {
         viewModelScope.launch(Dispatchers.IO) {
@@ -1141,9 +1140,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 emptyList()
             }
             // Stale-result guard: only apply while the user is still on this book.
-            if (_selectedBookId.value == bookId) {
-                _bookSources.value = rows
-            }
+            bookDetailSourceState.acceptSources(bookId, rows)
         }
     }
 
@@ -1328,14 +1325,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }.getOrDefault(false)
 
     // Spec-15 T5: the labelled per-source detail blocks of the selected book.
-    private val _sourceProfiles = MutableStateFlow<List<LibraryEntries.SourceProfile>>(emptyList())
-    val sourceProfiles: StateFlow<List<LibraryEntries.SourceProfile>> = _sourceProfiles.asStateFlow()
-
-    private val _isSourceProfilesLoading = MutableStateFlow(false)
-    val isSourceProfilesLoading: StateFlow<Boolean> = _isSourceProfilesLoading.asStateFlow()
+    val sourceProfiles: StateFlow<List<LibraryEntries.SourceProfile>> = bookDetailSourceState.profiles
 
     fun loadSourceProfiles(bookId: String) {
-        _isSourceProfilesLoading.value = true
         viewModelScope.launch(Dispatchers.IO) {
             val profiles = try {
                 libraryEntries.fetchSourceProfiles(bookId)
@@ -1343,9 +1335,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 emptyList()
             }
             // Stale-result guard: only apply while the user is still on this book.
-            if (_selectedBookId.value == bookId) {
-                _sourceProfiles.value = profiles
-                _isSourceProfilesLoading.value = false
+            if (bookDetailSourceState.acceptProfiles(bookId, profiles)) {
                 // #266 — lazy backfill from sibling carriers; local persist
                 // survives restart, shared-base write-back rides the
                 // existing metadata sync (best-effort).

@@ -109,12 +109,7 @@ class LibraryEntries(
         seriesIndex: Int?
     ) = dao.updateSeriesFields(bookId, seriesTitle, seriesUrl, seriesIndex)
 
-    /**
-     * Spec-15 T5 — what ONE source says about a Work, for the labelled
-     * per-source blocks on the book detail page. Built from that source's own
-     * page through its adapter ([SourceBookDetail]); the aggregate profile of
-     * the Work stays on the primary [AudiobookEntity].
-     */
+    /** What one Source asserts about a Work, used to resolve its presentation. */
     data class SourceProfile(
         val sourceId: String,
         val sourceName: String,
@@ -128,11 +123,9 @@ class LibraryEntries(
     )
 
     /**
-     * Spec-15 T5 — the per-source aggregation of a Work's detail: for every
-     * Source row carrying the book, fetch that source's page through its own
-     * adapter and render what IT says (description, rating, narrator, genres).
-     * Best-effort per source — a failing source simply contributes no block,
-     * never a blank page. Uses the existing adapter seam, no third parser.
+     * Per-Source assertions for a Work. Best-effort per Source: a failed page
+     * contributes no claim, while the remaining claims can still resolve the
+     * canonical book-detail presentation.
      */
     /**
      * #266 — lazy description backfill on card open: when the book's stored

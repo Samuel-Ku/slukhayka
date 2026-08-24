@@ -8,6 +8,8 @@ import com.slukhayka.audiobooks.data.db.AudiobookDao
 import com.slukhayka.audiobooks.data.db.AudiobookDatabase
 import com.slukhayka.audiobooks.data.downloads.OfflineDownloads
 import com.slukhayka.audiobooks.data.imports.LibraryImport
+import com.slukhayka.audiobooks.data.privacy.PacingParams
+import com.slukhayka.audiobooks.data.privacy.PacingPolicy
 import com.slukhayka.audiobooks.data.source.HttpFetcher
 import com.slukhayka.audiobooks.data.source.SourceAdapter
 import com.slukhayka.audiobooks.data.source.SourceBook
@@ -103,7 +105,15 @@ class CatalogDownloadRepositoryTest {
         val adaptersList = adapters.toList()
         val imports = LibraryImport(dao, context, adaptersList)
         val catalog = SourceCatalog(dao, adaptersList, imports)
-        return Harness(imports, catalog, OfflineDownloads(dao, context, catalog, fetcher))
+        // Spec-38 T5 (#257): fixture tests are isolated from the human
+        // rhythm — zero-length pauses and a no-op suspension instead of real
+        // sleep, exactly like the dedicated pacing harnesses do.
+        val downloads = OfflineDownloads(
+            dao, context, catalog, fetcher,
+            pacing = PacingPolicy(PacingParams(minPauseMillis = 0, maxPauseMillis = 0)),
+            pauseFor = { }
+        )
+        return Harness(imports, catalog, downloads)
     }
 
     private fun book(sourceId: String, url: String) =

@@ -40,3 +40,6 @@ google-services.json
 
 # Local binary scratch dir (#269).
 /binary/
+
+# rules-matrix harness
+scripts/rules-matrix/node_modules/

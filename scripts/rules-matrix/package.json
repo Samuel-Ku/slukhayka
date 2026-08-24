@@ -1,0 +1,14 @@
+{
+  "name": "slukhayka-rules-matrix",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Spec-40 #283 — контрольна матриця правил Firestore (book_reviews + device_bindings) на емуляторі",
+  "type": "module",
+  "scripts": {
+    "matrix": "node matrix.test.mjs"
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.2",
+    "firebase": "^12.0.0"
+  }
+}

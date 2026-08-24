@@ -89,6 +89,11 @@ android {
   }
 
   buildTypes {
+    debug {
+      // Install developer builds next to the signed release app so on-device
+      // testing never requires uninstalling (and losing) the listener's data.
+      applicationIdSuffix = ".debug"
+    }
     release {
       isCrunchPngs = false
       isMinifyEnabled = false

@@ -1,4 +1,8 @@
 <resources>
     <string name="app_name">Слухайка</string>
+    <string name="nav_listen">Слухати</string>
+    <string name="nav_explore">Огляд</string>
+    <string name="nav_library">Медіатека</string>
+    <string name="pane_player">Програвач</string>
     <string name="empty_tag"></string>
 </resources>

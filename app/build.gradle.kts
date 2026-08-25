@@ -334,6 +334,7 @@ val runRecommendationEval by tasks.registering(JavaExec::class) {
   args("${projectDir}/src/main/assets/models/e5")
   isIgnoreExitValue = false
 }
+  testImplementation(platform(libs.androidx.compose.bom))
   testImplementation(libs.androidx.compose.ui.test.junit4)
   testImplementation(libs.androidx.core)
   testImplementation(libs.androidx.junit)
@@ -345,6 +346,7 @@ val runRecommendationEval by tasks.registering(JavaExec::class) {
   testImplementation(libs.roborazzi.junit.rule)
   androidTestImplementation(platform(libs.androidx.compose.bom))
   androidTestImplementation(libs.androidx.compose.ui.test.junit4)
+  androidTestImplementation(libs.androidx.compose.ui.test.junit4.accessibility)
   androidTestImplementation(libs.androidx.compose.ui.test.manifest)
   androidTestImplementation(libs.androidx.core)
   androidTestImplementation(libs.androidx.espresso.core)

@@ -2,7 +2,10 @@ package com.slukhayka.audiobooks.ui
 
 import androidx.compose.material3.Scaffold
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import com.slukhayka.audiobooks.AppBottomBar
@@ -49,6 +52,32 @@ class NavigationTabsTest {
         // Removed tabs: the WebView and the standalone Bookmarks tab.
         composeTestRule.onNodeWithTag("tab_4read_web").assertDoesNotExist()
         composeTestRule.onNodeWithTag("tab_bookmarks").assertDoesNotExist()
+    }
+
+    @Test
+    fun bottomBarExposesOneUkrainianTabNameAndSelectedStatePerDestination() {
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                Scaffold(
+                    bottomBar = {
+                        AppBottomBar(selectedTab = SelectedTab.LISTEN) { }
+                    }
+                ) { }
+            }
+        }
+
+        composeTestRule.onNodeWithTag("tab_listen")
+            .assertIsSelected()
+            .assertTextEquals("Слухати")
+        composeTestRule.onNodeWithTag("tab_explore").assertTextEquals("Огляд")
+        composeTestRule.onNodeWithTag("tab_library").assertTextEquals("Медіатека")
+
+        composeTestRule.onNodeWithContentDescription("Listen", useUnmergedTree = true)
+            .assertDoesNotExist()
+        composeTestRule.onNodeWithContentDescription("Browse", useUnmergedTree = true)
+            .assertDoesNotExist()
+        composeTestRule.onNodeWithContentDescription("Library", useUnmergedTree = true)
+            .assertDoesNotExist()
     }
 
     @Test

@@ -22,6 +22,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
@@ -29,6 +30,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.SelectedTab
 import com.slukhayka.audiobooks.ui.components.MiniPlayerBar
+import com.slukhayka.audiobooks.ui.components.accessibilityModalBackground
+import com.slukhayka.audiobooks.ui.components.accessibilityPane
 import com.slukhayka.audiobooks.ui.screens.BookDetailScreen
 import com.slukhayka.audiobooks.ui.screens.CollectionsIndexScreen
 import com.slukhayka.audiobooks.ui.screens.GenreScreen
@@ -158,6 +161,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
 
     Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(
+            modifier = Modifier.accessibilityModalBackground(showFullPlayer),
             bottomBar = {
                 Column {
                     // Floating Persistent Mini Player
@@ -384,7 +388,8 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     AnimatedVisibility(
         visible = showFullPlayer,
         enter = slideInVertically(initialOffsetY = { it }),
-        exit = slideOutVertically(targetOffsetY = { it })
+        exit = slideOutVertically(targetOffsetY = { it }),
+        modifier = Modifier.accessibilityPane(stringResource(R.string.pane_player))
     ) {
         PlayerScreen(
             viewModel = viewModel,
@@ -423,8 +428,8 @@ fun AppBottomBar(
         NavigationBarItem(
             selected = selectedTab == SelectedTab.LISTEN && !bookDetailOpen,
             onClick = { onSelect(SelectedTab.LISTEN) },
-            icon = { Icon(imageVector = Icons.Default.Headphones, contentDescription = "Listen") },
-            label = { Text("Слухати") },
+            icon = { Icon(imageVector = Icons.Default.Headphones, contentDescription = null) },
+            label = { Text(stringResource(R.string.nav_listen)) },
             colors = NavigationBarItemDefaults.colors(
                 selectedIconColor = MaterialTheme.colorScheme.primary,
                 selectedTextColor = MaterialTheme.colorScheme.primary,
@@ -436,8 +441,8 @@ fun AppBottomBar(
         NavigationBarItem(
             selected = selectedTab == SelectedTab.EXPLORE && !bookDetailOpen,
             onClick = { onSelect(SelectedTab.EXPLORE) },
-            icon = { Icon(imageVector = Icons.Default.Explore, contentDescription = "Browse") },
-            label = { Text("Огляд") },
+            icon = { Icon(imageVector = Icons.Default.Explore, contentDescription = null) },
+            label = { Text(stringResource(R.string.nav_explore)) },
             colors = NavigationBarItemDefaults.colors(
                 selectedIconColor = MaterialTheme.colorScheme.primary,
                 selectedTextColor = MaterialTheme.colorScheme.primary,
@@ -449,8 +454,8 @@ fun AppBottomBar(
         NavigationBarItem(
             selected = selectedTab == SelectedTab.LIBRARY && !bookDetailOpen,
             onClick = { onSelect(SelectedTab.LIBRARY) },
-            icon = { Icon(imageVector = Icons.Default.LibraryMusic, contentDescription = "Library") },
-            label = { Text("Медіатека") },
+            icon = { Icon(imageVector = Icons.Default.LibraryMusic, contentDescription = null) },
+            label = { Text(stringResource(R.string.nav_library)) },
             colors = NavigationBarItemDefaults.colors(
                 selectedIconColor = MaterialTheme.colorScheme.primary,
                 selectedTextColor = MaterialTheme.colorScheme.primary,

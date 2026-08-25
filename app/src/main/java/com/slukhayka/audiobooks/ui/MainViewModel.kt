@@ -38,6 +38,7 @@ import com.slukhayka.audiobooks.ui.library.OutcomeMessages
 import com.slukhayka.audiobooks.ui.library.ResumeStart
 import com.slukhayka.audiobooks.ui.library.computeResumeStart
 import com.slukhayka.audiobooks.ui.library.formatBytes
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
@@ -91,6 +92,23 @@ data class SelectedPerson(
     val name: String,
     val path: String
 )
+
+/** One-shot visible outcome of submitting a listener review. */
+enum class ReviewSaveResult {
+    PUBLISHED,
+    QUEUED,
+    FAILED
+}
+
+internal fun reviewSaveResultFor(accepted: Boolean, online: Boolean): ReviewSaveResult = when {
+    !accepted -> ReviewSaveResult.FAILED
+    online -> ReviewSaveResult.PUBLISHED
+    else -> ReviewSaveResult.QUEUED
+}
+
+/** Listener reviews belong to a Work; legacy Editions fall back to their own id. */
+internal fun reviewWorkIdFor(editionId: String, workId: String?): String =
+    workId?.takeIf { it.isNotBlank() } ?: editionId
 
 // Phase 2.5 hotfix: flatMapLatest is @ExperimentalCoroutinesApi.
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -1196,6 +1214,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val pendingReviewKeys: StateFlow<Set<String>> = _pendingReviews
         .map { it.keys }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
 
+    // A submission result is an event, not accessibility-specific state: the
+    // screen uses it to keep failed input open and to retire successful forms.
+    private val _reviewSaveResults = MutableSharedFlow<ReviewSaveResult>(extraBufferCapacity = 1)
+    val reviewSaveResults: SharedFlow<ReviewSaveResult> = _reviewSaveResults.asSharedFlow()
+
     // Spec-40 #281 — the LOCAL mute list: purely per-device, server-free.
     private val _hiddenAuthors = MutableStateFlow<Set<String>>(emptySet())
     val hiddenAuthors: StateFlow<List<String>> = _hiddenAuthors
@@ -1260,7 +1283,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: Exception) {
                 emptyList()
             }
-            if (_selectedBookId.value == workId) _serverBookReviews.value = fresh
+            val selectedEdition = selectedBook.value
+            val stillSelected = selectedEdition?.id == _selectedBookId.value &&
+                selectedEdition?.let { reviewWorkIdFor(it.id, it.workId) } == workId
+            if (stillSelected) _serverBookReviews.value = fresh
             // A queued write has reached the server when a live read carries
             // its card back — only then does the «надішлемо при мережі»
             // badge honestly retire.
@@ -1289,8 +1315,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         editionTag: String?,
         editing: com.slukhayka.audiobooks.data.reviews.ListenerReview?
     ) {
-        val store = listenerReviews ?: return
-        val profile = _listenerIdentity.value ?: return
+        val store = listenerReviews
+        val profile = _listenerIdentity.value
+        if (
+            store == null || profile == null ||
+            rating !in com.slukhayka.audiobooks.data.reviews.ListenerReviewLimits.MIN_RATING..
+                com.slukhayka.audiobooks.data.reviews.ListenerReviewLimits.MAX_RATING
+        ) {
+            _reviewSaveResults.tryEmit(ReviewSaveResult.FAILED)
+            return
+        }
         val now = System.currentTimeMillis()
         val review = com.slukhayka.audiobooks.data.reviews.ListenerReview(
             workId = workId,
@@ -1308,15 +1342,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) {
             val accepted = try {
                 store.putReview(review)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 false
             }
-            // Online: the local ack IS the send — retire the badge. Offline:
-            // true means durably queued locally; the badge stays («надішлемо
-            // при мережі») until a later live refresh carries the card back.
-            if (accepted && isOnline()) {
+            val online = accepted && isOnline()
+            val result = reviewSaveResultFor(accepted = accepted, online = online)
+            // `accepted` is the store seam's durable-acceptance contract.
+            // Connectivity only selects the visible published/queued state;
+            // it is not an independent server acknowledgement. A queued card
+            // stays marked until a later live refresh carries it back.
+            if (result == ReviewSaveResult.PUBLISHED) {
+                _pendingReviews.value = _pendingReviews.value - key
+            } else if (result == ReviewSaveResult.FAILED) {
+                // A rejected write is neither published nor durably queued;
+                // remove the optimistic card instead of showing false success.
                 _pendingReviews.value = _pendingReviews.value - key
             }
+            _reviewSaveResults.emit(result)
             loadReviews(workId)
         }
     }

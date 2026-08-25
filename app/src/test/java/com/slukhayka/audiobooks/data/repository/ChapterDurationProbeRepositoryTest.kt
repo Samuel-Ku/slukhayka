@@ -321,7 +321,8 @@ class ChapterDurationProbeRepositoryTest {
         assertEquals(1, store.durationPuts.size)
         val (editionId, total, provenance) = store.durationPuts.single()
         assertEquals(EditionId.forBook("", "b1", ""), editionId)
-        assertEquals(DurationProvenance.SOURCE_DERIVED, provenance.source)
+        assertEquals("unknown", provenance.source)
+        assertEquals(DurationProvenance.METHOD_TECHNICAL_PROBE, provenance.method)
         // 96_000*8/128/1000 + 48_000*8/128/1000 = 6 + 3 = 9 seconds.
         assertEquals(9L, total)
     }

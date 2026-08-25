@@ -43,3 +43,6 @@ google-services.json
 
 # rules-matrix harness
 scripts/rules-matrix/node_modules/
+scripts/rules-matrix/firestore.rules
+scripts/rules-matrix/results-*.json
+scripts/rules-matrix/*-debug.log

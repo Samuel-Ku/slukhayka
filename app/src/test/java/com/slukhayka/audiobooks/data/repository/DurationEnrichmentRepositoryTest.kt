@@ -251,7 +251,8 @@ class DurationEnrichmentRepositoryTest {
         assertEquals(1, store.durationPuts.size)
         val (editionId, duration, provenance) = store.durationPuts.single()
         assertEquals(3_600L, duration)
-        assertEquals(DurationProvenance.SOURCE_DERIVED, provenance.source)
+        assertEquals("4read", provenance.source)
+        assertEquals(DurationProvenance.METHOD_SOURCE_METADATA, provenance.method)
         // The Edition id matches the book's rendition identity.
         assertEquals(EditionId.forBook("", "b1", ""), editionId)
     }

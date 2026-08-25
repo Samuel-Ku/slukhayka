@@ -104,12 +104,16 @@ class CanonicalDurationContractTest {
         val malformed = listOf(
             valid + ("editionId" to ""),
             valid + ("editionId" to "x".repeat(301)),
+            valid + ("editionId" to "edition|ambiguous"),
             valid + ("candidateSeconds" to 0L),
+            valid + ("candidateSeconds" to 8_000.5),
             valid + ("source" to ""),
             valid + ("source" to "x".repeat(101)),
             valid + ("method" to ""),
             valid + ("method" to "x".repeat(101)),
+            valid + ("method" to "probe|ambiguous"),
             valid + ("observedAt" to -1L),
+            valid + ("observedAt" to 1.5),
             valid + ("uid" to "listener-1")
         )
 
@@ -136,5 +140,9 @@ class CanonicalDurationContractTest {
 
         assertEquals(DurationConflictId.of(metadata), DurationConflictId.of(repeatedLater))
         org.junit.Assert.assertNotEquals(DurationConflictId.of(metadata), DurationConflictId.of(technicalProbe))
+        assertEquals(
+            "edition-1|8000|source_metadata",
+            DurationConflictId.of(metadata)
+        )
     }
 }

@@ -8,6 +8,7 @@ import com.slukhayka.audiobooks.data.db.BookRow
 import com.slukhayka.audiobooks.data.metadata.DurationProvenance
 import com.slukhayka.audiobooks.data.metadata.DurationSanity
 import com.slukhayka.audiobooks.data.metadata.SharedBookMetaStore
+import com.slukhayka.audiobooks.data.source.sourceIdForUrl
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -116,8 +117,9 @@ class ChapterDurationProbe(
                             editionId = EditionId.forBook(book.mergeKey ?: "", book.id, book.narrator),
                             durationSeconds = total,
                             provenance = DurationProvenance(
-                                DurationProvenance.SOURCE_DERIVED,
-                                System.currentTimeMillis()
+                                source = sourceIdForUrl(book.sourceUrl),
+                                derivedAt = System.currentTimeMillis(),
+                                method = DurationProvenance.METHOD_TECHNICAL_PROBE
                             )
                         )
                     }

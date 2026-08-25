@@ -427,7 +427,7 @@ object SharedDurationCodec {
     )
 
     fun fromMap(map: Map<String, Any>): Long? {
-        val duration = (map["durationSeconds"] as? Number)?.toLong() ?: return null
+        val duration = map["durationSeconds"] as? Long ?: return null
         return duration.takeIf { DurationSanity.isPlausible(it) }
     }
 }

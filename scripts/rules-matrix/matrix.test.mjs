@@ -68,8 +68,13 @@ const VALID_DURATION_CONFLICT = {
 };
 const INVALID_DURATION_CONFLICT = {
   ...VALID_DURATION_CONFLICT,
+  candidateSeconds: 8_001,
   source: "x".repeat(101),
 };
+
+function durationConflictId(conflict) {
+  return `${conflict.editionId}|${conflict.candidateSeconds}|${conflict.method}`;
+}
 
 // id | path | method | uid | тіло | очікувано | чому
 const MATRIX = [
@@ -95,11 +100,13 @@ const MATRIX = [
   ["T6", "book_durations/qa_t6", "delete", null, null, "DENY", "canonical delete заборонений"],
   ["T7", "book_durations/qa_t7", "create", null, VALID_DURATION, "DENY", "нема AppCheck-токена"],
   ["C1", "book_duration_conflicts/qa_c1", "get", null, null, "ALLOW", "conflict read публічне"],
-  ["C2", "book_duration_conflicts/qa_c2", "create", null, VALID_DURATION_CONFLICT, "ALLOW", "bounded conflict create"],
-  ["C3", "book_duration_conflicts/qa_c3", "create", null, INVALID_DURATION_CONFLICT, "DENY", "завелика provenance"],
+  ["C2", `book_duration_conflicts/${durationConflictId(VALID_DURATION_CONFLICT)}`, "create", null, VALID_DURATION_CONFLICT, "ALLOW", "bounded conflict create з канонічним id"],
+  ["C3", `book_duration_conflicts/${durationConflictId(INVALID_DURATION_CONFLICT)}`, "create", null, INVALID_DURATION_CONFLICT, "DENY", "завелика provenance"],
   ["C4", "book_duration_conflicts/qa_c4", "update", null, VALID_DURATION_CONFLICT, "DENY", "conflict update заборонений"],
   ["C5", "book_duration_conflicts/qa_c5", "delete", null, null, "DENY", "conflict delete заборонений"],
-  ["C6", "book_duration_conflicts/qa_c6", "create", null, VALID_DURATION_CONFLICT, "DENY", "нема AppCheck-токена"],
+  ["C6", `book_duration_conflicts/${durationConflictId(VALID_DURATION_CONFLICT)}`, "create", null, VALID_DURATION_CONFLICT, "DENY", "нема AppCheck-токена"],
+  ["C7", "book_duration_conflicts/alternate-duplicate-id", "create", null, VALID_DURATION_CONFLICT, "DENY", "id не відповідає Edition/value/method"],
+  ["C8", `book_duration_conflicts/${durationConflictId(VALID_DURATION_CONFLICT)}`, "create", null, VALID_DURATION_CONFLICT, "DENY", "повтор не створює другий conflict"],
 ];
 
 // Який прогін є доказом кожного рядка.
@@ -109,7 +116,7 @@ const EVIDENCE = {
   R8: "open", R9: "open", R10: "open", D2: "open", D3: "open",
   T1: "as-is", T2: "open", T3: "open", T4: "open", T5: "open",
   T6: "open", T7: "as-is", C1: "as-is", C2: "open", C3: "open",
-  C4: "open", C5: "open", C6: "as-is",
+  C4: "open", C5: "open", C6: "as-is", C7: "open", C8: "open",
 };
 
 function b64(o) {

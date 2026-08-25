@@ -2,6 +2,7 @@ package com.slukhayka.audiobooks
 
 import android.app.Application
 import android.util.Log
+import androidx.room.withTransaction
 import com.google.firebase.FirebaseApp
 import com.google.firebase.appcheck.FirebaseAppCheck
 import com.google.firebase.appcheck.recaptcha.RecaptchaAppCheckProviderFactory
@@ -223,7 +224,15 @@ class App : Application() {
             // sluhayua search endpoints; a miss or a stale entry resolves
             // live and writes back best-effort. Null without Firebase keys:
             // search then behaves exactly as before.
-            searchCache = FirestoreSearchCache.create(this)
+            searchCache = FirestoreSearchCache.create(this),
+            // Catalogue crawls land each page's merge-on-write block as ONE
+            // Room transaction — one invalidation of the endless feed's
+            // PagingSource per page instead of two per row (row-by-row
+            // invalidations starved every freshly-switched feed generation,
+            // which read as «фільтри не працюють» while the catalogue synced).
+            writeBatchRunner = { block ->
+                database.withTransaction { block() }
+            }
         )
     }
 

@@ -161,7 +161,7 @@ A displayed count, percent or duration must be the truth the user can verify —
 _Avoid_: stale counters, in-chapter percent passed off as book progress, fabricated 4:00:00
 
 **One tool, one place**:
-Each capability has one obvious home: import is «+ Додати» (a sheet), genre navigation is the «Жанри» chip row while genre filtering lives in the feed, destructive delete lives in ⋮. Duplicate affordances (three genre rows, two import buttons) are the defect this rule kills.
+Each capability has one obvious home: import is «+ Додати» (a sheet), genre filtering lives only behind the feed's «Фільтри» control (spec-42 #302 superseded the separate homepage «Жанри» navigation row), destructive delete lives in ⋮. Duplicate affordances (three genre rows, two import buttons) are the defect this rule kills.
 _Avoid_: the same action reachable from competing buttons/chips
 
 **A landing answers one question**:

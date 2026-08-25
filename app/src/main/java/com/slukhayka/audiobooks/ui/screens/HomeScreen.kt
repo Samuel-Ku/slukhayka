@@ -12,6 +12,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -1436,10 +1438,11 @@ fun WorkFeedFilters(
     sortByTitle: Boolean,
     genres: List<String>,
     onGenreChange: (String?) -> Unit,
-    onSortToggle: () -> Unit
+    onSortChange: (Boolean) -> Unit
 ) {
     var sortExpanded by remember { mutableStateOf(false) }
     var showFilterSheet by rememberSaveable { mutableStateOf(false) }
+    val filterSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     Surface(
         color = MaterialTheme.colorScheme.surface,
@@ -1469,14 +1472,14 @@ fun WorkFeedFilters(
                     DropdownMenuItem(
                         text = { Text("Спочатку нові") },
                         onClick = {
-                            if (sortByTitle) onSortToggle()
+                            if (sortByTitle) onSortChange(false)
                             sortExpanded = false
                         }
                     )
                     DropdownMenuItem(
                         text = { Text("За назвою") },
                         onClick = {
-                            if (!sortByTitle) onSortToggle()
+                            if (!sortByTitle) onSortChange(true)
                             sortExpanded = false
                         }
                     )
@@ -1501,50 +1504,57 @@ fun WorkFeedFilters(
     if (showFilterSheet) {
         ModalBottomSheet(
             onDismissRequest = { showFilterSheet = false },
+            sheetState = filterSheetState,
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp)
-                    .navigationBarsPadding()
-            ) {
-                Text(
-                    text = "Фільтри",
-                    style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold)
-                )
-                Spacer(modifier = Modifier.height(20.dp))
-                Text(text = "Жанри", style = MaterialTheme.typography.titleMedium)
-                Spacer(modifier = Modifier.height(12.dp))
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                val genreListMaxHeight = maxHeight * 0.55f
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp)
+                        .navigationBarsPadding()
                 ) {
-                    FilterChip(
-                        selected = genreFilter == null,
-                        onClick = { onGenreChange(null) },
-                        label = { Text("Усі жанри") },
-                        modifier = Modifier.testTag("feed_genre_all")
+                    Text(
+                        text = "Фільтри",
+                        style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold)
                     )
-                    genres.forEach { genre ->
+                    Spacer(modifier = Modifier.height(20.dp))
+                    Text(text = "Жанри", style = MaterialTheme.typography.titleMedium)
+                    Spacer(modifier = Modifier.height(12.dp))
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier
+                            .heightIn(max = genreListMaxHeight)
+                            .verticalScroll(rememberScrollState())
+                    ) {
                         FilterChip(
-                            selected = genreFilter == genre,
-                            onClick = { onGenreChange(if (genreFilter == genre) null else genre) },
-                            label = { Text(genre) },
-                            modifier = Modifier.testTag("feed_genre_$genre")
+                            selected = genreFilter == null,
+                            onClick = { onGenreChange(null) },
+                            label = { Text("Усі жанри") },
+                            modifier = Modifier.testTag("feed_genre_all")
                         )
+                        genres.forEach { genre ->
+                            FilterChip(
+                                selected = genreFilter == genre,
+                                onClick = { onGenreChange(if (genreFilter == genre) null else genre) },
+                                label = { Text(genre) },
+                                modifier = Modifier.testTag("feed_genre_$genre")
+                            )
+                        }
                     }
+                    Spacer(modifier = Modifier.height(24.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        TextButton(onClick = { onGenreChange(null) }) { Text("Скинути все") }
+                        Button(onClick = { showFilterSheet = false }) { Text("Готово") }
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
                 }
-                Spacer(modifier = Modifier.height(24.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    TextButton(onClick = { onGenreChange(null) }) { Text("Скинути все") }
-                    Button(onClick = { showFilterSheet = false }) { Text("Готово") }
-                }
-                Spacer(modifier = Modifier.height(12.dp))
             }
         }
     }

@@ -8,11 +8,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
 import com.github.takahirom.roborazzi.captureRoboImage
 import com.slukhayka.audiobooks.ui.screens.WorkFeedFilters
@@ -36,8 +38,8 @@ class WorkFeedToolbarSnapshotTest {
 
     @Test
     fun resting_toolbar_has_one_sort_control_and_one_filter_control() {
-        var sortToggles = 0
-        setToolbar(sortByTitle = false, genre = null, onSortToggle = { sortToggles++ })
+        var selectedSort: Boolean? = null
+        setToolbar(sortByTitle = false, genre = null, onSortChange = { selectedSort = it })
 
         composeTestRule.onAllNodesWithText("Спочатку нові").assertCountEquals(1)
         composeTestRule.onNodeWithText("За назвою").assertDoesNotExist()
@@ -46,7 +48,7 @@ class WorkFeedToolbarSnapshotTest {
 
         composeTestRule.onNodeWithText("Спочатку нові").performClick()
         composeTestRule.onNodeWithText("За назвою").assertExists().performClick()
-        assertEquals(1, sortToggles)
+        assertEquals(true, selectedSort)
     }
 
     @Test
@@ -76,11 +78,31 @@ class WorkFeedToolbarSnapshotTest {
         assertEquals(null, genre)
     }
 
+    @Test
+    fun long_genre_list_scrolls_while_actions_stay_reachable() {
+        var genre by mutableStateOf<String?>(null)
+        setToolbar(
+            sortByTitle = false,
+            genre = genre,
+            genres = (1..30).map { "Жанр $it" },
+            onGenreChange = { genre = it }
+        )
+
+        composeTestRule.onNodeWithText("Фільтри").performClick()
+        composeTestRule.onNodeWithText("Скинути все").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Готово").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Жанр 30").performScrollTo().performClick()
+        assertEquals("Жанр 30", genre)
+        composeTestRule.onNodeWithText("Скинути все").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Готово").assertIsDisplayed()
+    }
+
     private fun setToolbar(
         sortByTitle: Boolean,
         genre: String?,
+        genres: List<String> = listOf("Фантастика", "Детективи"),
         onGenreChange: (String?) -> Unit = {},
-        onSortToggle: () -> Unit = {}
+        onSortChange: (Boolean) -> Unit = {}
     ) {
         composeTestRule.setContent {
             AudiobookTheme(darkTheme = true) {
@@ -88,9 +110,9 @@ class WorkFeedToolbarSnapshotTest {
                     WorkFeedFilters(
                         genreFilter = genre,
                         sortByTitle = sortByTitle,
-                        genres = listOf("Фантастика", "Детективи"),
+                        genres = genres,
                         onGenreChange = onGenreChange,
-                        onSortToggle = onSortToggle
+                        onSortChange = onSortChange
                     )
                 }
             }

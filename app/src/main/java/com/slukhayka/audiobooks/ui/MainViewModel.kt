@@ -9,7 +9,6 @@ import androidx.paging.PagingData
 import androidx.paging.cachedIn
 import com.slukhayka.audiobooks.App
 import com.slukhayka.audiobooks.data.catalog.CatalogPerson
-import com.slukhayka.audiobooks.data.catalog.CatalogFetchResult
 import com.slukhayka.audiobooks.data.catalog.CatalogSeries
 import com.slukhayka.audiobooks.data.catalog.CatalogSeriesIndex
 import com.slukhayka.audiobooks.data.db.*
@@ -44,6 +43,7 @@ import com.slukhayka.audiobooks.ui.library.formatBytes
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -397,49 +397,46 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _selectedSeries = MutableStateFlow<SelectedSeries?>(null)
     val selectedSeries: StateFlow<SelectedSeries?> = _selectedSeries.asStateFlow()
 
-    private val _seriesBooks = MutableStateFlow<List<AudiobookEntity>>(emptyList())
-    val seriesBooks: StateFlow<List<AudiobookEntity>> = _seriesBooks.asStateFlow()
-
-    private val _isSeriesLoading = MutableStateFlow(false)
-    val isSeriesLoading: StateFlow<Boolean> = _isSeriesLoading.asStateFlow()
-
-    private val _seriesLoadFailed = MutableStateFlow(false)
-    val seriesLoadFailed: StateFlow<Boolean> = _seriesLoadFailed.asStateFlow()
+    private val seriesLoader = KeyedCatalogLoader<SelectedSeries, AudiobookEntity>(viewModelScope) {
+        sourceCatalog.fetchSeriesBooksResult(it.url)
+    }
+    val seriesBooks: StateFlow<List<AudiobookEntity>> = seriesLoader.items
+    val isSeriesLoading: StateFlow<Boolean> = seriesLoader.isLoading
+    val seriesLoadFailed: StateFlow<Boolean> = seriesLoader.failed
 
     // Spec-25 (#171): the resolved universe context of the CURRENT series
     // page (the header block: universe name, position, precedes/follows
     // chips). Null until a seeded series page is opened — silent.
     private val _selectedSeriesUniverse = MutableStateFlow<SeriesUniverseContext?>(null)
     val selectedSeriesUniverse: StateFlow<SeriesUniverseContext?> = _selectedSeriesUniverse.asStateFlow()
+    private var seriesUniverseJob: Job? = null
 
     fun openSeries(title: String, url: String) {
-        _selectedSeries.value = SelectedSeries(title, url)
-        _seriesBooks.value = emptyList()
-        _isSeriesLoading.value = true
-        _seriesLoadFailed.value = false
+        val selected = SelectedSeries(title, url)
+        _selectedSeries.value = selected
+        seriesLoader.open(selected)
         _selectedSeriesUniverse.value = null
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                when (val result = sourceCatalog.fetchSeriesBooksResult(url)) {
-                    is CatalogFetchResult.Success -> _seriesBooks.value = result.value
-                    CatalogFetchResult.Failure -> _seriesLoadFailed.value = true
-                }
-            } finally {
-                _isSeriesLoading.value = false
+        seriesUniverseJob?.cancel()
+        seriesUniverseJob = viewModelScope.launch(Dispatchers.IO) {
+            // The universe lookup is an independent cache/refresh sidecar, so
+            // it has the same route-key guard as the catalogue loader.
+            val cached = seriesUniverses.contextOf(title, url)
+            if (_selectedSeries.value == selected) {
+                _selectedSeriesUniverse.value = cached
             }
-            // Spec-25 (#171): resolve + surface the series' universe, same
-            // cache-first-then-fresher idiom as selectBook.
-            _selectedSeriesUniverse.value = seriesUniverses.contextOf(title, url)
             seriesUniverses.resolveForSeries(title, url)
-            _selectedSeriesUniverse.value = seriesUniverses.contextOf(title, url)
+            val refreshed = seriesUniverses.contextOf(title, url)
+            if (_selectedSeries.value == selected) {
+                _selectedSeriesUniverse.value = refreshed
+            }
         }
     }
 
     fun closeSeries() {
         _selectedSeries.value = null
-        _seriesBooks.value = emptyList()
-        _isSeriesLoading.value = false
-        _seriesLoadFailed.value = false
+        seriesLoader.close()
+        seriesUniverseJob?.cancel()
+        seriesUniverseJob = null
         _selectedSeriesUniverse.value = null
     }
 
@@ -571,148 +568,86 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _selectedGenre = MutableStateFlow<SelectedGenre?>(null)
     val selectedGenre: StateFlow<SelectedGenre?> = _selectedGenre.asStateFlow()
 
-    private val _genreBooks = MutableStateFlow<List<AudiobookEntity>>(emptyList())
-    val genreBooks: StateFlow<List<AudiobookEntity>> = _genreBooks.asStateFlow()
-
-    private val _isGenreLoading = MutableStateFlow(false)
-    val isGenreLoading: StateFlow<Boolean> = _isGenreLoading.asStateFlow()
-
-    private val _genreLoadFailed = MutableStateFlow(false)
-    val genreLoadFailed: StateFlow<Boolean> = _genreLoadFailed.asStateFlow()
+    private val genreLoader = KeyedCatalogLoader<SelectedGenre, AudiobookEntity>(viewModelScope) {
+        sourceCatalog.fetchGenreBooksResult(it.url)
+    }
+    val genreBooks: StateFlow<List<AudiobookEntity>> = genreLoader.items
+    val isGenreLoading: StateFlow<Boolean> = genreLoader.isLoading
+    val genreLoadFailed: StateFlow<Boolean> = genreLoader.failed
 
     fun openGenre(title: String, url: String) {
-        _selectedGenre.value = SelectedGenre(title, url)
-        _genreBooks.value = emptyList()
-        _isGenreLoading.value = true
-        _genreLoadFailed.value = false
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                when (val result = sourceCatalog.fetchGenreBooksResult(url)) {
-                    is CatalogFetchResult.Success -> _genreBooks.value = result.value
-                    CatalogFetchResult.Failure -> _genreLoadFailed.value = true
-                }
-            } finally {
-                _isGenreLoading.value = false
-            }
-        }
+        val selected = SelectedGenre(title, url)
+        _selectedGenre.value = selected
+        genreLoader.open(selected)
     }
 
     fun closeGenre() {
         _selectedGenre.value = null
-        _genreBooks.value = emptyList()
-        _isGenreLoading.value = false
-        _genreLoadFailed.value = false
+        genreLoader.close()
     }
 
     // ТОП 100 АудіоКниг (`/top-100.html`): a ranked book list.
     private val _selectedTop100 = MutableStateFlow(false)
     val selectedTop100: StateFlow<Boolean> = _selectedTop100.asStateFlow()
 
-    private val _top100Books = MutableStateFlow<List<AudiobookEntity>>(emptyList())
-    val top100Books: StateFlow<List<AudiobookEntity>> = _top100Books.asStateFlow()
-
-    private val _isTop100Loading = MutableStateFlow(false)
-    val isTop100Loading: StateFlow<Boolean> = _isTop100Loading.asStateFlow()
-
-    private val _top100LoadFailed = MutableStateFlow(false)
-    val top100LoadFailed: StateFlow<Boolean> = _top100LoadFailed.asStateFlow()
+    private val top100Loader = KeyedCatalogLoader<Unit, AudiobookEntity>(viewModelScope) {
+        sourceCatalog.fetchTop100Result()
+    }
+    val top100Books: StateFlow<List<AudiobookEntity>> = top100Loader.items
+    val isTop100Loading: StateFlow<Boolean> = top100Loader.isLoading
+    val top100LoadFailed: StateFlow<Boolean> = top100Loader.failed
 
     fun openTop100() {
         _selectedTop100.value = true
-        _top100Books.value = emptyList()
-        _isTop100Loading.value = true
-        _top100LoadFailed.value = false
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                when (val result = sourceCatalog.fetchTop100Result()) {
-                    is CatalogFetchResult.Success -> _top100Books.value = result.value
-                    CatalogFetchResult.Failure -> _top100LoadFailed.value = true
-                }
-            } finally {
-                _isTop100Loading.value = false
-            }
-        }
+        top100Loader.open(Unit)
     }
 
     fun closeTop100() {
         _selectedTop100.value = false
-        _top100Books.value = emptyList()
-        _isTop100Loading.value = false
-        _top100LoadFailed.value = false
+        top100Loader.close()
     }
 
     // Виконавці / Автори index pages (`/readers.html`, `/avtors.html`).
     private val _selectedPeopleKind = MutableStateFlow<PeopleKind?>(null)
     val selectedPeopleKind: StateFlow<PeopleKind?> = _selectedPeopleKind.asStateFlow()
 
-    private val _peopleEntries = MutableStateFlow<List<CatalogPerson>>(emptyList())
-    val peopleEntries: StateFlow<List<CatalogPerson>> = _peopleEntries.asStateFlow()
-
-    private val _isPeopleLoading = MutableStateFlow(false)
-    val isPeopleLoading: StateFlow<Boolean> = _isPeopleLoading.asStateFlow()
-
-    private val _peopleLoadFailed = MutableStateFlow(false)
-    val peopleLoadFailed: StateFlow<Boolean> = _peopleLoadFailed.asStateFlow()
+    private val peopleLoader = KeyedCatalogLoader<PeopleKind, CatalogPerson>(viewModelScope) {
+        sourceCatalog.fetchPeopleResult(it.url)
+    }
+    val peopleEntries: StateFlow<List<CatalogPerson>> = peopleLoader.items
+    val isPeopleLoading: StateFlow<Boolean> = peopleLoader.isLoading
+    val peopleLoadFailed: StateFlow<Boolean> = peopleLoader.failed
 
     fun openPeople(kind: PeopleKind) {
         _selectedPeopleKind.value = kind
-        _peopleEntries.value = emptyList()
-        _isPeopleLoading.value = true
-        _peopleLoadFailed.value = false
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                when (val result = sourceCatalog.fetchPeopleResult(kind.url)) {
-                    is CatalogFetchResult.Success -> _peopleEntries.value = result.value
-                    CatalogFetchResult.Failure -> _peopleLoadFailed.value = true
-                }
-            } finally {
-                _isPeopleLoading.value = false
-            }
-        }
+        peopleLoader.open(kind)
     }
 
     fun closePeople() {
         _selectedPeopleKind.value = null
-        _peopleEntries.value = emptyList()
-        _isPeopleLoading.value = false
-        _peopleLoadFailed.value = false
+        peopleLoader.close()
     }
 
     // One person's books (`/xfsearch/chitaet|avtor/<name>/` — a poster grid).
     private val _selectedPerson = MutableStateFlow<SelectedPerson?>(null)
     val selectedPerson: StateFlow<SelectedPerson?> = _selectedPerson.asStateFlow()
 
-    private val _personBooks = MutableStateFlow<List<AudiobookEntity>>(emptyList())
-    val personBooks: StateFlow<List<AudiobookEntity>> = _personBooks.asStateFlow()
-
-    private val _isPersonLoading = MutableStateFlow(false)
-    val isPersonLoading: StateFlow<Boolean> = _isPersonLoading.asStateFlow()
-
-    private val _personLoadFailed = MutableStateFlow(false)
-    val personLoadFailed: StateFlow<Boolean> = _personLoadFailed.asStateFlow()
+    private val personLoader = KeyedCatalogLoader<SelectedPerson, AudiobookEntity>(viewModelScope) {
+        sourceCatalog.fetchPersonBooksResult(it.path)
+    }
+    val personBooks: StateFlow<List<AudiobookEntity>> = personLoader.items
+    val isPersonLoading: StateFlow<Boolean> = personLoader.isLoading
+    val personLoadFailed: StateFlow<Boolean> = personLoader.failed
 
     fun openPersonBooks(person: CatalogPerson) {
-        _selectedPerson.value = SelectedPerson(person.name, person.path)
-        _personBooks.value = emptyList()
-        _isPersonLoading.value = true
-        _personLoadFailed.value = false
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                when (val result = sourceCatalog.fetchPersonBooksResult(person.path)) {
-                    is CatalogFetchResult.Success -> _personBooks.value = result.value
-                    CatalogFetchResult.Failure -> _personLoadFailed.value = true
-                }
-            } finally {
-                _isPersonLoading.value = false
-            }
-        }
+        val selected = SelectedPerson(person.name, person.path)
+        _selectedPerson.value = selected
+        personLoader.open(selected)
     }
 
     fun closePersonBooks() {
         _selectedPerson.value = null
-        _personBooks.value = emptyList()
-        _isPersonLoading.value = false
-        _personLoadFailed.value = false
+        personLoader.close()
     }
 
     // Continue-the-series block (spec-9 T4): the next volume of the currently

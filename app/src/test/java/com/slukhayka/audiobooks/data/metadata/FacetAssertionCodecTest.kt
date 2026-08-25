@@ -15,7 +15,10 @@ class FacetAssertionCodecTest {
             workId = "лісова-пісня|леся-українка",
             sourceId = "4read",
             author = FacetPerson("author-lesia", "Леся Українка", listOf("Лариса Косач")),
-            genreIds = listOf("drama", "fantasy"),
+            genres = listOf(
+                FacetGenre("drama", "Драма"),
+                FacetGenre("fantasy", "Фентезі")
+            ),
             seriesMemberships = listOf(FacetSeriesMembership("forest-cycle", 2)),
             observedAt = 1_700_000_000_000L,
             updatedAt = 41L
@@ -24,6 +27,14 @@ class FacetAssertionCodecTest {
         val encoded = FacetAssertionCodec.toMap(assertion)!!
 
         assertEquals(assertion, FacetAssertionCodec.fromMap(assertion.documentId, encoded))
+        assertEquals(
+            listOf(
+                mapOf("id" to "drama", "rawText" to "Драма"),
+                mapOf("id" to "fantasy", "rawText" to "Фентезі")
+            ),
+            encoded["genres"]
+        )
+        assertFalse(encoded.containsKey("genreIds"))
         assertFalse(encoded.containsKey("narrator"))
         assertFalse(encoded.containsKey("durationSeconds"))
         assertFalse(encoded.containsKey("uid"))
@@ -82,7 +93,12 @@ class FacetAssertionCodecTest {
                 "Автор",
                 List(FacetAssertionLimits.MAX_ALIASES) { "Псевдонім $it" }
             ),
-            genreIds = List(FacetAssertionLimits.MAX_GENRES) { "genre-$it" },
+            genres = List(FacetAssertionLimits.MAX_GENRES) {
+                FacetGenre(
+                    "genre-$it",
+                    if (it == 0) "Ж".repeat(FacetAssertionLimits.MAX_GENRE_RAW_TEXT_LENGTH) else "Жанр $it"
+                )
+            },
             seriesMemberships = List(FacetAssertionLimits.MAX_SERIES_MEMBERSHIPS) {
                 FacetSeriesMembership("series-$it", it + 1)
             }
@@ -97,7 +113,22 @@ class FacetAssertionCodecTest {
                 bounded.copy(author = boundedAuthor.copy(aliases = boundedAuthor.aliases + "one-too-many"))
             )
         )
-        assertNull(FacetAssertionCodec.toMap(bounded.copy(genreIds = bounded.genreIds + "one-too-many")))
+        assertNull(
+            FacetAssertionCodec.toMap(
+                bounded.copy(genres = bounded.genres + FacetGenre("one-too-many", "Зайвий жанр"))
+            )
+        )
+        assertNull(
+            FacetAssertionCodec.toMap(
+                bounded.copy(
+                    genres = bounded.genres.mapIndexed { index, genre ->
+                        if (index == 0) {
+                            genre.copy(rawText = "Ж".repeat(FacetAssertionLimits.MAX_GENRE_RAW_TEXT_LENGTH + 1))
+                        } else genre
+                    }
+                )
+            )
+        )
         assertNull(
             FacetAssertionCodec.toMap(
                 bounded.copy(
@@ -116,12 +147,16 @@ class FacetAssertionCodecTest {
             valid - "entityId",
             valid + ("entityId" to " "),
             valid + ("sourceId" to "x".repeat(FacetAssertionLimits.MAX_ID_LENGTH + 1)),
-            valid + ("genreIds" to "fantasy"),
-            valid + ("genreIds" to List(FacetAssertionLimits.MAX_GENRES + 1) { "g$it" }),
+            valid + ("genres" to "fantasy"),
+            valid + ("genres" to List(FacetAssertionLimits.MAX_GENRES + 1) {
+                mapOf("id" to "g$it", "rawText" to "Genre $it")
+            }),
+            valid + ("genres" to listOf(mapOf("id" to "fantasy"))),
+            valid + ("genres" to listOf(mapOf("id" to "fantasy", "rawText" to "   "))),
             valid + ("narrator" to mapOf("id" to "n", "name" to "Narrator", "aliases" to emptyList<String>())),
             valid + ("unexpected" to "personal"),
             valid + ("updatedAt" to 1.5),
-            valid - "author" - "genreIds" - "seriesMemberships",
+            valid - "author" - "genres" - "seriesMemberships",
         )
 
         malformed.forEach { assertNull(FacetAssertionCodec.fromMap(work.documentId, it)) }
@@ -139,7 +174,7 @@ class FacetAssertionCodecTest {
         workId = "work-id",
         sourceId = "4read",
         author = FacetPerson("author-id", "Автор", listOf("Псевдонім")),
-        genreIds = listOf("fantasy"),
+        genres = listOf(FacetGenre("fantasy", "Фентезі")),
         seriesMemberships = listOf(FacetSeriesMembership("series-id", 1)),
         observedAt = 1_000L,
         updatedAt = 10L

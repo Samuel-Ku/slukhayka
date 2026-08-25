@@ -88,10 +88,17 @@ const VALID_WORK_FACET = {
   observedAt: 1700000000000,
   updatedAt: 41,
   author: { id: "author-lesia", name: "Леся Українка", aliases: ["Лариса Косач"] },
-  genreIds: ["drama", "fantasy"],
+  genres: [
+    { id: "drama", rawText: "Драма" },
+    { id: "fantasy", rawText: "Фентезі" },
+  ],
   seriesMemberships: [{ seriesId: "forest-cycle", position: 2 }],
 };
-const UPDATED_WORK_FACET = { ...VALID_WORK_FACET, updatedAt: 42, genreIds: ["drama"] };
+const UPDATED_WORK_FACET = {
+  ...VALID_WORK_FACET,
+  updatedAt: 42,
+  genres: [{ id: "drama", rawText: "Драма" }],
+};
 const MAX_WORK_FACET = {
   ...VALID_WORK_FACET,
   assertionId: `w_${"2".repeat(40)}`,
@@ -99,7 +106,10 @@ const MAX_WORK_FACET = {
     ...VALID_WORK_FACET.author,
     aliases: Array.from({ length: 8 }, (_, index) => `alias-${index}`),
   },
-  genreIds: Array.from({ length: 12 }, (_, index) => `genre-${index}`),
+  genres: Array.from(
+    { length: 8 },
+    (_, index) => ({ id: `genre-${index}`, rawText: index === 0 ? "Ж".repeat(200) : `Жанр ${index}` })
+  ),
   seriesMemberships: Array.from(
     { length: 4 },
     (_, index) => ({ seriesId: `series-${index}`, position: index + 1 })
@@ -160,14 +170,14 @@ const MATRIX = [
   ["F2", `book_facets/${WORK_FACET_CREATE_ID}`, "create", null, { ...VALID_WORK_FACET, assertionId: WORK_FACET_CREATE_ID }, "ALLOW", "bounded Work create (+AppCheck у проді)"],
   ["F3", `book_facets/${WORK_FACET_ID}`, "update", null, UPDATED_WORK_FACET, "ALLOW", "повний factual update зі сталою identity"],
   ["F4", `book_facets/${WORK_FACET_ID}`, "update", null, { ...UPDATED_WORK_FACET, entityId: "інший-work" }, "DENY", "entity identity immutable"],
-  ["F5", `book_facets/w_${"c".repeat(40)}`, "create", null, { ...VALID_WORK_FACET, assertionId: `w_${"c".repeat(40)}`, genreIds: "fantasy" }, "DENY", "malformed list"],
+  ["F5", `book_facets/w_${"c".repeat(40)}`, "create", null, { ...VALID_WORK_FACET, assertionId: `w_${"c".repeat(40)}`, genres: "fantasy" }, "DENY", "malformed list"],
   ["F6", `book_facets/${WORK_FACET_ID}`, "delete", null, null, "DENY", "facet delete заборонений"],
   ["F7", `book_facets/w_${"d".repeat(40)}`, "create", null, { ...VALID_WORK_FACET, assertionId: `w_${"d".repeat(40)}` }, "DENY", "нема AppCheck-токена"],
   ["F8", `book_facets/${EDITION_FACET_ID}`, "create", null, VALID_EDITION_FACET, "ALLOW", "bounded Edition create"],
   ["F9", `book_facets/e_${"c".repeat(40)}`, "create", null, { ...VALID_EDITION_FACET, assertionId: `e_${"c".repeat(40)}`, durationRef: "other-edition" }, "DENY", "duration ref не змінює Edition identity"],
   ["F10", `book_facets/e_${"d".repeat(40)}`, "create", null, { ...VALID_EDITION_FACET, assertionId: `e_${"d".repeat(40)}`, availabilityTtlSeconds: 0 }, "DENY", "availability без дійсного TTL"],
   ["F11", `book_facets/w_${"e".repeat(40)}`, "create", null, { ...VALID_WORK_FACET, assertionId: `w_${"e".repeat(40)}`, narrator: VALID_EDITION_FACET.narrator }, "DENY", "rendition fact не живе на Work"],
-  ["F12", `book_facets/w_${"f".repeat(40)}`, "create", null, { ...VALID_WORK_FACET, assertionId: `w_${"f".repeat(40)}`, genreIds: [42] }, "DENY", "genre list element має правильний тип"],
+  ["F12", `book_facets/w_${"f".repeat(40)}`, "create", null, { ...VALID_WORK_FACET, assertionId: `w_${"f".repeat(40)}`, genres: [{ id: "fantasy", rawText: 42 }] }, "DENY", "genre fact має bounded id/rawText shape"],
   ["F13", `book_facets/w_${"1".repeat(40)}`, "create", null, { ...VALID_WORK_FACET, assertionId: `w_${"1".repeat(40)}`, seriesMemberships: [{ seriesId: "series", position: "two" }] }, "DENY", "Series Membership shape bounded"],
   ["F14", `book_facets/e_${"1".repeat(40)}`, "create", null, { ...VALID_EDITION_FACET, assertionId: `e_${"1".repeat(40)}`, durationBucket: "overnight" }, "DENY", "неканонічний duration bucket"],
   ["F15", `book_facets/${WORK_FACET_ID}`, "update", null, { ...UPDATED_WORK_FACET, updatedAt: 40 }, "DENY", "update cursor не рухається назад"],

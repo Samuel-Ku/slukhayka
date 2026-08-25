@@ -5,7 +5,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.getBoundsInRoot
@@ -163,11 +166,22 @@ class HomeFeedPhoneFoldSnapshotTest {
     }
 
     @Test
-    fun empty_personal_group_keeps_the_overview_hierarchy() {
-        composeTestRule.setContent { renderHomeFeed(recommendedBooks = emptyList()) }
+    fun personal_group_distinguishes_loading_from_ready_empty() {
+        var recommendationsReady by mutableStateOf(false)
+        composeTestRule.setContent {
+            renderHomeFeed(
+                recommendedBooks = emptyList(),
+                recommendationsReady = recommendationsReady
+            )
+        }
         composeTestRule.waitForIdle()
 
         composeTestRule.onNodeWithText("Для вас").assertExists()
+        composeTestRule.onNodeWithText("Готуємо персональні добірки…").assertExists()
+        composeTestRule.onNodeWithText("Персональних добірок поки немає.").assertDoesNotExist()
+
+        composeTestRule.runOnIdle { recommendationsReady = true }
+        composeTestRule.onNodeWithText("Готуємо персональні добірки…").assertDoesNotExist()
         composeTestRule.onNodeWithText("Персональних добірок поки немає.").assertExists()
     }
 
@@ -200,7 +214,8 @@ class HomeFeedPhoneFoldSnapshotTest {
     /** The real Огляд first screen: collapsed header + the feed body. */
     @Composable
     private fun renderHomeFeed(
-        recommendedBooks: List<RecommendationEngine.Recommendation> = recommendations
+        recommendedBooks: List<RecommendationEngine.Recommendation> = recommendations,
+        recommendationsReady: Boolean = true
     ) {
         AudiobookTheme(darkTheme = true) {
             Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
@@ -228,6 +243,7 @@ class HomeFeedPhoneFoldSnapshotTest {
                         collections = collections,
                         newArrivals = results,
                         recommendedBooks = recommendedBooks,
+                        recommendationsReady = recommendationsReady,
                         personalCycles = emptyList(),
                         shortBooks = books,
                         longBooks = books,

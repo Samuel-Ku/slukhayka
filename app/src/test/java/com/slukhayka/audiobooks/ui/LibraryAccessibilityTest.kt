@@ -78,6 +78,8 @@ class LibraryAccessibilityTest {
                     listOf("Нейромант, Вільям Гібсон")
                 )
             )
+        composeTestRule.onNodeWithTag("library_book_item_${fixtureBook.book.id}")
+            .assertHasClickAction()
             .assert(
                 SemanticsMatcher.expectValue(
                     SemanticsProperties.StateDescription,

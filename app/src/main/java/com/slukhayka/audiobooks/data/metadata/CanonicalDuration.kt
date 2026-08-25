@@ -1,6 +1,5 @@
 package com.slukhayka.audiobooks.data.metadata
 
-import java.security.MessageDigest
 import kotlin.math.abs
 
 /** Shared bounds mirrored by Firestore rules for duration facts. */
@@ -8,14 +7,16 @@ object DurationContractLimits {
     const val MAX_EDITION_ID_LENGTH = 300
     const val MAX_PROVENANCE_LENGTH = 100
 
+    private val identityComponent = Regex("[A-Za-z0-9._-]+")
+
     fun isPlausibleEditionId(editionId: String): Boolean =
-        editionId.isNotBlank() && editionId.length <= MAX_EDITION_ID_LENGTH
+        editionId.length <= MAX_EDITION_ID_LENGTH && identityComponent.matches(editionId)
 
     fun isPlausibleProvenance(provenance: DurationProvenance): Boolean =
         provenance.source.isNotBlank() &&
             provenance.source.length <= MAX_PROVENANCE_LENGTH &&
-            provenance.method.isNotBlank() &&
             provenance.method.length <= MAX_PROVENANCE_LENGTH &&
+            identityComponent.matches(provenance.method) &&
             provenance.derivedAt >= 0L
 }
 
@@ -75,10 +76,10 @@ object DurationConflictCodec {
     fun fromMap(map: Map<String, Any>): DurationConflict? {
         if (map.keys != fields) return null
         val editionId = map["editionId"] as? String ?: return null
-        val candidate = (map["candidateSeconds"] as? Number)?.toLong() ?: return null
+        val candidate = map["candidateSeconds"] as? Long ?: return null
         val source = map["source"] as? String ?: return null
         val method = map["method"] as? String ?: return null
-        val observedAt = (map["observedAt"] as? Number)?.toLong() ?: return null
+        val observedAt = map["observedAt"] as? Long ?: return null
         val conflict = DurationConflict(
             editionId = editionId,
             candidateSeconds = candidate,
@@ -96,15 +97,6 @@ object DurationConflictCodec {
 object DurationConflictId {
 
     fun of(conflict: DurationConflict): String {
-        val identity = buildString {
-            append(conflict.editionId)
-            append('\u0000')
-            append(conflict.candidateSeconds)
-            append('\u0000')
-            append(conflict.provenance.method)
-        }
-        return MessageDigest.getInstance("SHA-256")
-            .digest(identity.toByteArray(Charsets.UTF_8))
-            .joinToString(separator = "") { byte -> "%02x".format(byte) }
+        return "${conflict.editionId}|${conflict.candidateSeconds}|${conflict.provenance.method}"
     }
 }

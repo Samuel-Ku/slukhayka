@@ -38,6 +38,8 @@ class SharedDurationCodecTest {
         assertNull(SharedDurationCodec.fromMap(map))
         map["durationSeconds"] = "три години"
         assertNull(SharedDurationCodec.fromMap(map))
+        map["durationSeconds"] = 7_200.5
+        assertNull(SharedDurationCodec.fromMap(map))
     }
 
     @Test

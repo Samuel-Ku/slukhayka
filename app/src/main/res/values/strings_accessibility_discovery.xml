@@ -1,0 +1,14 @@
+<resources>
+    <string name="a11y_not_interested_work">Не цікаво: %1$s</string>
+    <string name="a11y_listen_block_actions">Дії блоку: %1$s</string>
+    <string name="a11y_resume_work">Продовжити слухати: %1$s</string>
+    <string name="a11y_open_work">Відкрити книгу: %1$s</string>
+    <string name="a11y_play_work">Відтворити: %1$s</string>
+    <string name="a11y_pause_work">Пауза: %1$s</string>
+    <string name="a11y_next_chapter_work">Наступний розділ: %1$s</string>
+    <string name="a11y_listened_percent">Прослухано %1$d%%</string>
+    <string name="a11y_available_offline">Доступно офлайн</string>
+    <string name="a11y_playing">Відтворюється</string>
+    <string name="a11y_paused">На паузі</string>
+    <string name="a11y_chapter_number">Розділ %1$d</string>
+</resources>

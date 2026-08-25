@@ -20,6 +20,7 @@ import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -54,7 +55,9 @@ import com.slukhayka.audiobooks.data.source.streamOnlyFor
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.ui.library.siblingNarrations
 import com.slukhayka.audiobooks.ui.MainViewModel
+import com.slukhayka.audiobooks.ui.ReviewSaveResult
 import com.slukhayka.audiobooks.ui.bookPersonPath
+import com.slukhayka.audiobooks.ui.reviewWorkIdFor
 import com.slukhayka.audiobooks.ui.components.BookmarkDialog
 import com.slukhayka.audiobooks.ui.components.BookCoverImage
 import com.slukhayka.audiobooks.ui.components.BookCoverSemantics
@@ -115,6 +118,9 @@ fun BookDetailScreen(
     var showReviewForm by remember { mutableStateOf(false) }
     var editingReview by remember { mutableStateOf<com.slukhayka.audiobooks.data.reviews.ListenerReview?>(null) }
     var reviewToDelete by remember { mutableStateOf<com.slukhayka.audiobooks.data.reviews.ListenerReview?>(null) }
+    var reviewSaveInProgress by remember { mutableStateOf(false) }
+    var reviewSaveError by remember { mutableStateOf<String?>(null) }
+    val reviewDeleteFocusRequester = remember { FocusRequester() }
 
     val currentBook = book ?: return
     val isDownloadingThis = downloadingBookId == currentBook.id
@@ -136,7 +142,7 @@ fun BookDetailScreen(
 
     // Spec-40 #277 — reviews anchor to the WORK (shared across narrations);
     // a row without a Works identity anchors to itself.
-    val reviewsWorkId = currentBook.workId?.takeIf { it.isNotBlank() } ?: currentBook.id
+    val reviewsWorkId = reviewWorkIdFor(currentBook.id, currentBook.workId)
 
     // Spec-40 #277/#278/#280 — «Відгуки» state. Collected at the composable
     // root (LazyListScope blocks are not composable contexts); the store
@@ -177,6 +183,30 @@ fun BookDetailScreen(
         downloadMessage?.let { message ->
             snackbarHostState.showSnackbar(message)
             viewModel.consumeDownloadMessage()
+        }
+    }
+    val reviewPublishedMessage = stringResource(R.string.book_detail_review_save_published)
+    val reviewQueuedMessage = stringResource(R.string.book_detail_review_save_queued)
+    val reviewFailureMessage = stringResource(R.string.book_detail_review_save_error)
+    LaunchedEffect(viewModel, snackbarHostState) {
+        viewModel.reviewSaveResults.collect { result ->
+            reviewSaveInProgress = false
+            when (result) {
+                ReviewSaveResult.FAILED -> reviewSaveError = reviewFailureMessage
+                ReviewSaveResult.PUBLISHED,
+                ReviewSaveResult.QUEUED -> {
+                    reviewSaveError = null
+                    showReviewForm = false
+                    editingReview = null
+                    snackbarHostState.showSnackbar(
+                        if (result == ReviewSaveResult.PUBLISHED) {
+                            reviewPublishedMessage
+                        } else {
+                            reviewQueuedMessage
+                        }
+                    )
+                }
+            }
         }
     }
 
@@ -644,7 +674,8 @@ fun BookDetailScreen(
                         Text(
                             text = "Відгуки (${bookReviews.size})",
                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                            color = MaterialTheme.colorScheme.onSurface
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.semantics { heading() }
                         )
                         // Writing needs a listener identity — until lane-a's
                         // seam answers, the block stays honestly read-only.
@@ -652,6 +683,7 @@ fun BookDetailScreen(
                             Button(
                                 onClick = {
                                     editingReview = null
+                                    reviewSaveError = null
                                     showReviewForm = true
                                 },
                                 shape = RoundedCornerShape(AppDimens.RadiusCard)
@@ -669,10 +701,18 @@ fun BookDetailScreen(
                 item(key = "reviews_average") {
                     val average = detailPresentation.combinedAverage
                     if (average != null) {
+                        val combinedSummary = stringResource(
+                            R.string.book_detail_review_combined_summary,
+                            average.value,
+                            average.count
+                        )
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 4.dp),
+                                .padding(horizontal = 16.dp, vertical = 4.dp)
+                                .clearAndSetSemantics {
+                                    contentDescription = combinedSummary
+                                },
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(
@@ -713,15 +753,22 @@ fun BookDetailScreen(
                     ) { review ->
                         ReviewCard(
                             review = review,
+                            workTitle = currentBook.title,
                             isOwn = listenerProfile?.uid == review.uid,
                             isPending = com.slukhayka.audiobooks.data.reviews.ListenerReviewCodec
                                 .documentId(review.workId, review.uid) in pendingReviewKeys,
                             onEdit = {
                                 editingReview = review
+                                reviewSaveError = null
                                 showReviewForm = true
                             },
                             onDelete = { reviewToDelete = review },
-                            onHideAuthor = { viewModel.hideAuthor(review.authorName) }
+                            onHideAuthor = { viewModel.hideAuthor(review.authorName) },
+                            deleteFocusRequester = if (listenerProfile?.uid == review.uid) {
+                                reviewDeleteFocusRequester
+                            } else {
+                                null
+                            }
                         )
                     }
 
@@ -957,57 +1004,35 @@ fun BookDetailScreen(
             editing = editingReview,
             editionOptions = workEditionNarrators,
             defaultEditionTag = currentBook.displayNarrator,
+            isSaving = reviewSaveInProgress,
+            errorMessage = reviewSaveError,
             onSave = { rating, body, tag ->
+                reviewSaveError = null
+                reviewSaveInProgress = true
                 viewModel.saveReview(reviewsWorkId, rating, body, tag, editingReview)
-                showReviewForm = false
-                editingReview = null
             },
             onDismiss = {
-                showReviewForm = false
-                editingReview = null
+                if (!reviewSaveInProgress) {
+                    showReviewForm = false
+                    editingReview = null
+                    reviewSaveError = null
+                }
             }
         )
     }
 
     // Spec-40 #277 — deleting a review is destructive: a confirmation that
     // quotes exactly what is removed (spec-27 «destructive never neutral»).
-    reviewToDelete?.let { doomed ->
-        AlertDialog(
-            onDismissRequest = { reviewToDelete = null },
-            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-            title = {
-                Text(
-                    text = "Видалити відгук?",
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-            },
-            text = {
-                Text(
-                    text = "Буде видалено ваш відгук про \"${currentBook.title}\" — оцінка ${doomed.rating}★" +
-                        (doomed.body?.takeIf { it.isNotBlank() }?.let { " і текст відгуку" } ?: "") +
-                        ". Дію не можна скасувати.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        viewModel.deleteOwnReview(doomed.workId, doomed.uid)
-                        reviewToDelete = null
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                ) {
-                    Text("Видалити", color = MaterialTheme.colorScheme.onError, fontWeight = FontWeight.Bold)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { reviewToDelete = null }) {
-                    Text("Скасувати", color = MaterialTheme.colorScheme.onSurface)
-                }
-            }
-        )
-    }
+    ReviewDeleteConfirmationOwner(
+        workTitle = currentBook.title,
+        review = reviewToDelete,
+        returnFocusRequester = reviewDeleteFocusRequester,
+        onConfirm = { doomed ->
+            viewModel.deleteOwnReview(doomed.workId, doomed.uid)
+            reviewToDelete = null
+        },
+        onDismiss = { reviewToDelete = null }
+    )
 }
 
 /**

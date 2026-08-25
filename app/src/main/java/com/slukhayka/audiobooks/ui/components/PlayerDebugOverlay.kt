@@ -87,7 +87,7 @@ fun PlayerDebugOverlay(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "EXOPLAYER DIAGNOSTIC OVERLAY",
+                        text = stringResource(R.string.debug_overlay_title),
                         style = MaterialTheme.typography.labelMedium.copy(
                             fontWeight = FontWeight.Bold,
                             fontFamily = FontFamily.Monospace,

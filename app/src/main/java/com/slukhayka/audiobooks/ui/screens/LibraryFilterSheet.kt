@@ -1,13 +1,15 @@
 package com.slukhayka.audiobooks.ui.screens
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -29,12 +31,19 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.ui.library.LibraryFilter
 import com.slukhayka.audiobooks.ui.library.LibrarySort
 import com.slukhayka.audiobooks.ui.library.SHEET_FILTERS
 import com.slukhayka.audiobooks.ui.library.STATUS_FILTERS
+import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.ui.components.accessibilityPane
 
 /**
  * spec-28 #193 — the Медіатека filter chrome, split into a visible segmented
@@ -90,7 +99,9 @@ fun LibraryStatusRow(
                     borderColor = MaterialTheme.colorScheme.outlineVariant,
                     selectedBorderColor = MaterialTheme.colorScheme.primary
                 ),
-                modifier = Modifier.testTag("library_status_${f.name.lowercase()}")
+                modifier = Modifier
+                    .heightIn(min = 48.dp)
+                    .testTag("library_status_${f.name.lowercase()}")
             )
         }
     }
@@ -115,7 +126,8 @@ fun LibraryFilterSheet(
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        modifier = Modifier.accessibilityPane(stringResource(R.string.a11y_library_filter_pane))
     ) {
         LibraryFilterSheetContent(
             filter = filter,
@@ -144,13 +156,16 @@ fun LibraryFilterSheetContent(
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .accessibilityPane(stringResource(R.string.a11y_library_filter_pane))
             .padding(horizontal = 24.dp)
             .padding(bottom = 32.dp)
+            .testTag("library_filter_sheet_content")
     ) {
         Text(
             text = "Фільтр та сортування",
             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-            color = MaterialTheme.colorScheme.onSurface
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.semantics { heading() }
         )
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -169,7 +184,9 @@ fun LibraryFilterSheetContent(
                         borderColor = MaterialTheme.colorScheme.outlineVariant,
                         selectedBorderColor = MaterialTheme.colorScheme.primary
                     ),
-                    modifier = Modifier.testTag("library_sheet_filter_${f.name.lowercase()}")
+                    modifier = Modifier
+                        .heightIn(min = 48.dp)
+                        .testTag("library_sheet_filter_${f.name.lowercase()}")
                 )
             }
         }
@@ -179,24 +196,34 @@ fun LibraryFilterSheetContent(
         Spacer(modifier = Modifier.height(16.dp))
         SheetSectionLabel("Сортування")
         Spacer(modifier = Modifier.height(4.dp))
-        LibrarySort.entries.forEach { s ->
-            val isSelected = sort == s
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onSortChange(s) }
-                    .testTag("library_sort_${s.name.lowercase()}"),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // The radio is purely visual; the whole row carries the tap
-                // (one click target, no double-fire).
-                RadioButton(selected = isSelected, onClick = null)
-                Text(
-                    text = s.label,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
-                )
+        Column(Modifier.selectableGroup()) {
+            LibrarySort.entries.forEach { s ->
+                val isSelected = sort == s
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp)
+                        .selectable(
+                            selected = isSelected,
+                            onClick = { onSortChange(s) },
+                            role = Role.RadioButton
+                        )
+                        .testTag("library_sort_${s.name.lowercase()}"),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Decorative: the containing row is the single radio target.
+                    RadioButton(
+                        selected = isSelected,
+                        onClick = null,
+                        modifier = Modifier.clearAndSetSemantics { }
+                    )
+                    Text(
+                        text = s.label,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
+                    )
+                }
             }
         }
 
@@ -253,6 +280,8 @@ private fun ViewModeChip(
             borderColor = MaterialTheme.colorScheme.outlineVariant,
             selectedBorderColor = MaterialTheme.colorScheme.primary
         ),
-        modifier = Modifier.testTag(tag)
+        modifier = Modifier
+            .heightIn(min = 48.dp)
+            .testTag(tag)
     )
 }

@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -27,9 +28,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.ui.theme.AppDimens
+import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.ui.components.accessibilityPane
 
 /**
  * spec-28 (#194) — the «+ Додати» sheet: one import action opening a sheet
@@ -47,7 +53,8 @@ fun LibraryImportSheet(
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        modifier = Modifier.accessibilityPane(stringResource(R.string.a11y_library_import_pane))
     ) {
         LibraryImportSheetContent(
             onImportFile = onImportFile,
@@ -68,13 +75,16 @@ fun LibraryImportSheetContent(
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .accessibilityPane(stringResource(R.string.a11y_library_import_pane))
             .padding(horizontal = 24.dp)
             .padding(bottom = 32.dp)
+            .testTag("library_import_sheet_content")
     ) {
         Text(
             text = "Додати аудіо",
             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-            color = MaterialTheme.colorScheme.onSurface
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.semantics { heading() }
         )
         Spacer(modifier = Modifier.height(16.dp))
 
@@ -107,6 +117,7 @@ private fun ImportOptionRow(
     Card(
         modifier = Modifier
             .fillMaxWidth()
+            .heightIn(min = 48.dp)
             .clip(RoundedCornerShape(AppDimens.RadiusCardLg))
             .clickable(onClick = onClick)
             .testTag(tag),

@@ -66,6 +66,7 @@ import com.slukhayka.audiobooks.ui.components.BookCoverSemantics
 import com.slukhayka.audiobooks.ui.components.PlayerDebugOverlay
 import com.slukhayka.audiobooks.ui.components.SleepTimerSheet
 import com.slukhayka.audiobooks.ui.components.SpeedSheet
+import com.slukhayka.audiobooks.ui.components.accessibilityModalBackground
 import com.slukhayka.audiobooks.ui.components.accessibilityPane
 import com.slukhayka.audiobooks.ui.displayAuthor
 import com.slukhayka.audiobooks.ui.displayNarrator
@@ -84,6 +85,13 @@ data class PlayerProgressUi(
 )
 
 data class BookSeekTarget(val chapterIndex: Int, val positionMs: Long)
+
+enum class PlayerQuickTool {
+    Speed,
+    Timer,
+    Bookmark,
+    Chapters
+}
 
 
 
@@ -190,10 +198,7 @@ fun PlayerScreen(
     val scope = rememberCoroutineScope()
     val bookmarks = remember(allBookmarks, book.id) { allBookmarks.filter { it.bookId == book.id } }
 
-    var showSleepTimerSheet by rememberSaveable { mutableStateOf(false) }
-    var showSpeedSheet by rememberSaveable { mutableStateOf(false) }
-    var showBookmarkSheet by rememberSaveable { mutableStateOf(false) }
-    var showChapterSheet by rememberSaveable { mutableStateOf(false) }
+    var activeTool by rememberSaveable { mutableStateOf<PlayerQuickTool?>(null) }
     var showDebugOverlay by rememberSaveable { mutableStateOf(false) }
     var artworkAccent by remember(book.id) { mutableStateOf<Color?>(null) }
     // Real cover aspect ratio once the artwork loads (defaults to a portrait
@@ -304,17 +309,18 @@ fun PlayerScreen(
             onForward = { viewModel.playerManager.skipForward(30) },
             onNextChapter = viewModel.playerManager::nextChapter,
             onUndoSeek = viewModel.playerManager::undoLastSeek,
-            onSpeed = { showSpeedSheet = true },
-            onTimer = { showSleepTimerSheet = true },
-            onBookmark = { showBookmarkSheet = true },
-            onChapters = { showChapterSheet = true },
+            onSpeed = { activeTool = PlayerQuickTool.Speed },
+            onTimer = { activeTool = PlayerQuickTool.Timer },
+            onBookmark = { activeTool = PlayerQuickTool.Bookmark },
+            onChapters = { activeTool = PlayerQuickTool.Chapters },
             onRetryPlayback = {
                 viewModel.playerManager.prepareChapter(
                     playerState.currentChapterIndex,
                     playerState.currentPositionMs,
                     autoPlay = true
                 )
-            }
+            },
+            activeTool = activeTool
         )
 
         SnackbarHost(
@@ -345,8 +351,8 @@ fun PlayerScreen(
         }
     }
 
-    if (showSleepTimerSheet) {
-        SleepTimerSheet(
+    when (activeTool) {
+        PlayerQuickTool.Timer -> SleepTimerSheet(
             currentTimerMinutes = playerState.sleepTimerMinutes,
             isEndOfChapter = playerState.isSleepTimerEndOfChapter,
             remainingSeconds = playerState.sleepTimerRemainingSeconds,
@@ -358,52 +364,50 @@ fun PlayerScreen(
                 pendingFeedback = if (minutes == -1) "До кінця розділу"
                 else if (minutes > 0) "Таймер на $minutes хв"
                 else null
-                showSleepTimerSheet = false
+                activeTool = null
             },
             onExtendTimer = {
                 if (viewModel.playerManager.extendSleepTimerBy15Minutes() > 0) {
-                    showSleepTimerSheet = false
+                    activeTool = null
                 }
             },
-            onDismiss = { showSleepTimerSheet = false }
+            onDismiss = { activeTool = null }
         )
-    }
-
-    if (showSpeedSheet) {
-        SpeedSheet(
+        PlayerQuickTool.Speed -> SpeedSheet(
             currentSpeed = playerState.playbackSpeed,
             onSpeedChange = viewModel.playerManager::setPlaybackSpeed,
-            onSaveForBook = { viewModel.playerManager.savePreferredSpeed(playerState.playbackSpeed) },
-            onSetDefault = { viewModel.playerManager.setDefaultSpeed(playerState.playbackSpeed) },
-            onDismiss = { showSpeedSheet = false }
+            onSaveForBook = {
+                viewModel.playerManager.savePreferredSpeed(playerState.playbackSpeed)
+                activeTool = null
+            },
+            onSetDefault = {
+                viewModel.playerManager.setDefaultSpeed(playerState.playbackSpeed)
+                activeTool = null
+            },
+            onDismiss = { activeTool = null }
         )
-    }
-
-    if (showBookmarkSheet) {
-        BookmarkBottomSheet(
+        PlayerQuickTool.Bookmark -> BookmarkBottomSheet(
             timestampSeconds = playerState.currentPositionMs / 1000L,
             chapterTitle = currentChapterTitle,
-            onDismiss = { showBookmarkSheet = false },
+            onDismiss = { activeTool = null },
             onSave = {
                 viewModel.addBookmarkAtCurrentPosition(it)
                 // Spec-27 (#207): the feedback names the position where the
                 // bookmark landed (US-19) — «Закладку додано на 2:35:44».
                 pendingFeedback = "Закладку додано на ${MainViewModel.formatTime(playerState.currentPositionMs / 1000L)}"
-                showBookmarkSheet = false
+                activeTool = null
             }
         )
-    }
-
-    if (showChapterSheet) {
-        ChapterBottomSheet(
+        PlayerQuickTool.Chapters -> ChapterBottomSheet(
             chapters = playerState.chapters,
             selectedIndex = playerState.currentChapterIndex,
             onSelect = { index ->
                 viewModel.playerManager.selectChapter(index)
-                showChapterSheet = false
+                activeTool = null
             },
-            onDismiss = { showChapterSheet = false }
+            onDismiss = { activeTool = null }
         )
+        null -> Unit
     }
 }
 
@@ -433,13 +437,19 @@ fun PlayerScreenContent(
     onBookmark: () -> Unit,
     onChapters: () -> Unit,
     onRetryPlayback: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    activeTool: PlayerQuickTool? = null
 ) {
     val background = MaterialTheme.colorScheme.background
     val tint = artworkAccent ?: MaterialTheme.colorScheme.primary
     val largeFont = LocalDensity.current.fontScale >= 2f
     val contentScrollState = rememberScrollState()
     val playerContextFocusRequester = remember { FocusRequester() }
+    val speedFocusRequester = remember { FocusRequester() }
+    val timerFocusRequester = remember { FocusRequester() }
+    val bookmarkFocusRequester = remember { FocusRequester() }
+    val chaptersFocusRequester = remember { FocusRequester() }
+    var restoreTool by remember { mutableStateOf<PlayerQuickTool?>(null) }
     val playerNarrator = book.displayNarrator
     val editionDescription = if (playerNarrator.isNotBlank()) {
         stringResource(R.string.a11y_player_edition, playerNarrator)
@@ -457,10 +467,30 @@ fun PlayerScreenContent(
     LaunchedEffect(playerContextFocusRequester) {
         playerContextFocusRequester.requestFocus()
     }
+    LaunchedEffect(activeTool) {
+        if (activeTool != null) {
+            restoreTool = activeTool
+        } else {
+            val requester = when (restoreTool) {
+                PlayerQuickTool.Speed -> speedFocusRequester
+                PlayerQuickTool.Timer -> timerFocusRequester
+                PlayerQuickTool.Bookmark -> bookmarkFocusRequester
+                PlayerQuickTool.Chapters -> chaptersFocusRequester
+                null -> null
+            }
+            if (requester != null) {
+                withFrameNanos { }
+                requester.requestFocus()
+                restoreTool = null
+            }
+        }
+    }
 
     Box(
         modifier = modifier
             .fillMaxSize()
+            .testTag("full_player_screen")
+            .accessibilityModalBackground(activeTool != null)
             .background(
                 // The player is a full-screen OVERLAY on top of whatever screen
                 // was open (AnimatedVisibility in MainActivity), so its backdrop
@@ -475,7 +505,6 @@ fun PlayerScreenContent(
                     1f to background
                 )
             )
-            .testTag("full_player_screen")
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
             PlayerTopBar(
@@ -668,7 +697,11 @@ fun PlayerScreenContent(
                     onSpeed = onSpeed,
                     onTimer = onTimer,
                     onBookmark = onBookmark,
-                    onChapters = onChapters
+                    onChapters = onChapters,
+                    speedFocusRequester = speedFocusRequester,
+                    timerFocusRequester = timerFocusRequester,
+                    bookmarkFocusRequester = bookmarkFocusRequester,
+                    chaptersFocusRequester = chaptersFocusRequester
                 )
                 Spacer(Modifier.height(AppDimens.SpaceLg))
                 // The player is a full-screen OVERLAY rendered outside the host
@@ -777,12 +810,22 @@ private fun DualProgress(
         stringResource(R.string.a11y_player_duration_unknown)
     }
     Column(modifier = Modifier.fillMaxWidth()) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .testTag("chapter_progress_visual_row")
+                .semantics { hideFromAccessibility() },
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
             Text("Розділ", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             // Spec-22 T2: tabular (monospace) digits — the timer ticks without
             // shifting its advance width, so the layout never jitters.
             Text(
-                "${MainViewModel.formatTime(chapterPositionSeconds)}  /  ${MainViewModel.formatTime(chapterDurationSeconds)}",
+                if (chapterDurationSeconds > 0L) {
+                    "${MainViewModel.formatTime(chapterPositionSeconds)}  /  ${MainViewModel.formatTime(chapterDurationSeconds)}"
+                } else {
+                    stringResource(R.string.a11y_player_duration_unknown)
+                },
                 style = TabularTimerStyle,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -803,10 +846,20 @@ private fun DualProgress(
                 inactiveTrackColor = MaterialTheme.colorScheme.outlineVariant
             )
         )
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .testTag("book_progress_visual_row")
+                .semantics { hideFromAccessibility() },
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
             Text("Книга", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(
-                "${MainViewModel.formatTime(progress.bookPositionSeconds)}  /  ${MainViewModel.formatTime(progress.bookDurationSeconds)}",
+                if (progress.bookDurationSeconds > 0L) {
+                    "${MainViewModel.formatTime(progress.bookPositionSeconds)}  /  ${MainViewModel.formatTime(progress.bookDurationSeconds)}"
+                } else {
+                    stringResource(R.string.a11y_player_duration_unknown)
+                },
                 style = TabularTimerStyle,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -985,10 +1038,14 @@ private fun QuickTools(
     onSpeed: () -> Unit,
     onTimer: () -> Unit,
     onBookmark: () -> Unit,
-    onChapters: () -> Unit
+    onChapters: () -> Unit,
+    speedFocusRequester: FocusRequester,
+    timerFocusRequester: FocusRequester,
+    bookmarkFocusRequester: FocusRequester,
+    chaptersFocusRequester: FocusRequester
 ) {
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-        QuickTool(Icons.Default.Speed, "Швидкість", "${speed}×", "speed_chip", onSpeed)
+        QuickTool(Icons.Default.Speed, "Швидкість", "${speed}×", "speed_chip", speedFocusRequester, onSpeed)
         QuickTool(
             Icons.Default.Bedtime,
             "Таймер",
@@ -998,10 +1055,11 @@ private fun QuickTools(
                 else -> null
             },
             "sleep_timer_chip",
+            timerFocusRequester,
             onTimer
         )
-        QuickTool(Icons.Default.BookmarkAdd, "Закладка", null, "add_bookmark_chip", onBookmark)
-        QuickTool(Icons.Default.FormatListNumbered, "Розділи", null, "chapters_chip", onChapters)
+        QuickTool(Icons.Default.BookmarkAdd, "Закладка", null, "add_bookmark_chip", bookmarkFocusRequester, onBookmark)
+        QuickTool(Icons.Default.FormatListNumbered, "Розділи", null, "chapters_chip", chaptersFocusRequester, onChapters)
     }
 }
 
@@ -1011,14 +1069,22 @@ private fun RowScope.QuickTool(
     label: String,
     value: String?,
     testTag: String,
+    focusRequester: FocusRequester,
     onClick: () -> Unit
 ) {
+    val toolDescription = value?.let {
+        stringResource(R.string.a11y_player_tool_state, label, it)
+    } ?: label
     Column(
         modifier = Modifier
             .weight(1f)
             .heightIn(min = 72.dp)
+            .focusRequester(focusRequester)
             .clip(RoundedCornerShape(AppDimens.RadiusCard))
             .clickable(onClick = onClick)
+            .semantics(mergeDescendants = true) {
+                contentDescription = toolDescription
+            }
             .padding(vertical = AppDimens.SpaceSm)
             .testTag(testTag),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -1031,7 +1097,10 @@ private fun RowScope.QuickTool(
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurface,
             maxLines = 2,
-            textAlign = TextAlign.Center
+            textAlign = TextAlign.Center,
+            modifier = Modifier
+                .testTag("${testTag}_value")
+                .semantics { hideFromAccessibility() }
         )
         if (value != null) {
             Text(
@@ -1039,7 +1108,10 @@ private fun RowScope.QuickTool(
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 2,
-                textAlign = TextAlign.Center
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .testTag("${testTag}_label")
+                    .semantics { hideFromAccessibility() }
             )
         }
     }
@@ -1215,10 +1287,20 @@ internal fun ChapterBottomSheet(
             ) {
                 itemsIndexed(chapters, key = { _, chapter -> chapter.id }) { index, chapter ->
                     val isCurrent = index == selectedIndex
+                    val visibleDuration = if (chapter.durationSeconds > 0L) {
+                        MainViewModel.formatTime(chapter.durationSeconds)
+                    } else {
+                        stringResource(R.string.a11y_player_duration_unknown)
+                    }
+                    val spokenDuration = if (chapter.durationSeconds > 0L) {
+                        visibleDuration
+                    } else {
+                        stringResource(R.string.a11y_duration_unknown_value)
+                    }
                     val chapterDescription = stringResource(
                         R.string.a11y_chapter_option,
                         chapter.title,
-                        MainViewModel.formatTime(chapter.durationSeconds),
+                        spokenDuration,
                         if (isCurrent) " $currentDescription" else ""
                     )
                     Row(
@@ -1248,12 +1330,14 @@ internal fun ChapterBottomSheet(
                             fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Normal
                         )
                         Text(
-                            MainViewModel.formatTime(chapter.durationSeconds),
+                            visibleDuration,
                             // Spec-22 T2: tabular figures for durations — no
                             // digit-width drift in the chapter list either.
                             style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum"),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.clearAndSetSemantics { }
+                            modifier = Modifier
+                                .testTag("chapter_option_duration_$index")
+                                .semantics { hideFromAccessibility() }
                         )
                     }
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f))

@@ -11,7 +11,7 @@ RULES_GATE=as-is RULES_MODE=run OUT_JSON=results-as-is.json \
 
 # B) гейт відкритий ЛИШЕ в локальній копії для емулятора
 cp ../../firestore.rules firestore.rules
-RULES_GATE=open RULES_MODE=run RUN_ANDROID_STORE_TEST=1 OUT_JSON=results-open.json \
+RULES_GATE=open RULES_MODE=run RUN_ANDROID_STORE_TEST="${RUN_ANDROID_STORE_TEST:-1}" OUT_JSON=results-open.json \
   npx -y firebase-tools@14 emulators:exec --only firestore,auth --project spec40-matrix -- ./run-matrix.sh
 
 # відновлюємо чисту копію й будуємо звіт

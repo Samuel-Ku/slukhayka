@@ -14,11 +14,20 @@ import com.slukhayka.audiobooks.data.duration.DurationBuckets
  * The identity is the book's **Edition id** (`EditionId.forBook` —
  * `hash(mergeKey|narrator|language)`): duration is rendition-scoped
  * (ADR-0010 — two narrations of one Work never share a duration), and the
- * same key the local `editions` rows already use. Covers land here later
- * (spec-30) keyed by the Work mergeKey; this tracer bullet carries duration
- * only.
+ * same key the local `editions` rows already use. Other public metadata keeps
+ * its own explicit identity: facets use `(kind, entityId, Source)`, covers
+ * use the Work mergeKey, and profiles use Source×Edition.
  */
 interface SharedBookMetaStore {
+    /** One compact Work/Edition assertion, addressed by stable entity+Source identity. */
+    suspend fun getFacet(key: FacetAssertionKey): FacetAssertion? = null
+
+    /** Best-effort full-shape create/update. Invalid assertions contribute nothing. */
+    suspend fun putFacet(assertion: FacetAssertion) = Unit
+
+    /** Bounded ordered remote delta page; applying/committing it belongs to spec-42 #308. */
+    suspend fun getFacetPage(after: FacetCursor?, limit: Int): FacetPage = FacetPage(emptyList(), null)
+
     /** The shared duration of one Edition, or null on miss/failure. */
     suspend fun getDuration(editionId: String): Long?
 

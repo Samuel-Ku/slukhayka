@@ -97,6 +97,59 @@ class FirestoreBookMetaStoreEmulatorTest {
         }
     }
 
+    @Test
+    fun `facet tracer creates reads updates and pages through the real store`() {
+        runWithMainLooperDrain {
+            runBlocking {
+                val store = FirestoreBookMetaStore(firestore)
+                val work = FacetAssertion.Work(
+                    workId = "emulator-work|author",
+                    sourceId = "emulator-source",
+                    author = FacetPerson("author-emulator", "Автор"),
+                    genreIds = listOf("fantasy"),
+                    observedAt = 1_900_000_000_000L,
+                    updatedAt = 1_900_000_000_000L
+                )
+                val edition = FacetAssertion.Edition(
+                    editionId = "emulator-edition",
+                    workId = work.workId,
+                    sourceId = work.sourceId,
+                    narrator = FacetPerson("narrator-emulator", "Оповідач"),
+                    language = "uk",
+                    durationRef = "emulator-edition",
+                    durationBucket = FacetDurationBucket.FIVE_TO_TEN_HOURS,
+                    chapterCount = 20,
+                    completeness = FacetCompleteness.FULL,
+                    availability = FacetAvailability(true, 1_900_000_000_000L, 86_400L),
+                    observedAt = 1_900_000_000_000L,
+                    updatedAt = 1_900_000_000_002L
+                )
+
+                store.putFacet(work)
+                assertEquals(
+                    work,
+                    store.getFacet(FacetAssertionKey(work.kind, work.workId, work.sourceId))
+                )
+
+                val updatedWork = work.copy(
+                    genreIds = listOf("fantasy", "drama"),
+                    updatedAt = 1_900_000_000_001L
+                )
+                store.putFacet(updatedWork)
+                store.putFacet(edition)
+
+                assertEquals(
+                    updatedWork,
+                    store.getFacet(FacetAssertionKey(work.kind, work.workId, work.sourceId))
+                )
+                assertEquals(
+                    listOf(updatedWork, edition),
+                    store.getFacetPage(FacetCursor(1_899_999_999_999L, "a"), 10).assertions
+                )
+            }
+        }
+    }
+
     /** Firestore's Android Task listeners target main; PAUSED Robolectric needs an explicit drain. */
     private fun runWithMainLooperDrain(block: () -> Unit) {
         val failure = AtomicReference<Throwable?>()

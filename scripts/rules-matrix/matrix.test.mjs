@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Spec-40 #283 + Spec-42 #303 — контрольна матриця правил Firestore.
+ * Spec-40 #283 + Spec-42 #303/#311 — контрольна матриця правил Firestore.
  *
  * ДВА ПРОГОНИ (оркеструє run-all.sh):
  *   A) RULES_GATE=as-is — правила як в репо: без App Check токена не пишеться
@@ -76,6 +76,55 @@ function durationConflictId(conflict) {
   return `${conflict.editionId}|${conflict.candidateSeconds}|${conflict.method}`;
 }
 
+const WORK_FACET_ID = `w_${"a".repeat(40)}`;
+const WORK_FACET_CREATE_ID = `w_${"b".repeat(40)}`;
+const EDITION_FACET_ID = `e_${"b".repeat(40)}`;
+const VALID_WORK_FACET = {
+  schemaVersion: 1,
+  assertionId: WORK_FACET_ID,
+  entityKind: "work",
+  entityId: "лісова-пісня|леся-українка",
+  sourceId: "4read",
+  observedAt: 1700000000000,
+  updatedAt: 41,
+  author: { id: "author-lesia", name: "Леся Українка", aliases: ["Лариса Косач"] },
+  genreIds: ["drama", "fantasy"],
+  seriesMemberships: [{ seriesId: "forest-cycle", position: 2 }],
+};
+const UPDATED_WORK_FACET = { ...VALID_WORK_FACET, updatedAt: 42, genreIds: ["drama"] };
+const MAX_WORK_FACET = {
+  ...VALID_WORK_FACET,
+  assertionId: `w_${"2".repeat(40)}`,
+  author: {
+    ...VALID_WORK_FACET.author,
+    aliases: Array.from({ length: 8 }, (_, index) => `alias-${index}`),
+  },
+  genreIds: Array.from({ length: 12 }, (_, index) => `genre-${index}`),
+  seriesMemberships: Array.from(
+    { length: 4 },
+    (_, index) => ({ seriesId: `series-${index}`, position: index + 1 })
+  ),
+};
+const VALID_EDITION_FACET = {
+  schemaVersion: 1,
+  assertionId: EDITION_FACET_ID,
+  entityKind: "edition",
+  entityId: "edition-qa",
+  sourceId: "4read",
+  observedAt: 1700000000000,
+  updatedAt: 43,
+  workId: "лісова-пісня|леся-українка",
+  narrator: { id: "narrator-qa", name: "Оповідач", aliases: [] },
+  language: "uk",
+  durationRef: "edition-qa",
+  durationBucket: "under_5h",
+  chapterCount: 12,
+  completeness: "full",
+  availabilityAvailable: true,
+  availabilityObservedAt: 1700000000000,
+  availabilityTtlSeconds: 86400,
+};
+
 // id | path | method | uid | тіло | очікувано | чому
 const MATRIX = [
   ["R1", "book_reviews/qa_r1", "get", null, null, "ALLOW", "читання публічне"],
@@ -107,6 +156,22 @@ const MATRIX = [
   ["C6", `book_duration_conflicts/${durationConflictId(VALID_DURATION_CONFLICT)}`, "create", null, VALID_DURATION_CONFLICT, "DENY", "нема AppCheck-токена"],
   ["C7", "book_duration_conflicts/alternate-duplicate-id", "create", null, VALID_DURATION_CONFLICT, "DENY", "id не відповідає Edition/value/method"],
   ["C8", `book_duration_conflicts/${durationConflictId(VALID_DURATION_CONFLICT)}`, "create", null, VALID_DURATION_CONFLICT, "DENY", "повтор не створює другий conflict"],
+  ["F1", `book_facets/${WORK_FACET_ID}`, "get", null, null, "ALLOW", "facet read публічне"],
+  ["F2", `book_facets/${WORK_FACET_CREATE_ID}`, "create", null, { ...VALID_WORK_FACET, assertionId: WORK_FACET_CREATE_ID }, "ALLOW", "bounded Work create (+AppCheck у проді)"],
+  ["F3", `book_facets/${WORK_FACET_ID}`, "update", null, UPDATED_WORK_FACET, "ALLOW", "повний factual update зі сталою identity"],
+  ["F4", `book_facets/${WORK_FACET_ID}`, "update", null, { ...UPDATED_WORK_FACET, entityId: "інший-work" }, "DENY", "entity identity immutable"],
+  ["F5", `book_facets/w_${"c".repeat(40)}`, "create", null, { ...VALID_WORK_FACET, assertionId: `w_${"c".repeat(40)}`, genreIds: "fantasy" }, "DENY", "malformed list"],
+  ["F6", `book_facets/${WORK_FACET_ID}`, "delete", null, null, "DENY", "facet delete заборонений"],
+  ["F7", `book_facets/w_${"d".repeat(40)}`, "create", null, { ...VALID_WORK_FACET, assertionId: `w_${"d".repeat(40)}` }, "DENY", "нема AppCheck-токена"],
+  ["F8", `book_facets/${EDITION_FACET_ID}`, "create", null, VALID_EDITION_FACET, "ALLOW", "bounded Edition create"],
+  ["F9", `book_facets/e_${"c".repeat(40)}`, "create", null, { ...VALID_EDITION_FACET, assertionId: `e_${"c".repeat(40)}`, durationRef: "other-edition" }, "DENY", "duration ref не змінює Edition identity"],
+  ["F10", `book_facets/e_${"d".repeat(40)}`, "create", null, { ...VALID_EDITION_FACET, assertionId: `e_${"d".repeat(40)}`, availabilityTtlSeconds: 0 }, "DENY", "availability без дійсного TTL"],
+  ["F11", `book_facets/w_${"e".repeat(40)}`, "create", null, { ...VALID_WORK_FACET, assertionId: `w_${"e".repeat(40)}`, narrator: VALID_EDITION_FACET.narrator }, "DENY", "rendition fact не живе на Work"],
+  ["F12", `book_facets/w_${"f".repeat(40)}`, "create", null, { ...VALID_WORK_FACET, assertionId: `w_${"f".repeat(40)}`, genreIds: [42] }, "DENY", "genre list element має правильний тип"],
+  ["F13", `book_facets/w_${"1".repeat(40)}`, "create", null, { ...VALID_WORK_FACET, assertionId: `w_${"1".repeat(40)}`, seriesMemberships: [{ seriesId: "series", position: "two" }] }, "DENY", "Series Membership shape bounded"],
+  ["F14", `book_facets/e_${"1".repeat(40)}`, "create", null, { ...VALID_EDITION_FACET, assertionId: `e_${"1".repeat(40)}`, durationBucket: "overnight" }, "DENY", "неканонічний duration bucket"],
+  ["F15", `book_facets/${WORK_FACET_ID}`, "update", null, { ...UPDATED_WORK_FACET, updatedAt: 40 }, "DENY", "update cursor не рухається назад"],
+  ["F16", `book_facets/${MAX_WORK_FACET.assertionId}`, "create", null, MAX_WORK_FACET, "ALLOW", "bounded maxima лишаються записуваними"],
 ];
 
 // Який прогін є доказом кожного рядка.
@@ -117,6 +182,10 @@ const EVIDENCE = {
   T1: "as-is", T2: "open", T3: "open", T4: "open", T5: "open",
   T6: "open", T7: "as-is", C1: "as-is", C2: "open", C3: "open",
   C4: "open", C5: "open", C6: "as-is", C7: "open", C8: "open",
+  F1: "as-is", F2: "open", F3: "open", F4: "open", F5: "open",
+  F6: "open", F7: "as-is", F8: "open", F9: "open", F10: "open",
+  F11: "open", F12: "open", F13: "open", F14: "open", F15: "open",
+  F16: "open",
 };
 
 function b64(o) {
@@ -198,6 +267,9 @@ async function runPass(gateLabel) {
       for (const id of ["qa_c4", "qa_c5"]) {
         await setDoc(doc(collection(seedDb, "book_duration_conflicts"), id), VALID_DURATION_CONFLICT);
       }
+      for (const id of [WORK_FACET_ID]) {
+        await setDoc(doc(collection(seedDb, "book_facets"), id), VALID_WORK_FACET);
+      }
     });
   }
 
@@ -237,7 +309,7 @@ function merge(a, b, reportPath) {
 
   const date = new Date().toISOString().slice(0, 10);
   const md = [
-    "# Матриця правил Firestore — spec-40 #283 + spec-42 #303",
+    "# Матриця правил Firestore — spec-40 #283 + spec-42 #303/#311",
     "",
     `Дата: ${date}. Firebase Emulator Suite (firestore + auth); правила —`,
     "`firestore.rules` із репозиторію на момент прогону.",

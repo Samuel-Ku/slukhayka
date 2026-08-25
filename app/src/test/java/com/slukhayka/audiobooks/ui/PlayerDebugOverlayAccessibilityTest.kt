@@ -8,6 +8,7 @@ import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertWidthIsAtLeast
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.unit.dp
@@ -68,6 +69,8 @@ class PlayerDebugOverlayAccessibilityTest {
         assertFullTarget("Повторити завантаження аудіо для «Кобзар»")
 
         composeTestRule.onNodeWithContentDescription("Debug Icon").assertDoesNotExist()
+        composeTestRule.onNodeWithText("EXOPLAYER DIAGNOSTIC OVERLAY").assertDoesNotExist()
+        composeTestRule.onNodeWithText("Діагностика відтворення").assertExists()
         composeTestRule.onNodeWithContentDescription("Згорнути діагностику відтворення")
             .performClick()
         composeTestRule.onNodeWithContentDescription("Розгорнути діагностику відтворення")

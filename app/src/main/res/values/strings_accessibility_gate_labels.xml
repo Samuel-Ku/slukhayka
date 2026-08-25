@@ -5,6 +5,7 @@
     <string name="a11y_debug_copy_stream">Копіювати адресу потоку для «%1$s»</string>
     <string name="a11y_debug_copy_journal">Копіювати журнал відтворення для «%1$s»</string>
     <string name="a11y_debug_retry_audio">Повторити завантаження аудіо для «%1$s»</string>
+    <string name="debug_overlay_title">Діагностика відтворення</string>
     <string name="debug_retry_audio">Повторити завантаження</string>
     <string name="debug_stream_copied">Адресу потоку скопійовано</string>
     <string name="debug_journal_copied">Журнал відтворення скопійовано</string>

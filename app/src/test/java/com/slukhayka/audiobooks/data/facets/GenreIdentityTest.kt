@@ -25,6 +25,7 @@ class GenreIdentityTest {
     fun `blank claims stay unknown and unknown identities are bounded deterministic`() {
         assertTrue(GenreIdentity.fromSourceText("  · , /  ").isEmpty())
         assertTrue(GenreIdentity.fromSourceText("4read Каталог").isEmpty())
+        assertTrue(GenreIdentity.fromSourceText("Каталог").isEmpty())
 
         val first = GenreIdentity.fromSourceText("  Химерна   проза  ").single()
         val repeated = GenreIdentity.fromSourceText("химерна проза").single()
@@ -34,5 +35,18 @@ class GenreIdentityTest {
         assertEquals("Химерна проза", first.label)
         assertTrue(first.id.length <= 40)
         assertNotEquals(first.id, other.id)
+    }
+
+    @Test
+    fun `canonical input keeps its shared id and derives display only from raw text`() {
+        assertEquals(
+            NormalizedGenre("shared-genre-id", "Химерна проза"),
+            GenreIdentity.fromCanonical("shared-genre-id", "  химерна   проза ")
+        )
+        assertEquals(
+            NormalizedGenre("fantasy", "Фентезі"),
+            GenreIdentity.fromCanonical("fantasy", "Фантастика / Фентезі")
+        )
+        assertEquals(null, GenreIdentity.fromCanonical("catalog", "Каталог"))
     }
 }

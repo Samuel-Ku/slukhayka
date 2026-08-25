@@ -6,15 +6,39 @@ import com.slukhayka.audiobooks.data.db.AudiobookDao
 import com.slukhayka.audiobooks.data.db.EditionFacetEntity
 import com.slukhayka.audiobooks.data.db.GenreAssertionEntity
 import com.slukhayka.audiobooks.data.db.GenreFacetEntity
+import com.slukhayka.audiobooks.data.db.GenreSourceFacetRows
 import com.slukhayka.audiobooks.data.db.WorkFacetEntity
 import com.slukhayka.audiobooks.data.db.WorkFacetSeriesEntity
 import com.slukhayka.audiobooks.data.db.WorkGenreEntity
 
-data class GenreFacetAssertion(val rawText: String, val sourceId: String, val observedAt: Long)
+data class GenreFacetAssertion(
+    val rawText: String,
+    val sourceId: String,
+    val observedAt: Long,
+    val documentUpdatedAt: Long = observedAt
+)
+
+/** Canonical shared assertion input; the stable id is never re-derived from display text. */
+data class CanonicalGenreFacetAssertion(
+    val genreId: String,
+    val rawText: String,
+    val sourceId: String,
+    val observedAt: Long,
+    val assertionId: String,
+    val documentUpdatedAt: Long
+)
+
+/** One Source-owned document replacement; an empty assertion list removes that Source's set. */
+data class GenreSourceFacetReplacement(
+    val sourceId: String,
+    val documentUpdatedAt: Long,
+    val assertions: List<CanonicalGenreFacetAssertion>
+)
 
 data class WorkFacetDelta(
     val workId: String,
     val genres: List<GenreFacetAssertion> = emptyList(),
+    val genreSourceReplacements: List<GenreSourceFacetReplacement> = emptyList(),
     val canonicalAuthorId: String? = null,
     val seriesIds: Set<String> = emptySet(),
     val updatedAt: Long = 0
@@ -65,10 +89,8 @@ class RoomLocalFacetWriter(private val dao: AudiobookDao) : LocalFacetWriter {
     override suspend fun apply(deltas: List<LocalFacetDelta>) {
         require(deltas.size <= LocalFacetWriter.MAX_DELTAS_PER_BATCH) { "Facet batch is too large" }
         val workFacets = mutableListOf<WorkFacetEntity>()
-        val genreFacets = linkedMapOf<String, GenreFacetEntity>()
         val workSeries = linkedSetOf<WorkFacetSeriesEntity>()
-        val workGenres = linkedSetOf<WorkGenreEntity>()
-        val genreAssertions = linkedMapOf<String, GenreAssertionEntity>()
+        val genreSources = mutableListOf<GenreSourceFacetRows>()
         val editionFacets = mutableListOf<EditionFacetEntity>()
         val authorFacets = mutableListOf<AuthorFacetEntity>()
         val authorAliases = mutableListOf<AuthorAliasEntity>()
@@ -76,6 +98,7 @@ class RoomLocalFacetWriter(private val dao: AudiobookDao) : LocalFacetWriter {
         deltas.forEach { delta ->
             require(delta.work.workId.isNotBlank() && delta.work.workId.length <= 240)
             require(delta.work.genres.size <= LocalFacetWriter.MAX_ASSERTIONS_PER_WORK)
+            require(delta.work.genreSourceReplacements.size <= LocalFacetWriter.MAX_RELATED_ROWS_PER_DELTA)
             require(delta.work.seriesIds.size <= LocalFacetWriter.MAX_RELATED_ROWS_PER_DELTA)
             require(delta.editions.size <= LocalFacetWriter.MAX_RELATED_ROWS_PER_DELTA)
             require(delta.authors.size <= LocalFacetWriter.MAX_RELATED_ROWS_PER_DELTA)
@@ -90,23 +113,68 @@ class RoomLocalFacetWriter(private val dao: AudiobookDao) : LocalFacetWriter {
                 require(seriesId.isNotBlank() && seriesId.length <= 80)
                 workSeries += WorkFacetSeriesEntity(delta.work.workId, seriesId)
             }
-            delta.work.genres.forEach { assertion ->
-                require(assertion.sourceId.isNotBlank() && assertion.sourceId.length <= 80)
-                require(assertion.rawText.length <= 240)
-                require(assertion.observedAt >= 0)
-                GenreIdentity.fromSourceText(assertion.rawText).forEach { genre ->
-                    genreFacets[genre.id] = GenreFacetEntity(
+            val localReplacements = delta.work.genres.groupBy { it.sourceId }.map { (sourceId, assertions) ->
+                assertions.forEach { assertion ->
+                    require(assertion.sourceId.isNotBlank() && assertion.sourceId.length <= 80)
+                    require(assertion.rawText.length <= 240)
+                    require(assertion.observedAt >= 0)
+                    require(assertion.documentUpdatedAt >= 0)
+                }
+                val documentUpdatedAt = assertions.map { it.documentUpdatedAt }.distinct().singleOrNull()
+                requireNotNull(documentUpdatedAt) { "One Source genre set must share one documentUpdatedAt" }
+                GenreSourceFacetReplacement(
+                    sourceId = sourceId,
+                    documentUpdatedAt = documentUpdatedAt,
+                    assertions = assertions.flatMap { assertion ->
+                        GenreIdentity.fromSourceText(assertion.rawText).map { genre ->
+                            CanonicalGenreFacetAssertion(
+                                genreId = genre.id,
+                                rawText = assertion.rawText,
+                                sourceId = assertion.sourceId,
+                                observedAt = assertion.observedAt,
+                                assertionId = FacetIdentity.boundedId(
+                                    "assertion",
+                                    "${delta.work.workId}|${genre.id}|${assertion.sourceId}|${assertion.rawText}"
+                                ),
+                                documentUpdatedAt = assertion.documentUpdatedAt
+                            )
+                        }
+                    }
+                )
+            }
+            val replacements = localReplacements + delta.work.genreSourceReplacements
+            require(replacements.map { it.sourceId }.distinct().size == replacements.size) {
+                "One Work delta may replace a Source genre set only once"
+            }
+            require(replacements.sumOf { it.assertions.size } <= LocalFacetWriter.MAX_ASSERTIONS_PER_WORK)
+            replacements.forEach { replacement ->
+                require(replacement.sourceId.isNotBlank() && replacement.sourceId.length <= 80)
+                require(replacement.documentUpdatedAt >= 0)
+                val genres = linkedMapOf<String, GenreFacetEntity>()
+                val memberships = linkedSetOf<WorkGenreEntity>()
+                val assertions = linkedMapOf<String, GenreAssertionEntity>()
+                replacement.assertions.forEach { assertion ->
+                    require(assertion.sourceId == replacement.sourceId)
+                    require(assertion.documentUpdatedAt == replacement.documentUpdatedAt)
+                    require(assertion.genreId.isNotBlank() && assertion.genreId.length <= 80)
+                    require(assertion.assertionId.isNotBlank() && assertion.assertionId.length <= 240)
+                    require(assertion.sourceId.isNotBlank() && assertion.sourceId.length <= 80)
+                    require(assertion.rawText.length <= 240)
+                    require(assertion.observedAt >= 0)
+                    val genre = requireNotNull(GenreIdentity.fromCanonical(assertion.genreId, assertion.rawText))
+                    genres[genre.id] = GenreFacetEntity(
                         id = genre.id,
                         displayName = genre.label,
                         normalizedName = FacetIdentity.normalizedText(genre.label).orEmpty()
                     )
-                    workGenres += WorkGenreEntity(delta.work.workId, genre.id)
-                    val assertionId = FacetIdentity.boundedId(
-                        "assertion",
-                        "${delta.work.workId}|${genre.id}|${assertion.sourceId}|${assertion.rawText}"
+                    memberships += WorkGenreEntity(delta.work.workId, genre.id, replacement.sourceId)
+                    val assertionRowId = FacetIdentity.boundedId(
+                        "assertion-row",
+                        "${delta.work.workId}|${assertion.assertionId}|${genre.id}"
                     )
-                    genreAssertions[assertionId] = GenreAssertionEntity(
-                        id = assertionId,
+                    assertions[assertionRowId] = GenreAssertionEntity(
+                        id = assertionRowId,
+                        assertionId = assertion.assertionId,
                         workId = delta.work.workId,
                         genreId = genre.id,
                         rawText = assertion.rawText,
@@ -114,6 +182,14 @@ class RoomLocalFacetWriter(private val dao: AudiobookDao) : LocalFacetWriter {
                         observedAt = assertion.observedAt
                     )
                 }
+                genreSources += GenreSourceFacetRows(
+                    workId = delta.work.workId,
+                    sourceId = replacement.sourceId,
+                    documentUpdatedAt = replacement.documentUpdatedAt,
+                    genres = genres.values.toList(),
+                    memberships = memberships.toList(),
+                    assertions = assertions.values.toList()
+                )
             }
             editionFacets += delta.editions.map { edition ->
                 require(edition.workId == delta.work.workId)
@@ -176,9 +252,7 @@ class RoomLocalFacetWriter(private val dao: AudiobookDao) : LocalFacetWriter {
         dao.applyFacetRows(
             workFacets,
             workSeries.toList(),
-            genreFacets.values.toList(),
-            workGenres.toList(),
-            genreAssertions.values.toList(),
+            genreSources,
             editionFacets,
             authorFacets,
             authorAliases

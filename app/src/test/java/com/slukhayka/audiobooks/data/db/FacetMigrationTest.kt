@@ -36,8 +36,10 @@ class FacetMigrationTest {
                         db.execSQL("INSERT INTO editions VALUES ('e1','w1','uk','Диктор',12,3600)")
                         db.execSQL("INSERT INTO audiobooks VALUES ('a1',' ФАНТАСТИКА · Наукова фантастика / Фентезі ')")
                         db.execSQL("INSERT INTO audiobooks VALUES ('a2','   ')")
+                        db.execSQL("INSERT INTO audiobooks VALUES ('a3','Каталог')")
                         db.execSQL("INSERT INTO library_entries VALUES ('a1','w1')")
                         db.execSQL("INSERT INTO library_entries VALUES ('a2','w2')")
+                        db.execSQL("INSERT INTO library_entries VALUES ('a3','w3')")
                         db.execSQL("INSERT INTO sentinel VALUES ('kept')")
                     }
                     override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
@@ -49,16 +51,20 @@ class FacetMigrationTest {
         AudiobookDatabase.MIGRATION_21_22.migrate(sqlite)
 
         listOf(
-            "genre_facets", "work_facets", "work_facet_series", "work_genres", "genre_assertions",
+            "genre_facets", "work_facets", "work_facet_series", "work_genres", "genre_assertion_states", "genre_assertions",
             "edition_facets", "author_facets", "author_aliases"
         ).forEach { assertTrue("missing $it", tableExists(sqlite, it)) }
         assertTrue(indexExists(sqlite, "index_work_genres_genreId"))
+        assertTrue(indexExists(sqlite, "index_work_genres_workId_sourceId"))
         assertTrue(indexExists(sqlite, "index_work_facet_series_seriesId"))
         assertTrue(indexExists(sqlite, "index_edition_facets_durationBucketId"))
         assertTrue(indexExists(sqlite, "index_author_aliases_normalizedAlias"))
+        assertTrue(indexExists(sqlite, "index_genre_assertions_assertionId"))
         assertTrue(columnExists(sqlite, "edition_facets", "availabilityAvailable"))
         assertTrue(columnExists(sqlite, "edition_facets", "availabilityObservedAtMillis"))
         assertTrue(columnExists(sqlite, "edition_facets", "availabilityTtlSeconds"))
+        assertTrue(columnExists(sqlite, "work_genres", "sourceId"))
+        assertTrue(columnExists(sqlite, "genre_assertions", "assertionId"))
         assertTrue(!columnExists(sqlite, "work_facets", "availableSourceCount"))
         assertTrue(!columnExists(sqlite, "work_facets", "availabilityObservedAt"))
 
@@ -71,11 +77,19 @@ class FacetMigrationTest {
             assertEquals(" ФАНТАСТИКА · Наукова фантастика / Фентезі ", cursor.getString(0))
             assertEquals("legacy:audiobooks", cursor.getString(1))
         }
+        sqlite.query("SELECT DISTINCT sourceId FROM work_genres WHERE workId='w1'").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("legacy:audiobooks", cursor.getString(0))
+        }
+        sqlite.query("SELECT documentUpdatedAt FROM genre_assertion_states WHERE workId='w1' AND sourceId='legacy:audiobooks'").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals(0L, cursor.getLong(0))
+        }
         sqlite.query("SELECT genre FROM audiobooks WHERE id='a1'").use { cursor ->
             cursor.moveToFirst()
             assertEquals(" ФАНТАСТИКА · Наукова фантастика / Фентезі ", cursor.getString(0))
         }
-        sqlite.query("SELECT COUNT(*) FROM work_genres WHERE workId='w2'").use { cursor ->
+        sqlite.query("SELECT COUNT(*) FROM work_genres WHERE workId IN ('w2','w3')").use { cursor ->
             cursor.moveToFirst()
             assertEquals(0, cursor.getInt(0))
         }

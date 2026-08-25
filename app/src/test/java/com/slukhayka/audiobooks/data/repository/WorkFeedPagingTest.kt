@@ -12,6 +12,7 @@ import com.slukhayka.audiobooks.data.db.EditionEntity
 import com.slukhayka.audiobooks.data.db.WorkFeedRow
 import com.slukhayka.audiobooks.data.imports.LibraryImport
 import com.slukhayka.audiobooks.data.facets.GenreFacetAssertion
+import com.slukhayka.audiobooks.data.facets.GenreSourceFacetReplacement
 import com.slukhayka.audiobooks.data.facets.LocalFacetDelta
 import com.slukhayka.audiobooks.data.facets.WorkFacetDelta
 import com.slukhayka.audiobooks.data.facets.WorkFacetFilter
@@ -165,6 +166,36 @@ class WorkFeedPagingTest {
         val afterSync = collectAll(catalog.pagedWorkFeedRecent(filter))
         assertEquals(1, afterSync.size)
         assertEquals(work.id, afterSync.single().workId)
+    }
+
+    @Test
+    fun `newer Source genre replacement removes only that Source and never duplicates a Work`() = runBlocking {
+        val catalog = catalog()
+        catalog.writeWorkEdition("4read", "Дюна", "Френк Герберт", "", "https://4read/dune", genreTexts = listOf("Фантастика"))
+        catalog.writeWorkEdition("sluhay", "Дюна", "Френк Герберт", "", "https://sluhay/dune", genreTexts = listOf("Фентезі"))
+        val work = dao.observeWorks().first().single()
+
+        catalog.facetWriter.apply(
+            listOf(
+                LocalFacetDelta(
+                    WorkFacetDelta(
+                        workId = work.id,
+                        genreSourceReplacements = listOf(
+                            GenreSourceFacetReplacement(
+                                sourceId = "4read",
+                                documentUpdatedAt = Long.MAX_VALUE,
+                                assertions = emptyList()
+                            )
+                        )
+                    )
+                )
+            )
+        )
+
+        assertTrue(collectAll(catalog.pagedWorkFeedRecent(WorkFacetFilter(setOf("science-fiction")))).isEmpty())
+        val remaining = collectAll(catalog.pagedWorkFeedRecent(WorkFacetFilter(setOf("fantasy"))))
+        assertEquals(1, remaining.size)
+        assertEquals(work.id, remaining.single().workId)
     }
 
     @Test

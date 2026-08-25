@@ -18,9 +18,12 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.AppBottomBar
+import com.slukhayka.audiobooks.shouldHideAppBackgroundForFullPlayerTransition
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -41,6 +44,34 @@ class NavigationTabsTest {
 
     @get:Rule
     val composeTestRule = createComposeRule()
+
+    @Test
+    fun fullPlayerTransitionKeepsBackgroundHiddenUntilExitFinishes() {
+        assertFalse(
+            shouldHideAppBackgroundForFullPlayerTransition(
+                currentState = false,
+                targetState = false
+            )
+        )
+        assertTrue(
+            shouldHideAppBackgroundForFullPlayerTransition(
+                currentState = false,
+                targetState = true
+            )
+        )
+        assertTrue(
+            shouldHideAppBackgroundForFullPlayerTransition(
+                currentState = true,
+                targetState = true
+            )
+        )
+        assertTrue(
+            shouldHideAppBackgroundForFullPlayerTransition(
+                currentState = true,
+                targetState = false
+            )
+        )
+    }
 
     @Test
     fun bottomBarShowsListenBrowseAndLibraryTabs() {

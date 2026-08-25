@@ -106,7 +106,7 @@ object FacetAssertionLimits {
     const val MAX_SOURCE_ID_LENGTH = 100
     const val MAX_PERSON_NAME_LENGTH = 200
     const val MAX_ALIASES = 8
-    const val MAX_GENRES = 8
+    const val MAX_GENRES = 4
     const val MAX_GENRE_RAW_TEXT_LENGTH = 200
     const val MAX_SERIES_MEMBERSHIPS = 4
     const val MAX_SERIES_POSITION = 10_000

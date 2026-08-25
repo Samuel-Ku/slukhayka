@@ -135,15 +135,11 @@ service cloud.firestore {
     }
 
     function isFacetGenreList(v) {
-      return v is list && v.size() <= 8
+      return v is list && v.size() <= 4
         && (v.size() < 1 || isFacetGenre(v[0]))
         && (v.size() < 2 || isFacetGenre(v[1]))
         && (v.size() < 3 || isFacetGenre(v[2]))
-        && (v.size() < 4 || isFacetGenre(v[3]))
-        && (v.size() < 5 || isFacetGenre(v[4]))
-        && (v.size() < 6 || isFacetGenre(v[5]))
-        && (v.size() < 7 || isFacetGenre(v[6]))
-        && (v.size() < 8 || isFacetGenre(v[7]));
+        && (v.size() < 4 || isFacetGenre(v[3]));
     }
 
     function isFacetSeriesMembership(value) {

@@ -107,7 +107,7 @@ const MAX_WORK_FACET = {
     aliases: Array.from({ length: 8 }, (_, index) => `alias-${index}`),
   },
   genres: Array.from(
-    { length: 8 },
+    { length: 4 },
     (_, index) => ({ id: `genre-${index}`, rawText: index === 0 ? "Ж".repeat(200) : `Жанр ${index}` })
   ),
   seriesMemberships: Array.from(

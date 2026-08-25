@@ -12,9 +12,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -59,7 +57,6 @@ import com.slukhayka.audiobooks.data.entries.LibraryEntries
 import com.slukhayka.audiobooks.data.db.WorkFeedRow
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.data.update.UpdateChecker
-import com.slukhayka.audiobooks.data.source.sourceDisplayName
 import com.slukhayka.audiobooks.ui.DurationBooks
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.components.EmptyState
@@ -106,7 +103,6 @@ fun HomeScreen(
     // carry their own.
     val allBooks by libraryEntries.allBooks.collectAsState(initial = emptyList())
     val searchQuery by viewModel.searchQuery.collectAsState()
-    val selectedGenre by viewModel.selectedGenreFilter.collectAsState()
     val sections by sourceCatalog.catalogSections.collectAsState()
     val isCatalogLoading by sourceCatalog.isCatalogLoading.collectAsState()
     val catalogGenres by sourceCatalog.catalogGenres.collectAsState()
@@ -118,7 +114,6 @@ fun HomeScreen(
     // per Work, dedup inherited from merge-on-write. Filter/sort states live
     // in the ViewModel (they rebuild the Pager); the feed is collected here.
     val workFeedItems = viewModel.workFeed.collectAsLazyPagingItems()
-    val feedSourceFilter by viewModel.feedSourceFilter.collectAsState()
     val feedGenreFilter by viewModel.feedGenreFilter.collectAsState()
     val feedSortByTitle by viewModel.feedSortByTitle.collectAsState()
     // Spec-19 Track A: the on-device «Рекомендовано для вас» row — semantic
@@ -160,6 +155,9 @@ fun HomeScreen(
     val scope = rememberCoroutineScope()
     val recommendationSnackbar = remember { SnackbarHostState() }
     LaunchedEffect(Unit) {
+        // spec-42 T1 (#302): Sources are provenance, not an Огляд control.
+        // Clear any in-memory legacy selection before the paged feed is used.
+        viewModel.setFeedSourceFilter(null)
         sourceCatalog.refreshUnifiedCatalog()
         sourceCatalog.refreshSourceFeeds()
         viewModel.refreshEmbeddingVectors()
@@ -210,31 +208,14 @@ fun HomeScreen(
     val context = androidx.compose.ui.platform.LocalContext.current
     var searchExpanded by rememberSaveable { mutableStateOf(false) }
 
-    // Spec-27 (#205, BUG-007): the search-mode filter chips are the LIVE
-    // catalogue genres — never a hardcoded list (the old one duplicated the
-    // sources' genre sidebar and shipped an EN «Cyberpunk»). «Усі» stays as
-    // the clear-filter chip; the row appears once the homepage sync delivers
-    // the genre sidebar.
-    val genres = remember(catalogGenres) { listOf("Усі") + catalogGenres.map { it.title } }
-
     val filteredBooks = allBooks.filter { book ->
-        val matchesSearch = searchQuery.isBlank() ||
+        searchQuery.isBlank() ||
             book.title.contains(searchQuery, ignoreCase = true) ||
             book.author.contains(searchQuery, ignoreCase = true)
-
-        // Any selected chip filters the in-library results by the book's
-        // genre text; «Усі» clears the filter. The special-case branches
-        // (Завантажені/Короткі/Cyberpunk/…) died with the hardcoded list.
-        val matchesGenre = when (selectedGenre) {
-            "Усі", "All" -> true
-            else -> book.genre.contains(selectedGenre, ignoreCase = true)
-        }
-
-        matchesSearch && matchesGenre
     }
 
-    // Search/genre mode: a plain result list, no rows.
-    val inSearchMode = searchQuery.isNotBlank() || selectedGenre != "Усі"
+    // Text-search mode: genre filtering has one home in the feed sheet.
+    val inSearchMode = searchQuery.isNotBlank()
 
     Box(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
@@ -249,14 +230,11 @@ fun HomeScreen(
             HomeHeader(
                 searchExpanded = searchExpanded,
                 searchQuery = searchQuery,
-                selectedGenre = selectedGenre,
-                genres = genres,
                 onToggleSearch = {
                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                     searchExpanded = !searchExpanded
                     if (!searchExpanded) {
                         if (searchQuery.isNotBlank()) viewModel.updateSearchQuery("")
-                        if (selectedGenre != "Усі") viewModel.selectGenreFilter("Усі")
                     }
                 },
                 onRefresh = { scope.launch { sourceCatalog.fetchCatalogSections() } },
@@ -264,11 +242,6 @@ fun HomeScreen(
                 onCloseSearch = {
                     searchExpanded = false
                     if (searchQuery.isNotBlank()) viewModel.updateSearchQuery("")
-                    if (selectedGenre != "Усі") viewModel.selectGenreFilter("Усі")
-                },
-                onSelectGenre = { genre ->
-                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    viewModel.selectGenreFilter(genre)
                 }
             )
         }
@@ -346,9 +319,8 @@ fun HomeScreen(
             }
         } else {
             // ---- Netflix feed ---------------------------------------------
-            // spec-28 (#203): the block order is fixed by the spec (curated
-            // content above the endless feed, «Весь каталог» always last) and
-            // pinned by HomeFeedOrderSnapshotTest. The body lives in
+            // spec-42 T1 (#302): one hierarchy keeps curated content above the
+            // final endless feed, pinned by HomeFeedOrderSnapshotTest. The body lives in
             // [homeFeedContent] so the order is stateless and testable.
 
             // Spec-36 T1 (#244): the non-blocking update banner sits above
@@ -381,7 +353,6 @@ fun HomeScreen(
                 shortBooks = durationBooks.short.map { it.asCatalogBook() },
                 longBooks = durationBooks.long.map { it.asCatalogBook() },
                 workFeedItems = workFeedItems,
-                feedSourceFilter = feedSourceFilter,
                 feedGenreFilter = feedGenreFilter,
                 feedSortByTitle = feedSortByTitle,
                 onRefreshCatalog = { scope.launch { sourceCatalog.fetchCatalogSections() } },
@@ -390,13 +361,11 @@ fun HomeScreen(
                 onOpenPeople = { viewModel.openPeople(it) },
                 onOpenSeriesIndex = { viewModel.openSeriesIndex() },
                 onOpenCollectionsIndex = { viewModel.openCollectionsIndex() },
-                onOpenGenre = { title, url -> viewModel.openGenre(title, url) },
                 onOpenSeries = { title, url -> viewModel.openSeries(title, url) },
                 onPlayGlobalSearchResult = { viewModel.openGlobalSearchResult(it) },
                 onOpenRecommendedBook = { viewModel.openRecommendedBook(it) },
                 onOpenWorkFeedRow = { viewModel.openWorkFeedRow(it) },
                 onBookClick = onBookClick,
-                onSetFeedSourceFilter = { viewModel.setFeedSourceFilter(it) },
                 onSetFeedGenreFilter = { viewModel.setFeedGenreFilter(it) },
                 onSetFeedSortByTitle = { viewModel.setFeedSortByTitle(it) },
                 onOpenWebSource = onOpenWebSource,
@@ -462,22 +431,19 @@ fun HomeScreen(
 
 /**
  * Explore header (spec-22 T3): brand row with [🔍] search toggle + [🔄]
- * refresh, and an expandable search field with genre/mood chips. State is
+ * refresh, and an expandable text-search field. State is
  * hoisted so snapshot tests can pin both collapsed and expanded without a
  * ViewModel. ✕ or the system Back collapses the search, clears the query
- * and resets the filter to «Усі».
+ * and clears the query. Genre filtering lives only in the feed sheet.
  */
 @Composable
 fun HomeHeader(
     searchExpanded: Boolean,
     searchQuery: String,
-    selectedGenre: String,
-    genres: List<String>,
     onToggleSearch: () -> Unit,
     onRefresh: () -> Unit,
     onSearchQueryChange: (String) -> Unit,
     onCloseSearch: () -> Unit,
-    onSelectGenre: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val focusRequester = remember { FocusRequester() }
@@ -576,33 +542,6 @@ fun HomeHeader(
                     ),
                     singleLine = true
                 )
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                // Genre/mood filter chips — revealed with the search field.
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(genres) { genre ->
-                        val isSelected = selectedGenre == genre
-                        FilterChip(
-                            selected = isSelected,
-                            onClick = { onSelectGenre(genre) },
-                            label = { Text(genre) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = MaterialTheme.colorScheme.primary,
-                                selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
-                                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                                labelColor = MaterialTheme.colorScheme.onSurface
-                            ),
-                            border = FilterChipDefaults.filterChipBorder(
-                                enabled = true,
-                                selected = isSelected,
-                                borderColor = MaterialTheme.colorScheme.outlineVariant,
-                                selectedBorderColor = MaterialTheme.colorScheme.primary
-                            ),
-                            modifier = Modifier.testTag("home_genre_chip_$genre")
-                        )
-                    }
-                }
             }
         }
     }
@@ -619,6 +558,17 @@ fun CatalogRowHeader(title: String) {
         ),
         color = MaterialTheme.colorScheme.onSurface,
         modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 8.dp)
+    )
+}
+
+/** Top-level Огляд group; individual shelves keep the smaller row heading. */
+@Composable
+fun OverviewGroupHeader(title: String) {
+    Text(
+        text = title,
+        style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.ExtraBold),
+        color = MaterialTheme.colorScheme.onSurface,
+        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 24.dp, bottom = 4.dp)
     )
 }
 
@@ -1404,14 +1354,10 @@ fun AudiobookListItem(
     }
 }
 
-// Spec-23 T4: the endless merged feed's source chips — the adapter source
-// ids as stored on `editions.sourceId` (must match writeWorkEdition callers).
-private val WorkFeedSources = listOf("4read", "sluhay", "sluhayua", "soundbooks", "audiobookmp3", "lihtar")
-
 /**
- * Spec-23 T4 — one row of the endless merged feed: a Work with its
- * «N джерел» badge (the T5 badge input). Tapping resolves the Work's first
- * Edition and import-and-plays it (the same path as global-search cards).
+ * One row of the endless merged feed: a Work without Source chrome. Tapping
+ * resolves the Work's first Edition and import-and-plays it (the same path as
+ * global-search cards); provenance remains in the underlying metadata.
  * Pure `@Composable` — pinned by the snapshot seam from fixture rows.
  */
 @Composable
@@ -1467,12 +1413,6 @@ fun WorkFeedCard(
                     overflow = TextOverflow.Ellipsis
                 )
             }
-            // Spec-23 T5: the «N джерел» badge appears only when more than one
-            // source carries the Work — a single source needs no badge.
-            if (row.sourceCount > 1) {
-                Spacer(modifier = Modifier.height(4.dp))
-                SourceBadgePill(label = editionBadgeLabel(row.sourceCount))
-            }
         }
         Spacer(modifier = Modifier.width(8.dp))
         Icon(
@@ -1484,85 +1424,127 @@ fun WorkFeedCard(
     }
 }
 
-private fun editionBadgeLabel(count: Int): String = when {
-    count <= 1 -> "1 джерело"
-    count <= 4 -> "$count джерела"
-    else -> "$count джерел"
-}
-
 /**
- * Spec-23 T4 — the endless feed's filter bar: source chips, genre chips and
- * a sort toggle. Filters rebuild the Pager in the ViewModel, so this stays a
- * pure `@Composable` over hoisted state — pinnable by the snapshot seam.
+ * spec-42 T1 (#302) — the endless feed's compact sticky toolbar. It exposes
+ * one current-value sort control and one selected/unselected filter control;
+ * the single-genre tracer lives in a transient sheet until #304 adds facets.
  */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun WorkFeedFilters(
-    sourceFilter: String?,
     genreFilter: String?,
     sortByTitle: Boolean,
     genres: List<String>,
-    onSourceChange: (String?) -> Unit,
     onGenreChange: (String?) -> Unit,
     onSortToggle: () -> Unit
 ) {
-    Column(modifier = Modifier.fillMaxWidth()) {
+    var sortExpanded by remember { mutableStateOf(false) }
+    var showFilterSheet by rememberSaveable { mutableStateOf(false) }
+
+    Surface(
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 2.dp,
+        modifier = Modifier.fillMaxWidth().testTag("work_feed_toolbar")
+    ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier
                 .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 4.dp)
+                .padding(horizontal = 16.dp, vertical = 8.dp)
         ) {
-            FilterChip(
-                selected = !sortByTitle,
-                onClick = { if (sortByTitle) onSortToggle() },
-                label = { Text("Спочатку нові") },
-                modifier = Modifier.testTag("feed_sort_recent")
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            FilterChip(
-                selected = sortByTitle,
-                onClick = { if (!sortByTitle) onSortToggle() },
-                label = { Text("За назвою") },
-                modifier = Modifier.testTag("feed_sort_title")
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            FilterChip(
-                selected = sourceFilter == null,
-                onClick = { onSourceChange(null) },
-                label = { Text("Усі джерела") },
-                modifier = Modifier.testTag("feed_source_all")
-            )
-            WorkFeedSources.forEach { id ->
-                Spacer(modifier = Modifier.width(8.dp))
-                FilterChip(
-                    selected = sourceFilter == id,
-                    onClick = { onSourceChange(if (sourceFilter == id) null else id) },
-                    label = { Text(sourceDisplayName(id)) },
-                    modifier = Modifier.testTag("feed_source_$id")
-                )
+            Box {
+                OutlinedButton(
+                    onClick = { sortExpanded = true },
+                    modifier = Modifier.testTag("feed_sort")
+                ) {
+                    Text(if (sortByTitle) "За назвою" else "Спочатку нові")
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+                }
+                DropdownMenu(
+                    expanded = sortExpanded,
+                    onDismissRequest = { sortExpanded = false }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Спочатку нові") },
+                        onClick = {
+                            if (sortByTitle) onSortToggle()
+                            sortExpanded = false
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("За назвою") },
+                        onClick = {
+                            if (!sortByTitle) onSortToggle()
+                            sortExpanded = false
+                        }
+                    )
+                }
             }
-        }
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 4.dp)
-        ) {
             FilterChip(
-                selected = genreFilter == null,
-                onClick = { onGenreChange(null) },
-                label = { Text("Усі жанри") },
-                modifier = Modifier.testTag("feed_genre_all")
+                selected = genreFilter != null,
+                onClick = { showFilterSheet = true },
+                label = { Text("Фільтри") },
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Default.Tune,
+                        contentDescription = null,
+                        modifier = Modifier.size(FilterChipDefaults.IconSize)
+                    )
+                },
+                modifier = Modifier.testTag("feed_filters")
             )
-            genres.forEach { genre ->
-                Spacer(modifier = Modifier.width(8.dp))
-                FilterChip(
-                    selected = genreFilter == genre,
-                    onClick = { onGenreChange(if (genreFilter == genre) null else genre) },
-                    label = { Text(genre) },
-                    modifier = Modifier.testTag("feed_genre_$genre")
+        }
+    }
+
+    if (showFilterSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showFilterSheet = false },
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp)
+                    .navigationBarsPadding()
+            ) {
+                Text(
+                    text = "Фільтри",
+                    style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold)
                 )
+                Spacer(modifier = Modifier.height(20.dp))
+                Text(text = "Жанри", style = MaterialTheme.typography.titleMedium)
+                Spacer(modifier = Modifier.height(12.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    FilterChip(
+                        selected = genreFilter == null,
+                        onClick = { onGenreChange(null) },
+                        label = { Text("Усі жанри") },
+                        modifier = Modifier.testTag("feed_genre_all")
+                    )
+                    genres.forEach { genre ->
+                        FilterChip(
+                            selected = genreFilter == genre,
+                            onClick = { onGenreChange(if (genreFilter == genre) null else genre) },
+                            label = { Text(genre) },
+                            modifier = Modifier.testTag("feed_genre_$genre")
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(24.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TextButton(onClick = { onGenreChange(null) }) { Text("Скинути все") }
+                    Button(onClick = { showFilterSheet = false }) { Text("Готово") }
+                }
+                Spacer(modifier = Modifier.height(12.dp))
             }
         }
     }

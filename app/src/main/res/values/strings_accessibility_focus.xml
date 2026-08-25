@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="a11y_duration_unknown_value">невідома</string>
+    <string name="a11y_player_tool_state">%1$s: %2$s</string>
+    <string name="a11y_book_detail_open_site">Відкрити «%1$s» на сайті</string>
+    <string name="a11y_book_detail_open_sluhay">Відкрити «%1$s» у Sluhay</string>
+    <string name="a11y_book_detail_delete_work">Видалити «%1$s»</string>
+    <string name="a11y_book_detail_delete_options_pane">Видалення «%1$s»</string>
+    <string name="a11y_book_detail_delete_options_title">Видалити «%1$s»</string>
+    <string name="a11y_book_detail_delete_options_hint">Оберіть, що саме видалити</string>
+    <string name="a11y_book_detail_remove_library">Прибрати «%1$s» з медіатеки</string>
+    <string name="a11y_book_detail_remove_library_consequence">Книга зникне зі списку, файли на пристрої лишаться</string>
+    <string name="a11y_book_detail_delete_download">Видалити завантажену копію «%1$s»</string>
+    <string name="a11y_book_detail_delete_download_consequence">Книга лишиться в медіатеці, але без офлайн-копії</string>
+    <string name="a11y_book_detail_delete_everything">Видалити «%1$s» та файли з пристрою</string>
+    <string name="a11y_book_detail_delete_everything_consequence">Повністю видалить книгу й аудіофайли. Дію не можна скасувати.</string>
+    <string name="a11y_book_detail_delete_confirm_pane">Підтвердження видалення «%1$s»</string>
+    <string name="a11y_book_detail_delete_confirm_title">Видалити «%1$s»?</string>
+    <string name="a11y_book_detail_delete_confirm_consequence">Буде видалено «%1$s» разом із розділами, закладками, прогресом і завантаженими файлами. Дію не можна скасувати.</string>
+    <string name="a11y_library_clear_search">Очистити пошук у медіатеці</string>
+    <string name="a11y_library_filter_close">Закрити фільтр і сортування</string>
+    <string name="a11y_library_import_close">Закрити додавання аудіо</string>
+    <string name="a11y_library_import_preview_pane">Перегляд імпорту</string>
+    <string name="a11y_library_import_preview_title">Перед імпортом</string>
+</resources>

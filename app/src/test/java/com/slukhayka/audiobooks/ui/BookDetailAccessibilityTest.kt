@@ -13,6 +13,7 @@ import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertHeightIsAtLeast
+import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -72,6 +73,7 @@ class BookDetailAccessibilityTest {
         composeTestRule.onAllNodesWithText(book.title, substring = false)
             .assertCountEquals(1)
         composeTestRule.onNodeWithText(book.title)
+            .assertIsFocused()
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.Heading, Unit))
         composeTestRule.onNodeWithContentDescription(book.title, useUnmergedTree = true)
             .assertDoesNotExist()

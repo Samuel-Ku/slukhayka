@@ -12,8 +12,10 @@ import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performSemanticsAction
@@ -157,6 +159,30 @@ class PlayerToolsAccessibilityTest {
             .performClick()
 
         assertEquals(1, selected)
+    }
+
+    @Test
+    fun chapterPickerNamesUnknownDurationWithoutAnnouncingZero() {
+        val unknown = ChapterEntity("chapter-unknown", "book", 0, "Пролог", 0)
+        composeTestRule.setContent {
+            PlayerTheme {
+                ChapterBottomSheet(
+                    chapters = listOf(unknown),
+                    selectedIndex = 0,
+                    onSelect = {},
+                    onDismiss = {}
+                )
+            }
+        }
+
+        composeTestRule.onNodeWithTag("chapter_option_0")
+            .assertContentDescriptionEquals("Пролог. Тривалість невідома. Поточний розділ")
+        composeTestRule.onAllNodesWithText("Тривалість невідома", useUnmergedTree = true)
+            .assertCountEquals(1)
+        composeTestRule.onNodeWithTag("chapter_option_duration_0", useUnmergedTree = true)
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.HideFromAccessibility, Unit))
+        composeTestRule.onAllNodesWithText("00:00", useUnmergedTree = true)
+            .assertCountEquals(0)
     }
 
     @Test

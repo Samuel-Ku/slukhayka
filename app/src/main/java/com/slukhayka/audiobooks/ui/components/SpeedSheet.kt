@@ -112,7 +112,7 @@ fun SpeedSheet(
                 )
                 IconButton(
                     onClick = onDismiss,
-                    modifier = Modifier.height(48.dp)
+                    modifier = Modifier.heightIn(min = 48.dp)
                 ) {
                     Icon(Icons.Default.Close, contentDescription = closeDescription)
                 }

@@ -1,6 +1,7 @@
 package com.slukhayka.audiobooks.ui.screens
 
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.layout.Arrangement
@@ -18,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.ViewList
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -27,10 +29,17 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.IconButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -44,6 +53,7 @@ import com.slukhayka.audiobooks.ui.library.SHEET_FILTERS
 import com.slukhayka.audiobooks.ui.library.STATUS_FILTERS
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.ui.components.accessibilityPane
+import kotlinx.coroutines.launch
 
 /**
  * spec-28 #193 — the Медіатека filter chrome, split into a visible segmented
@@ -122,10 +132,22 @@ fun LibraryFilterSheet(
     onFilterChange: (LibraryFilter) -> Unit,
     onSortChange: (LibrarySort) -> Unit,
     onGridModeChange: (Boolean) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    returnFocusRequester: FocusRequester? = null
 ) {
+    val scope = rememberCoroutineScope()
+    val headingFocusRequester = remember { FocusRequester() }
+    fun dismissAndRestore() {
+        onDismiss()
+        returnFocusRequester?.let { requester ->
+            scope.launch {
+                withFrameNanos { }
+                requester.requestFocus()
+            }
+        }
+    }
     ModalBottomSheet(
-        onDismissRequest = onDismiss,
+        onDismissRequest = ::dismissAndRestore,
         containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         modifier = Modifier.accessibilityPane(stringResource(R.string.a11y_library_filter_pane))
     ) {
@@ -135,7 +157,10 @@ fun LibraryFilterSheet(
             gridMode = gridMode,
             onFilterChange = onFilterChange,
             onSortChange = onSortChange,
-            onGridModeChange = onGridModeChange
+            onGridModeChange = onGridModeChange,
+            headingFocusRequester = headingFocusRequester,
+            includePaneSemantics = false,
+            onClose = ::dismissAndRestore
         )
     }
 }
@@ -151,22 +176,47 @@ fun LibraryFilterSheetContent(
     gridMode: Boolean,
     onFilterChange: (LibraryFilter) -> Unit,
     onSortChange: (LibrarySort) -> Unit,
-    onGridModeChange: (Boolean) -> Unit
+    onGridModeChange: (Boolean) -> Unit,
+    headingFocusRequester: FocusRequester? = null,
+    includePaneSemantics: Boolean = true,
+    onClose: (() -> Unit)? = null
 ) {
+    val localHeadingFocusRequester = remember { FocusRequester() }
+    val effectiveHeadingFocusRequester = headingFocusRequester ?: localHeadingFocusRequester
+    LaunchedEffect(effectiveHeadingFocusRequester) {
+        withFrameNanos { }
+        effectiveHeadingFocusRequester.requestFocus()
+    }
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .accessibilityPane(stringResource(R.string.a11y_library_filter_pane))
+            .then(
+                if (includePaneSemantics) {
+                    Modifier.accessibilityPane(stringResource(R.string.a11y_library_filter_pane))
+                } else Modifier
+            )
             .padding(horizontal = 24.dp)
             .padding(bottom = 32.dp)
             .testTag("library_filter_sheet_content")
     ) {
-        Text(
-            text = "Фільтр та сортування",
-            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.semantics { heading() }
-        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = "Фільтр та сортування",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier
+                    .weight(1f)
+                    .focusRequester(effectiveHeadingFocusRequester)
+                    .focusable()
+                    .semantics { heading() }
+                    .testTag("library_filter_sheet_heading")
+            )
+            if (onClose != null) {
+                IconButton(onClick = onClose, modifier = Modifier.size(48.dp)) {
+                    Icon(Icons.Default.Close, contentDescription = stringResource(R.string.a11y_library_filter_close))
+                }
+            }
+        }
 
         Spacer(modifier = Modifier.height(16.dp))
         SheetSectionLabel("Фільтр")

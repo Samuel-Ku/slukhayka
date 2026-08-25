@@ -56,6 +56,7 @@ import com.slukhayka.audiobooks.ui.components.BookCoverSemantics
 import com.slukhayka.audiobooks.ui.components.BookCoverImage
 import com.slukhayka.audiobooks.ui.components.EmptyState
 import com.slukhayka.audiobooks.ui.components.accessibilityPane
+import com.slukhayka.audiobooks.ui.components.accessibilityModalBackground
 import com.slukhayka.audiobooks.ui.displayAuthor
 import com.slukhayka.audiobooks.ui.library.LibraryBook
 import com.slukhayka.audiobooks.ui.library.LibraryFilter
@@ -145,16 +146,6 @@ fun LibraryScreen(
     // The plan is pure data; confirming calls apply, dismissing leaves zero
     // trace. Merge suggestions render as review rows, never silent merges.
     val importPreview by viewModel.importPreview.collectAsState()
-    if (importPreview != null) {
-        ImportPreviewDialog(
-            preview = importPreview!!,
-            onAcceptMerge = viewModel::acceptMergeInPreview,
-            onRejectMerge = viewModel::rejectMergeInPreview,
-            onConfirm = viewModel::confirmImportPreview,
-            onDismiss = viewModel::dismissImportPreview
-        )
-    }
-
     var activeTab by remember { mutableStateOf(0) } // 0 = Книги, 1 = Закладки, 2 = Статистика
     var filter by remember { mutableStateOf(LibraryFilter.ALL) }
     var sort by remember { mutableStateOf(LibrarySort.RECENTLY_LISTENED) }
@@ -166,6 +157,9 @@ fun LibraryScreen(
     // storage destination is reached from the ⋮ overflow menu.
     var showImportSheet by remember { mutableStateOf(false) }
     var showOverflowMenu by remember { mutableStateOf(false) }
+    val filterFocusRequester = remember { FocusRequester() }
+    val importFocusRequester = remember { FocusRequester() }
+    val modalVisible = showFilterSheet || showImportSheet || importPreview != null
 
     val visibleBooks = remember(libraryBooks, filter, sort, query) {
         filterAndSortLibrary(libraryBooks, filter, sort, query)
@@ -175,8 +169,9 @@ fun LibraryScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .accessibilityPane(stringResource(com.slukhayka.audiobooks.R.string.a11y_library_pane))
                 .testTag("library_screen")
+                .accessibilityModalBackground(modalVisible)
+                .accessibilityPane(stringResource(com.slukhayka.audiobooks.R.string.a11y_library_pane))
         ) {
             // Top Header — one row: title + subtitle, «+ Додати» (the import
             // sheet) and the ⋮ overflow (the storage destination). Collapsing
@@ -215,6 +210,7 @@ fun LibraryScreen(
                     shape = RoundedCornerShape(AppDimens.RadiusCardLg),
                     modifier = Modifier
                         .heightIn(min = 48.dp)
+                        .focusRequester(importFocusRequester)
                         .testTag("library_add_button")
                 ) {
                     Icon(
@@ -332,7 +328,10 @@ fun LibraryScreen(
                     trailingIcon = if (query.isNotEmpty()) {
                         {
                             IconButton(onClick = { query = "" }) {
-                                Icon(imageVector = Icons.Default.Clear, contentDescription = "Очистити пошук")
+                                Icon(
+                                    imageVector = Icons.Default.Clear,
+                                    contentDescription = stringResource(R.string.a11y_library_clear_search)
+                                )
                             }
                         }
                     } else null,
@@ -374,6 +373,7 @@ fun LibraryScreen(
                     modifier = Modifier
                         .padding(horizontal = 16.dp)
                         .heightIn(min = 48.dp)
+                        .focusRequester(filterFocusRequester)
                         .testTag("library_filter_button")
                 )
 
@@ -381,31 +381,6 @@ fun LibraryScreen(
                 // файли» moved to the «Завантаження та пам'ять» destination
                 // (⋮ overflow) — nothing destructive sits on the main screen.
 
-                if (showFilterSheet) {
-                    LibraryFilterSheet(
-                        filter = filter,
-                        sort = sort,
-                        gridMode = gridMode,
-                        onFilterChange = { filter = it },
-                        onSortChange = { sort = it },
-                        onGridModeChange = { gridMode = it },
-                        onDismiss = { showFilterSheet = false }
-                    )
-                }
-
-                if (showImportSheet) {
-                    LibraryImportSheet(
-                        onImportFile = {
-                            showImportSheet = false
-                            importLauncher.launch(arrayOf("audio/*", "application/ogg", "application/mpeg"))
-                        },
-                        onImportFolder = {
-                            showImportSheet = false
-                            folderLauncher.launch(null)
-                        },
-                        onDismiss = { showImportSheet = false }
-                    )
-                }
             }
 
             when (activeTab) {
@@ -493,6 +468,45 @@ fun LibraryScreen(
                 .padding(16.dp)
                 .semantics { liveRegion = LiveRegionMode.Polite }
         )
+
+        if (showFilterSheet) {
+            LibraryFilterSheet(
+                filter = filter,
+                sort = sort,
+                gridMode = gridMode,
+                onFilterChange = { filter = it },
+                onSortChange = { sort = it },
+                onGridModeChange = { gridMode = it },
+                onDismiss = { showFilterSheet = false },
+                returnFocusRequester = filterFocusRequester
+            )
+        }
+
+        if (showImportSheet) {
+            LibraryImportSheet(
+                onImportFile = {
+                    showImportSheet = false
+                    importLauncher.launch(arrayOf("audio/*", "application/ogg", "application/mpeg"))
+                },
+                onImportFolder = {
+                    showImportSheet = false
+                    folderLauncher.launch(null)
+                },
+                onDismiss = { showImportSheet = false },
+                returnFocusRequester = importFocusRequester
+            )
+        }
+
+        importPreview?.let { preview ->
+            ImportPreviewDialog(
+                preview = preview,
+                onAcceptMerge = viewModel::acceptMergeInPreview,
+                onRejectMerge = viewModel::rejectMergeInPreview,
+                onConfirm = viewModel::confirmImportPreview,
+                onDismiss = viewModel::dismissImportPreview,
+                returnFocusRequester = importFocusRequester
+            )
+        }
     }
 }
 
@@ -1053,12 +1067,40 @@ fun ImportPreviewDialog(
     onAcceptMerge: (String) -> Unit,
     onRejectMerge: (String) -> Unit,
     onConfirm: () -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    returnFocusRequester: FocusRequester? = null
 ) {
     val mergedCount = preview.plan.books.count { it.mergedIntoBookId != null }
+    val headingFocusRequester = remember { FocusRequester() }
+    val scope = rememberCoroutineScope()
+    fun finishAndRestore(action: () -> Unit) {
+        action()
+        returnFocusRequester?.let { requester ->
+            scope.launch {
+                withFrameNanos { }
+                requester.requestFocus()
+            }
+        }
+    }
     AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Перед імпортом") },
+        onDismissRequest = { finishAndRestore(onDismiss) },
+        modifier = Modifier
+            .accessibilityPane(stringResource(R.string.a11y_library_import_preview_pane))
+            .testTag("library_import_preview_dialog"),
+        title = {
+            LaunchedEffect(headingFocusRequester) {
+                withFrameNanos { }
+                headingFocusRequester.requestFocus()
+            }
+            Text(
+                stringResource(R.string.a11y_library_import_preview_title),
+                modifier = Modifier
+                    .focusRequester(headingFocusRequester)
+                    .focusable()
+                    .semantics { heading() }
+                    .testTag("library_import_preview_heading")
+            )
+        },
         text = {
             Column(
                 modifier = Modifier
@@ -1121,7 +1163,12 @@ fun ImportPreviewDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onConfirm) {
+            TextButton(
+                onClick = { finishAndRestore(onConfirm) },
+                modifier = Modifier
+                    .heightIn(min = 48.dp)
+                    .testTag("library_import_preview_confirm")
+            ) {
                 Text(
                     if (mergedCount > 0) {
                         "Імпортувати (${preview.plan.books.size - mergedCount} нових, $mergedCount з'єднати)"
@@ -1132,7 +1179,10 @@ fun ImportPreviewDialog(
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
+            TextButton(
+                onClick = { finishAndRestore(onDismiss) },
+                modifier = Modifier.heightIn(min = 48.dp)
+            ) {
                 Text("Скасувати")
             }
         }

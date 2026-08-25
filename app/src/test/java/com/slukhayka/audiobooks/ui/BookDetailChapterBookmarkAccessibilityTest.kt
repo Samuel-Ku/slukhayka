@@ -2,10 +2,21 @@ package com.slukhayka.audiobooks.ui
 
 import androidx.compose.material3.Surface
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.height
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
@@ -14,12 +25,14 @@ import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsFocused
+import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Density
@@ -27,8 +40,10 @@ import androidx.compose.ui.semantics.getOrNull
 import com.slukhayka.audiobooks.data.db.BookmarkEntity
 import com.slukhayka.audiobooks.data.db.ChapterEntity
 import com.slukhayka.audiobooks.ui.components.BookmarkDialog
+import com.slukhayka.audiobooks.ui.components.accessibilityModalBackground
 import com.slukhayka.audiobooks.ui.screens.BookmarkDeleteConfirmation
 import com.slukhayka.audiobooks.ui.screens.BookmarkRowItem
+import com.slukhayka.audiobooks.ui.screens.BookDeleteModalLifecycle
 import com.slukhayka.audiobooks.ui.screens.ChapterRowItem
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
 import org.junit.Assert.assertEquals
@@ -206,19 +221,128 @@ class BookDetailChapterBookmarkAccessibilityTest {
         var confirmed = false
         composeTestRule.setContent {
             AudiobookTheme(darkTheme = true) {
-                BookmarkDeleteConfirmation(
-                    workTitle = "Трохи ненависті",
-                    bookmark = bookmark,
-                    onConfirm = { confirmed = true },
-                    onDismiss = {}
-                )
+                var open by remember { mutableStateOf(false) }
+                val origin = remember { FocusRequester() }
+                Box {
+                    Button(
+                        onClick = { open = true },
+                        modifier = Modifier
+                            .focusRequester(origin)
+                            .testTag("bookmark_delete_origin")
+                            .accessibilityModalBackground(open)
+                    ) { Text("Відкрити видалення") }
+                    if (open) {
+                        BookmarkDeleteConfirmation(
+                            workTitle = "Трохи ненависті",
+                            bookmark = bookmark,
+                            onConfirm = {
+                                confirmed = true
+                                open = false
+                            },
+                            onDismiss = { open = false },
+                            returnFocusRequester = origin
+                        )
+                    }
+                }
             }
         }
 
+        composeTestRule.onNodeWithTag("bookmark_delete_origin").performClick()
+        composeTestRule.onNodeWithTag("bookmark_delete_origin", useUnmergedTree = true)
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.HideFromAccessibility, Unit))
+        composeTestRule.onNodeWithTag("book_detail_bookmark_delete_heading")
+            .assertIsFocused()
+        composeTestRule.onAllNodes(
+            SemanticsMatcher.keyIsDefined(SemanticsProperties.PaneTitle),
+            useUnmergedTree = true
+        ).assertCountEquals(1)
         composeTestRule.onNodeWithText(
             "Видалити закладку у «Трохи ненависті», розділ «${chapter.title}», 02:05?"
         ).assertExists()
-        composeTestRule.onNodeWithText("Видалити").performClick()
+        composeTestRule.onNodeWithText("Скасувати").performClick()
+        composeTestRule.onNodeWithTag("bookmark_delete_origin").assertIsFocused().performClick()
+        composeTestRule.onNodeWithTag("book_detail_bookmark_delete_confirm").performClick()
+        composeTestRule.onNodeWithTag("bookmark_delete_origin").assertIsFocused()
+        assertTrue(confirmed)
+    }
+
+    @Test
+    fun destructiveBookModalLifecycleKeepsContextAndReturnsToExactTriggerAtTwoHundredPercent() {
+        var removed = false
+        var confirmed = false
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                CompositionLocalProvider(LocalDensity provides Density(1f, fontScale = 2f)) {
+                    var showOptions by remember { mutableStateOf(false) }
+                    var showConfirmation by remember { mutableStateOf(false) }
+                    val origin = remember { FocusRequester() }
+                    Box(modifier = Modifier.width(320.dp).height(480.dp)) {
+                        Button(
+                            onClick = { showOptions = true },
+                            modifier = Modifier
+                                .focusRequester(origin)
+                                .testTag("book_delete_origin")
+                                .accessibilityModalBackground(showOptions || showConfirmation)
+                        ) {
+                            Text("Видалити Трохи ненависті")
+                        }
+                        BookDeleteModalLifecycle(
+                            workTitle = "Трохи ненависті",
+                            isDownloaded = true,
+                            showOptions = showOptions,
+                            showConfirmation = showConfirmation,
+                            returnFocusRequester = origin,
+                            onRemoveFromLibrary = { removed = true },
+                            onDeleteDownloadedCopy = {},
+                            onConfirmDelete = { confirmed = true },
+                            onOptionsDismiss = { showOptions = false },
+                            onRequestConfirmation = { showConfirmation = true },
+                            onConfirmationDismiss = { showConfirmation = false }
+                        )
+                    }
+                }
+            }
+        }
+
+        composeTestRule.onNodeWithTag("book_delete_origin").performClick()
+        composeTestRule.onNodeWithTag("book_delete_origin", useUnmergedTree = true)
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.HideFromAccessibility, Unit))
+        composeTestRule.onNodeWithTag("book_detail_delete_options_heading")
+            .assertIsFocused()
+        composeTestRule.onAllNodes(
+            SemanticsMatcher.keyIsDefined(SemanticsProperties.PaneTitle),
+            useUnmergedTree = true
+        ).assertCountEquals(1)
+        composeTestRule.onNodeWithTag("delete_remove_from_library")
+            .assertHeightIsAtLeast(48.dp)
+            .assertTextContains("Прибрати «Трохи ненависті» з медіатеки")
+            .assertTextContains("Книга зникне зі списку, файли на пристрої лишаться")
+            .performClick()
+        composeTestRule.onNodeWithTag("book_delete_origin").assertIsFocused()
+        assertTrue(removed)
+
+        composeTestRule.onNodeWithTag("book_delete_origin").performClick()
+        composeTestRule.onNodeWithTag("delete_book_and_files")
+            .performScrollTo()
+            .performClick()
+        composeTestRule.onNodeWithTag("book_detail_delete_confirm_heading")
+            .assertIsFocused()
+        composeTestRule.onAllNodes(
+            SemanticsMatcher.keyIsDefined(SemanticsProperties.PaneTitle),
+            useUnmergedTree = true
+        ).assertCountEquals(1)
+        composeTestRule.onNodeWithText(
+            "Буде видалено «Трохи ненависті» разом із розділами, закладками, прогресом і завантаженими файлами. Дію не можна скасувати."
+        ).assertExists()
+        composeTestRule.onNodeWithText("Скасувати").performClick()
+        composeTestRule.onNodeWithTag("book_delete_origin").assertIsFocused()
+
+        composeTestRule.onNodeWithTag("book_delete_origin").performClick()
+        composeTestRule.onNodeWithTag("delete_book_and_files").performScrollTo().performClick()
+        composeTestRule.onNodeWithTag("book_detail_delete_confirm")
+            .assertHeightIsAtLeast(48.dp)
+            .performClick()
+        composeTestRule.onNodeWithTag("book_delete_origin").assertIsFocused()
         assertTrue(confirmed)
     }
 

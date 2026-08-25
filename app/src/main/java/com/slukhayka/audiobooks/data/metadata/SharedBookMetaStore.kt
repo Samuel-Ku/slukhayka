@@ -33,10 +33,11 @@ interface SharedBookMetaStore {
     /**
      * Best-effort write-back of one derived duration into the shared base,
      * keyed by the SAME Edition id the read path uses, so the next user reads
-     * it instead of deriving again. Carries the [DurationProvenance]
-     * (source, derivedAt). Idempotent by contract (a document key is
-     * replaced, never duplicated — Firestore set()); a failing write
-     * contributes nothing.
+     * it instead of deriving again. Carries bounded [DurationProvenance]
+     * (source, method, derivedAt). The first plausible value is canonical;
+     * repeats are no-ops and a materially different value creates one
+     * deterministic conflict record without replacing the canonical fact.
+     * A failing write contributes nothing.
      */
     suspend fun putDuration(
         editionId: String,
@@ -372,13 +373,17 @@ object BookProfileCodec {
  * older documents decode fine.
  */
 data class DurationProvenance(
-    /** The origin of the duration: [SOURCE_DERIVED] today. */
+    /** The public Source identifier or another bounded origin label. */
     val source: String,
-    val derivedAt: Long
+    val derivedAt: Long,
+    /** How the value was observed; part of deterministic conflict identity. */
+    val method: String = METHOD_SOURCE_METADATA
 ) {
     companion object {
         /** A duration derived from real source metadata (page, stream probe). */
         const val SOURCE_DERIVED = "derived"
+        const val METHOD_SOURCE_METADATA = "source_metadata"
+        const val METHOD_TECHNICAL_PROBE = "technical_probe"
     }
 }
 
@@ -404,6 +409,7 @@ object DurationSanity {
  * ```
  * durationSeconds: Long   (the rendition's total duration)
  * source:         String  (provenance — e.g. "derived")
+ * method:         String  (how it was observed)
  * derivedAt:      Long    (provenance — when the duration was derived)
  * ```
  *
@@ -416,6 +422,7 @@ object SharedDurationCodec {
     fun toMap(durationSeconds: Long, provenance: DurationProvenance): Map<String, Any> = mapOf(
         "durationSeconds" to durationSeconds,
         "source" to provenance.source,
+        "method" to provenance.method,
         "derivedAt" to provenance.derivedAt
     )
 

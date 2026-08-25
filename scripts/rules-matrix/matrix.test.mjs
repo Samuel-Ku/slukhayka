@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Spec-40 #283 — контрольна матриця правил Firestore на емуляторі.
+ * Spec-40 #283 + Spec-42 #303 — контрольна матриця правил Firestore.
  *
  * ДВА ПРОГОНИ (оркеструє run-all.sh):
  *   A) RULES_GATE=as-is — правила як в репо: без App Check токена не пишеться
@@ -51,6 +51,26 @@ const MALFORMED_BODY = { ...VALID_BODY, rating: 9 };
 // викликач uid-bob, у тілі чужий uid=uid-alice — перевірка володіння
 const FOREIGN_BODY = { ...VALID_BODY, uid: "uid-alice" };
 
+const VALID_DURATION = {
+  durationSeconds: 7_200,
+  source: "4read",
+  method: "source_metadata",
+  derivedAt: 1700000000000,
+};
+const INVALID_DURATION = { ...VALID_DURATION, durationSeconds: 0 };
+const PERSONALLY_TAGGED_DURATION = { ...VALID_DURATION, uid: "uid-alice" };
+const VALID_DURATION_CONFLICT = {
+  editionId: "edition-qa",
+  candidateSeconds: 8_000,
+  source: "4read",
+  method: "technical_probe",
+  observedAt: 1700000000000,
+};
+const INVALID_DURATION_CONFLICT = {
+  ...VALID_DURATION_CONFLICT,
+  source: "x".repeat(101),
+};
+
 // id | path | method | uid | тіло | очікувано | чому
 const MATRIX = [
   ["R1", "book_reviews/qa_r1", "get", null, null, "ALLOW", "читання публічне"],
@@ -67,6 +87,19 @@ const MATRIX = [
   ["D2", "device_bindings/qa_d2", "create", "uid-alice", { uid: "uid-alice", cred: "sealed-bytes" }, "ALLOW", "свій uid"],
   ["D3", "device_bindings/qa_d3", "create", "uid-bob", { uid: "uid-alice", cred: "sealed-bytes" }, "DENY", "чужий uid"],
   ["D4", "device_bindings/qa_d4", "create", "uid-alice", { uid: "uid-alice", cred: "sealed-bytes" }, "DENY", "нема AppCheck-токена"],
+  ["T1", "book_durations/qa_t1", "get", null, null, "ALLOW", "канонічне читання публічне"],
+  ["T2", "book_durations/qa_t2", "create", null, VALID_DURATION, "ALLOW", "правдоподібний create (+AppCheck у проді)"],
+  ["T3", "book_durations/qa_t3", "create", null, INVALID_DURATION, "DENY", "неправдоподібна тривалість"],
+  ["T4", "book_durations/qa_t4", "create", null, PERSONALLY_TAGGED_DURATION, "DENY", "зайве особисте поле"],
+  ["T5", "book_durations/qa_t5", "update", null, VALID_DURATION, "DENY", "canonical update заборонений"],
+  ["T6", "book_durations/qa_t6", "delete", null, null, "DENY", "canonical delete заборонений"],
+  ["T7", "book_durations/qa_t7", "create", null, VALID_DURATION, "DENY", "нема AppCheck-токена"],
+  ["C1", "book_duration_conflicts/qa_c1", "get", null, null, "ALLOW", "conflict read публічне"],
+  ["C2", "book_duration_conflicts/qa_c2", "create", null, VALID_DURATION_CONFLICT, "ALLOW", "bounded conflict create"],
+  ["C3", "book_duration_conflicts/qa_c3", "create", null, INVALID_DURATION_CONFLICT, "DENY", "завелика provenance"],
+  ["C4", "book_duration_conflicts/qa_c4", "update", null, VALID_DURATION_CONFLICT, "DENY", "conflict update заборонений"],
+  ["C5", "book_duration_conflicts/qa_c5", "delete", null, null, "DENY", "conflict delete заборонений"],
+  ["C6", "book_duration_conflicts/qa_c6", "create", null, VALID_DURATION_CONFLICT, "DENY", "нема AppCheck-токена"],
 ];
 
 // Який прогін є доказом кожного рядка.
@@ -74,6 +107,9 @@ const EVIDENCE = {
   R1: "as-is", R4: "as-is", D1: "as-is", D4: "as-is",
   R2: "open", R3: "open", R5: "open", R6: "open", R7: "open",
   R8: "open", R9: "open", R10: "open", D2: "open", D3: "open",
+  T1: "as-is", T2: "open", T3: "open", T4: "open", T5: "open",
+  T6: "open", T7: "as-is", C1: "as-is", C2: "open", C3: "open",
+  C4: "open", C5: "open", C6: "as-is",
 };
 
 function b64(o) {
@@ -136,7 +172,7 @@ async function runPass(gateLabel) {
     if (substituted === rules) throw new Error("гейт isAppCheckValid() не знайдено");
     rules = substituted;
   }
-  await initializeTestEnvironment({
+  const testEnv = await initializeTestEnvironment({
     projectId: PROJECT_ID,
     firestore: { rules, host: "127.0.0.1", port: 8080 },
   });
@@ -144,11 +180,18 @@ async function runPass(gateLabel) {
   // Сід для update/delete — лише в open-прогоні (в as-is гейт чесно
   // забороняє будь-який запис, легального сіду немає).
   if (gateLabel === "open") {
-    const seeder = await makeDb("uid-alice");
-    for (const id of ["qa_r6", "qa_r7", "qa_r8", "qa_r9"]) {
-      await setDoc(doc(collection(seeder.db, "book_reviews"), id), VALID_BODY);
-    }
-    await seeder.done();
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      const seedDb = context.firestore();
+      for (const id of ["qa_r6", "qa_r7", "qa_r8", "qa_r9"]) {
+        await setDoc(doc(collection(seedDb, "book_reviews"), id), VALID_BODY);
+      }
+      for (const id of ["qa_t5", "qa_t6"]) {
+        await setDoc(doc(collection(seedDb, "book_durations"), id), VALID_DURATION);
+      }
+      for (const id of ["qa_c4", "qa_c5"]) {
+        await setDoc(doc(collection(seedDb, "book_duration_conflicts"), id), VALID_DURATION_CONFLICT);
+      }
+    });
   }
 
   const results = [];
@@ -187,7 +230,7 @@ function merge(a, b, reportPath) {
 
   const date = new Date().toISOString().slice(0, 10);
   const md = [
-    "# Матриця правил Firestore — spec-40 #283",
+    "# Матриця правил Firestore — spec-40 #283 + spec-42 #303",
     "",
     `Дата: ${date}. Firebase Emulator Suite (firestore + auth); правила —`,
     "`firestore.rules` із репозиторію на момент прогону.",
@@ -208,8 +251,6 @@ function merge(a, b, reportPath) {
     "",
     `Підсумок: **${MATRIX.length - mismatches}/${MATRIX.length}**, розбіжностей: ${mismatches}.`,
     "",
-    "Глосарій (CONTEXT.md: «Відгук», «Код відновлення», примітка до Source",
-    "Binding) і розкриття приватності в README закриті комітом 81c8fa8.",
     "Повторний прогін: `./run-all.sh` із цього каталогу (потрібен Java).",
   ].join("\n");
   writeFileSync(reportPath, md + "\n");

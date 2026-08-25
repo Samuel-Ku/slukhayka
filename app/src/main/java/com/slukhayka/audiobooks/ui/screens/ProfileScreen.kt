@@ -7,12 +7,14 @@ import android.content.ContextWrapper
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -23,8 +25,11 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -44,14 +49,26 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.identity.ListenerIdentity
 import com.slukhayka.audiobooks.data.identity.ListenerProfile
+import com.slukhayka.audiobooks.ui.components.accessibilityPane
+import com.slukhayka.audiobooks.ui.components.accessibilityModalBackground
 import com.slukhayka.audiobooks.ui.theme.AppDimens
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
@@ -85,20 +102,32 @@ fun ProfileScreen(
         mutableStateOf(profile?.nickname.orEmpty())
     }
     var savedNotice by remember { mutableStateOf<String?>(null) }
+    var restoreDialogVisible by remember { mutableStateOf(false) }
+    val screenTitle = stringResource(R.string.profile_title)
+    val loadingDescription = stringResource(R.string.profile_loading)
+    val nicknameSavedMessage = stringResource(R.string.profile_nickname_saved)
 
     Scaffold(
+        modifier = Modifier
+            .testTag("profile_screen_pane")
+            .accessibilityPane(screenTitle)
+            .accessibilityModalBackground(restoreDialogVisible),
         topBar = {
             TopAppBar(
                 windowInsets = WindowInsets(0, 0, 0, 0),
                 title = {
                     Text(
-                        text = "Профіль",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                        text = screenTitle,
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        modifier = Modifier.semantics { heading() }
                     )
                 },
                 navigationIcon = {
                     IconButton(onClick = onBackClick) {
-                        Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.action_back)
+                        )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
@@ -114,6 +143,17 @@ fun ProfileScreen(
                 .padding(16.dp)
                 .testTag("profile_screen")
         ) {
+            if (profile == null) {
+                CircularProgressIndicator(
+                    modifier = Modifier
+                        .align(Alignment.CenterHorizontally)
+                        .testTag("profile_loading")
+                        .semantics {
+                            contentDescription = loadingDescription
+                        }
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+            }
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
@@ -137,7 +177,8 @@ fun ProfileScreen(
             Spacer(modifier = Modifier.height(16.dp))
             Text(
                 text = "Нік",
-                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                modifier = Modifier.semantics { heading() }
             )
             Spacer(modifier = Modifier.height(8.dp))
 
@@ -165,14 +206,14 @@ fun ProfileScreen(
                     scope.launch {
                         identity.setNickname(nicknameDraft)
                         profile = identity.current()
-                        savedNotice = "Нік збережено"
+                        savedNotice = nicknameSavedMessage
                     }
                 },
                 enabled = profile != null && nicknameDraft.isNotBlank(),
                 shape = RoundedCornerShape(AppDimens.RadiusCard),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(48.dp)
+                    .heightIn(min = 48.dp)
                     .testTag("profile_nickname_save")
             ) {
                 Text("Зберегти нік")
@@ -183,7 +224,9 @@ fun ProfileScreen(
                     text = savedNotice.orEmpty(),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.testTag("profile_saved_notice")
+                    modifier = Modifier
+                        .testTag("profile_saved_notice")
+                        .semantics { liveRegion = LiveRegionMode.Polite }
                 )
             }
 
@@ -198,9 +241,14 @@ fun ProfileScreen(
                 Text(
                     text = "Приховані автори",
                     style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onSurface
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.semantics { heading() }
                 )
                 hiddenAuthors.forEach { author ->
+                    val unhideDescription = stringResource(
+                        R.string.profile_unhide_author_description,
+                        author
+                    )
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                         verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
@@ -213,7 +261,14 @@ fun ProfileScreen(
                             maxLines = 1,
                             overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                         )
-                        TextButton(onClick = { onUnhideAuthor(author) }) {
+                        TextButton(
+                            onClick = { onUnhideAuthor(author) },
+                            modifier = Modifier
+                                .heightIn(min = 48.dp)
+                                .semantics {
+                                    contentDescription = unhideDescription
+                                }
+                        ) {
                             Text("Розмютити")
                         }
                     }
@@ -228,30 +283,44 @@ fun ProfileScreen(
             // credential pair. Shown ONLY behind BiometricPrompt, copyable,
             // and the one way onto a phone where neither Auto Backup nor the
             // device binding reached.
-            RecoverySection(identity, scope)
+            RecoverySection(
+                identity = identity,
+                scope = scope,
+                onDialogVisibilityChange = { restoreDialogVisible = it }
+            )
         }
     }
 }
 
 @Composable
-private fun RecoverySection(identity: ListenerIdentity, scope: kotlinx.coroutines.CoroutineScope) {
-    Spacer(modifier = Modifier.height(16.dp))
-    Text(
-        text = "Код відновлення профілю",
-        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
-    )
-    Text(
-        text = "Код переносить профіль на новий телефон: встановіть застосунок, відкрийте Профіль і введіть код. Показ коду вимагає підтвердження біометрією або PIN-кодом пристрою.",
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant
-    )
-    Spacer(modifier = Modifier.height(8.dp))
-
+private fun RecoverySection(
+    identity: ListenerIdentity,
+    scope: kotlinx.coroutines.CoroutineScope,
+    onDialogVisibilityChange: (Boolean) -> Unit
+) {
     val context = LocalContext.current
     var recoveryCode by remember { mutableStateOf<String?>(null) }
     var biometricError by remember { mutableStateOf<String?>(null) }
+    var copyNotice by remember { mutableStateOf<String?>(null) }
     var restoreDraft by remember { mutableStateOf("") }
     var restoreNotice by remember { mutableStateOf<String?>(null) }
+    var restoreFailed by remember { mutableStateOf(false) }
+    var confirmRestore by remember { mutableStateOf(false) }
+    var shouldRestoreFocus by remember { mutableStateOf(false) }
+    val restoreFocusRequester = remember { FocusRequester() }
+    val dialogFocusRequester = remember { FocusRequester() }
+
+    val biometricUnavailable = stringResource(R.string.profile_biometric_unavailable)
+    val recoveryUnavailable = stringResource(R.string.profile_recovery_unavailable)
+    val biometricTitle = stringResource(R.string.profile_biometric_title)
+    val biometricSubtitle = stringResource(R.string.profile_biometric_subtitle)
+
+    LaunchedEffect(confirmRestore) {
+        if (!confirmRestore && shouldRestoreFocus) {
+            restoreFocusRequester.requestFocus()
+            shouldRestoreFocus = false
+        }
+    }
 
     // BiometricPrompt lives on a FragmentActivity (MainActivity is one for
     // exactly this reason); without one the section degrades honestly.
@@ -266,7 +335,7 @@ private fun RecoverySection(identity: ListenerIdentity, scope: kotlinx.coroutine
 
     fun revealCode() {
         val activity = fragmentActivity ?: run {
-            biometricError = "Біометричне підтвердження недоступне на цьому пристрої."
+            biometricError = biometricUnavailable
             return
         }
         val prompt = BiometricPrompt(
@@ -277,8 +346,7 @@ private fun RecoverySection(identity: ListenerIdentity, scope: kotlinx.coroutine
                     scope.launch {
                         recoveryCode = identity.recoveryCode()
                         if (recoveryCode == null) {
-                            biometricError =
-                                "Для цього профілю ще немає коду — він з'явиться після першого підключення до мережі."
+                            biometricError = recoveryUnavailable
                         } else {
                             biometricError = null
                         }
@@ -294,8 +362,8 @@ private fun RecoverySection(identity: ListenerIdentity, scope: kotlinx.coroutine
             }
         )
         val info = BiometricPrompt.PromptInfo.Builder()
-            .setTitle("Підтвердіть, що це ви")
-            .setSubtitle("Щоб показати код відновлення профілю")
+            .setTitle(biometricTitle)
+            .setSubtitle(biometricSubtitle)
             .setAllowedAuthenticators(
                 BiometricManager.Authenticators.BIOMETRIC_WEAK or
                     BiometricManager.Authenticators.DEVICE_CREDENTIAL
@@ -304,101 +372,223 @@ private fun RecoverySection(identity: ListenerIdentity, scope: kotlinx.coroutine
         prompt.authenticate(info)
     }
 
-    OutlinedButton(
-        onClick = { revealCode() },
-        shape = RoundedCornerShape(AppDimens.RadiusCard),
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .height(48.dp)
-            .testTag("profile_recovery_reveal")
+            .accessibilityModalBackground(confirmRestore)
     ) {
-        Text(if (recoveryCode == null) "Показати код" else "Приховати код")
-    }
-
-    if (biometricError != null) {
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(16.dp))
         Text(
-            text = biometricError.orEmpty(),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.error,
-            modifier = Modifier.testTag("profile_recovery_error")
+            text = stringResource(R.string.profile_recovery_heading),
+            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+            modifier = Modifier.semantics { heading() }
         )
-    }
-
-    if (recoveryCode != null) {
+        Text(
+            text = stringResource(R.string.profile_recovery_description),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
         Spacer(modifier = Modifier.height(8.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
+
+        OutlinedButton(
+            onClick = {
+                if (recoveryCode == null) revealCode() else recoveryCode = null
+                copyNotice = null
+            },
+            shape = RoundedCornerShape(AppDimens.RadiusCard),
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 48.dp)
+                .testTag("profile_recovery_reveal")
+        ) {
             Text(
-                text = recoveryCode.orEmpty(),
-                style = MaterialTheme.typography.bodySmall,
-                maxLines = 3,
-                modifier = Modifier
-                    .weight(1f)
-                    .testTag("profile_recovery_code")
+                if (recoveryCode == null) {
+                    stringResource(R.string.profile_recovery_show)
+                } else {
+                    stringResource(R.string.profile_recovery_hide)
+                }
             )
-            IconButton(
-                onClick = {
-                    val clipboard =
-                        context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                    clipboard.setPrimaryClip(ClipData.newPlainText("slukhayka_recovery", recoveryCode))
-                },
-                modifier = Modifier.testTag("profile_recovery_copy")
-            ) {
-                Icon(imageVector = Icons.Default.ContentCopy, contentDescription = "Копіювати код")
+        }
+
+        biometricError?.let { error ->
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = error,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier
+                    .testTag("profile_recovery_error")
+                    .semantics { liveRegion = LiveRegionMode.Polite }
+            )
+        }
+
+        recoveryCode?.let { code ->
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = code,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 3,
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("profile_recovery_code")
+                )
+                IconButton(
+                    onClick = {
+                        val clipboard =
+                            context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        clipboard.setPrimaryClip(ClipData.newPlainText("slukhayka_recovery", code))
+                        copyNotice = context.getString(R.string.profile_recovery_copied)
+                    },
+                    modifier = Modifier.testTag("profile_recovery_copy")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.ContentCopy,
+                        contentDescription = stringResource(R.string.profile_recovery_copy)
+                    )
+                }
             }
+            copyNotice?.let { notice ->
+                Text(
+                    text = notice,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier
+                        .testTag("profile_recovery_copy_notice")
+                        .semantics { liveRegion = LiveRegionMode.Polite }
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Text(
+            text = stringResource(R.string.profile_restore_heading),
+            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+            modifier = Modifier.semantics { heading() }
+        )
+        Text(
+            text = stringResource(R.string.profile_restore_consequence),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        OutlinedTextField(
+            value = restoreDraft,
+            onValueChange = {
+                restoreDraft = it.trim()
+                restoreNotice = null
+                restoreFailed = false
+            },
+            label = { Text(stringResource(R.string.profile_restore_field_label)) },
+            singleLine = true,
+            isError = restoreFailed,
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("profile_restore_field")
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+        Button(
+            onClick = {
+                shouldRestoreFocus = true
+                confirmRestore = true
+                onDialogVisibilityChange(true)
+            },
+            enabled = restoreDraft.isNotBlank(),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.error,
+                contentColor = MaterialTheme.colorScheme.onError
+            ),
+            shape = RoundedCornerShape(AppDimens.RadiusCard),
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 48.dp)
+                .focusRequester(restoreFocusRequester)
+                .testTag("profile_restore_button")
+        ) {
+            Text(stringResource(R.string.profile_restore_action))
+        }
+        restoreNotice?.let { notice ->
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = notice,
+                style = MaterialTheme.typography.bodySmall,
+                color = if (restoreFailed) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    MaterialTheme.colorScheme.primary
+                },
+                modifier = Modifier
+                    .testTag("profile_restore_notice")
+                    .semantics {
+                        liveRegion = LiveRegionMode.Polite
+                    }
+            )
         }
     }
 
-    Spacer(modifier = Modifier.height(24.dp))
-    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-    Spacer(modifier = Modifier.height(16.dp))
-
-    Text(
-        text = "Відновити з коду",
-        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
-    )
-    Spacer(modifier = Modifier.height(8.dp))
-    OutlinedTextField(
-        value = restoreDraft,
-        onValueChange = {
-            restoreDraft = it.trim()
-            restoreNotice = null
-        },
-        label = { Text("Код із попереднього телефона") },
-        singleLine = true,
-        isError = restoreNotice?.startsWith("Не") == true,
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("profile_restore_field")
-    )
-    Spacer(modifier = Modifier.height(12.dp))
-    Button(
-        onClick = {
-            scope.launch {
-                val restored = identity.restoreFromCode(restoreDraft)
-                restoreNotice = if (restored != null) {
-                    "Профіль відновлено: ${restored.nickname}"
-                } else {
-                    "Не вдалося відновити — перевірте код і з'єднання."
+    if (confirmRestore) {
+        val dialogTitle = stringResource(R.string.profile_restore_dialog_title)
+        AlertDialog(
+            onDismissRequest = {
+                confirmRestore = false
+                onDialogVisibilityChange(false)
+            },
+            modifier = Modifier
+                .testTag("profile_restore_dialog")
+                .accessibilityPane(dialogTitle),
+            title = {
+                LaunchedEffect(Unit) {
+                    withFrameNanos { }
+                    dialogFocusRequester.requestFocus()
+                }
+                Text(
+                    dialogTitle,
+                    modifier = Modifier
+                        .focusRequester(dialogFocusRequester)
+                        .focusable()
+                        .testTag("profile_restore_dialog_heading")
+                        .semantics { heading() }
+                )
+            },
+            text = { Text(stringResource(R.string.profile_restore_dialog_body)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmRestore = false
+                        onDialogVisibilityChange(false)
+                        restoreNotice = null
+                        scope.launch {
+                            val restored = identity.restoreFromCode(restoreDraft)
+                            restoreFailed = restored == null
+                            restoreNotice = if (restored != null) {
+                                context.getString(R.string.profile_restore_success, restored.nickname)
+                            } else {
+                                context.getString(R.string.profile_restore_error)
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error
+                    ),
+                    modifier = Modifier.heightIn(min = 48.dp)
+                        .testTag("profile_restore_confirm")
+                ) {
+                    Text(stringResource(R.string.profile_restore_confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        confirmRestore = false
+                        onDialogVisibilityChange(false)
+                    },
+                    modifier = Modifier.heightIn(min = 48.dp)
+                ) {
+                    Text(stringResource(R.string.action_cancel))
                 }
             }
-        },
-        enabled = restoreDraft.isNotBlank(),
-        shape = RoundedCornerShape(AppDimens.RadiusCard),
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(48.dp)
-            .testTag("profile_restore_button")
-    ) {
-        Text("Відновити профіль")
-    }
-    if (restoreNotice != null) {
-        Spacer(modifier = Modifier.height(8.dp))
-        Text(
-            text = restoreNotice.orEmpty(),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.testTag("profile_restore_notice")
         )
     }
 }

@@ -7,9 +7,11 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -32,17 +34,26 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.privacy.PrivacyPrefs
 import com.slukhayka.audiobooks.data.privacy.RouteMode
 import com.slukhayka.audiobooks.ui.MainViewModel
+import com.slukhayka.audiobooks.ui.components.accessibilityPane
 
 /**
  * spec-38 T2 (#254) — the «Приватність мережі» destination: the route the
@@ -67,20 +78,29 @@ fun NetworkPrivacyScreen(
     var mode by remember { mutableStateOf(savedPrefs.routeMode) }
     var address by remember { mutableStateOf(savedPrefs.proxyAddress) }
     var dohEnabled by remember { mutableStateOf(savedPrefs.dohEnabled) }
+    var savedNotice by remember { mutableStateOf<String?>(null) }
+    var saveResultRevision by remember { mutableIntStateOf(0) }
+    val screenTitle = stringResource(R.string.privacy_title)
+    val savedMessage = stringResource(R.string.privacy_saved)
 
     Scaffold(
+        modifier = Modifier.accessibilityPane(screenTitle),
         topBar = {
             TopAppBar(
                 windowInsets = WindowInsets(0, 0, 0, 0),
                 title = {
                     Text(
-                        text = "Приватність мережі",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                        text = screenTitle,
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        modifier = Modifier.semantics { heading() }
                     )
                 },
                 navigationIcon = {
                     IconButton(onClick = onBackClick) {
-                        Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.action_back)
+                        )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
@@ -117,42 +137,59 @@ fun NetworkPrivacyScreen(
             }
 
             Spacer(modifier = Modifier.height(16.dp))
-            RouteOption(
-                tag = "privacy_route_direct",
-                title = "Пряме з'єднання",
-                subtitle = "Без проксі. Запити виглядають як звичайний браузер на вашому телефоні.",
-                selected = mode == RouteMode.DIRECT,
-                onSelect = { mode = RouteMode.DIRECT }
-            )
-            RouteOption(
-                tag = "privacy_route_proxy",
-                title = "Власний проксі",
-                subtitle = "HTTP або SOCKS5 адреса — джерела бачать адресу проксі, а не вашу.",
-                selected = mode == RouteMode.CUSTOM_PROXY,
-                onSelect = { mode = RouteMode.CUSTOM_PROXY }
-            )
-            RouteOption(
-                tag = "privacy_route_tor",
-                title = "Максимальна приватність",
-                subtitle = "Через Tor локально (Orbot, 127.0.0.1:9050). Потрібен запущений Orbot.",
-                selected = mode == RouteMode.MAX_PRIVACY,
-                onSelect = { mode = RouteMode.MAX_PRIVACY }
-            )
-            // spec-38 T6 (#258): the relay prototype rides the same route
-            // machinery — never a default, only this conscious choice.
-            RouteOption(
-                tag = "privacy_route_relay",
-                title = "Реле (прототип Workers)",
-                subtitle = "Ваше саморозгорнуте реле: джерела бачать адресу реле, а не вашу. Довіра — оператору реле.",
-                selected = mode == RouteMode.RELAY,
-                onSelect = { mode = RouteMode.RELAY }
-            )
+            Column(Modifier.selectableGroup()) {
+                RouteOption(
+                    tag = "privacy_route_direct",
+                    title = stringResource(R.string.privacy_route_direct_title),
+                    subtitle = stringResource(R.string.privacy_route_direct_description),
+                    selected = mode == RouteMode.DIRECT,
+                    onSelect = {
+                        mode = RouteMode.DIRECT
+                        savedNotice = null
+                    }
+                )
+                RouteOption(
+                    tag = "privacy_route_proxy",
+                    title = stringResource(R.string.privacy_route_proxy_title),
+                    subtitle = stringResource(R.string.privacy_route_proxy_description),
+                    selected = mode == RouteMode.CUSTOM_PROXY,
+                    onSelect = {
+                        mode = RouteMode.CUSTOM_PROXY
+                        savedNotice = null
+                    }
+                )
+                RouteOption(
+                    tag = "privacy_route_tor",
+                    title = stringResource(R.string.privacy_route_tor_title),
+                    subtitle = stringResource(R.string.privacy_route_tor_description),
+                    selected = mode == RouteMode.MAX_PRIVACY,
+                    onSelect = {
+                        mode = RouteMode.MAX_PRIVACY
+                        savedNotice = null
+                    }
+                )
+                // spec-38 T6 (#258): the relay prototype rides the same route
+                // machinery — never a default, only this conscious choice.
+                RouteOption(
+                    tag = "privacy_route_relay",
+                    title = stringResource(R.string.privacy_route_relay_title),
+                    subtitle = stringResource(R.string.privacy_route_relay_description),
+                    selected = mode == RouteMode.RELAY,
+                    onSelect = {
+                        mode = RouteMode.RELAY
+                        savedNotice = null
+                    }
+                )
+            }
 
             if (mode == RouteMode.CUSTOM_PROXY || mode == RouteMode.RELAY) {
                 Spacer(modifier = Modifier.height(8.dp))
                 OutlinedTextField(
                     value = address,
-                    onValueChange = { address = it },
+                    onValueChange = {
+                        address = it
+                        savedNotice = null
+                    },
                     label = { Text(if (mode == RouteMode.RELAY) "Адреса реле" else "Адреса проксі") },
                     placeholder = {
                         Text(
@@ -179,12 +216,16 @@ fun NetworkPrivacyScreen(
 
             if (error != null) {
                 Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = error.orEmpty(),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.testTag("privacy_error_text")
-                )
+                key(error, saveResultRevision) {
+                    Text(
+                        text = stringResource(R.string.privacy_error, error.orEmpty()),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier
+                            .testTag("privacy_error_text")
+                            .semantics { liveRegion = LiveRegionMode.Polite }
+                    )
+                }
             }
 
             // spec-38 T4 (#256): the DNS half of the door — independent of the
@@ -192,30 +233,16 @@ fun NetworkPrivacyScreen(
             Spacer(modifier = Modifier.height(16.dp))
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             Spacer(modifier = Modifier.height(8.dp))
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 6.dp)
-                    .testTag("privacy_doh_row"),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "Шифрування DNS (DoH)",
-                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
-                    )
-                    Text(
-                        text = "Імена доменів ідуть зашифрованими до публічного DNS, тож провайдер не бачить, які сайти відкриває застосунок. Якщо DoH недоступний — автоматично працює системний резолвер.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                Switch(
-                    checked = dohEnabled,
-                    onCheckedChange = { dohEnabled = it },
-                    modifier = Modifier.testTag("privacy_doh_switch")
-                )
-            }
+            SettingsSwitchRow(
+                title = stringResource(R.string.privacy_doh_title),
+                description = stringResource(R.string.privacy_doh_description),
+                checked = dohEnabled,
+                onCheckedChange = {
+                    dohEnabled = it
+                    savedNotice = null
+                },
+                testTag = "privacy_doh_row"
+            )
 
             Spacer(modifier = Modifier.height(24.dp))
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
@@ -224,13 +251,31 @@ fun NetworkPrivacyScreen(
             Button(
                 onClick = {
                     viewModel.savePrivacyPrefs(PrivacyPrefs(mode, address.trim(), dohEnabled))
+                    saveResultRevision += 1
+                    savedNotice = if (viewModel.privacyError.value == null) {
+                        savedMessage
+                    } else {
+                        null
+                    }
                 },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(48.dp)
+                    .heightIn(min = 48.dp)
                     .testTag("privacy_apply_button")
             ) {
-                Text("Застосувати")
+                Text(stringResource(R.string.action_apply))
+            }
+            savedNotice?.let { notice ->
+                Spacer(modifier = Modifier.height(8.dp))
+                key(notice, saveResultRevision) {
+                    Text(
+                        text = notice,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier
+                            .testTag("privacy_saved_notice")
+                            .semantics { liveRegion = LiveRegionMode.Polite }
+                    )
+                }
             }
             Spacer(modifier = Modifier.height(8.dp))
             Text(
@@ -250,25 +295,11 @@ private fun RouteOption(
     selected: Boolean,
     onSelect: () -> Unit
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 6.dp)
-            .testTag(tag),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        RadioButton(selected = selected, onClick = onSelect)
-        Spacer(modifier = Modifier.width(4.dp))
-        Column {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
-            )
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-    }
+    SettingsRadioOption(
+        title = title,
+        description = subtitle,
+        selected = selected,
+        onSelect = onSelect,
+        testTag = tag
+    )
 }

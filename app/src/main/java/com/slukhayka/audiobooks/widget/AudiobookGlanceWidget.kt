@@ -10,6 +10,7 @@ import androidx.glance.GlanceModifier
 import androidx.glance.GlanceTheme
 import androidx.glance.Image
 import androidx.glance.ImageProvider
+import androidx.glance.LocalContext
 import androidx.glance.LocalSize
 import androidx.glance.action.actionStartActivity
 import androidx.glance.action.clickable
@@ -116,6 +117,7 @@ class AudiobookGlanceWidget : GlanceAppWidget() {
 
     @Composable
     private fun CompactWidgetLayout(state: GlanceWidgetState) {
+        val labels = widgetAccessibilityLabels(LocalContext.current, state)
         Column(
             modifier = GlanceModifier.fillMaxSize(),
             verticalAlignment = Alignment.CenterVertically,
@@ -146,24 +148,24 @@ class AudiobookGlanceWidget : GlanceAppWidget() {
             ) {
                 Box(
                     modifier = GlanceModifier
-                        .size(36.dp)
+                        .size(48.dp)
                         .background(GlanceTheme.colors.surface)
-                        .cornerRadius(18.dp)
+                        .cornerRadius(24.dp)
                         .clickable(actionRunCallback<Rewind15ActionCallback>()),
                     contentAlignment = Alignment.Center
                 ) {
                     Image(
                         provider = ImageProvider(R.drawable.ic_replay_10),
-                        contentDescription = "Назад на 15 секунд",
+                        contentDescription = labels.rewind,
                         modifier = GlanceModifier.size(20.dp)
                     )
                 }
                 Spacer(modifier = GlanceModifier.width(12.dp))
                 Box(
                     modifier = GlanceModifier
-                        .size(40.dp)
+                        .size(48.dp)
                         .background(GlanceTheme.colors.primary)
-                        .cornerRadius(20.dp)
+                        .cornerRadius(24.dp)
                         .clickable(actionRunCallback<TogglePlayActionCallback>()),
                     contentAlignment = Alignment.Center
                 ) {
@@ -171,7 +173,7 @@ class AudiobookGlanceWidget : GlanceAppWidget() {
                         provider = ImageProvider(
                             if (state.isPlaying) R.drawable.ic_pause else R.drawable.ic_play_arrow
                         ),
-                        contentDescription = if (state.isPlaying) "Пауза" else "Грати",
+                        contentDescription = labels.playPause,
                         modifier = GlanceModifier.size(24.dp)
                     )
                 }
@@ -181,6 +183,7 @@ class AudiobookGlanceWidget : GlanceAppWidget() {
 
     @Composable
     private fun ExpandedWidgetLayout(state: GlanceWidgetState) {
+        val labels = widgetAccessibilityLabels(LocalContext.current, state)
         Row(
             modifier = GlanceModifier.fillMaxSize(),
             verticalAlignment = Alignment.CenterVertically
@@ -195,7 +198,7 @@ class AudiobookGlanceWidget : GlanceAppWidget() {
             ) {
                 Image(
                     provider = ImageProvider(R.drawable.ic_launcher_foreground),
-                    contentDescription = state.title,
+                    contentDescription = null,
                     modifier = GlanceModifier.size(48.dp)
                 )
             }
@@ -261,15 +264,15 @@ class AudiobookGlanceWidget : GlanceAppWidget() {
             ) {
                 Box(
                     modifier = GlanceModifier
-                        .size(36.dp)
+                        .size(48.dp)
                         .background(GlanceTheme.colors.surface)
-                        .cornerRadius(18.dp)
+                        .cornerRadius(24.dp)
                         .clickable(actionRunCallback<Rewind15ActionCallback>()),
                     contentAlignment = Alignment.Center
                 ) {
                     Image(
                         provider = ImageProvider(R.drawable.ic_replay_10),
-                        contentDescription = "Назад на 15 секунд",
+                        contentDescription = labels.rewind,
                         modifier = GlanceModifier.size(20.dp)
                     )
                 }
@@ -278,9 +281,9 @@ class AudiobookGlanceWidget : GlanceAppWidget() {
 
                 Box(
                     modifier = GlanceModifier
-                        .size(44.dp)
+                        .size(48.dp)
                         .background(GlanceTheme.colors.primary)
-                        .cornerRadius(22.dp)
+                        .cornerRadius(24.dp)
                         .clickable(actionRunCallback<TogglePlayActionCallback>()),
                     contentAlignment = Alignment.Center
                 ) {
@@ -288,7 +291,7 @@ class AudiobookGlanceWidget : GlanceAppWidget() {
                         provider = ImageProvider(
                             if (state.isPlaying) R.drawable.ic_pause else R.drawable.ic_play_arrow
                         ),
-                        contentDescription = if (state.isPlaying) "Пауза" else "Грати",
+                        contentDescription = labels.playPause,
                         modifier = GlanceModifier.size(24.dp)
                     )
                 }
@@ -297,15 +300,15 @@ class AudiobookGlanceWidget : GlanceAppWidget() {
 
                 Box(
                     modifier = GlanceModifier
-                        .size(36.dp)
+                        .size(48.dp)
                         .background(GlanceTheme.colors.surface)
-                        .cornerRadius(18.dp)
+                        .cornerRadius(24.dp)
                         .clickable(actionRunCallback<FastForward15ActionCallback>()),
                     contentAlignment = Alignment.Center
                 ) {
                     Image(
                         provider = ImageProvider(R.drawable.ic_forward_10),
-                        contentDescription = "Вперед на 15 секунд",
+                        contentDescription = labels.forward,
                         modifier = GlanceModifier.size(20.dp)
                     )
                 }
@@ -313,3 +316,21 @@ class AudiobookGlanceWidget : GlanceAppWidget() {
         }
     }
 }
+
+internal data class WidgetAccessibilityLabels(
+    val rewind: String,
+    val playPause: String,
+    val forward: String
+)
+
+internal fun widgetAccessibilityLabels(
+    context: Context,
+    state: GlanceWidgetState
+): WidgetAccessibilityLabels = WidgetAccessibilityLabels(
+    rewind = context.getString(R.string.a11y_widget_rewind_work, state.title),
+    playPause = context.getString(
+        if (state.isPlaying) R.string.a11y_widget_pause_work else R.string.a11y_widget_play_work,
+        state.title
+    ),
+    forward = context.getString(R.string.a11y_widget_forward_work, state.title)
+)

@@ -9,8 +9,10 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -20,11 +22,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.player.PlayerState
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.theme.*
@@ -43,6 +49,14 @@ fun PlayerDebugOverlay(
 ) {
     val context = LocalContext.current
     var isExpanded by remember { mutableStateOf(true) }
+    val workTitle = playerState.currentBook?.title.orEmpty()
+    val expandDescription = stringResource(
+        if (isExpanded) R.string.a11y_debug_collapse else R.string.a11y_debug_expand
+    )
+    val closeDescription = stringResource(R.string.a11y_debug_close)
+    val copyStreamDescription = stringResource(R.string.a11y_debug_copy_stream, workTitle)
+    val copyJournalDescription = stringResource(R.string.a11y_debug_copy_journal, workTitle)
+    val retryDescription = stringResource(R.string.a11y_debug_retry_audio, workTitle)
 
     Card(
         colors = CardDefaults.cardColors(containerColor = AppDebugPanel.copy(alpha = 0.95f)),
@@ -55,6 +69,7 @@ fun PlayerDebugOverlay(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
                 .padding(14.dp)
         ) {
             // Header Bar
@@ -66,7 +81,7 @@ fun PlayerDebugOverlay(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         imageVector = Icons.Default.BugReport,
-                        contentDescription = "Debug Icon",
+                        contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(20.dp)
                     )
@@ -85,22 +100,26 @@ fun PlayerDebugOverlay(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(
                         onClick = { isExpanded = !isExpanded },
-                        modifier = Modifier.size(28.dp)
+                        modifier = Modifier
+                            .size(AppDimens.TouchTarget)
+                            .semantics { contentDescription = expandDescription }
                     ) {
                         Icon(
                             imageVector = if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                            contentDescription = "Toggle Expand",
+                            contentDescription = null,
                             tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                     Spacer(modifier = Modifier.width(4.dp))
                     IconButton(
                         onClick = onClose,
-                        modifier = Modifier.size(28.dp)
+                        modifier = Modifier
+                            .size(AppDimens.TouchTarget)
+                            .semantics { contentDescription = closeDescription }
                     ) {
                         Icon(
                             imageVector = Icons.Default.Close,
-                            contentDescription = "Close Debug Overlay",
+                            contentDescription = null,
                             tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
@@ -173,13 +192,15 @@ fun PlayerDebugOverlay(
                                         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                                         val clip = ClipData.newPlainText("Source URL", playerState.currentStreamUrl)
                                         clipboard.setPrimaryClip(clip)
-                                        Toast.makeText(context, "URL скопійовано в буфер!", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, R.string.debug_stream_copied, Toast.LENGTH_SHORT).show()
                                     },
-                                    modifier = Modifier.size(24.dp)
+                                    modifier = Modifier
+                                        .size(AppDimens.TouchTarget)
+                                        .semantics { contentDescription = copyStreamDescription }
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.ContentCopy,
-                                        contentDescription = "Copy URL",
+                                        contentDescription = null,
                                         tint = MaterialTheme.colorScheme.primary,
                                         modifier = Modifier.size(14.dp)
                                     )
@@ -262,13 +283,15 @@ fun PlayerDebugOverlay(
                                                 metricsSummary + "\n" + journalExport
                                             )
                                             clipboard.setPrimaryClip(clip)
-                                            Toast.makeText(context, "Журнал скопійовано в буфер!", Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(context, R.string.debug_journal_copied, Toast.LENGTH_SHORT).show()
                                         },
-                                        modifier = Modifier.size(24.dp)
+                                        modifier = Modifier
+                                            .size(AppDimens.TouchTarget)
+                                            .semantics { contentDescription = copyJournalDescription }
                                     ) {
                                         Icon(
                                             imageVector = Icons.Default.ContentCopy,
-                                            contentDescription = "Copy journal",
+                                            contentDescription = null,
                                             tint = MaterialTheme.colorScheme.primary,
                                             modifier = Modifier.size(14.dp)
                                         )
@@ -314,7 +337,9 @@ fun PlayerDebugOverlay(
                                 onClick = onRetryPlayback,
                                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                                 shape = RoundedCornerShape(AppDimens.RadiusInner),
-                                modifier = Modifier.height(34.dp)
+                                modifier = Modifier
+                                    .heightIn(min = AppDimens.TouchTarget)
+                                    .semantics { contentDescription = retryDescription }
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Refresh,
@@ -322,7 +347,7 @@ fun PlayerDebugOverlay(
                                     modifier = Modifier.size(14.dp)
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text("Retry Audio Load", fontSize = 12.sp)
+                                Text(stringResource(R.string.debug_retry_audio), fontSize = 12.sp)
                             }
                         }
                     }

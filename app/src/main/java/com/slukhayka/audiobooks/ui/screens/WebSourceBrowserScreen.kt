@@ -1,6 +1,7 @@
 package com.slukhayka.audiobooks.ui.screens
 
 import android.annotation.SuppressLint
+import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.util.Log
@@ -27,6 +28,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -35,6 +38,7 @@ import androidx.webkit.ProxyController
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import com.slukhayka.audiobooks.BuildConfig
+import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.privacy.WebViewSessionPrivacy
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.theme.*
@@ -83,6 +87,12 @@ fun WebSourceBrowserScreen(
     var canGoForward by remember { mutableStateOf(false) }
     var isImporting by remember { mutableStateOf(false) }
     var importResult by remember { mutableStateOf("") }
+    val actionLabels = webSourceBrowserActionLabels(
+        context = context,
+        sourceName = displayName,
+        currentAddress = currentWebUrl,
+        enteredAddress = urlInput
+    )
 
     // Spec-38 T3 (#255): the WebView session rides the SAME resolved route as
     // the transport (WebViewSessionPrivacy reads TransportPrivacy). Resolved
@@ -183,44 +193,65 @@ fun WebSourceBrowserScreen(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = onClose) {
+                        IconButton(
+                            onClick = onClose,
+                            modifier = Modifier
+                                .size(AppDimens.TouchTarget)
+                                .semantics { contentDescription = actionLabels.closeSource }
+                        ) {
                             Icon(
                                 imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "Закрити",
+                                contentDescription = null,
                                 tint = MaterialTheme.colorScheme.onSurface
                             )
                         }
                         IconButton(
                             onClick = { webViewInstance?.goBack() },
-                            enabled = canGoBack
+                            enabled = canGoBack,
+                            modifier = Modifier
+                                .size(AppDimens.TouchTarget)
+                                .semantics { contentDescription = actionLabels.back }
                         ) {
                             Icon(
                                 imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "Назад",
+                                contentDescription = null,
                                 tint = if (canGoBack) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
                             )
                         }
                         IconButton(
                             onClick = { webViewInstance?.goForward() },
-                            enabled = canGoForward
+                            enabled = canGoForward,
+                            modifier = Modifier
+                                .size(AppDimens.TouchTarget)
+                                .semantics { contentDescription = actionLabels.forward }
                         ) {
                             Icon(
                                 imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                                contentDescription = "Вперед",
+                                contentDescription = null,
                                 tint = if (canGoForward) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
                             )
                         }
-                        IconButton(onClick = { webViewInstance?.reload() }) {
+                        IconButton(
+                            onClick = { webViewInstance?.reload() },
+                            modifier = Modifier
+                                .size(AppDimens.TouchTarget)
+                                .semantics { contentDescription = actionLabels.reload }
+                        ) {
                             Icon(
                                 imageVector = Icons.Default.Refresh,
-                                contentDescription = "Оновити",
+                                contentDescription = null,
                                 tint = MaterialTheme.colorScheme.primary
                             )
                         }
-                        IconButton(onClick = { webViewInstance?.loadUrl(homeUrl) }) {
+                        IconButton(
+                            onClick = { webViewInstance?.loadUrl(homeUrl) },
+                            modifier = Modifier
+                                .size(AppDimens.TouchTarget)
+                                .semantics { contentDescription = actionLabels.home }
+                        ) {
                             Icon(
                                 imageVector = Icons.Default.Home,
-                                contentDescription = "Головна",
+                                contentDescription = null,
                                 tint = MaterialTheme.colorScheme.primary
                             )
                         }
@@ -325,28 +356,38 @@ fun WebSourceBrowserScreen(
                     leadingIcon = {
                         Icon(
                             imageVector = Icons.Default.Link,
-                            contentDescription = "URL",
+                            contentDescription = null,
                             tint = MaterialTheme.colorScheme.primary
                         )
                     },
                     trailingIcon = {
                         Row {
-                            IconButton(onClick = {
-                                try {
-                                    val intent = Intent(Intent.ACTION_VIEW, currentWebUrl.toUri())
-                                    context.startActivity(intent)
-                                } catch (_: Exception) {}
-                            }) {
-                                Icon(imageVector = Icons.AutoMirrored.Filled.OpenInNew, contentDescription = "Браузер", tint = MaterialTheme.colorScheme.secondary)
+                            IconButton(
+                                onClick = {
+                                    try {
+                                        val intent = Intent(Intent.ACTION_VIEW, currentWebUrl.toUri())
+                                        context.startActivity(intent)
+                                    } catch (_: Exception) {}
+                                },
+                                modifier = Modifier
+                                    .size(AppDimens.TouchTarget)
+                                    .semantics { contentDescription = actionLabels.openExternal }
+                            ) {
+                                Icon(imageVector = Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
                             }
                             if (urlInput.isNotBlank()) {
-                                IconButton(onClick = {
-                                    val input = urlInput.trim()
-                                    val target = if (input.startsWith("http")) input else "https://$input"
-                                    currentWebUrl = target
-                                    webViewInstance?.loadUrl(target)
-                                }) {
-                                    Icon(imageVector = Icons.Default.Link, contentDescription = "Перейти", tint = MaterialTheme.colorScheme.primary)
+                                IconButton(
+                                    onClick = {
+                                        val input = urlInput.trim()
+                                        val target = if (input.startsWith("http")) input else "https://$input"
+                                        currentWebUrl = target
+                                        webViewInstance?.loadUrl(target)
+                                    },
+                                    modifier = Modifier
+                                        .size(AppDimens.TouchTarget)
+                                        .semantics { contentDescription = actionLabels.goToAddress }
+                                ) {
+                                    Icon(imageVector = Icons.Default.Link, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                                 }
                             }
                         }
@@ -402,8 +443,13 @@ fun WebSourceBrowserScreen(
                                     color = MaterialTheme.colorScheme.onSurface,
                                     modifier = Modifier.weight(1f)
                                 )
-                                IconButton(onClick = onClose) {
-                                    Icon(imageVector = Icons.Default.Close, contentDescription = "Закрити", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                IconButton(
+                                    onClick = onClose,
+                                    modifier = Modifier
+                                        .size(AppDimens.TouchTarget)
+                                        .semantics { contentDescription = actionLabels.closeRouteMessage }
+                                ) {
+                                    Icon(imageVector = Icons.Default.Close, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             }
                             Text(
@@ -615,8 +661,13 @@ fun WebSourceBrowserScreen(
                                 color = MaterialTheme.colorScheme.onSurface,
                                 modifier = Modifier.weight(1f)
                             )
-                            IconButton(onClick = { hasWebError = false }) {
-                                Icon(imageVector = Icons.Default.Close, contentDescription = "Закрити", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            IconButton(
+                                onClick = { hasWebError = false },
+                                modifier = Modifier
+                                    .size(AppDimens.TouchTarget)
+                                    .semantics { contentDescription = actionLabels.closeNetworkError }
+                            ) {
+                                Icon(imageVector = Icons.Default.Close, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                         Text(
@@ -675,6 +726,35 @@ fun WebSourceBrowserScreen(
         }
     }
 }
+
+internal data class WebSourceBrowserActionLabels(
+    val closeSource: String,
+    val back: String,
+    val forward: String,
+    val reload: String,
+    val home: String,
+    val openExternal: String,
+    val goToAddress: String,
+    val closeRouteMessage: String,
+    val closeNetworkError: String
+)
+
+internal fun webSourceBrowserActionLabels(
+    context: Context,
+    sourceName: String,
+    currentAddress: String,
+    enteredAddress: String
+): WebSourceBrowserActionLabels = WebSourceBrowserActionLabels(
+    closeSource = context.getString(R.string.a11y_browser_close_source, sourceName),
+    back = context.getString(R.string.a11y_browser_back, sourceName),
+    forward = context.getString(R.string.a11y_browser_forward, sourceName),
+    reload = context.getString(R.string.a11y_browser_reload, sourceName),
+    home = context.getString(R.string.a11y_browser_home, sourceName),
+    openExternal = context.getString(R.string.a11y_browser_open_external, currentAddress),
+    goToAddress = context.getString(R.string.a11y_browser_go_to_address, enteredAddress),
+    closeRouteMessage = context.getString(R.string.a11y_browser_close_route_message),
+    closeNetworkError = context.getString(R.string.a11y_browser_close_network_error)
+)
 
 /** Ad/tracker host suffixes blocked during browsing (from the #71 prototype). */
 private val AD_HOST_SUFFIXES = listOf(

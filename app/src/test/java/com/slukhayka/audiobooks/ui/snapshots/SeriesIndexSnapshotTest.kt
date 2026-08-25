@@ -5,6 +5,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
@@ -88,7 +92,13 @@ class SeriesIndexSnapshotTest {
         }
 
         // The no-series placeholder renders a sensible message, not a crash.
-        composeTestRule.onNodeWithText("Серії з'являться після завантаження каталогу.").assertExists()
+        composeTestRule.onNodeWithText("Серії з'являться після завантаження каталогу.")
+            .assert(
+                SemanticsMatcher.expectValue(
+                    SemanticsProperties.LiveRegion,
+                    LiveRegionMode.Polite
+                )
+            )
         composeTestRule.onRoot().captureRoboImage(
             filePath = "src/test/snapshots/series_index_empty.png"
         )

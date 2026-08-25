@@ -9,6 +9,7 @@ import androidx.paging.PagingData
 import androidx.paging.cachedIn
 import com.slukhayka.audiobooks.App
 import com.slukhayka.audiobooks.data.catalog.CatalogPerson
+import com.slukhayka.audiobooks.data.catalog.CatalogFetchResult
 import com.slukhayka.audiobooks.data.catalog.CatalogSeries
 import com.slukhayka.audiobooks.data.catalog.CatalogSeriesIndex
 import com.slukhayka.audiobooks.data.db.*
@@ -384,6 +385,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _isSeriesLoading = MutableStateFlow(false)
     val isSeriesLoading: StateFlow<Boolean> = _isSeriesLoading.asStateFlow()
 
+    private val _seriesLoadFailed = MutableStateFlow(false)
+    val seriesLoadFailed: StateFlow<Boolean> = _seriesLoadFailed.asStateFlow()
+
     // Spec-25 (#171): the resolved universe context of the CURRENT series
     // page (the header block: universe name, position, precedes/follows
     // chips). Null until a seeded series page is opened — silent.
@@ -394,11 +398,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _selectedSeries.value = SelectedSeries(title, url)
         _seriesBooks.value = emptyList()
         _isSeriesLoading.value = true
+        _seriesLoadFailed.value = false
         _selectedSeriesUniverse.value = null
         viewModelScope.launch(Dispatchers.IO) {
-            val books = sourceCatalog.fetchSeriesBooks(url)
-            _seriesBooks.value = books
-            _isSeriesLoading.value = false
+            try {
+                when (val result = sourceCatalog.fetchSeriesBooksResult(url)) {
+                    is CatalogFetchResult.Success -> _seriesBooks.value = result.value
+                    CatalogFetchResult.Failure -> _seriesLoadFailed.value = true
+                }
+            } finally {
+                _isSeriesLoading.value = false
+            }
             // Spec-25 (#171): resolve + surface the series' universe, same
             // cache-first-then-fresher idiom as selectBook.
             _selectedSeriesUniverse.value = seriesUniverses.contextOf(title, url)
@@ -410,6 +420,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun closeSeries() {
         _selectedSeries.value = null
         _seriesBooks.value = emptyList()
+        _isSeriesLoading.value = false
+        _seriesLoadFailed.value = false
         _selectedSeriesUniverse.value = null
     }
 
@@ -547,20 +559,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _isGenreLoading = MutableStateFlow(false)
     val isGenreLoading: StateFlow<Boolean> = _isGenreLoading.asStateFlow()
 
+    private val _genreLoadFailed = MutableStateFlow(false)
+    val genreLoadFailed: StateFlow<Boolean> = _genreLoadFailed.asStateFlow()
+
     fun openGenre(title: String, url: String) {
         _selectedGenre.value = SelectedGenre(title, url)
         _genreBooks.value = emptyList()
         _isGenreLoading.value = true
+        _genreLoadFailed.value = false
         viewModelScope.launch(Dispatchers.IO) {
-            val books = sourceCatalog.fetchGenreBooks(url)
-            _genreBooks.value = books
-            _isGenreLoading.value = false
+            try {
+                when (val result = sourceCatalog.fetchGenreBooksResult(url)) {
+                    is CatalogFetchResult.Success -> _genreBooks.value = result.value
+                    CatalogFetchResult.Failure -> _genreLoadFailed.value = true
+                }
+            } finally {
+                _isGenreLoading.value = false
+            }
         }
     }
 
     fun closeGenre() {
         _selectedGenre.value = null
         _genreBooks.value = emptyList()
+        _isGenreLoading.value = false
+        _genreLoadFailed.value = false
     }
 
     // ТОП 100 АудіоКниг (`/top-100.html`): a ranked book list.
@@ -573,19 +596,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _isTop100Loading = MutableStateFlow(false)
     val isTop100Loading: StateFlow<Boolean> = _isTop100Loading.asStateFlow()
 
+    private val _top100LoadFailed = MutableStateFlow(false)
+    val top100LoadFailed: StateFlow<Boolean> = _top100LoadFailed.asStateFlow()
+
     fun openTop100() {
         _selectedTop100.value = true
         _top100Books.value = emptyList()
         _isTop100Loading.value = true
+        _top100LoadFailed.value = false
         viewModelScope.launch(Dispatchers.IO) {
-            _top100Books.value = sourceCatalog.fetchTop100()
-            _isTop100Loading.value = false
+            try {
+                when (val result = sourceCatalog.fetchTop100Result()) {
+                    is CatalogFetchResult.Success -> _top100Books.value = result.value
+                    CatalogFetchResult.Failure -> _top100LoadFailed.value = true
+                }
+            } finally {
+                _isTop100Loading.value = false
+            }
         }
     }
 
     fun closeTop100() {
         _selectedTop100.value = false
         _top100Books.value = emptyList()
+        _isTop100Loading.value = false
+        _top100LoadFailed.value = false
     }
 
     // Виконавці / Автори index pages (`/readers.html`, `/avtors.html`).
@@ -598,19 +633,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _isPeopleLoading = MutableStateFlow(false)
     val isPeopleLoading: StateFlow<Boolean> = _isPeopleLoading.asStateFlow()
 
+    private val _peopleLoadFailed = MutableStateFlow(false)
+    val peopleLoadFailed: StateFlow<Boolean> = _peopleLoadFailed.asStateFlow()
+
     fun openPeople(kind: PeopleKind) {
         _selectedPeopleKind.value = kind
         _peopleEntries.value = emptyList()
         _isPeopleLoading.value = true
+        _peopleLoadFailed.value = false
         viewModelScope.launch(Dispatchers.IO) {
-            _peopleEntries.value = sourceCatalog.fetchPeople(kind.url)
-            _isPeopleLoading.value = false
+            try {
+                when (val result = sourceCatalog.fetchPeopleResult(kind.url)) {
+                    is CatalogFetchResult.Success -> _peopleEntries.value = result.value
+                    CatalogFetchResult.Failure -> _peopleLoadFailed.value = true
+                }
+            } finally {
+                _isPeopleLoading.value = false
+            }
         }
     }
 
     fun closePeople() {
         _selectedPeopleKind.value = null
         _peopleEntries.value = emptyList()
+        _isPeopleLoading.value = false
+        _peopleLoadFailed.value = false
     }
 
     // One person's books (`/xfsearch/chitaet|avtor/<name>/` — a poster grid).
@@ -623,19 +670,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _isPersonLoading = MutableStateFlow(false)
     val isPersonLoading: StateFlow<Boolean> = _isPersonLoading.asStateFlow()
 
+    private val _personLoadFailed = MutableStateFlow(false)
+    val personLoadFailed: StateFlow<Boolean> = _personLoadFailed.asStateFlow()
+
     fun openPersonBooks(person: CatalogPerson) {
         _selectedPerson.value = SelectedPerson(person.name, person.path)
         _personBooks.value = emptyList()
         _isPersonLoading.value = true
+        _personLoadFailed.value = false
         viewModelScope.launch(Dispatchers.IO) {
-            _personBooks.value = sourceCatalog.fetchPersonBooks(person.path)
-            _isPersonLoading.value = false
+            try {
+                when (val result = sourceCatalog.fetchPersonBooksResult(person.path)) {
+                    is CatalogFetchResult.Success -> _personBooks.value = result.value
+                    CatalogFetchResult.Failure -> _personLoadFailed.value = true
+                }
+            } finally {
+                _isPersonLoading.value = false
+            }
         }
     }
 
     fun closePersonBooks() {
         _selectedPerson.value = null
         _personBooks.value = emptyList()
+        _isPersonLoading.value = false
+        _personLoadFailed.value = false
     }
 
     // Continue-the-series block (spec-9 T4): the next volume of the currently

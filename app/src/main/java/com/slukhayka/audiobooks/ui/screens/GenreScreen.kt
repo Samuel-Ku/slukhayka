@@ -1,6 +1,8 @@
 package com.slukhayka.audiobooks.ui.screens
 
 import androidx.compose.runtime.*
+import androidx.compose.ui.res.stringResource
+import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.library.ukPlural
 
@@ -19,6 +21,7 @@ fun GenreScreen(
     val genre by viewModel.selectedGenre.collectAsState()
     val books by viewModel.genreBooks.collectAsState()
     val isLoading by viewModel.isGenreLoading.collectAsState()
+    val loadFailed by viewModel.genreLoadFailed.collectAsState()
 
     val currentGenre = genre ?: return
 
@@ -27,7 +30,12 @@ fun GenreScreen(
         // Spec-27 (#204) BUG-006: правильна множина — «1 книга у жанрі»,
         // «2 книги», «5 книг».
         countLabel = "${books.size} ${ukPlural(books.size, "книга", "книги", "книг")} у жанрі",
-        emptyMessage = "Не вдалося завантажити книги жанру. Перевірте з'єднання.",
+        emptyMessage = stringResource(R.string.secondary_genre_empty),
+        errorMessage = if (loadFailed) {
+            stringResource(R.string.secondary_genre_error)
+        } else {
+            null
+        },
         isLoading = isLoading,
         books = books,
         onBackClick = onBackClick,

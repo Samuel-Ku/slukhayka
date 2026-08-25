@@ -9,9 +9,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -19,11 +17,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.data.catalog.CatalogPerson
+import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.ui.MainViewModel
+import com.slukhayka.audiobooks.ui.components.IndexScreenScaffold
+import com.slukhayka.audiobooks.ui.components.SecondaryLoadingState
+import com.slukhayka.audiobooks.ui.components.SecondaryMessageState
+import com.slukhayka.audiobooks.ui.library.ukPlural
 import com.slukhayka.audiobooks.ui.theme.*
 
 /**
@@ -42,33 +47,11 @@ fun PeopleScreen(
     val kind by viewModel.selectedPeopleKind.collectAsState()
     val people by viewModel.peopleEntries.collectAsState()
     val isLoading by viewModel.isPeopleLoading.collectAsState()
+    val loadFailed by viewModel.peopleLoadFailed.collectAsState()
 
     val currentKind = kind ?: return
 
-    Scaffold(
-        topBar = {
-            // Host Scaffold in MainActivity already consumed the status bar
-            // (innerPadding.top); don't let this inner TopAppBar add it again.
-            TopAppBar(
-                windowInsets = WindowInsets(0, 0, 0, 0),
-                title = {
-                    Text(
-                        text = currentKind.title,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBackClick) {
-                        Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
-            )
-        },
-        containerColor = MaterialTheme.colorScheme.background
-    ) { padding ->
+    IndexScreenScaffold(title = currentKind.title, onBackClick = onBackClick) { padding ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
@@ -79,40 +62,34 @@ fun PeopleScreen(
             when {
                 isLoading -> {
                     item {
-                        Box(
+                        SecondaryLoadingState(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(48.dp)
+                        )
+                    }
+                }
+
+                loadFailed -> {
+                    item {
+                        SecondaryMessageState(
+                            message = stringResource(R.string.secondary_people_error),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(48.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                        }
+                            isError = true
+                        )
                     }
                 }
 
                 people.isEmpty() -> {
                     item {
-                        Box(
+                        SecondaryMessageState(
+                            message = stringResource(R.string.secondary_people_empty),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(48.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(
-                                    imageVector = Icons.Default.MenuBook,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(48.dp)
-                                )
-                                Spacer(modifier = Modifier.height(12.dp))
-                                Text(
-                                    text = "Не вдалося завантажити список. Перевірте з'єднання.",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
+                                .padding(48.dp)
+                        )
                     }
                 }
 
@@ -139,7 +116,7 @@ fun PeopleScreen(
 
 /** One person: avatar-initial, name and book count. */
 @Composable
-private fun PersonRow(
+fun PersonRow(
     person: CatalogPerson,
     onClick: () -> Unit
 ) {
@@ -147,9 +124,11 @@ private fun PersonRow(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 4.dp)
+            .defaultMinSize(minHeight = 48.dp)
             .clip(RoundedCornerShape(AppDimens.RadiusCardLg))
             .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(AppDimens.RadiusCardLg))
             .clickable { onClick() }
+            .semantics(mergeDescendants = true) { }
             .testTag("person_${person.path.hashCode()}"),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
     ) {
@@ -187,7 +166,7 @@ private fun PersonRow(
             }
 
             Text(
-                text = "${person.bookCount} кн.",
+                text = "${person.bookCount} ${ukPlural(person.bookCount, "книга", "книги", "книг")}",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="secondary_action_back">Назад</string>
+    <string name="secondary_loading">Завантаження вмісту</string>
+    <string name="secondary_play_book">Відтворити «%1$s»</string>
+    <string name="secondary_state_error">Помилка</string>
+    <string name="secondary_series_error">Не вдалося завантажити книги циклу. Перевірте з’єднання.</string>
+    <string name="secondary_series_empty">У цьому циклі поки немає книг.</string>
+    <string name="secondary_genre_error">Не вдалося завантажити книги жанру. Перевірте з’єднання.</string>
+    <string name="secondary_genre_empty">У цьому жанрі поки немає книг.</string>
+    <string name="secondary_top100_error">Не вдалося завантажити рейтинг. Перевірте з’єднання.</string>
+    <string name="secondary_top100_empty">У рейтингу поки немає книг.</string>
+    <string name="secondary_people_error">Не вдалося завантажити список. Перевірте з’єднання.</string>
+    <string name="secondary_people_empty">У цьому списку поки нікого немає.</string>
+    <string name="secondary_person_books_error">Не вдалося завантажити книги. Перевірте з’єднання.</string>
+    <string name="secondary_person_books_empty">Для цієї людини поки немає книг.</string>
+</resources>

@@ -12,6 +12,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -76,6 +77,8 @@ import com.slukhayka.audiobooks.ui.components.EmptyState
 import com.slukhayka.audiobooks.ui.components.BookCoverSemantics
 import com.slukhayka.audiobooks.ui.components.NavigationChip
 import com.slukhayka.audiobooks.ui.components.UpdateBanner
+import com.slukhayka.audiobooks.ui.components.accessibilityModalBackground
+import com.slukhayka.audiobooks.ui.components.accessibilityPane
 import com.slukhayka.audiobooks.ui.components.genreAccentColor
 import com.slukhayka.audiobooks.ui.displayAuthor
 import com.slukhayka.audiobooks.ui.durationBooksFrom
@@ -139,6 +142,7 @@ fun HomeScreen(
     val recommendedBooks by viewModel.recommendedBooks.collectAsState()
     val recommendationSettings by viewModel.recommendationSettings.collectAsState()
     var showRecommendationDisclosure by rememberSaveable { mutableStateOf(false) }
+    val recommendationDisclosureTriggerFocusRequester = remember { FocusRequester() }
 
     // Spec-39 T1 (#261): «Ваші цикли» — derived purely from the local base
     // (library rows + Listening State + every known Work), no network and no
@@ -248,7 +252,11 @@ fun HomeScreen(
     // Search/genre mode: a plain result list, no rows.
     val inSearchMode = searchQuery.isNotBlank() || selectedGenre != "Усі"
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .accessibilityModalBackground(showRecommendationDisclosure)
+    ) {
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
@@ -429,7 +437,10 @@ fun HomeScreen(
                 },
                 showRecommendationConsent = recommendationSettings.shouldOfferSharedLearning(System.currentTimeMillis()),
                 onOpenRecommendationConsent = { showRecommendationDisclosure = true },
-                onDeclineRecommendationConsent = viewModel.recommendationPersonalization::declineSharedLearning
+                onDeclineRecommendationConsent = viewModel.recommendationPersonalization::declineSharedLearning,
+                recommendationDisclosureTriggerModifier = Modifier
+                    .focusRequester(recommendationDisclosureTriggerFocusRequester)
+                    .testTag("recommendation_disclosure_trigger")
             )
 
             // Spec-9: the full library list lives in Медіатека (Library tab),
@@ -441,29 +452,78 @@ fun HomeScreen(
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 80.dp)
         )
     }
-    if (showRecommendationDisclosure) {
-        AlertDialog(
-            onDismissRequest = { showRecommendationDisclosure = false },
-            title = { Text("Спільне покращення рекомендацій") },
-            text = {
-                Text(
-                    "Мета — покращувати п’ять ваг ранжування. Після запуску телефон зможе підготувати не більше одного update на ISO-тиждень: версії, тижневий псевдонім і п’ять чисел gradient. Назви, Work ID, автори, жанри, оцінки, прогрес, UID, дані пристрою та точний час не входять у payload. Сирі внески видаляються після epoch. Згоду можна відкликати в налаштуваннях; локальні рекомендації від цього не зміняться. Передавання зараз технічно вимкнене до privacy/legal/security перевірки."
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    viewModel.recommendationPersonalization.setSharedLearningConsent(true)
-                    showRecommendationDisclosure = false
-                }) { Text("Погоджуюсь") }
-            },
-            dismissButton = {
-                TextButton(onClick = {
-                    viewModel.recommendationPersonalization.declineSharedLearning()
-                    showRecommendationDisclosure = false
-                }) { Text("Не зараз") }
-            }
-        )
+    RecommendationDisclosureDialog(
+        visible = showRecommendationDisclosure,
+        returnFocusRequester = recommendationDisclosureTriggerFocusRequester,
+        onAgree = {
+            viewModel.recommendationPersonalization.setSharedLearningConsent(true)
+            showRecommendationDisclosure = false
+        },
+        onDecline = {
+            viewModel.recommendationPersonalization.declineSharedLearning()
+            showRecommendationDisclosure = false
+        },
+        onDismiss = { showRecommendationDisclosure = false }
+    )
+}
+
+@Composable
+fun RecommendationDisclosureDialog(
+    visible: Boolean,
+    returnFocusRequester: FocusRequester,
+    onAgree: () -> Unit,
+    onDecline: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val title = stringResource(R.string.recommendation_disclosure_title)
+    val headingFocusRequester = remember { FocusRequester() }
+    var restoreFocusAfterClose by remember { mutableStateOf(false) }
+
+    LaunchedEffect(visible) {
+        if (visible) {
+            restoreFocusAfterClose = true
+        } else if (restoreFocusAfterClose) {
+            withFrameNanos { }
+            runCatching { returnFocusRequester.requestFocus() }
+            restoreFocusAfterClose = false
+        }
     }
+
+    if (!visible) return
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        modifier = Modifier
+            .testTag("recommendation_disclosure_dialog")
+            .accessibilityPane(title),
+        title = {
+            LaunchedEffect(Unit) {
+                withFrameNanos { }
+                headingFocusRequester.requestFocus()
+            }
+            Text(
+                text = title,
+                modifier = Modifier
+                    .focusRequester(headingFocusRequester)
+                    .focusable()
+                    .semantics { heading() }
+                    .testTag("recommendation_disclosure_heading")
+            )
+        },
+        text = { Text(stringResource(R.string.recommendation_disclosure_body)) },
+        confirmButton = {
+            TextButton(
+                onClick = onAgree,
+                modifier = Modifier.testTag("recommendation_disclosure_agree")
+            ) { Text(stringResource(R.string.recommendation_disclosure_agree)) }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = onDecline,
+                modifier = Modifier.testTag("recommendation_disclosure_decline")
+            ) { Text(stringResource(R.string.recommendation_disclosure_decline)) }
+        }
+    )
 }
 
 /** Honest, one-shot visible state for the cross-source search. */
@@ -869,10 +929,11 @@ fun CollectionBookCard(
     result: com.slukhayka.audiobooks.data.source.GlobalSearchResult,
     onClick: () -> Unit
 ) {
+    val openLabel = stringResource(R.string.a11y_open_work, result.title)
     Column(
         modifier = Modifier
             .width(120.dp)
-            .clickable { onClick() }
+            .clickable(onClickLabel = openLabel, onClick = onClick)
             .testTag("collection_book_${result.key.hashCode()}"),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
@@ -1069,10 +1130,11 @@ fun CatalogSeriesCard(
     series: CatalogSeries,
     onClick: () -> Unit
 ) {
+    val openLabel = stringResource(R.string.a11y_open_series, series.title)
     Column(
         modifier = Modifier
             .width(132.dp)
-            .clickable { onClick() }
+            .clickable(onClickLabel = openLabel, onClick = onClick)
             .testTag("catalog_series_${series.url.hashCode()}"),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
@@ -1235,9 +1297,9 @@ fun SimilarCycleCard(
 fun CatalogCoverImage(
     coverImageUrl: String?,
     title: String,
+    semantics: BookCoverSemantics,
     modifier: Modifier = Modifier,
-    genre: String? = null,
-    semantics: BookCoverSemantics = BookCoverSemantics.Meaningful(title)
+    genre: String? = null
 ) {
     val context = LocalContext.current
     var isError by remember(coverImageUrl) { mutableStateOf(false) }
@@ -1375,6 +1437,7 @@ fun AudiobookListItem(
     onPlayClick: () -> Unit
 ) {
     val offlineState = stringResource(R.string.a11y_available_offline).takeIf { book.isDownloaded }
+    val openLabel = stringResource(R.string.a11y_open_work, book.title)
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -1384,7 +1447,7 @@ fun AudiobookListItem(
             }
             .clip(RoundedCornerShape(AppDimens.RadiusPanel))
             .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(AppDimens.RadiusPanel))
-            .clickable { onClick() }
+            .clickable(onClickLabel = openLabel, onClick = onClick)
             .testTag("book_item_${book.id}"),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
     ) {

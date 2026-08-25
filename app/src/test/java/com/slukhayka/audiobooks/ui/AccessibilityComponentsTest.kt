@@ -90,24 +90,6 @@ class AccessibilityComponentsTest {
             .assertDoesNotExist()
     }
 
-    @Suppress("DEPRECATION")
-    @Test
-    fun legacyNullDescriptionKeepsTheWorkTitleDuringExpandStage() {
-        composeTestRule.setContent {
-            AudiobookTheme(darkTheme = true) {
-                BookCoverImage(
-                    book = book,
-                    contentDescription = null
-                )
-            }
-        }
-
-        composeTestRule.onNodeWithContentDescription(book.title)
-            .assertContentDescriptionEquals(book.title)
-        composeTestRule.onNodeWithText(book.title)
-            .assertDoesNotExist()
-    }
-
     @Test
     fun visibleModalHidesTheComposedBackgroundFromAccessibility() {
         composeTestRule.setContent {

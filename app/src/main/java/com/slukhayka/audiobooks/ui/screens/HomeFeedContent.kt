@@ -81,7 +81,8 @@ fun LazyListScope.homeFeedContent(
     onRecommendationFeedback: (RecommendationEngine.Recommendation, String) -> Unit = { _, _ -> },
     showRecommendationConsent: Boolean = false,
     onOpenRecommendationConsent: () -> Unit = {},
-    onDeclineRecommendationConsent: () -> Unit = {}
+    onDeclineRecommendationConsent: () -> Unit = {},
+    recommendationDisclosureTriggerModifier: Modifier = Modifier
 ) {
     // Loading spinner while the catalogue syncs on a fresh start.
     if (isCatalogLoading && !hasLibraryBooks && sections.isEmpty()) {
@@ -242,7 +243,10 @@ fun LazyListScope.homeFeedContent(
                     )
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                         TextButton(onClick = onDeclineRecommendationConsent) { Text("Не зараз") }
-                        TextButton(onClick = onOpenRecommendationConsent) { Text("Докладніше") }
+                        TextButton(
+                            onClick = onOpenRecommendationConsent,
+                            modifier = recommendationDisclosureTriggerModifier
+                        ) { Text("Докладніше") }
                     }
                 }
             }

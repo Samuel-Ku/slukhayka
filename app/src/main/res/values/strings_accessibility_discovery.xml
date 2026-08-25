@@ -3,6 +3,11 @@
     <string name="a11y_listen_block_actions">Дії блоку: %1$s</string>
     <string name="a11y_resume_work">Продовжити слухати: %1$s</string>
     <string name="a11y_open_work">Відкрити книгу: %1$s</string>
+    <string name="a11y_open_series">Відкрити серію: %1$s</string>
+    <string name="recommendation_disclosure_title">Спільне покращення рекомендацій</string>
+    <string name="recommendation_disclosure_body">Мета — точніше добирати книги за п’ятьма ознаками. Якщо ви погодитеся, телефон зможе не частіше ніж раз на тиждень підготувати п’ять числових поправок без назв книг, авторів, жанрів, оцінок, прогресу, даних пристрою й точного часу. Передавання зараз вимкнене до окремої перевірки приватності, безпеки та юридичних умов. Згоду можна відкликати в налаштуваннях, а локальні рекомендації працюватимуть і без неї.</string>
+    <string name="recommendation_disclosure_agree">Погоджуюсь</string>
+    <string name="recommendation_disclosure_decline">Не зараз</string>
     <string name="a11y_play_work">Відтворити: %1$s</string>
     <string name="a11y_pause_work">Пауза: %1$s</string>
     <string name="a11y_next_chapter_work">Наступний розділ: %1$s</string>

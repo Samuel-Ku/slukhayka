@@ -576,6 +576,7 @@ fun LibraryBookCard(
             .fillMaxWidth()
             .clip(MaterialTheme.shapes.medium)
             .clickable(onClick = performOpen)
+            .testTag("library_book_item_${book.book.id}")
             .clearAndSetSemantics {
                 contentDescription = description
                 stateDescription = state
@@ -584,8 +585,7 @@ fun LibraryBookCard(
                     performOpen()
                     true
                 }
-            }
-            .testTag("library_book_item_${book.book.id}"),
+            },
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
     ) {
         if (grid) {

@@ -21,4 +21,24 @@
 
     <string name="a11y_player_error_title">Книга недоступна</string>
     <string name="a11y_player_retry">Повторити відтворення %1$s</string>
+
+    <string name="a11y_speed_pane">Швидкість відтворення</string>
+    <string name="a11y_speed_close">Закрити налаштування швидкості</string>
+    <string name="a11y_speed_preset">Швидкість %1$s раза</string>
+    <string name="a11y_speed_exact">Точна швидкість відтворення</string>
+
+    <string name="a11y_timer_pane">Таймер сну</string>
+    <string name="a11y_timer_close">Закрити таймер сну</string>
+    <string name="a11y_timer_extend">Додати 15 хвилин до таймера</string>
+    <string name="a11y_timer_fade_warning">Таймер сну: останні 30 секунд. За потреби додайте 15 хвилин.</string>
+    <string name="a11y_timer_extended">Додано 15 хвилин. Залишилось %1$s.</string>
+
+    <string name="a11y_chapter_pane">Вибір розділу</string>
+    <string name="a11y_chapter_close">Закрити вибір розділу</string>
+    <string name="a11y_chapter_option">%1$s. Тривалість %2$s.%3$s</string>
+    <string name="a11y_chapter_current"> Поточний розділ</string>
+
+    <string name="a11y_bookmark_pane">Додати закладку</string>
+    <string name="a11y_bookmark_close">Закрити додавання закладки</string>
+    <string name="a11y_bookmark_context">Закладка в розділі «%1$s» на позиції %2$s</string>
 </resources>

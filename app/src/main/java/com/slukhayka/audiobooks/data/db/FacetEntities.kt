@@ -30,19 +30,28 @@ data class GenreFacetEntity(val id: String, val displayName: String, val normali
 /** Indexed Work↔genre read relation used by the Paging query. */
 @Entity(
     tableName = "work_genres",
-    primaryKeys = ["workId", "genreId"],
-    indices = [Index("genreId")]
+    primaryKeys = ["workId", "genreId", "sourceId"],
+    indices = [Index("genreId"), Index(value = ["workId", "sourceId"])]
 )
-data class WorkGenreEntity(val workId: String, val genreId: String)
+data class WorkGenreEntity(val workId: String, val genreId: String, val sourceId: String)
+
+/** Cursor for one Source-owned genre assertion document on one Work. */
+@Entity(tableName = "genre_assertion_states", primaryKeys = ["workId", "sourceId"])
+data class GenreAssertionStateEntity(
+    val workId: String,
+    val sourceId: String,
+    val documentUpdatedAt: Long
+)
 
 /** Raw provenance-bearing input retained beside its derived genre relation. */
 @Entity(
     tableName = "genre_assertions",
     primaryKeys = ["id"],
-    indices = [Index("workId"), Index("genreId"), Index("sourceId")]
+    indices = [Index("workId"), Index("genreId"), Index("sourceId"), Index("assertionId")]
 )
 data class GenreAssertionEntity(
     val id: String,
+    val assertionId: String,
     val workId: String,
     val genreId: String,
     val rawText: String,
@@ -91,3 +100,13 @@ data class AuthorAliasEntity(
 
 /** Bounded options exposed to Compose; the full Work catalogue is never collected. */
 data class GenreFacetOption(val id: String, val label: String, val workCount: Int)
+
+/** One prepared all-or-nothing replacement consumed inside the DAO transaction. */
+data class GenreSourceFacetRows(
+    val workId: String,
+    val sourceId: String,
+    val documentUpdatedAt: Long,
+    val genres: List<GenreFacetEntity>,
+    val memberships: List<WorkGenreEntity>,
+    val assertions: List<GenreAssertionEntity>
+)

@@ -36,6 +36,7 @@ import com.slukhayka.audiobooks.data.facets.GenreIdentity
         WorkFacetSeriesEntity::class,
         GenreFacetEntity::class,
         WorkGenreEntity::class,
+        GenreAssertionStateEntity::class,
         GenreAssertionEntity::class,
         EditionFacetEntity::class,
         AuthorFacetEntity::class,
@@ -1040,12 +1041,15 @@ abstract class AudiobookDatabase : RoomDatabase() {
                 db.execSQL("CREATE TABLE IF NOT EXISTS work_facet_series (workId TEXT NOT NULL, seriesId TEXT NOT NULL, PRIMARY KEY(workId, seriesId))")
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_work_facet_series_seriesId ON work_facet_series(seriesId)")
                 db.execSQL("CREATE TABLE IF NOT EXISTS genre_facets (id TEXT NOT NULL, displayName TEXT NOT NULL, normalizedName TEXT NOT NULL, PRIMARY KEY(id))")
-                db.execSQL("CREATE TABLE IF NOT EXISTS work_genres (workId TEXT NOT NULL, genreId TEXT NOT NULL, PRIMARY KEY(workId, genreId))")
+                db.execSQL("CREATE TABLE IF NOT EXISTS work_genres (workId TEXT NOT NULL, genreId TEXT NOT NULL, sourceId TEXT NOT NULL, PRIMARY KEY(workId, genreId, sourceId))")
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_work_genres_genreId ON work_genres(genreId)")
-                db.execSQL("CREATE TABLE IF NOT EXISTS genre_assertions (id TEXT NOT NULL, workId TEXT NOT NULL, genreId TEXT NOT NULL, rawText TEXT NOT NULL, sourceId TEXT NOT NULL, observedAt INTEGER NOT NULL, PRIMARY KEY(id))")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_work_genres_workId_sourceId ON work_genres(workId, sourceId)")
+                db.execSQL("CREATE TABLE IF NOT EXISTS genre_assertion_states (workId TEXT NOT NULL, sourceId TEXT NOT NULL, documentUpdatedAt INTEGER NOT NULL, PRIMARY KEY(workId, sourceId))")
+                db.execSQL("CREATE TABLE IF NOT EXISTS genre_assertions (id TEXT NOT NULL, assertionId TEXT NOT NULL, workId TEXT NOT NULL, genreId TEXT NOT NULL, rawText TEXT NOT NULL, sourceId TEXT NOT NULL, observedAt INTEGER NOT NULL, PRIMARY KEY(id))")
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_genre_assertions_workId ON genre_assertions(workId)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_genre_assertions_genreId ON genre_assertions(genreId)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_genre_assertions_sourceId ON genre_assertions(sourceId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_genre_assertions_assertionId ON genre_assertions(assertionId)")
                 db.execSQL("CREATE TABLE IF NOT EXISTS edition_facets (editionId TEXT NOT NULL, workId TEXT NOT NULL, narratorId TEXT, language TEXT, durationSeconds INTEGER, durationBucketId TEXT, chapterCount INTEGER, isAbridged INTEGER, availabilityAvailable INTEGER, availabilityObservedAtMillis INTEGER, availabilityTtlSeconds INTEGER, updatedAt INTEGER NOT NULL, PRIMARY KEY(editionId))")
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_edition_facets_workId ON edition_facets(workId)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_edition_facets_narratorId ON edition_facets(narratorId)")
@@ -1104,14 +1108,19 @@ abstract class AudiobookDatabase : RoomDatabase() {
                             arrayOf(genre.id, genre.label, FacetIdentity.normalizedText(genre.label).orEmpty())
                         )
                         db.execSQL(
-                            "INSERT OR IGNORE INTO work_genres (workId, genreId) VALUES (?, ?)",
+                            "INSERT OR IGNORE INTO work_genres (workId, genreId, sourceId) VALUES (?, ?, 'legacy:audiobooks')",
                             arrayOf(workId, genre.id)
                         )
                         db.execSQL(
-                            "INSERT OR IGNORE INTO genre_assertions (id, workId, genreId, rawText, sourceId, observedAt) VALUES (?, ?, ?, ?, 'legacy:audiobooks', 0)",
-                            arrayOf("legacy:$bookId:${genre.id}", workId, genre.id, rawText)
+                            "INSERT OR IGNORE INTO genre_assertions (id, assertionId, workId, genreId, rawText, sourceId, observedAt) VALUES (?, ?, ?, ?, ?, 'legacy:audiobooks', 0)",
+                            arrayOf("legacy:$bookId:${genre.id}", "legacy:$bookId", workId, genre.id, rawText)
                         )
                     }
+                    db.execSQL(
+                        "INSERT INTO genre_assertion_states (workId, sourceId, documentUpdatedAt) VALUES (?, 'legacy:audiobooks', 0) " +
+                            "ON CONFLICT(workId, sourceId) DO UPDATE SET documentUpdatedAt=MAX(documentUpdatedAt, excluded.documentUpdatedAt)",
+                        arrayOf(workId)
+                    )
                 }
             }
         }

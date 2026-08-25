@@ -31,6 +31,7 @@ import com.slukhayka.audiobooks.data.db.WorkFacetSeriesEntity
 import com.slukhayka.audiobooks.data.db.GenreFacetEntity
 import com.slukhayka.audiobooks.data.db.WorkGenreEntity
 import com.slukhayka.audiobooks.data.db.GenreAssertionEntity
+import com.slukhayka.audiobooks.data.db.GenreAssertionStateEntity
 import com.slukhayka.audiobooks.data.db.GenreFacetOption
 import com.slukhayka.audiobooks.data.db.EditionFacetEntity
 import com.slukhayka.audiobooks.data.db.AuthorFacetEntity
@@ -39,6 +40,7 @@ import androidx.paging.PagingSource
 import androidx.paging.PagingState
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 
@@ -90,6 +92,7 @@ class FakeAudiobookDao(
     private val genreFacetsState = MutableStateFlow(emptyList<GenreFacetEntity>())
     private val workGenresState = MutableStateFlow(emptyList<WorkGenreEntity>())
     private val genreAssertionsState = MutableStateFlow(emptyList<GenreAssertionEntity>())
+    private val genreAssertionStatesState = MutableStateFlow(emptyList<GenreAssertionStateEntity>())
     private val editionFacetsState = MutableStateFlow(emptyList<EditionFacetEntity>())
     private val authorFacetsState = MutableStateFlow(emptyList<AuthorFacetEntity>())
     private val authorAliasesState = MutableStateFlow(emptyList<AuthorAliasEntity>())
@@ -941,15 +944,30 @@ class FakeAudiobookDao(
     }
 
     override suspend fun insertGenreFacets(rows: List<GenreFacetEntity>) {
-        genreFacetsState.update { current -> current + rows.filter { row -> current.none { it.id == row.id } } }
+        genreFacetsState.update { current -> current.filterNot { old -> rows.any { it.id == old.id } } + rows }
     }
 
     override suspend fun insertWorkGenres(rows: List<WorkGenreEntity>) {
-        workGenresState.update { current -> (current + rows).distinctBy { it.workId to it.genreId } }
+        workGenresState.update { current -> (current + rows).distinctBy { Triple(it.workId, it.genreId, it.sourceId) } }
     }
 
     override suspend fun insertGenreAssertions(rows: List<GenreAssertionEntity>) {
-        genreAssertionsState.update { current -> (current + rows).distinctBy { it.id } }
+        genreAssertionsState.update { current -> current.filterNot { old -> rows.any { it.id == old.id } } + rows }
+    }
+
+    override suspend fun genreDocumentUpdatedAt(workId: String, sourceId: String): Long? =
+        genreAssertionStatesState.value.firstOrNull { it.workId == workId && it.sourceId == sourceId }?.documentUpdatedAt
+
+    override suspend fun deleteWorkGenresForSource(workId: String, sourceId: String) {
+        workGenresState.update { rows -> rows.filterNot { it.workId == workId && it.sourceId == sourceId } }
+    }
+
+    override suspend fun deleteGenreAssertionsForSource(workId: String, sourceId: String) {
+        genreAssertionsState.update { rows -> rows.filterNot { it.workId == workId && it.sourceId == sourceId } }
+    }
+
+    override suspend fun upsertGenreAssertionState(row: GenreAssertionStateEntity) {
+        genreAssertionStatesState.update { rows -> rows.filterNot { it.workId == row.workId && it.sourceId == row.sourceId } + row }
     }
 
     override suspend fun mergeEditionFacet(
@@ -967,13 +985,16 @@ class FakeAudiobookDao(
         updatedAt: Long
     ) {
         val current = editionFacetsState.value.firstOrNull { it.editionId == editionId }
+        val currentObservedAt = current?.availabilityObservedAtMillis
+        val acceptAvailability = availabilityObservedAtMillis != null &&
+            (currentObservedAt == null || availabilityObservedAtMillis > currentObservedAt)
         val merged = EditionFacetEntity(
             editionId, workId, narratorId ?: current?.narratorId, language ?: current?.language,
             durationSeconds ?: current?.durationSeconds, durationBucketId ?: current?.durationBucketId,
             chapterCount ?: current?.chapterCount, isAbridged ?: current?.isAbridged,
-            availabilityAvailable ?: current?.availabilityAvailable,
-            availabilityObservedAtMillis ?: current?.availabilityObservedAtMillis,
-            availabilityTtlSeconds ?: current?.availabilityTtlSeconds,
+            if (acceptAvailability) availabilityAvailable else current?.availabilityAvailable,
+            if (acceptAvailability) availabilityObservedAtMillis else current?.availabilityObservedAtMillis,
+            if (acceptAvailability) availabilityTtlSeconds else current?.availabilityTtlSeconds,
             maxOf(updatedAt, current?.updatedAt ?: 0)
         )
         editionFacetsState.update { rows -> rows.filterNot { it.editionId == editionId } + merged }
@@ -988,10 +1009,14 @@ class FakeAudiobookDao(
     }
 
     override fun observeGenreFacetOptions(): Flow<List<GenreFacetOption>> =
-        genreFacetsState.map { genres ->
+        combine(genreFacetsState, workGenresState) { genres, memberships ->
             genres.map { genre ->
-                GenreFacetOption(genre.id, genre.displayName, workGenresState.value.count { it.genreId == genre.id })
-            }.sortedWith(compareBy({ it.label.lowercase() }, { it.id }))
+                GenreFacetOption(
+                    genre.id,
+                    genre.displayName,
+                    memberships.filter { it.genreId == genre.id }.map { it.workId }.distinct().size
+                )
+            }.filter { it.workCount > 0 }.sortedWith(compareBy({ it.label.lowercase() }, { it.id }))
         }
 
     override suspend fun genreAssertionsForWork(workId: String): List<GenreAssertionEntity> =

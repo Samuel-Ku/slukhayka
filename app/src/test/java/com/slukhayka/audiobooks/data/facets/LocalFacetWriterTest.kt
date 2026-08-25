@@ -138,4 +138,125 @@ class LocalFacetWriterTest {
             assertEquals(0, cursor.getInt(0))
         }
     }
+
+    @Test
+    fun `Edition availability only advances to a strictly newer observation`() = runBlocking {
+        suspend fun write(available: Boolean, observedAt: Long, ttl: Long) {
+            writer.apply(
+                listOf(
+                    LocalFacetDelta(
+                        work = WorkFacetDelta("work-availability"),
+                        editions = listOf(
+                            EditionFacetDelta(
+                                editionId = "edition-availability",
+                                workId = "work-availability",
+                                availabilityAvailable = available,
+                                availabilityObservedAtMillis = observedAt,
+                                availabilityTtlSeconds = ttl,
+                                updatedAt = observedAt
+                            )
+                        )
+                    )
+                )
+            )
+        }
+
+        suspend fun stored(): Triple<Boolean, Long, Long> = db.openHelper.writableDatabase.query(
+            "SELECT availabilityAvailable, availabilityObservedAtMillis, availabilityTtlSeconds FROM edition_facets WHERE editionId='edition-availability'"
+        ).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            Triple(cursor.getInt(0) != 0, cursor.getLong(1), cursor.getLong(2))
+        }
+
+        write(available = true, observedAt = 100, ttl = 10)
+        write(available = false, observedAt = 99, ttl = 20)
+        assertEquals(Triple(true, 100L, 10L), stored())
+
+        write(available = false, observedAt = 100, ttl = 99)
+        assertEquals(Triple(true, 100L, 10L), stored())
+
+        write(available = false, observedAt = 101, ttl = 30)
+        assertEquals(Triple(false, 101L, 30L), stored())
+    }
+
+    @Test
+    fun `genre options expose the complete bounded dictionary`() = runBlocking {
+        val deltas = (1..201).map { index ->
+            LocalFacetDelta(
+                WorkFacetDelta(
+                    workId = "work-option-$index",
+                    genres = listOf(GenreFacetAssertion("Жанр $index", "test", index.toLong()))
+                )
+            )
+        }
+        deltas.chunked(LocalFacetWriter.MAX_DELTAS_PER_BATCH).forEach { writer.apply(it) }
+
+        assertEquals(201, db.audiobookDao().observeGenreFacetOptions().first().size)
+    }
+
+    @Test
+    fun `strictly newer Source document replaces its whole canonical genre set`() = runBlocking {
+        suspend fun replace(
+            sourceId: String,
+            documentUpdatedAt: Long,
+            assertions: List<Triple<String, String, String>>
+        ) {
+            writer.apply(
+                listOf(
+                    LocalFacetDelta(
+                        WorkFacetDelta(
+                            workId = "work-remote",
+                            genreSourceReplacements = listOf(
+                                GenreSourceFacetReplacement(
+                                    sourceId = sourceId,
+                                    documentUpdatedAt = documentUpdatedAt,
+                                    assertions = assertions.map { (genreId, rawText, assertionId) ->
+                                        CanonicalGenreFacetAssertion(
+                                            genreId = genreId,
+                                            rawText = rawText,
+                                            sourceId = sourceId,
+                                            observedAt = documentUpdatedAt,
+                                            assertionId = assertionId,
+                                            documentUpdatedAt = documentUpdatedAt
+                                        )
+                                    }
+                                )
+                            )
+                        )
+                    )
+                )
+            )
+        }
+
+        replace(
+            "remote-a",
+            10,
+            listOf(
+                Triple("shared-fantasy", "Фентезі", "a-document"),
+                Triple("shared-detective", "Детективи", "a-document")
+            )
+        )
+        replace("remote-a", 9, listOf(Triple("shared-detective", "Детективи", "a-old")))
+        replace("remote-a", 10, emptyList())
+        assertEquals(
+            setOf("shared-detective", "shared-fantasy"),
+            db.audiobookDao().observeGenreFacetOptions().first().map { it.id }.toSet()
+        )
+        assertEquals(
+            listOf("a-document", "a-document"),
+            db.audiobookDao().genreAssertionsForWork("work-remote").map { it.assertionId }
+        )
+
+        replace("remote-a", 11, listOf(Triple("shared-detective", "Детективи", "a-new")))
+        replace("remote-b", 5, listOf(Triple("shared-fantasy", "Фентезі", "b-fantasy")))
+        assertEquals(
+            setOf("shared-detective", "shared-fantasy"),
+            db.audiobookDao().observeGenreFacetOptions().first().map { it.id }.toSet()
+        )
+        assertTrue(db.audiobookDao().observeGenreFacetOptions().first().all { it.workCount == 1 })
+
+        replace("remote-a", 12, emptyList())
+        assertEquals(listOf("shared-fantasy"), db.audiobookDao().observeGenreFacetOptions().first().map { it.id })
+        assertEquals(listOf("b-fantasy"), db.audiobookDao().genreAssertionsForWork("work-remote").map { it.assertionId })
+    }
 }

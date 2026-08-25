@@ -782,14 +782,26 @@ interface AudiobookDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertWorkFacetSeries(rows: List<WorkFacetSeriesEntity>)
 
-    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertGenreFacets(rows: List<GenreFacetEntity>)
 
-    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertWorkGenres(rows: List<WorkGenreEntity>)
 
-    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertGenreAssertions(rows: List<GenreAssertionEntity>)
+
+    @Query("SELECT documentUpdatedAt FROM genre_assertion_states WHERE workId=:workId AND sourceId=:sourceId")
+    suspend fun genreDocumentUpdatedAt(workId: String, sourceId: String): Long?
+
+    @Query("DELETE FROM work_genres WHERE workId=:workId AND sourceId=:sourceId")
+    suspend fun deleteWorkGenresForSource(workId: String, sourceId: String)
+
+    @Query("DELETE FROM genre_assertions WHERE workId=:workId AND sourceId=:sourceId")
+    suspend fun deleteGenreAssertionsForSource(workId: String, sourceId: String)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertGenreAssertionState(row: GenreAssertionStateEntity)
 
     @Query(
         "INSERT INTO edition_facets (editionId, workId, narratorId, language, durationSeconds, durationBucketId, chapterCount, isAbridged, availabilityAvailable, availabilityObservedAtMillis, availabilityTtlSeconds, updatedAt) " +
@@ -798,9 +810,9 @@ interface AudiobookDao {
             "narratorId=COALESCE(excluded.narratorId, narratorId), language=COALESCE(excluded.language, language), " +
             "durationSeconds=COALESCE(excluded.durationSeconds, durationSeconds), durationBucketId=COALESCE(excluded.durationBucketId, durationBucketId), " +
             "chapterCount=COALESCE(excluded.chapterCount, chapterCount), isAbridged=COALESCE(excluded.isAbridged, isAbridged), " +
-            "availabilityAvailable=COALESCE(excluded.availabilityAvailable, availabilityAvailable), " +
-            "availabilityObservedAtMillis=COALESCE(excluded.availabilityObservedAtMillis, availabilityObservedAtMillis), " +
-            "availabilityTtlSeconds=COALESCE(excluded.availabilityTtlSeconds, availabilityTtlSeconds), " +
+            "availabilityAvailable=CASE WHEN excluded.availabilityObservedAtMillis IS NOT NULL AND (availabilityObservedAtMillis IS NULL OR excluded.availabilityObservedAtMillis > availabilityObservedAtMillis) THEN excluded.availabilityAvailable ELSE availabilityAvailable END, " +
+            "availabilityObservedAtMillis=CASE WHEN excluded.availabilityObservedAtMillis IS NOT NULL AND (availabilityObservedAtMillis IS NULL OR excluded.availabilityObservedAtMillis > availabilityObservedAtMillis) THEN excluded.availabilityObservedAtMillis ELSE availabilityObservedAtMillis END, " +
+            "availabilityTtlSeconds=CASE WHEN excluded.availabilityObservedAtMillis IS NOT NULL AND (availabilityObservedAtMillis IS NULL OR excluded.availabilityObservedAtMillis > availabilityObservedAtMillis) THEN excluded.availabilityTtlSeconds ELSE availabilityTtlSeconds END, " +
             "updatedAt=MAX(updatedAt, excluded.updatedAt)"
     )
     suspend fun mergeEditionFacet(
@@ -828,18 +840,26 @@ interface AudiobookDao {
     suspend fun applyFacetRows(
         works: List<WorkFacetEntity>,
         workSeries: List<WorkFacetSeriesEntity>,
-        genres: List<GenreFacetEntity>,
-        workGenres: List<WorkGenreEntity>,
-        assertions: List<GenreAssertionEntity>,
+        genreSources: List<GenreSourceFacetRows>,
         editions: List<EditionFacetEntity>,
         authors: List<AuthorFacetEntity>,
         aliases: List<AuthorAliasEntity>
     ) {
         works.forEach { mergeWorkFacet(it.workId, it.canonicalAuthorId, it.updatedAt) }
         insertWorkFacetSeries(workSeries)
-        insertGenreFacets(genres)
-        insertWorkGenres(workGenres)
-        insertGenreAssertions(assertions)
+        genreSources.forEach { sourceRows ->
+            val currentUpdatedAt = genreDocumentUpdatedAt(sourceRows.workId, sourceRows.sourceId)
+            if (currentUpdatedAt == null || sourceRows.documentUpdatedAt > currentUpdatedAt) {
+                deleteWorkGenresForSource(sourceRows.workId, sourceRows.sourceId)
+                deleteGenreAssertionsForSource(sourceRows.workId, sourceRows.sourceId)
+                insertGenreFacets(sourceRows.genres)
+                insertWorkGenres(sourceRows.memberships)
+                insertGenreAssertions(sourceRows.assertions)
+                upsertGenreAssertionState(
+                    GenreAssertionStateEntity(sourceRows.workId, sourceRows.sourceId, sourceRows.documentUpdatedAt)
+                )
+            }
+        }
         editions.forEach {
             mergeEditionFacet(
                 it.editionId, it.workId, it.narratorId, it.language, it.durationSeconds,
@@ -852,9 +872,9 @@ interface AudiobookDao {
     }
 
     @Query(
-        "SELECT g.id AS id, g.displayName AS label, COUNT(wg.workId) AS workCount " +
+        "SELECT g.id AS id, g.displayName AS label, COUNT(DISTINCT wg.workId) AS workCount " +
             "FROM genre_facets g JOIN work_genres wg ON wg.genreId=g.id " +
-            "GROUP BY g.id, g.displayName ORDER BY g.displayName COLLATE NOCASE ASC, g.id ASC LIMIT 200"
+            "GROUP BY g.id, g.displayName ORDER BY g.displayName COLLATE NOCASE ASC, g.id ASC"
     )
     fun observeGenreFacetOptions(): Flow<List<GenreFacetOption>>
 

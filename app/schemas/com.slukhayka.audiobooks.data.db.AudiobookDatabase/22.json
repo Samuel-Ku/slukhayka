@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 22,
-    "identityHash": "c13d0e8b3fa5eb038fd216d9efa6bb88",
+    "identityHash": "1b536c1a76c34a098834613cbbaa75ed",
     "entities": [
       {
         "tableName": "audiobooks",
@@ -1361,7 +1361,7 @@
       },
       {
         "tableName": "work_genres",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`workId` TEXT NOT NULL, `genreId` TEXT NOT NULL, PRIMARY KEY(`workId`, `genreId`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`workId` TEXT NOT NULL, `genreId` TEXT NOT NULL, `sourceId` TEXT NOT NULL, PRIMARY KEY(`workId`, `genreId`, `sourceId`))",
         "fields": [
           {
             "fieldPath": "workId",
@@ -1374,13 +1374,20 @@
             "columnName": "genreId",
             "affinity": "TEXT",
             "notNull": true
+          },
+          {
+            "fieldPath": "sourceId",
+            "columnName": "sourceId",
+            "affinity": "TEXT",
+            "notNull": true
           }
         ],
         "primaryKey": {
           "autoGenerate": false,
           "columnNames": [
             "workId",
-            "genreId"
+            "genreId",
+            "sourceId"
           ]
         },
         "indices": [
@@ -1392,16 +1399,63 @@
             ],
             "orders": [],
             "createSql": "CREATE INDEX IF NOT EXISTS `index_work_genres_genreId` ON `${TABLE_NAME}` (`genreId`)"
+          },
+          {
+            "name": "index_work_genres_workId_sourceId",
+            "unique": false,
+            "columnNames": [
+              "workId",
+              "sourceId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_work_genres_workId_sourceId` ON `${TABLE_NAME}` (`workId`, `sourceId`)"
           }
         ]
       },
       {
+        "tableName": "genre_assertion_states",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`workId` TEXT NOT NULL, `sourceId` TEXT NOT NULL, `documentUpdatedAt` INTEGER NOT NULL, PRIMARY KEY(`workId`, `sourceId`))",
+        "fields": [
+          {
+            "fieldPath": "workId",
+            "columnName": "workId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceId",
+            "columnName": "sourceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "documentUpdatedAt",
+            "columnName": "documentUpdatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "workId",
+            "sourceId"
+          ]
+        }
+      },
+      {
         "tableName": "genre_assertions",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `workId` TEXT NOT NULL, `genreId` TEXT NOT NULL, `rawText` TEXT NOT NULL, `sourceId` TEXT NOT NULL, `observedAt` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `assertionId` TEXT NOT NULL, `workId` TEXT NOT NULL, `genreId` TEXT NOT NULL, `rawText` TEXT NOT NULL, `sourceId` TEXT NOT NULL, `observedAt` INTEGER NOT NULL, PRIMARY KEY(`id`))",
         "fields": [
           {
             "fieldPath": "id",
             "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "assertionId",
+            "columnName": "assertionId",
             "affinity": "TEXT",
             "notNull": true
           },
@@ -1469,6 +1523,15 @@
             ],
             "orders": [],
             "createSql": "CREATE INDEX IF NOT EXISTS `index_genre_assertions_sourceId` ON `${TABLE_NAME}` (`sourceId`)"
+          },
+          {
+            "name": "index_genre_assertions_assertionId",
+            "unique": false,
+            "columnNames": [
+              "assertionId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_genre_assertions_assertionId` ON `${TABLE_NAME}` (`assertionId`)"
           }
         ]
       },
@@ -1699,7 +1762,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'c13d0e8b3fa5eb038fd216d9efa6bb88')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '1b536c1a76c34a098834613cbbaa75ed')"
     ]
   }
 }

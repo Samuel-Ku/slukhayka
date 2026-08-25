@@ -797,15 +797,16 @@ class SourceCatalog(
             )
         )
         if (genreTexts.any { it.isNotBlank() }) {
+            val facetObservedAt = System.currentTimeMillis()
             facetWriter.apply(
                 listOf(
                     LocalFacetDelta(
                         WorkFacetDelta(
                             workId = work.id,
                             genres = genreTexts.map { raw ->
-                                GenreFacetAssertion(raw, sourceId, System.currentTimeMillis())
+                                GenreFacetAssertion(raw, sourceId, facetObservedAt)
                             },
-                            updatedAt = System.currentTimeMillis()
+                            updatedAt = facetObservedAt
                         )
                     )
                 )

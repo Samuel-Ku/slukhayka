@@ -29,12 +29,19 @@ object GenreIdentity {
         "казка" to NormalizedGenre("fairy-tale", "Казка"),
         "сучасна проза" to NormalizedGenre("contemporary-prose", "Сучасна проза")
     )
-    private val nonGenres = setOf("4read каталог", "усі жанри", "all genres")
+    private val nonGenres = setOf("каталог", "4read каталог", "усі жанри", "all genres")
 
     fun fromSourceText(rawText: String): List<NormalizedGenre> =
         rawText.split(separators)
             .mapNotNull(::normalizeOne)
             .distinctBy { it.id }
+
+    /** Keeps a shared canonical id while deriving its truthful bounded label from one raw claim. */
+    fun fromCanonical(genreId: String, rawText: String): NormalizedGenre? {
+        val candidates = fromSourceText(rawText)
+        return candidates.firstOrNull { it.id == genreId }
+            ?: candidates.singleOrNull()?.copy(id = genreId)
+    }
 
     private fun normalizeOne(raw: String): NormalizedGenre? {
         val normalized = Normalizer.normalize(raw, Normalizer.Form.NFKC)

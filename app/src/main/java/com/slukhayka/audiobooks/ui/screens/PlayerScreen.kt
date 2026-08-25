@@ -5,6 +5,9 @@ import android.graphics.drawable.Drawable
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -20,6 +23,8 @@ import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
@@ -27,13 +32,24 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.hideFromAccessibility
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.drawable.toBitmap
 import com.slukhayka.audiobooks.BuildConfig
+import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.BookmarkEntity
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
@@ -41,6 +57,7 @@ import com.slukhayka.audiobooks.data.db.ChapterEntity
 import com.slukhayka.audiobooks.player.PlayerState
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.components.BookCoverImage
+import com.slukhayka.audiobooks.ui.components.BookCoverSemantics
 import com.slukhayka.audiobooks.ui.components.PlayerDebugOverlay
 import com.slukhayka.audiobooks.ui.components.SleepTimerSheet
 import com.slukhayka.audiobooks.ui.components.SpeedSheet
@@ -271,7 +288,14 @@ fun PlayerScreen(
             onSpeed = { showSpeedSheet = true },
             onTimer = { showSleepTimerSheet = true },
             onBookmark = { showBookmarkSheet = true },
-            onChapters = { showChapterSheet = true }
+            onChapters = { showChapterSheet = true },
+            onRetryPlayback = {
+                viewModel.playerManager.prepareChapter(
+                    playerState.currentChapterIndex,
+                    playerState.currentPositionMs,
+                    autoPlay = true
+                )
+            }
         )
 
         SnackbarHost(
@@ -384,10 +408,31 @@ fun PlayerScreenContent(
     onTimer: () -> Unit,
     onBookmark: () -> Unit,
     onChapters: () -> Unit,
+    onRetryPlayback: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val background = MaterialTheme.colorScheme.background
     val tint = artworkAccent ?: MaterialTheme.colorScheme.primary
+    val largeFont = LocalDensity.current.fontScale >= 2f
+    val contentScrollState = rememberScrollState()
+    val playerContextFocusRequester = remember { FocusRequester() }
+    val playerNarrator = book.displayNarrator
+    val editionDescription = if (playerNarrator.isNotBlank()) {
+        stringResource(R.string.a11y_player_edition, playerNarrator)
+    } else {
+        stringResource(R.string.a11y_player_edition_unknown)
+    }
+    val playerContextDescription = stringResource(
+        R.string.a11y_player_context,
+        book.title,
+        book.displayAuthor,
+        editionDescription,
+        currentChapterTitle
+    )
+
+    LaunchedEffect(playerContextFocusRequester) {
+        playerContextFocusRequester.requestFocus()
+    }
 
     Box(
         modifier = modifier
@@ -410,6 +455,7 @@ fun PlayerScreenContent(
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
             PlayerTopBar(
+                bookTitle = book.title,
                 isFavorite = book.isFavorite,
                 isOffline = playerState.isOfflineMode,
                 onDismiss = onDismiss,
@@ -423,6 +469,10 @@ fun PlayerScreenContent(
             Column(
                 modifier = Modifier
                     .weight(1f)
+                    .then(
+                        if (largeFont) Modifier.verticalScroll(contentScrollState)
+                        else Modifier
+                    )
                     .fillMaxWidth()
                     .padding(horizontal = AppDimens.PageSides),
                 horizontalAlignment = Alignment.CenterHorizontally
@@ -431,8 +481,11 @@ fun PlayerScreenContent(
                 // tight the cover shrinks (the aspect-ratio sizing honours the
                 // bounded height), never pushing the transport row off-screen.
                 Box(
-                    modifier = Modifier
-                        .weight(1f)
+                    modifier = (if (largeFont) {
+                        Modifier.height(208.dp)
+                    } else {
+                        Modifier.weight(1f)
+                    })
                         .fillMaxWidth(),
                     contentAlignment = Alignment.Center
                 ) {
@@ -480,7 +533,7 @@ fun PlayerScreenContent(
                     ) {
                         BookCoverImage(
                             book = book,
-                            contentDescription = "Обкладинка: ${book.title}",
+                            semantics = BookCoverSemantics.Decorative,
                             modifier = Modifier.fillMaxSize(),
                             contentScale = ContentScale.Crop,
                             onImageLoaded = onArtworkLoaded
@@ -489,45 +542,66 @@ fun PlayerScreenContent(
                 }
 
                 Spacer(Modifier.height(AppDimens.SpaceSm))
-                Text(
-                    text = book.title,
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    textAlign = TextAlign.Center
-                )
-                Spacer(Modifier.height(AppDimens.SpaceXs))
-                Text(
-                    text = book.displayAuthor,
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                // Spec-20 T2: narrator renders only when real — the fabricated
-                // "4read Voice Narrator" placeholder is scrubbed away. The
-                // real narrator lands once the book page fetch back-fills it.
-                val playerNarrator = book.displayNarrator
-                if (playerNarrator.isNotBlank()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("player_context")
+                        .focusRequester(playerContextFocusRequester)
+                        .focusable()
+                        .clearAndSetSemantics {
+                            contentDescription = playerContextDescription
+                            heading()
+                        },
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
                     Text(
-                        text = "Читає $playerNarrator",
-                        style = MaterialTheme.typography.bodySmall,
+                        text = book.title,
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onBackground,
+                        maxLines = if (largeFont) 3 else 2,
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(Modifier.height(AppDimens.SpaceXs))
+                    Text(
+                        text = book.displayAuthor,
+                        style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
+                        maxLines = if (largeFont) 2 else 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    // Spec-20 T2: narrator renders only when real — the fabricated
+                    // "4read Voice Narrator" placeholder is scrubbed away. The
+                    // real narrator lands once the book page fetch back-fills it.
+                    if (playerNarrator.isNotBlank()) {
+                        Text(
+                            text = "Читає $playerNarrator",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = if (largeFont) 2 else 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    Spacer(Modifier.height(AppDimens.SpaceSm))
+                    Text(
+                        text = currentChapterTitle,
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = if (largeFont) 2 else 1,
                         overflow = TextOverflow.Ellipsis
                     )
                 }
-                Spacer(Modifier.height(AppDimens.SpaceSm))
-                Text(
-                    text = currentChapterTitle,
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+
+                if (playerState.lastErrorMsg.isNotBlank()) {
+                    Spacer(Modifier.height(AppDimens.SpaceMd))
+                    PlayerPlaybackError(
+                        bookTitle = book.title,
+                        detail = playerState.lastErrorMsg,
+                        onRetryPlayback = onRetryPlayback
+                    )
+                }
 
                 Spacer(Modifier.height(AppDimens.SpaceLg))
                 DualProgress(
@@ -540,6 +614,8 @@ fun PlayerScreenContent(
 
                 Spacer(Modifier.height(AppDimens.SpaceMd))
                 TransportControls(
+                    bookTitle = book.title,
+                    currentChapterTitle = currentChapterTitle,
                     isPlaying = playerState.isPlaying,
                     onPreviousChapter = onPreviousChapter,
                     onBack = onBack,
@@ -583,6 +659,7 @@ fun PlayerScreenContent(
 
 @Composable
 private fun PlayerTopBar(
+    bookTitle: String,
     isFavorite: Boolean,
     isOffline: Boolean,
     onDismiss: () -> Unit,
@@ -602,7 +679,11 @@ private fun PlayerTopBar(
             onClick = onDismiss,
             modifier = Modifier.size(AppDimens.TouchTarget).testTag("close_player_button")
         ) {
-            Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Згорнути програвач", modifier = Modifier.size(30.dp))
+            Icon(
+                Icons.Default.KeyboardArrowDown,
+                contentDescription = stringResource(R.string.a11y_player_close),
+                modifier = Modifier.size(30.dp)
+            )
         }
         Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
@@ -620,7 +701,10 @@ private fun PlayerTopBar(
                 onClick = { showMenu = true },
                 modifier = Modifier.size(AppDimens.TouchTarget).testTag("player_actions_button")
             ) {
-                Icon(Icons.Default.MoreVert, contentDescription = "Дії з аудіокнигою")
+                Icon(
+                    Icons.Default.MoreVert,
+                    contentDescription = stringResource(R.string.a11y_player_actions, bookTitle)
+                )
             }
             DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
                 DropdownMenuItem(
@@ -648,6 +732,26 @@ private fun DualProgress(
     onSeek: (Float) -> Unit,
     onBookSeek: (Float) -> Unit
 ) {
+    val chapterPositionLabel = stringResource(R.string.a11y_player_chapter_position)
+    val bookPositionLabel = stringResource(R.string.a11y_player_book_position)
+    val chapterTimeDescription = if (chapterDurationSeconds > 0L) {
+        stringResource(
+            R.string.a11y_player_time_of,
+            MainViewModel.formatTime(chapterPositionSeconds),
+            MainViewModel.formatTime(chapterDurationSeconds)
+        )
+    } else {
+        stringResource(R.string.a11y_player_duration_unknown)
+    }
+    val bookTimeDescription = if (progress.bookDurationSeconds > 0L) {
+        stringResource(
+            R.string.a11y_player_time_of,
+            MainViewModel.formatTime(progress.bookPositionSeconds),
+            MainViewModel.formatTime(progress.bookDurationSeconds)
+        )
+    } else {
+        stringResource(R.string.a11y_player_duration_unknown)
+    }
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text("Розділ", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -662,7 +766,13 @@ private fun DualProgress(
         Slider(
             value = progress.chapterFraction,
             onValueChange = onSeek,
-            modifier = Modifier.fillMaxWidth().testTag("player_progress_slider"),
+            modifier = Modifier
+                .fillMaxWidth()
+                .semantics {
+                    contentDescription = chapterPositionLabel
+                    stateDescription = chapterTimeDescription
+                }
+                .testTag("player_progress_slider"),
             colors = SliderDefaults.colors(
                 thumbColor = MaterialTheme.colorScheme.primary,
                 activeTrackColor = MaterialTheme.colorScheme.primary,
@@ -677,12 +787,17 @@ private fun DualProgress(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
-        BookProgressTrack(progress, onBookSeek)
+        BookProgressTrack(progress, bookPositionLabel, bookTimeDescription, onBookSeek)
     }
 }
 
 @Composable
-private fun BookProgressTrack(progress: PlayerProgressUi, onSeek: (Float) -> Unit) {
+private fun BookProgressTrack(
+    progress: PlayerProgressUi,
+    positionLabel: String,
+    timeDescription: String,
+    onSeek: (Float) -> Unit
+) {
     val active = MaterialTheme.colorScheme.primary
     val activeMarker = MaterialTheme.colorScheme.onPrimary
     val inactiveMarker = MaterialTheme.colorScheme.onSurfaceVariant
@@ -691,7 +806,13 @@ private fun BookProgressTrack(progress: PlayerProgressUi, onSeek: (Float) -> Uni
             value = progress.bookFraction,
             onValueChange = onSeek,
             enabled = progress.bookDurationSeconds > 0L,
-            modifier = Modifier.fillMaxWidth().testTag("book_progress_slider"),
+            modifier = Modifier
+                .fillMaxWidth()
+                .semantics {
+                    contentDescription = positionLabel
+                    stateDescription = timeDescription
+                }
+                .testTag("book_progress_slider"),
             colors = SliderDefaults.colors(
                 thumbColor = active,
                 activeTrackColor = active,
@@ -704,6 +825,8 @@ private fun BookProgressTrack(progress: PlayerProgressUi, onSeek: (Float) -> Uni
                 .fillMaxWidth()
                 .height(24.dp)
                 .padding(horizontal = 10.dp, vertical = 6.dp)
+                .testTag("book_progress_markers")
+                .semantics { hideFromAccessibility() }
         ) {
             val centerY = size.height / 2f
             progress.chapterMarkers.forEach { marker ->
@@ -732,6 +855,8 @@ private fun DrawScope.drawMarker(fraction: Float, color: Color, height: Float, w
 
 @Composable
 private fun TransportControls(
+    bookTitle: String,
+    currentChapterTitle: String,
     isPlaying: Boolean,
     onPreviousChapter: () -> Unit,
     onBack: () -> Unit,
@@ -739,37 +864,68 @@ private fun TransportControls(
     onForward: () -> Unit,
     onNextChapter: () -> Unit
 ) {
+    val previousDescription = stringResource(
+        R.string.a11y_player_previous_chapter,
+        bookTitle,
+        currentChapterTitle
+    )
+    val backDescription = stringResource(R.string.a11y_player_seek_back, bookTitle, currentChapterTitle)
+    val playDescription = stringResource(
+        if (isPlaying) R.string.a11y_player_pause else R.string.a11y_player_play,
+        bookTitle,
+        currentChapterTitle
+    )
+    val playbackStateDescription = stringResource(
+        if (isPlaying) R.string.a11y_player_state_playing else R.string.a11y_player_state_paused
+    )
+    val forwardDescription = stringResource(R.string.a11y_player_seek_forward, bookTitle, currentChapterTitle)
+    val nextDescription = stringResource(
+        R.string.a11y_player_next_chapter,
+        bookTitle,
+        currentChapterTitle
+    )
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        TransportIcon(Icons.Default.SkipPrevious, "Попередній розділ", onPreviousChapter)
+        TransportIcon(Icons.Default.SkipPrevious, previousDescription, onPreviousChapter)
         // Spec-27 (#207, BUG-012): the seek buttons carry a visible label
         // («15 с»/«30 с») below the icon. The forward button reuses Redo (the
         // clockwise circular arrow — the numberless mirror of Replay) so the
         // "30" lives only in the label, never baked into the icon.
-        SeekButton(Icons.Default.Replay, "Назад на 15 секунд", "15 с", onBack)
+        SeekButton(Icons.Default.Replay, backDescription, "15 с", onBack)
         FilledIconButton(
             onClick = onPlayPause,
-            modifier = Modifier.size(72.dp).testTag("player_play_pause_button"),
+            modifier = Modifier
+                .size(72.dp)
+                .semantics {
+                    contentDescription = playDescription
+                    stateDescription = playbackStateDescription
+                }
+                .testTag("player_play_pause_button"),
             colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.primary)
         ) {
             Icon(
                 if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                contentDescription = if (isPlaying) "Пауза" else "Відтворити",
+                contentDescription = null,
                 modifier = Modifier.size(40.dp)
             )
         }
-        SeekButton(Icons.Default.Redo, "Вперед на 30 секунд", "30 с", onForward)
-        TransportIcon(Icons.Default.SkipNext, "Наступний розділ", onNextChapter)
+        SeekButton(Icons.Default.Redo, forwardDescription, "30 с", onForward)
+        TransportIcon(Icons.Default.SkipNext, nextDescription, onNextChapter)
     }
 }
 
 @Composable
 private fun TransportIcon(icon: androidx.compose.ui.graphics.vector.ImageVector, description: String, onClick: () -> Unit) {
-    IconButton(onClick = onClick, modifier = Modifier.size(AppDimens.TouchTarget)) {
-        Icon(icon, contentDescription = description, modifier = Modifier.size(28.dp))
+    IconButton(
+        onClick = onClick,
+        modifier = Modifier
+            .size(AppDimens.TouchTarget)
+            .semantics { contentDescription = description }
+    ) {
+        Icon(icon, contentDescription = null, modifier = Modifier.size(28.dp))
     }
 }
 
@@ -781,13 +937,19 @@ private fun SeekButton(
     onClick: () -> Unit
 ) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        IconButton(onClick = onClick, modifier = Modifier.size(AppDimens.TouchTarget)) {
-            Icon(icon, contentDescription = description, modifier = Modifier.size(28.dp))
+        IconButton(
+            onClick = onClick,
+            modifier = Modifier
+                .size(AppDimens.TouchTarget)
+                .semantics { contentDescription = description }
+        ) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(28.dp))
         }
         Text(
             label,
             style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.clearAndSetSemantics { }
         )
     }
 }
@@ -840,9 +1002,63 @@ private fun RowScope.QuickTool(
     ) {
         Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(24.dp))
         Spacer(Modifier.height(AppDimens.SpaceXs))
-        Text(value ?: label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurface, maxLines = 1)
+        Text(
+            value ?: label,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 2,
+            textAlign = TextAlign.Center
+        )
         if (value != null) {
-            Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+            Text(
+                label,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                textAlign = TextAlign.Center
+            )
+        }
+    }
+}
+
+@Composable
+private fun PlayerPlaybackError(
+    bookTitle: String,
+    detail: String,
+    onRetryPlayback: () -> Unit
+) {
+    val errorTitle = stringResource(R.string.a11y_player_error_title)
+    val retryLabel = stringResource(R.string.a11y_player_retry, bookTitle)
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(Modifier.padding(AppDimens.SpaceMd)) {
+            Text(
+                text = errorTitle,
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onErrorContainer,
+                modifier = Modifier
+                    .testTag("player_playback_error")
+                    .semantics { liveRegion = LiveRegionMode.Polite }
+            )
+            if (!detail.contains("недоступна", ignoreCase = true)) {
+                Text(
+                    text = detail,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onErrorContainer
+                )
+            }
+            OutlinedButton(
+                onClick = onRetryPlayback,
+                modifier = Modifier
+                    .heightIn(min = AppDimens.TouchTarget)
+                    .semantics {
+                        contentDescription = retryLabel
+                    }
+            ) {
+                Text(retryLabel, modifier = Modifier.clearAndSetSemantics { })
+            }
         }
     }
 }

@@ -155,7 +155,7 @@ fun BookDetailScreen(
     }
     // #358 — the delete confirmation lives here (destructive action never
     // looks neutral, spec-27); the row only raises the request.
-    var narrationRatingToDelete by remember { mutableStateOf(false) }
+    var showNarrationRatingDeleteConfirm by remember { mutableStateOf(false) }
     val detailPresentation = remember(currentBook, sourceProfiles, bookSources, bookReviews) {
         bookDetailPresentation(
             book = currentBook,
@@ -173,10 +173,10 @@ fun BookDetailScreen(
     }
 
     // #358 — delete confirmation quoting the exact scope (spec-27).
-    if (narrationRatingToDelete && currentEditionId != null) {
+    if (showNarrationRatingDeleteConfirm && currentEditionId != null) {
         val editionId = currentEditionId.orEmpty()
         androidx.compose.material3.AlertDialog(
-            onDismissRequest = { narrationRatingToDelete = false },
+            onDismissRequest = { showNarrationRatingDeleteConfirm = false },
             title = { Text("Видалити оцінку начитки?") },
             text = {
                 Text(
@@ -186,13 +186,13 @@ fun BookDetailScreen(
             confirmButton = {
                 TextButton(onClick = {
                     viewModel.deleteOwnNarrationRating(reviewsWorkId, editionId)
-                    narrationRatingToDelete = false
+                    showNarrationRatingDeleteConfirm = false
                 }) {
                     Text("Видалити", color = MaterialTheme.colorScheme.error)
                 }
             },
             dismissButton = {
-                TextButton(onClick = { narrationRatingToDelete = false }) { Text("Скасувати") }
+                TextButton(onClick = { showNarrationRatingDeleteConfirm = false }) { Text("Скасувати") }
             }
         )
     }
@@ -412,6 +412,9 @@ fun BookDetailScreen(
                             listenerProfile != null && currentEditionId != null,
                         onRateNarration = { stars ->
                             val editionId = currentEditionId ?: return@BookDetailCanonicalSummary
+                            // Re-tapping the already-set star is a no-op —
+                            // never a rewrite with a fresh editedAt (#358).
+                            if (ownNarrationRating?.rating == stars) return@BookDetailCanonicalSummary
                             viewModel.saveNarrationRating(
                                 workId = reviewsWorkId,
                                 editionId = editionId,
@@ -420,7 +423,7 @@ fun BookDetailScreen(
                             )
                         },
                         onDeleteNarrationRating = ownNarrationRating?.let {
-                            { narrationRatingToDelete = true }
+                            { showNarrationRatingDeleteConfirm = true }
                         },
                         onAuthorClick = { author ->
                             viewModel.openPersonBooks(

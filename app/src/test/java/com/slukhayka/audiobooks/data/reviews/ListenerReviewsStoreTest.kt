@@ -1,7 +1,11 @@
 package com.slukhayka.audiobooks.data.reviews
 
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.yield
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -23,7 +27,9 @@ class ListenerReviewsStoreTest {
         var failReads: Boolean = false,
         var failWrites: Boolean = false,
         var cancelWrites: Boolean = false,
-        var scrambleOrder: Boolean = true
+        var scrambleOrder: Boolean = true,
+        val remoteWriteResult: CompletableDeferred<ReviewRemoteResult> =
+            CompletableDeferred(ReviewRemoteResult.PUBLISHED)
     ) {
         val documents = mutableMapOf<String, Map<String, Any>>()
 
@@ -46,11 +52,14 @@ class ListenerReviewsStoreTest {
                 .filter { it["workId"] in workIds.toSet() }
         }
 
-        override suspend fun setDocument(documentId: String, document: Map<String, Any>): Boolean {
+        override suspend fun enqueueDocument(
+            documentId: String,
+            document: Map<String, Any>
+        ): ReviewWriteReceipt {
             if (fake.cancelWrites) throw CancellationException("write cancelled")
             if (fake.failWrites) throw IllegalStateException("transport down")
             fake.documents[documentId] = document
-            return true
+            return ReviewWriteReceipt.Queued { fake.remoteWriteResult.await() }
         }
 
         override suspend fun removeDocument(documentId: String): Boolean {
@@ -83,6 +92,24 @@ class ListenerReviewsStoreTest {
 
         assertTrue(store.putReview(r))
         assertEquals(listOf(r), store.getReviews("work-1"))
+    }
+
+    @Test
+    fun `enqueue reports local queue before the remote verdict`() = runBlocking {
+        val remote = CompletableDeferred<ReviewRemoteResult>()
+        val store = FakeStore(FakeDocuments(remoteWriteResult = remote))
+
+        val receipt = store.enqueueReview(review(uid = "u1", createdAt = 100L))
+
+        assertTrue(receipt is ReviewWriteReceipt.Queued)
+        val acknowledgement = async(start = CoroutineStart.UNDISPATCHED) {
+            (receipt as ReviewWriteReceipt.Queued).awaitRemote()
+        }
+        yield()
+        assertFalse(acknowledgement.isCompleted)
+
+        remote.complete(ReviewRemoteResult.FAILED)
+        assertEquals(ReviewRemoteResult.FAILED, acknowledgement.await())
     }
 
     @Test

@@ -58,17 +58,20 @@ class FirestoreListenerReviewsStore(private val firestore: FirebaseFirestore) : 
         return result
     }
 
-    override suspend fun setDocument(documentId: String, document: Map<String, Any>): Boolean {
-        // set() on a document key is idempotent — an edit replaces, never
-        // duplicates. The transport reports the Task's actual outcome; the
-        // policy seam interprets true as durably accepted (#280).
+    override suspend fun enqueueDocument(
+        documentId: String,
+        document: Map<String, Any>
+    ): ReviewWriteReceipt {
+        // set() synchronously enters Firestore's local persistence queue. Its
+        // Task is the later backend acknowledgement and can remain pending for
+        // the whole offline period, so never await it on the enqueue path.
         return try {
             firestore.collection(COLLECTION).document(documentId).set(document)
-                .awaitReviewWriteResult()
+                .toReviewWriteReceipt()
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
-            false
+            ReviewWriteReceipt.Rejected
         }
     }
 
@@ -111,6 +114,16 @@ class FirestoreListenerReviewsStore(private val firestore: FirebaseFirestore) : 
     }
 }
 
+/** Local enqueue is immediate; callers decide separately when to await the backend. */
+internal fun Task<*>.toReviewWriteReceipt(): ReviewWriteReceipt =
+    ReviewWriteReceipt.Queued {
+        if (awaitReviewWriteResult()) {
+            ReviewRemoteResult.PUBLISHED
+        } else {
+            ReviewRemoteResult.FAILED
+        }
+    }
+
 /** The write Task's result without turning failure or cancellation into success. */
 internal suspend fun Task<*>.awaitReviewWriteResult(): Boolean =
     suspendCancellableCoroutine { continuation ->
@@ -122,7 +135,9 @@ internal suspend fun Task<*>.awaitReviewWriteResult(): Boolean =
         }
         addOnCanceledListener(reviewWriteTaskExecutor) {
             if (continuation.isActive) {
-                continuation.cancel(CancellationException("Firebase review write was cancelled"))
+                // Firebase cancelled its own Task: that is a remote failure,
+                // not cancellation of the caller's coroutine.
+                continuation.resume(false)
             }
         }
     }

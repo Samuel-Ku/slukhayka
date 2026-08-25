@@ -170,7 +170,7 @@ class RoomLocalFacetWriter(private val dao: AudiobookDao) : LocalFacetWriter {
                     memberships += WorkGenreEntity(delta.work.workId, genre.id, replacement.sourceId)
                     val assertionRowId = FacetIdentity.boundedId(
                         "assertion-row",
-                        "${delta.work.workId}|${assertion.assertionId}|${genre.id}"
+                        "${delta.work.workId}|${replacement.sourceId}|${assertion.assertionId}|${genre.id}"
                     )
                     assertions[assertionRowId] = GenreAssertionEntity(
                         id = assertionRowId,

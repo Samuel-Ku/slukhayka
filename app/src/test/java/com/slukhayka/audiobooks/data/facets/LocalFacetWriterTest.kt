@@ -247,8 +247,15 @@ class LocalFacetWriterTest {
             db.audiobookDao().genreAssertionsForWork("work-remote").map { it.assertionId }
         )
 
-        replace("remote-a", 11, listOf(Triple("shared-detective", "Детективи", "a-new")))
-        replace("remote-b", 5, listOf(Triple("shared-fantasy", "Фентезі", "b-fantasy")))
+        replace("remote-a", 11, listOf(Triple("shared-detective", "Детективи", "shared-document")))
+        replace(
+            "remote-b",
+            5,
+            listOf(
+                Triple("shared-detective", "Детективи", "shared-document"),
+                Triple("shared-fantasy", "Фентезі", "b-fantasy")
+            )
+        )
         assertEquals(
             setOf("shared-detective", "shared-fantasy"),
             db.audiobookDao().observeGenreFacetOptions().first().map { it.id }.toSet()
@@ -256,7 +263,12 @@ class LocalFacetWriterTest {
         assertTrue(db.audiobookDao().observeGenreFacetOptions().first().all { it.workCount == 1 })
 
         replace("remote-a", 12, emptyList())
-        assertEquals(listOf("shared-fantasy"), db.audiobookDao().observeGenreFacetOptions().first().map { it.id })
-        assertEquals(listOf("b-fantasy"), db.audiobookDao().genreAssertionsForWork("work-remote").map { it.assertionId })
+        assertEquals(
+            setOf("shared-detective", "shared-fantasy"),
+            db.audiobookDao().observeGenreFacetOptions().first().map { it.id }.toSet()
+        )
+        val remainingAssertions = db.audiobookDao().genreAssertionsForWork("work-remote")
+        assertEquals(setOf("b-fantasy", "shared-document"), remainingAssertions.map { it.assertionId }.toSet())
+        assertTrue(remainingAssertions.all { it.sourceId == "remote-b" })
     }
 }

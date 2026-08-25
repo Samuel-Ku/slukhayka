@@ -164,28 +164,3 @@ fun BookCoverImage(
         }
     }
 }
-
-/**
- * Expand-stage compatibility overload. Existing call sites keep their former
- * meaningful-cover behavior until their owning product lane chooses the
- * explicit [BookCoverSemantics] mode. The contract ticket removes this door.
- */
-@Deprecated(
-    message = "Choose BookCoverSemantics.Decorative or Meaningful explicitly"
-)
-@Composable
-fun BookCoverImage(
-    book: AudiobookEntity,
-    contentDescription: String?,
-    modifier: Modifier = Modifier,
-    contentScale: ContentScale = ContentScale.Crop,
-    onImageLoaded: ((Drawable) -> Unit)? = null
-) {
-    BookCoverImage(
-        book = book,
-        semantics = BookCoverSemantics.Meaningful(contentDescription ?: book.title),
-        modifier = modifier,
-        contentScale = contentScale,
-        onImageLoaded = onImageLoaded
-    )
-}

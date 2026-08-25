@@ -1,6 +1,13 @@
 package com.slukhayka.audiobooks.ui
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Scaffold
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextEquals
@@ -8,6 +15,8 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.AppBottomBar
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
@@ -132,5 +141,34 @@ class NavigationTabsTest {
         composeTestRule.onNodeWithTag("tab_library").performClick()
 
         assertEquals(SelectedTab.LIBRARY, selected)
+    }
+
+    @Test
+    fun bottomBarKeepsEveryDestinationReachableAtTwoHundredPercentFontScale() {
+        composeTestRule.setContent {
+            val density = LocalDensity.current
+            CompositionLocalProvider(
+                LocalDensity provides Density(density.density, fontScale = 2f)
+            ) {
+                AudiobookTheme(darkTheme = true) {
+                    Box(Modifier.width(320.dp).height(480.dp)) {
+                        AppBottomBar(selectedTab = SelectedTab.LISTEN) { }
+                    }
+                }
+            }
+        }
+
+        composeTestRule.onNodeWithTag("tab_listen")
+            .assertIsDisplayed()
+            .assertHeightIsAtLeast(48.dp)
+            .assertTextEquals("Слухати")
+        composeTestRule.onNodeWithTag("tab_explore")
+            .assertIsDisplayed()
+            .assertHeightIsAtLeast(48.dp)
+            .assertTextEquals("Огляд")
+        composeTestRule.onNodeWithTag("tab_library")
+            .assertIsDisplayed()
+            .assertHeightIsAtLeast(48.dp)
+            .assertTextEquals("Медіатека")
     }
 }

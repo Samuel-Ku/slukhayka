@@ -161,7 +161,9 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
 
     Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(
-            modifier = Modifier.accessibilityModalBackground(showFullPlayer),
+            modifier = Modifier
+                .testTag("app_background")
+                .accessibilityModalBackground(showFullPlayer),
             bottomBar = {
                 Column {
                     // Floating Persistent Mini Player

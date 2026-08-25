@@ -6,12 +6,12 @@
 #
 # Scope:
 #   - JVM unit tests (Robolectric, JUnit4, Roborazzi snapshot)
+#   - API 35 accessibility journey through the real MainActivity
 #   - Kover HTML + XML coverage reports
 #   - Kover threshold verification at a relaxed baseline (15/9) — see
 #     "Threshold strategy" below; bump up as A-wave iterations land coverage.
 #
 # Out of scope (separate tickets):
-#   - Espresso emulator scenario (cold-boot ~5 min; needs KVM config tuning)
 #   - Lint-as-gate step (lint not currently configured to fail build)
 #   - Codecov/Coveralls upload
 #   - Multi-OS matrix
@@ -151,4 +151,63 @@ jobs:
         with:
           name: test-results
           path: app/build/test-results/testDebugUnitTest/
+          retention-days: 14
+
+  accessibility-api35:
+    name: Accessibility journey (API 35)
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup JDK 21 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: wrapper
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install compile SDK 36.1
+        run: sdkmanager "platforms;android-36.1" "build-tools;36.0.0" "platform-tools"
+
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
+      - name: Run the seeded MainActivity accessibility journey
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: |
+            mkdir -p app/build/reports/androidTests
+            adb logcat -c
+            test_status=0
+            ./gradlew :app:connectedDebugAndroidTest \
+              -Pandroid.testInstrumentationRunnerArguments.class=com.slukhayka.audiobooks.accessibility.MainActivityAccessibilityTest \
+              --no-daemon --max-workers=1 --stacktrace || test_status=$?
+            adb logcat -d > app/build/reports/androidTests/accessibility-api35-logcat.txt
+            exit "$test_status"
+
+      - name: Upload API 35 accessibility results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: accessibility-api35-results
+          path: |
+            app/build/reports/androidTests/
+            app/build/outputs/androidTest-results/connected/
+          if-no-files-found: warn
           retention-days: 14

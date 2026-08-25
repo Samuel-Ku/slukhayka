@@ -25,6 +25,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -41,10 +50,15 @@ import com.slukhayka.audiobooks.data.listening.ListeningStateStore
 import com.slukhayka.audiobooks.data.source.sourceDisplayName
 import com.slukhayka.audiobooks.data.source.sourceIdForUrl
 import com.slukhayka.audiobooks.data.source.streamOnlyFor
+import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.ui.library.siblingNarrations
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.bookPersonPath
 import com.slukhayka.audiobooks.ui.components.BookmarkDialog
+import com.slukhayka.audiobooks.ui.components.BookCoverImage
+import com.slukhayka.audiobooks.ui.components.BookCoverSemantics
+import com.slukhayka.audiobooks.ui.components.accessibilityModalBackground
+import com.slukhayka.audiobooks.ui.components.accessibilityPane
 import com.slukhayka.audiobooks.ui.displayAuthor
 import com.slukhayka.audiobooks.ui.displayNarrator
 import com.slukhayka.audiobooks.ui.library.BookPlayState
@@ -208,8 +222,32 @@ fun BookDetailScreen(
         cumulativePositionSeconds = cumulativePosition,
         totalDurationSeconds = totalDuration
     )
+    val paneTitle = stringResource(R.string.book_detail_pane_title, detailPresentation.title)
+    val downloadActionDescription = when {
+        isDownloadingThis -> stringResource(
+            R.string.book_detail_download_in_progress,
+            currentBook.title,
+            (currentBook.downloadProgress.coerceIn(0f, 1f) * 100).toInt()
+        )
+        currentBook.isDownloaded -> stringResource(
+            R.string.book_detail_download_remove,
+            currentBook.title
+        )
+        else -> stringResource(R.string.book_detail_download_add, currentBook.title)
+    }
+    val downloadStateDescription = stringResource(
+        when {
+            isDownloadingThis -> R.string.book_detail_downloading
+            currentBook.isDownloaded -> R.string.book_detail_downloaded
+            else -> R.string.book_detail_streaming
+        }
+    )
 
     Scaffold(
+        modifier = Modifier.accessibilityModalBackground(
+            modalVisible = showAddBookmarkDialog || showDeleteSheet || showDeleteDialog ||
+                showReviewForm || reviewToDelete != null
+        ),
         topBar = {
             // The host Scaffold in MainActivity already consumed the status
             // bar (innerPadding.top), so this inner TopAppBar must NOT add
@@ -217,10 +255,23 @@ fun BookDetailScreen(
             // height too low.
             TopAppBar(
                 windowInsets = WindowInsets(0, 0, 0, 0),
-                title = { Text(detailPresentation.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                title = {
+                    Text(
+                        detailPresentation.title,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        // The pane announcement plus the heading in the body
+                        // already identify the Work. Keep the pinned toolbar
+                        // title visual without making TalkBack read it twice.
+                        modifier = Modifier.clearAndSetSemantics { }
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onBackClick) {
-                        Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.book_detail_back)
+                        )
                     }
                 },
                 actions = {
@@ -230,6 +281,7 @@ fun BookDetailScreen(
                     val isFavoriteThis = favoriteBooks.any { it.id == currentBook.id }
                     FavoriteButton(
                         isFavorite = isFavoriteThis,
+                        bookTitle = currentBook.title,
                         onToggle = {
                             scope.launch {
                                 viewModel.libraryEntries.toggleFavorite(
@@ -280,7 +332,11 @@ fun BookDetailScreen(
                                     viewModel.downloadBookOffline(currentBook.id)
                                 }
                             },
-                            enabled = !isDownloadingThis
+                            enabled = !isDownloadingThis,
+                            modifier = Modifier.semantics {
+                                contentDescription = downloadActionDescription
+                                stateDescription = downloadStateDescription
+                            }
                         ) {
                             if (isDownloadingThis) {
                                 CircularProgressIndicator(
@@ -292,7 +348,7 @@ fun BookDetailScreen(
                             } else {
                                 Icon(
                                     imageVector = if (currentBook.isDownloaded) Icons.Default.CloudDone else Icons.Default.CloudDownload,
-                                    contentDescription = "Offline Download",
+                                    contentDescription = null,
                                     tint = if (currentBook.isDownloaded) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurface
                                 )
                             }
@@ -312,12 +368,18 @@ fun BookDetailScreen(
             )
         },
         containerColor = MaterialTheme.colorScheme.background,
-        snackbarHost = { SnackbarHost(hostState = snackbarHostState) }
+        snackbarHost = {
+            SnackbarHost(
+                hostState = snackbarHostState,
+                modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }
+            )
+        }
     ) { padding ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
+                .accessibilityPane(paneTitle)
                 .testTag("book_detail_screen"),
             contentPadding = PaddingValues(bottom = 120.dp)
         ) {
@@ -329,25 +391,8 @@ fun BookDetailScreen(
                         .padding(16.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Card(
-                        modifier = Modifier
-                            .width(180.dp)
-                            .height(240.dp)
-                            .clip(RoundedCornerShape(AppDimens.RadiusHero))
-                            .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f), RoundedCornerShape(AppDimens.RadiusHero)),
-                        elevation = CardDefaults.cardElevation(8.dp)
-                    ) {
-                        com.slukhayka.audiobooks.ui.components.BookCoverImage(
-                            book = currentBook,
-                            contentDescription = detailPresentation.title,
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    BookDetailCanonicalSummary(
+                    BookDetailIdentityHeader(
+                        book = currentBook,
                         presentation = detailPresentation,
                         universeName = bookUniverse?.universeName,
                         onAuthorClick = { author ->
@@ -377,7 +422,9 @@ fun BookDetailScreen(
                             text = "Інші начитки",
                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                             color = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.padding(horizontal = 8.dp)
+                            modifier = Modifier
+                                .padding(horizontal = 8.dp)
+                                .semantics { heading() }
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         siblingCards.forEach { sibling ->
@@ -399,122 +446,32 @@ fun BookDetailScreen(
 
                     Spacer(modifier = Modifier.height(20.dp))
 
-                    // Action Buttons
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Button(
-                            onClick = {
-                                // #40 decision 1: a finished book asks to
-                                // restart from the top (RELISTEN); a PLAYING
-                                // book toggles to pause — the one control that
-                                // stops audio without leaving the page (the
-                                // old code re-played the book, so the button
-                                // could never pause: 2026-08-17 bug report);
-                                // everything else starts or resumes.
-                                when (playState) {
-                                    BookPlayState.Playing -> viewModel.playerManager.pause()
-                                    BookPlayState.Finished -> viewModel.relistenBook(currentBook)
-                                    else -> viewModel.playAudiobook(currentBook)
-                                }
-                                // Pausing stays on the page; starting/resuming
-                                // opens the full player as before.
-                                if (playState !is BookPlayState.Playing) {
-                                    viewModel.setShowFullPlayer(true)
-                                }
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                            shape = RoundedCornerShape(AppDimens.RadiusPanel),
-                            modifier = Modifier
-                                // Spec-10 T6: for a stream-only book the Play
-                                // button takes the full row (no download twin).
-                                .then(if (streamOnly) Modifier.fillMaxWidth() else Modifier.weight(1.2f))
-                                .height(50.dp)
-                                .testTag("play_book_button")
-                        ) {
-                            Icon(imageVector = Icons.Default.PlayArrow, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary)
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = bookPlayLabel(playState) { MainViewModel.formatTime(it) },
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onPrimary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-
-                        if (!streamOnly) {
-                            OutlinedButton(
-                            onClick = {
-                                if (currentBook.isDownloaded) {
-                                    scope.launch { offlineDownloads.removeOfflineDownload(currentBook.id) }
-                                } else {
-                                    viewModel.downloadBookOffline(currentBook.id)
-                                }
-                            },
-                            enabled = !isDownloadingThis,
-                            shape = RoundedCornerShape(AppDimens.RadiusPanel),
-                            border = androidx.compose.foundation.BorderStroke(
-                                1.dp,
-                                if (currentBook.isDownloaded) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.outlineVariant
-                            ),
-                            colors = ButtonDefaults.outlinedButtonColors(
-                                contentColor = if (currentBook.isDownloaded) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurface
-                            ),
-                            contentPadding = PaddingValues(horizontal = 10.dp),
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(50.dp)
-                                .testTag("download_offline_button")
-                        ) {
-                            if (isDownloadingThis) {
-                                // Live progress: the repository writes
-                                // downloadProgress to the observed book row,
-                                // so this recomposes as chapters complete.
-                                CircularProgressIndicator(
-                                    progress = { currentBook.downloadProgress.coerceIn(0.05f, 0.95f) },
-                                    modifier = Modifier.size(18.dp),
-                                    strokeWidth = 2.dp,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = "${(currentBook.downloadProgress.coerceIn(0f, 1f) * 100).toInt()}%",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            } else {
-                                Text(
-                                    // Spec-27 (#204): Ukrainian labels —
-                                    // «Офлайн» / «Завантажити» (US-15).
-                                    text = if (currentBook.isDownloaded) "Офлайн" else "Завантажити",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Icon(
-                                    imageVector = if (currentBook.isDownloaded) Icons.Default.CloudDone else Icons.Default.CloudDownload,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(16.dp)
-                                )
+                    BookDetailPrimaryActions(
+                        workTitle = currentBook.title,
+                        playLabel = bookPlayLabel(playState) { MainViewModel.formatTime(it) },
+                        streamOnly = streamOnly,
+                        isDownloaded = currentBook.isDownloaded,
+                        isDownloading = isDownloadingThis,
+                        downloadProgress = currentBook.downloadProgress,
+                        onPlay = {
+                            when (playState) {
+                                BookPlayState.Playing -> viewModel.playerManager.pause()
+                                BookPlayState.Finished -> viewModel.relistenBook(currentBook)
+                                else -> viewModel.playAudiobook(currentBook)
                             }
-                        }
-                        }
-
-                        OutlinedButton(
-                            onClick = { showAddBookmarkDialog = true },
-                            shape = RoundedCornerShape(AppDimens.RadiusPanel),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                            modifier = Modifier
-                                .height(50.dp)
-                                .testTag("bookmark_button")
-                        ) {
-                            Icon(imageVector = Icons.Default.BookmarkAdd, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                        }
-                    }
+                            if (playState !is BookPlayState.Playing) {
+                                viewModel.setShowFullPlayer(true)
+                            }
+                        },
+                        onDownload = {
+                            if (currentBook.isDownloaded) {
+                                scope.launch { offlineDownloads.removeOfflineDownload(currentBook.id) }
+                            } else {
+                                viewModel.downloadBookOffline(currentBook.id)
+                            }
+                        },
+                        onAddBookmark = { showAddBookmarkDialog = true }
+                    )
                 }
             }
 
@@ -994,6 +951,223 @@ fun BookDetailScreen(
     }
 }
 
+/**
+ * Primary book actions reflow into a vertical stack at accessibility font
+ * scale. The visible and semantic controls are the same in both layouts;
+ * nothing is hidden behind a TalkBack-only branch.
+ */
+@Composable
+fun BookDetailPrimaryActions(
+    workTitle: String,
+    playLabel: String,
+    streamOnly: Boolean,
+    isDownloaded: Boolean,
+    isDownloading: Boolean,
+    downloadProgress: Float,
+    onPlay: () -> Unit,
+    onDownload: () -> Unit,
+    onAddBookmark: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val fontScale = androidx.compose.ui.platform.LocalDensity.current.fontScale
+    val progressPercent = (downloadProgress.coerceIn(0f, 1f) * 100).toInt()
+    val downloadAction = when {
+        isDownloading -> stringResource(
+            R.string.book_detail_download_in_progress,
+            workTitle,
+            progressPercent
+        )
+        isDownloaded -> stringResource(R.string.book_detail_download_remove, workTitle)
+        else -> stringResource(R.string.book_detail_download_add, workTitle)
+    }
+    val downloadState = stringResource(
+        when {
+            isDownloading -> R.string.book_detail_downloading
+            isDownloaded -> R.string.book_detail_downloaded
+            else -> R.string.book_detail_streaming
+        }
+    )
+    val playAction = stringResource(R.string.book_detail_play_action, playLabel, workTitle)
+    val bookmarkAction = stringResource(R.string.book_detail_add_bookmark, workTitle)
+
+    BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
+        val stackActions = fontScale >= 1.5f || maxWidth < 340.dp
+        if (stackActions) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                BookDetailPlayButton(
+                    label = playLabel,
+                    actionDescription = playAction,
+                    onClick = onPlay,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                if (!streamOnly) {
+                    BookDetailDownloadButton(
+                        isDownloaded = isDownloaded,
+                        isDownloading = isDownloading,
+                        downloadProgress = downloadProgress,
+                        actionDescription = downloadAction,
+                        state = downloadState,
+                        onClick = onDownload,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                BookDetailBookmarkButton(
+                    actionDescription = bookmarkAction,
+                    onClick = onAddBookmark,
+                    showLabel = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        } else {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                BookDetailPlayButton(
+                    label = playLabel,
+                    actionDescription = playAction,
+                    onClick = onPlay,
+                    modifier = Modifier.weight(if (streamOnly) 1f else 1.2f)
+                )
+                if (!streamOnly) {
+                    BookDetailDownloadButton(
+                        isDownloaded = isDownloaded,
+                        isDownloading = isDownloading,
+                        downloadProgress = downloadProgress,
+                        actionDescription = downloadAction,
+                        state = downloadState,
+                        onClick = onDownload,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                BookDetailBookmarkButton(
+                    actionDescription = bookmarkAction,
+                    onClick = onAddBookmark,
+                    showLabel = false
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun BookDetailPlayButton(
+    label: String,
+    actionDescription: String,
+    onClick: () -> Unit,
+    modifier: Modifier
+) {
+    Button(
+        onClick = onClick,
+        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+        shape = RoundedCornerShape(AppDimens.RadiusPanel),
+        modifier = modifier
+            .heightIn(min = 50.dp)
+            .testTag("play_book_button")
+            .semantics { contentDescription = actionDescription }
+    ) {
+        Icon(
+            imageVector = Icons.Default.PlayArrow,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onPrimary
+        )
+        Spacer(modifier = Modifier.width(6.dp))
+        Text(
+            text = label,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onPrimary,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+@Composable
+private fun BookDetailDownloadButton(
+    isDownloaded: Boolean,
+    isDownloading: Boolean,
+    downloadProgress: Float,
+    actionDescription: String,
+    state: String,
+    onClick: () -> Unit,
+    modifier: Modifier
+) {
+    OutlinedButton(
+        onClick = onClick,
+        enabled = !isDownloading,
+        shape = RoundedCornerShape(AppDimens.RadiusPanel),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            if (isDownloaded) MaterialTheme.colorScheme.secondary
+            else MaterialTheme.colorScheme.outlineVariant
+        ),
+        colors = ButtonDefaults.outlinedButtonColors(
+            contentColor = if (isDownloaded) MaterialTheme.colorScheme.secondary
+            else MaterialTheme.colorScheme.onSurface
+        ),
+        contentPadding = PaddingValues(horizontal = 10.dp),
+        modifier = modifier
+            .heightIn(min = 50.dp)
+            .testTag("download_offline_button")
+            .semantics {
+                contentDescription = actionDescription
+                stateDescription = state
+            }
+    ) {
+        if (isDownloading) {
+            CircularProgressIndicator(
+                progress = { downloadProgress.coerceIn(0.05f, 0.95f) },
+                modifier = Modifier.size(18.dp),
+                strokeWidth = 2.dp,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text("${(downloadProgress.coerceIn(0f, 1f) * 100).toInt()}%")
+        } else {
+            Text(
+                text = stringResource(
+                    if (isDownloaded) R.string.book_detail_offline_short
+                    else R.string.book_detail_download_short
+                ),
+                style = MaterialTheme.typography.labelMedium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(modifier = Modifier.width(4.dp))
+            Icon(
+                imageVector = if (isDownloaded) Icons.Default.CloudDone else Icons.Default.CloudDownload,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun BookDetailBookmarkButton(
+    actionDescription: String,
+    onClick: () -> Unit,
+    showLabel: Boolean,
+    modifier: Modifier = Modifier
+) {
+    OutlinedButton(
+        onClick = onClick,
+        shape = RoundedCornerShape(AppDimens.RadiusPanel),
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        modifier = modifier
+            .heightIn(min = 50.dp)
+            .testTag("bookmark_button")
+            .semantics { contentDescription = actionDescription }
+    ) {
+        Icon(
+            imageVector = Icons.Default.BookmarkAdd,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary
+        )
+        if (showLabel) {
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(stringResource(R.string.book_detail_add_bookmark_short), maxLines = 2)
+        }
+    }
+}
+
 @Composable
 private fun TagPill(
     text: String,
@@ -1025,12 +1199,29 @@ private fun TagPill(
 @Composable
 fun FavoriteButton(
     isFavorite: Boolean,
-    onToggle: () -> Unit
+    onToggle: () -> Unit,
+    bookTitle: String = ""
 ) {
-    IconButton(onClick = onToggle, modifier = Modifier.testTag("favorite_toggle_button")) {
+    val contextualTitle = bookTitle.takeIf(String::isNotBlank) ?: "книгу"
+    val actionDescription = stringResource(
+        if (isFavorite) R.string.book_detail_favorite_remove else R.string.book_detail_favorite_add,
+        contextualTitle
+    )
+    val currentState = stringResource(
+        if (isFavorite) R.string.book_detail_favorite_on else R.string.book_detail_favorite_off
+    )
+    IconButton(
+        onClick = onToggle,
+        modifier = Modifier
+            .testTag("favorite_toggle_button")
+            .semantics {
+                contentDescription = actionDescription
+                stateDescription = currentState
+            }
+    ) {
         Icon(
             imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-            contentDescription = if (isFavorite) "Прибрати з улюблених" else "Додати в улюблені",
+            contentDescription = null,
             tint = if (isFavorite) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
         )
     }
@@ -1057,7 +1248,9 @@ fun SeriesPill(
             1.dp,
             MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
         ),
-        modifier = Modifier.testTag("book_detail_series_pill")
+        modifier = Modifier
+            .testTag("book_detail_series_pill")
+            .defaultMinSize(minHeight = 48.dp)
     ) {
         Text(
             text = if (seriesIndex > 0) "«$seriesTitle» • Кн. $seriesIndex" else "«$seriesTitle»",
@@ -1237,6 +1430,53 @@ fun BookmarkRowItem(
     }
 }
 
+/**
+ * The page's one Work/Edition identity block. The visible fallback cover
+ * repeats the same title by design, so it is explicitly decorative here and
+ * the heading below remains the single accessible owner of the Work name.
+ */
+@Composable
+fun BookDetailIdentityHeader(
+    book: AudiobookEntity,
+    presentation: BookDetailPresentation,
+    universeName: String? = null,
+    onAuthorClick: (String) -> Unit = {},
+    onNarratorClick: (String) -> Unit = {},
+    onSeriesClick: (String, String) -> Unit = { _, _ -> },
+    onWrongUniverse: () -> Unit = {}
+) {
+    Card(
+        modifier = Modifier
+            .width(180.dp)
+            .height(240.dp)
+            .clip(RoundedCornerShape(AppDimens.RadiusHero))
+            .border(
+                1.dp,
+                MaterialTheme.colorScheme.primary.copy(alpha = 0.4f),
+                RoundedCornerShape(AppDimens.RadiusHero)
+            ),
+        elevation = CardDefaults.cardElevation(8.dp)
+    ) {
+        BookCoverImage(
+            book = book,
+            semantics = BookCoverSemantics.Decorative,
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop
+        )
+    }
+
+    Spacer(modifier = Modifier.height(16.dp))
+
+    BookDetailCanonicalSummary(
+        presentation = presentation,
+        universeName = universeName,
+        onAuthorClick = onAuthorClick,
+        onNarratorClick = onNarratorClick,
+        onSeriesClick = onSeriesClick,
+        onWrongUniverse = onWrongUniverse
+    )
+}
+
 /** The production Work/Edition summary consumed by both the page and snapshots. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -1248,6 +1488,7 @@ fun BookDetailCanonicalSummary(
     onSeriesClick: (String, String) -> Unit = { _, _ -> },
     onWrongUniverse: () -> Unit = {}
 ) {
+    val currentEditionState = stringResource(R.string.book_detail_current_edition)
     Text(
         text = presentation.title,
         style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
@@ -1255,7 +1496,9 @@ fun BookDetailCanonicalSummary(
         maxLines = 2,
         overflow = TextOverflow.Ellipsis,
         textAlign = TextAlign.Center,
-        modifier = Modifier.testTag("book_detail_title")
+        modifier = Modifier
+            .testTag("book_detail_title")
+            .semantics { heading() }
     )
     Spacer(modifier = Modifier.height(4.dp))
     if (presentation.author.isNotBlank()) {
@@ -1265,6 +1508,7 @@ fun BookDetailCanonicalSummary(
             color = MaterialTheme.colorScheme.primary,
             modifier = Modifier
                 .testTag("book_detail_author_link")
+                .defaultMinSize(minHeight = 48.dp)
                 .clickable { onAuthorClick(presentation.author) }
         )
     }
@@ -1277,7 +1521,9 @@ fun BookDetailCanonicalSummary(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier
                 .fillMaxWidth()
+                .defaultMinSize(minHeight = 48.dp)
                 .clickable { onNarratorClick(presentation.narrator) }
+                .semantics { stateDescription = currentEditionState }
                 .testTag("book_detail_narrator_link"),
             textAlign = TextAlign.Center
         )
@@ -1365,11 +1611,17 @@ fun BookDetailSourceSection(
         text = presentation.sourceHeading,
         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
         color = MaterialTheme.colorScheme.onSurface,
-        modifier = Modifier.padding(horizontal = 8.dp)
+        modifier = Modifier
+            .padding(horizontal = 8.dp)
+            .semantics { heading() }
     )
     Spacer(modifier = Modifier.height(8.dp))
     presentation.sources.forEach { source ->
-        WorkSourceRowCard(source = source, onClick = { onSourceClick(source) })
+        WorkSourceRowCard(
+            source = source,
+            workTitle = presentation.title,
+            onClick = { onSourceClick(source) }
+        )
     }
 }
 
@@ -1383,8 +1635,25 @@ fun BookDetailSourceSection(
 @Composable
 fun WorkSourceRowCard(
     source: BookDetailSourcePresentation,
+    workTitle: String = "",
     onClick: () -> Unit
 ) {
+    val contextualTitle = workTitle.takeIf(String::isNotBlank) ?: "книгу"
+    val actionDescription = if (source.selectable) {
+        stringResource(R.string.book_detail_play_source, contextualTitle, source.name)
+    } else {
+        stringResource(R.string.book_detail_source_summary, source.name, contextualTitle)
+    }
+    val sourceState = stringResource(
+        if (source.isCurrent) R.string.book_detail_current_source
+        else R.string.book_detail_other_source
+    ).let { base ->
+        if (source.streamOnly) {
+            stringResource(R.string.book_detail_source_stream_only, base)
+        } else {
+            base
+        }
+    }
     Surface(
         shape = RoundedCornerShape(AppDimens.RadiusPanel),
         color = if (source.isCurrent) MaterialTheme.colorScheme.surfaceContainerHigh else MaterialTheme.colorScheme.surfaceContainer,
@@ -1394,9 +1663,15 @@ fun WorkSourceRowCard(
         ),
         modifier = Modifier
             .fillMaxWidth()
+            .defaultMinSize(minHeight = 48.dp)
             .padding(horizontal = 8.dp, vertical = 4.dp)
             .testTag("work_source_${source.sourceId}")
             .then(if (source.selectable) Modifier.clickable(onClick = onClick) else Modifier)
+            .semantics(mergeDescendants = true) {
+                contentDescription = actionDescription
+                stateDescription = sourceState
+                selected = source.isCurrent
+            }
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -1474,6 +1749,15 @@ fun NarrationRowCard(
     sibling: com.slukhayka.audiobooks.data.db.AudiobookEntity,
     onClick: () -> Unit
 ) {
+    val narrator = sibling.narrator.ifBlank { "Невідомий читач" }
+    val sourceName = sourceDisplayName(sourceIdForUrl(sibling.sourceUrl))
+    val actionDescription = stringResource(
+        R.string.book_detail_open_edition,
+        narrator,
+        sibling.title,
+        sourceName
+    )
+    val otherEditionState = stringResource(R.string.book_detail_other_edition)
     Surface(
         onClick = onClick,
         shape = RoundedCornerShape(AppDimens.RadiusPanel),
@@ -1481,8 +1765,13 @@ fun NarrationRowCard(
         border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         modifier = Modifier
             .fillMaxWidth()
+            .defaultMinSize(minHeight = 48.dp)
             .padding(horizontal = 8.dp, vertical = 4.dp)
             .testTag("narration_${sibling.id}")
+            .semantics(mergeDescendants = true) {
+                contentDescription = actionDescription
+                stateDescription = otherEditionState
+            }
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -1497,14 +1786,14 @@ fun NarrationRowCard(
             Spacer(modifier = Modifier.width(10.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = sibling.narrator.ifBlank { "Невідомий читач" },
+                    text = narrator,
                     style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = sourceDisplayName(sourceIdForUrl(sibling.sourceUrl)),
+                    text = sourceName,
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

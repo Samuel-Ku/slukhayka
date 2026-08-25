@@ -31,6 +31,7 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -106,6 +107,7 @@ fun BookDetailScreen(
     var showAddBookmarkDialog by remember { mutableStateOf(false) }
     var showDeleteSheet by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
+    var bookmarkToDelete by remember { mutableStateOf<BookmarkEntity?>(null) }
 
     // Spec-40 #277/#278/#280 — «Відгуки»: form open/edit state, delete
     // confirmation target. The store itself rides MainViewModel (null
@@ -246,7 +248,7 @@ fun BookDetailScreen(
     Scaffold(
         modifier = Modifier.accessibilityModalBackground(
             modalVisible = showAddBookmarkDialog || showDeleteSheet || showDeleteDialog ||
-                showReviewForm || reviewToDelete != null
+                showReviewForm || bookmarkToDelete != null || reviewToDelete != null
         ),
         topBar = {
             // The host Scaffold in MainActivity already consumed the status
@@ -513,17 +515,24 @@ fun BookDetailScreen(
             // Chapter list
             if (activeTab == 0) {
                 itemsIndexed(chapters) { index, chapter ->
-                    val isPlayingThis = playerState.currentBook?.id == currentBook.id &&
-                            playerState.currentChapterIndex == index
+                    val isCurrentChapter = playerState.currentBook?.id == currentBook.id &&
+                        playerState.currentChapterIndex == index
+                    val isPlayingThis = isCurrentChapter && playerState.isPlaying
 
                     ChapterRowItem(
                         chapter = chapter,
                         index = index,
+                        isCurrent = isCurrentChapter,
                         isPlaying = isPlayingThis,
                         onPlayClick = {
-                            viewModel.playAudiobook(currentBook, chapterIndex = index)
+                            if (isCurrentChapter) {
+                                viewModel.playerManager.play()
+                            } else {
+                                viewModel.playAudiobook(currentBook, chapterIndex = index)
+                            }
                             viewModel.setShowFullPlayer(true)
-                        }
+                        },
+                        onPauseClick = { viewModel.playerManager.pause() }
                     )
                 }
             } else {
@@ -537,7 +546,7 @@ fun BookDetailScreen(
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = "No bookmarks added yet for this book.",
+                                text = stringResource(R.string.book_detail_no_bookmarks),
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -547,8 +556,9 @@ fun BookDetailScreen(
                     items(bookmarks, key = { it.id }) { bookmark ->
                         BookmarkRowItem(
                             bookmark = bookmark,
+                            workTitle = currentBook.title,
                             onJumpClick = { viewModel.jumpToBookmark(bookmark) },
-                            onDeleteClick = { scope.launch { listeningState.deleteBookmark(bookmark.id) } }
+                            onDeleteClick = { bookmarkToDelete = bookmark }
                         )
                     }
                 }
@@ -731,17 +741,66 @@ fun BookDetailScreen(
     }
 
     if (showAddBookmarkDialog) {
-        val currentChapterTitle = if (chapters.isNotEmpty() && playerState.currentChapterIndex in chapters.indices) {
-            chapters[playerState.currentChapterIndex].title
-        } else "Chapter 1"
+        val currentChapterIndex = playerState.currentChapterIndex
+        val currentChapterTitle = if (chapters.isNotEmpty() && currentChapterIndex in chapters.indices) {
+            chapters[currentChapterIndex].title
+        } else {
+            stringResource(R.string.book_detail_chapter_fallback, currentChapterIndex + 1)
+        }
+        val timestampSeconds = playerState.currentPositionMs / 1000L
+        val timestampLabel = MainViewModel.formatTime(timestampSeconds)
+        val bookmarkSavedMessage = stringResource(
+            R.string.book_detail_bookmark_saved,
+            currentChapterTitle,
+            timestampLabel
+        )
+        val bookmarkSaveError = stringResource(R.string.book_detail_bookmark_save_error)
+        val defaultBookmarkNote = stringResource(
+            R.string.book_detail_bookmark_default_note,
+            timestampLabel
+        )
 
         BookmarkDialog(
-            timestampSeconds = playerState.currentPositionMs / 1000L,
+            timestampSeconds = timestampSeconds,
             chapterTitle = currentChapterTitle,
             onDismiss = { showAddBookmarkDialog = false },
             onSave = { note ->
-                viewModel.addBookmarkAtCurrentPosition(note)
+                scope.launch {
+                    runCatching {
+                        listeningState.addBookmark(
+                            BookmarkEntity(
+                                bookId = currentBook.id,
+                                chapterIndex = currentChapterIndex,
+                                chapterTitle = currentChapterTitle,
+                                timestampSeconds = timestampSeconds,
+                                note = note.trim().ifBlank { defaultBookmarkNote }
+                            )
+                        )
+                    }.onSuccess {
+                        snackbarHostState.showSnackbar(bookmarkSavedMessage)
+                    }.onFailure {
+                        snackbarHostState.showSnackbar(bookmarkSaveError)
+                    }
+                }
             }
+        )
+    }
+
+    bookmarkToDelete?.let { doomed ->
+        val deletedMessage = stringResource(R.string.book_detail_bookmark_deleted)
+        val deleteError = stringResource(R.string.book_detail_bookmark_delete_error)
+        BookmarkDeleteConfirmation(
+            workTitle = currentBook.title,
+            bookmark = doomed,
+            onConfirm = {
+                bookmarkToDelete = null
+                scope.launch {
+                    runCatching { listeningState.deleteBookmark(doomed.id) }
+                        .onSuccess { snackbarHostState.showSnackbar(deletedMessage) }
+                        .onFailure { snackbarHostState.showSnackbar(deleteError) }
+                }
+            },
+            onDismiss = { bookmarkToDelete = null }
         )
     }
 
@@ -1285,9 +1344,33 @@ fun BookUniverseLine(universeName: String) {
 fun ChapterRowItem(
     chapter: ChapterEntity,
     index: Int,
+    isCurrent: Boolean,
     isPlaying: Boolean,
-    onPlayClick: () -> Unit
+    onPlayClick: () -> Unit,
+    onPauseClick: () -> Unit
 ) {
+    val duration = chapter.durationSeconds.takeIf { it > 0L }?.let(MainViewModel::formatTime)
+    val chapterSummary = if (duration != null) {
+        stringResource(R.string.book_detail_chapter_summary, chapter.title, duration)
+    } else {
+        stringResource(R.string.book_detail_chapter_summary_unknown, chapter.title)
+    }
+    val chapterState = stringResource(
+        when {
+            isPlaying -> R.string.book_detail_chapter_playing
+            isCurrent -> R.string.book_detail_chapter_paused
+            else -> R.string.book_detail_chapter_not_current
+        }
+    )
+    val actionLabel = stringResource(
+        when {
+            isPlaying -> R.string.book_detail_chapter_pause
+            isCurrent -> R.string.book_detail_chapter_resume
+            else -> R.string.book_detail_chapter_play
+        },
+        chapter.title
+    )
+    val onAction = if (isPlaying) onPauseClick else onPlayClick
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -1295,7 +1378,7 @@ fun ChapterRowItem(
             .clip(RoundedCornerShape(AppDimens.RadiusCard))
             .border(
                 1.dp,
-                if (isPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+                if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
                 RoundedCornerShape(AppDimens.RadiusCard)
             )
             // Test seam (GitHub issue #7 — emulator audio scenario): deterministic
@@ -1304,9 +1387,19 @@ fun ChapterRowItem(
             // specific chapter regardless of ordering. Pure UI annotation; does
             // not change runtime behaviour.
             .testTag("book_detail_chapter_${chapter.id}")
-            .clickable { onPlayClick() },
+            .clickable { onAction() }
+            .semantics(mergeDescendants = true) {
+                contentDescription = chapterSummary
+                stateDescription = chapterState
+                selected = isCurrent
+                onClick(label = actionLabel) {
+                    onAction()
+                    true
+                }
+            },
         colors = CardDefaults.cardColors(
-            containerColor = if (isPlaying) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f) else MaterialTheme.colorScheme.surfaceContainer
+            containerColor = if (isCurrent) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
+            else MaterialTheme.colorScheme.surfaceContainer
         )
     ) {
         Row(
@@ -1317,11 +1410,11 @@ fun ChapterRowItem(
         ) {
             Surface(
                 shape = CircleShape,
-                color = if (isPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh,
+                color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh,
                 modifier = Modifier.size(36.dp)
             ) {
                 Box(contentAlignment = Alignment.Center) {
-                    if (isPlaying) {
+                    if (isCurrent) {
                         Icon(imageVector = Icons.AutoMirrored.Filled.VolumeUp, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(20.dp))
                     } else {
                         Text(
@@ -1339,9 +1432,9 @@ fun ChapterRowItem(
                 Text(
                     text = chapter.title,
                     style = MaterialTheme.typography.titleMedium.copy(
-                        fontWeight = if (isPlaying) FontWeight.Bold else FontWeight.Medium
+                        fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Medium
                     ),
-                    color = if (isPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                    color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -1357,14 +1450,12 @@ fun ChapterRowItem(
                 }
             }
 
-            IconButton(onClick = onPlayClick) {
-                Icon(
-                    imageVector = if (isPlaying) Icons.Default.PauseCircle else Icons.Default.PlayCircle,
-                    contentDescription = if (isPlaying) "Пауза розділ" else "Відтворити розділ",
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(32.dp)
-                )
-            }
+            Icon(
+                imageVector = if (isPlaying) Icons.Default.PauseCircle else Icons.Default.PlayCircle,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(32.dp)
+            )
         }
     }
 }
@@ -1372,9 +1463,23 @@ fun ChapterRowItem(
 @Composable
 fun BookmarkRowItem(
     bookmark: BookmarkEntity,
+    workTitle: String,
     onJumpClick: () -> Unit,
     onDeleteClick: () -> Unit
 ) {
+    val timestamp = MainViewModel.formatTime(bookmark.timestampSeconds)
+    val jumpLabel = stringResource(
+        R.string.book_detail_bookmark_jump,
+        workTitle,
+        bookmark.chapterTitle,
+        timestamp
+    )
+    val deleteLabel = stringResource(
+        R.string.book_detail_bookmark_delete,
+        workTitle,
+        bookmark.chapterTitle,
+        timestamp
+    )
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -1411,23 +1516,98 @@ fun BookmarkRowItem(
                 )
             }
 
-            IconButton(onClick = onJumpClick) {
+            IconButton(
+                onClick = onJumpClick,
+                modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+            ) {
                 Icon(
                     imageVector = Icons.Default.PlayArrow,
-                    contentDescription = "Jump to bookmark",
+                    contentDescription = jumpLabel,
                     tint = MaterialTheme.colorScheme.primary
                 )
             }
 
-            IconButton(onClick = onDeleteClick) {
+            IconButton(
+                onClick = onDeleteClick,
+                modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+            ) {
                 Icon(
                     imageVector = Icons.Default.Delete,
-                    contentDescription = "Delete bookmark",
+                    contentDescription = deleteLabel,
                     tint = MaterialTheme.colorScheme.error
                 )
             }
         }
     }
+}
+
+@Composable
+fun BookmarkDeleteConfirmation(
+    workTitle: String,
+    bookmark: BookmarkEntity,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val timestamp = MainViewModel.formatTime(bookmark.timestampSeconds)
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        modifier = Modifier.accessibilityPane(
+            stringResource(R.string.book_detail_bookmark_delete_pane)
+        ),
+        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+        title = {
+            Text(
+                text = stringResource(R.string.book_detail_bookmark_delete_title),
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+        },
+        text = {
+            Column {
+                Text(
+                    text = stringResource(
+                        R.string.book_detail_bookmark_delete_question,
+                        workTitle,
+                        bookmark.chapterTitle,
+                        timestamp
+                    ),
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = if (bookmark.note.isBlank()) {
+                        stringResource(R.string.book_detail_bookmark_delete_consequence_no_note)
+                    } else {
+                        stringResource(
+                            R.string.book_detail_bookmark_delete_consequence,
+                            bookmark.note
+                        )
+                    },
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onConfirm,
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+            ) {
+                Text(
+                    stringResource(R.string.book_detail_bookmark_delete_confirm),
+                    color = MaterialTheme.colorScheme.onError,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(
+                    stringResource(R.string.book_detail_cancel),
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+        }
+    )
 }
 
 /**

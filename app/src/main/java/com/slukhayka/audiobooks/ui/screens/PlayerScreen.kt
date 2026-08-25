@@ -857,7 +857,13 @@ private fun BookmarksListSheet(
                         }
                     }
                     IconButton(onClick = { onDelete(bookmark) }) {
-                        Icon(Icons.Default.Delete, contentDescription = "Видалити закладку")
+                        // Spec-27: a destructive action never looks neutral —
+                        // the error tint marks it apart from the jump row.
+                        Icon(
+                            Icons.Default.Delete,
+                            contentDescription = "Видалити закладку",
+                            tint = MaterialTheme.colorScheme.error
+                        )
                     }
                 }
             }

@@ -6,6 +6,7 @@ import com.google.firebase.FirebaseApp
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.suspendCancellableCoroutine
 
 /**
@@ -58,9 +59,15 @@ class FirestoreNarrationRatingsStore(private val firestore: FirebaseFirestore) :
             addOnFailureListener { cont.resume(null) }
         }
 
+    /**
+     * Resumes the unit OR THROWS the task's failure — the callers' fail-closed
+     * wrappers must see an exception to honestly report false (#348 review
+     * finding: resuming null made a failing write read as success).
+     */
     private suspend fun Task<Void>.awaitUnit(): Void? = suspendCancellableCoroutine { cont ->
         addOnSuccessListener { cont.resume(it) }
-        addOnFailureListener { cont.resume(null) }
+        addOnFailureListener { cont.resumeWithException(it) }
+        // Play Services tasks are not cancellable mid-flight; nothing to hook.
     }
 
     companion object {

@@ -4,19 +4,24 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.data.universe.SeriesRef
 import com.slukhayka.audiobooks.data.universe.SeriesUniverseContext
+import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.ui.MainViewModel
+import com.slukhayka.audiobooks.ui.components.IndexScreenScaffold
+import com.slukhayka.audiobooks.ui.components.SecondaryLoadingState
+import com.slukhayka.audiobooks.ui.components.SecondaryMessageState
 import com.slukhayka.audiobooks.ui.library.ukPlural
 import com.slukhayka.audiobooks.ui.theme.*
 
@@ -36,35 +41,13 @@ fun SeriesScreen(
     val series by viewModel.selectedSeries.collectAsState()
     val books by viewModel.seriesBooks.collectAsState()
     val isLoading by viewModel.isSeriesLoading.collectAsState()
+    val loadFailed by viewModel.seriesLoadFailed.collectAsState()
     // Spec-25 (#171): the universe of the opened series (header block).
     val seriesUniverse by viewModel.selectedSeriesUniverse.collectAsState()
 
     val currentSeries = series ?: return
 
-    Scaffold(
-        topBar = {
-            // Host Scaffold in MainActivity already consumed the status bar
-            // (innerPadding.top); don't let this inner TopAppBar add it again.
-            TopAppBar(
-                windowInsets = WindowInsets(0, 0, 0, 0),
-                title = {
-                    Text(
-                        text = currentSeries.title,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBackClick) {
-                        Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
-            )
-        },
-        containerColor = MaterialTheme.colorScheme.background
-    ) { padding ->
+    IndexScreenScaffold(title = currentSeries.title, onBackClick = onBackClick) { padding ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
@@ -75,40 +58,34 @@ fun SeriesScreen(
             when {
                 isLoading -> {
                     item {
-                        Box(
+                        SecondaryLoadingState(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(48.dp)
+                        )
+                    }
+                }
+
+                loadFailed -> {
+                    item {
+                        SecondaryMessageState(
+                            message = stringResource(R.string.secondary_series_error),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(48.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                        }
+                            isError = true
+                        )
                     }
                 }
 
                 books.isEmpty() -> {
                     item {
-                        Box(
+                        SecondaryMessageState(
+                            message = stringResource(R.string.secondary_series_empty),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(48.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(
-                                    imageVector = Icons.Default.MenuBook,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(48.dp)
-                                )
-                                Spacer(modifier = Modifier.height(12.dp))
-                                Text(
-                                    text = "Не вдалося завантажити книги циклу. Перевірте з'єднання.",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
+                                .padding(48.dp)
+                        )
                     }
                 }
 
@@ -160,6 +137,7 @@ fun SeriesScreen(
  * Public (not private) so the snapshot seam can pin the block with fixture
  * data; renders nothing itself for a single-series universe beyond the name.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SeriesUniverseHeader(
     context: SeriesUniverseContext,
@@ -174,7 +152,8 @@ fun SeriesUniverseHeader(
         Text(
             text = "Всесвіт: «${context.universeName}»",
             style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
-            color = MaterialTheme.colorScheme.primary
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.semantics { heading() }
         )
         if (context.totalInUniverse > 1) {
             Spacer(modifier = Modifier.height(2.dp))
@@ -186,17 +165,22 @@ fun SeriesUniverseHeader(
         }
         if (context.precedes != null || context.follows != null) {
             Spacer(modifier = Modifier.height(6.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
                 context.precedes?.let { ref ->
                     AssistChip(
                         onClick = { onOpenSeries(ref) },
-                        label = { Text("Передує: «${ref.title}»") }
+                        label = { Text("Передує: «${ref.title}»") },
+                        modifier = Modifier.heightIn(min = 48.dp)
                     )
                 }
                 context.follows?.let { ref ->
                     AssistChip(
                         onClick = { onOpenSeries(ref) },
-                        label = { Text("Продовжує: «${ref.title}»") }
+                        label = { Text("Продовжує: «${ref.title}»") },
+                        modifier = Modifier.heightIn(min = 48.dp)
                     )
                 }
             }

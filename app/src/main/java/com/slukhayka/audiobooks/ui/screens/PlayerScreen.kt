@@ -7,6 +7,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -32,10 +34,12 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
@@ -55,12 +59,14 @@ import com.slukhayka.audiobooks.data.db.BookmarkEntity
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
 import com.slukhayka.audiobooks.data.db.ChapterEntity
 import com.slukhayka.audiobooks.player.PlayerState
+import com.slukhayka.audiobooks.player.SleepTimerNotice
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.components.BookCoverImage
 import com.slukhayka.audiobooks.ui.components.BookCoverSemantics
 import com.slukhayka.audiobooks.ui.components.PlayerDebugOverlay
 import com.slukhayka.audiobooks.ui.components.SleepTimerSheet
 import com.slukhayka.audiobooks.ui.components.SpeedSheet
+import com.slukhayka.audiobooks.ui.components.accessibilityPane
 import com.slukhayka.audiobooks.ui.displayAuthor
 import com.slukhayka.audiobooks.ui.displayNarrator
 import com.slukhayka.audiobooks.ui.library.effectiveChapterDurations
@@ -201,6 +207,8 @@ fun PlayerScreen(
     // bottom sheets close silently otherwise.
     val snackbarHostState = remember { SnackbarHostState() }
     var pendingFeedback by remember { mutableStateOf<String?>(null) }
+    val playerContext = LocalContext.current
+    val fadeWarningFeedback = stringResource(R.string.a11y_timer_fade_warning)
     LaunchedEffect(pendingFeedback) {
         pendingFeedback?.let { message ->
             // Wait for the bottom sheet's dismissal animation before surfacing
@@ -208,6 +216,17 @@ fun PlayerScreen(
             kotlinx.coroutines.delay(300)
             snackbarHostState.showSnackbar(message)
             pendingFeedback = null
+        }
+    }
+    LaunchedEffect(viewModel.playerManager, fadeWarningFeedback, playerContext) {
+        viewModel.playerManager.sleepTimerNotices.collect { notice ->
+            pendingFeedback = when (notice) {
+                SleepTimerNotice.FadeWarning -> fadeWarningFeedback
+                is SleepTimerNotice.Extended -> playerContext.getString(
+                    R.string.a11y_timer_extended,
+                    MainViewModel.formatTime(notice.remainingSeconds.toLong())
+                )
+            }
         }
     }
 
@@ -338,8 +357,13 @@ fun PlayerScreen(
                 viewModel.playerManager.setSleepTimer(minutes)
                 pendingFeedback = if (minutes == -1) "До кінця розділу"
                 else if (minutes > 0) "Таймер на $minutes хв"
-                else ""
+                else null
                 showSleepTimerSheet = false
+            },
+            onExtendTimer = {
+                if (viewModel.playerManager.extendSleepTimerBy15Minutes() > 0) {
+                    showSleepTimerSheet = false
+                }
             },
             onDismiss = { showSleepTimerSheet = false }
         )
@@ -1065,21 +1089,60 @@ private fun PlayerPlaybackError(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun BookmarkBottomSheet(
+internal fun BookmarkBottomSheet(
     timestampSeconds: Long,
     chapterTitle: String,
     onDismiss: () -> Unit,
     onSave: (String) -> Unit
 ) {
     var note by rememberSaveable { mutableStateOf("") }
-    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
+    val headingFocusRequester = remember { FocusRequester() }
+    val paneTitle = stringResource(R.string.a11y_bookmark_pane)
+    val closeDescription = stringResource(R.string.a11y_bookmark_close)
+    val positionDescription = stringResource(
+        R.string.a11y_bookmark_context,
+        chapterTitle,
+        MainViewModel.formatTime(timestampSeconds)
+    )
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        modifier = Modifier
+            .accessibilityPane(paneTitle)
+            .testTag("bookmark_sheet")
+    ) {
+        LaunchedEffect(headingFocusRequester) {
+            withFrameNanos { }
+            headingFocusRequester.requestFocus()
+        }
         Column(Modifier.fillMaxWidth().padding(horizontal = AppDimens.SpaceXl, vertical = AppDimens.SpaceMd)) {
-            Text("Додати закладку", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    paneTitle,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier
+                        .focusRequester(headingFocusRequester)
+                        .focusable()
+                        .semantics { heading() }
+                        .testTag("bookmark_sheet_heading")
+                )
+                IconButton(onClick = onDismiss, modifier = Modifier.size(AppDimens.TouchTarget)) {
+                    Icon(Icons.Default.Close, contentDescription = closeDescription)
+                }
+            }
             Spacer(Modifier.height(AppDimens.SpaceXs))
             Text(
                 "$chapterTitle · ${MainViewModel.formatTime(timestampSeconds)}",
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .testTag("bookmark_position_context")
+                    .clearAndSetSemantics { contentDescription = positionDescription }
             )
             Spacer(Modifier.height(AppDimens.SpaceLg))
             OutlinedTextField(
@@ -1102,42 +1165,95 @@ private fun BookmarkBottomSheet(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ChapterBottomSheet(
+internal fun ChapterBottomSheet(
     chapters: List<ChapterEntity>,
     selectedIndex: Int,
     onSelect: (Int) -> Unit,
     onDismiss: () -> Unit
 ) {
-    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
+    val headingFocusRequester = remember { FocusRequester() }
+    val paneTitle = stringResource(R.string.a11y_chapter_pane)
+    val closeDescription = stringResource(R.string.a11y_chapter_close)
+    val currentDescription = stringResource(R.string.a11y_chapter_current)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        modifier = Modifier
+            .accessibilityPane(paneTitle)
+            .testTag("chapter_sheet")
+    ) {
+        LaunchedEffect(headingFocusRequester) {
+            withFrameNanos { }
+            headingFocusRequester.requestFocus()
+        }
         Column(Modifier.fillMaxWidth().padding(horizontal = AppDimens.SpaceXl)) {
-            Text("Розділи", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    "Розділи",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier
+                        .focusRequester(headingFocusRequester)
+                        .focusable()
+                        .semantics { heading() }
+                        .testTag("chapter_sheet_heading")
+                )
+                IconButton(onClick = onDismiss, modifier = Modifier.size(AppDimens.TouchTarget)) {
+                    Icon(Icons.Default.Close, contentDescription = closeDescription)
+                }
+            }
             Spacer(Modifier.height(AppDimens.SpaceMd))
-            LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 480.dp)) {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 480.dp)
+                    .selectableGroup()
+            ) {
                 itemsIndexed(chapters, key = { _, chapter -> chapter.id }) { index, chapter ->
+                    val isCurrent = index == selectedIndex
+                    val chapterDescription = stringResource(
+                        R.string.a11y_chapter_option,
+                        chapter.title,
+                        MainViewModel.formatTime(chapter.durationSeconds),
+                        if (isCurrent) " $currentDescription" else ""
+                    )
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(min = AppDimens.TouchTarget)
-                            .clickable { onSelect(index) }
-                            .padding(vertical = AppDimens.SpaceMd),
+                            .selectable(
+                                selected = isCurrent,
+                                role = Role.RadioButton,
+                                onClick = { onSelect(index) }
+                            )
+                            .semantics { contentDescription = chapterDescription }
+                            .padding(vertical = AppDimens.SpaceMd)
+                            .testTag("chapter_option_$index"),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        if (index == selectedIndex) {
+                        if (isCurrent) {
                             Icon(Icons.Default.GraphicEq, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
                             Spacer(Modifier.width(AppDimens.SpaceMd))
                         }
                         Text(
                             chapter.title,
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier
+                                .weight(1f)
+                                .clearAndSetSemantics { },
                             style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = if (index == selectedIndex) FontWeight.SemiBold else FontWeight.Normal
+                            fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Normal
                         )
                         Text(
                             MainViewModel.formatTime(chapter.durationSeconds),
                             // Spec-22 T2: tabular figures for durations — no
                             // digit-width drift in the chapter list either.
                             style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum"),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.clearAndSetSemantics { }
                         )
                     }
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f))

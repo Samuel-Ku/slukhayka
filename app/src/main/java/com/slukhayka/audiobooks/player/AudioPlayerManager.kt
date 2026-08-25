@@ -37,7 +37,10 @@ import com.slukhayka.audiobooks.data.source.headersFor
 import com.slukhayka.audiobooks.data.source.sourceIdForUrl
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.sample
@@ -50,6 +53,12 @@ import kotlinx.coroutines.flow.sample
  */
 internal fun sleepTimerFadeVolume(remainingSec: Int): Float =
     if (remainingSec in 1..30) remainingSec / 30f else 1.0f
+
+/** One-shot user feedback emitted only at sleep-timer transitions. */
+sealed interface SleepTimerNotice {
+    data object FadeWarning : SleepTimerNotice
+    data class Extended(val remainingSeconds: Int) : SleepTimerNotice
+}
 
 data class PlayerState(
     val currentBook: AudiobookEntity? = null,
@@ -344,6 +353,9 @@ class AudioPlayerManager(
     private var updateProgressJob: Job? = null
     private var sleepTimer: CountDownTimer? = null
     private var shakeDetector: ShakeDetector? = null
+    private var fadeWarningEmitted = false
+    private val _sleepTimerNotices = MutableSharedFlow<SleepTimerNotice>(extraBufferCapacity = 2)
+    val sleepTimerNotices: SharedFlow<SleepTimerNotice> = _sleepTimerNotices.asSharedFlow()
     private var prepareTimeoutJob: Job? = null
 
     /** Global playback preferences (wayfinder #26): default speed etc. */
@@ -1224,6 +1236,34 @@ class AudioPlayerManager(
     }
 
     /**
+     * Canonical +15-minute command for both the visible timer action and the
+     * optional shake shortcut. The exact current remainder is preserved; an
+     * end-of-Chapter timer becomes an ordinary timed remainder.
+     *
+     * @return the new exact remainder in seconds, or `0` when no timer is active.
+     */
+    fun extendSleepTimerBy15Minutes(): Int {
+        val currentRemaining = _playerState.value.sleepTimerRemainingSeconds
+        if (currentRemaining <= 0) return 0
+
+        val extendedRemaining = currentRemaining + 15 * 60
+        sleepTimer?.cancel()
+        shakeDetector?.stopListening()
+        try { mediaPlayer?.volume = 1.0f } catch (_: Exception) {}
+        _playerState.value = _playerState.value.copy(
+            sleepTimerMinutes = (extendedRemaining + 59) / 60,
+            sleepTimerRemainingSeconds = extendedRemaining,
+            isSleepTimerEndOfChapter = false
+        )
+        startSleepTimerInternal(extendedRemaining * 1000L, isEndOfChapter = false)
+        _sleepTimerNotices.tryEmit(SleepTimerNotice.Extended(extendedRemaining))
+        return extendedRemaining
+    }
+
+    /** Testable boundary used as the [ShakeDetector] callback. */
+    internal fun handleSleepTimerShake(): Int = extendSleepTimerBy15Minutes()
+
+    /**
      * Spec-22 T5: if the timer is in «до кінця розділу» mode, re-arm it for
      * the newly prepared chapter (manual skip or auto-advance) so it still
      * stops exactly at the chapter boundary.
@@ -1242,11 +1282,10 @@ class AudioPlayerManager(
     }
 
     private fun startSleepTimerInternal(totalMs: Long, isEndOfChapter: Boolean) {
+        fadeWarningEmitted = false
         if (shakeDetector == null) {
             shakeDetector = ShakeDetector(context) {
-                // Shake during the fade-out window: +15 min and full volume.
-                try { mediaPlayer?.volume = 1.0f } catch (_: Exception) {}
-                setSleepTimer(15)
+                handleSleepTimerShake()
             }
         }
 
@@ -1260,6 +1299,10 @@ class AudioPlayerManager(
                 // inside the fade window.
                 val vol = sleepTimerFadeVolume(remainingSec)
                 if (vol < 1.0f) {
+                    if (!fadeWarningEmitted) {
+                        fadeWarningEmitted = true
+                        _sleepTimerNotices.tryEmit(SleepTimerNotice.FadeWarning)
+                    }
                     try { mediaPlayer?.volume = vol } catch (_: Exception) {}
                     shakeDetector?.startListening()
                 } else {

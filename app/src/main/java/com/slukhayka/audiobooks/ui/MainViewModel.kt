@@ -350,9 +350,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 null
             }
             if (book != null) {
+                probeDurationsAfterImport(book.id)
                 playAudiobook(book)
                 _showFullPlayer.value = true
             }
+        }
+    }
+
+    /**
+     * #349 — the targeted post-import duration probe: fire-and-forget on the
+     * ViewModel scope, so a fresh card gets its chapter durations in seconds
+     * instead of waiting for the throttled Огляд pass (#350). Best-effort —
+     * a failing probe never surfaces as an import error.
+     */
+    private fun probeDurationsAfterImport(bookId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { chapterDurationProbe.probeBookNow(bookId) }
         }
     }
 
@@ -707,6 +720,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 null
             }
             if (book != null) {
+                probeDurationsAfterImport(book.id)
                 selectBook(book.id)
             }
         }
@@ -726,6 +740,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 null
             }
             if (book != null) {
+                probeDurationsAfterImport(book.id)
                 playAudiobook(book)
             }
         }
@@ -1068,6 +1083,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (book != null) {
                 pendingRecommendationBookId.set(book.id)
                 recommendationPersonalization.recordDetailOpen()
+                probeDurationsAfterImport(book.id)
                 selectBook(book.id)
             }
         }
@@ -1159,6 +1175,79 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     val listenerReviews: com.slukhayka.audiobooks.data.reviews.ListenerReviewsStore? =
         App.instance.listenerReviews
+
+    // --- ADR-0023 (#348): «Оцінка начитки» — stars per (Work × Edition) ----
+
+    /** Null without Firebase keys: the rating UI simply does not render. */
+    val narrationRatingsStore: com.slukhayka.audiobooks.data.reviews.NarrationRatingsStore? =
+        App.instance.narrationRatings
+
+    private val _narrationRatings =
+        MutableStateFlow<List<com.slukhayka.audiobooks.data.reviews.NarrationRating>>(emptyList())
+
+    /** Every rating of one Work across its Editions; the UI filters by editionId. */
+    val narrationRatings: StateFlow<List<com.slukhayka.audiobooks.data.reviews.NarrationRating>> =
+        _narrationRatings.asStateFlow()
+
+    /** Best-effort refresh of one Work's narration ratings; a failure serves silence. */
+    fun loadNarrationRatings(workId: String) {
+        val store = narrationRatingsStore ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            _narrationRatings.value = try {
+                store.getForWork(workId)
+            } catch (e: Exception) {
+                emptyList()
+            }
+        }
+    }
+
+    /**
+     * Best-effort removal of THIS listener's narration rating (#358); the
+     * reload restores the truth.
+     */
+    fun deleteOwnNarrationRating(workId: String, editionId: String) {
+        val store = narrationRatingsStore ?: return
+        val profile = _listenerIdentity.value ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { store.deleteRating(workId, profile.uid, editionId) }
+            loadNarrationRatings(workId)
+        }
+    }
+
+    /**
+     * The stored Edition id of one book row — the anchor of the current
+     * card's own narration rating.
+     */
+    suspend fun editionIdForBook(bookId: String): String? =
+        App.instance.audiobookDao.getEditionIdForBook(bookId)
+
+    /**
+     * Create or EDIT one narration rating (idempotent `set()` under the same
+     * `${workId}_${uid}_${editionId}` key). Needs a listener identity; a
+     * failing write stays silent and the reload restores the truth.
+     */
+    fun saveNarrationRating(
+        workId: String,
+        editionId: String,
+        rating: Int,
+        editingCreatedAt: Long? = null
+    ) {
+        val store = narrationRatingsStore ?: return
+        val profile = _listenerIdentity.value ?: return
+        val now = System.currentTimeMillis()
+        val value = com.slukhayka.audiobooks.data.reviews.NarrationRating(
+            workId = workId,
+            uid = profile.uid,
+            editionId = editionId,
+            rating = rating,
+            createdAt = editingCreatedAt ?: now,
+            editedAt = if (editingCreatedAt != null) now else null
+        )
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { store.putRating(value) }
+            loadNarrationRatings(workId)
+        }
+    }
 
     /**
      * Lane-a wiring point: attach the [com.slukhayka.audiobooks.data.identity.ListenerIdentity]
@@ -1560,6 +1649,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 )
                 if (book != null) {
                     _downloadingBookId.value = book.id
+                    probeDurationsAfterImport(book.id)
                     offlineDownloads.downloadAudiobookOffline(book.id)
                 }
             } catch (e: Exception) {

@@ -5,6 +5,8 @@ import android.graphics.drawable.Drawable
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -28,6 +30,8 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -146,6 +150,15 @@ fun calculatePlayerProgress(
     )
 }
 
+/**
+ * #351 — the «повернутися до останньої закладки» target: the most recently
+ * CREATED bookmark (createdAt, then id as tie-break). One predictable target
+ * per book — the button always leads to the same place, and its visible
+ * timestamp says where before anything moves.
+ */
+fun lastCreatedBookmark(bookmarks: List<BookmarkEntity>): BookmarkEntity? =
+    bookmarks.maxWithOrNull(compareBy({ it.createdAt }, { it.id }))
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PlayerScreen(
@@ -166,10 +179,13 @@ fun PlayerScreen(
     // scope (same pattern as playerManager's call-through).
     val scope = rememberCoroutineScope()
     val bookmarks = remember(allBookmarks, book.id) { allBookmarks.filter { it.bookId == book.id } }
+    // #351: the one predictable jump target for the return button.
+    val lastBookmarkTarget = remember(bookmarks) { lastCreatedBookmark(bookmarks) }
 
     var showSleepTimerSheet by rememberSaveable { mutableStateOf(false) }
     var showSpeedSheet by rememberSaveable { mutableStateOf(false) }
     var showBookmarkSheet by rememberSaveable { mutableStateOf(false) }
+    var showBookmarksListSheet by rememberSaveable { mutableStateOf(false) }
     var showChapterSheet by rememberSaveable { mutableStateOf(false) }
     var showDebugOverlay by rememberSaveable { mutableStateOf(false) }
     var artworkAccent by remember(book.id) { mutableStateOf<Color?>(null) }
@@ -271,7 +287,10 @@ fun PlayerScreen(
             onSpeed = { showSpeedSheet = true },
             onTimer = { showSleepTimerSheet = true },
             onBookmark = { showBookmarkSheet = true },
-            onChapters = { showChapterSheet = true }
+            onChapters = { showChapterSheet = true },
+            lastBookmarkTarget = lastBookmarkTarget,
+            onJumpToBookmark = viewModel::jumpToBookmark,
+            onShowAllBookmarks = { showBookmarksListSheet = true }
         )
 
         SnackbarHost(
@@ -346,6 +365,20 @@ fun PlayerScreen(
         )
     }
 
+    if (showBookmarksListSheet) {
+        BookmarksListSheet(
+            bookmarks = bookmarks.sortedBy { it.timestampSeconds },
+            onSelect = { bookmark ->
+                viewModel.jumpToBookmark(bookmark)
+                showBookmarksListSheet = false
+            },
+            onDelete = { bookmark ->
+                scope.launch { viewModel.listeningState.deleteBookmark(bookmark.id) }
+            },
+            onDismiss = { showBookmarksListSheet = false }
+        )
+    }
+
     if (showChapterSheet) {
         ChapterBottomSheet(
             chapters = playerState.chapters,
@@ -384,6 +417,9 @@ fun PlayerScreenContent(
     onTimer: () -> Unit,
     onBookmark: () -> Unit,
     onChapters: () -> Unit,
+    lastBookmarkTarget: BookmarkEntity? = null,
+    onJumpToBookmark: (BookmarkEntity) -> Unit = {},
+    onShowAllBookmarks: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val background = MaterialTheme.colorScheme.background
@@ -535,7 +571,10 @@ fun PlayerScreenContent(
                     chapterPositionSeconds = playerState.currentPositionMs / 1000L,
                     chapterDurationSeconds = playerState.durationMs / 1000L,
                     onSeek = onSeek,
-                    onBookSeek = onBookSeek
+                    onBookSeek = onBookSeek,
+                    bookmarkTarget = lastBookmarkTarget,
+                    onJumpToBookmark = onJumpToBookmark,
+                    onShowAllBookmarks = onShowAllBookmarks
                 )
 
                 Spacer(Modifier.height(AppDimens.SpaceMd))
@@ -640,13 +679,17 @@ private fun PlayerTopBar(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun DualProgress(
     progress: PlayerProgressUi,
     chapterPositionSeconds: Long,
     chapterDurationSeconds: Long,
     onSeek: (Float) -> Unit,
-    onBookSeek: (Float) -> Unit
+    onBookSeek: (Float) -> Unit,
+    bookmarkTarget: BookmarkEntity? = null,
+    onJumpToBookmark: (BookmarkEntity) -> Unit = {},
+    onShowAllBookmarks: () -> Unit = {}
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -677,6 +720,29 @@ private fun DualProgress(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
+        // #351/#355: one tap back to the last created bookmark — the timestamp
+        // on the button says where it leads before anything moves. The LONG
+        // press opens the full bookmarks list — the rare action lives in the
+        // secondary gesture (spec-27).
+        if (bookmarkTarget != null) {
+            Row(
+                modifier = Modifier
+                    .align(Alignment.End)
+                    .heightIn(min = AppDimens.TouchTarget)
+                    .clip(RoundedCornerShape(AppDimens.RadiusXs))
+                    .combinedClickable(
+                        onClick = { onJumpToBookmark(bookmarkTarget) },
+                        onLongClick = onShowAllBookmarks
+                    )
+                    .padding(horizontal = AppDimens.SpaceSm)
+                    .testTag("jump_to_last_bookmark"),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(Icons.Default.Bookmark, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(AppDimens.SpaceXs))
+                Text("До закладки на ${MainViewModel.formatTime(bookmarkTarget.timestampSeconds)}")
+            }
+        }
         BookProgressTrack(progress, onBookSeek)
     }
 }
@@ -686,6 +752,9 @@ private fun BookProgressTrack(progress: PlayerProgressUi, onSeek: (Float) -> Uni
     val active = MaterialTheme.colorScheme.primary
     val activeMarker = MaterialTheme.colorScheme.onPrimary
     val inactiveMarker = MaterialTheme.colorScheme.onSurfaceVariant
+    // #352: bookmark dots read in the tertiary hue — visibly apart from the
+    // chapter ticks (primary) — and larger, so one glance finds your marks.
+    val bookmarkColor = MaterialTheme.colorScheme.tertiary
     Box(modifier = Modifier.fillMaxWidth().testTag("book_progress_track")) {
         Slider(
             value = progress.bookFraction,
@@ -704,6 +773,8 @@ private fun BookProgressTrack(progress: PlayerProgressUi, onSeek: (Float) -> Uni
                 .fillMaxWidth()
                 .height(24.dp)
                 .padding(horizontal = 10.dp, vertical = 6.dp)
+                // #352: test seam — how many markers the canvas draws.
+                .semantics { contentDescription = "Закладки на шкалі: ${progress.bookmarkMarkers.size}" }
         ) {
             val centerY = size.height / 2f
             progress.chapterMarkers.forEach { marker ->
@@ -711,8 +782,8 @@ private fun BookProgressTrack(progress: PlayerProgressUi, onSeek: (Float) -> Uni
                 drawMarker(marker, color, size.height, 1.5.dp.toPx())
             }
             progress.bookmarkMarkers.forEach { marker ->
-                val color = if (marker <= progress.bookFraction) activeMarker else active
-                drawCircle(color, radius = 3.5.dp.toPx(), center = androidx.compose.ui.geometry.Offset(size.width * marker, centerY))
+                val color = if (marker <= progress.bookFraction) bookmarkColor else bookmarkColor.copy(alpha = 0.55f)
+                drawCircle(color, radius = 5.dp.toPx(), center = androidx.compose.ui.geometry.Offset(size.width * marker, centerY))
             }
         }
     }
@@ -727,6 +798,70 @@ private fun DrawScope.drawMarker(fraction: Float, color: Color, height: Float, w
             strokeWidth = width,
             cap = StrokeCap.Round
         )
+    }
+}
+
+/**
+ * #355 — every bookmark of the book behind the long press on the return
+ * button: tap a row to jump, the trailing action to delete. Ordered by
+ * position on the timeline, like the book page's list.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun BookmarksListSheet(
+    bookmarks: List<BookmarkEntity>,
+    onSelect: (BookmarkEntity) -> Unit,
+    onDelete: (BookmarkEntity) -> Unit,
+    onDismiss: () -> Unit
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Text(
+            text = "Закладки",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(horizontal = AppDimens.PageSides, vertical = AppDimens.SpaceSm)
+        )
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = AppDimens.SpaceLg)
+        ) {
+            itemsIndexed(bookmarks, key = { _, bookmark -> bookmark.id }) { _, bookmark ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onSelect(bookmark) }
+                        .padding(horizontal = AppDimens.PageSides, vertical = AppDimens.SpaceSm),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.Bookmark,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(Modifier.width(AppDimens.SpaceSm))
+                    Column(Modifier.weight(1f)) {
+                        Text(bookmark.chapterTitle, style = MaterialTheme.typography.bodyMedium)
+                        if (bookmark.note.isNotBlank()) {
+                            Text(
+                                "На ${MainViewModel.formatTime(bookmark.timestampSeconds)}: ${bookmark.note}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        } else {
+                            Text(
+                                MainViewModel.formatTime(bookmark.timestampSeconds),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    IconButton(onClick = { onDelete(bookmark) }) {
+                        Icon(Icons.Default.Delete, contentDescription = "Видалити закладку")
+                    }
+                }
+            }
+        }
     }
 }
 

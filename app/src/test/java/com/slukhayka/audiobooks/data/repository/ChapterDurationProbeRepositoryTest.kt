@@ -16,6 +16,9 @@ import com.slukhayka.audiobooks.data.duration.StreamProber
 import com.slukhayka.audiobooks.data.EditionId
 import com.slukhayka.audiobooks.data.metadata.DurationProvenance
 import com.slukhayka.audiobooks.testing.FakeSharedBookMetaStore
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -75,6 +78,27 @@ class ChapterDurationProbeRepositoryTest {
         }
     }
 
+    /**
+     * #350 — records the peak number of probes in flight, so the bounded
+     * parallelism of the sweep is observable from the outside.
+     */
+    private class ConcurrencyRecordingProber(
+        private val result: ProbeResult
+    ) : StreamProber {
+        val probedUrls = java.util.Collections.synchronizedList(mutableListOf<String>())
+        private val active = java.util.concurrent.atomic.AtomicInteger(0)
+        val maxActive = java.util.concurrent.atomic.AtomicInteger(0)
+
+        override suspend fun probe(url: String): ProbeResult? {
+            val now = active.incrementAndGet()
+            maxActive.accumulateAndGet(now) { previous, current -> maxOf(previous, current) }
+            kotlinx.coroutines.delay(50)
+            active.decrementAndGet()
+            probedUrls += url
+            return result
+        }
+    }
+
     private fun book(id: String, url: String = "https://provider.example/$id.mp3") =
         AudiobookEntity(
             id = id,
@@ -118,7 +142,7 @@ class ChapterDurationProbeRepositoryTest {
 
     /** One pass instance — the CAS throttle lives on it, so reuse matters. */
     private fun pass(
-        prober: FakeProber,
+        prober: StreamProber,
         tracks: Map<String, Map<Int, SourceTrackEntity>> = emptyMap(),
         store: FakeSharedBookMetaStore? = null
     ): ChapterDurationProbe {
@@ -291,6 +315,111 @@ class ChapterDurationProbeRepositoryTest {
 
         assertEquals(0, run(pass(prober)))
         assertTrue(prober.probedUrls.isEmpty())
+    }
+
+    // ---------------------------------------------------------------------
+    // #349 — the targeted post-import probe (fire-and-forget, per book)
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `targeted probe fills one book regardless of the hourly throttle`() {
+        val tracks = mapOf("a" to mapOf(0 to track("a", 0, "https://provider.example/a/1.mp3")))
+        val prober = FakeProber(
+            mapOf("https://provider.example/a/1.mp3" to ProbeResult(contentLength = 4_410_000, frame = cbr128))
+        )
+        val pass = pass(prober, tracks)
+
+        // The background pass consumes its hourly window on an empty library…
+        assertEquals(0, run(pass))
+        // …the book arrives afterwards — the targeted probe still runs NOW.
+        seed(listOf(book("a")), listOf(chapter("a", 0, 0L)))
+
+        assertEquals(1, runBlocking { pass.probeBookNow("a") })
+        assertEquals(275L, durationOf("a-ch0"))
+    }
+
+    @Test
+    fun `targeted probe is single-flight per book`() = runBlocking {
+        class GatedProber : StreamProber {
+            val started = java.util.concurrent.atomic.AtomicInteger(0)
+            val release = kotlinx.coroutines.CompletableDeferred<Unit>()
+            override suspend fun probe(url: String): ProbeResult? {
+                started.incrementAndGet()
+                release.await()
+                return ProbeResult(contentLength = 4_410_000, frame = cbr128)
+            }
+        }
+        seed(listOf(book("a")), listOf(chapter("a", 0, 0L)))
+        val prober = GatedProber()
+        val passInstance = pass(prober, mapOf("a" to mapOf(0 to track("a", 0, "https://provider.example/a/1.mp3"))))
+
+        var firstResult = -1
+        val first = launch(kotlinx.coroutines.Dispatchers.IO) { firstResult = passInstance.probeBookNow("a") }
+        while (prober.started.get() < 1) kotlinx.coroutines.delay(10)
+
+        // The concurrent second call loses the single-flight race and probes nothing.
+        val secondDeferred = async(kotlinx.coroutines.Dispatchers.IO) { passInstance.probeBookNow("a") }
+        val secondResult = secondDeferred.await()
+
+        prober.release.complete(Unit)
+        first.join()
+        assertEquals(0, secondResult)
+        assertEquals(1, prober.started.get())
+        assertEquals(1, firstResult)
+    }
+
+    @Test
+    fun `targeted probe skips local books and unknown ids`() = runBlocking {
+        val prober = FakeProber(emptyMap())
+        seed(listOf(book("local", url = "")), listOf(chapter("local", 0, 0L)))
+        val pass = pass(prober)
+
+        assertEquals(0, pass.probeBookNow("local"))
+        assertEquals(0, pass.probeBookNow("missing-book"))
+        assertTrue(prober.probedUrls.isEmpty())
+        assertEquals(0L, durationOf("local-ch0"))
+    }
+
+    // ---------------------------------------------------------------------
+    // #350 — the tuned background sweep
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `the pass probes the newest books first`() {
+        val tracks = mapOf(
+            "old" to mapOf(0 to track("old", 0, "https://provider.example/old/1.mp3")),
+            "new" to mapOf(0 to track("new", 0, "https://provider.example/new/1.mp3"))
+        )
+        val prober = FakeProber(emptyMap()) // only the recorded urls matter here
+        seed(listOf(book("old"), book("new")), listOf(chapter("old", 0, 0L), chapter("new", 0, 0L)))
+        runBlocking {
+            dao.upsertLibraryEntry("old", "old", false, START_EPOCH, 0f)
+            dao.upsertLibraryEntry("new", "new", false, START_EPOCH + 60_000L, 0f)
+        }
+
+        run(pass(prober, tracks), batchLimit = 1)
+        assertEquals(1, prober.probedUrls.size)
+        assertEquals(listOf("https://provider.example/new/1.mp3"), prober.probedUrls)
+    }
+
+    @Test
+    fun `chapters of one book probe with bounded parallelism`() = runBlocking {
+        val count = 8
+        seed(listOf(book("p")), (0 until count).map { chapter("p", it, 0L) })
+        val tracks = (0 until count).associateWith { index ->
+            track("p", index, "https://provider.example/p/$index.mp3")
+        }
+        val prober = ConcurrencyRecordingProber(ProbeResult(contentLength = 4_410_000, frame = cbr128))
+
+        val probed = run(pass(prober, mapOf("p" to tracks)))
+
+        assertEquals(count, probed)
+        assertEquals(count, prober.probedUrls.size)
+        assertTrue(
+            "max parallel ${prober.maxActive.get()}",
+            prober.maxActive.get() <= ChapterDurationProbe.DEFAULT_PROBE_CONCURRENCY
+        )
+        assertTrue("no overlap observed", prober.maxActive.get() > 1)
     }
 
     companion object {

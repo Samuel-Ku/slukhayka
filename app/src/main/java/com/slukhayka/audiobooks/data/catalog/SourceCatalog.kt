@@ -82,7 +82,15 @@ class SourceCatalog(
     // source adapters; a miss or a stale entry resolves live and writes the
     // result back best-effort. Null without Firebase keys (or in tests that
     // don't exercise the cache): search then behaves exactly as before.
-    private val searchCache: SearchCache? = null
+    private val searchCache: SearchCache? = null,
+    // Catalogue-hydration batch seam: a crawl runs each page's merge-on-write
+    // block through this runner so N upserts land as ONE Room transaction —
+    // one invalidation of the endless feed's PagingSource instead of two per
+    // row. Row-by-row invalidations starve every freshly-switched feed
+    // generation, which is exactly why the feed's filters looked dead while
+    // the catalogue kept syncing. Identity by default; the composition root
+    // supplies the real Room withTransaction.
+    private val writeBatchRunner: suspend (suspend () -> Unit) -> Unit = { it() }
 ) {
 
     private val fourReadAdapter: SourceAdapter =
@@ -476,25 +484,27 @@ class SourceCatalog(
                     // distinguishes Editions, never Works.
                     val mergeKey = MergeKey.keyFor(detail.title, detail.author)
                     val alreadyKnown = mergeKey.isNotBlank() && dao.findByMergeKey(mergeKey) != null
-                    libraryImport.importBookFromSource(sourceId, detail)
-                    // Spec-23 T3: the hydrated row ALSO lands in the persisted
-                    // browse layer (works/editions) via merge-on-write — the
-                    // endless feed's source of truth. Idempotent: the edition
-                    // id is deterministic, so re-hydration never duplicates.
-                    // The per-source policy rides along (stream-only flags),
-                    // and playback already routes Referer/UA via headersFor.
-                    writeWorkEdition(
-                        sourceId = sourceId,
-                        title = detail.title,
-                        author = detail.author,
-                        narrator = detail.narrator,
-                        sourceUrl = book.url,
-                        streamOnly = streamOnlyFor(sourceId),
-                        coverImageUrl = detail.coverImageUrl,
-                        durationSeconds = detail.totalDurationSeconds,
-                        seriesTitle = detail.series?.name,
-                        seriesIndex = detail.series?.position
-                    )
+                    writeBatchRunner {
+                        libraryImport.importBookFromSource(sourceId, detail)
+                        // Spec-23 T3: the hydrated row ALSO lands in the persisted
+                        // browse layer (works/editions) via merge-on-write — the
+                        // endless feed's source of truth. Idempotent: the edition
+                        // id is deterministic, so re-hydration never duplicates.
+                        // The per-source policy rides along (stream-only flags),
+                        // and playback already routes Referer/UA via headersFor.
+                        writeWorkEdition(
+                            sourceId = sourceId,
+                            title = detail.title,
+                            author = detail.author,
+                            narrator = detail.narrator,
+                            sourceUrl = book.url,
+                            streamOnly = streamOnlyFor(sourceId),
+                            coverImageUrl = detail.coverImageUrl,
+                            durationSeconds = detail.totalDurationSeconds,
+                            seriesTitle = detail.series?.name,
+                            seriesIndex = detail.series?.position
+                        )
+                    }
                     if (alreadyKnown) merged++ else imported++
                 } catch (e: Exception) {
                     failed++
@@ -864,7 +874,7 @@ class SourceCatalog(
             }
         }
 
-        homepageBooks.forEach { write(it) }
+        writeBatchRunner { homepageBooks.forEach { write(it) } }
 
         for (url in categoryUrls) {
             // Follow the listing's own pagination until a budget stops us:
@@ -892,7 +902,7 @@ class SourceCatalog(
                     failed++
                     break
                 }
-                books.forEach { write(it) }
+                writeBatchRunner { books.forEach { write(it) } }
                 currentUrl = CatalogParser.parseNextPageUrl(html)?.takeIf { next ->
                     visitedUrls.add(next) && visitedUrls.size <= maxPagesPerListing
                 }

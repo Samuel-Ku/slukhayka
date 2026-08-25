@@ -1,0 +1,24 @@
+<resources>
+    <string name="a11y_player_close">Згорнути програвач</string>
+    <string name="a11y_player_actions">Дії з аудіокнигою %1$s</string>
+    <string name="a11y_player_context">%1$s. Автор: %2$s. %3$s Поточний розділ: %4$s</string>
+    <string name="a11y_player_edition">Начитка: %1$s.</string>
+    <string name="a11y_player_edition_unknown">Начитка: виконавця не вказано.</string>
+
+    <string name="a11y_player_previous_chapter">Попередній розділ перед «%2$s». %1$s</string>
+    <string name="a11y_player_next_chapter">Наступний розділ після «%2$s». %1$s</string>
+    <string name="a11y_player_seek_back">Назад на 15 секунд. %1$s, %2$s</string>
+    <string name="a11y_player_seek_forward">Вперед на 30 секунд. %1$s, %2$s</string>
+    <string name="a11y_player_pause">Поставити на паузу. %1$s, %2$s</string>
+    <string name="a11y_player_play">Відтворити. %1$s, %2$s</string>
+    <string name="a11y_player_state_playing">Відтворюється</string>
+    <string name="a11y_player_state_paused">Призупинено</string>
+
+    <string name="a11y_player_chapter_position">Позиція в поточному розділі</string>
+    <string name="a11y_player_book_position">Позиція у книзі</string>
+    <string name="a11y_player_time_of">%1$s із %2$s</string>
+    <string name="a11y_player_duration_unknown">Тривалість невідома</string>
+
+    <string name="a11y_player_error_title">Книга недоступна</string>
+    <string name="a11y_player_retry">Повторити відтворення %1$s</string>
+</resources>

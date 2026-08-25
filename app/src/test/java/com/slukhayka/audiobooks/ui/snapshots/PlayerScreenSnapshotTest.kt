@@ -7,6 +7,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertHeightIsAtLeast
+import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -95,7 +96,9 @@ class PlayerScreenSnapshotTest {
         setPlayerContent()
         // Spec-24 T7 (#168): the fixture narrator is a real name, so the
         // «Читає …» line renders — self-verifying on top of the image.
-        composeTestRule.onNodeWithText("Читає Олександр Завальський").assertExists()
+        composeTestRule.onNodeWithTag("player_context").assertContentDescriptionEquals(
+            "Нейромант. Автор: Вільям Гібсон. Начитка: Олександр Завальський. Поточний розділ: Розділ 2. Зустріч у Чіба-сіті"
+        )
         composeTestRule.onRoot().captureRoboImage(filePath = "src/test/snapshots/player_redesign_dark.png")
     }
 
@@ -131,7 +134,9 @@ class PlayerScreenSnapshotTest {
         // No scrollable content column remains.
         composeTestRule.onNode(hasScrollAction()).assertDoesNotExist()
         // Every control is visible in the tight viewport without scrolling.
-        composeTestRule.onNodeWithContentDescription("Наступний розділ").assertIsDisplayed()
+        composeTestRule.onNodeWithContentDescription(
+            "Наступний розділ після «Розділ 2. Зустріч у Чіба-сіті». Нейромант"
+        ).assertIsDisplayed()
         composeTestRule.onNodeWithTag("player_play_pause_button").assertIsDisplayed()
         composeTestRule.onNodeWithTag("speed_chip").assertIsDisplayed()
         composeTestRule.onNodeWithTag("sleep_timer_chip").assertIsDisplayed()
@@ -155,11 +160,19 @@ class PlayerScreenSnapshotTest {
         var speedClicks = 0
         setPlayerContent(onPlayPause = { playClicks++ }, onSpeed = { speedClicks++ })
 
-        composeTestRule.onNodeWithContentDescription("Попередній розділ").assertIsDisplayed().assertHeightIsAtLeast(48.dp)
-        composeTestRule.onNodeWithContentDescription("Назад на 15 секунд").assertIsDisplayed().assertHeightIsAtLeast(48.dp)
+        composeTestRule.onNodeWithContentDescription(
+            "Попередній розділ перед «Розділ 2. Зустріч у Чіба-сіті». Нейромант"
+        ).assertIsDisplayed().assertHeightIsAtLeast(48.dp)
+        composeTestRule.onNodeWithContentDescription(
+            "Назад на 15 секунд. Нейромант, Розділ 2. Зустріч у Чіба-сіті"
+        ).assertIsDisplayed().assertHeightIsAtLeast(48.dp)
         composeTestRule.onNodeWithTag("player_play_pause_button").assertIsDisplayed().assertHeightIsAtLeast(48.dp).performClick()
-        composeTestRule.onNodeWithContentDescription("Вперед на 30 секунд").assertIsDisplayed().assertHeightIsAtLeast(48.dp)
-        composeTestRule.onNodeWithContentDescription("Наступний розділ").assertIsDisplayed().assertHeightIsAtLeast(48.dp)
+        composeTestRule.onNodeWithContentDescription(
+            "Вперед на 30 секунд. Нейромант, Розділ 2. Зустріч у Чіба-сіті"
+        ).assertIsDisplayed().assertHeightIsAtLeast(48.dp)
+        composeTestRule.onNodeWithContentDescription(
+            "Наступний розділ після «Розділ 2. Зустріч у Чіба-сіті». Нейромант"
+        ).assertIsDisplayed().assertHeightIsAtLeast(48.dp)
         composeTestRule.onNodeWithTag("speed_chip").assertIsDisplayed().assertHeightIsAtLeast(48.dp).performClick()
         composeTestRule.onNodeWithTag("sleep_timer_chip").assertIsDisplayed().assertHeightIsAtLeast(48.dp)
         composeTestRule.onNodeWithTag("add_bookmark_chip").assertIsDisplayed().assertHeightIsAtLeast(48.dp)
@@ -213,7 +226,8 @@ class PlayerScreenSnapshotTest {
             onSpeed = onSpeed,
             onTimer = {},
             onBookmark = {},
-            onChapters = {}
+            onChapters = {},
+            onRetryPlayback = {}
         )
     }
 }

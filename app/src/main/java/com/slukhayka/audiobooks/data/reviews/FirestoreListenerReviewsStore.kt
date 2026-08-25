@@ -6,7 +6,9 @@ import com.google.firebase.FirebaseApp
 import com.google.firebase.firestore.FieldPath
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
+import java.util.concurrent.Executor
 import kotlin.coroutines.resume
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.suspendCancellableCoroutine
 
 /**
@@ -58,19 +60,26 @@ class FirestoreListenerReviewsStore(private val firestore: FirebaseFirestore) : 
 
     override suspend fun setDocument(documentId: String, document: Map<String, Any>): Boolean {
         // set() on a document key is idempotent — an edit replaces, never
-        // duplicates. With persistence enabled the task completes once the
-        // write is durably committed LOCALLY, so an offline review returns
-        // true here and rides the persistence queue to the server (#280).
-        return runCatching {
-            firestore.collection(COLLECTION).document(documentId).set(document).awaitUnit()
-            true
-        }.getOrDefault(false)
+        // duplicates. The transport reports the Task's actual outcome; the
+        // policy seam interprets true as durably accepted (#280).
+        return try {
+            firestore.collection(COLLECTION).document(documentId).set(document)
+                .awaitReviewWriteResult()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            false
+        }
     }
 
-    override suspend fun removeDocument(documentId: String): Boolean = runCatching {
-        firestore.collection(COLLECTION).document(documentId).delete().awaitUnit()
-        true
-    }.getOrDefault(false)
+    override suspend fun removeDocument(documentId: String): Boolean = try {
+        firestore.collection(COLLECTION).document(documentId).delete()
+            .awaitReviewWriteResult()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (_: Exception) {
+        false
+    }
 
     /** Bridges the Play Services [Task] onto a coroutine: documents or null on failure. */
     private suspend fun Task<com.google.firebase.firestore.QuerySnapshot>.awaitDocuments(): List<Map<String, Any>>? =
@@ -78,11 +87,6 @@ class FirestoreListenerReviewsStore(private val firestore: FirebaseFirestore) : 
             addOnSuccessListener { snapshot -> cont.resume(snapshot.documents.mapNotNull { it.data }) }
             addOnFailureListener { cont.resume(null) }
         }
-
-    private suspend fun Task<Void>.awaitUnit(): Void? = suspendCancellableCoroutine { cont ->
-        addOnSuccessListener { cont.resume(it) }
-        addOnFailureListener { cont.resume(null) }
-    }
 
     companion object {
         /** Spec-40 #277 — the listener-reviews collection. */
@@ -106,3 +110,21 @@ class FirestoreListenerReviewsStore(private val firestore: FirebaseFirestore) : 
         }
     }
 }
+
+/** The write Task's result without turning failure or cancellation into success. */
+internal suspend fun Task<*>.awaitReviewWriteResult(): Boolean =
+    suspendCancellableCoroutine { continuation ->
+        addOnSuccessListener(reviewWriteTaskExecutor) {
+            if (continuation.isActive) continuation.resume(true)
+        }
+        addOnFailureListener(reviewWriteTaskExecutor) {
+            if (continuation.isActive) continuation.resume(false)
+        }
+        addOnCanceledListener(reviewWriteTaskExecutor) {
+            if (continuation.isActive) {
+                continuation.cancel(CancellationException("Firebase review write was cancelled"))
+            }
+        }
+    }
+
+private val reviewWriteTaskExecutor = Executor { command -> command.run() }

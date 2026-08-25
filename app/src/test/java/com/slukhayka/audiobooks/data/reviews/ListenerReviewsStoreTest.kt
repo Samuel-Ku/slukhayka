@@ -1,9 +1,11 @@
 package com.slukhayka.audiobooks.data.reviews
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Test
 
 /**
@@ -20,6 +22,7 @@ class ListenerReviewsStoreTest {
     private class FakeDocuments(
         var failReads: Boolean = false,
         var failWrites: Boolean = false,
+        var cancelWrites: Boolean = false,
         var scrambleOrder: Boolean = true
     ) {
         val documents = mutableMapOf<String, Map<String, Any>>()
@@ -44,12 +47,14 @@ class ListenerReviewsStoreTest {
         }
 
         override suspend fun setDocument(documentId: String, document: Map<String, Any>): Boolean {
+            if (fake.cancelWrites) throw CancellationException("write cancelled")
             if (fake.failWrites) throw IllegalStateException("transport down")
             fake.documents[documentId] = document
             return true
         }
 
         override suspend fun removeDocument(documentId: String): Boolean {
+            if (fake.cancelWrites) throw CancellationException("delete cancelled")
             if (fake.failWrites) throw IllegalStateException("transport down")
             return fake.documents.remove(documentId) != null
         }
@@ -168,5 +173,22 @@ class ListenerReviewsStoreTest {
         assertTrue(store.getForWorks(listOf("work-1")).isEmpty())
         assertFalse(store.putReview(review("u1", createdAt = 1L)))
         assertFalse(store.deleteReview("work-1", "u1"))
+    }
+
+    @Test
+    fun `write and delete never swallow coroutine cancellation`() = runBlocking {
+        val store = FakeStore(FakeDocuments(cancelWrites = true))
+
+        assertCancellationPropagates { store.putReview(review("u1", createdAt = 1L)) }
+        assertCancellationPropagates { store.deleteReview("work-1", "u1") }
+    }
+
+    private suspend fun assertCancellationPropagates(block: suspend () -> Unit) {
+        try {
+            block()
+            fail("Expected CancellationException")
+        } catch (_: CancellationException) {
+            // Cancellation is control flow: the policy seam must rethrow it.
+        }
     }
 }

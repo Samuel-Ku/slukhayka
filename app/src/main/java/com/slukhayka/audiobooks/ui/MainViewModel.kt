@@ -27,6 +27,7 @@ import com.slukhayka.audiobooks.data.imports.LibraryImport
 import com.slukhayka.audiobooks.data.listening.ListeningStateStore
 import com.slukhayka.audiobooks.data.imports.ImportPlanner
 import com.slukhayka.audiobooks.data.identity.ListenerIdentity
+import com.slukhayka.audiobooks.data.facets.WorkFacetFilter
 import com.slukhayka.audiobooks.data.privacy.NetworkPrivacy
 import com.slukhayka.audiobooks.data.privacy.PrivacyPrefs
 import com.slukhayka.audiobooks.data.privacy.RouteResolution
@@ -734,39 +735,34 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // Spec-23 T4: the endless merged feed (Paging 3) over the persisted
     // Works/Editions catalogue — one card per Work, dedup inherited from
     // merge-on-write (never re-implemented at read time). Filters live at the
-    // SQL level (source / genre) so they compose with paging; the Pager is
-    // rebuilt when a filter or the sort changes. `null` source = all sources,
-    // `null` genre = all genres, sort = newest-first unless by title.
-    private val _feedSourceFilter = MutableStateFlow<String?>(null)
-    val feedSourceFilter: StateFlow<String?> = _feedSourceFilter.asStateFlow()
+    // SQL level so they compose with paging; the Pager is rebuilt when a
+    // committed filter set or sort changes. Empty genre set = all genres;
+    // selected ids compose with OR.
 
-    private val _feedGenreFilter = MutableStateFlow<String?>(null)
-    val feedGenreFilter: StateFlow<String?> = _feedGenreFilter.asStateFlow()
+    private val _feedGenreFilters = MutableStateFlow<Set<String>>(emptySet())
+    val feedGenreFilters: StateFlow<Set<String>> = _feedGenreFilters.asStateFlow()
 
     private val _feedSortByTitle = MutableStateFlow(false)
     val feedSortByTitle: StateFlow<Boolean> = _feedSortByTitle.asStateFlow()
 
     val workFeed: Flow<PagingData<WorkFeedRow>> =
-        combine(_feedSourceFilter, _feedGenreFilter, _feedSortByTitle) { sourceId, genre, byTitle ->
-            Triple(sourceId, genre, byTitle)
-        }.flatMapLatest { (sourceId, genre, byTitle) ->
+        combine(_feedGenreFilters, _feedSortByTitle) { genres, byTitle -> genres to byTitle }
+        .distinctUntilChanged()
+        .flatMapLatest { (genres, byTitle) ->
+            val filter = WorkFacetFilter(genreIds = genres)
             Pager(
                 config = PagingConfig(pageSize = 30, prefetchDistance = 15, enablePlaceholders = false)
             ) {
                 if (byTitle) {
-                    sourceCatalog.pagedWorkFeedByTitle(sourceId, genre)
+                    sourceCatalog.pagedWorkFeedByTitle(filter)
                 } else {
-                    sourceCatalog.pagedWorkFeedRecent(sourceId, genre)
+                    sourceCatalog.pagedWorkFeedRecent(filter)
                 }
             }.flow
         }.cachedIn(viewModelScope)
 
-    fun setFeedSourceFilter(sourceId: String?) {
-        _feedSourceFilter.value = sourceId
-    }
-
-    fun setFeedGenreFilter(genre: String?) {
-        _feedGenreFilter.value = genre
+    fun setFeedGenreFilters(genres: Set<String>) {
+        _feedGenreFilters.value = genres
     }
 
     fun setFeedSortByTitle(byTitle: Boolean) {

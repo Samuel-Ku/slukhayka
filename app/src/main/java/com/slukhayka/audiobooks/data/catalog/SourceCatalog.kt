@@ -15,6 +15,12 @@ import com.slukhayka.audiobooks.data.db.WorkSourceEntity
 import com.slukhayka.audiobooks.data.imports.LibraryImport
 import com.slukhayka.audiobooks.data.merge.MergeKey
 import com.slukhayka.audiobooks.data.metadata.MetadataAssertions
+import com.slukhayka.audiobooks.data.facets.GenreFacetAssertion
+import com.slukhayka.audiobooks.data.facets.LocalFacetDelta
+import com.slukhayka.audiobooks.data.facets.LocalFacetWriter
+import com.slukhayka.audiobooks.data.facets.RoomLocalFacetWriter
+import com.slukhayka.audiobooks.data.facets.WorkFacetDelta
+import com.slukhayka.audiobooks.data.facets.WorkFacetFilter
 import com.slukhayka.audiobooks.data.metadata.SearchCoverResolver
 import com.slukhayka.audiobooks.data.metadata.SearchDurationResolver
 import com.slukhayka.audiobooks.data.search.SearchCache
@@ -84,6 +90,11 @@ class SourceCatalog(
     // don't exercise the cache): search then behaves exactly as before.
     private val searchCache: SearchCache? = null
 ) {
+    /** Frozen local-write seam consumed by the later shared delta lane. */
+    val facetWriter: LocalFacetWriter = RoomLocalFacetWriter(dao)
+
+    /** Bounded local options for the filter sheet; never a Work materialization. */
+    val genreFacetOptions = dao.observeGenreFacetOptions()
 
     private val fourReadAdapter: SourceAdapter =
         sourceAdapters.firstOrNull { it.sourceId == SourceIds.FOUR_READ } ?: FourReadAdapter()
@@ -493,7 +504,8 @@ class SourceCatalog(
                         coverImageUrl = detail.coverImageUrl,
                         durationSeconds = detail.totalDurationSeconds,
                         seriesTitle = detail.series?.name,
-                        seriesIndex = detail.series?.position
+                        seriesIndex = detail.series?.position,
+                        genreTexts = detail.genres.ifEmpty { listOf(book.genre) }
                     )
                     if (alreadyKnown) merged++ else imported++
                 } catch (e: Exception) {
@@ -736,7 +748,8 @@ class SourceCatalog(
         coverImageUrl: String? = null,
         durationSeconds: Long? = null,
         seriesTitle: String? = null,
-        seriesIndex: Int? = null
+        seriesIndex: Int? = null,
+        genreTexts: List<String> = emptyList()
     ): WorkWriteResult {
         // ADR-0010: the Work key is bibliographic (title|author) — the
         // narrator is a rendition (Edition) property, never part of the Work.
@@ -783,6 +796,21 @@ class SourceCatalog(
                 addedAt = System.currentTimeMillis()
             )
         )
+        if (genreTexts.any { it.isNotBlank() }) {
+            facetWriter.apply(
+                listOf(
+                    LocalFacetDelta(
+                        WorkFacetDelta(
+                            workId = work.id,
+                            genres = genreTexts.map { raw ->
+                                GenreFacetAssertion(raw, sourceId, System.currentTimeMillis())
+                            },
+                            updatedAt = System.currentTimeMillis()
+                        )
+                    )
+                )
+            )
+        }
         return WorkWriteResult(work = work, workCreated = existing == null, editionCreated = !sourceAlreadyKnown)
     }
 
@@ -906,19 +934,27 @@ class SourceCatalog(
     // ---------------------------------------------------------------------
     // Endless merged feed (spec-23 T4): Paging 3 over the persisted Works/
     // Editions catalogue. One row per Work (dedup inherited from
-    // merge-on-write, never re-implemented at read time), filtered by source
-    // and genre at the SQL level so filters compose with paging. Sort is
+    // merge-on-write, never re-implemented at read time), filtered by local
+    // indexed facet relations so filters compose with paging. Sort is
     // either newest-first or by title — two thin DAO queries, no in-memory
     // sorting of paged slices.
     // ---------------------------------------------------------------------
 
     /** Endless feed, newest Works first. */
-    fun pagedWorkFeedRecent(sourceId: String? = null, genre: String? = null): PagingSource<Int, WorkFeedRow> =
-        dao.pagedWorksFeedRecent(sourceId, genre)
+    fun pagedWorkFeedRecent(filter: WorkFacetFilter = WorkFacetFilter()): PagingSource<Int, WorkFeedRow> =
+        dao.pagedWorksFeedRecent(
+            filter.genreIds.toList(), if (filter.genreIds.isEmpty()) 0 else 1,
+            filter.durationBucketIds.toList(), if (filter.durationBucketIds.isEmpty()) 0 else 1,
+            filter.authorIds.toList(), if (filter.authorIds.isEmpty()) 0 else 1
+        )
 
     /** Endless feed, sorted by title (stable tiebreak: newest first). */
-    fun pagedWorkFeedByTitle(sourceId: String? = null, genre: String? = null): PagingSource<Int, WorkFeedRow> =
-        dao.pagedWorksFeedByTitle(sourceId, genre)
+    fun pagedWorkFeedByTitle(filter: WorkFacetFilter = WorkFacetFilter()): PagingSource<Int, WorkFeedRow> =
+        dao.pagedWorksFeedByTitle(
+            filter.genreIds.toList(), if (filter.genreIds.isEmpty()) 0 else 1,
+            filter.durationBucketIds.toList(), if (filter.durationBucketIds.isEmpty()) 0 else 1,
+            filter.authorIds.toList(), if (filter.authorIds.isEmpty()) 0 else 1
+        )
 
     /** The Sources carrying one Work — the feed card resolves its first
      *  source through these (spec-23 T4 open action; ADR-0007 renamed the

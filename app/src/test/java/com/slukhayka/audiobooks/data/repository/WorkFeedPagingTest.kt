@@ -2,8 +2,6 @@ package com.slukhayka.audiobooks.data.repository
 
 import android.content.Context
 import androidx.paging.PagingSource
-import androidx.paging.PagingConfig
-import androidx.paging.Pager
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.slukhayka.audiobooks.data.catalog.SourceCatalog
@@ -13,6 +11,10 @@ import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.EditionEntity
 import com.slukhayka.audiobooks.data.db.WorkFeedRow
 import com.slukhayka.audiobooks.data.imports.LibraryImport
+import com.slukhayka.audiobooks.data.facets.GenreFacetAssertion
+import com.slukhayka.audiobooks.data.facets.LocalFacetDelta
+import com.slukhayka.audiobooks.data.facets.WorkFacetDelta
+import com.slukhayka.audiobooks.data.facets.WorkFacetFilter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -27,8 +29,8 @@ import org.robolectric.annotation.Config
 
 /**
  * Repository seam (spec-23 T4): the endless merged feed pages through a
- * large synthetic catalogue without gaps or duplicates, and the source /
- * genre / sort filters compose with paging. Pages are pulled directly from
+ * large synthetic catalogue without gaps or duplicates, and the local facet
+ * sets / sort state compose with paging. Pages are pulled directly from
  * the PagingSource (deterministic — no flow-collection timing), which is
  * exactly what Pager does over these sources: `LoadParams.Refresh(key =
  * offset)` returns a page whose `nextKey` is the next offset, looped until
@@ -92,7 +94,7 @@ class WorkFeedPagingTest {
         }
         assertEquals(count, dao.countWorks())
 
-        val rows = collectAll(dao.pagedWorksFeedRecent(null, null))
+        val rows = collectAll(catalog.pagedWorkFeedRecent())
 
         // Every synthetic book present exactly once — no gaps, no duplicates.
         assertEquals(count, rows.size)
@@ -101,7 +103,7 @@ class WorkFeedPagingTest {
     }
 
     @Test
-    fun `source filter returns only Works carried by that source and composes with paging`() = runBlocking {
+    fun `no facet filter includes Works from every Source`() = runBlocking {
         val catalog = catalog()
         val fourRead = 100
         val sluhay = 100
@@ -125,65 +127,44 @@ class WorkFeedPagingTest {
         }
         assertEquals(fourRead + sluhay, dao.countWorks())
 
-        val rows = collectAll(dao.pagedWorksFeedRecent(sourceId = "4read", genre = null))
+        val rows = collectAll(catalog.pagedWorkFeedRecent())
 
-        // Only the 4read-carried Works survive the filter — and the filter
-        // composes with paging (the same keys page through the filtered set).
-        assertEquals(fourRead, rows.size)
-        assertTrue(rows.all { it.title.startsWith("4read-") })
+        assertEquals(fourRead + sluhay, rows.size)
     }
 
     @Test
-    fun `genre filter returns only Works whose library row carries the genre`() = runBlocking {
+    fun `single and multi genre filters use indexed OR and empty selection means all`() = runBlocking {
         val catalog = catalog()
-        for (i in 0 until 20) {
-            catalog.writeWorkEdition(
-                sourceId = "4read",
-                title = "Книга $i",
-                author = "Автор $i",
-                narrator = "",
-                sourceUrl = "https://4read.org/g$i.html"
-            )
-        }
-        // Link the first five Works into the library with the genre set — the
-        // feed's genre filter joins on this (LEFT JOIN: null until linked).
-        // ADR-0009: the link lives on the Library Entry row.
-        val withGenre = dao.observeWorks().first().take(5)
-        dao.insertAudiobooks(
-            withGenre.map { work ->
-                AudiobookEntity(
-                    id = "lib-${work.id}",
-                    title = work.title,
-                    author = work.author,
-                    // ADR-0010: the Work carries no narrator — the rendition
-                    // narrator is an Edition property, absent here.
-                    narrator = "",
-                    description = "",
-                    coverDrawableRes = 0,
-                    coverImageUrl = null,
-                    genre = "Фантастика",
-                    sourceUrl = work.mergeKey.ifBlank { "https://4read.org/lib-${work.id}.html" },
-                    isDownloaded = false,
-                    totalDurationSeconds = 0L,
-                    totalChapters = 0,
-                    rating = 0f
-                )
-            }
+        catalog.writeWorkEdition("4read", "Дюна", "Френк Герберт", "", "https://4read/dune", genreTexts = listOf("Фантастика"))
+        catalog.writeWorkEdition("4read", "Відьмак", "Анджей Сапковський", "", "https://4read/witcher", genreTexts = listOf("Фентезі"))
+        catalog.writeWorkEdition("sluhay", "Пасажир", "Жан-Крістоф Гранже", "", "https://sluhay/passenger", genreTexts = listOf("Детектив"))
+        catalog.writeWorkEdition("sluhay", "Без жанру", "Автор", "", "https://sluhay/unknown")
+
+        assertEquals(listOf("Дюна"), collectAll(catalog.pagedWorkFeedRecent(WorkFacetFilter(setOf("science-fiction")))).map { it.title })
+        assertEquals(
+            setOf("Дюна", "Відьмак"),
+            collectAll(catalog.pagedWorkFeedRecent(WorkFacetFilter(setOf("science-fiction", "fantasy")))).map { it.title }.toSet()
         )
-        withGenre.forEach { work ->
-            dao.upsertLibraryEntry(
-                id = "lib-${work.id}",
-                workId = work.id,
-                isFavorite = false,
-                createdAt = 0L,
-                downloadProgress = 0f
-            )
-        }
+        assertEquals(4, collectAll(catalog.pagedWorkFeedRecent()).size)
+        assertTrue(collectAll(catalog.pagedWorkFeedRecent(WorkFacetFilter(setOf("poetry")))).isEmpty())
+    }
 
-        val rows = collectAll(dao.pagedWorksFeedRecent(sourceId = null, genre = "Фантастика"))
+    @Test
+    fun `facet sync under active filter keeps the filter and one card per Work`() = runBlocking {
+        val catalog = catalog()
+        catalog.writeWorkEdition("4read", "Дюна", "Френк Герберт", "", "https://4read/dune", genreTexts = listOf("Фантастика"))
+        catalog.writeWorkEdition("sluhay", "Дюна", "Френк Герберт", "", "https://sluhay/dune", genreTexts = listOf("Фентезі"))
+        val filter = WorkFacetFilter(setOf("science-fiction"))
 
-        assertEquals(5, rows.size)
-        assertTrue(rows.all { it.genre == "Фантастика" })
+        assertEquals(listOf("Дюна"), collectAll(catalog.pagedWorkFeedRecent(filter)).map { it.title })
+        val work = dao.observeWorks().first().single()
+        catalog.facetWriter.apply(
+            listOf(LocalFacetDelta(WorkFacetDelta(work.id, listOf(GenreFacetAssertion("Фантастика", "sync", 5)))))
+        )
+
+        val afterSync = collectAll(catalog.pagedWorkFeedRecent(filter))
+        assertEquals(1, afterSync.size)
+        assertEquals(work.id, afterSync.single().workId)
     }
 
     @Test
@@ -200,7 +181,7 @@ class WorkFeedPagingTest {
             )
         }
 
-        val rows = collectAll(catalog.pagedWorkFeedByTitle(null, null))
+        val rows = collectAll(catalog.pagedWorkFeedByTitle())
 
         assertEquals(titles.size, rows.size)
         // SQLite COLLATE NOCASE is ASCII-only: it does NOT fold Cyrillic
@@ -213,7 +194,7 @@ class WorkFeedPagingTest {
         )
         // The recent-first feed also serves the same rows (different order),
         // and the module accessor is the same PagingSource the Pager uses.
-        val recent = collectAll(catalog.pagedWorkFeedRecent(null, null))
+        val recent = collectAll(catalog.pagedWorkFeedRecent())
         assertEquals(titles.size, recent.map { it.workId }.toSet().size)
     }
 
@@ -276,11 +257,25 @@ class WorkFeedPagingTest {
                 totalDurationSeconds = 60_061L
             )
         )
+        // A sibling rendition has its own library/Edition rows but must not
+        // multiply the bibliographic Work card.
+        dao.insertAudiobooks(
+            listOf(
+                AudiobookEntity(
+                    id = "lib-pasazhir-2", title = work.title, author = work.author,
+                    narrator = "Інший диктор", description = "", coverDrawableRes = 0,
+                    genre = "Детектив", sourceUrl = "https://sluhay/pasazhir.html"
+                )
+            )
+        )
+        dao.upsertLibraryEntry("lib-pasazhir-2", work.id, false, 0L, 0f)
+        dao.insertEdition(EditionEntity("ed-pasazhir-2", "lib-pasazhir-2", narrator = "Інший диктор", totalDurationSeconds = 61_000L))
 
-        val rows = collectAll(dao.pagedWorksFeedRecent(null, null))
+        val rows = collectAll(catalog.pagedWorkFeedRecent())
 
         val pasazhir = rows.first { it.title == "Пасажир" }
         val insha = rows.first { it.title == "Інша книга" }
+        assertEquals(1, rows.count { it.title == "Пасажир" })
         // The linked Work carries its Edition's total; the browse-only Work
         // has no Edition yet — null, never a fabricated duration.
         assertEquals(60_061L, pasazhir.durationSeconds)
@@ -305,7 +300,7 @@ class WorkFeedPagingTest {
             sourceUrl = "https://sluhay.com/pasazhir.html"
         )
 
-        val rows = collectAll(dao.pagedWorksFeedRecent(null, null))
+        val rows = collectAll(catalog.pagedWorkFeedRecent())
 
         assertEquals(1, rows.size)
         // Two sources carry one Work — the «2 джерела» badge input

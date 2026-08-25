@@ -25,7 +25,7 @@ import androidx.paging.compose.collectAsLazyPagingItems
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
 import com.github.takahirom.roborazzi.captureRoboImage
 import com.slukhayka.audiobooks.data.catalog.CatalogBook
-import com.slukhayka.audiobooks.data.catalog.CatalogGenre
+import com.slukhayka.audiobooks.data.db.GenreFacetOption
 import com.slukhayka.audiobooks.data.catalog.CatalogSection
 import com.slukhayka.audiobooks.data.catalog.CatalogSectionId
 import com.slukhayka.audiobooks.data.catalog.CatalogSeries
@@ -236,9 +236,9 @@ class HomeFeedPhoneFoldSnapshotTest {
                         isCatalogLoading = false,
                         hasLibraryBooks = true,
                         sections = sections,
-                        catalogGenres = listOf(
-                            CatalogGenre("Фантастика", "https://4read.org/fant"),
-                            CatalogGenre("Детективи", "https://4read.org/det")
+                        genreFacetOptions = listOf(
+                            GenreFacetOption("science-fiction", "Фантастика", 1),
+                            GenreFacetOption("detective", "Детективи", 1)
                         ),
                         collections = collections,
                         newArrivals = results,
@@ -248,7 +248,7 @@ class HomeFeedPhoneFoldSnapshotTest {
                         shortBooks = books,
                         longBooks = books,
                         workFeedItems = feedItems,
-                        feedGenreFilter = null,
+                        feedGenreFilters = emptySet(),
                         feedSortByTitle = false,
                         onRefreshCatalog = {},
                         onGoToLibrary = {},
@@ -261,7 +261,7 @@ class HomeFeedPhoneFoldSnapshotTest {
                         onOpenRecommendedBook = {},
                         onOpenWorkFeedRow = {},
                         onBookClick = {},
-                        onSetFeedGenreFilter = {},
+                        onSetFeedGenreFilters = {},
                         onSetFeedSortByTitle = {},
                         onOpenWebSource = {}
                     )

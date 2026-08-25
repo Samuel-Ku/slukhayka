@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="book_detail_pane_title">Книга: %1$s</string>
+    <string name="book_detail_back">Назад</string>
+    <string name="book_detail_favorite_add">Додати «%1$s» до улюблених</string>
+    <string name="book_detail_favorite_remove">Прибрати «%1$s» з улюблених</string>
+    <string name="book_detail_favorite_on">В улюблених</string>
+    <string name="book_detail_favorite_off">Не в улюблених</string>
+    <string name="book_detail_download_add">Завантажити «%1$s» для прослуховування офлайн</string>
+    <string name="book_detail_download_remove">Видалити офлайн-копію «%1$s»</string>
+    <string name="book_detail_download_in_progress">Завантажується «%1$s»: %2$d відсотків</string>
+    <string name="book_detail_downloaded">Доступна офлайн</string>
+    <string name="book_detail_downloading">Завантажується</string>
+    <string name="book_detail_streaming">Потрібне підключення до мережі</string>
+    <string name="book_detail_offline_short">Офлайн</string>
+    <string name="book_detail_download_short">Завантажити</string>
+    <string name="book_detail_play_action">%1$s: «%2$s»</string>
+    <string name="book_detail_add_bookmark">Додати закладку для «%1$s»</string>
+    <string name="book_detail_add_bookmark_short">Додати закладку</string>
+    <string name="book_detail_current_edition">Поточна начитка</string>
+    <string name="book_detail_other_edition">Інша начитка</string>
+    <string name="book_detail_open_edition">Відкрити начитку %1$s для «%2$s», джерело %3$s</string>
+    <string name="book_detail_play_source">Відтворити «%1$s» із джерела %2$s</string>
+    <string name="book_detail_source_summary">Джерело %1$s для «%2$s»</string>
+    <string name="book_detail_current_source">Поточне джерело</string>
+    <string name="book_detail_other_source">Інше джерело</string>
+    <string name="book_detail_source_stream_only">%1$s, тільки стрімінг</string>
+</resources>

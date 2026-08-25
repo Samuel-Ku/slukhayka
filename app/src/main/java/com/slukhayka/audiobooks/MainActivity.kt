@@ -10,6 +10,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.updateTransition
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.*
@@ -89,6 +90,14 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     val selectedTab by viewModel.selectedTab.collectAsState()
     val selectedBookId by viewModel.selectedBookId.collectAsState()
     val showFullPlayer by viewModel.showFullPlayer.collectAsState()
+    val fullPlayerTransition = updateTransition(
+        targetState = showFullPlayer,
+        label = "full player"
+    )
+    val fullPlayerModalActive = shouldHideAppBackgroundForFullPlayerTransition(
+        currentState = fullPlayerTransition.currentState,
+        targetState = fullPlayerTransition.targetState
+    )
     val playerState by viewModel.playerState.collectAsState()
 
     // Android 13+ requires a runtime POST_NOTIFICATIONS grant for the media
@@ -163,7 +172,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
         Scaffold(
             modifier = Modifier
                 .testTag("app_background")
-                .accessibilityModalBackground(showFullPlayer),
+                .accessibilityModalBackground(fullPlayerModalActive),
             bottomBar = {
                 Column {
                     // Floating Persistent Mini Player
@@ -387,8 +396,8 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
         }
 
     // Full Screen Player Overlay
-    AnimatedVisibility(
-        visible = showFullPlayer,
+    fullPlayerTransition.AnimatedVisibility(
+        visible = { it },
         enter = slideInVertically(initialOffsetY = { it }),
         exit = slideOutVertically(targetOffsetY = { it }),
         modifier = Modifier.accessibilityPane(stringResource(R.string.pane_player))
@@ -403,6 +412,11 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     }
     }
 }
+
+internal fun shouldHideAppBackgroundForFullPlayerTransition(
+    currentState: Boolean,
+    targetState: Boolean
+): Boolean = currentState || targetState
 
 /**
  * Bottom navigation bar. Extracted from [AudiobookApp] so the spec #8 T4

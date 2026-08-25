@@ -1,7 +1,15 @@
 package com.slukhayka.audiobooks.ui
 
+import android.content.Context
+import android.graphics.Color
+import android.graphics.drawable.ColorDrawable
+import android.net.Uri
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
@@ -11,6 +19,15 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.dp
+import coil.ImageLoader
+import coil.compose.LocalImageLoader
+import coil.decode.DataSource
+import coil.fetch.DrawableResult
+import coil.fetch.FetchResult
+import coil.fetch.Fetcher
+import coil.request.CachePolicy
+import coil.request.Options
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.ui.components.AppSectionHeader
 import com.slukhayka.audiobooks.ui.components.BookCoverImage
@@ -23,9 +40,12 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.Dispatchers
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
+@Suppress("DEPRECATION")
 class AccessibilityComponentsTest {
 
     @get:Rule
@@ -91,6 +111,63 @@ class AccessibilityComponentsTest {
     }
 
     @Test
+    fun decorativeLoadedCoverIsSilentLikeTheFallback() {
+        val loaded = AtomicBoolean(false)
+        composeTestRule.setContent {
+            val context = LocalContext.current
+            val imageLoader = remember(context) {
+                loadedCoverImageLoader(context)
+            }
+            val loadedBook = remember { book.copy(coverImageUrl = LOADED_COVER_URL) }
+            CompositionLocalProvider(LocalImageLoader provides imageLoader) {
+                AudiobookTheme(darkTheme = true) {
+                    BookCoverImage(
+                        book = loadedBook,
+                        semantics = BookCoverSemantics.Decorative,
+                        modifier = Modifier.size(100.dp),
+                        onImageLoaded = { loaded.set(true) }
+                    )
+                }
+            }
+        }
+
+        composeTestRule.waitUntil(timeoutMillis = IMAGE_TIMEOUT_MS) { loaded.get() }
+        composeTestRule.onNodeWithText(book.title)
+            .assertDoesNotExist()
+        composeTestRule.onNodeWithContentDescription(book.title, useUnmergedTree = true)
+            .assertDoesNotExist()
+    }
+
+    @Test
+    fun meaningfulLoadedCoverHasExactlyTheProvidedDescriptionLikeTheFallback() {
+        val description = "Обкладинка: Тестова книга"
+        val loaded = AtomicBoolean(false)
+        composeTestRule.setContent {
+            val context = LocalContext.current
+            val imageLoader = remember(context) {
+                loadedCoverImageLoader(context)
+            }
+            val loadedBook = remember { book.copy(coverImageUrl = LOADED_COVER_URL) }
+            CompositionLocalProvider(LocalImageLoader provides imageLoader) {
+                AudiobookTheme(darkTheme = true) {
+                    BookCoverImage(
+                        book = loadedBook,
+                        semantics = BookCoverSemantics.Meaningful(description),
+                        modifier = Modifier.size(100.dp),
+                        onImageLoaded = { loaded.set(true) }
+                    )
+                }
+            }
+        }
+
+        composeTestRule.waitUntil(timeoutMillis = IMAGE_TIMEOUT_MS) { loaded.get() }
+        composeTestRule.onNodeWithContentDescription(description)
+            .assertContentDescriptionEquals(description)
+        composeTestRule.onNodeWithText(book.title)
+            .assertDoesNotExist()
+    }
+
+    @Test
     fun visibleModalHidesTheComposedBackgroundFromAccessibility() {
         composeTestRule.setContent {
             AudiobookTheme(darkTheme = true) {
@@ -130,5 +207,42 @@ class AccessibilityComponentsTest {
                     "Програвач"
                 )
             )
+    }
+
+    private fun loadedCoverImageLoader(context: Context): ImageLoader =
+        ImageLoader.Builder(context)
+            .allowHardware(false)
+            .dispatcher(Dispatchers.Unconfined)
+            .interceptorDispatcher(Dispatchers.Unconfined)
+            .fetcherDispatcher(Dispatchers.Unconfined)
+            .decoderDispatcher(Dispatchers.Unconfined)
+            .transformationDispatcher(Dispatchers.Unconfined)
+            .memoryCachePolicy(CachePolicy.DISABLED)
+            .diskCachePolicy(CachePolicy.DISABLED)
+            .networkCachePolicy(CachePolicy.DISABLED)
+            .components {
+                add(LoadedCoverFetcherFactory)
+            }
+            .build()
+
+    private object LoadedCoverFetcherFactory : Fetcher.Factory<Uri> {
+        override fun create(
+            data: Uri,
+            options: Options,
+            imageLoader: ImageLoader
+        ): Fetcher? = if (data.toString() == LOADED_COVER_URL) LoadedCoverFetcher else null
+    }
+
+    private object LoadedCoverFetcher : Fetcher {
+        override suspend fun fetch(): FetchResult = DrawableResult(
+            drawable = ColorDrawable(Color.MAGENTA),
+            isSampled = false,
+            dataSource = DataSource.MEMORY
+        )
+    }
+
+    private companion object {
+        const val LOADED_COVER_URL = "test://loaded-cover"
+        const val IMAGE_TIMEOUT_MS = 5_000L
     }
 }

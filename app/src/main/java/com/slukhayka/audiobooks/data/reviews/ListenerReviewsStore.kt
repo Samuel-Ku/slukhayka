@@ -1,5 +1,7 @@
 package com.slukhayka.audiobooks.data.reviews
 
+import kotlinx.coroutines.CancellationException
+
 /**
  * Spec-40 #277 — the listener-reviews store behind a pure JVM seam, shaped
  * exactly like [com.slukhayka.audiobooks.data.metadata.SharedBookMetaStore]'s
@@ -50,17 +52,26 @@ interface ListenerReviewsStore {
      */
     suspend fun putReview(review: ListenerReview): Boolean {
         if (!ListenerReviewLimits.isWritable(review)) return false
-        return runCatching {
+        return try {
             setDocument(
                 ListenerReviewCodec.documentId(review.workId, review.uid),
                 ListenerReviewCodec.toMap(review)
             )
-        }.getOrDefault(false)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            false
+        }
     }
 
     /** Best-effort removal of one listener's review; false on any failure. */
-    suspend fun deleteReview(workId: String, uid: String): Boolean =
-        runCatching { removeDocument(ListenerReviewCodec.documentId(workId, uid)) }.getOrDefault(false)
+    suspend fun deleteReview(workId: String, uid: String): Boolean = try {
+        removeDocument(ListenerReviewCodec.documentId(workId, uid))
+    } catch (e: CancellationException) {
+        throw e
+    } catch (_: Exception) {
+        false
+    }
 
     // ---------------------------------------------------------------------
     // Transport — the ONLY part an implementation supplies. May throw; the

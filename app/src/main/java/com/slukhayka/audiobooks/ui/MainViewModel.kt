@@ -663,29 +663,49 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _isGlobalSearchLoading = MutableStateFlow(false)
     val isGlobalSearchLoading: StateFlow<Boolean> = _isGlobalSearchLoading.asStateFlow()
 
+    // Spec-44 #328 coordinator-approved boundary exception: this is a
+    // general, user-visible search failure state, not accessibility-only
+    // branching. Without it the screen cannot distinguish a failed request
+    // from an honest empty result.
+    private val _globalSearchError = MutableStateFlow(false)
+    val globalSearchError: StateFlow<Boolean> = _globalSearchError.asStateFlow()
+
     private var globalSearchJob: kotlinx.coroutines.Job? = null
 
     fun updateSearchQuery(query: String) {
         _searchQuery.value = query
         globalSearchJob?.cancel()
         val clean = query.trim()
+        _globalSearchError.value = false
         if (clean.length < 2) {
             _globalSearchResults.value = emptyList()
             _isGlobalSearchLoading.value = false
             return
         }
+        // Do not leave a previous query's Works visible under a new query;
+        // the screen now presents the truthful loading state instead.
+        _globalSearchResults.value = emptyList()
         _isGlobalSearchLoading.value = true
         globalSearchJob = viewModelScope.launch(Dispatchers.IO) {
             // Debounce keystrokes; cancellation keeps a stale search from
             // overwriting a newer one.
             delay(350)
-            val results = try {
-                sourceCatalog.searchAllSources(clean)
+            try {
+                val results = sourceCatalog.searchAllSources(clean)
+                if (_searchQuery.value.trim() == clean) {
+                    _globalSearchResults.value = results
+                    _globalSearchError.value = false
+                    _isGlobalSearchLoading.value = false
+                }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
             } catch (e: Exception) {
-                emptyList()
+                if (_searchQuery.value.trim() == clean) {
+                    _globalSearchResults.value = emptyList()
+                    _globalSearchError.value = true
+                    _isGlobalSearchLoading.value = false
+                }
             }
-            _globalSearchResults.value = results
-            _isGlobalSearchLoading.value = false
         }
     }
 

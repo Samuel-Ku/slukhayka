@@ -76,7 +76,11 @@ _Avoid_: Missing Source, unavailable file
 
 **Listener Review**:
 The one shared review («Відгук») a listener may leave per Work — a required 1–5 star rating plus optional bounded text and an optional narration tag (`editionTag`). Anchored at the Work mergeKey like Canonical covers; document identity `workId_uid` in the shared base's `book_reviews` collection makes double-voting impossible by construction. The headline score above the cards is the honest flat average over every source WITH a rating and every review (ADR-0022); a source's own ★ stays a separate row. A source page's visitors' comments are NOT reviews — they render as a plainly-labelled simple subblock, never mixed into community cards.
-_Avoid_: source visitor comment, Edition-scoped rating, fabricated zeros
+_Avoid_: source visitor comment, fabricated zeros
+
+**Narration Rating**:
+The listener's stars-only verdict (1–5) on one Edition of a Work — «як мені ось ця озвучка» — beside, never instead of, the Work-level Listener Review. One rating per (Work × Edition × listener); document identity `workId_uid_editionId` in the shared base's `edition_ratings` collection makes double voting impossible by construction, with the review's security model mirrored rule-for-rule (public read, owner-only writes under App Check, shape gate). Narration averages render by the narrator's name and on «Інші начитки» cards; they NEVER feed the book's headline average or recommendations (ADR-0023).
+_Avoid_: mixing into the headline average, edition-scoped Listener Review (the old wording), stars + text
 
 **Recommendation Preference**:
 An explicit, local-only listener verdict that changes discovery ranking without changing a Work, Library Entry, Listening State or Listener Review. It is one of `HIDE_WORK`, `REDUCE_SIMILAR` or `HIDE_AUTHOR`, keyed by normalized Work/author identity and reversible from recommendation settings. It stores no embedding or listening history.

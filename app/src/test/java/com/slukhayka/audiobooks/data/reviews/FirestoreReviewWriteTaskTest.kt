@@ -5,6 +5,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.yield
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
@@ -12,6 +13,23 @@ import org.junit.Test
 
 /** Regression coverage for the Firebase Task bridge used by review writes. */
 class FirestoreReviewWriteTaskTest {
+
+    @Test
+    fun `never completing Firebase write is queued locally without waiting`() = runBlocking {
+        val source = TaskCompletionSource<Void?>()
+
+        val receipt = source.task.toReviewWriteReceipt()
+
+        assertTrue(receipt is ReviewWriteReceipt.Queued)
+        val acknowledgement = async(start = CoroutineStart.UNDISPATCHED) {
+            (receipt as ReviewWriteReceipt.Queued).awaitRemote()
+        }
+        yield()
+        assertFalse(acknowledgement.isCompleted)
+
+        acknowledgement.cancel()
+        assertTrue(acknowledgement.isCancelled)
+    }
 
     @Test
     fun `completed Firebase write reports its actual success or failure`() = runBlocking {

@@ -32,6 +32,8 @@ import com.slukhayka.audiobooks.data.privacy.NetworkPrivacy
 import com.slukhayka.audiobooks.data.privacy.PrivacyPrefs
 import com.slukhayka.audiobooks.data.privacy.RouteResolution
 import com.slukhayka.audiobooks.data.privacy.TransportPrivacy
+import com.slukhayka.audiobooks.data.reviews.ReviewRemoteResult
+import com.slukhayka.audiobooks.data.reviews.ReviewWriteReceipt
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.player.AudioPlayerManager
 import com.slukhayka.audiobooks.player.PlayerState
@@ -101,10 +103,26 @@ enum class ReviewSaveResult {
     FAILED
 }
 
-internal fun reviewSaveResultFor(accepted: Boolean, online: Boolean): ReviewSaveResult = when {
-    !accepted -> ReviewSaveResult.FAILED
-    online -> ReviewSaveResult.PUBLISHED
-    else -> ReviewSaveResult.QUEUED
+/**
+ * Delivers the local queue result before waiting for Firestore's backend Task.
+ * Remote failure remains a visible event; caller cancellation still escapes.
+ */
+internal suspend fun followReviewWrite(
+    receipt: ReviewWriteReceipt,
+    onVisibleResult: suspend (ReviewSaveResult) -> Unit,
+    onRemoteResult: suspend (ReviewRemoteResult) -> Unit
+) {
+    when (receipt) {
+        ReviewWriteReceipt.Rejected -> onVisibleResult(ReviewSaveResult.FAILED)
+        is ReviewWriteReceipt.Queued -> {
+            onVisibleResult(ReviewSaveResult.QUEUED)
+            val remoteResult = receipt.awaitRemote()
+            onRemoteResult(remoteResult)
+            if (remoteResult == ReviewRemoteResult.FAILED) {
+                onVisibleResult(ReviewSaveResult.FAILED)
+            }
+        }
+    }
 }
 
 /** Listener reviews belong to a Work; legacy Editions fall back to their own id. */
@@ -1346,19 +1364,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val stillSelected = selectedEdition?.id == _selectedBookId.value &&
                 selectedEdition?.let { reviewWorkIdFor(it.id, it.workId) } == workId
             if (stillSelected) _serverBookReviews.value = fresh
-            // A queued write has reached the server when a live read carries
-            // its card back — only then does the «надішлемо при мережі»
-            // badge honestly retire.
-            if (!fresh.isEmpty()) retireConfirmedPending(fresh)
         }
-    }
-
-    private fun retireConfirmedPending(serverReviews: List<com.slukhayka.audiobooks.data.reviews.ListenerReview>) {
-        if (_pendingReviews.value.isEmpty() || !isOnline()) return
-        val serverKeys = serverReviews
-            .map { com.slukhayka.audiobooks.data.reviews.ListenerReviewCodec.documentId(it.workId, it.uid) }
-            .toSet()
-        _pendingReviews.value = _pendingReviews.value.filterKeys { it !in serverKeys }
     }
 
     /**
@@ -1399,27 +1405,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // Optimistic insert FIRST — the user sees their card instantly.
         _pendingReviews.value = _pendingReviews.value + (key to review)
         viewModelScope.launch(Dispatchers.IO) {
-            val accepted = try {
-                store.putReview(review)
+            val receipt = try {
+                store.enqueueReview(review)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                false
+                ReviewWriteReceipt.Rejected
             }
-            val online = accepted && isOnline()
-            val result = reviewSaveResultFor(accepted = accepted, online = online)
-            // `accepted` is the store seam's durable-acceptance contract.
-            // Connectivity only selects the visible published/queued state;
-            // it is not an independent server acknowledgement. A queued card
-            // stays marked until a later live refresh carries it back.
-            if (result == ReviewSaveResult.PUBLISHED) {
-                _pendingReviews.value = _pendingReviews.value - key
-            } else if (result == ReviewSaveResult.FAILED) {
-                // A rejected write is neither published nor durably queued;
-                // remove the optimistic card instead of showing false success.
-                _pendingReviews.value = _pendingReviews.value - key
-            }
-            _reviewSaveResults.emit(result)
+            followReviewWrite(
+                receipt = receipt,
+                onVisibleResult = { result ->
+                    if (result == ReviewSaveResult.FAILED) {
+                        _pendingReviews.value = _pendingReviews.value - key
+                    }
+                    _reviewSaveResults.emit(result)
+                },
+                onRemoteResult = {
+                    // Either backend verdict ends the local pending badge. A
+                    // failure is announced by followReviewWrite immediately
+                    // after this callback; publication needs no second toast.
+                    _pendingReviews.value = _pendingReviews.value - key
+                }
+            )
             loadReviews(workId)
         }
     }
@@ -1438,14 +1445,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             loadReviews(workId)
         }
     }
-
-    /** The cheap connectivity gate behind the pending-badge honesty (#280). */
-    private fun isOnline(): Boolean = runCatching {
-        val cm = getApplication<Application>().getSystemService(android.content.Context.CONNECTIVITY_SERVICE)
-            as? android.net.ConnectivityManager ?: return false
-        val caps = cm.getNetworkCapabilities(cm.activeNetwork) ?: return false
-        caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
-    }.getOrDefault(false)
 
     // Spec-15 T5: the labelled per-source detail blocks of the selected book.
     val sourceProfiles: StateFlow<List<LibraryEntries.SourceProfile>> = bookDetailSourceState.profiles

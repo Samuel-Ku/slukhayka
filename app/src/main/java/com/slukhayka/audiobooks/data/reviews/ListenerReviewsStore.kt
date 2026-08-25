@@ -2,6 +2,23 @@ package com.slukhayka.audiobooks.data.reviews
 
 import kotlinx.coroutines.CancellationException
 
+/** The backend's eventual verdict after a review was accepted by the local queue. */
+enum class ReviewRemoteResult {
+    PUBLISHED,
+    FAILED
+}
+
+/** Separates immediate local enqueue from the backend acknowledgement. */
+sealed interface ReviewWriteReceipt {
+    data object Rejected : ReviewWriteReceipt
+
+    class Queued internal constructor(
+        private val acknowledgement: suspend () -> ReviewRemoteResult
+    ) : ReviewWriteReceipt {
+        suspend fun awaitRemote(): ReviewRemoteResult = acknowledgement()
+    }
+}
+
 /**
  * Spec-40 #277 — the listener-reviews store behind a pure JVM seam, shaped
  * exactly like [com.slukhayka.audiobooks.data.metadata.SharedBookMetaStore]'s
@@ -43,25 +60,29 @@ interface ListenerReviewsStore {
     }
 
     /**
-     * Idempotent write of one review (`set()` — a re-edit replaces the same
-     * document, never duplicates). An invalid review (bad identity fields,
-     * out-of-range rating) is refused with false BEFORE any I/O; a failing
-     * transport also reports false. True means the document was durably
-     * accepted by the local layer (offline, that is the persistence queue —
-     * spec-40 #280).
+     * Enqueues one idempotent review write without waiting for the backend.
+     * Invalid input or a synchronous local rejection returns [ReviewWriteReceipt.Rejected]
+     * before the UI can claim it was queued. A queued receipt owns the separate,
+     * cancellable remote acknowledgement.
      */
-    suspend fun putReview(review: ListenerReview): Boolean {
-        if (!ListenerReviewLimits.isWritable(review)) return false
+    suspend fun enqueueReview(review: ListenerReview): ReviewWriteReceipt {
+        if (!ListenerReviewLimits.isWritable(review)) return ReviewWriteReceipt.Rejected
         return try {
-            setDocument(
+            enqueueDocument(
                 ListenerReviewCodec.documentId(review.workId, review.uid),
                 ListenerReviewCodec.toMap(review)
             )
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
-            false
+            ReviewWriteReceipt.Rejected
         }
+    }
+
+    /** Compatibility result for non-UI callers that need the remote verdict. */
+    suspend fun putReview(review: ListenerReview): Boolean = when (val receipt = enqueueReview(review)) {
+        ReviewWriteReceipt.Rejected -> false
+        is ReviewWriteReceipt.Queued -> receipt.awaitRemote() == ReviewRemoteResult.PUBLISHED
     }
 
     /** Best-effort removal of one listener's review; false on any failure. */
@@ -84,8 +105,11 @@ interface ListenerReviewsStore {
     /** Raw documents across several Works — chunked internally by the impl. */
     suspend fun queryWorksDocuments(workIds: List<String>): List<Map<String, Any>>
 
-    /** One idempotent document write; true when durably accepted locally. */
-    suspend fun setDocument(documentId: String, document: Map<String, Any>): Boolean
+    /** One idempotent local enqueue plus its independent remote acknowledgement. */
+    suspend fun enqueueDocument(
+        documentId: String,
+        document: Map<String, Any>
+    ): ReviewWriteReceipt
 
     /** One document delete; true when accepted. */
     suspend fun removeDocument(documentId: String): Boolean

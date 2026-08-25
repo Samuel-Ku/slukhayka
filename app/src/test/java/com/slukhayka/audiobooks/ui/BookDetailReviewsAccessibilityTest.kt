@@ -40,12 +40,18 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalDensity
 import com.slukhayka.audiobooks.data.reviews.ListenerReview
+import com.slukhayka.audiobooks.data.reviews.ReviewRemoteResult
+import com.slukhayka.audiobooks.data.reviews.ReviewWriteReceipt
 import com.slukhayka.audiobooks.ui.screens.ListenerReviewFormSheet
 import com.slukhayka.audiobooks.ui.screens.ReviewCard
 import com.slukhayka.audiobooks.ui.screens.ReviewDeleteConfirmation
 import com.slukhayka.audiobooks.ui.screens.ReviewDeleteConfirmationOwner
 import com.slukhayka.audiobooks.ui.screens.ReviewStarsRow
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -350,11 +356,34 @@ class BookDetailReviewsAccessibilityTest {
     }
 
     @Test
-    fun saveOutcomeDistinguishesPublishedQueuedAndFailure() {
-        assertEquals(ReviewSaveResult.PUBLISHED, reviewSaveResultFor(accepted = true, online = true))
-        assertEquals(ReviewSaveResult.QUEUED, reviewSaveResultFor(accepted = true, online = false))
-        assertEquals(ReviewSaveResult.FAILED, reviewSaveResultFor(accepted = false, online = true))
-        assertEquals(ReviewSaveResult.FAILED, reviewSaveResultFor(accepted = false, online = false))
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    fun saveReportsQueuedBeforeWaitingAndLaterReportsRemoteFailure() = runTest {
+        val remote = CompletableDeferred<ReviewRemoteResult>()
+        val visibleResults = mutableListOf<ReviewSaveResult>()
+        val remoteResults = mutableListOf<ReviewRemoteResult>()
+        val receipt = ReviewWriteReceipt.Queued { remote.await() }
+
+        val write = launch {
+            followReviewWrite(
+                receipt = receipt,
+                onVisibleResult = visibleResults::add,
+                onRemoteResult = remoteResults::add
+            )
+        }
+        runCurrent()
+
+        assertEquals(listOf(ReviewSaveResult.QUEUED), visibleResults)
+        assertTrue(remoteResults.isEmpty())
+        assertTrue(write.isActive)
+
+        remote.complete(ReviewRemoteResult.FAILED)
+        write.join()
+
+        assertEquals(listOf(ReviewRemoteResult.FAILED), remoteResults)
+        assertEquals(
+            listOf(ReviewSaveResult.QUEUED, ReviewSaveResult.FAILED),
+            visibleResults
+        )
     }
 
     @Test

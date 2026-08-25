@@ -11,4 +11,26 @@
     <string name="a11y_playing">Відтворюється</string>
     <string name="a11y_paused">На паузі</string>
     <string name="a11y_chapter_number">Розділ %1$d</string>
+    <string name="a11y_search_books">Пошук книги або автора</string>
+    <string name="a11y_refresh_catalogue">Оновити каталог</string>
+    <string name="a11y_open_search">Пошук</string>
+    <string name="a11y_close_search">Закрити пошук</string>
+    <string name="a11y_clear_close_search">Очистити й закрити пошук</string>
+    <string name="a11y_download_work">Завантажити: %1$s</string>
+    <string name="a11y_downloaded_work">Завантажено: %1$s</string>
+    <string name="a11y_recommendation_actions">Дії з рекомендацією: %1$s</string>
+    <string name="a11y_hide_recommended_work">Не рекомендувати: %1$s</string>
+    <string name="a11y_reduce_similar_recommendations">Менше схожих на: %1$s</string>
+    <string name="a11y_hide_recommended_author">Не рекомендувати автора: %1$s</string>
+    <string name="a11y_search_loading">Шукаємо в усіх джерелах</string>
+    <string name="a11y_search_empty">В інших джерелах нічого не знайдено</string>
+    <string name="a11y_search_error">Не вдалося виконати пошук. Перевірте з’єднання й спробуйте ще раз.</string>
+    <string name="a11y_catalogue_loading">Завантажуємо каталог</string>
+    <string name="a11y_catalogue_page_error">Не вдалося завантажити наступні книги</string>
+    <plurals name="chapter_count">
+        <item quantity="one">%1$d розділ</item>
+        <item quantity="few">%1$d розділи</item>
+        <item quantity="many">%1$d розділів</item>
+        <item quantity="other">%1$d розділу</item>
+    </plurals>
 </resources>

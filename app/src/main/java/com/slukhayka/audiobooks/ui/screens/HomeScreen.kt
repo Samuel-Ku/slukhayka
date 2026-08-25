@@ -40,6 +40,15 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -49,6 +58,7 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.catalog.CatalogBook
 import com.slukhayka.audiobooks.data.catalog.CatalogSeries
 import com.slukhayka.audiobooks.data.catalog.SourceCatalog
@@ -63,6 +73,7 @@ import com.slukhayka.audiobooks.data.source.sourceDisplayName
 import com.slukhayka.audiobooks.ui.DurationBooks
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.components.EmptyState
+import com.slukhayka.audiobooks.ui.components.BookCoverSemantics
 import com.slukhayka.audiobooks.ui.components.NavigationChip
 import com.slukhayka.audiobooks.ui.components.UpdateBanner
 import com.slukhayka.audiobooks.ui.components.genreAccentColor
@@ -113,6 +124,7 @@ fun HomeScreen(
     // Spec-10 T4: aggregated global search across all verified sources.
     val globalResults by viewModel.globalSearchResults.collectAsState()
     val isGlobalSearchLoading by viewModel.isGlobalSearchLoading.collectAsState()
+    val globalSearchError by viewModel.globalSearchError.collectAsState()
     // Spec-23 T4: the endless merged feed (Paging 3) over the persisted
     // Works/Editions catalogue — pages through the whole catalogue, one card
     // per Work, dedup inherited from merge-on-write. Filter/sort states live
@@ -282,7 +294,9 @@ fun HomeScreen(
                     text = "У вашій медіатеці (${filteredBooks.size})",
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                     color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                    modifier = Modifier
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .semantics { heading() }
                 )
             }
             if (filteredBooks.isEmpty()) {
@@ -290,7 +304,10 @@ fun HomeScreen(
                     EmptyState(
                         icon = Icons.Default.SearchOff,
                         title = "Нічого не знайдено",
-                        body = "Спробуйте змінити запит або фільтр."
+                        body = "Спробуйте змінити запит або фільтр.",
+                        modifier = Modifier.semantics(mergeDescendants = true) {
+                            liveRegion = LiveRegionMode.Polite
+                        }
                     )
                 }
             }
@@ -312,28 +329,17 @@ fun HomeScreen(
                         text = "Усі джерела (${globalResults.size})",
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                         color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                        modifier = Modifier
+                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                            .semantics { heading() }
                     )
                 }
-                if (isGlobalSearchLoading && globalResults.isEmpty()) {
+                if (globalResults.isEmpty()) {
                     item {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 16.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                        }
-                    }
-                }
-                if (!isGlobalSearchLoading && globalResults.isEmpty() && searchQuery.trim().length >= 2) {
-                    item {
-                        Text(
-                            text = "В інших джерелах нічого не знайдено.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                        GlobalSearchStatus(
+                            isLoading = isGlobalSearchLoading,
+                            hasError = globalSearchError,
+                            resultsEmpty = true
                         )
                     }
                 }
@@ -460,6 +466,45 @@ fun HomeScreen(
     }
 }
 
+/** Honest, one-shot visible state for the cross-source search. */
+@Composable
+fun GlobalSearchStatus(
+    isLoading: Boolean,
+    hasError: Boolean,
+    resultsEmpty: Boolean,
+    modifier: Modifier = Modifier
+) {
+    if (!resultsEmpty) return
+    val message = when {
+        isLoading -> stringResource(R.string.a11y_search_loading)
+        hasError -> stringResource(R.string.a11y_search_error)
+        else -> stringResource(R.string.a11y_search_empty)
+    }
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+            .semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite }
+            .testTag("global_search_status"),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        if (isLoading) {
+            CircularProgressIndicator(
+                modifier = Modifier
+                    .size(28.dp)
+                    .clearAndSetSemantics { },
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
+        Text(
+            text = message,
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (hasError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
 /**
  * Explore header (spec-22 T3): brand row with [🔍] search toggle + [🔄]
  * refresh, and an expandable search field with genre/mood chips. State is
@@ -481,6 +526,7 @@ fun HomeHeader(
     modifier: Modifier = Modifier
 ) {
     val focusRequester = remember { FocusRequester() }
+    val searchFieldLabel = stringResource(R.string.a11y_search_books)
     BackHandler(enabled = searchExpanded) { onCloseSearch() }
     LaunchedEffect(searchExpanded) {
         if (searchExpanded) focusRequester.requestFocus()
@@ -523,7 +569,10 @@ fun HomeHeader(
                     onClick = onRefresh,
                     modifier = Modifier.size(AppDimens.TouchTarget).testTag("home_refresh")
                 ) {
-                    Icon(Icons.Default.Refresh, contentDescription = "Оновити каталог")
+                    Icon(
+                        Icons.Default.Refresh,
+                        contentDescription = stringResource(R.string.a11y_refresh_catalogue)
+                    )
                 }
                 IconButton(
                     onClick = onToggleSearch,
@@ -531,7 +580,9 @@ fun HomeHeader(
                 ) {
                     Icon(
                         imageVector = if (searchExpanded) Icons.Default.Close else Icons.Default.Search,
-                        contentDescription = if (searchExpanded) "Закрити пошук" else "Пошук"
+                        contentDescription = stringResource(
+                            if (searchExpanded) R.string.a11y_close_search else R.string.a11y_open_search
+                        )
                     )
                 }
             }
@@ -548,18 +599,22 @@ fun HomeHeader(
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = onSearchQueryChange,
+                    label = { Text(searchFieldLabel) },
                     placeholder = { Text("Пошук книги або автора...") },
                     leadingIcon = {
                         Icon(
                             imageVector = Icons.Default.Search,
-                            contentDescription = "Search",
+                            contentDescription = null,
                             tint = MaterialTheme.colorScheme.primary
                         )
                     },
                     trailingIcon = {
                         // ✕ collapses search and resets the filters (US-2).
                         IconButton(onClick = onCloseSearch, modifier = Modifier.testTag("home_search_close")) {
-                            Icon(imageVector = Icons.Default.Clear, contentDescription = "Закрити пошук")
+                            Icon(
+                                imageVector = Icons.Default.Clear,
+                                contentDescription = stringResource(R.string.a11y_clear_close_search)
+                            )
                         }
                     },
                     modifier = Modifier
@@ -618,7 +673,9 @@ fun CatalogRowHeader(title: String) {
             letterSpacing = 0.5.sp
         ),
         color = MaterialTheme.colorScheme.onSurface,
-        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 8.dp)
+        modifier = Modifier
+            .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 8.dp)
+            .semantics { heading() }
     )
 }
 
@@ -769,6 +826,7 @@ fun CatalogBookCard(
         CatalogCoverImage(
             coverImageUrl = book.coverImageUrl,
             title = book.title,
+            semantics = BookCoverSemantics.Decorative,
             modifier = Modifier
                 .width(120.dp)
                 .height(168.dp)
@@ -821,6 +879,7 @@ fun CollectionBookCard(
         CatalogCoverImage(
             coverImageUrl = result.coverImageUrl,
             title = result.title,
+            semantics = BookCoverSemantics.Decorative,
             modifier = Modifier
                 .width(120.dp)
                 .height(168.dp)
@@ -876,9 +935,17 @@ fun RecommendedBookCard(
                 Box {
                     IconButton(
                         onClick = { menuExpanded = true },
-                        modifier = Modifier.size(32.dp).testTag("recommendation_menu_${rec.candidate.id}")
+                        modifier = Modifier
+                            .size(AppDimens.TouchTarget)
+                            .testTag("recommendation_menu_${rec.candidate.id}")
                     ) {
-                        Icon(Icons.Default.MoreVert, contentDescription = "Дії з рекомендацією")
+                        Icon(
+                            Icons.Default.MoreVert,
+                            contentDescription = stringResource(
+                                R.string.a11y_recommendation_actions,
+                                rec.candidate.title
+                            )
+                        )
                     }
                     DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
                         DropdownMenuItem(
@@ -890,16 +957,22 @@ fun RecommendedBookCard(
                         )
                     }
                     DropdownMenu(expanded = feedbackExpanded, onDismissRequest = { feedbackExpanded = false }) {
-                        FeedbackMenuItem("Цю книгу") {
+                        FeedbackMenuItem(
+                            stringResource(R.string.a11y_hide_recommended_work, rec.candidate.title)
+                        ) {
                             onFeedback(com.slukhayka.audiobooks.data.db.RecommendationPreferenceEntity.HIDE_WORK)
                             feedbackExpanded = false
                         }
-                        FeedbackMenuItem("Менше схожих") {
+                        FeedbackMenuItem(
+                            stringResource(R.string.a11y_reduce_similar_recommendations, rec.candidate.title)
+                        ) {
                             onFeedback(com.slukhayka.audiobooks.data.db.RecommendationPreferenceEntity.REDUCE_SIMILAR)
                             feedbackExpanded = false
                         }
                         if (rec.candidate.author.isNotBlank()) {
-                            FeedbackMenuItem("Цього автора") {
+                            FeedbackMenuItem(
+                                stringResource(R.string.a11y_hide_recommended_author, rec.candidate.author)
+                            ) {
                                 onFeedback(com.slukhayka.audiobooks.data.db.RecommendationPreferenceEntity.HIDE_AUTHOR)
                                 feedbackExpanded = false
                             }
@@ -1006,6 +1079,7 @@ fun CatalogSeriesCard(
         CatalogCoverImage(
             coverImageUrl = series.coverImageUrl,
             title = series.title,
+            semantics = BookCoverSemantics.Decorative,
             modifier = Modifier
                 .width(132.dp)
                 .height(78.dp)
@@ -1049,6 +1123,7 @@ fun PersonalCycleCard(
         CatalogCoverImage(
             coverImageUrl = cycle.coverImageUrl,
             title = cycle.title,
+            semantics = BookCoverSemantics.Decorative,
             modifier = Modifier
                 .width(132.dp)
                 .height(78.dp)
@@ -1122,6 +1197,7 @@ fun SimilarCycleCard(
         CatalogCoverImage(
             coverImageUrl = cycle.coverImageUrl,
             title = cycle.title,
+            semantics = BookCoverSemantics.Decorative,
             modifier = Modifier
                 .width(132.dp)
                 .height(78.dp)
@@ -1160,10 +1236,15 @@ fun CatalogCoverImage(
     coverImageUrl: String?,
     title: String,
     modifier: Modifier = Modifier,
-    genre: String? = null
+    genre: String? = null,
+    semantics: BookCoverSemantics = BookCoverSemantics.Meaningful(title)
 ) {
     val context = LocalContext.current
     var isError by remember(coverImageUrl) { mutableStateOf(false) }
+    val resolvedContentDescription = when (semantics) {
+        BookCoverSemantics.Decorative -> null
+        is BookCoverSemantics.Meaningful -> semantics.description
+    }
 
     if (!coverImageUrl.isNullOrBlank() && !isError) {
         val request = remember(coverImageUrl) {
@@ -1177,7 +1258,7 @@ fun CatalogCoverImage(
         }
         AsyncImage(
             model = request,
-            contentDescription = title,
+            contentDescription = resolvedContentDescription,
             modifier = modifier,
             contentScale = ContentScale.Crop,
             onError = { isError = true }
@@ -1185,16 +1266,20 @@ fun CatalogCoverImage(
     } else {
         val fallbackAccent = genreAccentColor(genre)
         Box(
-            modifier = modifier.background(
-                brush = Brush.verticalGradient(
-                    colors = listOf(
-                        MaterialTheme.colorScheme.surface,
-                        MaterialTheme.colorScheme.surfaceContainerHigh,
-                        (fallbackAccent ?: MaterialTheme.colorScheme.primary)
-                            .copy(alpha = if (fallbackAccent != null) 0.45f else 0.25f)
+            modifier = modifier
+                .clearAndSetSemantics {
+                    resolvedContentDescription?.let { contentDescription = it }
+                }
+                .background(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(
+                            MaterialTheme.colorScheme.surface,
+                            MaterialTheme.colorScheme.surfaceContainerHigh,
+                            (fallbackAccent ?: MaterialTheme.colorScheme.primary)
+                                .copy(alpha = if (fallbackAccent != null) 0.45f else 0.25f)
+                        )
                     )
-                )
-            ),
+                ),
             contentAlignment = Alignment.Center
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -1249,7 +1334,8 @@ fun EmptyCatalogState(
         Text(
             text = "Знайдіть свою першу книгу",
             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-            color = MaterialTheme.colorScheme.onSurface
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.semantics { heading() }
         )
         Spacer(modifier = Modifier.height(6.dp))
         Text(
@@ -1288,10 +1374,14 @@ fun AudiobookListItem(
     onClick: () -> Unit,
     onPlayClick: () -> Unit
 ) {
+    val offlineState = stringResource(R.string.a11y_available_offline).takeIf { book.isDownloaded }
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 6.dp)
+            .semantics {
+                offlineState?.let { stateDescription = it }
+            }
             .clip(RoundedCornerShape(AppDimens.RadiusPanel))
             .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(AppDimens.RadiusPanel))
             .clickable { onClick() }
@@ -1306,7 +1396,7 @@ fun AudiobookListItem(
         ) {
             com.slukhayka.audiobooks.ui.components.BookCoverImage(
                 book = book,
-                contentDescription = book.title,
+                semantics = BookCoverSemantics.Decorative,
                 modifier = Modifier
                     .size(68.dp)
                     .clip(RoundedCornerShape(AppDimens.RadiusCard)),
@@ -1332,7 +1422,7 @@ fun AudiobookListItem(
                         Spacer(modifier = Modifier.width(6.dp))
                         Icon(
                             imageVector = Icons.Default.CloudDone,
-                            contentDescription = "Downloaded",
+                            contentDescription = null,
                             tint = MaterialTheme.colorScheme.secondary,
                             modifier = Modifier.size(14.dp)
                         )
@@ -1362,7 +1452,11 @@ fun AudiobookListItem(
                 // Each part renders only when known, so a source that carries a
                 // real duration but no chapter count (e.g. "Популярне") shows
                 // just the duration, never "0 Chapters".
-                val chaptersLabel = if (book.totalChapters > 0) "${book.totalChapters} Chapters" else null
+                val chaptersLabel = if (book.totalChapters > 0) {
+                    pluralStringResource(R.plurals.chapter_count, book.totalChapters, book.totalChapters)
+                } else {
+                    null
+                }
                 val durationLabel = if (book.totalDurationSeconds > 0L) MainViewModel.formatTime(book.totalDurationSeconds) else null
                 val statsLabel = when {
                     chaptersLabel != null && durationLabel != null -> "$chaptersLabel • $durationLabel"
@@ -1389,13 +1483,13 @@ fun AudiobookListItem(
                     onPlayClick()
                 },
                 modifier = Modifier
-                    .size(40.dp)
+                    .size(AppDimens.TouchTarget)
                     .clip(CircleShape)
                     .background(MaterialTheme.colorScheme.surfaceContainerHigh)
             ) {
                 Icon(
                     imageVector = Icons.Default.PlayArrow,
-                    contentDescription = "Play",
+                    contentDescription = stringResource(R.string.a11y_play_work, book.title),
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(24.dp)
                 )
@@ -1431,6 +1525,7 @@ fun WorkFeedCard(
         CatalogCoverImage(
             coverImageUrl = row.coverImageUrl,
             title = row.title,
+            semantics = BookCoverSemantics.Decorative,
             modifier = Modifier
                 .width(56.dp)
                 .height(80.dp)
@@ -1477,7 +1572,7 @@ fun WorkFeedCard(
         Spacer(modifier = Modifier.width(8.dp))
         Icon(
             imageVector = Icons.Default.PlayArrow,
-            contentDescription = "Відтворити",
+            contentDescription = null,
             tint = MaterialTheme.colorScheme.primary,
             modifier = Modifier.size(28.dp)
         )

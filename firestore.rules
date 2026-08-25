@@ -47,6 +47,46 @@ service cloud.firestore {
         && (!('editedAt' in d) || d.editedAt is number);
     }
 
+    // Spec-42 #303 — one canonical duration is a small anonymous fact. The
+    // duration bounds mirror DurationSanity and provenance is both required
+    // and bounded. hasOnly keeps personal or unrecognised fields out of this
+    // public collection.
+    function isPlausibleDurationSeconds(value) {
+      return value is int
+        && value > 0
+        && value != 14400
+        && value <= 360000;
+    }
+
+    function isDurationIdentityComponent(value, maxSize) {
+      return value is string
+        && value.size() > 0
+        && value.size() <= maxSize
+        && value.matches('^[A-Za-z0-9._-]+$');
+    }
+
+    function isBoundedDurationProvenance(d, timeField) {
+      return d.source is string
+        && d.source.size() > 0
+        && d.source.size() <= 100
+        && isDurationIdentityComponent(d.method, 100)
+        && timeField is int
+        && timeField >= 0;
+    }
+
+    function isWellFormedDuration(d) {
+      return d.keys().hasOnly(['durationSeconds', 'source', 'method', 'derivedAt'])
+        && isPlausibleDurationSeconds(d.durationSeconds)
+        && isBoundedDurationProvenance(d, d.derivedAt);
+    }
+
+    function isWellFormedDurationConflict(d) {
+      return d.keys().hasOnly(['editionId', 'candidateSeconds', 'source', 'method', 'observedAt'])
+        && isDurationIdentityComponent(d.editionId, 300)
+        && isPlausibleDurationSeconds(d.candidateSeconds)
+        && isBoundedDurationProvenance(d, d.observedAt);
+    }
+
     // Spec-40 #277 — listener reviews of a Work: readable by everyone (the
     // block renders on every book page), writable only by the review's own
     // author under App Check. The document key is `${workId}_${uid}` but the
@@ -75,7 +115,24 @@ service cloud.firestore {
 
     match /book_durations/{document} {
       allow read: if true;
-      allow write: if isAppCheckValid();
+      allow create: if isAppCheckValid()
+        && isDurationIdentityComponent(document, 300)
+        && isWellFormedDuration(request.resource.data);
+      // Ordinary clients are create-only. Firebase Admin SDK bypasses rules
+      // and remains the deliberately privileged correction path.
+      allow update, delete: if false;
+    }
+
+    // Spec-42 #303 — one idempotent disagreement record per deterministic
+    // Edition/value/method key. It contains no account or device identity.
+    match /book_duration_conflicts/{document} {
+      allow read: if true;
+      allow create: if isAppCheckValid()
+        && isWellFormedDurationConflict(request.resource.data)
+        && document == request.resource.data.editionId
+          + '|' + string(request.resource.data.candidateSeconds)
+          + '|' + request.resource.data.method;
+      allow update, delete: if false;
     }
 
     match /book_profiles/{document} {

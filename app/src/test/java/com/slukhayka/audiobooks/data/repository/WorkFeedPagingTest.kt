@@ -199,6 +199,37 @@ class WorkFeedPagingTest {
     }
 
     @Test
+    fun `catalogue refresh with an explicit empty genre set clears that Source`() = runBlocking {
+        val catalog = catalog()
+        catalog.writeWorkEdition("4read", "Дюна", "Френк Герберт", "", "https://4read/dune")
+        val work = dao.observeWorks().first().single()
+        catalog.facetWriter.apply(
+            listOf(
+                LocalFacetDelta(
+                    WorkFacetDelta(
+                        workId = work.id,
+                        genres = listOf(
+                            GenreFacetAssertion(
+                                rawText = "Фантастика",
+                                sourceId = "4read",
+                                observedAt = 1,
+                                documentUpdatedAt = 1
+                            )
+                        )
+                    )
+                )
+            )
+        )
+        assertEquals(1, collectAll(catalog.pagedWorkFeedRecent(WorkFacetFilter(setOf("science-fiction")))).size)
+
+        catalog.writeWorkEdition(
+            "4read", "Дюна", "Френк Герберт", "", "https://4read/dune", genreTexts = emptyList()
+        )
+
+        assertTrue(collectAll(catalog.pagedWorkFeedRecent(WorkFacetFilter(setOf("science-fiction")))).isEmpty())
+    }
+
+    @Test
     fun `title sort returns Works ordered by title and the module accessor serves the same feed`() = runBlocking {
         val catalog = catalog()
         val titles = listOf("Зебра", "атом", "Яблуко", "Море", "Вітер")

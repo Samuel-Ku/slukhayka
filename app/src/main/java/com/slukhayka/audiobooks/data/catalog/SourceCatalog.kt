@@ -16,6 +16,7 @@ import com.slukhayka.audiobooks.data.imports.LibraryImport
 import com.slukhayka.audiobooks.data.merge.MergeKey
 import com.slukhayka.audiobooks.data.metadata.MetadataAssertions
 import com.slukhayka.audiobooks.data.facets.GenreFacetAssertion
+import com.slukhayka.audiobooks.data.facets.GenreSourceFacetReplacement
 import com.slukhayka.audiobooks.data.facets.LocalFacetDelta
 import com.slukhayka.audiobooks.data.facets.LocalFacetWriter
 import com.slukhayka.audiobooks.data.facets.RoomLocalFacetWriter
@@ -749,7 +750,7 @@ class SourceCatalog(
         durationSeconds: Long? = null,
         seriesTitle: String? = null,
         seriesIndex: Int? = null,
-        genreTexts: List<String> = emptyList()
+        genreTexts: List<String>? = null
     ): WorkWriteResult {
         // ADR-0010: the Work key is bibliographic (title|author) — the
         // narrator is a rendition (Edition) property, never part of the Work.
@@ -796,7 +797,7 @@ class SourceCatalog(
                 addedAt = System.currentTimeMillis()
             )
         )
-        if (genreTexts.any { it.isNotBlank() }) {
+        if (genreTexts != null) {
             val facetObservedAt = System.currentTimeMillis()
             facetWriter.apply(
                 listOf(
@@ -805,6 +806,11 @@ class SourceCatalog(
                             workId = work.id,
                             genres = genreTexts.map { raw ->
                                 GenreFacetAssertion(raw, sourceId, facetObservedAt)
+                            },
+                            genreSourceReplacements = if (genreTexts.isEmpty()) {
+                                listOf(GenreSourceFacetReplacement(sourceId, facetObservedAt, emptyList()))
+                            } else {
+                                emptyList()
                             },
                             updatedAt = facetObservedAt
                         )

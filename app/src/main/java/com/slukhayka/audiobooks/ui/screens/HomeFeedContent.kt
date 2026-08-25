@@ -127,8 +127,16 @@ fun LazyListScope.homeFeedContent(
 
     val hasForYouContent = personalCycles.isNotEmpty() ||
         similarCycles.isNotEmpty() || recommendedBooks.isNotEmpty() || showRecommendationConsent
-    if (hasForYouContent) {
-        item { OverviewGroupHeader(title = "Для вас") }
+    item { OverviewGroupHeader(title = "Для вас") }
+    if (!hasForYouContent) {
+        item {
+            Text(
+                text = "Персональних добірок поки немає.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+            )
+        }
     }
 
     // Spec-39 T1 (#261): «Ваші цикли» — the listener's own cycles, built
@@ -351,7 +359,7 @@ fun LazyListScope.homeFeedContent(
             sortByTitle = feedSortByTitle,
             genres = catalogGenres.map { it.title },
             onGenreChange = onSetFeedGenreFilter,
-            onSortToggle = { onSetFeedSortByTitle(!feedSortByTitle) }
+            onSortChange = onSetFeedSortByTitle
         )
     }
     if (workFeedItems.itemCount == 0 && workFeedItems.loadState.refresh is LoadState.Loading) {

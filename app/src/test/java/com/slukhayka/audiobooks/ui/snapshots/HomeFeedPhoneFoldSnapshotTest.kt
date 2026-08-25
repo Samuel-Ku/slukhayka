@@ -163,6 +163,15 @@ class HomeFeedPhoneFoldSnapshotTest {
     }
 
     @Test
+    fun empty_personal_group_keeps_the_overview_hierarchy() {
+        composeTestRule.setContent { renderHomeFeed(recommendedBooks = emptyList()) }
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithText("Для вас").assertExists()
+        composeTestRule.onNodeWithText("Персональних добірок поки немає.").assertExists()
+    }
+
+    @Test
     fun scrolling_reaches_the_feed_as_the_last_element() {
         composeTestRule.setContent { renderHomeFeed() }
         composeTestRule.waitForIdle()
@@ -190,7 +199,9 @@ class HomeFeedPhoneFoldSnapshotTest {
 
     /** The real Огляд first screen: collapsed header + the feed body. */
     @Composable
-    private fun renderHomeFeed() {
+    private fun renderHomeFeed(
+        recommendedBooks: List<RecommendationEngine.Recommendation> = recommendations
+    ) {
         AudiobookTheme(darkTheme = true) {
             Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                 val feedFlow = remember { MutableStateFlow(PagingData.from(feedRows)) }
@@ -216,7 +227,7 @@ class HomeFeedPhoneFoldSnapshotTest {
                         ),
                         collections = collections,
                         newArrivals = results,
-                        recommendedBooks = recommendations,
+                        recommendedBooks = recommendedBooks,
                         personalCycles = emptyList(),
                         shortBooks = books,
                         longBooks = books,

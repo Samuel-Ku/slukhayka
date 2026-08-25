@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="a11y_library_pane">Медіатека</string>
+    <string name="a11y_library_more_actions">Більше дій у медіатеці</string>
+    <string name="a11y_library_search">Пошук у медіатеці</string>
+    <string name="a11y_library_entry_description">%1$s, %2$s</string>
+    <string name="a11y_library_progress">Прослухано %1$d відсотків, залишилося %2$s</string>
+    <string name="a11y_library_progress_unknown">Тривалість невідома</string>
+    <string name="a11y_library_local">Локальна книга</string>
+    <string name="a11y_library_offline">Завантажено для прослуховування без інтернету</string>
+    <string name="a11y_library_online">Доступно онлайн</string>
+    <string name="a11y_library_source">Джерело: %1$s</string>
+    <string name="a11y_library_open_book">Відкрити книгу %1$s</string>
+    <string name="a11y_library_jump_bookmark">Перейти до закладки у книзі %1$s, %2$s, %3$s</string>
+    <string name="a11y_library_delete_bookmark">Видалити закладку з книги %1$s, %2$s, %3$s</string>
+    <string name="a11y_library_filter_pane">Фільтр і сортування медіатеки</string>
+    <string name="a11y_library_import_pane">Додати аудіо до медіатеки</string>
+</resources>

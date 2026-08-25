@@ -27,6 +27,17 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -37,8 +48,10 @@ import com.slukhayka.audiobooks.data.db.BookmarkEntity
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
 import com.slukhayka.audiobooks.data.listening.ListeningStateStore
 import com.slukhayka.audiobooks.ui.MainViewModel
+import com.slukhayka.audiobooks.ui.components.BookCoverSemantics
 import com.slukhayka.audiobooks.ui.components.BookCoverImage
 import com.slukhayka.audiobooks.ui.components.EmptyState
+import com.slukhayka.audiobooks.ui.components.accessibilityPane
 import com.slukhayka.audiobooks.ui.displayAuthor
 import com.slukhayka.audiobooks.ui.library.LibraryBook
 import com.slukhayka.audiobooks.ui.library.LibraryFilter
@@ -48,6 +61,7 @@ import com.slukhayka.audiobooks.ui.library.SHEET_FILTERS
 import com.slukhayka.audiobooks.ui.library.filterAndSortLibrary
 import com.slukhayka.audiobooks.ui.library.formatRemainingTime
 import com.slukhayka.audiobooks.ui.theme.*
+import kotlin.math.roundToInt
 
 /**
  * Wayfinder #39 — Медіатека as one unified library. Local files and 4read
@@ -157,6 +171,7 @@ fun LibraryScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .accessibilityPane(stringResource(com.slukhayka.audiobooks.R.string.a11y_library_pane))
                 .testTag("library_screen")
         ) {
             // Top Header — one row: title + subtitle, «+ Додати» (the import
@@ -174,7 +189,8 @@ fun LibraryScreen(
                         text = "Медіатека",
                         style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
                         color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1
+                        maxLines = 2,
+                        modifier = Modifier.semantics { heading() }
                     )
                     Text(
                         // Spec-15 T6: one library for local files and every
@@ -182,7 +198,7 @@ fun LibraryScreen(
                         text = "Всі книги — в одному місці",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1
+                        maxLines = 2
                     )
                 }
 
@@ -193,7 +209,9 @@ fun LibraryScreen(
                     onClick = { showImportSheet = true },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                     shape = RoundedCornerShape(AppDimens.RadiusCardLg),
-                    modifier = Modifier.testTag("library_add_button")
+                    modifier = Modifier
+                        .heightIn(min = 48.dp)
+                        .testTag("library_add_button")
                 ) {
                     Icon(
                         imageVector = Icons.Default.Add,
@@ -216,9 +234,14 @@ fun LibraryScreen(
                 Box {
                     IconButton(
                         onClick = { showOverflowMenu = true },
-                        modifier = Modifier.testTag("library_overflow_button")
+                        modifier = Modifier
+                            .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                            .testTag("library_overflow_button")
                     ) {
-                        Icon(imageVector = Icons.Default.MoreVert, contentDescription = "Більше")
+                        Icon(
+                            imageVector = Icons.Default.MoreVert,
+                            contentDescription = stringResource(com.slukhayka.audiobooks.R.string.a11y_library_more_actions)
+                        )
                     }
                     DropdownMenu(
                         expanded = showOverflowMenu,
@@ -299,7 +322,8 @@ fun LibraryScreen(
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 8.dp)
                         .testTag("library_search"),
-                    placeholder = { Text("Пошук у медіатеці…") },
+                    label = { Text(stringResource(com.slukhayka.audiobooks.R.string.a11y_library_search)) },
+                    placeholder = { Text("Назва, автор або серія") },
                     leadingIcon = { Icon(imageVector = Icons.Default.Search, contentDescription = null) },
                     trailingIcon = if (query.isNotEmpty()) {
                         {
@@ -345,6 +369,7 @@ fun LibraryScreen(
                     ),
                     modifier = Modifier
                         .padding(horizontal = 16.dp)
+                        .heightIn(min = 48.dp)
                         .testTag("library_filter_button")
                 )
 
@@ -383,28 +408,14 @@ fun LibraryScreen(
                 0 -> {
                     when {
                         libraryBooks.isEmpty() -> {
-                            EmptyState(
-                                icon = Icons.Default.MenuBook,
-                                title = "Медіатека порожня",
-                                body = "Додайте власні аудіокниги з пристрою або знайдіть нові в каталозі."
-                            ) {
-                                Button(
-                                    onClick = { importLauncher.launch(arrayOf("audio/*", "application/ogg", "application/mpeg")) },
-                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                                    shape = RoundedCornerShape(AppDimens.RadiusCard),
-                                    modifier = Modifier.height(48.dp).testTag("library_empty_import")
-                                ) {
-                                    Text("Додати свої файли")
-                                }
-                                Spacer(modifier = Modifier.height(8.dp))
-                                OutlinedButton(
-                                    onClick = onBrowseClick,
-                                    shape = RoundedCornerShape(AppDimens.RadiusCard),
-                                    modifier = Modifier.height(48.dp)
-                                ) {
-                                    Text("Знайти книгу")
-                                }
-                            }
+                            LibraryEmptyState(
+                                onImportClick = {
+                                    importLauncher.launch(
+                                        arrayOf("audio/*", "application/ogg", "application/mpeg")
+                                    )
+                                },
+                                onBrowseClick = onBrowseClick
+                            )
                         }
 
                         visibleBooks.isEmpty() -> EmptyState(
@@ -476,7 +487,41 @@ fun LibraryScreen(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .padding(16.dp)
+                .semantics { liveRegion = LiveRegionMode.Polite }
         )
+    }
+}
+
+@Composable
+fun LibraryEmptyState(
+    onImportClick: () -> Unit,
+    onBrowseClick: () -> Unit
+) {
+    EmptyState(
+        icon = Icons.Default.MenuBook,
+        title = "Медіатека порожня",
+        body = "Додайте власні аудіокниги з пристрою або знайдіть нові в каталозі."
+    ) {
+        Button(
+            onClick = onImportClick,
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+            shape = RoundedCornerShape(AppDimens.RadiusCard),
+            modifier = Modifier
+                .heightIn(min = 48.dp)
+                .testTag("library_empty_import")
+        ) {
+            Text("Додати свої файли")
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        OutlinedButton(
+            onClick = onBrowseClick,
+            shape = RoundedCornerShape(AppDimens.RadiusCard),
+            modifier = Modifier
+                .heightIn(min = 48.dp)
+                .testTag("library_empty_browse")
+        ) {
+            Text("Знайти книгу")
+        }
     }
 }
 
@@ -492,11 +537,54 @@ fun LibraryBookCard(
     grid: Boolean,
     onClick: () -> Unit
 ) {
+    val author = book.book.displayAuthor
+    val description = if (author.isBlank()) {
+        book.book.title
+    } else {
+        stringResource(
+            com.slukhayka.audiobooks.R.string.a11y_library_entry_description,
+            book.book.title,
+            author
+        )
+    }
+    val progressState = if (book.totalDurationSeconds > 0L) {
+        stringResource(
+            com.slukhayka.audiobooks.R.string.a11y_library_progress,
+            (book.percent * 100f).roundToInt(),
+            formatRemainingTime(book.remainingSeconds)
+        )
+    } else {
+        stringResource(com.slukhayka.audiobooks.R.string.a11y_library_progress_unknown)
+    }
+    val availability = when {
+        book.isLocal -> stringResource(com.slukhayka.audiobooks.R.string.a11y_library_local)
+        book.book.isDownloaded -> stringResource(com.slukhayka.audiobooks.R.string.a11y_library_offline)
+        else -> stringResource(com.slukhayka.audiobooks.R.string.a11y_library_online)
+    }
+    val sourceState = stringResource(
+        com.slukhayka.audiobooks.R.string.a11y_library_source,
+        book.sourceName
+    )
+    val state = listOf(progressState, availability, sourceState).joinToString(". ")
+    val openLabel = stringResource(
+        com.slukhayka.audiobooks.R.string.a11y_library_open_book,
+        book.book.title
+    )
+    val performOpen = onClick
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .clip(MaterialTheme.shapes.medium)
-            .clickable(onClick = onClick)
+            .clickable(onClick = performOpen)
+            .clearAndSetSemantics {
+                contentDescription = description
+                stateDescription = state
+                role = Role.Button
+                onClick(label = openLabel) {
+                    performOpen()
+                    true
+                }
+            }
             .testTag("library_book_item_${book.book.id}"),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
     ) {
@@ -518,7 +606,7 @@ private fun LibraryBookRowContent(book: LibraryBook) {
     ) {
         BookCoverImage(
             book = book.book,
-            contentDescription = book.book.title,
+            semantics = BookCoverSemantics.Decorative,
             modifier = Modifier
                 .size(56.dp)
                 .clip(MaterialTheme.shapes.medium),
@@ -559,7 +647,8 @@ private fun LibraryBookRowContent(book: LibraryBook) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(4.dp)
-                    .clip(RoundedCornerShape(AppDimens.RadiusProgress)),
+                    .clip(RoundedCornerShape(AppDimens.RadiusProgress))
+                    .clearAndSetSemantics { },
                 color = MaterialTheme.colorScheme.primary,
                 trackColor = MaterialTheme.colorScheme.outlineVariant
             )
@@ -580,7 +669,7 @@ private fun LibraryBookRowContent(book: LibraryBook) {
                     Spacer(modifier = Modifier.width(6.dp))
                     Icon(
                         imageVector = Icons.Default.CloudDone,
-                        contentDescription = "Завантажено",
+                        contentDescription = null,
                         tint = MaterialTheme.colorScheme.secondary,
                         modifier = Modifier.size(14.dp)
                     )
@@ -595,7 +684,7 @@ private fun LibraryBookGridContent(book: LibraryBook) {
     Column {
         BookCoverImage(
             book = book.book,
-            contentDescription = book.book.title,
+            semantics = BookCoverSemantics.Decorative,
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(3f / 4f),
@@ -633,7 +722,8 @@ private fun LibraryBookGridContent(book: LibraryBook) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(4.dp)
-                    .clip(RoundedCornerShape(AppDimens.RadiusProgress)),
+                    .clip(RoundedCornerShape(AppDimens.RadiusProgress))
+                    .clearAndSetSemantics { },
                 color = MaterialTheme.colorScheme.primary,
                 trackColor = MaterialTheme.colorScheme.outlineVariant
             )
@@ -656,7 +746,7 @@ private fun LibraryBookGridContent(book: LibraryBook) {
                     Spacer(modifier = Modifier.width(6.dp))
                     Icon(
                         imageVector = Icons.Default.CloudDone,
-                        contentDescription = "Завантажено",
+                        contentDescription = null,
                         tint = MaterialTheme.colorScheme.secondary,
                         modifier = Modifier.size(14.dp)
                     )
@@ -800,6 +890,19 @@ fun GlobalBookmarkItem(
     onJumpClick: () -> Unit,
     onDeleteClick: () -> Unit
 ) {
+    val bookmarkTime = MainViewModel.formatTime(bookmark.timestampSeconds)
+    val jumpLabel = stringResource(
+        com.slukhayka.audiobooks.R.string.a11y_library_jump_bookmark,
+        bookTitle,
+        bookmark.chapterTitle,
+        bookmarkTime
+    )
+    val deleteLabel = stringResource(
+        com.slukhayka.audiobooks.R.string.a11y_library_delete_bookmark,
+        bookTitle,
+        bookmark.chapterTitle,
+        bookmarkTime
+    )
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -844,18 +947,30 @@ fun GlobalBookmarkItem(
                 )
             }
 
-            IconButton(onClick = onJumpClick) {
+            IconButton(
+                onClick = onJumpClick,
+                modifier = Modifier
+                    .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                    .semantics { contentDescription = jumpLabel }
+                    .testTag("bookmark_jump_${bookmark.id}")
+            ) {
                 Icon(
                     imageVector = Icons.Default.PlayArrow,
-                    contentDescription = "Jump to bookmark",
+                    contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary
                 )
             }
 
-            IconButton(onClick = onDeleteClick) {
+            IconButton(
+                onClick = onDeleteClick,
+                modifier = Modifier
+                    .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                    .semantics { contentDescription = deleteLabel }
+                    .testTag("bookmark_delete_${bookmark.id}")
+            ) {
                 Icon(
                     imageVector = Icons.Default.Delete,
-                    contentDescription = "Delete bookmark",
+                    contentDescription = null,
                     tint = MaterialTheme.colorScheme.error
                 )
             }

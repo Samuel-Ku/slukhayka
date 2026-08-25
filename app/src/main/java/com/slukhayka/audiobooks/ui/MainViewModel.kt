@@ -852,6 +852,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         MutableStateFlow<Map<String, FloatArray>>(emptyMap())
     val catalogVectors: StateFlow<Map<String, FloatArray>> =
         _catalogVectors.asStateFlow()
+    /** Distinguishes an empty recommendation result from a pass still computing it. */
+    private val _recommendationsReady = MutableStateFlow(false)
+    val recommendationsReady: StateFlow<Boolean> = _recommendationsReady.asStateFlow()
 
     /** Single-flight guard: a running embedding pass is never re-launched. */
     private val _embeddingPassInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
@@ -860,6 +863,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun refreshEmbeddingVectors() {
         if (!_embeddingPassInFlight.compareAndSet(false, true)) return
+        _recommendationsReady.value = false
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val catalog = sourceCatalog.unifiedCatalog.value
@@ -888,6 +892,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 _catalogVectors.value = vectors
             } finally {
+                _recommendationsReady.value = true
                 _embeddingPassInFlight.set(false)
             }
         }

@@ -122,6 +122,7 @@ fun HomeScreen(
     // similarity of catalogue descriptions to favourite/completed/recent
     // signals, computed locally, with a per-card reason chip.
     val recommendedBooks by viewModel.recommendedBooks.collectAsState()
+    val recommendationsReady by viewModel.recommendationsReady.collectAsState()
     val recommendationSettings by viewModel.recommendationSettings.collectAsState()
     var showRecommendationDisclosure by rememberSaveable { mutableStateOf(false) }
 
@@ -350,6 +351,7 @@ fun HomeScreen(
                 collections = collections,
                 newArrivals = newArrivals,
                 recommendedBooks = recommendedBooks,
+                recommendationsReady = recommendationsReady,
                 personalCycles = personalCycles,
                 similarCycles = similarCycles,
                 shortBooks = durationBooks.short.map { it.asCatalogBook() },

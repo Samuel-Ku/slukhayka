@@ -50,6 +50,7 @@ fun LazyListScope.homeFeedContent(
     collections: List<CollectionMatcher.MatchedCollection>,
     newArrivals: List<GlobalSearchResult>,
     recommendedBooks: List<RecommendationEngine.Recommendation>,
+    recommendationsReady: Boolean = true,
     personalCycles: List<com.slukhayka.audiobooks.ui.library.PersonalCycle>,
     similarCycles: List<com.slukhayka.audiobooks.ui.library.SimilarCycle> = emptyList(),
     shortBooks: List<CatalogBook>,
@@ -131,7 +132,11 @@ fun LazyListScope.homeFeedContent(
     if (!hasForYouContent) {
         item {
             Text(
-                text = "Персональних добірок поки немає.",
+                text = if (recommendationsReady) {
+                    "Персональних добірок поки немає."
+                } else {
+                    "Готуємо персональні добірки…"
+                },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)

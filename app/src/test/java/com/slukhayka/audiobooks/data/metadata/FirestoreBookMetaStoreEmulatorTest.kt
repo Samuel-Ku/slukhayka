@@ -106,7 +106,7 @@ class FirestoreBookMetaStoreEmulatorTest {
                     workId = "emulator-work|author",
                     sourceId = "emulator-source",
                     author = FacetPerson("author-emulator", "Автор"),
-                    genreIds = listOf("fantasy"),
+                    genres = listOf(FacetGenre("fantasy", "Фентезі")),
                     observedAt = 1_900_000_000_000L,
                     updatedAt = 1_900_000_000_000L
                 )
@@ -132,7 +132,10 @@ class FirestoreBookMetaStoreEmulatorTest {
                 )
 
                 val updatedWork = work.copy(
-                    genreIds = listOf("fantasy", "drama"),
+                    genres = listOf(
+                        FacetGenre("fantasy", "Фентезі"),
+                        FacetGenre("drama", "Драма")
+                    ),
                     updatedAt = 1_900_000_000_001L
                 )
                 store.putFacet(updatedWork)

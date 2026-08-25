@@ -12,9 +12,12 @@ class SharedFacetStoreContractTest {
     @Test
     fun `fake round-trips one assertion idempotently through the public seam`() = runBlocking {
         val store = FakeSharedBookMetaStore()
-        val first = work("same", updatedAt = 10L, genres = listOf("fantasy"))
-        val fresher = first.copy(updatedAt = 20L, genreIds = listOf("fantasy", "drama"))
-        val stale = first.copy(updatedAt = 5L, genreIds = listOf("wrong"))
+        val first = work("same", updatedAt = 10L, genres = listOf(FacetGenre("fantasy", "Фентезі")))
+        val fresher = first.copy(
+            updatedAt = 20L,
+            genres = listOf(FacetGenre("fantasy", "Фентезі"), FacetGenre("drama", "Драма"))
+        )
+        val stale = first.copy(updatedAt = 5L, genres = listOf(FacetGenre("wrong", "Хибний")))
 
         store.putFacet(first)
         store.putFacet(fresher)
@@ -51,18 +54,22 @@ class SharedFacetStoreContractTest {
     @Test
     fun `fake ignores malformed assertion writes like the production boundary`() = runBlocking {
         val store = FakeSharedBookMetaStore()
-        val malformed = work("bad", updatedAt = 10L).copy(genreIds = listOf(" "))
+        val malformed = work("bad", updatedAt = 10L).copy(genres = listOf(FacetGenre(" ", "Фентезі")))
 
         store.putFacet(malformed)
 
         assertNull(store.getFacet(FacetAssertionKey(malformed.kind, malformed.workId, malformed.sourceId)))
     }
 
-    private fun work(id: String, updatedAt: Long, genres: List<String> = listOf("genre")) =
+    private fun work(
+        id: String,
+        updatedAt: Long,
+        genres: List<FacetGenre> = listOf(FacetGenre("genre", "Жанр"))
+    ) =
         FacetAssertion.Work(
             workId = "work-$id",
             sourceId = "4read",
-            genreIds = genres,
+            genres = genres,
             observedAt = 1_000L,
             updatedAt = updatedAt
         )

@@ -123,20 +123,27 @@ service cloud.firestore {
         && (v.size() < 8 || (v[7] is string && v[7].matches('^.{1,200}$')));
     }
 
+    function isFacetGenre(value) {
+      return value is map
+        && value.keys().hasOnly(['id', 'rawText'])
+        && value.keys().hasAll(['id', 'rawText'])
+        && value.id is string
+        && value.id.matches('^[^/]{1,300}$')
+        && value.rawText is string
+        && value.rawText.matches('^.{1,200}$')
+        && value.rawText.matches('.*\\S.*');
+    }
+
     function isFacetGenreList(v) {
-      return v is list && v.size() <= 12
-        && (v.size() < 1 || (v[0] is string && v[0].matches('^[^/]{1,300}$')))
-        && (v.size() < 2 || (v[1] is string && v[1].matches('^[^/]{1,300}$')))
-        && (v.size() < 3 || (v[2] is string && v[2].matches('^[^/]{1,300}$')))
-        && (v.size() < 4 || (v[3] is string && v[3].matches('^[^/]{1,300}$')))
-        && (v.size() < 5 || (v[4] is string && v[4].matches('^[^/]{1,300}$')))
-        && (v.size() < 6 || (v[5] is string && v[5].matches('^[^/]{1,300}$')))
-        && (v.size() < 7 || (v[6] is string && v[6].matches('^[^/]{1,300}$')))
-        && (v.size() < 8 || (v[7] is string && v[7].matches('^[^/]{1,300}$')))
-        && (v.size() < 9 || (v[8] is string && v[8].matches('^[^/]{1,300}$')))
-        && (v.size() < 10 || (v[9] is string && v[9].matches('^[^/]{1,300}$')))
-        && (v.size() < 11 || (v[10] is string && v[10].matches('^[^/]{1,300}$')))
-        && (v.size() < 12 || (v[11] is string && v[11].matches('^[^/]{1,300}$')));
+      return v is list && v.size() <= 8
+        && (v.size() < 1 || isFacetGenre(v[0]))
+        && (v.size() < 2 || isFacetGenre(v[1]))
+        && (v.size() < 3 || isFacetGenre(v[2]))
+        && (v.size() < 4 || isFacetGenre(v[3]))
+        && (v.size() < 5 || isFacetGenre(v[4]))
+        && (v.size() < 6 || isFacetGenre(v[5]))
+        && (v.size() < 7 || isFacetGenre(v[6]))
+        && (v.size() < 8 || isFacetGenre(v[7]));
     }
 
     function isFacetSeriesMembership(value) {
@@ -176,14 +183,14 @@ service cloud.firestore {
     function isWellFormedWorkFacet(d, document) {
       return d.keys().hasOnly([
           'schemaVersion', 'assertionId', 'entityKind', 'entityId',
-          'sourceId', 'observedAt', 'updatedAt', 'author', 'genreIds',
+          'sourceId', 'observedAt', 'updatedAt', 'author', 'genres',
           'seriesMemberships'
         ])
         && isFacetBase(d, document, 'work')
-        && ('author' in d || 'genreIds' in d || 'seriesMemberships' in d)
+        && ('author' in d || 'genres' in d || 'seriesMemberships' in d)
         && (!('author' in d) || isFacetPerson(d.author))
-        && (!('genreIds' in d) || (d.genreIds.size() > 0
-          && isFacetGenreList(d.genreIds)))
+        && (!('genres' in d) || (d.genres.size() > 0
+          && isFacetGenreList(d.genres)))
         && (!('seriesMemberships' in d) || (d.seriesMemberships.size() > 0
           && isFacetSeriesList(d.seriesMemberships)));
     }

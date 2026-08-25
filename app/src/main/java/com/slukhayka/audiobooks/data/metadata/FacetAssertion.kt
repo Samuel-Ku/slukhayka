@@ -17,7 +17,7 @@ sealed interface FacetAssertion {
         val workId: String,
         override val sourceId: String,
         val author: FacetPerson? = null,
-        val genreIds: List<String> = emptyList(),
+        val genres: List<FacetGenre> = emptyList(),
         val seriesMemberships: List<FacetSeriesMembership> = emptyList(),
         override val observedAt: Long,
         override val updatedAt: Long
@@ -60,6 +60,12 @@ data class FacetPerson(
     val aliases: List<String> = emptyList()
 )
 
+/** One canonical Genre id paired with the exact label observed at the Source. */
+data class FacetGenre(
+    val id: String,
+    val rawText: String
+)
+
 data class FacetSeriesMembership(
     val seriesId: String,
     val position: Int? = null
@@ -100,7 +106,8 @@ object FacetAssertionLimits {
     const val MAX_SOURCE_ID_LENGTH = 100
     const val MAX_PERSON_NAME_LENGTH = 200
     const val MAX_ALIASES = 8
-    const val MAX_GENRES = 12
+    const val MAX_GENRES = 8
+    const val MAX_GENRE_RAW_TEXT_LENGTH = 200
     const val MAX_SERIES_MEMBERSHIPS = 4
     const val MAX_SERIES_POSITION = 10_000
     const val MAX_CHAPTER_COUNT = 500
@@ -148,7 +155,7 @@ object FacetAssertionCodec {
     private val baseKeys = setOf(
         "schemaVersion", "assertionId", "entityKind", "entityId", "sourceId", "observedAt", "updatedAt"
     )
-    private val workKeys = baseKeys + setOf("author", "genreIds", "seriesMemberships")
+    private val workKeys = baseKeys + setOf("author", "genres", "seriesMemberships")
     private val editionKeys = baseKeys + setOf(
         "workId", "narrator", "language", "durationRef", "durationBucket", "chapterCount", "completeness",
         "availabilityAvailable", "availabilityObservedAt", "availabilityTtlSeconds"
@@ -169,7 +176,7 @@ object FacetAssertionCodec {
             is FacetAssertion.Work -> {
                 if (!isValidWork(assertion)) return null
                 assertion.author?.let { base["author"] = personToMap(it) }
-                if (assertion.genreIds.isNotEmpty()) base["genreIds"] = assertion.genreIds
+                if (assertion.genres.isNotEmpty()) base["genres"] = assertion.genres.map(::genreToMap)
                 if (assertion.seriesMemberships.isNotEmpty()) {
                     base["seriesMemberships"] = assertion.seriesMemberships.map(::seriesToMap)
                 }
@@ -216,15 +223,15 @@ object FacetAssertionCodec {
         val author = if (map.containsKey("author")) {
             personFromMap(map["author"] as? Map<*, *> ?: return null) ?: return null
         } else null
-        val genreIds = if (map.containsKey("genreIds")) {
-            stringList(map["genreIds"], FacetAssertionLimits.MAX_GENRES, allowAbsent = false) ?: return null
+        val genres = if (map.containsKey("genres")) {
+            objectList(map["genres"], FacetAssertionLimits.MAX_GENRES, ::genreFromMap) ?: return null
         } else emptyList()
         val series = if (map.containsKey("seriesMemberships")) {
             objectList(
                 map["seriesMemberships"], FacetAssertionLimits.MAX_SERIES_MEMBERSHIPS, ::seriesFromMap
             ) ?: return null
         } else emptyList()
-        return FacetAssertion.Work(workId, sourceId, author, genreIds, series, observedAt, updatedAt)
+        return FacetAssertion.Work(workId, sourceId, author, genres, series, observedAt, updatedAt)
             .takeIf(::isValidWork)
     }
 
@@ -267,9 +274,11 @@ object FacetAssertionCodec {
             assertion.observedAt >= 0 && assertion.updatedAt >= 0
 
     private fun isValidWork(assertion: FacetAssertion.Work): Boolean =
-        (assertion.author != null || assertion.genreIds.isNotEmpty() || assertion.seriesMemberships.isNotEmpty()) &&
+        (assertion.author != null || assertion.genres.isNotEmpty() || assertion.seriesMemberships.isNotEmpty()) &&
             assertion.author?.let(::isValidPerson) != false &&
-            validIdList(assertion.genreIds, FacetAssertionLimits.MAX_GENRES) &&
+            assertion.genres.size <= FacetAssertionLimits.MAX_GENRES &&
+            assertion.genres.distinctBy { it.id }.size == assertion.genres.size &&
+            assertion.genres.all(::isValidGenre) &&
             assertion.seriesMemberships.size <= FacetAssertionLimits.MAX_SERIES_MEMBERSHIPS &&
             assertion.seriesMemberships.distinctBy { it.seriesId }.size == assertion.seriesMemberships.size &&
             assertion.seriesMemberships.all {
@@ -303,9 +312,10 @@ object FacetAssertionCodec {
             value.aliases.distinct().size == value.aliases.size &&
             value.aliases.all { it.isNotBlank() && it.length <= FacetAssertionLimits.MAX_PERSON_NAME_LENGTH }
 
-    private fun validIdList(values: List<String>, maxCount: Int): Boolean =
-        values.size <= maxCount && values.distinct().size == values.size &&
-            values.all { boundedId(it, FacetAssertionLimits.MAX_ID_LENGTH) }
+    private fun isValidGenre(value: FacetGenre): Boolean =
+        boundedId(value.id, FacetAssertionLimits.MAX_ID_LENGTH) &&
+            value.rawText.isNotBlank() &&
+            value.rawText.length <= FacetAssertionLimits.MAX_GENRE_RAW_TEXT_LENGTH
 
     private fun boundedId(value: String, maxLength: Int): Boolean =
         value.isNotBlank() && value.length <= maxLength && '/' !in value
@@ -322,6 +332,19 @@ object FacetAssertionCodec {
             aliases = stringList(map["aliases"], FacetAssertionLimits.MAX_ALIASES, allowAbsent = false) ?: return null
         )
         return person.takeIf(::isValidPerson)
+    }
+
+    private fun genreToMap(value: FacetGenre): Map<String, Any> = mapOf(
+        "id" to value.id,
+        "rawText" to value.rawText
+    )
+
+    private fun genreFromMap(map: Map<*, *>): FacetGenre? {
+        if (map.keys != setOf("id", "rawText")) return null
+        return FacetGenre(
+            id = map["id"] as? String ?: return null,
+            rawText = map["rawText"] as? String ?: return null
+        ).takeIf(::isValidGenre)
     }
 
     private fun seriesToMap(value: FacetSeriesMembership): Map<String, Any> = buildMap {

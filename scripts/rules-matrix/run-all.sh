@@ -16,5 +16,4 @@ RULES_GATE=open RULES_MODE=run OUT_JSON=results-open.json \
 
 # відновлюємо чисту копію й будуємо звіт
 cp ../../firestore.rules firestore.rules
-REPORT_PATH="${1:-../../docs/audits/$(date +%Y-%m-%d)-spec40-rules-matrix.md}" \
-  node matrix.test.mjs
+RULES_MODE=merge node matrix.test.mjs "${1:-/tmp/slukhayka-rules-matrix.md}"

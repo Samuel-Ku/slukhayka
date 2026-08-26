@@ -426,9 +426,7 @@ fun BookDetailScreen(
                             { showNarrationRatingDeleteConfirm = true }
                         },
                         onAuthorClick = { author ->
-                            viewModel.openPersonBooks(
-                                CatalogPerson(author, bookPersonPath("avtor", author), 0)
-                            )
+                            viewModel.openCanonicalAuthorByName(author)
                         },
                         onNarratorClick = { narrator ->
                             viewModel.openPersonBooks(

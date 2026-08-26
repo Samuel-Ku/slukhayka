@@ -682,6 +682,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun openCanonicalAuthorByName(name: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val author = authorMatchesOrEmpty(name) {
+                sourceCatalog.searchAuthors(it, AuthorIndex.MAX_FULL_LIST)
+            }.firstOrNull() ?: return@launch
+            openCanonicalAuthor(author)
+        }
+    }
+
     fun closeCanonicalAuthor() {
         _selectedCanonicalAuthor.value = null
         _canonicalAuthorWorks.value = emptyList()

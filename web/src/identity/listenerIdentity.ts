@@ -1,4 +1,5 @@
 import type { Credentials } from './credentials'
+import { decodeRecoveryCode } from './recoveryCodec'
 
 /**
  * spec-43/T2 — the auth seam of the silent web profile. The pure identity
@@ -78,4 +79,27 @@ export async function ensureProfile(deps: IdentityDeps): Promise<ListenerProfile
 export function currentProfile(gateway: AuthGateway | null): ListenerProfile | null {
   const user = gateway?.currentUser() ?? null
   return user === null ? null : { uid: user.uid, nickname: nicknameFor(user.uid) }
+}
+
+/**
+ * spec-43/T7 — restores the listener's profile from a Recovery Code
+ * (SLK1.…). The decoded pair is persisted and signed in; on any failure
+ * (bad code, network, wrong password) it returns null and leaves the
+ * current session untouched — the same degrade-never rule as ensureProfile.
+ */
+export async function restoreFromCode(
+  gateway: AuthGateway | null,
+  code: string,
+  persistPair: (pair: Credentials) => void,
+): Promise<ListenerProfile | null> {
+  if (gateway === null) return null
+  const decoded = decodeRecoveryCode(code.trim())
+  if (!decoded) return null
+  try {
+    const user = await gateway.signInWithPassword(decoded.email, decoded.password)
+    persistPair(decoded)
+    return { uid: user.uid, nickname: nicknameFor(user.uid) }
+  } catch {
+    return null
+  }
 }

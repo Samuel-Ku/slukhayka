@@ -207,8 +207,9 @@ class CastPlaybackController(
 
         sessionPlayerSwapper?.invoke(null)
 
+        val lossMsg = "Пристрій втрачено — натисніть «Продовжити тут», щоб слухати на телефоні."
         manager.mirrorCastState {
-            it.copy(isPlaying = false, isBuffering = false, playbackSpeed = speed)
+            it.copy(isPlaying = false, isBuffering = false, playbackSpeed = speed, lastErrorMsg = lossMsg)
         }
         runCatching { manager.prepareChapter(chapterIndex, positionMs, autoPlay = false) }
         Log.i(TAG, "Cast ended → local paused at ch$chapterIndex @$positionMs")
@@ -305,6 +306,10 @@ class CastPlaybackController(
 
     override fun setPlaybackSpeed(speed: Float) {
         castPlayer?.setPlaybackSpeed(speed)
+    }
+
+    override fun setVolume(volume: Float) {
+        castPlayer?.volume = volume
     }
 
     @SuppressLint("WakelockTimeout")

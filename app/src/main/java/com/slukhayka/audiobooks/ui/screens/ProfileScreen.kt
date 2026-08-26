@@ -27,6 +27,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -39,6 +40,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -52,6 +54,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.data.identity.ListenerIdentity
 import com.slukhayka.audiobooks.data.identity.ListenerProfile
+import com.slukhayka.audiobooks.data.listening.ProgressSyncSettingsStore
 import com.slukhayka.audiobooks.ui.theme.AppDimens
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
@@ -71,7 +74,11 @@ fun ProfileScreen(
     identity: ListenerIdentity,
     onBackClick: () -> Unit,
     hiddenAuthors: List<String> = emptyList(),
-    onUnhideAuthor: (String) -> Unit = {}
+    onUnhideAuthor: (String) -> Unit = {},
+    // ADR-0023 (spec-43 T6): the visible Progress Sync switch — the screen
+    // reads the settings store directly (ADR-0008); defaults keep existing
+    // call sites and previews unchanged.
+    progressSyncSettings: ProgressSyncSettingsStore? = null
 ) {
     // The module is read directly (ADR-0008); suspend calls ride the
     // composition scope like every other screen.
@@ -229,6 +236,49 @@ fun ProfileScreen(
             // and the one way onto a phone where neither Auto Backup nor the
             // device binding reached.
             RecoverySection(identity, scope)
+
+            Spacer(modifier = Modifier.height(24.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Text(
+                text = "Синхронізація прогресу",
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .padding(16.dp)
+                        .testTag("profile_sync_row"),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Позиція дзеркалиться між вашими пристроями",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "Нічого не надсилається без вашого профілю. Вимкнено — усе лишається на телефоні.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    if (progressSyncSettings != null) {
+                        val syncEnabled by progressSyncSettings.enabled.collectAsState()
+                        Switch(
+                            checked = syncEnabled,
+                            onCheckedChange = { progressSyncSettings.setEnabled(it) },
+                            modifier = Modifier.testTag("profile_sync_switch")
+                        )
+                    }
+                }
+            }
         }
     }
 }

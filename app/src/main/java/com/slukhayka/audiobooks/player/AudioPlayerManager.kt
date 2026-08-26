@@ -33,6 +33,7 @@ import com.slukhayka.audiobooks.data.db.PlaybackEventKind
 import com.slukhayka.audiobooks.data.db.PlaybackEventPolicy
 import com.slukhayka.audiobooks.data.db.SourceTrackEntity
 import com.slukhayka.audiobooks.data.listening.ListeningStateStore
+import com.slukhayka.audiobooks.data.listening.ProgressSyncController
 import com.slukhayka.audiobooks.data.source.headersFor
 import com.slukhayka.audiobooks.data.source.sourceIdForUrl
 import kotlinx.coroutines.*
@@ -143,7 +144,13 @@ class AudioPlayerManager(
      * widget. Production keeps it on; tests disable it so a forever-running
      * widget collector cannot perturb the test scheduler.
      */
-    private val widgetSyncEnabled: Boolean = true
+    private val widgetSyncEnabled: Boolean = true,
+    /**
+     * ADR-0023 (spec-43 T6) — Progress Sync: throttled upload at save points,
+     * immediate on pauses/completions. Null in tests and without Firebase —
+     * then nothing ever leaves the device.
+     */
+    private val progressSync: ProgressSyncController? = null
 ) {
 
     private val _playerState = MutableStateFlow(PlayerState())
@@ -977,7 +984,8 @@ class AudioPlayerManager(
                 Log.e("AudioPlayer", "Error pause", e)
             }
         }
-        saveCurrentProgressToDb()
+        // ADR-0023 (spec-43 T6): a pause is an honest moment — push at once.
+        saveCurrentProgressToDb(immediateSync = true)
     }
 
     fun togglePlayPause() {
@@ -1324,9 +1332,10 @@ class AudioPlayerManager(
                     kind = PlaybackEventKind.COMPLETED,
                     chapterIndex = _playerState.value.chapters.lastIndex.coerceAtLeast(0),
                     positionSeconds = _playerState.value.durationMs / 1000L
-                )
-            }
-            saveCurrentProgressToDb()
+                 )
+             }
+            // ADR-0023 (spec-43 T6): completion is an honest moment too.
+            saveCurrentProgressToDb(immediateSync = true)
         }
     }
 
@@ -1389,7 +1398,7 @@ class AudioPlayerManager(
         }
     }
 
-    private fun saveCurrentProgressToDb() {
+    private fun saveCurrentProgressToDb(immediateSync: Boolean = false) {
         val book = _playerState.value.currentBook ?: return
         val currentChapter = _playerState.value.currentChapterIndex
         val posSec = _playerState.value.currentPositionMs / 1000L
@@ -1397,6 +1406,9 @@ class AudioPlayerManager(
             // ADR-0007: progress is keyed by the Edition — no source key.
             listeningState.updateProgress(book.id, currentChapter, posSec)
             listeningState.recordListeningTime(5L)
+            // ADR-0023 (spec-43 T6): pauses/completions push at once, periodic
+            // ticks ride the pacing window; failures stay silent.
+            progressSync?.pushAfterSave(book.id, immediate = immediateSync)
         }
     }
 

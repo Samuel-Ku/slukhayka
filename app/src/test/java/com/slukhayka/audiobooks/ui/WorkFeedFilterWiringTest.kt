@@ -5,6 +5,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onAllNodesWithText
@@ -14,11 +15,12 @@ import androidx.paging.Pager
 import androidx.paging.cachedIn
 import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.collectAsLazyPagingItems
-import com.slukhayka.audiobooks.data.catalog.CatalogGenre
 import com.slukhayka.audiobooks.data.catalog.SourceCatalog
 import com.slukhayka.audiobooks.data.db.AudiobookDao
 import com.slukhayka.audiobooks.data.db.AudiobookDatabase
+import com.slukhayka.audiobooks.data.db.GenreFacetOption
 import com.slukhayka.audiobooks.data.db.WorkFeedRow
+import com.slukhayka.audiobooks.data.facets.WorkFacetFilter
 import com.slukhayka.audiobooks.data.imports.LibraryImport
 import com.slukhayka.audiobooks.ui.screens.homeFeedContent
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
@@ -47,7 +49,7 @@ import androidx.test.core.app.ApplicationProvider
  * Feedback loop for «фільтри над безкінечним фідом не працюють»:
  * drives the SAME reactive chain as MainViewModel.workFeed
  * (combine → flatMapLatest → Pager over the real Room DAO → cachedIn)
- * through the real [homeFeedContent] emitter, taps the filter chips by their
+ * through the real [homeFeedContent] emitter, taps the genre chips by their
  * test tags, and asserts the user's exact symptom — «тисну чіп і фід зникає».
  */
 @RunWith(RobolectricTestRunner::class)
@@ -84,44 +86,51 @@ class WorkFeedFilterWiringTest {
     }
 
     private fun feedChain(
-        sourceFilter: MutableStateFlow<String?>,
-        genreFilter: MutableStateFlow<String?>,
+        genreFilters: MutableStateFlow<Set<String>>,
         sortByTitle: MutableStateFlow<Boolean>,
         scope: CoroutineScope
-    ) = combine(sourceFilter, genreFilter, sortByTitle) { s, g, t -> Triple(s, g, t) }
-        .flatMapLatest { (s, g, t) ->
+    ) = combine(genreFilters, sortByTitle) { genres, byTitle -> genres to byTitle }
+        .flatMapLatest { (genres, byTitle) ->
+            val filter = WorkFacetFilter(genreIds = genres)
             Pager(config = PagingConfig(pageSize = 30, prefetchDistance = 15, enablePlaceholders = false)) {
-                if (t) catalog.pagedWorkFeedByTitle(s, g) else catalog.pagedWorkFeedRecent(s, g)
+                if (byTitle) catalog.pagedWorkFeedByTitle(filter) else catalog.pagedWorkFeedRecent(filter)
             }.flow
         }.cachedIn(scope)
 
     @Test
-    fun tapping_a_source_chip_keeps_that_sources_books_visible() = runBlocking {
+    fun tapping_a_genre_chip_keeps_matching_books_visible() = runBlocking {
         repeat(6) { i ->
-            catalog.writeWorkEdition("4read", "Чотири $i", "Автор А", "", "https://4read.org/r$i.html")
+            catalog.writeWorkEdition(
+                "4read", "Чотири $i", "Автор А", "", "https://4read.org/r$i.html",
+                genreTexts = listOf("Фантастика")
+            )
         }
         repeat(6) { i ->
-            catalog.writeWorkEdition("sluhay", "Двічі $i", "Автор Б", "", "https://sluhay.com/s$i.html")
+            catalog.writeWorkEdition(
+                "sluhay", "Двічі $i", "Автор Б", "", "https://sluhay.com/s$i.html",
+                genreTexts = listOf("Детектив")
+            )
         }
 
-        val sourceFilter = MutableStateFlow<String?>(null)
-        val genreFilter = MutableStateFlow<String?>(null)
+        val genreFilters = MutableStateFlow<Set<String>>(emptySet())
         val sortByTitle = MutableStateFlow(false)
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         lateinit var feed: LazyPagingItems<WorkFeedRow>
 
         compose.setContent {
             AudiobookTheme(darkTheme = true) {
-                feed = feedChain(sourceFilter, genreFilter, sortByTitle, scope).collectAsLazyPagingItems()
-                val fs by sourceFilter.collectAsState()
-                val fg by genreFilter.collectAsState()
+                feed = feedChain(genreFilters, sortByTitle, scope).collectAsLazyPagingItems()
+                val fg by genreFilters.collectAsState()
                 val st by sortByTitle.collectAsState()
                 LazyColumn {
                     homeFeedContent(
                         isCatalogLoading = false,
                         hasLibraryBooks = false,
                         sections = emptyList(),
-                        catalogGenres = listOf(CatalogGenre("Фантастика", "https://4read.org/fant")),
+                        genreFacetOptions = listOf(
+                            GenreFacetOption("science-fiction", "Фантастика", 6),
+                            GenreFacetOption("detective", "Детективи", 6)
+                        ),
                         collections = emptyList(),
                         newArrivals = emptyList(),
                         recommendedBooks = emptyList(),
@@ -129,8 +138,7 @@ class WorkFeedFilterWiringTest {
                         shortBooks = emptyList(),
                         longBooks = emptyList(),
                         workFeedItems = feed,
-                        feedSourceFilter = fs,
-                        feedGenreFilter = fg,
+                        feedGenreFilters = fg,
                         feedSortByTitle = st,
                         onRefreshCatalog = {},
                         onGoToLibrary = {},
@@ -138,14 +146,12 @@ class WorkFeedFilterWiringTest {
                         onOpenPeople = {},
                         onOpenSeriesIndex = {},
                         onOpenCollectionsIndex = {},
-                        onOpenGenre = { _, _ -> },
                         onOpenSeries = { _, _ -> },
                         onPlayGlobalSearchResult = {},
                         onOpenRecommendedBook = {},
                         onOpenWorkFeedRow = {},
                         onBookClick = {},
-                        onSetFeedSourceFilter = { sourceFilter.value = it },
-                        onSetFeedGenreFilter = { genreFilter.value = it },
+                        onSetFeedGenreFilters = { genreFilters.value = it },
                         onSetFeedSortByTitle = { sortByTitle.value = it }
                     )
                 }
@@ -159,15 +165,19 @@ class WorkFeedFilterWiringTest {
         assertTrue(compose.onAllNodesWithText("Чотири 0").fetchSemanticsNodes().size == 1)
         assertTrue(compose.onAllNodesWithText("Двічі 0").fetchSemanticsNodes().size == 1)
 
-        // THE SYMPTOM UNDER TEST: tap the «4read» chip — the feed must show
-        // exactly the 4read books, never disappear.
-        compose.onNodeWithTag("feed_source_4read").performClick()
+        // THE SYMPTOM UNDER TEST: tap the genre chip — the feed must show
+        // matching books and never disappear.
+        compose.onNodeWithTag("feed_filters").performClick()
+        compose.waitUntil(5_000) {
+            compose.onAllNodesWithTag("feed_genre_science-fiction").fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithTag("feed_genre_science-fiction").performClick()
         compose.waitUntil(20_000) {
             feed.loadState.refresh !is androidx.paging.LoadState.Loading &&
                 compose.onAllNodesWithText("Чотири 0").fetchSemanticsNodes().size == 1
         }
-        assertTrue("4read книги зникли після тапу на чіп", compose.onAllNodesWithText("Чотири 0").fetchSemanticsNodes().size == 1)
-        assertTrue("sluhay книги лишились після фільтра", compose.onAllNodesWithText("Двічі 0").fetchSemanticsNodes().size == 0)
+        assertTrue("книги жанру зникли після тапу на чіп", compose.onAllNodesWithText("Чотири 0").fetchSemanticsNodes().size == 1)
+        assertTrue("інший жанр лишився після фільтра", compose.onAllNodesWithText("Двічі 0").fetchSemanticsNodes().size == 0)
     }
 
     @Test
@@ -178,14 +188,19 @@ class WorkFeedFilterWiringTest {
         // invalidates the feed's PagingSource; the freshly-switched Pager
         // generation must still complete a page and render.
         repeat(6) { i ->
-            catalog.writeWorkEdition("4read", "Чотири $i", "Автор А", "", "https://4read.org/r$i.html")
+            catalog.writeWorkEdition(
+                "4read", "Чотири $i", "Автор А", "", "https://4read.org/r$i.html",
+                genreTexts = listOf("Фантастика")
+            )
         }
         repeat(6) { i ->
-            catalog.writeWorkEdition("sluhay", "Двічі $i", "Автор Б", "", "https://sluhay.com/s$i.html")
+            catalog.writeWorkEdition(
+                "sluhay", "Двічі $i", "Автор Б", "", "https://sluhay.com/s$i.html",
+                genreTexts = listOf("Детектив")
+            )
         }
 
-        val sourceFilter = MutableStateFlow<String?>(null)
-        val genreFilter = MutableStateFlow<String?>(null)
+        val genreFilters = MutableStateFlow<Set<String>>(emptySet())
         val sortByTitle = MutableStateFlow(false)
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         lateinit var feed: LazyPagingItems<WorkFeedRow>
@@ -214,21 +229,23 @@ class WorkFeedFilterWiringTest {
                 batch++
                 Thread.sleep(600)
             }
-        }.apply { isDaemon = true; start() }
+        }.apply { isDaemon = true }
 
         try {
             compose.setContent {
                 AudiobookTheme(darkTheme = true) {
-                    feed = feedChain(sourceFilter, genreFilter, sortByTitle, scope).collectAsLazyPagingItems()
-                    val fs by sourceFilter.collectAsState()
-                    val fg by genreFilter.collectAsState()
+                    feed = feedChain(genreFilters, sortByTitle, scope).collectAsLazyPagingItems()
+                    val fg by genreFilters.collectAsState()
                     val st by sortByTitle.collectAsState()
                     LazyColumn {
                         homeFeedContent(
                             isCatalogLoading = false,
                             hasLibraryBooks = false,
                             sections = emptyList(),
-                            catalogGenres = listOf(CatalogGenre("Фантастика", "https://4read.org/fant")),
+                            genreFacetOptions = listOf(
+                                GenreFacetOption("science-fiction", "Фантастика", 6),
+                                GenreFacetOption("detective", "Детективи", 6)
+                            ),
                             collections = emptyList(),
                             newArrivals = emptyList(),
                             recommendedBooks = emptyList(),
@@ -236,8 +253,7 @@ class WorkFeedFilterWiringTest {
                             shortBooks = emptyList(),
                             longBooks = emptyList(),
                             workFeedItems = feed,
-                            feedSourceFilter = fs,
-                            feedGenreFilter = fg,
+                            feedGenreFilters = fg,
                             feedSortByTitle = st,
                             onRefreshCatalog = {},
                             onGoToLibrary = {},
@@ -245,14 +261,12 @@ class WorkFeedFilterWiringTest {
                             onOpenPeople = {},
                             onOpenSeriesIndex = {},
                             onOpenCollectionsIndex = {},
-                            onOpenGenre = { _, _ -> },
                             onOpenSeries = { _, _ -> },
                             onPlayGlobalSearchResult = {},
                             onOpenRecommendedBook = {},
                             onOpenWorkFeedRow = {},
                             onBookClick = {},
-                            onSetFeedSourceFilter = { sourceFilter.value = it },
-                            onSetFeedGenreFilter = { genreFilter.value = it },
+                            onSetFeedGenreFilters = { genreFilters.value = it },
                             onSetFeedSortByTitle = { sortByTitle.value = it }
                         )
                     }
@@ -261,7 +275,13 @@ class WorkFeedFilterWiringTest {
 
             compose.waitUntil(30_000) { feed.itemCount >= 12 }
 
-            compose.onNodeWithTag("feed_source_4read").performClick()
+            writer.start()
+            kotlinx.coroutines.delay(100)
+            compose.onNodeWithTag("feed_filters").performClick()
+            compose.waitUntil(5_000) {
+                compose.onAllNodesWithTag("feed_genre_science-fiction").fetchSemanticsNodes().isNotEmpty()
+            }
+            compose.onNodeWithTag("feed_genre_science-fiction").performClick()
             // The tap lands MID-STORM (the user's exact moment); then the
             // sync settles and the switched generation MUST present exactly
             // the filtered rows — never a permanently blank feed.

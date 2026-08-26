@@ -801,8 +801,10 @@ class AudioPlayerManagerTest {
     fun `resuming a nearly finished book keeps its position`() {
         val clock = TestClock()
         playerTest(clock = clock) { manager, factory ->
-            // 60 s before the end — not finished, so no reset and no RELISTEN.
-            val resumePosition = chapters.sumOf { it.durationSeconds } - 60L
+            // The stored player position is chapter-local. Resume 60 s before
+            // the end of the selected final chapter: it is not finished, so
+            // READY must seek there instead of resetting to 0 / RELISTEN.
+            val resumePosition = chapters.last().durationSeconds - 60L
             manager.loadAndPlayBook(
                 book, chapters,
                 initialChapterIndex = chapters.lastIndex,

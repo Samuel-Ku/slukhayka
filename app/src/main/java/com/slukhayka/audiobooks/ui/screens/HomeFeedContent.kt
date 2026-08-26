@@ -71,6 +71,8 @@ fun LazyListScope.homeFeedContent(
     onBookClick: (String) -> Unit,
     onSetFeedGenreFilters: (Set<String>) -> Unit,
     onSetFeedSortByTitle: (Boolean) -> Unit,
+    feedDurationFilters: Set<String> = emptySet(),
+    onSetFeedDurationFilters: (Set<String>) -> Unit = {},
     onOpenWebSource: (() -> Unit)? = null,
     onRecommendationFeedback: (RecommendationEngine.Recommendation, String) -> Unit = { _, _ -> },
     showRecommendationConsent: Boolean = false,
@@ -361,9 +363,11 @@ fun LazyListScope.homeFeedContent(
     stickyHeader(key = "work_feed_controls") {
         WorkFeedFilters(
             selectedGenreIds = feedGenreFilters,
+            selectedDurationBucketIds = feedDurationFilters,
             sortByTitle = feedSortByTitle,
             genres = genreFacetOptions,
             onGenresChange = onSetFeedGenreFilters,
+            onDurationBucketsChange = onSetFeedDurationFilters,
             onSortChange = onSetFeedSortByTitle
         )
     }

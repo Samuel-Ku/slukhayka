@@ -5,6 +5,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import androidx.sqlite.db.SupportSQLiteOpenHelper
 import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import androidx.test.core.app.ApplicationProvider
+import com.slukhayka.audiobooks.data.duration.DurationBuckets
+import com.slukhayka.audiobooks.data.metadata.DurationSanity
+import com.slukhayka.audiobooks.data.metadata.FacetDurationBucket
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -34,6 +37,8 @@ class FacetMigrationTest {
                         db.execSQL("CREATE TABLE sentinel (value TEXT NOT NULL)")
                         db.execSQL("INSERT INTO works VALUES ('w1','key','Назва','Автор',NULL,NULL,NULL,NULL,7)")
                         db.execSQL("INSERT INTO editions VALUES ('e1','w1','uk','Диктор',12,3600)")
+                        db.execSQL("INSERT INTO editions VALUES ('e2','w2','uk','Диктор 2',3,${DurationBuckets.FABRICATED_LEGACY_SECONDS})")
+                        db.execSQL("INSERT INTO editions VALUES ('e3','w3','uk','Диктор 3',3,${DurationSanity.MAX_PLAUSIBLE_SECONDS + 1L})")
                         db.execSQL("INSERT INTO audiobooks VALUES ('a1',' ФАНТАСТИКА · Наукова фантастика / Фентезі ')")
                         db.execSQL("INSERT INTO audiobooks VALUES ('a2','   ')")
                         db.execSQL("INSERT INTO audiobooks VALUES ('a3','Каталог')")
@@ -107,6 +112,20 @@ class FacetMigrationTest {
             assertTrue(cursor.isNull(0))
             assertTrue(cursor.isNull(1))
             assertTrue(cursor.isNull(2))
+        }
+        sqlite.query("SELECT durationSeconds, durationBucketId FROM edition_facets WHERE editionId='e1'").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals(3_600L, cursor.getLong(0))
+            assertEquals(FacetDurationBucket.UNDER_FIVE_HOURS.wireName, cursor.getString(1))
+        }
+        sqlite.query("SELECT durationSeconds, durationBucketId FROM edition_facets WHERE editionId IN ('e2','e3') ORDER BY editionId").use { cursor ->
+            var rows = 0
+            while (cursor.moveToNext()) {
+                assertTrue(cursor.isNull(0))
+                assertTrue(cursor.isNull(1))
+                rows++
+            }
+            assertEquals(2, rows)
         }
 
         // The deterministic backfill can be replayed safely.

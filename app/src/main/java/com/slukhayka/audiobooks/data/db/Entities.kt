@@ -605,10 +605,14 @@ data class WorkFeedRow(
     val sourceCount: Int,
     // One display genre from the local facet dictionary; null when unknown.
     val genre: String? = null,
-    // Spec-24 T1: the Work's listening total (the Edition owns it, ADR-0010)
-    // — joined from the domain `editions` row of the linked library copy;
-    // null/zero renders nothing on the card (unknown until known).
-    val durationSeconds: Long? = null
+    // Spec-24 T1 / spec-42: the shortest eligible Edition duration. Local
+    // facet projections lead; a linked library Edition is the fallback.
+    // Null renders nothing on the card (unknown until known).
+    val durationSeconds: Long? = null,
+    /** Longest known eligible Edition duration; equals [durationSeconds] for one value. */
+    val durationMaxSeconds: Long? = null,
+    /** Matching Edition chosen by the active duration context, null when unfiltered. */
+    val matchingEditionId: String? = null
 )
 
 /**

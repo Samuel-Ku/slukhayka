@@ -6,8 +6,11 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.slukhayka.audiobooks.data.duration.DurationBuckets
 import com.slukhayka.audiobooks.data.facets.FacetIdentity
 import com.slukhayka.audiobooks.data.facets.GenreIdentity
+import com.slukhayka.audiobooks.data.metadata.DurationSanity
+import com.slukhayka.audiobooks.data.metadata.EditionDurationPolicy
 
 @Database(
     entities = [
@@ -1068,9 +1071,25 @@ abstract class AudiobookDatabase : RoomDatabase() {
         internal fun backfillFacetProjections(db: SupportSQLiteDatabase) {
             db.execSQL(
                 "INSERT OR IGNORE INTO edition_facets (editionId, workId, narratorId, language, durationSeconds, durationBucketId, chapterCount, isAbridged, availabilityAvailable, availabilityObservedAtMillis, availabilityTtlSeconds, updatedAt) " +
-                    "SELECT e.id, COALESCE(le.workId, e.workId), NULL, NULLIF(e.language, ''), CASE WHEN e.totalDurationSeconds > 0 THEN e.totalDurationSeconds ELSE NULL END, NULL, CASE WHEN e.totalChapters > 0 THEN e.totalChapters ELSE NULL END, NULL, NULL, NULL, NULL, 0 " +
-                    "FROM editions e LEFT JOIN library_entries le ON le.id=e.workId"
+                    "SELECT e.id, COALESCE(le.workId, e.workId), NULL, NULLIF(e.language, ''), " +
+                    "CASE WHEN e.totalDurationSeconds > 0 AND e.totalDurationSeconds != ? AND e.totalDurationSeconds <= ? THEN e.totalDurationSeconds ELSE NULL END, " +
+                    "NULL, CASE WHEN e.totalChapters > 0 THEN e.totalChapters ELSE NULL END, NULL, NULL, NULL, NULL, 0 " +
+                    "FROM editions e LEFT JOIN library_entries le ON le.id=e.workId",
+                arrayOf(DurationBuckets.FABRICATED_LEGACY_SECONDS, DurationSanity.MAX_PLAUSIBLE_SECONDS)
             )
+            EditionDurationPolicy.buckets.forEach { bucket ->
+                val secondsRange = EditionDurationPolicy.secondsRangeFor(bucket)
+                db.execSQL(
+                    "UPDATE edition_facets SET durationBucketId=? " +
+                        "WHERE durationBucketId IS NULL AND durationSeconds BETWEEN ? AND ? AND durationSeconds != ?",
+                    arrayOf<Any>(
+                        bucket.wireName,
+                        secondsRange.first,
+                        secondsRange.last,
+                        DurationBuckets.FABRICATED_LEGACY_SECONDS
+                    )
+                )
+            }
             db.query("SELECT id, author FROM works").use { cursor ->
                 while (cursor.moveToNext()) {
                     val workId = cursor.getString(0)

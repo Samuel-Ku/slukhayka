@@ -861,10 +861,20 @@ class FakeAudiobookDao(
 
     override suspend fun countWorkSources(): Int = workSourcesState.value.size
 
-    override fun pagedWorksFeedRecent(genreIds: List<String>, genreActive: Int, durationBucketIds: List<String>, durationActive: Int, authorIds: List<String>, authorActive: Int): PagingSource<Int, WorkFeedRow> =
+    override fun pagedWorksFeedRecent(
+        genreIds: List<String>, genreActive: Int,
+        durationBucketIds: List<String>, durationActive: Int,
+        authorIds: List<String>, authorActive: Int,
+        availabilityAtMillis: Long
+    ): PagingSource<Int, WorkFeedRow> =
         fakeFeed(genreIds, genreActive, durationBucketIds, durationActive, authorIds, authorActive, sortByTitle = false)
 
-    override fun pagedWorksFeedByTitle(genreIds: List<String>, genreActive: Int, durationBucketIds: List<String>, durationActive: Int, authorIds: List<String>, authorActive: Int): PagingSource<Int, WorkFeedRow> =
+    override fun pagedWorksFeedByTitle(
+        genreIds: List<String>, genreActive: Int,
+        durationBucketIds: List<String>, durationActive: Int,
+        authorIds: List<String>, authorActive: Int,
+        availabilityAtMillis: Long
+    ): PagingSource<Int, WorkFeedRow> =
         fakeFeed(genreIds, genreActive, durationBucketIds, durationActive, authorIds, authorActive, sortByTitle = true)
 
     /** In-memory PagingSource over the same state the fake DAO owns. */

@@ -10,6 +10,9 @@ import com.slukhayka.audiobooks.data.db.GenreSourceFacetRows
 import com.slukhayka.audiobooks.data.db.WorkFacetEntity
 import com.slukhayka.audiobooks.data.db.WorkFacetSeriesEntity
 import com.slukhayka.audiobooks.data.db.WorkGenreEntity
+import com.slukhayka.audiobooks.data.metadata.DurationSanity
+import com.slukhayka.audiobooks.data.metadata.EditionDurationPolicy
+import com.slukhayka.audiobooks.data.metadata.FacetDurationBucket
 
 data class GenreFacetAssertion(
     val rawText: String,
@@ -197,6 +200,10 @@ class RoomLocalFacetWriter(private val dao: AudiobookDao) : LocalFacetWriter {
                 require(edition.narratorId == null || edition.narratorId.length <= 80)
                 require(edition.language == null || edition.language.length <= 24)
                 require(edition.durationBucketId == null || edition.durationBucketId.length <= 40)
+                require(
+                    edition.durationBucketId == null ||
+                        FacetDurationBucket.fromWireName(edition.durationBucketId) != null
+                ) { "Unknown Edition duration bucket" }
                 require(edition.updatedAt >= 0)
                 val availabilityParts = listOf(
                     edition.availabilityAvailable,
@@ -211,13 +218,21 @@ class RoomLocalFacetWriter(private val dao: AudiobookDao) : LocalFacetWriter {
                     edition.availabilityTtlSeconds == null ||
                         edition.availabilityTtlSeconds in 1L..EditionAvailabilityPolicy.MAX_TTL_SECONDS
                 )
+                val plausibleDuration = edition.durationSeconds?.takeIf(DurationSanity::isPlausible)
+                val durationBucketId = if (edition.durationSeconds != null) {
+                    plausibleDuration?.let(EditionDurationPolicy::bucketFor)?.wireName
+                } else {
+                    // Canonical shared facet documents carry a validated
+                    // precomputed bucket plus durationRef, not the seconds.
+                    edition.durationBucketId
+                }
                 EditionFacetEntity(
                     editionId = edition.editionId,
                     workId = edition.workId,
                     narratorId = edition.narratorId,
                     language = edition.language,
-                    durationSeconds = edition.durationSeconds?.takeIf { it > 0 },
-                    durationBucketId = edition.durationBucketId,
+                    durationSeconds = plausibleDuration,
+                    durationBucketId = durationBucketId,
                     chapterCount = edition.chapterCount?.takeIf { it > 0 },
                     isAbridged = edition.isAbridged,
                     availabilityAvailable = edition.availabilityAvailable,

@@ -14,10 +14,10 @@ import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.itemContentType
 import androidx.paging.compose.itemKey
 import com.slukhayka.audiobooks.data.catalog.CatalogBook
-import com.slukhayka.audiobooks.data.catalog.CatalogGenre
 import com.slukhayka.audiobooks.data.catalog.CatalogSection
 import com.slukhayka.audiobooks.data.catalog.CatalogSectionId
 import com.slukhayka.audiobooks.data.collections.CollectionMatcher
+import com.slukhayka.audiobooks.data.db.GenreFacetOption
 import com.slukhayka.audiobooks.data.db.WorkFeedRow
 import com.slukhayka.audiobooks.data.recommend.RecommendationEngine
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
@@ -46,7 +46,7 @@ fun LazyListScope.homeFeedContent(
     isCatalogLoading: Boolean,
     hasLibraryBooks: Boolean,
     sections: List<CatalogSection>,
-    catalogGenres: List<CatalogGenre>,
+    genreFacetOptions: List<GenreFacetOption>,
     collections: List<CollectionMatcher.MatchedCollection>,
     newArrivals: List<GlobalSearchResult>,
     recommendedBooks: List<RecommendationEngine.Recommendation>,
@@ -56,7 +56,7 @@ fun LazyListScope.homeFeedContent(
     shortBooks: List<CatalogBook>,
     longBooks: List<CatalogBook>,
     workFeedItems: LazyPagingItems<WorkFeedRow>,
-    feedGenreFilter: String?,
+    feedGenreFilters: Set<String>,
     feedSortByTitle: Boolean,
     onRefreshCatalog: () -> Unit,
     onGoToLibrary: () -> Unit,
@@ -69,7 +69,7 @@ fun LazyListScope.homeFeedContent(
     onOpenRecommendedBook: (candidateId: String) -> Unit,
     onOpenWorkFeedRow: (WorkFeedRow) -> Unit,
     onBookClick: (String) -> Unit,
-    onSetFeedGenreFilter: (String?) -> Unit,
+    onSetFeedGenreFilters: (Set<String>) -> Unit,
     onSetFeedSortByTitle: (Boolean) -> Unit,
     onOpenWebSource: (() -> Unit)? = null,
     onRecommendationFeedback: (RecommendationEngine.Recommendation, String) -> Unit = { _, _ -> },
@@ -360,10 +360,10 @@ fun LazyListScope.homeFeedContent(
     // of Огляд, so the curated shelves above never drown in the endless list.
     stickyHeader(key = "work_feed_controls") {
         WorkFeedFilters(
-            genreFilter = feedGenreFilter,
+            selectedGenreIds = feedGenreFilters,
             sortByTitle = feedSortByTitle,
-            genres = catalogGenres.map { it.title },
-            onGenreChange = onSetFeedGenreFilter,
+            genres = genreFacetOptions,
+            onGenresChange = onSetFeedGenreFilters,
             onSortChange = onSetFeedSortByTitle
         )
     }

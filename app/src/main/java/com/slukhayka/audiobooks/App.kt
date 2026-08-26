@@ -31,6 +31,7 @@ import com.slukhayka.audiobooks.data.metadata.SearchCoverResolver
 import com.slukhayka.audiobooks.data.metadata.SearchDurationResolver
 import com.slukhayka.audiobooks.data.metadata.StoredMetadataScrub
 import com.slukhayka.audiobooks.data.reviews.FirestoreListenerReviewsStore
+import com.slukhayka.audiobooks.data.reviews.FirestoreNarrationRatingsStore
 import com.slukhayka.audiobooks.data.recommend.RecommendationSettingsStore
 import com.slukhayka.audiobooks.data.recommend.RecommendationPreferences
 import com.slukhayka.audiobooks.data.search.FirestoreSearchCache
@@ -119,6 +120,14 @@ class App : Application() {
      */
     val listenerReviews: FirestoreListenerReviewsStore? by lazy {
         FirestoreListenerReviewsStore.create(this)
+    }
+
+    /**
+     * ADR-0023 (#348) — the narration-ratings store («Оцінка начитки»).
+     * Null without Firebase keys: the rating UI simply does not render.
+     */
+    val narrationRatings: FirestoreNarrationRatingsStore? by lazy {
+        FirestoreNarrationRatingsStore.create(this)
     }
 
     /** ADR-0002: one Listening State Store shared by the player and the ViewModel. */

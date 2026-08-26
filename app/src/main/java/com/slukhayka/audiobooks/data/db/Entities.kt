@@ -585,9 +585,10 @@ data class RecommendationPreferenceEntity(
 
 /**
  * One row of the endless merged feed (spec-23 T4): a Work with the number of
- * Sources carrying it (the «N джерел» badge input) and its optional
- * library-side genre (LEFT JOIN — null until the Work is linked into
- * `audiobooks`). Row shape for a Room paging query, not a stored table.
+ * Sources carrying it and its optional normalized local genre projection.
+ * Source count remains resolution metadata but is not rendered on Огляд
+ * (spec-42); genre comes from the indexed Work↔genre relation, never a
+ * free-form `LIKE`. Row shape for a Room paging query, not a stored table.
  * ADR-0010: no narrator — the Work is bibliographic; the rendition narrator
  * lives on the Edition, never on the Work.
  */
@@ -600,9 +601,9 @@ data class WorkFeedRow(
     val seriesIndex: Int? = null,
     val coverImageUrl: String? = null,
     val addedAt: Long,
-    // COUNT of `work_sources` rows for this Work — the badge count.
+    // COUNT of `work_sources` rows for this Work — resolution metadata.
     val sourceCount: Int,
-    // The library row's genre (nullable until the Work is linked/imported).
+    // One display genre from the local facet dictionary; null when unknown.
     val genre: String? = null,
     // Spec-24 T1: the Work's listening total (the Edition owns it, ADR-0010)
     // — joined from the domain `editions` row of the linked library copy;

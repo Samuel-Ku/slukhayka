@@ -4,7 +4,9 @@ import com.slukhayka.audiobooks.data.db.BookmarkEntity
 import com.slukhayka.audiobooks.data.db.ChapterEntity
 import com.slukhayka.audiobooks.ui.screens.calculatePlayerProgress
 import com.slukhayka.audiobooks.ui.screens.calculateBookSeekTarget
+import com.slukhayka.audiobooks.ui.screens.lastCreatedBookmark
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 class PlayerProgressTest {
@@ -168,5 +170,42 @@ class PlayerProgressTest {
 
         assertEquals(1, target.chapterIndex)
         assertEquals(300_000L, target.positionMs)
+    }
+
+    // ---------------------------------------------------------------------
+    // #351 — the «повернутися до останньої закладки» target: the most
+    // recently CREATED bookmark. One predictable target — the button always
+    // leads to the same place.
+    // ---------------------------------------------------------------------
+
+    private fun bookmark(id: Long, createdAt: Long) = BookmarkEntity(
+        id = id,
+        bookId = bookId,
+        chapterIndex = 0,
+        chapterTitle = chapters[0].title,
+        timestampSeconds = 30L * id,
+        note = "",
+        createdAt = createdAt
+    )
+
+    @Test
+    fun `last created bookmark wins by creation time`() {
+        val older = bookmark(1, createdAt = 1_000L)
+        val newer = bookmark(2, createdAt = 2_000L)
+
+        assertEquals(newer.id, lastCreatedBookmark(listOf(older, newer))?.id)
+    }
+
+    @Test
+    fun `equal creation times break the tie by id`() {
+        val earlier = bookmark(7, createdAt = 5_000L)
+        val later = bookmark(9, createdAt = 5_000L)
+
+        assertEquals(later.id, lastCreatedBookmark(listOf(earlier, later))?.id)
+    }
+
+    @Test
+    fun `no bookmarks means no jump target`() {
+        assertNull(lastCreatedBookmark(emptyList()))
     }
 }

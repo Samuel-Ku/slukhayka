@@ -625,12 +625,14 @@ fun ReviewDeleteConfirmationOwner(
     workTitle: String,
     review: ListenerReview?,
     returnFocusRequester: FocusRequester,
+    fallbackFocusRequester: FocusRequester? = null,
     onConfirm: (ListenerReview) -> Unit,
     onDismiss: () -> Unit
 ) {
     RestoreFocusAfterModal(
         modalVisible = review != null,
-        returnFocusRequester = returnFocusRequester
+        returnFocusRequester = returnFocusRequester,
+        fallbackFocusRequester = fallbackFocusRequester
     )
     review?.let { doomed ->
         ReviewDeleteConfirmation(

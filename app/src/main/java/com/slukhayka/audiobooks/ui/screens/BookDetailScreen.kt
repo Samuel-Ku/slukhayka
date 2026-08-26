@@ -877,6 +877,7 @@ fun BookDetailScreen(
     RestoreFocusAfterModal(
         modalVisible = bookmarkToDelete != null,
         returnFocusRequester = bookmarkDeleteOrigin,
+        fallbackFocusRequester = deleteTriggerFocusRequester,
         onFocusRestored = { bookmarkDeleteOrigin = null }
     )
     bookmarkToDelete?.let { doomed ->
@@ -947,6 +948,7 @@ fun BookDetailScreen(
         workTitle = currentBook.title,
         review = reviewToDelete,
         returnFocusRequester = reviewDeleteFocusRequester,
+        fallbackFocusRequester = deleteTriggerFocusRequester,
         onConfirm = { doomed ->
             viewModel.deleteOwnReview(doomed.workId, doomed.uid)
             reviewToDelete = null

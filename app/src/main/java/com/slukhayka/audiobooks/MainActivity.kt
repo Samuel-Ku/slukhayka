@@ -91,6 +91,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     val selectedTab by viewModel.selectedTab.collectAsState()
     val selectedBookId by viewModel.selectedBookId.collectAsState()
     var libraryBookFocusReturnId by rememberSaveable { mutableStateOf<String?>(null) }
+    var libraryOverflowFocusReturnPending by rememberSaveable { mutableStateOf(false) }
     val showFullPlayer by viewModel.showFullPlayer.collectAsState()
     val fullPlayerTransition = updateTransition(
         targetState = showFullPlayer,
@@ -150,12 +151,16 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
         } else if (collectionsIndexOpen) {
             viewModel.closeCollectionsIndex()
         } else if (storageDestinationOpen) {
+            libraryOverflowFocusReturnPending = true
             viewModel.closeStorageDestination()
         } else if (privacySettingsOpen) {
+            libraryOverflowFocusReturnPending = true
             viewModel.closePrivacySettings()
         } else if (recommendationSettingsOpen) {
+            libraryOverflowFocusReturnPending = true
             viewModel.closeRecommendationSettings()
         } else if (profileOpen) {
+            libraryOverflowFocusReturnPending = true
             viewModel.closeProfileSettings()
         } else if (selectedGenre != null) {
             viewModel.closeGenre()
@@ -246,19 +251,28 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                     // delete, reached from the Медіатека ⋮ overflow menu.
                     storageDestinationOpen -> StorageDestinationScreen(
                         viewModel = viewModel,
-                        onBackClick = { viewModel.closeStorageDestination() }
+                        onBackClick = {
+                            libraryOverflowFocusReturnPending = true
+                            viewModel.closeStorageDestination()
+                        }
                     )
 
                     // spec-38 T2 (#254): the «Приватність мережі» destination —
                     // the route choice, reached from the same ⋮ overflow menu.
                     privacySettingsOpen -> NetworkPrivacyScreen(
                         viewModel = viewModel,
-                        onBackClick = { viewModel.closePrivacySettings() }
+                        onBackClick = {
+                            libraryOverflowFocusReturnPending = true
+                            viewModel.closePrivacySettings()
+                        }
                     )
 
                     recommendationSettingsOpen -> RecommendationSettingsScreen(
                         viewModel = viewModel,
-                        onBackClick = { viewModel.closeRecommendationSettings() }
+                        onBackClick = {
+                            libraryOverflowFocusReturnPending = true
+                            viewModel.closeRecommendationSettings()
+                        }
                     )
 
                     // spec-40 #275 (t1): the «Профіль» destination — the
@@ -266,7 +280,10 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                     // from the same ⋮ overflow menu.
                     profileOpen -> ProfileScreen(
                         identity = viewModel.listenerIdentityModule,
-                        onBackClick = { viewModel.closeProfileSettings() },
+                        onBackClick = {
+                            libraryOverflowFocusReturnPending = true
+                            viewModel.closeProfileSettings()
+                        },
                         hiddenAuthors = hiddenAuthors,
                         onUnhideAuthor = { viewModel.unhideAuthor(it) }
                     )
@@ -383,6 +400,10 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                                 if (libraryBookFocusReturnId == restoredId) {
                                     libraryBookFocusReturnId = null
                                 }
+                            },
+                            restoreOverflowFocus = libraryOverflowFocusReturnPending,
+                            onOverflowFocusRestored = {
+                                libraryOverflowFocusReturnPending = false
                             }
                         )
                         else ->                        HomeScreen(

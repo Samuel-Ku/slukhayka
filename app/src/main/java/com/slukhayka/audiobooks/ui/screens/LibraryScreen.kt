@@ -92,7 +92,9 @@ fun LibraryScreen(
     onPlayClick: (AudiobookEntity) -> Unit,
     onBrowseClick: () -> Unit,
     restoreFocusBookId: String? = null,
-    onBookFocusRestored: (String) -> Unit = {}
+    onBookFocusRestored: (String) -> Unit = {},
+    restoreOverflowFocus: Boolean = false,
+    onOverflowFocusRestored: () -> Unit = {}
 ) {
     val libraryBooks by viewModel.libraryBooks.collectAsState()
     // ADR-0008: module flows are read directly — no forwarding StateFlow on
@@ -164,6 +166,7 @@ fun LibraryScreen(
     val importFocusRequester = remember { FocusRequester() }
     val libraryHeadingFocusRequester = remember { FocusRequester() }
     val bookReturnFocusRequester = remember { FocusRequester() }
+    val overflowFocusRequester = remember { FocusRequester() }
     val libraryGridState = rememberLazyGridState()
     val modalVisible = showFilterSheet || showImportSheet || importPreview != null
 
@@ -194,6 +197,13 @@ fun LibraryScreen(
                 onBookFocusRestored(bookId)
             }
         }
+    }
+
+    LaunchedEffect(restoreOverflowFocus, modalVisible) {
+        if (!restoreOverflowFocus || modalVisible) return@LaunchedEffect
+        withFrameNanos { }
+        overflowFocusRequester.requestFocus()
+        onOverflowFocusRestored()
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -271,6 +281,7 @@ fun LibraryScreen(
                         onClick = { showOverflowMenu = true },
                         modifier = Modifier
                             .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                            .focusRequester(overflowFocusRequester)
                             .testTag("library_overflow_button")
                     ) {
                         Icon(

@@ -436,6 +436,32 @@ class MainActivityAccessibilityTest {
         composeTestRule.onNodeWithTag("library_book_item_$fixtureBookId")
             .assertIsFocused()
         composeTestRule.onRoot().tryPerformAccessibilityChecks()
+
+        composeTestRule.onNodeWithTag("library_overflow_button")
+            .performClick()
+        composeTestRule.onNodeWithTag("library_profile_menu_item")
+            .performClick()
+        composeTestRule.waitUntil(timeoutMillis = NAV_TIMEOUT_MS) {
+            composeTestRule.onAllNodesWithTag("profile_screen_heading", useUnmergedTree = true)
+                .fetchSemanticsNodes()
+                .singleOrNull()
+                ?.config
+                ?.getOrNull(SemanticsProperties.Focused) == true
+        }
+        composeTestRule.onNodeWithTag("profile_screen_heading", useUnmergedTree = true)
+            .assertIsFocused()
+        composeTestRule.onNodeWithContentDescription("Назад")
+            .performClick()
+        composeTestRule.waitUntil(timeoutMillis = NAV_TIMEOUT_MS) {
+            composeTestRule.onAllNodesWithTag("library_overflow_button")
+                .fetchSemanticsNodes()
+                .singleOrNull()
+                ?.config
+                ?.getOrNull(SemanticsProperties.Focused) == true
+        }
+        composeTestRule.onNodeWithTag("library_overflow_button")
+            .assertIsFocused()
+        composeTestRule.onRoot().tryPerformAccessibilityChecks()
     }
 
     private fun currentViewModel(): MainViewModel =

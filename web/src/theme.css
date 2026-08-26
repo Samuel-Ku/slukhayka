@@ -111,3 +111,82 @@ body {
   font-size: 13px;
   margin-top: 12px;
 }
+
+/* --- spec-43/T3: каталог і сторінка книги -------------------------------- */
+
+.back {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 16px;
+  padding: 0;
+  cursor: pointer;
+}
+
+.card-list,
+.narrations,
+.chapters {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.chapters {
+  counter-reset: chapter;
+}
+
+.card-list button,
+.narrations button {
+  width: 100%;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 12px;
+  color: var(--fg);
+  cursor: pointer;
+}
+
+.card-list img {
+  width: 72px;
+  height: 72px;
+  object-fit: cover;
+  border-radius: 8px;
+  align-self: flex-start;
+}
+
+.card-title {
+  font-weight: 600;
+}
+
+.card-author {
+  color: var(--fg-dim);
+  font-size: 14px;
+}
+
+.byline,
+.genres {
+  color: var(--fg-dim);
+  font-size: 14px;
+  margin: 4px 0 0;
+}
+
+.cover {
+  max-width: 180px;
+  border-radius: 12px;
+  margin-top: 12px;
+}
+
+.description {
+  margin-top: 12px;
+}
+
+h2 {
+  font-size: 16px;
+  margin: 20px 0 0;
+}

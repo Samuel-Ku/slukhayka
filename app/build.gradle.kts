@@ -236,7 +236,14 @@ dependencies {
   // the watch URL resolves to a progressive audio stream at play/download
   // time. Distribution is JitPack; rhino (deobfuscation) needs keep rules
   // under minification (see proguard-rules.pro).
-  implementation("com.github.teamnewpipe:NewPipeExtractor:v0.26.5")
+  implementation("com.github.teamnewpipe:NewPipeExtractor:v0.26.5") {
+    // The extractor's protobuf-javalite clashes with Firebase's bundled
+    // protolite-well-known-types (same com.google.protobuf classes). The
+    // Firebase AAR wins — Firestore needs it; the extractor's protobuf
+    // surface (ByteString/MessageNano reads) is satisfied by the same
+    // classes. Removing the module-level duplicate unblocks the APK.
+    exclude(group = "com.google.protobuf", module = "protobuf-javalite")
+  }
   // spec-38 T4 (#256): the RFC-8484 DoH resolver behind the privacy door —
   // same OkHttp version, one small artifact.
   implementation(libs.okhttp.dnsoverhttps)

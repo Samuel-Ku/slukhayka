@@ -99,6 +99,31 @@ class ListenAccessibilityTest {
     }
 
     @Test
+    fun compactCardTreatsALocalImportAsOfflineEvenWithoutDownloadedProjection() {
+        val localImport = book.copy(
+            id = "local-import",
+            sourceUrl = "",
+            isDownloaded = false
+        )
+        compose.setContent {
+            AudiobookTheme(darkTheme = true) {
+                CompactBookCard(
+                    book = localImport,
+                    onClick = {}
+                )
+            }
+        }
+
+        compose.onNodeWithTag("compact_book_${localImport.id}")
+            .assert(
+                SemanticsMatcher.expectValue(
+                    SemanticsProperties.StateDescription,
+                    "Доступно офлайн"
+                )
+            )
+    }
+
+    @Test
     fun listenBlockTitleIsAHeadingAndMenuNamesItsBlock() {
         compose.setContent {
             AudiobookTheme(darkTheme = true) {

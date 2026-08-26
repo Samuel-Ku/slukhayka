@@ -58,7 +58,10 @@ fun CompactBookCard(
     val progressDescription = progress
         ?.takeIf { it > 0f }
         ?.let { stringResource(R.string.a11y_listened_percent, (it.coerceIn(0f, 1f) * 100).toInt()) }
-    val availabilityDescription = if (book.isDownloaded) {
+    // Local imports are playable from their SAF/file source even when the
+    // legacy downloaded projection is false. A blank sourceUrl is their
+    // canonical domain identity; only remote, non-downloaded works need data.
+    val availabilityDescription = if (book.isDownloaded || book.sourceUrl.isBlank()) {
         stringResource(R.string.a11y_available_offline)
     } else {
         stringResource(R.string.a11y_connection_required)

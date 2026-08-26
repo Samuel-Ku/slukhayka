@@ -4,9 +4,18 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
@@ -16,11 +25,13 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.data.catalog.CatalogPerson
@@ -35,6 +46,7 @@ import com.slukhayka.audiobooks.ui.components.IndexScreenScaffold
 import com.slukhayka.audiobooks.ui.screens.BookListScreen
 import com.slukhayka.audiobooks.ui.screens.CollectionsIndexContent
 import com.slukhayka.audiobooks.ui.screens.PersonRow
+import com.slukhayka.audiobooks.ui.screens.PeopleContent
 import com.slukhayka.audiobooks.ui.screens.SeriesIndexContent
 import com.slukhayka.audiobooks.ui.screens.SeriesUniverseHeader
 import com.slukhayka.audiobooks.ui.screens.Top100Row
@@ -241,6 +253,192 @@ class SecondaryScreensAccessibilityTest {
         composeTestRule.onAllNodes(hasClickAction(), useUnmergedTree = true)
             .assertCountEquals(1)
         assertEquals(true, clicked)
+    }
+
+    @Test
+    fun peopleOwnerReturnsFocusToThePersonThatOpenedTheirBooks() {
+        val people = (1..20).map { index ->
+            CatalogPerson(
+                name = "Людина $index",
+                path = "/xfsearch/avtor/person-$index/",
+                bookCount = index
+            )
+        }
+        val origin = people.last()
+
+        composeTestRule.setContent {
+            var childOpen by remember { mutableStateOf(false) }
+            var returnPath by remember { mutableStateOf<String?>(null) }
+            val listState = rememberLazyListState()
+            AudiobookTheme(darkTheme = true) {
+                if (childOpen) {
+                    Button(
+                        onClick = { childOpen = false },
+                        modifier = Modifier.testTag("person_books_back")
+                    ) {
+                        Text("Назад")
+                    }
+                } else {
+                    IndexScreenScaffold(title = "Автори", onBackClick = {}) { padding ->
+                        PeopleContent(
+                            people = people,
+                            isLoading = false,
+                            loadFailed = false,
+                            peopleCountLabel = "20 авторів",
+                            onPersonClick = { person ->
+                                returnPath = person.path
+                                childOpen = true
+                            },
+                            restoreFocusPersonPath = returnPath,
+                            onPersonFocusRestored = { restoredPath ->
+                                if (returnPath == restoredPath) returnPath = null
+                            },
+                            listState = listState,
+                            modifier = Modifier.padding(padding)
+                        )
+                    }
+                }
+            }
+        }
+
+        composeTestRule.onNodeWithTag("people_screen")
+            .performScrollToNode(hasTestTag("person_${origin.path.hashCode()}"))
+        composeTestRule.onNodeWithTag("person_${origin.path.hashCode()}").performClick()
+        composeTestRule.onNodeWithTag("person_books_back").performClick()
+        composeTestRule.onNodeWithTag("person_${origin.path.hashCode()}")
+            .assertIsDisplayed()
+            .assertIsFocused()
+    }
+
+    @Test
+    fun sharedSecondaryBookListReturnsFocusToTheBookThatOpenedDetails() {
+        val books = (1..20).map { index ->
+            book.copy(id = "secondary-$index", title = "Книга $index")
+        }
+        val origin = books.last()
+
+        composeTestRule.setContent {
+            var detailOpen by remember { mutableStateOf(false) }
+            var returnBookId by remember { mutableStateOf<String?>(null) }
+            val listState = rememberLazyListState()
+            AudiobookTheme(darkTheme = true) {
+                if (detailOpen) {
+                    Button(
+                        onClick = { detailOpen = false },
+                        modifier = Modifier.testTag("book_detail_back")
+                    ) {
+                        Text("Назад")
+                    }
+                } else {
+                    BookListScreen(
+                        title = "Фентезі",
+                        countLabel = "20 книг",
+                        emptyMessage = "Книг немає",
+                        isLoading = false,
+                        books = books,
+                        onBackClick = {},
+                        onBookClick = { bookId ->
+                            returnBookId = bookId
+                            detailOpen = true
+                        },
+                        onPlayClick = {},
+                        testTag = "secondary_book_list",
+                        restoreFocusBookId = returnBookId,
+                        onBookFocusRestored = { restoredId ->
+                            if (returnBookId == restoredId) returnBookId = null
+                        },
+                        listState = listState
+                    )
+                }
+            }
+        }
+
+        composeTestRule.onNodeWithTag("secondary_book_list")
+            .performScrollToNode(hasTestTag("book_item_${origin.id}"))
+        composeTestRule.onNodeWithTag("book_item_${origin.id}").performClick()
+        composeTestRule.onNodeWithTag("book_detail_back").performClick()
+        composeTestRule.onNodeWithTag("book_item_${origin.id}")
+            .assertIsDisplayed()
+            .assertIsFocused()
+    }
+
+    @Test
+    fun secondaryBookListDoesNotConsumeReturnTokenWhenOriginIsUnavailable() {
+        var consumed: String? = null
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                BookListScreen(
+                    title = "Фентезі",
+                    countLabel = "1 книга",
+                    emptyMessage = "Книг немає",
+                    isLoading = false,
+                    books = listOf(book),
+                    onBackClick = {},
+                    onBookClick = {},
+                    onPlayClick = {},
+                    testTag = "secondary_book_list_missing_origin",
+                    restoreFocusBookId = "missing-book",
+                    onBookFocusRestored = { consumed = it }
+                )
+            }
+        }
+
+        composeTestRule.waitForIdle()
+        assertEquals(null, consumed)
+        composeTestRule.onNodeWithTag("secondary_screen_heading", useUnmergedTree = true)
+            .assertIsFocused()
+    }
+
+    @Test
+    fun seriesIndexOwnerReturnsFocusToTheSeriesThatOpenedItsPage() {
+        val series = (1..20).map { index ->
+            CatalogSeries(
+                title = "Серія $index",
+                url = "https://example.invalid/series-$index",
+                coverImageUrl = null
+            )
+        }
+        val origin = series.last()
+
+        composeTestRule.setContent {
+            var childOpen by remember { mutableStateOf(false) }
+            var returnUrl by remember { mutableStateOf<String?>(null) }
+            val gridState = rememberLazyGridState()
+            AudiobookTheme(darkTheme = true) {
+                if (childOpen) {
+                    Button(
+                        onClick = { childOpen = false },
+                        modifier = Modifier.testTag("series_page_back")
+                    ) {
+                        Text("Назад")
+                    }
+                } else {
+                    IndexScreenScaffold(title = "Серії", onBackClick = {}) { padding ->
+                        SeriesIndexContent(
+                            series = series,
+                            onSeriesClick = { selected ->
+                                returnUrl = selected.url
+                                childOpen = true
+                            },
+                            restoreFocusSeriesUrl = returnUrl,
+                            onSeriesFocusRestored = { restoredUrl ->
+                                if (returnUrl == restoredUrl) returnUrl = null
+                            },
+                            gridState = gridState,
+                            modifier = Modifier.padding(padding)
+                        )
+                    }
+                }
+            }
+        }
+
+        composeTestRule.onNodeWithTag("series_index_screen")
+            .performScrollToNode(hasTestTag("catalog_series_${origin.url.hashCode()}"))
+        composeTestRule.onNodeWithTag("catalog_series_${origin.url.hashCode()}").performClick()
+        composeTestRule.onNodeWithTag("series_page_back").performClick()
+        composeTestRule.onNodeWithTag("catalog_series_${origin.url.hashCode()}")
+            .assertIsDisplayed()
+            .assertIsFocused()
     }
 
     @Test

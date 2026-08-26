@@ -1,6 +1,8 @@
 package com.slukhayka.audiobooks.ui.screens
 
 import androidx.compose.runtime.*
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.ui.res.stringResource
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.ui.MainViewModel
@@ -15,7 +17,10 @@ import com.slukhayka.audiobooks.ui.library.ukPlural
 fun PersonBooksScreen(
     viewModel: MainViewModel,
     onBackClick: () -> Unit,
-    onBookClick: (String) -> Unit
+    onBookClick: (String) -> Unit,
+    restoreFocusBookId: String? = null,
+    onBookFocusRestored: (String) -> Unit = {},
+    listState: LazyListState = rememberLazyListState()
 ) {
     val person by viewModel.selectedPerson.collectAsState()
     val books by viewModel.personBooks.collectAsState()
@@ -43,6 +48,9 @@ fun PersonBooksScreen(
             viewModel.playAudiobook(book)
             viewModel.setShowFullPlayer(true)
         },
-        testTag = "person_books_screen"
+        testTag = "person_books_screen",
+        restoreFocusBookId = restoreFocusBookId,
+        onBookFocusRestored = onBookFocusRestored,
+        listState = listState
     )
 }

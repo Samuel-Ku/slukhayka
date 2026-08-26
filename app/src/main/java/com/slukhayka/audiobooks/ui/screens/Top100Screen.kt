@@ -5,7 +5,9 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -16,6 +18,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import com.slukhayka.audiobooks.ui.library.ukPlural
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -45,14 +49,31 @@ import com.slukhayka.audiobooks.ui.theme.*
 fun Top100Screen(
     viewModel: MainViewModel,
     onBackClick: () -> Unit,
-    onBookClick: (String) -> Unit
+    onBookClick: (String) -> Unit,
+    restoreFocusBookId: String? = null,
+    onBookFocusRestored: (String) -> Unit = {},
+    listState: LazyListState = rememberLazyListState()
 ) {
     val books by viewModel.top100Books.collectAsState()
     val isLoading by viewModel.isTop100Loading.collectAsState()
     val loadFailed by viewModel.top100LoadFailed.collectAsState()
+    val returnFocusRequester = remember { FocusRequester() }
 
     IndexScreenScaffold(title = "ТОП 100 АудіоКниг", onBackClick = onBackClick) { padding ->
+        LaunchedEffect(restoreFocusBookId, books, isLoading, loadFailed) {
+            val bookId = restoreFocusBookId ?: return@LaunchedEffect
+            if (isLoading || loadFailed) return@LaunchedEffect
+            val bookIndex = books.indexOfFirst { it.id == bookId }
+            if (bookIndex < 0) return@LaunchedEffect
+            // The count row is item zero; ranked books start at item one.
+            listState.scrollToItem(bookIndex + 1)
+            withFrameNanos { }
+            if (runCatching { returnFocusRequester.requestFocus() }.getOrDefault(false)) {
+                onBookFocusRestored(bookId)
+            }
+        }
         LazyColumn(
+            state = listState,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
@@ -113,6 +134,11 @@ fun Top100Screen(
                             onPlayClick = {
                                 viewModel.playAudiobook(book)
                                 viewModel.setShowFullPlayer(true)
+                            },
+                            modifier = if (book.id == restoreFocusBookId) {
+                                Modifier.focusRequester(returnFocusRequester)
+                            } else {
+                                Modifier
                             }
                         )
                     }
@@ -128,10 +154,11 @@ fun Top100Row(
     rank: Int,
     book: AudiobookEntity,
     onClick: () -> Unit,
-    onPlayClick: () -> Unit
+    onPlayClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     Card(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 4.dp)
             .defaultMinSize(minHeight = 48.dp)

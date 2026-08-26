@@ -1128,11 +1128,12 @@ fun CatalogNavRow(
 @Composable
 fun CatalogSeriesCard(
     series: CatalogSeries,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val openLabel = stringResource(R.string.a11y_open_series, series.title)
     Column(
-        modifier = Modifier
+        modifier = modifier
             .width(132.dp)
             .clickable(onClickLabel = openLabel, onClick = onClick)
             .testTag("catalog_series_${series.url.hashCode()}"),
@@ -1434,7 +1435,8 @@ fun EmptyCatalogState(
 fun AudiobookListItem(
     book: AudiobookEntity,
     onClick: () -> Unit,
-    onPlayClick: () -> Unit
+    onPlayClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val availabilityState = stringResource(
         if (book.isDownloaded) R.string.a11y_available_offline
@@ -1442,7 +1444,7 @@ fun AudiobookListItem(
     )
     val openLabel = stringResource(R.string.a11y_open_work, book.title)
     Card(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 6.dp)
             .semantics {

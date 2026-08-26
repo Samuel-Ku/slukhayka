@@ -2,10 +2,14 @@ package com.slukhayka.audiobooks.ui.screens
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -33,13 +37,31 @@ fun BookListScreen(
     onBookClick: (String) -> Unit,
     onPlayClick: (AudiobookEntity) -> Unit,
     testTag: String,
-    errorMessage: String? = null
+    errorMessage: String? = null,
+    restoreFocusBookId: String? = null,
+    onBookFocusRestored: (String) -> Unit = {},
+    listState: LazyListState = rememberLazyListState()
 ) {
+    val returnFocusRequester = remember { FocusRequester() }
+
     IndexScreenScaffold(
         title = title,
         onBackClick = onBackClick
     ) { padding ->
+        LaunchedEffect(restoreFocusBookId, books, isLoading, errorMessage) {
+            val bookId = restoreFocusBookId ?: return@LaunchedEffect
+            if (isLoading || errorMessage != null) return@LaunchedEffect
+            val bookIndex = books.indexOfFirst { it.id == bookId }
+            if (bookIndex < 0) return@LaunchedEffect
+            val countOffset = if (countLabel != null) 1 else 0
+            listState.scrollToItem(bookIndex + countOffset)
+            withFrameNanos { }
+            if (runCatching { returnFocusRequester.requestFocus() }.getOrDefault(false)) {
+                onBookFocusRestored(bookId)
+            }
+        }
         LazyColumn(
+            state = listState,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
@@ -95,7 +117,12 @@ fun BookListScreen(
                         AudiobookListItem(
                             book = book,
                             onClick = { onBookClick(book.id) },
-                            onPlayClick = { onPlayClick(book) }
+                            onPlayClick = { onPlayClick(book) },
+                            modifier = if (book.id == restoreFocusBookId) {
+                                Modifier.focusRequester(returnFocusRequester)
+                            } else {
+                                Modifier
+                            }
                         )
                     }
                 }

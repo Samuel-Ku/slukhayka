@@ -5,7 +5,9 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -16,6 +18,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.semantics
@@ -42,7 +46,10 @@ fun PeopleScreen(
     viewModel: MainViewModel,
     onBackClick: () -> Unit,
     onBookClick: (String) -> Unit,
-    onPersonClick: (CatalogPerson) -> Unit
+    onPersonClick: (CatalogPerson) -> Unit,
+    restoreFocusPersonPath: String? = null,
+    onPersonFocusRestored: (String) -> Unit = {},
+    listState: LazyListState = rememberLazyListState()
 ) {
     val kind by viewModel.selectedPeopleKind.collectAsState()
     val people by viewModel.peopleEntries.collectAsState()
@@ -52,62 +59,107 @@ fun PeopleScreen(
     val currentKind = kind ?: return
 
     IndexScreenScaffold(title = currentKind.title, onBackClick = onBackClick) { padding ->
-        LazyColumn(
+        PeopleContent(
+            people = people,
+            isLoading = isLoading,
+            loadFailed = loadFailed,
+            peopleCountLabel = "${people.size} ${if (currentKind.title == "Виконавці") "виконавців" else "авторів"}",
+            onPersonClick = onPersonClick,
+            restoreFocusPersonPath = restoreFocusPersonPath,
+            onPersonFocusRestored = onPersonFocusRestored,
+            listState = listState,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .testTag("people_screen"),
-            contentPadding = PaddingValues(bottom = 120.dp, top = 8.dp)
-        ) {
-            when {
-                isLoading -> {
-                    item {
-                        SecondaryLoadingState(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(48.dp)
-                        )
-                    }
-                }
+        )
+    }
+}
 
-                loadFailed -> {
-                    item {
-                        SecondaryMessageState(
-                            message = stringResource(R.string.secondary_people_error),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(48.dp),
-                            isError = true
-                        )
-                    }
-                }
+@Composable
+fun PeopleContent(
+    people: List<CatalogPerson>,
+    isLoading: Boolean,
+    loadFailed: Boolean,
+    peopleCountLabel: String,
+    onPersonClick: (CatalogPerson) -> Unit,
+    modifier: Modifier = Modifier,
+    restoreFocusPersonPath: String? = null,
+    onPersonFocusRestored: (String) -> Unit = {},
+    listState: LazyListState = rememberLazyListState()
+) {
+    val returnFocusRequester = remember { FocusRequester() }
 
-                people.isEmpty() -> {
-                    item {
-                        SecondaryMessageState(
-                            message = stringResource(R.string.secondary_people_empty),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(48.dp)
-                        )
-                    }
-                }
+    LaunchedEffect(restoreFocusPersonPath, people, isLoading, loadFailed) {
+        val path = restoreFocusPersonPath ?: return@LaunchedEffect
+        if (isLoading || loadFailed) return@LaunchedEffect
+        val personIndex = people.indexOfFirst { it.path == path }
+        if (personIndex < 0) return@LaunchedEffect
+        // The count row is item zero; people start at item one.
+        listState.scrollToItem(personIndex + 1)
+        withFrameNanos { }
+        if (runCatching { returnFocusRequester.requestFocus() }.getOrDefault(false)) {
+            onPersonFocusRestored(path)
+        }
+    }
 
-                else -> {
-                    item {
-                        Text(
-                            text = "${people.size} ${if (currentKind.title == "Виконавці") "виконавців" else "авторів"}",
-                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                            color = MaterialTheme.colorScheme.secondary,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-                        )
-                    }
-                    items(people, key = { it.path }) { person ->
-                        PersonRow(
-                            person = person,
-                            onClick = { onPersonClick(person) }
-                        )
-                    }
+    LazyColumn(
+        state = listState,
+        modifier = modifier.testTag("people_screen"),
+        contentPadding = PaddingValues(bottom = 120.dp, top = 8.dp)
+    ) {
+        when {
+            isLoading -> {
+                item {
+                    SecondaryLoadingState(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(48.dp)
+                    )
+                }
+            }
+
+            loadFailed -> {
+                item {
+                    SecondaryMessageState(
+                        message = stringResource(R.string.secondary_people_error),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(48.dp),
+                        isError = true
+                    )
+                }
+            }
+
+            people.isEmpty() -> {
+                item {
+                    SecondaryMessageState(
+                        message = stringResource(R.string.secondary_people_empty),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(48.dp)
+                    )
+                }
+            }
+
+            else -> {
+                item {
+                    Text(
+                        text = peopleCountLabel,
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                        color = MaterialTheme.colorScheme.secondary,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                    )
+                }
+                items(people, key = { it.path }) { person ->
+                    PersonRow(
+                        person = person,
+                        onClick = { onPersonClick(person) },
+                        modifier = if (person.path == restoreFocusPersonPath) {
+                            Modifier.focusRequester(returnFocusRequester)
+                        } else {
+                            Modifier
+                        }
+                    )
                 }
             }
         }
@@ -118,10 +170,11 @@ fun PeopleScreen(
 @Composable
 fun PersonRow(
     person: CatalogPerson,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     Card(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 4.dp)
             .defaultMinSize(minHeight = 48.dp)

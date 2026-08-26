@@ -14,6 +14,8 @@ import androidx.compose.animation.core.updateTransition
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Headphones
@@ -29,6 +31,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.slukhayka.audiobooks.data.catalog.CatalogPerson
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.SelectedTab
 import com.slukhayka.audiobooks.ui.components.MiniPlayerBar
@@ -95,6 +98,23 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     var libraryOverflowFocusReturnPending by rememberSaveable { mutableStateOf(false) }
     var bookDetailChildOrigin by rememberSaveable { mutableStateOf<String?>(null) }
     var bookDetailChildEditionId by rememberSaveable { mutableStateOf<String?>(null) }
+    var bookDetailChildRouteOpen by rememberSaveable { mutableStateOf(false) }
+    var peopleFocusReturnPath by rememberSaveable { mutableStateOf<String?>(null) }
+    var seriesIndexFocusReturnUrl by rememberSaveable { mutableStateOf<String?>(null) }
+    var seriesBookFocusReturnId by rememberSaveable { mutableStateOf<String?>(null) }
+    var genreBookFocusReturnId by rememberSaveable { mutableStateOf<String?>(null) }
+    var top100BookFocusReturnId by rememberSaveable { mutableStateOf<String?>(null) }
+    var personBookFocusReturnId by rememberSaveable { mutableStateOf<String?>(null) }
+    var secondarySeriesParentTitle by rememberSaveable { mutableStateOf<String?>(null) }
+    var secondarySeriesParentUrl by rememberSaveable { mutableStateOf<String?>(null) }
+    var secondaryPersonParentName by rememberSaveable { mutableStateOf<String?>(null) }
+    var secondaryPersonParentPath by rememberSaveable { mutableStateOf<String?>(null) }
+    val peopleListState = rememberLazyListState()
+    val seriesIndexGridState = rememberLazyGridState()
+    val seriesBookListState = rememberLazyListState()
+    val genreBookListState = rememberLazyListState()
+    val top100BookListState = rememberLazyListState()
+    val personBookListState = rememberLazyListState()
     val showFullPlayer by viewModel.showFullPlayer.collectAsState()
     val fullPlayerTransition = updateTransition(
         targetState = showFullPlayer,
@@ -135,6 +155,43 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     val selectedTop100 by viewModel.selectedTop100.collectAsState()
     val selectedPeopleKind by viewModel.selectedPeopleKind.collectAsState()
     val selectedPerson by viewModel.selectedPerson.collectAsState()
+    val secondaryBookDetailOpen = selectedBookId != null && listOf(
+        seriesBookFocusReturnId,
+        genreBookFocusReturnId,
+        top100BookFocusReturnId,
+        personBookFocusReturnId
+    ).any { it != null }
+    val bookDetailChildFocusOrigin = bookDetailChildOrigin?.let { origin ->
+        runCatching { BookDetailLinkOrigin.valueOf(origin) }.getOrNull()
+    }
+
+    fun closeBookDetailChildRoute() {
+        bookDetailChildRouteOpen = false
+        when (bookDetailChildFocusOrigin) {
+            BookDetailLinkOrigin.SERIES -> {
+                viewModel.closeSeries()
+                if (secondaryBookDetailOpen) {
+                    val parentTitle = secondarySeriesParentTitle
+                    val parentUrl = secondarySeriesParentUrl
+                    if (parentTitle != null && parentUrl != null) {
+                        viewModel.openSeries(parentTitle, parentUrl)
+                    }
+                }
+            }
+            BookDetailLinkOrigin.AUTHOR,
+            BookDetailLinkOrigin.NARRATOR -> {
+                viewModel.closePersonBooks()
+                if (secondaryBookDetailOpen) {
+                    val parentName = secondaryPersonParentName
+                    val parentPath = secondaryPersonParentPath
+                    if (parentName != null && parentPath != null) {
+                        viewModel.openPersonBooks(CatalogPerson(parentName, parentPath, 0))
+                    }
+                }
+            }
+            null -> Unit
+        }
+    }
 
     // Handle system back press
     BackHandler(enabled = showFullPlayer || selectedBookId != null ||
@@ -145,6 +202,13 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
             viewModel.setShowFullPlayer(false)
         } else if (selectedWebSource != null) {
             viewModel.closeWebSource()
+        } else if (bookDetailChildRouteOpen) {
+            closeBookDetailChildRoute()
+        } else if (secondaryBookDetailOpen) {
+            bookDetailChildRouteOpen = false
+            bookDetailChildOrigin = null
+            bookDetailChildEditionId = null
+            viewModel.selectBook(null)
         } else if (selectedSeries != null) {
             // A series opened FROM the index keeps the index underneath:
             // back closes the series page first, then the index.
@@ -224,11 +288,82 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                         onClose = { viewModel.closeWebSource() }
                     )
 
+                    bookDetailChildRouteOpen &&
+                        bookDetailChildFocusOrigin == BookDetailLinkOrigin.SERIES &&
+                        selectedSeries != null -> SeriesScreen(
+                        viewModel = viewModel,
+                        onBackClick = { closeBookDetailChildRoute() },
+                        onBookClick = { id ->
+                            closeBookDetailChildRoute()
+                            bookDetailChildOrigin = null
+                            bookDetailChildEditionId = null
+                            viewModel.selectBook(id)
+                        }
+                    )
+
+                    bookDetailChildRouteOpen &&
+                        bookDetailChildFocusOrigin in setOf(
+                            BookDetailLinkOrigin.AUTHOR,
+                            BookDetailLinkOrigin.NARRATOR
+                        ) && selectedPerson != null -> PersonBooksScreen(
+                        viewModel = viewModel,
+                        onBackClick = { closeBookDetailChildRoute() },
+                        onBookClick = { id ->
+                            closeBookDetailChildRoute()
+                            bookDetailChildOrigin = null
+                            bookDetailChildEditionId = null
+                            viewModel.selectBook(id)
+                        }
+                    )
+
+                    // A book opened from a pushed catalogue list overlays
+                    // that retained parent route. Closing details reveals the
+                    // same list and lets it restore the originating card.
+                    secondaryBookDetailOpen -> BookDetailScreen(
+                        viewModel = viewModel,
+                        listeningState = viewModel.listeningState,
+                        offlineDownloads = viewModel.offlineDownloads,
+                        libraryEntries = viewModel.libraryEntries,
+                        onBackClick = {
+                            bookDetailChildRouteOpen = false
+                            bookDetailChildOrigin = null
+                            bookDetailChildEditionId = null
+                            viewModel.selectBook(null)
+                        },
+                        returnFocusOrigin = bookDetailChildFocusOrigin
+                            ?.takeIf { bookDetailChildEditionId == selectedBookId },
+                        onChildRouteOpened = { origin ->
+                            bookDetailChildRouteOpen = true
+                            bookDetailChildOrigin = origin.name
+                            bookDetailChildEditionId = selectedBookId
+                        },
+                        onReturnFocusRestored = { origin ->
+                            if (bookDetailChildOrigin == origin.name) {
+                                bookDetailChildOrigin = null
+                                bookDetailChildEditionId = null
+                            }
+                        }
+                    )
+
                     // Series (cycle) page (spec #8 ticket T8).
                     selectedSeries != null -> SeriesScreen(
                         viewModel = viewModel,
                         onBackClick = { viewModel.closeSeries() },
-                        onBookClick = { id -> viewModel.selectBook(id) }
+                        onBookClick = { id ->
+                            secondarySeriesParentTitle = selectedSeries?.title
+                            secondarySeriesParentUrl = selectedSeries?.url
+                            seriesBookFocusReturnId = id
+                            viewModel.selectBook(id)
+                        },
+                        restoreFocusBookId = seriesBookFocusReturnId,
+                        onBookFocusRestored = { restoredId ->
+                            if (seriesBookFocusReturnId == restoredId) {
+                                seriesBookFocusReturnId = null
+                                secondarySeriesParentTitle = null
+                                secondarySeriesParentUrl = null
+                            }
+                        },
+                        listState = seriesBookListState
                     )
 
                     // spec-28 (#189): the «Серії» index — every series from
@@ -237,7 +372,17 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                     seriesIndexOpen -> SeriesIndexScreen(
                         viewModel = viewModel,
                         onBackClick = { viewModel.closeSeriesIndex() },
-                        onSeriesClick = { series -> viewModel.openSeries(series.title, series.url) }
+                        onSeriesClick = { series ->
+                            seriesIndexFocusReturnUrl = series.url
+                            viewModel.openSeries(series.title, series.url)
+                        },
+                        restoreFocusSeriesUrl = seriesIndexFocusReturnUrl,
+                        onSeriesFocusRestored = { restoredUrl ->
+                            if (seriesIndexFocusReturnUrl == restoredUrl) {
+                                seriesIndexFocusReturnUrl = null
+                            }
+                        },
+                        gridState = seriesIndexGridState
                     )
 
                     // spec-28 (#190): the «Колекції» index — every matched
@@ -295,21 +440,55 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                     selectedGenre != null -> GenreScreen(
                         viewModel = viewModel,
                         onBackClick = { viewModel.closeGenre() },
-                        onBookClick = { id -> viewModel.selectBook(id) }
+                        onBookClick = { id ->
+                            genreBookFocusReturnId = id
+                            viewModel.selectBook(id)
+                        },
+                        restoreFocusBookId = genreBookFocusReturnId,
+                        onBookFocusRestored = { restoredId ->
+                            if (genreBookFocusReturnId == restoredId) {
+                                genreBookFocusReturnId = null
+                            }
+                        },
+                        listState = genreBookListState
                     )
 
                     // ТОП 100 АудіоКниг (`/top-100.html`).
                     selectedTop100 -> Top100Screen(
                         viewModel = viewModel,
                         onBackClick = { viewModel.closeTop100() },
-                        onBookClick = { id -> viewModel.selectBook(id) }
+                        onBookClick = { id ->
+                            top100BookFocusReturnId = id
+                            viewModel.selectBook(id)
+                        },
+                        restoreFocusBookId = top100BookFocusReturnId,
+                        onBookFocusRestored = { restoredId ->
+                            if (top100BookFocusReturnId == restoredId) {
+                                top100BookFocusReturnId = null
+                            }
+                        },
+                        listState = top100BookListState
                     )
 
                     // One person's books (opened from Виконавці/Автори index).
                     selectedPerson != null -> PersonBooksScreen(
                         viewModel = viewModel,
                         onBackClick = { viewModel.closePersonBooks() },
-                        onBookClick = { id -> viewModel.selectBook(id) }
+                        onBookClick = { id ->
+                            secondaryPersonParentName = selectedPerson?.name
+                            secondaryPersonParentPath = selectedPerson?.path
+                            personBookFocusReturnId = id
+                            viewModel.selectBook(id)
+                        },
+                        restoreFocusBookId = personBookFocusReturnId,
+                        onBookFocusRestored = { restoredId ->
+                            if (personBookFocusReturnId == restoredId) {
+                                personBookFocusReturnId = null
+                                secondaryPersonParentName = null
+                                secondaryPersonParentPath = null
+                            }
+                        },
+                        listState = personBookListState
                     )
 
                     // Виконавці or Автори index.
@@ -317,7 +496,17 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                         viewModel = viewModel,
                         onBackClick = { viewModel.closePeople() },
                         onBookClick = { id -> viewModel.selectBook(id) },
-                        onPersonClick = { person -> viewModel.openPersonBooks(person) }
+                        onPersonClick = { person ->
+                            peopleFocusReturnPath = person.path
+                            viewModel.openPersonBooks(person)
+                        },
+                        restoreFocusPersonPath = peopleFocusReturnPath,
+                        onPersonFocusRestored = { restoredPath ->
+                            if (peopleFocusReturnPath == restoredPath) {
+                                peopleFocusReturnPath = null
+                            }
+                        },
+                        listState = peopleListState
                     )
 
                     selectedBookId != null -> BookDetailScreen(
@@ -330,16 +519,15 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                         // other rendition cards from the module.
                         libraryEntries = viewModel.libraryEntries,
                         onBackClick = {
+                            bookDetailChildRouteOpen = false
                             bookDetailChildOrigin = null
                             bookDetailChildEditionId = null
                             viewModel.selectBook(null)
                         },
-                        returnFocusOrigin = bookDetailChildOrigin
-                            ?.takeIf { bookDetailChildEditionId == selectedBookId }
-                            ?.let { origin ->
-                                runCatching { BookDetailLinkOrigin.valueOf(origin) }.getOrNull()
-                            },
+                        returnFocusOrigin = bookDetailChildFocusOrigin
+                            ?.takeIf { bookDetailChildEditionId == selectedBookId },
                         onChildRouteOpened = { origin ->
+                            bookDetailChildRouteOpen = true
                             bookDetailChildOrigin = origin.name
                             bookDetailChildEditionId = selectedBookId
                         },

@@ -128,6 +128,46 @@ export default {
       return ok(groups)
     }
 
+    if (pathname === '/api/audio') {
+      const raw = searchParams.get('u') ?? ''
+      let target: string
+      try {
+        target = decodeURIComponent(raw)
+        new URL(target)
+      } catch {
+        return fail('bad audio url')
+      }
+      const allHosts = [...new Set(Object.values(REGISTRY).flatMap((entry) => entry.allowedHosts))]
+      let host: string
+      try {
+        host = new URL(target).hostname
+      } catch {
+        return fail('bad audio url')
+      }
+      if (!allHosts.some((allowed) => host === allowed || host.endsWith(`.${allowed}`))) {
+        return fail('audio host not allowlisted', 403)
+      }
+      const range = request.headers.get('range') ?? undefined
+      try {
+        const upstream = await fetch(target, {
+          headers: {
+            referer: 'https://4read.org/',
+            'user-agent': DEFAULT_UA,
+            ...(range ? { range } : {}),
+          },
+        })
+        const headers = new Headers()
+        for (const hop of ['content-type', 'content-length', 'content-range', 'accept-ranges', 'cache-control']) {
+          const value = upstream.headers.get(hop)
+          if (value) headers.set(hop, value)
+        }
+        headers.set('access-control-allow-origin', '*')
+        return new Response(upstream.body, { status: upstream.status, headers })
+      } catch {
+        return fail('audio relay failed', 502)
+      }
+    }
+
     if (pathname === '/api/catalog' || pathname === '/api/book') {
       const sourceId = searchParams.get('source') ?? ''
       const pageUrl = searchParams.get('url') ?? ''

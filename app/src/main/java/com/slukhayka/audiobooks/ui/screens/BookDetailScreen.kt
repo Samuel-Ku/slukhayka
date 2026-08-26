@@ -1338,6 +1338,10 @@ fun ChapterRowItem(
             // not change runtime behaviour.
             .testTag("book_detail_chapter_${chapter.id}")
             .clickable { onAction() }
+            // A chapter is a destination in the reading flow. Make its focus target
+            // explicit so TalkBack and physical-device semantics can move to it
+            // before activation (clickable alone was not reliable here).
+            .focusable()
             .semantics(mergeDescendants = true) {
                 contentDescription = chapterSummary
                 stateDescription = chapterState

@@ -32,6 +32,7 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.unit.dp
@@ -120,6 +121,26 @@ class BookDetailChapterBookmarkAccessibilityTest {
 
         assertTrue(paused)
         assertFalse(played)
+    }
+
+    @Test
+    fun chapterCanReceiveAccessibilityFocusBeforeItIsActivated() {
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                ChapterRowItem(
+                    chapter = chapter,
+                    index = 3,
+                    isCurrent = false,
+                    isPlaying = false,
+                    onPlayClick = {},
+                    onPauseClick = {}
+                )
+            }
+        }
+
+        composeTestRule.onNodeWithTag("book_detail_chapter_${chapter.id}")
+            .performSemanticsAction(SemanticsActions.RequestFocus)
+            .assertIsFocused()
     }
 
     @Test

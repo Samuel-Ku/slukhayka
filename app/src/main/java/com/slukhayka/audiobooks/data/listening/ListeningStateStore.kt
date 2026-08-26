@@ -35,7 +35,7 @@ import kotlinx.coroutines.withContext
  * sourceKey concept is gone from listening identity. New playback-event rows
  * write sourceKey = "" (the column is history).
  */
-class ListeningStateStore(private val dao: AudiobookDao) {
+class ListeningStateStore(private val dao: AudiobookDao) : ProgressMirror {
 
     // --- Progress (keyed by Edition, ADR-0007) -----------------------------
 
@@ -73,6 +73,44 @@ class ListeningStateStore(private val dao: AudiobookDao) {
     /** Last-pause marker for the smart rewind (wayfinder #25); null clears it. */
     suspend fun updatePausedAt(bookId: String, pausedAt: Long?) =
         dao.updatePausedAt(bookId, pausedAt)
+
+    // --- Progress Sync (ADR-0023, spec-43 T6) --------------------------------
+    // The three members below are the store's ProgressMirror face: the narrow
+    // seam [ProgressSyncController] sequences over. Nothing here changes how
+    // playback itself reads or writes the row.
+
+    /** The Edition anchor of a book's Listening State — null while unknown. */
+    override suspend fun editionIdForSync(bookId: String): String? = editionIdOf(bookId)
+
+    /** The current row of one Edition — exactly what a resume would read. */
+    override suspend fun progressByEdition(editionId: String): PlaybackProgressEntity? =
+        dao.getPlaybackProgressSyncByEdition(editionId)
+
+    /**
+     * Applies a remote mirror into the local row (ADR-0023): position,
+     * chapter, completion and speed come from the cloud; the row keeps its
+     * LOCAL recency stamp and drops THIS device's pause marker — Smart Rewind
+     * belongs to the pause made here, never to one imported from another
+     * device.
+     */
+    override suspend fun applyRemoteProgress(
+        bookId: String,
+        state: RemoteListeningState,
+        nowMs: Long
+    ) {
+        val existing = dao.getPlaybackProgressSyncByEdition(state.editionId)
+        val entity = PlaybackProgressEntity(
+            editionId = state.editionId,
+            bookId = bookId,
+            currentChapterIndex = state.chapterIndex,
+            currentPositionSeconds = state.positionSeconds,
+            lastListenedAt = existing?.lastListenedAt ?: nowMs,
+            isCompleted = state.isCompleted,
+            lastPausedAtEpochMs = null,
+            preferredSpeed = state.preferredSpeed
+        )
+        dao.savePlaybackProgress(entity)
+    }
 
     // --- Playback event log (spec-16, wayfinder #53) ------------------------
     // The state row above stays the authoritative "where am I now"; the log is

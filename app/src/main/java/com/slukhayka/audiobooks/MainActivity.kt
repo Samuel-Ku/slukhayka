@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -89,6 +90,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     val context = LocalContext.current
     val selectedTab by viewModel.selectedTab.collectAsState()
     val selectedBookId by viewModel.selectedBookId.collectAsState()
+    var libraryBookFocusReturnId by rememberSaveable { mutableStateOf<String?>(null) }
     val showFullPlayer by viewModel.showFullPlayer.collectAsState()
     val fullPlayerTransition = updateTransition(
         targetState = showFullPlayer,
@@ -367,12 +369,21 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                             // module fields — the playerManager precedent).
                             libraryEntries = viewModel.libraryEntries,
                             listeningState = viewModel.listeningState,
-                            onBookClick = { id -> viewModel.selectBook(id) },
+                            onBookClick = { id ->
+                                libraryBookFocusReturnId = id
+                                viewModel.selectBook(id)
+                            },
                             onPlayClick = { book ->
                                 viewModel.playAudiobook(book)
                                 viewModel.setShowFullPlayer(true)
                             },
-                            onBrowseClick = { viewModel.selectTab(SelectedTab.EXPLORE) }
+                            onBrowseClick = { viewModel.selectTab(SelectedTab.EXPLORE) },
+                            restoreFocusBookId = libraryBookFocusReturnId,
+                            onBookFocusRestored = { restoredId ->
+                                if (libraryBookFocusReturnId == restoredId) {
+                                    libraryBookFocusReturnId = null
+                                }
+                            }
                         )
                         else ->                        HomeScreen(
                             durationEnrichment = viewModel.durationEnrichment,

@@ -423,6 +423,19 @@ class MainActivityAccessibilityTest {
                 }
             )
         composeTestRule.onRoot().tryPerformAccessibilityChecks()
+
+        composeTestRule.onNodeWithTag("book_detail_back_button")
+            .performClick()
+        composeTestRule.waitUntil(timeoutMillis = NAV_TIMEOUT_MS) {
+            composeTestRule.onAllNodesWithTag("library_book_item_$fixtureBookId")
+                .fetchSemanticsNodes()
+                .singleOrNull()
+                ?.config
+                ?.getOrNull(SemanticsProperties.Focused) == true
+        }
+        composeTestRule.onNodeWithTag("library_book_item_$fixtureBookId")
+            .assertIsFocused()
+        composeTestRule.onRoot().tryPerformAccessibilityChecks()
     }
 
     private fun currentViewModel(): MainViewModel =

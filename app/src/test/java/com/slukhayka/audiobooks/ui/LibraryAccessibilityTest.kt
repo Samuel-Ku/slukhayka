@@ -10,10 +10,12 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.focus.FocusRequester
@@ -66,6 +68,28 @@ class LibraryAccessibilityTest {
 
     @get:Rule
     val composeTestRule = createComposeRule()
+
+    @Test
+    fun libraryBookCardAcceptsExactRouteReturnFocus() {
+        composeTestRule.setContent {
+            val returnFocusRequester = remember { FocusRequester() }
+            AudiobookTheme {
+                LibraryBookCard(
+                    book = fixtureBook,
+                    grid = false,
+                    onClick = {},
+                    modifier = Modifier.focusRequester(returnFocusRequester)
+                )
+            }
+            LaunchedEffect(returnFocusRequester) {
+                withFrameNanos { }
+                returnFocusRequester.requestFocus()
+            }
+        }
+
+        composeTestRule.onNodeWithTag("library_book_item_${fixtureBook.book.id}")
+            .assertIsFocused()
+    }
 
     private val fixtureBook = run {
         val books = TestDataFactory.dataBooks()

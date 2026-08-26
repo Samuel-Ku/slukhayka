@@ -12,6 +12,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -89,7 +90,9 @@ fun LibraryScreen(
     listeningState: ListeningStateStore,
     onBookClick: (String) -> Unit,
     onPlayClick: (AudiobookEntity) -> Unit,
-    onBrowseClick: () -> Unit
+    onBrowseClick: () -> Unit,
+    restoreFocusBookId: String? = null,
+    onBookFocusRestored: (String) -> Unit = {}
 ) {
     val libraryBooks by viewModel.libraryBooks.collectAsState()
     // ADR-0008: module flows are read directly — no forwarding StateFlow on
@@ -159,10 +162,38 @@ fun LibraryScreen(
     var showOverflowMenu by remember { mutableStateOf(false) }
     val filterFocusRequester = remember { FocusRequester() }
     val importFocusRequester = remember { FocusRequester() }
+    val libraryHeadingFocusRequester = remember { FocusRequester() }
+    val bookReturnFocusRequester = remember { FocusRequester() }
+    val libraryGridState = rememberLazyGridState()
     val modalVisible = showFilterSheet || showImportSheet || importPreview != null
 
     val visibleBooks = remember(libraryBooks, filter, sort, query) {
         filterAndSortLibrary(libraryBooks, filter, sort, query)
+    }
+
+    LaunchedEffect(
+        restoreFocusBookId,
+        visibleBooks,
+        libraryBooks,
+        activeTab,
+        modalVisible
+    ) {
+        val bookId = restoreFocusBookId ?: return@LaunchedEffect
+        if (activeTab != 0 || modalVisible) return@LaunchedEffect
+        val visibleIndex = visibleBooks.indexOfFirst { it.book.id == bookId }
+        when {
+            visibleIndex >= 0 -> {
+                libraryGridState.scrollToItem(visibleIndex)
+                withFrameNanos { }
+                bookReturnFocusRequester.requestFocus()
+                onBookFocusRestored(bookId)
+            }
+            libraryBooks.isNotEmpty() -> {
+                withFrameNanos { }
+                libraryHeadingFocusRequester.requestFocus()
+                onBookFocusRestored(bookId)
+            }
+        }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -189,7 +220,11 @@ fun LibraryScreen(
                         style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
                         color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 2,
-                        modifier = Modifier.semantics { heading() }
+                        modifier = Modifier
+                            .focusRequester(libraryHeadingFocusRequester)
+                            .focusable()
+                            .testTag("library_heading")
+                            .semantics { heading() }
                     )
                     Text(
                         // Spec-15 T6: one library for local files and every
@@ -405,6 +440,7 @@ fun LibraryScreen(
 
                         else -> LazyVerticalGrid(
                             columns = if (gridMode) GridCells.Fixed(2) else GridCells.Fixed(1),
+                            state = libraryGridState,
                             modifier = Modifier.fillMaxSize(),
                             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 120.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -414,7 +450,12 @@ fun LibraryScreen(
                                 LibraryBookCard(
                                     book = entry,
                                     grid = gridMode,
-                                    onClick = { onBookClick(entry.book.id) }
+                                    onClick = { onBookClick(entry.book.id) },
+                                    modifier = if (entry.book.id == restoreFocusBookId) {
+                                        Modifier.focusRequester(bookReturnFocusRequester)
+                                    } else {
+                                        Modifier
+                                    }
                                 )
                             }
                         }
@@ -553,7 +594,8 @@ fun LibraryEmptyState(
 fun LibraryBookCard(
     book: LibraryBook,
     grid: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val author = book.book.displayAuthor
     val description = if (author.isBlank()) {
@@ -590,7 +632,7 @@ fun LibraryBookCard(
     )
     val performOpen = onClick
     Card(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clip(MaterialTheme.shapes.medium)
             .clickable(onClick = performOpen)

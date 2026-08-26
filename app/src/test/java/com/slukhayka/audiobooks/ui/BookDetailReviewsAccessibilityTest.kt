@@ -389,6 +389,53 @@ class BookDetailReviewsAccessibilityTest {
     }
 
     @Test
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    fun successfulRemoteAcknowledgementPublishesAfterTheLocalQueueResult() = runTest {
+        val remote = CompletableDeferred<ReviewRemoteResult>()
+        val visibleResults = mutableListOf<ReviewSaveResult>()
+        val receipt = ReviewWriteReceipt.Queued { remote.await() }
+
+        val write = launch {
+            followReviewWrite(
+                receipt = receipt,
+                onVisibleResult = visibleResults::add,
+                onRemoteResult = {}
+            )
+        }
+        runCurrent()
+        assertEquals(listOf(ReviewSaveResult.QUEUED), visibleResults)
+
+        remote.complete(ReviewRemoteResult.PUBLISHED)
+        write.join()
+
+        assertEquals(
+            listOf(ReviewSaveResult.QUEUED, ReviewSaveResult.PUBLISHED),
+            visibleResults
+        )
+    }
+
+    @Test
+    fun onlyTheLatestSubmissionForOneReviewCanPublishItsOutcome() {
+        val gate = ReviewSubmissionGate()
+        val first = gate.begin(workId = "work-1", documentId = "work-1_uid-1")
+        val second = gate.begin(workId = "work-1", documentId = "work-1_uid-1")
+        val anotherReview = gate.begin(workId = "work-2", documentId = "work-2_uid-1")
+
+        assertFalse(gate.isLatest(first))
+        assertTrue(gate.isLatest(second))
+        assertTrue(gate.isLatest(anotherReview))
+        assertEquals(
+            ReviewSaveEvent(
+                workId = "work-1",
+                documentId = "work-1_uid-1",
+                generation = 2L,
+                result = ReviewSaveResult.QUEUED
+            ),
+            second.event(ReviewSaveResult.QUEUED)
+        )
+    }
+
+    @Test
     fun lateReviewFailureUsesSnackbarAfterQueuedFormHasClosed() {
         assertFalse(reviewFailureNeedsSnackbar(formVisible = true))
         assertTrue(reviewFailureNeedsSnackbar(formVisible = false))

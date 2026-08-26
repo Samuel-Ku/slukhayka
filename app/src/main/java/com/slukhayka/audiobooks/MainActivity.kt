@@ -35,6 +35,7 @@ import com.slukhayka.audiobooks.ui.components.MiniPlayerBar
 import com.slukhayka.audiobooks.ui.components.accessibilityModalBackground
 import com.slukhayka.audiobooks.ui.components.accessibilityPane
 import com.slukhayka.audiobooks.ui.screens.BookDetailScreen
+import com.slukhayka.audiobooks.ui.screens.BookDetailLinkOrigin
 import com.slukhayka.audiobooks.ui.screens.CollectionsIndexScreen
 import com.slukhayka.audiobooks.ui.screens.GenreScreen
 import com.slukhayka.audiobooks.ui.screens.HomeScreen
@@ -92,6 +93,8 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     val selectedBookId by viewModel.selectedBookId.collectAsState()
     var libraryBookFocusReturnId by rememberSaveable { mutableStateOf<String?>(null) }
     var libraryOverflowFocusReturnPending by rememberSaveable { mutableStateOf(false) }
+    var bookDetailChildOrigin by rememberSaveable { mutableStateOf<String?>(null) }
+    var bookDetailChildEditionId by rememberSaveable { mutableStateOf<String?>(null) }
     val showFullPlayer by viewModel.showFullPlayer.collectAsState()
     val fullPlayerTransition = updateTransition(
         targetState = showFullPlayer,
@@ -326,7 +329,26 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                         // ADR-0011: the «Інші начитки» block reads the Work's
                         // other rendition cards from the module.
                         libraryEntries = viewModel.libraryEntries,
-                        onBackClick = { viewModel.selectBook(null) }
+                        onBackClick = {
+                            bookDetailChildOrigin = null
+                            bookDetailChildEditionId = null
+                            viewModel.selectBook(null)
+                        },
+                        returnFocusOrigin = bookDetailChildOrigin
+                            ?.takeIf { bookDetailChildEditionId == selectedBookId }
+                            ?.let { origin ->
+                                runCatching { BookDetailLinkOrigin.valueOf(origin) }.getOrNull()
+                            },
+                        onChildRouteOpened = { origin ->
+                            bookDetailChildOrigin = origin.name
+                            bookDetailChildEditionId = selectedBookId
+                        },
+                        onReturnFocusRestored = { origin ->
+                            if (bookDetailChildOrigin == origin.name) {
+                                bookDetailChildOrigin = null
+                                bookDetailChildEditionId = null
+                            }
+                        }
                     )
 
                     else -> when (selectedTab) {

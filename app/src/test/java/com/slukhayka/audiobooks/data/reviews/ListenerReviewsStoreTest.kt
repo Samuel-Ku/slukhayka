@@ -113,6 +113,24 @@ class ListenerReviewsStoreTest {
     }
 
     @Test
+    fun `remote acknowledgement failure degrades to a failed verdict`() = runBlocking {
+        val receipt = ReviewWriteReceipt.Queued {
+            throw IllegalStateException("backend listener failed")
+        }
+
+        assertEquals(ReviewRemoteResult.FAILED, receipt.awaitRemote())
+    }
+
+    @Test
+    fun `remote acknowledgement still propagates caller cancellation`() = runBlocking {
+        val receipt = ReviewWriteReceipt.Queued {
+            throw CancellationException("caller left")
+        }
+
+        assertCancellationPropagates { receipt.awaitRemote() }
+    }
+
+    @Test
     fun `a re-edit of the same key replaces - never duplicates`() = runBlocking {
         val store = FakeStore(FakeDocuments())
         val first = review(uid = "u1", createdAt = 100L, rating = 3)

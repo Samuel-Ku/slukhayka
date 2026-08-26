@@ -53,7 +53,7 @@ export function App({ profile }: { profile: ListenerProfile | null }) {
   const [, forceUpdate] = useState(0)
 
   if (!engineRef.current) {
-    engineRef.current = new AudioEngine()
+    engineRef.current = new AudioEngine({ relayBase: '/api' })
   }
   const engine = engineRef.current
 

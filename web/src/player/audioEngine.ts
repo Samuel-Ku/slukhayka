@@ -25,11 +25,12 @@ export class AudioEngine {
   private chapters: Chapter[] = []
   private ticker: number | null = null
   private lastPersistMs = 0
+  private relayBase: string | undefined
 
   constructor(opts: AudioEngineOptions = {}) {
-    const relayBase = opts.relayBase
+    this.relayBase = opts.relayBase
     this.engine = new PlaybackEngine({
-      relayUrlOf: relayBase ? (url) => `${relayBase}/audio?u=${encodeURIComponent(url)}` : undefined,
+      relayUrlOf: this.relayBase ? (url) => `${this.relayBase}/audio?u=${encodeURIComponent(url)}` : undefined,
     })
     const storageLike: StorageLike = opts.storage ?? {
       getItem: (k: string) => window.localStorage.getItem(k),
@@ -129,7 +130,10 @@ export class AudioEngine {
     const state = this.engine.getState()
     const chapter = this.chapters[state.chapterIndex]
     if (!chapter) return
-    const url = chapter.streamUrl
+    const url =
+      state.attemptKind === 'relay' && this.relayBase
+        ? `${this.relayBase}/audio?u=${encodeURIComponent(chapter.streamUrl)}`
+        : chapter.streamUrl
     if (this.audio.src !== url) {
       this.audio.src = url
       this.audio.currentTime = state.positionSeconds
@@ -138,6 +142,10 @@ export class AudioEngine {
   }
 
   private onEngineState(state: EngineState): void {
+    if (state.attemptKind === 'relay' && this.audio && !this.audio.src.includes('/api/audio')) {
+      this.syncAudioSrc()
+      void this.audio.play().catch(() => {})
+    }
     this.updateSession()
     if (state.status === 'paused' || state.status === 'unavailable') {
       this.persist()

@@ -436,6 +436,20 @@ class BookDetailReviewsAccessibilityTest {
     }
 
     @Test
+    fun lateReviewLoadCannotOverwriteANewerLoadForTheSameWork() {
+        val gate = ReviewLoadGate()
+        val first = gate.begin(workId = "work-1")
+        val second = gate.begin(workId = "work-1")
+        val anotherWork = gate.begin(workId = "work-2")
+
+        assertFalse(gate.isLatest(first))
+        assertTrue(gate.isLatest(second))
+        assertTrue(gate.isLatest(anotherWork))
+        assertEquals(1L, anotherWork.generation)
+        assertEquals(2L, second.generation)
+    }
+
+    @Test
     fun lateReviewFailureUsesSnackbarAfterQueuedFormHasClosed() {
         assertFalse(reviewFailureNeedsSnackbar(formVisible = true))
         assertTrue(reviewFailureNeedsSnackbar(formVisible = false))

@@ -140,6 +140,24 @@ internal class ReviewSubmissionGate {
         generations[submission.documentId]?.get() == submission.generation
 }
 
+internal data class ReviewLoadRequest(
+    val workId: String,
+    val generation: Long
+)
+
+/** Prevents an older fetch of one Work from replacing a newer server snapshot. */
+internal class ReviewLoadGate {
+    private val generations = ConcurrentHashMap<String, AtomicLong>()
+
+    fun begin(workId: String): ReviewLoadRequest = ReviewLoadRequest(
+        workId = workId,
+        generation = generations.computeIfAbsent(workId) { AtomicLong() }.incrementAndGet()
+    )
+
+    fun isLatest(request: ReviewLoadRequest): Boolean =
+        generations[request.workId]?.get() == request.generation
+}
+
 /**
  * Delivers the local queue result before waiting for Firestore's backend Task.
  * Remote failure remains a visible event; caller cancellation still escapes.
@@ -1270,6 +1288,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // A submission result is an event, not accessibility-specific state: the
     // screen uses it to keep failed input open and to retire successful forms.
     private val reviewSubmissionGate = ReviewSubmissionGate()
+    private val reviewLoadGate = ReviewLoadGate()
     private val _reviewSaveResults = MutableSharedFlow<ReviewSaveEvent>(extraBufferCapacity = 16)
     val reviewSaveResults: SharedFlow<ReviewSaveEvent> = _reviewSaveResults.asSharedFlow()
 
@@ -1331,6 +1350,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /** Best-effort refresh of one Work's reviews; offline serves the cache silently (#280). */
     fun loadReviews(workId: String) {
         val store = listenerReviews ?: return
+        val request = reviewLoadGate.begin(workId)
         viewModelScope.launch(Dispatchers.IO) {
             val fresh = try {
                 store.getReviews(workId)
@@ -1340,7 +1360,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val selectedEdition = selectedBook.value
             val stillSelected = selectedEdition?.id == _selectedBookId.value &&
                 selectedEdition?.let { reviewWorkIdFor(it.id, it.workId) } == workId
-            if (stillSelected) _serverBookReviews.value = fresh
+            if (stillSelected && reviewLoadGate.isLatest(request)) {
+                _serverBookReviews.value = fresh
+            }
         }
     }
 

@@ -198,7 +198,12 @@ fun BookDetailScreen(
         viewModel.reviewSaveResults.collect { result ->
             reviewSaveInProgress = false
             when (result) {
-                ReviewSaveResult.FAILED -> reviewSaveError = reviewFailureMessage
+                ReviewSaveResult.FAILED -> {
+                    reviewSaveError = reviewFailureMessage
+                    if (reviewFailureNeedsSnackbar(showReviewForm)) {
+                        snackbarHostState.showSnackbar(reviewFailureMessage)
+                    }
+                }
                 ReviewSaveResult.PUBLISHED,
                 ReviewSaveResult.QUEUED -> {
                     reviewSaveError = null
@@ -939,6 +944,8 @@ fun BookDetailScreen(
         onDismiss = { reviewToDelete = null }
     )
 }
+
+internal fun reviewFailureNeedsSnackbar(formVisible: Boolean): Boolean = !formVisible
 
 /**
  * Primary book actions reflow into a vertical stack at accessibility font

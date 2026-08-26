@@ -47,12 +47,14 @@ import com.slukhayka.audiobooks.ui.screens.ReviewCard
 import com.slukhayka.audiobooks.ui.screens.ReviewDeleteConfirmation
 import com.slukhayka.audiobooks.ui.screens.ReviewDeleteConfirmationOwner
 import com.slukhayka.audiobooks.ui.screens.ReviewStarsRow
+import com.slukhayka.audiobooks.ui.screens.reviewFailureNeedsSnackbar
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -384,6 +386,12 @@ class BookDetailReviewsAccessibilityTest {
             listOf(ReviewSaveResult.QUEUED, ReviewSaveResult.FAILED),
             visibleResults
         )
+    }
+
+    @Test
+    fun lateReviewFailureUsesSnackbarAfterQueuedFormHasClosed() {
+        assertFalse(reviewFailureNeedsSnackbar(formVisible = true))
+        assertTrue(reviewFailureNeedsSnackbar(formVisible = false))
     }
 
     @Test

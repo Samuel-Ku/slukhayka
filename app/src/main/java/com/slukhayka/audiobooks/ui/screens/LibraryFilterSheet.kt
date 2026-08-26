@@ -16,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.ViewList
+import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -29,6 +30,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.ui.library.LibraryFilter
@@ -115,6 +117,11 @@ fun LibraryFilterSheet(
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
+        // fix(accessibility): #371 — decorative drag handle must not create an extra
+        // TalkBack focus stop and must never be voiced in Polish on a Polish-system
+        // device. Hiding it from accessibility keeps the visual cue but removes the
+        // "Uchwyt do przeciągania" node entirely.
+        dragHandle = { BottomSheetDefaults.DragHandle(modifier = Modifier.clearAndSetSemantics {}) },
         containerColor = MaterialTheme.colorScheme.surfaceContainerLow
     ) {
         LibraryFilterSheetContent(

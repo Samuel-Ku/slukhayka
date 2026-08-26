@@ -3,6 +3,12 @@ package com.slukhayka.audiobooks.testing
 import com.slukhayka.audiobooks.data.metadata.BookProfile
 import com.slukhayka.audiobooks.data.metadata.CoverProvenance
 import com.slukhayka.audiobooks.data.metadata.DurationProvenance
+import com.slukhayka.audiobooks.data.metadata.FacetAssertion
+import com.slukhayka.audiobooks.data.metadata.FacetAssertionCodec
+import com.slukhayka.audiobooks.data.metadata.FacetAssertionKey
+import com.slukhayka.audiobooks.data.metadata.FacetCursor
+import com.slukhayka.audiobooks.data.metadata.FacetPage
+import com.slukhayka.audiobooks.data.metadata.FacetPageLimits
 import com.slukhayka.audiobooks.data.metadata.ProfileProvenance
 import com.slukhayka.audiobooks.data.metadata.SharedBookMetaStore
 import com.slukhayka.audiobooks.data.metadata.SharedProfileEntry
@@ -15,6 +21,32 @@ import com.slukhayka.audiobooks.data.metadata.SharedProfileEntry
 class FakeSharedBookMetaStore(
     var throwOnPut: Boolean = false
 ) : SharedBookMetaStore {
+
+    private val facets = linkedMapOf<String, FacetAssertion>()
+
+    override suspend fun getFacet(key: FacetAssertionKey): FacetAssertion? = facets[key.documentId]
+
+    override suspend fun putFacet(assertion: FacetAssertion) {
+        if (FacetAssertionCodec.toMap(assertion) == null) return
+        val existing = facets[assertion.documentId]
+        if (existing == null || assertion.updatedAt > existing.updatedAt) {
+            facets[assertion.documentId] = assertion
+        }
+    }
+
+    override suspend fun getFacetPage(after: FacetCursor?, limit: Int): FacetPage {
+        val boundedLimit = FacetPageLimits.bounded(limit)
+        if (boundedLimit == 0) return FacetPage(emptyList(), null)
+        val ordered = facets.values.sortedWith(compareBy<FacetAssertion> { it.updatedAt }.thenBy { it.documentId })
+        val remaining = ordered.filter { assertion ->
+            after == null || assertion.updatedAt > after.updatedAt ||
+                (assertion.updatedAt == after.updatedAt && assertion.documentId > after.documentId)
+        }
+        val assertions = remaining.take(boundedLimit)
+        val nextCursor = assertions.lastOrNull()
+            ?.let { FacetCursor(it.updatedAt, it.documentId) }
+        return FacetPage(assertions, nextCursor)
+    }
 
     val durationPuts = mutableListOf<Triple<String, Long, DurationProvenance>>()
 

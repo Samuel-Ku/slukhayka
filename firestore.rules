@@ -87,6 +87,160 @@ service cloud.firestore {
         && isBoundedDurationProvenance(d, d.observedAt);
     }
 
+    // Spec-42 #311 — one compact assertion is EITHER Work bibliographic
+    // facts OR Edition rendition facts. The mutually exclusive hasOnly sets
+    // prevent narrator/duration from leaking onto Work and keep personal or
+    // playback fields out of the shared delta base.
+    function isFacetId(value, maxSize) {
+      return value.size() <= maxSize
+        && value.matches('^[^/~]*[^\\s/~][^/~]*$');
+    }
+
+    function isFacetPerson(value) {
+      return value.keys().hasOnly(['id', 'name', 'aliases'])
+        && isFacetId(value.id, 250)
+        && value.name.size() <= 200
+        && value.name.matches('.*\\S.*')
+        && isFacetAliasList(value.aliases);
+    }
+
+    // Rules have no list `all` operator, so the bounded positions are
+    // checked explicitly. Short-circuiting keeps indexes past size unread.
+    function isFacetAliasList(v) {
+      return v is list && v.size() <= 8
+        && v.toSet().size() == v.size()
+        && (v.size() < 1 || (v[0].matches('^.{1,200}$') && v[0].matches('.*\\S.*')))
+        && (v.size() < 2 || (v[1].matches('^.{1,200}$') && v[1].matches('.*\\S.*')))
+        && (v.size() < 3 || (v[2].matches('^.{1,200}$') && v[2].matches('.*\\S.*')))
+        && (v.size() < 4 || (v[3].matches('^.{1,200}$') && v[3].matches('.*\\S.*')))
+        && (v.size() < 5 || (v[4].matches('^.{1,200}$') && v[4].matches('.*\\S.*')))
+        && (v.size() < 6 || (v[5].matches('^.{1,200}$') && v[5].matches('.*\\S.*')))
+        && (v.size() < 7 || (v[6].matches('^.{1,200}$') && v[6].matches('.*\\S.*')))
+        && (v.size() < 8 || (v[7].matches('^.{1,200}$') && v[7].matches('.*\\S.*')));
+    }
+
+    function isFacetGenre(value) {
+      return value.keys().hasOnly(['id', 'rawText'])
+        && isFacetId(value.id, 250)
+        && value.rawText.matches('^.{1,200}$')
+        && value.rawText.matches('.*\\S.*');
+    }
+
+    function isFacetGenreList(v) {
+      return v is list && v.size() <= 4
+        && (v.size() < 1 || isFacetGenre(v[0]))
+        && (v.size() < 2 || isFacetGenre(v[1]))
+        && (v.size() < 3 || isFacetGenre(v[2]))
+        && (v.size() < 4 || isFacetGenre(v[3]))
+        && (v.size() < 2 || v[0].id != v[1].id)
+        && (v.size() < 3 || (v[0].id != v[2].id && v[1].id != v[2].id))
+        && (v.size() < 4 || (v[0].id != v[3].id
+          && v[1].id != v[3].id && v[2].id != v[3].id));
+    }
+
+    function isFacetSeriesMembership(value) {
+      return value.keys().hasOnly(['seriesId', 'position'])
+        && isFacetId(value.seriesId, 250)
+        && (!('position' in value) || (value.position is int
+          && value.position > 0 && value.position <= 10000));
+    }
+
+    function isFacetSeriesList(value) {
+      return value is list && value.size() <= 4
+        && (value.size() < 1 || isFacetSeriesMembership(value[0]))
+        && (value.size() < 2 || isFacetSeriesMembership(value[1]))
+        && (value.size() < 3 || isFacetSeriesMembership(value[2]))
+        && (value.size() < 4 || isFacetSeriesMembership(value[3]))
+        && (value.size() < 2 || value[0].seriesId != value[1].seriesId)
+        && (value.size() < 3 || (value[0].seriesId != value[2].seriesId
+          && value[1].seriesId != value[2].seriesId))
+        && (value.size() < 4 || (value[0].seriesId != value[3].seriesId
+          && value[1].seriesId != value[3].seriesId
+          && value[2].seriesId != value[3].seriesId));
+    }
+
+    function isFacetBase(d, document, kind) {
+      return d.schemaVersion is int && d.schemaVersion == 1
+        && d.assertionId == document
+        && d.entityKind == kind
+        && isFacetId(d.entityId, 250)
+        && isFacetId(d.sourceId, 50)
+        && d.observedAt is int && d.observedAt >= 0
+        && d.updatedAt is int && d.updatedAt >= 0
+        // Five minutes absorbs honest client clock skew but prevents a valid
+        // App Check client from freezing this source-owned assertion forever.
+        && d.updatedAt <= request.time.toMillis() + 300000
+        && document == kind + '~' + d.entityId + '~' + d.sourceId;
+    }
+
+    function isWellFormedWorkFacet(d, document) {
+      return d.keys().hasOnly([
+          'schemaVersion', 'assertionId', 'entityKind', 'entityId',
+          'sourceId', 'observedAt', 'updatedAt', 'author', 'genres',
+          'seriesMemberships'
+        ])
+        && isFacetBase(d, document, 'work')
+        && d.keys().size() > 7
+        && (!('author' in d) || isFacetPerson(d.author))
+        && (!('genres' in d) || (d.genres.size() > 0
+          && isFacetGenreList(d.genres)))
+        && (!('seriesMemberships' in d) || (d.seriesMemberships.size() > 0
+          && isFacetSeriesList(d.seriesMemberships)));
+    }
+
+    function hasCompleteFacetAvailability(d) {
+      return (!('availabilityAvailable' in d)
+          && !('availabilityObservedAt' in d)
+          && !('availabilityTtlSeconds' in d))
+        || (d.availabilityAvailable is bool
+          && d.availabilityObservedAt is int
+          && d.availabilityObservedAt >= 0
+          && d.availabilityTtlSeconds is int
+          && d.availabilityTtlSeconds > 0
+          && d.availabilityTtlSeconds <= 2592000);
+    }
+
+    function hasValidDurationFacetReference(d) {
+      return (!('durationRef' in d) && !('durationBucket' in d))
+        || (d.durationRef == d.entityId
+          && d.durationBucket in ['under_5h', '5h_to_10h', '10h_to_20h', '20h_plus']);
+    }
+
+    function isWellFormedEditionFacet(d, document) {
+      return d.keys().hasOnly([
+          'schemaVersion', 'assertionId', 'entityKind', 'entityId',
+          'sourceId', 'observedAt', 'updatedAt', 'workId', 'narrator',
+          'language', 'durationRef', 'durationBucket', 'chapterCount',
+          'completeness', 'availabilityAvailable',
+          'availabilityObservedAt', 'availabilityTtlSeconds'
+        ])
+        && isFacetBase(d, document, 'edition')
+        && isFacetId(d.workId, 250)
+        && d.keys().size() > 8
+        && (!('narrator' in d) || isFacetPerson(d.narrator))
+        && (!('language' in d) || (d.language is string
+          && d.language.size() > 0 && d.language.size() <= 20
+          && d.language.matches('^[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8})*$')))
+        && hasValidDurationFacetReference(d)
+        && (!('chapterCount' in d) || (d.chapterCount is int
+          && d.chapterCount > 0 && d.chapterCount <= 500))
+        && (!('completeness' in d) || d.completeness in ['full', 'abridged'])
+        && hasCompleteFacetAvailability(d);
+    }
+
+    function isWellFormedFacet(d, document) {
+      return isWellFormedWorkFacet(d, document)
+        || isWellFormedEditionFacet(d, document);
+    }
+
+    function facetIdentityIsImmutable(before, after) {
+      return before.assertionId == after.assertionId
+        && before.entityKind == after.entityKind
+        && before.entityId == after.entityId
+        && before.sourceId == after.sourceId
+        && (!('workId' in before) || before.workId == after.workId);
+    }
+
     // Spec-40 #277 — listener reviews of a Work: readable by everyone (the
     // block renders on every book page), writable only by the review's own
     // author under App Check. The document key is `${workId}_${uid}` but the
@@ -167,6 +321,17 @@ service cloud.firestore {
           + '|' + string(request.resource.data.candidateSeconds)
           + '|' + request.resource.data.method;
       allow update, delete: if false;
+    }
+
+    match /book_facets/{document} {
+      allow read: if true;
+      allow create: if isAppCheckValid()
+        && isWellFormedFacet(request.resource.data, document);
+      allow update: if isAppCheckValid()
+        && facetIdentityIsImmutable(resource.data, request.resource.data)
+        && request.resource.data.updatedAt > resource.data.updatedAt
+        && isWellFormedFacet(request.resource.data, document);
+      allow delete: if false;
     }
 
     match /book_profiles/{document} {

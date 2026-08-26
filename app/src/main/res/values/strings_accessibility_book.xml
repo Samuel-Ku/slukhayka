@@ -46,6 +46,7 @@
     <string name="book_detail_bookmark_save_error">Не вдалося зберегти закладку. Спробуйте ще раз.</string>
     <string name="book_detail_bookmark_deleted">Закладку видалено.</string>
     <string name="book_detail_bookmark_delete_error">Не вдалося видалити закладку. Спробуйте ще раз.</string>
+    <string name="book_detail_narration_rating_delete">Видалити оцінку начитки</string>
     <string name="book_detail_bookmark_default_note">Закладка на %1$s</string>
     <string name="book_detail_chapter_fallback">Розділ %1$d</string>
     <string name="book_detail_bookmark_pane">Додати закладку</string>

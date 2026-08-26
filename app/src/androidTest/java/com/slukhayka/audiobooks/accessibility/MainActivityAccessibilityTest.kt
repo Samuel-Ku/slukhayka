@@ -44,6 +44,7 @@ import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.SelectedTab
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -194,6 +195,10 @@ class MainActivityAccessibilityTest {
     @OptIn(ExperimentalTestApi::class)
     @Test
     fun seededLibraryBookChapterPlayerRoundTripPassesAccessibilityGate() {
+        assertEquals(
+            "uk",
+            composeTestRule.activity.resources.configuration.locales[0].language
+        )
         composeTestRule.waitUntilExactlyOneExists(
             hasTestTag("listen_screen"),
             timeoutMillis = NAV_TIMEOUT_MS

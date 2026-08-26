@@ -81,6 +81,7 @@ class FacetAssertionCodecTest {
         val edition = editionAssertion(editionId = work.workId, workId = work.workId)
 
         assertEquals(work.documentId, repeat.documentId)
+        assertEquals("work~work-id~4read", work.documentId)
         assertNotEquals(work.documentId, anotherSource.documentId)
         assertNotEquals(work.documentId, edition.documentId)
     }
@@ -143,16 +144,33 @@ class FacetAssertionCodecTest {
     fun `malformed mixed or unbounded documents decode as miss`() {
         val work = workAssertion()
         val valid = FacetAssertionCodec.toMap(work)!!
+        val duplicateAliases = mapOf(
+            "id" to "author-id",
+            "name" to "Автор",
+            "aliases" to listOf("Псевдонім", "Псевдонім")
+        )
+        val duplicateGenres = listOf(
+            mapOf("id" to "fantasy", "rawText" to "Фентезі"),
+            mapOf("id" to "fantasy", "rawText" to "Фантастика")
+        )
+        val duplicateSeries = listOf(
+            mapOf("seriesId" to "series-id", "position" to 1L),
+            mapOf("seriesId" to "series-id", "position" to 2L)
+        )
         val malformed = listOf(
             valid - "entityId",
             valid + ("entityId" to " "),
-            valid + ("sourceId" to "x".repeat(FacetAssertionLimits.MAX_ID_LENGTH + 1)),
+            valid + ("sourceId" to "x".repeat(FacetAssertionLimits.MAX_SOURCE_ID_LENGTH + 1)),
+            valid + ("sourceId" to "source~collision"),
             valid + ("genres" to "fantasy"),
             valid + ("genres" to List(FacetAssertionLimits.MAX_GENRES + 1) {
                 mapOf("id" to "g$it", "rawText" to "Genre $it")
             }),
             valid + ("genres" to listOf(mapOf("id" to "fantasy"))),
             valid + ("genres" to listOf(mapOf("id" to "fantasy", "rawText" to "   "))),
+            valid + ("author" to duplicateAliases),
+            valid + ("genres" to duplicateGenres),
+            valid + ("seriesMemberships" to duplicateSeries),
             valid + ("narrator" to mapOf("id" to "n", "name" to "Narrator", "aliases" to emptyList<String>())),
             valid + ("unexpected" to "personal"),
             valid + ("updatedAt" to 1.5),

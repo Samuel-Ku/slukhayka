@@ -1,7 +1,5 @@
 package com.slukhayka.audiobooks.data.metadata
 
-import com.slukhayka.audiobooks.data.sha256Hex
-
 /** One bounded public metadata assertion, never listener or playback state. */
 sealed interface FacetAssertion {
     val entityId: String
@@ -102,8 +100,10 @@ data class FacetAvailability(
 
 object FacetAssertionLimits {
     const val SCHEMA_VERSION = 1L
-    const val MAX_ID_LENGTH = 300
-    const val MAX_SOURCE_ID_LENGTH = 100
+    // Keeps the reversible Firestore document id below its 1,500-byte limit
+    // even when every character occupies four UTF-8 bytes.
+    const val MAX_ID_LENGTH = 250
+    const val MAX_SOURCE_ID_LENGTH = 50
     const val MAX_PERSON_NAME_LENGTH = 200
     const val MAX_ALIASES = 8
     const val MAX_GENRES = 4
@@ -117,10 +117,10 @@ object FacetAssertionLimits {
 
 /** Stable idempotency key for the same Source assertion about one entity. */
 object FacetAssertionId {
-    fun of(kind: FacetEntityKind, entityId: String, sourceId: String): String {
-        val digest = sha256Hex("${kind.wireName}\u0000$entityId\u0000$sourceId".toByteArray()).take(40)
-        return "${kind.wireName.first()}_$digest"
-    }
+    const val DELIMITER = '~'
+
+    fun of(kind: FacetEntityKind, entityId: String, sourceId: String): String =
+        "${kind.wireName}$DELIMITER$entityId$DELIMITER$sourceId"
 }
 
 data class FacetAssertionKey(
@@ -138,6 +138,7 @@ data class FacetCursor(
 
 data class FacetPage(
     val assertions: List<FacetAssertion>,
+    /** High-water mark of the last raw document, including a terminal page. */
     val nextCursor: FacetCursor?
 )
 
@@ -318,7 +319,8 @@ object FacetAssertionCodec {
             value.rawText.length <= FacetAssertionLimits.MAX_GENRE_RAW_TEXT_LENGTH
 
     private fun boundedId(value: String, maxLength: Int): Boolean =
-        value.isNotBlank() && value.length <= maxLength && '/' !in value
+        value.isNotBlank() && value.length <= maxLength &&
+            '/' !in value && FacetAssertionId.DELIMITER !in value
 
     private fun personToMap(value: FacetPerson): Map<String, Any> = mapOf(
         "id" to value.id, "name" to value.name, "aliases" to value.aliases

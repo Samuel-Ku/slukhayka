@@ -40,13 +40,16 @@ class SharedFacetStoreContractTest {
 
         val first = store.getFacetPage(after = null, limit = 2)
         val second = store.getFacetPage(after = first.nextCursor, limit = 2)
+        val exhausted = store.getFacetPage(after = second.nextCursor, limit = 2)
 
         assertEquals(
             assertions.sortedWith(compareBy<FacetAssertion> { it.updatedAt }.thenBy { it.documentId }),
             first.assertions + second.assertions
         )
         assertEquals(2, first.assertions.size)
-        assertNull(second.nextCursor)
+        assertEquals(second.assertions.last().documentId, second.nextCursor?.documentId)
+        assertEquals(emptyList<FacetAssertion>(), exhausted.assertions)
+        assertNull(exhausted.nextCursor)
         assertTrue(store.getFacetPage(after = null, limit = FacetPageLimits.MAX_PAGE_SIZE + 10).assertions.size <= FacetPageLimits.MAX_PAGE_SIZE)
         assertEquals(emptyList<FacetAssertion>(), store.getFacetPage(after = null, limit = 0).assertions)
     }

@@ -102,13 +102,14 @@ class FirestoreBookMetaStoreEmulatorTest {
         runWithMainLooperDrain {
             runBlocking {
                 val store = FirestoreBookMetaStore(firestore)
+                val now = System.currentTimeMillis()
                 val work = FacetAssertion.Work(
                     workId = "emulator-work|author",
                     sourceId = "emulator-source",
                     author = FacetPerson("author-emulator", "Автор"),
                     genres = listOf(FacetGenre("fantasy", "Фентезі")),
-                    observedAt = 1_900_000_000_000L,
-                    updatedAt = 1_900_000_000_000L
+                    observedAt = now,
+                    updatedAt = now
                 )
                 val edition = FacetAssertion.Edition(
                     editionId = "emulator-edition",
@@ -120,9 +121,9 @@ class FirestoreBookMetaStoreEmulatorTest {
                     durationBucket = FacetDurationBucket.FIVE_TO_TEN_HOURS,
                     chapterCount = 20,
                     completeness = FacetCompleteness.FULL,
-                    availability = FacetAvailability(true, 1_900_000_000_000L, 86_400L),
-                    observedAt = 1_900_000_000_000L,
-                    updatedAt = 1_900_000_000_002L
+                    availability = FacetAvailability(true, now, 86_400L),
+                    observedAt = now,
+                    updatedAt = now + 2L
                 )
 
                 store.putFacet(work)
@@ -136,7 +137,7 @@ class FirestoreBookMetaStoreEmulatorTest {
                         FacetGenre("fantasy", "Фентезі"),
                         FacetGenre("drama", "Драма")
                     ),
-                    updatedAt = 1_900_000_000_001L
+                    updatedAt = now + 1L
                 )
                 store.putFacet(updatedWork)
                 store.putFacet(edition)
@@ -147,7 +148,7 @@ class FirestoreBookMetaStoreEmulatorTest {
                 )
                 assertEquals(
                     listOf(updatedWork, edition),
-                    store.getFacetPage(FacetCursor(1_899_999_999_999L, "a"), 10).assertions
+                    store.getFacetPage(FacetCursor(now - 1L, "a"), 10).assertions
                 )
             }
         }

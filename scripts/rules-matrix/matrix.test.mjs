@@ -76,15 +76,20 @@ function durationConflictId(conflict) {
   return `${conflict.editionId}|${conflict.candidateSeconds}|${conflict.method}`;
 }
 
-const WORK_FACET_ID = `w_${"a".repeat(40)}`;
-const WORK_FACET_CREATE_ID = `w_${"b".repeat(40)}`;
-const EDITION_FACET_ID = `e_${"b".repeat(40)}`;
+function facetId(kind, entityId, sourceId) {
+  return `${kind}~${entityId}~${sourceId}`;
+}
+
+const WORK_ENTITY_ID = "лісова-пісня|леся-українка";
+const FACET_SOURCE_ID = "4read";
+const WORK_FACET_ID = facetId("work", WORK_ENTITY_ID, FACET_SOURCE_ID);
+const EDITION_FACET_ID = facetId("edition", "edition-qa", FACET_SOURCE_ID);
 const VALID_WORK_FACET = {
   schemaVersion: 1,
   assertionId: WORK_FACET_ID,
   entityKind: "work",
-  entityId: "лісова-пісня|леся-українка",
-  sourceId: "4read",
+  entityId: WORK_ENTITY_ID,
+  sourceId: FACET_SOURCE_ID,
   observedAt: 1700000000000,
   updatedAt: 41,
   author: { id: "author-lesia", name: "Леся Українка", aliases: ["Лариса Косач"] },
@@ -99,9 +104,20 @@ const UPDATED_WORK_FACET = {
   updatedAt: 42,
   genres: [{ id: "drama", rawText: "Драма" }],
 };
+function withFacetIdentity(base, overrides) {
+  const value = { ...base, ...overrides };
+  return {
+    ...value,
+    assertionId: facetId(value.entityKind, value.entityId, value.sourceId),
+  };
+}
+const CREATED_WORK_FACET = withFacetIdentity(VALID_WORK_FACET, {
+  entityId: "work-created-by-first-client",
+});
 const MAX_WORK_FACET = {
   ...VALID_WORK_FACET,
-  assertionId: `w_${"2".repeat(40)}`,
+  entityId: "work-max-bounds",
+  assertionId: facetId("work", "work-max-bounds", FACET_SOURCE_ID),
   author: {
     ...VALID_WORK_FACET.author,
     aliases: Array.from({ length: 8 }, (_, index) => `alias-${index}`),
@@ -135,6 +151,70 @@ const VALID_EDITION_FACET = {
   availabilityTtlSeconds: 86400,
 };
 
+const MALFORMED_WORK_FACET = withFacetIdentity(VALID_WORK_FACET, {
+  entityId: "work-malformed-list",
+  author: { ...VALID_WORK_FACET.author, aliases: [42] },
+});
+const NO_APPCHECK_WORK_FACET = withFacetIdentity(VALID_WORK_FACET, {
+  entityId: "work-no-appcheck",
+});
+const MIXED_WORK_FACET = withFacetIdentity(VALID_WORK_FACET, {
+  entityId: "work-mixed-kind",
+  narrator: VALID_EDITION_FACET.narrator,
+});
+const BAD_GENRE_WORK_FACET = withFacetIdentity(VALID_WORK_FACET, {
+  entityId: "work-bad-genre",
+  genres: [{ id: "fantasy", rawText: 42 }],
+});
+const BAD_SERIES_WORK_FACET = withFacetIdentity(VALID_WORK_FACET, {
+  entityId: "work-bad-series",
+  seriesMemberships: [{ seriesId: "series", position: "two" }],
+});
+const BAD_REF_EDITION_FACET = withFacetIdentity(VALID_EDITION_FACET, {
+  entityId: "edition-bad-ref",
+  durationRef: "other-edition",
+});
+const BAD_TTL_EDITION_FACET = withFacetIdentity(VALID_EDITION_FACET, {
+  entityId: "edition-bad-ttl",
+  durationRef: "edition-bad-ttl",
+  availabilityTtlSeconds: 0,
+});
+const BAD_BUCKET_EDITION_FACET = withFacetIdentity(VALID_EDITION_FACET, {
+  entityId: "edition-bad-bucket",
+  durationRef: "edition-bad-bucket",
+  durationBucket: "overnight",
+});
+const DUPLICATE_WORK_FACET_ID = `${WORK_FACET_ID}~duplicate`;
+const DUPLICATE_WORK_FACET = {
+  ...VALID_WORK_FACET,
+  assertionId: DUPLICATE_WORK_FACET_ID,
+};
+const FUTURE_WORK_FACET = withFacetIdentity(VALID_WORK_FACET, {
+  entityId: "work-future-cursor",
+  updatedAt: Date.now() + 10 * 60 * 1000,
+});
+const BLANK_ID_WORK_FACET = withFacetIdentity(VALID_WORK_FACET, {
+  entityId: "   ",
+});
+const DUPLICATE_ALIAS_WORK_FACET = withFacetIdentity(VALID_WORK_FACET, {
+  entityId: "work-duplicate-alias",
+  author: { ...VALID_WORK_FACET.author, aliases: ["Лариса Косач", "Лариса Косач"] },
+});
+const DUPLICATE_GENRE_WORK_FACET = withFacetIdentity(VALID_WORK_FACET, {
+  entityId: "work-duplicate-genre",
+  genres: [
+    { id: "fantasy", rawText: "Фентезі" },
+    { id: "fantasy", rawText: "Фантастика" },
+  ],
+});
+const DUPLICATE_SERIES_WORK_FACET = withFacetIdentity(VALID_WORK_FACET, {
+  entityId: "work-duplicate-series",
+  seriesMemberships: [
+    { seriesId: "forest-cycle", position: 1 },
+    { seriesId: "forest-cycle", position: 2 },
+  ],
+});
+
 // id | path | method | uid | тіло | очікувано | чому
 const MATRIX = [
   ["R1", "book_reviews/qa_r1", "get", null, null, "ALLOW", "читання публічне"],
@@ -167,21 +247,28 @@ const MATRIX = [
   ["C7", "book_duration_conflicts/alternate-duplicate-id", "create", null, VALID_DURATION_CONFLICT, "DENY", "id не відповідає Edition/value/method"],
   ["C8", `book_duration_conflicts/${durationConflictId(VALID_DURATION_CONFLICT)}`, "create", null, VALID_DURATION_CONFLICT, "DENY", "повтор не створює другий conflict"],
   ["F1", `book_facets/${WORK_FACET_ID}`, "get", null, null, "ALLOW", "facet read публічне"],
-  ["F2", `book_facets/${WORK_FACET_CREATE_ID}`, "create", null, { ...VALID_WORK_FACET, assertionId: WORK_FACET_CREATE_ID }, "ALLOW", "bounded Work create (+AppCheck у проді)"],
+  ["F2", `book_facets/${CREATED_WORK_FACET.assertionId}`, "create", null, CREATED_WORK_FACET, "ALLOW", "bounded Work create (+AppCheck у проді)"],
   ["F3", `book_facets/${WORK_FACET_ID}`, "update", null, UPDATED_WORK_FACET, "ALLOW", "повний factual update зі сталою identity"],
   ["F4", `book_facets/${WORK_FACET_ID}`, "update", null, { ...UPDATED_WORK_FACET, entityId: "інший-work" }, "DENY", "entity identity immutable"],
-  ["F5", `book_facets/w_${"c".repeat(40)}`, "create", null, { ...VALID_WORK_FACET, assertionId: `w_${"c".repeat(40)}`, genres: "fantasy" }, "DENY", "malformed list"],
+  ["F5", `book_facets/${MALFORMED_WORK_FACET.assertionId}`, "create", null, MALFORMED_WORK_FACET, "DENY", "non-string alias"],
   ["F6", `book_facets/${WORK_FACET_ID}`, "delete", null, null, "DENY", "facet delete заборонений"],
-  ["F7", `book_facets/w_${"d".repeat(40)}`, "create", null, { ...VALID_WORK_FACET, assertionId: `w_${"d".repeat(40)}` }, "DENY", "нема AppCheck-токена"],
+  ["F7", `book_facets/${NO_APPCHECK_WORK_FACET.assertionId}`, "create", null, NO_APPCHECK_WORK_FACET, "DENY", "нема AppCheck-токена"],
   ["F8", `book_facets/${EDITION_FACET_ID}`, "create", null, VALID_EDITION_FACET, "ALLOW", "bounded Edition create"],
-  ["F9", `book_facets/e_${"c".repeat(40)}`, "create", null, { ...VALID_EDITION_FACET, assertionId: `e_${"c".repeat(40)}`, durationRef: "other-edition" }, "DENY", "duration ref не змінює Edition identity"],
-  ["F10", `book_facets/e_${"d".repeat(40)}`, "create", null, { ...VALID_EDITION_FACET, assertionId: `e_${"d".repeat(40)}`, availabilityTtlSeconds: 0 }, "DENY", "availability без дійсного TTL"],
-  ["F11", `book_facets/w_${"e".repeat(40)}`, "create", null, { ...VALID_WORK_FACET, assertionId: `w_${"e".repeat(40)}`, narrator: VALID_EDITION_FACET.narrator }, "DENY", "rendition fact не живе на Work"],
-  ["F12", `book_facets/w_${"f".repeat(40)}`, "create", null, { ...VALID_WORK_FACET, assertionId: `w_${"f".repeat(40)}`, genres: [{ id: "fantasy", rawText: 42 }] }, "DENY", "genre fact має bounded id/rawText shape"],
-  ["F13", `book_facets/w_${"1".repeat(40)}`, "create", null, { ...VALID_WORK_FACET, assertionId: `w_${"1".repeat(40)}`, seriesMemberships: [{ seriesId: "series", position: "two" }] }, "DENY", "Series Membership shape bounded"],
-  ["F14", `book_facets/e_${"1".repeat(40)}`, "create", null, { ...VALID_EDITION_FACET, assertionId: `e_${"1".repeat(40)}`, durationBucket: "overnight" }, "DENY", "неканонічний duration bucket"],
+  ["F9", `book_facets/${BAD_REF_EDITION_FACET.assertionId}`, "create", null, BAD_REF_EDITION_FACET, "DENY", "duration ref не змінює Edition identity"],
+  ["F10", `book_facets/${BAD_TTL_EDITION_FACET.assertionId}`, "create", null, BAD_TTL_EDITION_FACET, "DENY", "availability без дійсного TTL"],
+  ["F11", `book_facets/${MIXED_WORK_FACET.assertionId}`, "create", null, MIXED_WORK_FACET, "DENY", "rendition fact не живе на Work"],
+  ["F12", `book_facets/${BAD_GENRE_WORK_FACET.assertionId}`, "create", null, BAD_GENRE_WORK_FACET, "DENY", "genre fact має bounded id/rawText shape"],
+  ["F13", `book_facets/${BAD_SERIES_WORK_FACET.assertionId}`, "create", null, BAD_SERIES_WORK_FACET, "DENY", "Series Membership shape bounded"],
+  ["F14", `book_facets/${BAD_BUCKET_EDITION_FACET.assertionId}`, "create", null, BAD_BUCKET_EDITION_FACET, "DENY", "неканонічний duration bucket"],
   ["F15", `book_facets/${WORK_FACET_ID}`, "update", null, { ...UPDATED_WORK_FACET, updatedAt: 40 }, "DENY", "update cursor не рухається назад"],
   ["F16", `book_facets/${MAX_WORK_FACET.assertionId}`, "create", null, MAX_WORK_FACET, "ALLOW", "bounded maxima лишаються записуваними"],
+  ["F17", `book_facets/${CREATED_WORK_FACET.assertionId}`, "get-existing", null, null, "ALLOW", "інший клієнт бачить створений assertion"],
+  ["F18", `book_facets/${DUPLICATE_WORK_FACET_ID}`, "create", null, DUPLICATE_WORK_FACET, "DENY", "другий document id для тієї самої identity заборонений"],
+  ["F19", `book_facets/${FUTURE_WORK_FACET.assertionId}`, "create", null, FUTURE_WORK_FACET, "DENY", "майбутній cursor не заморожує assertion"],
+  ["F20", `book_facets/${BLANK_ID_WORK_FACET.assertionId}`, "create", null, BLANK_ID_WORK_FACET, "DENY", "blank entity identity заборонена"],
+  ["F21", `book_facets/${DUPLICATE_ALIAS_WORK_FACET.assertionId}`, "create", null, DUPLICATE_ALIAS_WORK_FACET, "DENY", "alias values унікальні"],
+  ["F22", `book_facets/${DUPLICATE_GENRE_WORK_FACET.assertionId}`, "create", null, DUPLICATE_GENRE_WORK_FACET, "DENY", "genre ids унікальні"],
+  ["F23", `book_facets/${DUPLICATE_SERIES_WORK_FACET.assertionId}`, "create", null, DUPLICATE_SERIES_WORK_FACET, "DENY", "Series ids унікальні"],
 ];
 
 // Який прогін є доказом кожного рядка.
@@ -195,7 +282,8 @@ const EVIDENCE = {
   F1: "as-is", F2: "open", F3: "open", F4: "open", F5: "open",
   F6: "open", F7: "as-is", F8: "open", F9: "open", F10: "open",
   F11: "open", F12: "open", F13: "open", F14: "open", F15: "open",
-  F16: "open",
+  F16: "open", F17: "open", F18: "open", F19: "open",
+  F20: "open", F21: "open", F22: "open", F23: "open",
 };
 
 function b64(o) {
@@ -239,6 +327,10 @@ async function attempt(row) {
   try {
     const ref = doc(collection(client.db, collectionName), docId);
     if (method === "get") await getDoc(ref);
+    else if (method === "get-existing") {
+      const snapshot = await getDoc(ref);
+      if (!snapshot.exists()) return "ERROR:not-found";
+    }
     else if (method === "create") await setDoc(ref, body);
     else if (method === "update") await setDoc(ref, body, { merge: true });
     else if (method === "delete") await deleteDoc(ref);

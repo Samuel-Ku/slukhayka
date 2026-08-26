@@ -61,7 +61,6 @@ class FirestoreBookMetaStore(private val firestore: FirebaseFirestore) : SharedB
                 FacetAssertionCodec.fromMap(document.id, document.data ?: return@mapNotNull null)
             }
             val nextCursor = pageDocuments.lastOrNull()
-                ?.takeIf { snapshot.size() > boundedLimit }
                 ?.let { document ->
                     (document.data?.get(FACET_CURSOR_FIELD) as? Number)?.toLong()
                         ?.let { updatedAt -> FacetCursor(updatedAt, document.id) }

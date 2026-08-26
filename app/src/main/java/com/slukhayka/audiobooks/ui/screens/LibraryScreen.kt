@@ -56,6 +56,7 @@ import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.components.BookCoverSemantics
 import com.slukhayka.audiobooks.ui.components.BookCoverImage
 import com.slukhayka.audiobooks.ui.components.EmptyState
+import com.slukhayka.audiobooks.ui.components.RestoreFocusAfterModal
 import com.slukhayka.audiobooks.ui.components.accessibilityPane
 import com.slukhayka.audiobooks.ui.components.accessibilityModalBackground
 import com.slukhayka.audiobooks.ui.displayAuthor
@@ -169,6 +170,19 @@ fun LibraryScreen(
     val overflowFocusRequester = remember { FocusRequester() }
     val libraryGridState = rememberLazyGridState()
     val modalVisible = showFilterSheet || showImportSheet || importPreview != null
+
+    RestoreFocusAfterModal(
+        modalVisible = showFilterSheet,
+        returnFocusRequester = filterFocusRequester
+    )
+    RestoreFocusAfterModal(
+        modalVisible = showImportSheet,
+        returnFocusRequester = importFocusRequester
+    )
+    RestoreFocusAfterModal(
+        modalVisible = importPreview != null,
+        returnFocusRequester = importFocusRequester
+    )
 
     val visibleBooks = remember(libraryBooks, filter, sort, query) {
         filterAndSortLibrary(libraryBooks, filter, sort, query)
@@ -533,8 +547,7 @@ fun LibraryScreen(
                 onFilterChange = { filter = it },
                 onSortChange = { sort = it },
                 onGridModeChange = { gridMode = it },
-                onDismiss = { showFilterSheet = false },
-                returnFocusRequester = filterFocusRequester
+                onDismiss = { showFilterSheet = false }
             )
         }
 
@@ -548,8 +561,7 @@ fun LibraryScreen(
                     showImportSheet = false
                     folderLauncher.launch(null)
                 },
-                onDismiss = { showImportSheet = false },
-                returnFocusRequester = importFocusRequester
+                onDismiss = { showImportSheet = false }
             )
         }
 
@@ -559,8 +571,7 @@ fun LibraryScreen(
                 onAcceptMerge = viewModel::acceptMergeInPreview,
                 onRejectMerge = viewModel::rejectMergeInPreview,
                 onConfirm = viewModel::confirmImportPreview,
-                onDismiss = viewModel::dismissImportPreview,
-                returnFocusRequester = importFocusRequester
+                onDismiss = viewModel::dismissImportPreview
             )
         }
     }
@@ -1142,23 +1153,12 @@ fun ImportPreviewDialog(
     onAcceptMerge: (String) -> Unit,
     onRejectMerge: (String) -> Unit,
     onConfirm: () -> Unit,
-    onDismiss: () -> Unit,
-    returnFocusRequester: FocusRequester? = null
+    onDismiss: () -> Unit
 ) {
     val mergedCount = preview.plan.books.count { it.mergedIntoBookId != null }
     val headingFocusRequester = remember { FocusRequester() }
-    val scope = rememberCoroutineScope()
-    fun finishAndRestore(action: () -> Unit) {
-        action()
-        returnFocusRequester?.let { requester ->
-            scope.launch {
-                withFrameNanos { }
-                requester.requestFocus()
-            }
-        }
-    }
     AlertDialog(
-        onDismissRequest = { finishAndRestore(onDismiss) },
+        onDismissRequest = onDismiss,
         modifier = Modifier
             .accessibilityPane(stringResource(R.string.a11y_library_import_preview_pane))
             .testTag("library_import_preview_dialog"),
@@ -1239,7 +1239,7 @@ fun ImportPreviewDialog(
         },
         confirmButton = {
             TextButton(
-                onClick = { finishAndRestore(onConfirm) },
+                onClick = onConfirm,
                 modifier = Modifier
                     .heightIn(min = 48.dp)
                     .testTag("library_import_preview_confirm")
@@ -1255,7 +1255,7 @@ fun ImportPreviewDialog(
         },
         dismissButton = {
             TextButton(
-                onClick = { finishAndRestore(onDismiss) },
+                onClick = onDismiss,
                 modifier = Modifier.heightIn(min = 48.dp)
             ) {
                 Text("Скасувати")

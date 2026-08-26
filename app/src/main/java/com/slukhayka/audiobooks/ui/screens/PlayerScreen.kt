@@ -65,6 +65,7 @@ import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.components.BookCoverImage
 import com.slukhayka.audiobooks.ui.components.BookCoverSemantics
 import com.slukhayka.audiobooks.ui.components.PlayerDebugOverlay
+import com.slukhayka.audiobooks.ui.components.RestoreFocusAfterModal
 import com.slukhayka.audiobooks.ui.components.SleepTimerSheet
 import com.slukhayka.audiobooks.ui.components.SpeedSheet
 import com.slukhayka.audiobooks.ui.components.formatSpeed
@@ -495,21 +496,20 @@ fun PlayerScreenContent(
     LaunchedEffect(activeTool) {
         if (activeTool != null) {
             restoreTool = activeTool
-        } else {
-            val requester = when (restoreTool) {
-                PlayerQuickTool.Speed -> speedFocusRequester
-                PlayerQuickTool.Timer -> timerFocusRequester
-                PlayerQuickTool.Bookmark -> bookmarkFocusRequester
-                PlayerQuickTool.Chapters -> chaptersFocusRequester
-                null -> null
-            }
-            if (requester != null) {
-                withFrameNanos { }
-                requester.requestFocus()
-                restoreTool = null
-            }
         }
     }
+    val toolReturnFocusRequester = when (restoreTool) {
+        PlayerQuickTool.Speed -> speedFocusRequester
+        PlayerQuickTool.Timer -> timerFocusRequester
+        PlayerQuickTool.Bookmark -> bookmarkFocusRequester
+        PlayerQuickTool.Chapters -> chaptersFocusRequester
+        null -> null
+    }
+    RestoreFocusAfterModal(
+        modalVisible = activeTool != null,
+        returnFocusRequester = toolReturnFocusRequester,
+        onFocusRestored = { restoreTool = null }
+    )
 
     Box(
         modifier = modifier

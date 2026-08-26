@@ -47,6 +47,7 @@ import com.slukhayka.audiobooks.testing.TestDataFactory
 import com.slukhayka.audiobooks.data.imports.ImportPlan
 import com.slukhayka.audiobooks.data.imports.SourceRef
 import com.slukhayka.audiobooks.ui.components.accessibilityModalBackground
+import com.slukhayka.audiobooks.ui.components.RestoreFocusAfterModal
 import com.slukhayka.audiobooks.ui.library.LibraryFilter
 import com.slukhayka.audiobooks.ui.library.LibrarySort
 import com.slukhayka.audiobooks.ui.library.buildLibraryBooks
@@ -206,6 +207,9 @@ class LibraryAccessibilityTest {
                 val filterOrigin = remember { FocusRequester() }
                 val importOrigin = remember { FocusRequester() }
                 val previewOrigin = remember { FocusRequester() }
+                RestoreFocusAfterModal(activeModal == "filter", filterOrigin)
+                RestoreFocusAfterModal(activeModal == "import", importOrigin)
+                RestoreFocusAfterModal(activeModal == "preview", previewOrigin)
                 Box(Modifier.width(320.dp).height(480.dp)) {
                     Column(
                         Modifier
@@ -233,22 +237,19 @@ class LibraryAccessibilityTest {
                             onFilterChange = {},
                             onSortChange = {},
                             onGridModeChange = {},
-                            onDismiss = { activeModal = null },
-                            returnFocusRequester = filterOrigin
+                            onDismiss = { activeModal = null }
                         )
                         "import" -> LibraryImportSheet(
                             onImportFile = { activeModal = null },
                             onImportFolder = { activeModal = null },
-                            onDismiss = { activeModal = null },
-                            returnFocusRequester = importOrigin
+                            onDismiss = { activeModal = null }
                         )
                         "preview" -> ImportPreviewDialog(
                             preview = preview,
                             onAcceptMerge = {},
                             onRejectMerge = {},
                             onConfirm = { activeModal = null },
-                            onDismiss = { activeModal = null },
-                            returnFocusRequester = previewOrigin
+                            onDismiss = { activeModal = null }
                         )
                     }
                 }

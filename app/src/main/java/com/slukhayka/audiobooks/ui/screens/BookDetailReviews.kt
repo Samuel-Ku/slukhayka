@@ -65,6 +65,7 @@ import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.reviews.ListenerReview
 import com.slukhayka.audiobooks.data.reviews.ListenerReviewLimits
+import com.slukhayka.audiobooks.ui.components.RestoreFocusAfterModal
 import com.slukhayka.audiobooks.ui.components.accessibilityPane
 import java.text.DateFormat
 import java.util.Date
@@ -627,18 +628,10 @@ fun ReviewDeleteConfirmationOwner(
     onConfirm: (ListenerReview) -> Unit,
     onDismiss: () -> Unit
 ) {
-    var restoreAfterClose by remember { mutableStateOf(false) }
-    LaunchedEffect(review) {
-        if (review != null) {
-            restoreAfterClose = true
-        } else if (restoreAfterClose) {
-            // Wait until the Dialog's separate window subtree has detached;
-            // otherwise it can immediately reclaim focus from the owner.
-            withFrameNanos { }
-            returnFocusRequester.requestFocus()
-            restoreAfterClose = false
-        }
-    }
+    RestoreFocusAfterModal(
+        modalVisible = review != null,
+        returnFocusRequester = returnFocusRequester
+    )
     review?.let { doomed ->
         ReviewDeleteConfirmation(
             workTitle = workTitle,

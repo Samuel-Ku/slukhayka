@@ -41,6 +41,7 @@ import com.slukhayka.audiobooks.data.db.BookmarkEntity
 import com.slukhayka.audiobooks.data.db.ChapterEntity
 import com.slukhayka.audiobooks.ui.components.BookmarkDialog
 import com.slukhayka.audiobooks.ui.components.accessibilityModalBackground
+import com.slukhayka.audiobooks.ui.components.RestoreFocusAfterModal
 import com.slukhayka.audiobooks.ui.screens.BookmarkDeleteConfirmation
 import com.slukhayka.audiobooks.ui.screens.BookmarkRowItem
 import com.slukhayka.audiobooks.ui.screens.BookDeleteModalLifecycle
@@ -223,6 +224,7 @@ class BookDetailChapterBookmarkAccessibilityTest {
             AudiobookTheme(darkTheme = true) {
                 var open by remember { mutableStateOf(false) }
                 val origin = remember { FocusRequester() }
+                RestoreFocusAfterModal(open, origin)
                 Box {
                     Button(
                         onClick = { open = true },
@@ -239,8 +241,7 @@ class BookDetailChapterBookmarkAccessibilityTest {
                                 confirmed = true
                                 open = false
                             },
-                            onDismiss = { open = false },
-                            returnFocusRequester = origin
+                            onDismiss = { open = false }
                         )
                     }
                 }

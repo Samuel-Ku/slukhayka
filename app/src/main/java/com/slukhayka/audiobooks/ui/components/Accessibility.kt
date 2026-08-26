@@ -1,6 +1,14 @@
 package com.slukhayka.audiobooks.ui.components
 
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.semantics.hideFromAccessibility
@@ -26,3 +34,31 @@ fun Modifier.accessibilityModalBackground(modalVisible: Boolean): Modifier =
 /** Accessibility announcement contract for pushed and modal surfaces. */
 fun Modifier.accessibilityPane(title: String): Modifier =
     semantics { paneTitle = title }
+
+/**
+ * Returns focus to the control that opened a modal after that modal has left
+ * composition. An initially closed modal is deliberately a no-op: focus only
+ * moves after this owner has observed one visible-to-closed transition.
+ */
+@Composable
+fun RestoreFocusAfterModal(
+    modalVisible: Boolean,
+    returnFocusRequester: FocusRequester?,
+    onFocusRestored: () -> Unit = {}
+) {
+    var modalWasVisible by remember { mutableStateOf(false) }
+    LaunchedEffect(modalVisible, returnFocusRequester) {
+        if (modalVisible) {
+            modalWasVisible = true
+        } else if (modalWasVisible) {
+            returnFocusRequester?.let { requester ->
+                withFrameNanos { }
+                requester.requestFocus()
+                modalWasVisible = false
+                onFocusRestored()
+            } ?: run {
+                modalWasVisible = false
+            }
+        }
+    }
+}

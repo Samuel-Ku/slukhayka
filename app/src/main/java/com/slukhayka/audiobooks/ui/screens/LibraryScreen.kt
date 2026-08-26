@@ -207,11 +207,14 @@ fun LibraryScreen(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
+        LibraryModalUnderlay(
+            modalVisible = modalVisible,
+            modifier = Modifier.fillMaxSize()
+        ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .testTag("library_screen")
-                .accessibilityModalBackground(modalVisible)
                 .accessibilityPane(stringResource(com.slukhayka.audiobooks.R.string.a11y_library_pane))
         ) {
             // Top Header — one row: title + subtitle, «+ Додати» (the import
@@ -520,6 +523,7 @@ fun LibraryScreen(
                 .padding(16.dp)
                 .semantics { liveRegion = LiveRegionMode.Polite }
         )
+        }
 
         if (showFilterSheet) {
             LibraryFilterSheet(
@@ -560,6 +564,24 @@ fun LibraryScreen(
             )
         }
     }
+}
+
+/**
+ * Owns the complete non-modal library layer, including transient snackbar
+ * feedback, so a sheet or import dialog is the only TalkBack surface left.
+ */
+@Composable
+internal fun LibraryModalUnderlay(
+    modalVisible: Boolean,
+    modifier: Modifier = Modifier,
+    content: @Composable BoxScope.() -> Unit
+) {
+    Box(
+        modifier = modifier
+            .testTag("library_modal_underlay")
+            .accessibilityModalBackground(modalVisible),
+        content = content
+    )
 }
 
 @Composable

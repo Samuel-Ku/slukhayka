@@ -182,6 +182,24 @@ class ExploreAccessibilityTest {
     }
 
     @Test
+    fun localSearchCardAlwaysAnnouncesWhenAConnectionIsRequired() {
+        val streamingBook = TestDataFactory.dataBooks().first().copy(isDownloaded = false)
+        compose.setContent {
+            AudiobookTheme(darkTheme = true) {
+                AudiobookListItem(book = streamingBook, onClick = {}, onPlayClick = {})
+            }
+        }
+
+        compose.onNodeWithTag("book_item_${streamingBook.id}")
+            .assert(
+                SemanticsMatcher.expectValue(
+                    SemanticsProperties.StateDescription,
+                    "Для прослуховування потрібне підключення до інтернету"
+                )
+            )
+    }
+
+    @Test
     fun failedGlobalSearchIsAVisiblePoliteStatusInsteadOfAnEmptyResult() {
         compose.setContent {
             AudiobookTheme(darkTheme = true) {

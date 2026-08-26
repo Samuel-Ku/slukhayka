@@ -58,12 +58,12 @@ fun CompactBookCard(
     val progressDescription = progress
         ?.takeIf { it > 0f }
         ?.let { stringResource(R.string.a11y_listened_percent, (it.coerceIn(0f, 1f) * 100).toInt()) }
-    val offlineDescription = if (book.isDownloaded) {
+    val availabilityDescription = if (book.isDownloaded) {
         stringResource(R.string.a11y_available_offline)
     } else {
-        null
+        stringResource(R.string.a11y_connection_required)
     }
-    val workState = listOfNotNull(progressDescription, offlineDescription).joinToString(". ")
+    val workState = listOfNotNull(progressDescription, availabilityDescription).joinToString(". ")
 
     Box(modifier = modifier.width(120.dp)) {
         Column(

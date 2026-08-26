@@ -1436,14 +1436,17 @@ fun AudiobookListItem(
     onClick: () -> Unit,
     onPlayClick: () -> Unit
 ) {
-    val offlineState = stringResource(R.string.a11y_available_offline).takeIf { book.isDownloaded }
+    val availabilityState = stringResource(
+        if (book.isDownloaded) R.string.a11y_available_offline
+        else R.string.a11y_connection_required
+    )
     val openLabel = stringResource(R.string.a11y_open_work, book.title)
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 6.dp)
             .semantics {
-                offlineState?.let { stateDescription = it }
+                stateDescription = availabilityState
             }
             .clip(RoundedCornerShape(AppDimens.RadiusPanel))
             .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(AppDimens.RadiusPanel))

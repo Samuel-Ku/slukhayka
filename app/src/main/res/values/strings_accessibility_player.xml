@@ -14,6 +14,27 @@
     <string name="a11y_player_state_playing">Відтворюється</string>
     <string name="a11y_player_state_paused">Призупинено</string>
 
+    <string name="a11y_player_tool_speed">Швидкість відтворення</string>
+    <string name="a11y_player_tool_timer">Таймер сну</string>
+    <string name="a11y_player_tool_bookmark">Додати закладку</string>
+    <string name="a11y_player_tool_chapters">Вибрати розділ</string>
+    <string name="a11y_player_speed_value">%1$s раза</string>
+    <plurals name="a11y_player_timer_minutes">
+        <item quantity="one">%1$d хвилина</item>
+        <item quantity="few">%1$d хвилини</item>
+        <item quantity="many">%1$d хвилин</item>
+        <item quantity="other">%1$d хвилини</item>
+    </plurals>
+    <string name="a11y_player_timer_end_of_chapter">до кінця розділу</string>
+    <string name="a11y_player_timer_off">вимкнено</string>
+    <string name="player_tool_speed_label">Швидкість</string>
+    <string name="player_tool_timer_label">Таймер</string>
+    <string name="player_tool_bookmark_label">Закладка</string>
+    <string name="player_tool_chapters_label">Розділи</string>
+    <string name="player_speed_value">%1$s×</string>
+    <string name="player_timer_minutes_value">%1$d хв</string>
+    <string name="player_timer_end_value">До кінця</string>
+
     <string name="a11y_player_chapter_position">Позиція в поточному розділі</string>
     <string name="a11y_player_book_position">Позиція у книзі</string>
     <string name="a11y_player_time_of">%1$s із %2$s</string>

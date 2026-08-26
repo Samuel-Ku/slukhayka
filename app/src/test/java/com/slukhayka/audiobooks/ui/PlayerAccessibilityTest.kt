@@ -18,6 +18,8 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertContentDescriptionEquals
@@ -29,6 +31,9 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasContentDescription
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performScrollTo
@@ -40,6 +45,7 @@ import com.slukhayka.audiobooks.player.PlayerState
 import com.slukhayka.audiobooks.ui.screens.PlayerProgressUi
 import com.slukhayka.audiobooks.ui.screens.PlayerQuickTool
 import com.slukhayka.audiobooks.ui.screens.PlayerScreenContent
+import com.slukhayka.audiobooks.ui.screens.PlayerModalUnderlay
 import com.slukhayka.audiobooks.ui.screens.BookmarkBottomSheet
 import com.slukhayka.audiobooks.ui.screens.ChapterBottomSheet
 import com.slukhayka.audiobooks.ui.components.SleepTimerSheet
@@ -126,6 +132,26 @@ class PlayerAccessibilityTest {
             .assertIsDisplayed()
         composeTestRule.onNodeWithContentDescription("Наступний розділ після «Розділ 2». Нейромант")
             .assertIsDisplayed()
+    }
+
+    @Test
+    @Config(qualifiers = "uk")
+    fun quickToolsExposeResourceLocalizedLabelsAndSpokenSpeed() {
+        setPlayerContent(
+            playerState = state.copy(
+                playbackSpeed = 1.25f,
+                sleepTimerMinutes = 15
+            )
+        )
+
+        composeTestRule.onNodeWithTag("speed_chip")
+            .assertContentDescriptionEquals("Швидкість відтворення: 1,25 раза")
+        composeTestRule.onNodeWithTag("sleep_timer_chip")
+            .assertContentDescriptionEquals("Таймер сну: 15 хвилин")
+        composeTestRule.onNodeWithTag("add_bookmark_chip")
+            .assertContentDescriptionEquals("Додати закладку")
+        composeTestRule.onNodeWithTag("chapters_chip")
+            .assertContentDescriptionEquals("Вибрати розділ")
     }
 
     @Test
@@ -223,13 +249,15 @@ class PlayerAccessibilityTest {
                     var activeTool by remember { mutableStateOf<PlayerQuickTool?>(null) }
                     Surface(color = MaterialTheme.colorScheme.background) {
                         Box(Modifier.width(320.dp).height(480.dp)) {
-                            PlayerContent(
-                                activeTool = activeTool,
-                                onSpeed = { activeTool = PlayerQuickTool.Speed },
-                                onTimer = { activeTool = PlayerQuickTool.Timer },
-                                onBookmark = { activeTool = PlayerQuickTool.Bookmark },
-                                onChapters = { activeTool = PlayerQuickTool.Chapters }
-                            )
+                            PlayerModalUnderlay(activeTool = activeTool) {
+                                PlayerContent(
+                                    activeTool = activeTool,
+                                    onSpeed = { activeTool = PlayerQuickTool.Speed },
+                                    onTimer = { activeTool = PlayerQuickTool.Timer },
+                                    onBookmark = { activeTool = PlayerQuickTool.Bookmark },
+                                    onChapters = { activeTool = PlayerQuickTool.Chapters }
+                                )
+                            }
                             when (activeTool) {
                                 PlayerQuickTool.Speed -> SpeedSheet(
                                     currentSpeed = 1.25f,
@@ -264,7 +292,7 @@ class PlayerAccessibilityTest {
         }
 
         composeTestRule.onNodeWithTag("speed_chip")
-            .assertContentDescriptionEquals("Швидкість: 1.0×")
+            .assertContentDescriptionEquals("Швидкість відтворення: 1,0 раза")
         composeTestRule.onNodeWithTag("speed_chip_value", useUnmergedTree = true)
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.HideFromAccessibility, Unit))
         composeTestRule.onNodeWithTag("speed_chip_label", useUnmergedTree = true)
@@ -298,7 +326,7 @@ class PlayerAccessibilityTest {
                 .performClick()
             composeTestRule.onNodeWithTag(tool.headingTag)
                 .assertIsFocused()
-            composeTestRule.onNodeWithTag("full_player_screen", useUnmergedTree = true)
+            composeTestRule.onNodeWithTag("player_modal_underlay", useUnmergedTree = true)
                 .assert(
                     SemanticsMatcher.expectValue(
                         SemanticsProperties.HideFromAccessibility,
@@ -322,6 +350,34 @@ class PlayerAccessibilityTest {
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("sleep_timer_chip")
             .assertIsFocused()
+    }
+
+    @Test
+    fun playerModalOwnerGroupsPlayerSnackbarAndDebugOverlayIntoOneHiddenUnderlay() {
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                PlayerModalUnderlay(activeTool = PlayerQuickTool.Speed) {
+                    Box(Modifier.semantics { contentDescription = "Player body" })
+                    Box(Modifier.semantics { contentDescription = "Player snackbar" })
+                    Box(Modifier.semantics { contentDescription = "Player debug overlay" })
+                }
+            }
+        }
+
+        composeTestRule.onNodeWithTag("player_modal_underlay", useUnmergedTree = true)
+            .assert(
+                SemanticsMatcher.expectValue(
+                    SemanticsProperties.HideFromAccessibility,
+                    Unit
+                )
+            )
+        listOf("Player body", "Player snackbar", "Player debug overlay").forEach { label ->
+            composeTestRule.onNode(
+                hasContentDescription(label) and
+                    hasAnyAncestor(hasTestTag("player_modal_underlay")),
+                useUnmergedTree = true
+            ).assert(hasContentDescription(label))
+        }
     }
 
     @Test

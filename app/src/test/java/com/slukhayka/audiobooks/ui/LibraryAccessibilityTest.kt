@@ -23,6 +23,8 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertCountEquals
@@ -35,6 +37,9 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasContentDescription
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
@@ -47,6 +52,7 @@ import com.slukhayka.audiobooks.ui.library.LibrarySort
 import com.slukhayka.audiobooks.ui.library.buildLibraryBooks
 import com.slukhayka.audiobooks.ui.screens.GlobalBookmarkItem
 import com.slukhayka.audiobooks.ui.screens.LibraryBookCard
+import com.slukhayka.audiobooks.ui.screens.LibraryModalUnderlay
 import com.slukhayka.audiobooks.ui.screens.LibraryFilterSheetContent
 import com.slukhayka.audiobooks.ui.screens.LibraryFilterSheet
 import com.slukhayka.audiobooks.ui.screens.LibraryImportSheetContent
@@ -263,6 +269,33 @@ class LibraryAccessibilityTest {
         assertLibraryModal("library_import_preview_heading")
         composeTestRule.onNodeWithTag("library_import_preview_confirm").performClick()
         composeTestRule.onNodeWithTag("preview_origin").assertIsFocused()
+    }
+
+    @Test
+    fun libraryModalOwnerGroupsScreenAndSnackbarIntoOneHiddenUnderlay() {
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                LibraryModalUnderlay(modalVisible = true) {
+                    Box(Modifier.semantics { contentDescription = "Library body" })
+                    Box(Modifier.semantics { contentDescription = "Library snackbar" })
+                }
+            }
+        }
+
+        composeTestRule.onNodeWithTag("library_modal_underlay", useUnmergedTree = true)
+            .assert(
+                SemanticsMatcher.expectValue(
+                    SemanticsProperties.HideFromAccessibility,
+                    Unit
+                )
+            )
+        listOf("Library body", "Library snackbar").forEach { label ->
+            composeTestRule.onNode(
+                hasContentDescription(label) and
+                    hasAnyAncestor(hasTestTag("library_modal_underlay")),
+                useUnmergedTree = true
+            ).assert(hasContentDescription(label))
+        }
     }
 
     private fun assertLibraryModal(headingTag: String) {

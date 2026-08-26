@@ -38,6 +38,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -66,6 +67,8 @@ import com.slukhayka.audiobooks.ui.components.BookCoverSemantics
 import com.slukhayka.audiobooks.ui.components.PlayerDebugOverlay
 import com.slukhayka.audiobooks.ui.components.SleepTimerSheet
 import com.slukhayka.audiobooks.ui.components.SpeedSheet
+import com.slukhayka.audiobooks.ui.components.formatSpeed
+import com.slukhayka.audiobooks.ui.components.formatSpeedForSpeech
 import com.slukhayka.audiobooks.ui.components.accessibilityModalBackground
 import com.slukhayka.audiobooks.ui.components.accessibilityPane
 import com.slukhayka.audiobooks.ui.displayAuthor
@@ -260,7 +263,10 @@ fun PlayerScreen(
     // default (BLACK) and every IconButton/Icon without an explicit tint
     // would render near-invisible black glyphs on the dark backdrop.
     CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onBackground) {
-        Box(modifier = Modifier.fillMaxSize()) {
+        PlayerModalUnderlay(
+            activeTool = activeTool,
+            modifier = Modifier.fillMaxSize()
+        ) {
             PlayerScreenContent(
             playerState = playerState,
             book = book,
@@ -411,6 +417,25 @@ fun PlayerScreen(
     }
 }
 
+/**
+ * Owns every non-modal player surface as one accessibility background.
+ * Snackbar and debug feedback must disappear from TalkBack traversal with
+ * the player body while any quick-tool sheet is modal.
+ */
+@Composable
+internal fun PlayerModalUnderlay(
+    activeTool: PlayerQuickTool?,
+    modifier: Modifier = Modifier,
+    content: @Composable BoxScope.() -> Unit
+) {
+    Box(
+        modifier = modifier
+            .testTag("player_modal_underlay")
+            .accessibilityModalBackground(activeTool != null),
+        content = content
+    )
+}
+
 /** Pure player surface, separated from the ViewModel for snapshot and interaction tests. */
 @Composable
 fun PlayerScreenContent(
@@ -490,7 +515,6 @@ fun PlayerScreenContent(
         modifier = modifier
             .fillMaxSize()
             .testTag("full_player_screen")
-            .accessibilityModalBackground(activeTool != null)
             .background(
                 // The player is a full-screen OVERLAY on top of whatever screen
                 // was open (AnimatedVisibility in MainActivity), so its backdrop
@@ -1044,37 +1068,87 @@ private fun QuickTools(
     bookmarkFocusRequester: FocusRequester,
     chaptersFocusRequester: FocusRequester
 ) {
+    val speedLabel = stringResource(R.string.a11y_player_tool_speed)
+    val speedVisualLabel = stringResource(R.string.player_tool_speed_label)
+    val speedVisualValue = stringResource(R.string.player_speed_value, formatSpeed(speed))
+    val speedState = stringResource(
+        R.string.a11y_player_speed_value,
+        formatSpeedForSpeech(speed)
+    )
+    val timerLabel = stringResource(R.string.a11y_player_tool_timer)
+    val timerVisualLabel = stringResource(R.string.player_tool_timer_label)
+    val timerState = when {
+        timerMinutes > 0 -> pluralStringResource(
+            R.plurals.a11y_player_timer_minutes,
+            timerMinutes,
+            timerMinutes
+        )
+        timerMinutes == -1 -> stringResource(R.string.a11y_player_timer_end_of_chapter)
+        else -> stringResource(R.string.a11y_player_timer_off)
+    }
+    val timerVisualValue = when {
+        timerMinutes > 0 -> stringResource(R.string.player_timer_minutes_value, timerMinutes)
+        timerMinutes == -1 -> stringResource(R.string.player_timer_end_value)
+        else -> null
+    }
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-        QuickTool(Icons.Default.Speed, "Швидкість", "${speed}×", "speed_chip", speedFocusRequester, onSpeed)
+        QuickTool(
+            Icons.Default.Speed,
+            speedLabel,
+            speedVisualLabel,
+            speedVisualValue,
+            speedState,
+            "speed_chip",
+            speedFocusRequester,
+            onSpeed
+        )
         QuickTool(
             Icons.Default.Bedtime,
-            "Таймер",
-            when {
-                timerMinutes > 0 -> "$timerMinutes хв"
-                timerMinutes == -1 -> "До кінця"
-                else -> null
-            },
+            timerLabel,
+            timerVisualLabel,
+            timerVisualValue,
+            timerState,
             "sleep_timer_chip",
             timerFocusRequester,
             onTimer
         )
-        QuickTool(Icons.Default.BookmarkAdd, "Закладка", null, "add_bookmark_chip", bookmarkFocusRequester, onBookmark)
-        QuickTool(Icons.Default.FormatListNumbered, "Розділи", null, "chapters_chip", chaptersFocusRequester, onChapters)
+        QuickTool(
+            Icons.Default.BookmarkAdd,
+            stringResource(R.string.a11y_player_tool_bookmark),
+            stringResource(R.string.player_tool_bookmark_label),
+            null,
+            null,
+            "add_bookmark_chip",
+            bookmarkFocusRequester,
+            onBookmark
+        )
+        QuickTool(
+            Icons.Default.FormatListNumbered,
+            stringResource(R.string.a11y_player_tool_chapters),
+            stringResource(R.string.player_tool_chapters_label),
+            null,
+            null,
+            "chapters_chip",
+            chaptersFocusRequester,
+            onChapters
+        )
     }
 }
 
 @Composable
 private fun RowScope.QuickTool(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
-    label: String,
-    value: String?,
+    accessibilityLabel: String,
+    visualLabel: String,
+    visualValue: String?,
+    accessibilityState: String?,
     testTag: String,
     focusRequester: FocusRequester,
     onClick: () -> Unit
 ) {
-    val toolDescription = value?.let {
-        stringResource(R.string.a11y_player_tool_state, label, it)
-    } ?: label
+    val toolDescription = accessibilityState?.let {
+        stringResource(R.string.a11y_player_tool_state, accessibilityLabel, it)
+    } ?: accessibilityLabel
     Column(
         modifier = Modifier
             .weight(1f)
@@ -1093,7 +1167,7 @@ private fun RowScope.QuickTool(
         Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(24.dp))
         Spacer(Modifier.height(AppDimens.SpaceXs))
         Text(
-            value ?: label,
+            visualValue ?: visualLabel,
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurface,
             maxLines = 2,
@@ -1102,9 +1176,9 @@ private fun RowScope.QuickTool(
                 .testTag("${testTag}_value")
                 .semantics { hideFromAccessibility() }
         )
-        if (value != null) {
+        if (visualValue != null) {
             Text(
-                label,
+                visualLabel,
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 2,

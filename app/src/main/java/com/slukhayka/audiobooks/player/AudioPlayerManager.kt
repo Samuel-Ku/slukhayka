@@ -372,6 +372,14 @@ class AudioPlayerManager(
     private val healFailedDetail =
         "Книга зараз недоступна: файл джерела переїхав або заблокований, і оновити його не вдалося."
 
+    /**
+     * The honest state for a book with NO resolved chapters — the source page
+     * never served playerjs audio at all (2026-08-26 device bug). Worded to
+     * contain «недоступна» so PlayerScreen renders the title-only error card.
+     */
+    private val unavailableBookDetail =
+        "Книга зараз недоступна: аудіо цієї книги на джерелі не знайдено."
+
     /** Whether the current prepare should auto-start once READY. */
     private var shouldAutoPlay: Boolean = false
 
@@ -629,6 +637,18 @@ class AudioPlayerManager(
         // is the last chapter's in-chapter seconds, below the book total).
         forceRelisten: Boolean = false
     ) {
+        // 2026-08-26 device bug («грає попередня книга»): a book whose
+        // chapters never resolved — the source page carries no playerjs audio
+        // at all — must never reach the engine. The old code faked a
+        // 1000 ms duration («00:01/00:01»), swapped currentBook under a still-
+        // loaded previous item, and prepareChapter silently returned, so the
+        // user heard the previous book while the screen showed the new one.
+        // ADR-0019's honest failure applies BEFORE any prepare: stop the
+        // engine, surface the unavailable state, record nothing.
+        if (chapters.isEmpty()) {
+            stopEngineForUnavailableBook(book)
+            return
+        }
         // ADR-0007: keep the chapter→track pairing for prepare/build; the
         // display list stays the logical chapters.
         playableChapters = if (playable.isEmpty()) {
@@ -724,6 +744,58 @@ class AudioPlayerManager(
         }
 
         prepareChapter(chapterIdx, positionSeconds * 1000L, autoPlay)
+    }
+
+    /**
+     * The honest terminal state of a book with NO chapters (ADR-0019 applied
+     * before any prepare): the source never served a playable track — the page
+     * carries no playerjs audio at all — so nothing may play and nothing is
+     * fabricated.
+     *
+     * Root cause of the 2026-08-26 device bug («грає попередня книга»):
+     * opening such a book used to swap [PlayerState.currentBook] while the
+     * engine kept the previously loaded chapter, faked `durationMs = 1000`
+     * («00:01/00:01») and silently returned from [prepareChapter] — the user
+     * heard the previous book while the screen showed the new one, and a
+     * phantom 1 s progress row got persisted.
+     *
+     * Stops the engine (the same stop path as [stopAndClear], minus the full
+     * state reset) so the screen keeps showing THIS book with the
+     * [unavailableBookDetail] message and the standard retry affordance.
+     */
+    private fun stopEngineForUnavailableBook(book: AudiobookEntity) {
+        sleepTimer?.cancel()
+        prepareTimeoutJob?.cancel()
+        mediaPlayer?.let { mp ->
+            try {
+                mp.pause()
+                mp.stop()
+            } catch (e: Exception) {
+                Log.e("AudioPlayer", "Error stopping player", e)
+            }
+        }
+        currentChapter = null
+        currentTrack = null
+        playableChapters = emptyList()
+        shouldAutoPlay = false
+        pendingResumeSeekMs = -1L
+        // A stopped engine ends the listening cycle: the next load starts a
+        // fresh trail (the same session fields [stopAndClear] resets).
+        playbackSegmentStartMs = null
+        lastPreparedChapterIndex = null
+        completionLogged = false
+        lastLoadedBookId = null
+        _playerState.value = _playerState.value.copy(
+            currentBook = book,
+            chapters = emptyList(),
+            currentChapterIndex = 0,
+            currentPositionMs = 0L,
+            durationMs = 0L,
+            isPlaying = false,
+            isBuffering = false,
+            currentStreamUrl = "",
+            lastErrorMsg = unavailableBookDetail
+        )
     }
 
     fun prepareChapter(

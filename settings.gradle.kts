@@ -19,6 +19,9 @@ dependencyResolutionManagement {
   repositories {
     google()
     mavenCentral()
+    // Spec 2026-08-26: NewPipeExtractor (YouTube stream extraction for
+    // audio-less 4read pages) distributes through JitPack.
+    maven("https://jitpack.io")
   }
 }
 

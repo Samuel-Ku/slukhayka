@@ -112,6 +112,7 @@ fun HomeScreen(
     // Spec-10 T4: aggregated global search across all verified sources.
     val globalResults by viewModel.globalSearchResults.collectAsState()
     val isGlobalSearchLoading by viewModel.isGlobalSearchLoading.collectAsState()
+    val authorResults by viewModel.authorSearchResults.collectAsState()
     // Spec-23 T4: the endless merged feed (Paging 3) over the persisted
     // Works/Editions catalogue — pages through the whole catalogue, one card
     // per Work, dedup inherited from merge-on-write. Filter/sort states live
@@ -249,8 +250,20 @@ fun HomeScreen(
 
         if (inSearchMode) {
             // ---- Search / genre result list -------------------------------
-            // In-library matches first (local filter, instant), then the
-            // spec-10 T4 global section (all sources, imported on tap).
+            // Canonical authors are local and appear first, before both book
+            // result sections. The compact block is capped at five.
+            if (authorResults.isNotEmpty()) {
+                item(key = "author_search_results") {
+                    AuthorSearchResults(
+                        authors = authorResults,
+                        onAuthorClick = viewModel::openCanonicalAuthor,
+                        onShowAll = viewModel::openAllAuthorSearchResults
+                    )
+                }
+            }
+
+            // In-library matches next, then the spec-10 T4 global section
+            // (all sources, imported on tap).
             item {
                 Text(
                     text = "У вашій медіатеці (${filteredBooks.size})",
@@ -360,7 +373,10 @@ fun HomeScreen(
                 onRefreshCatalog = { scope.launch { sourceCatalog.fetchCatalogSections() } },
                 onGoToLibrary = { viewModel.selectTab(com.slukhayka.audiobooks.ui.SelectedTab.LIBRARY) },
                 onOpenTop100 = { viewModel.openTop100() },
-                onOpenPeople = { viewModel.openPeople(it) },
+                onOpenPeople = { kind ->
+                    if (kind.title == "Автори") viewModel.openAuthorsIndex()
+                    else viewModel.openPeople(kind)
+                },
                 onOpenSeriesIndex = { viewModel.openSeriesIndex() },
                 onOpenCollectionsIndex = { viewModel.openCollectionsIndex() },
                 onOpenSeries = { title, url -> viewModel.openSeries(title, url) },

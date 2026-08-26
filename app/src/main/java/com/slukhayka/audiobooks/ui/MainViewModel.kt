@@ -8,6 +8,8 @@ import androidx.paging.PagingConfig
 import androidx.paging.PagingData
 import androidx.paging.cachedIn
 import com.slukhayka.audiobooks.App
+import com.slukhayka.audiobooks.data.authors.AuthorSummary
+import com.slukhayka.audiobooks.data.authors.AuthorIndex
 import com.slukhayka.audiobooks.data.catalog.CatalogPerson
 import com.slukhayka.audiobooks.data.catalog.CatalogSeries
 import com.slukhayka.audiobooks.data.catalog.CatalogSeriesIndex
@@ -249,6 +251,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
+
+    private val _authorSearchResults = MutableStateFlow<List<AuthorSummary>>(emptyList())
+    val authorSearchResults: StateFlow<List<AuthorSummary>> = _authorSearchResults.asStateFlow()
 
     private val _selectedGenreFilter = MutableStateFlow("Усі")
     val selectedGenreFilter: StateFlow<String> = _selectedGenreFilter.asStateFlow()
@@ -616,6 +621,93 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _peopleEntries.value = emptyList()
     }
 
+    // Canonical cross-source author destinations. Provider narrator pages keep
+    // using [selectedPeopleKind]; author discovery always reads the local Work
+    // index, so it remains instant and does not depend on a provider page.
+    private val _authorsIndexOpen = MutableStateFlow(false)
+    val authorsIndexOpen: StateFlow<Boolean> = _authorsIndexOpen.asStateFlow()
+
+    private val _authorsIndexResults = MutableStateFlow<List<AuthorSummary>?>(null)
+    val authorsIndexResults: StateFlow<List<AuthorSummary>?> = _authorsIndexResults.asStateFlow()
+
+    private val _selectedCanonicalAuthor = MutableStateFlow<AuthorSummary?>(null)
+    val selectedCanonicalAuthor: StateFlow<AuthorSummary?> = _selectedCanonicalAuthor.asStateFlow()
+
+    private val _canonicalAuthorWorks = MutableStateFlow<List<WorkEntity>>(emptyList())
+    val canonicalAuthorWorks: StateFlow<List<WorkEntity>> = _canonicalAuthorWorks.asStateFlow()
+
+    private val _isCanonicalAuthorLoading = MutableStateFlow(false)
+    val isCanonicalAuthorLoading: StateFlow<Boolean> = _isCanonicalAuthorLoading.asStateFlow()
+
+    private val _canonicalAuthorLoadFailed = MutableStateFlow(false)
+    val canonicalAuthorLoadFailed: StateFlow<Boolean> = _canonicalAuthorLoadFailed.asStateFlow()
+
+    fun openAuthorsIndex() {
+        _authorsIndexResults.value = null
+        _authorsIndexOpen.value = true
+    }
+
+    fun openAllAuthorSearchResults() {
+        _authorsIndexResults.value = _authorSearchResults.value
+        _authorsIndexOpen.value = true
+        val query = _searchQuery.value.trim()
+        viewModelScope.launch(Dispatchers.IO) {
+            val allMatches = runCatching {
+                sourceCatalog.searchAuthors(query, AuthorIndex.MAX_FULL_LIST)
+            }.getOrNull() ?: return@launch
+            if (_authorsIndexOpen.value && _searchQuery.value.trim() == query) {
+                _authorsIndexResults.value = allMatches
+            }
+        }
+    }
+
+    fun closeAuthorsIndex() {
+        _authorsIndexOpen.value = false
+        _authorsIndexResults.value = null
+    }
+
+    fun openCanonicalAuthor(author: AuthorSummary) {
+        _selectedCanonicalAuthor.value = author
+        _canonicalAuthorWorks.value = emptyList()
+        _canonicalAuthorLoadFailed.value = false
+        _isCanonicalAuthorLoading.value = true
+        viewModelScope.launch(Dispatchers.IO) {
+            val works = runCatching { sourceCatalog.authorWorks(author.id) }
+            if (_selectedCanonicalAuthor.value?.id == author.id) {
+                works.onSuccess { _canonicalAuthorWorks.value = it }
+                    .onFailure { _canonicalAuthorLoadFailed.value = true }
+                _isCanonicalAuthorLoading.value = false
+            }
+        }
+    }
+
+    fun closeCanonicalAuthor() {
+        _selectedCanonicalAuthor.value = null
+        _canonicalAuthorWorks.value = emptyList()
+        _isCanonicalAuthorLoading.value = false
+        _canonicalAuthorLoadFailed.value = false
+    }
+
+    fun openCanonicalAuthorWork(work: WorkEntity) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val source = sourceCatalog.workSourcesForWork(work.id).firstOrNull() ?: return@launch
+            val book = try {
+                libraryImport.importFromSourceUrl(
+                    source.sourceId,
+                    source.sourceUrl,
+                    KnownBookIdentity(work.title, work.author, coverImageUrl = work.coverImageUrl)
+                )
+            } catch (_: Exception) {
+                null
+            }
+            if (book != null) {
+                closeCanonicalAuthor()
+                closeAuthorsIndex()
+                selectBook(book.id)
+            }
+        }
+    }
+
     // One person's books (`/xfsearch/chitaet|avtor/<name>/` — a poster grid).
     private val _selectedPerson = MutableStateFlow<SelectedPerson?>(null)
     val selectedPerson: StateFlow<SelectedPerson?> = _selectedPerson.asStateFlow()
@@ -685,15 +777,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val isGlobalSearchLoading: StateFlow<Boolean> = _isGlobalSearchLoading.asStateFlow()
 
     private var globalSearchJob: kotlinx.coroutines.Job? = null
+    private var authorSearchJob: kotlinx.coroutines.Job? = null
 
     fun updateSearchQuery(query: String) {
         _searchQuery.value = query
         globalSearchJob?.cancel()
+        authorSearchJob?.cancel()
         val clean = query.trim()
         if (clean.length < 2) {
             _globalSearchResults.value = emptyList()
+            _authorSearchResults.value = emptyList()
             _isGlobalSearchLoading.value = false
             return
+        }
+        _authorSearchResults.value = emptyList()
+        authorSearchJob = viewModelScope.launch(Dispatchers.IO) {
+            delay(350)
+            _authorSearchResults.value = runCatching { sourceCatalog.searchAuthors(clean) }.getOrDefault(emptyList())
         }
         _isGlobalSearchLoading.value = true
         globalSearchJob = viewModelScope.launch(Dispatchers.IO) {

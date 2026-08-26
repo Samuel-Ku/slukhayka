@@ -195,6 +195,10 @@ dependencies {
   implementation(libs.androidx.biometric)
   implementation(libs.androidx.media3.exoplayer)
   implementation(libs.androidx.media3.session)
+  // ADR-0024: CastPlayer swaps in behind the MediaSession player seam while
+  // casting; the receiver itself never touches the network (phone proxy).
+  implementation(libs.androidx.media3.cast)
+  implementation(libs.play.services.cast.framework)
   // implementation(libs.androidx.datastore.preferences)
   implementation(libs.androidx.lifecycle.runtime.compose)
   implementation(libs.androidx.lifecycle.runtime.ktx)
@@ -230,6 +234,9 @@ dependencies {
   // spec-38 T4 (#256): the RFC-8484 DoH resolver behind the privacy door —
   // same OkHttp version, one small artifact.
   implementation(libs.okhttp.dnsoverhttps)
+  // Spec #361 («Проксі відтворення»): the embedded HTTP server inside the
+  // playback proxy — plain sockets on one jar, no other surface.
+  implementation(libs.nanohttpd)
   // implementation(libs.play.services.location)
   implementation(libs.retrofit)
   // spec-19 T3: on-device ONNX inference for the recommendation embedder

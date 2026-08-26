@@ -38,6 +38,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.drawable.toBitmap
 import com.slukhayka.audiobooks.BuildConfig
+import com.slukhayka.audiobooks.App
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.BookmarkEntity
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
@@ -45,6 +46,7 @@ import com.slukhayka.audiobooks.data.db.ChapterEntity
 import com.slukhayka.audiobooks.player.PlayerState
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.components.BookCoverImage
+import com.slukhayka.audiobooks.ui.components.CastButton
 import com.slukhayka.audiobooks.ui.components.PlayerDebugOverlay
 import com.slukhayka.audiobooks.ui.components.SleepTimerSheet
 import com.slukhayka.audiobooks.ui.components.SpeedSheet
@@ -182,6 +184,14 @@ fun PlayerScreen(
     // #351: the one predictable jump target for the return button.
     val lastBookmarkTarget = remember(bookmarks) { lastCreatedBookmark(bookmarks) }
 
+    // ADR-0024 (#362): the cast affordance lives here and in the mini-player
+    // only. Ready = this device can cast AND the current chapter has a stream
+    // Source the receiver could be handed (through the phone proxy).
+    val castReady = remember(playerState.currentStreamUrl) {
+        runCatching { App.instance.castController.isCastAvailable() }.getOrDefault(false) &&
+            playerState.currentStreamUrl.isNotEmpty()
+    }
+
     var showSleepTimerSheet by rememberSaveable { mutableStateOf(false) }
     var showSpeedSheet by rememberSaveable { mutableStateOf(false) }
     var showBookmarkSheet by rememberSaveable { mutableStateOf(false) }
@@ -288,6 +298,7 @@ fun PlayerScreen(
             onTimer = { showSleepTimerSheet = true },
             onBookmark = { showBookmarkSheet = true },
             onChapters = { showChapterSheet = true },
+            castReady = castReady,
             lastBookmarkTarget = lastBookmarkTarget,
             onJumpToBookmark = viewModel::jumpToBookmark,
             onShowAllBookmarks = { showBookmarksListSheet = true }
@@ -417,6 +428,7 @@ fun PlayerScreenContent(
     onTimer: () -> Unit,
     onBookmark: () -> Unit,
     onChapters: () -> Unit,
+    castReady: Boolean = false,
     lastBookmarkTarget: BookmarkEntity? = null,
     onJumpToBookmark: (BookmarkEntity) -> Unit = {},
     onShowAllBookmarks: () -> Unit = {},
@@ -604,6 +616,7 @@ fun PlayerScreenContent(
                 QuickTools(
                     speed = playerState.playbackSpeed,
                     timerMinutes = playerState.sleepTimerMinutes,
+                    castReady = castReady,
                     onSpeed = onSpeed,
                     onTimer = onTimer,
                     onBookmark = onBookmark,
@@ -940,7 +953,8 @@ private fun QuickTools(
     onSpeed: () -> Unit,
     onTimer: () -> Unit,
     onBookmark: () -> Unit,
-    onChapters: () -> Unit
+    onChapters: () -> Unit,
+    castReady: Boolean
 ) {
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
         QuickTool(Icons.Default.Speed, "Швидкість", "${speed}×", "speed_chip", onSpeed)
@@ -955,6 +969,10 @@ private fun QuickTools(
             "sleep_timer_chip",
             onTimer
         )
+        // ADR-0024 (#362): the cast affordance rides the quick-tools row —
+        // the system route picker opens from here; disabled state explains
+        // itself (no stream Source to hand the receiver).
+        CastButton(castReady = castReady)
         QuickTool(Icons.Default.BookmarkAdd, "Закладка", null, "add_bookmark_chip", onBookmark)
         QuickTool(Icons.Default.FormatListNumbered, "Розділи", null, "chapters_chip", onChapters)
     }

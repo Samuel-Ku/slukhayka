@@ -165,7 +165,12 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                         playerState = playerState,
                         onPlayPauseClick = { viewModel.playerManager.togglePlayPause() },
                         onSkipNextClick = { viewModel.playerManager.nextChapter() },
-                        onBarClick = { viewModel.setShowFullPlayer(true) }
+                        onBarClick = { viewModel.setShowFullPlayer(true) },
+                        // ADR-0024 (#362): ready when this device can cast and
+                        // the current chapter carries a stream Source.
+                        castReady = runCatching {
+                            App.instance.castController.isCastAvailable()
+                        }.getOrDefault(false) && playerState.currentStreamUrl.isNotEmpty()
                     )
 
                     // Navigation Bar (spec #8 T4: exactly Explore · Library).

@@ -1,6 +1,10 @@
 package com.slukhayka.audiobooks.ui.screens
 
 import androidx.compose.runtime.*
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.ui.res.stringResource
+import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.library.ukPlural
 
@@ -13,11 +17,15 @@ import com.slukhayka.audiobooks.ui.library.ukPlural
 fun PersonBooksScreen(
     viewModel: MainViewModel,
     onBackClick: () -> Unit,
-    onBookClick: (String) -> Unit
+    onBookClick: (String) -> Unit,
+    restoreFocusBookId: String? = null,
+    onBookFocusRestored: (String) -> Unit = {},
+    listState: LazyListState = rememberLazyListState()
 ) {
     val person by viewModel.selectedPerson.collectAsState()
     val books by viewModel.personBooks.collectAsState()
     val isLoading by viewModel.isPersonLoading.collectAsState()
+    val loadFailed by viewModel.personLoadFailed.collectAsState()
 
     val currentPerson = person ?: return
 
@@ -26,7 +34,12 @@ fun PersonBooksScreen(
         // Spec-27 (#204) BUG-006: правильна множина — «1 книга», «2 книги»,
         // «5 книг».
         countLabel = "${books.size} ${ukPlural(books.size, "книга", "книги", "книг")}",
-        emptyMessage = "Не вдалося завантажити книги. Перевірте з'єднання.",
+        emptyMessage = stringResource(R.string.secondary_person_books_empty),
+        errorMessage = if (loadFailed) {
+            stringResource(R.string.secondary_person_books_error)
+        } else {
+            null
+        },
         isLoading = isLoading,
         books = books,
         onBackClick = onBackClick,
@@ -35,6 +48,9 @@ fun PersonBooksScreen(
             viewModel.playAudiobook(book)
             viewModel.setShowFullPlayer(true)
         },
-        testTag = "person_books_screen"
+        testTag = "person_books_screen",
+        restoreFocusBookId = restoreFocusBookId,
+        onBookFocusRestored = onBookFocusRestored,
+        listState = listState
     )
 }

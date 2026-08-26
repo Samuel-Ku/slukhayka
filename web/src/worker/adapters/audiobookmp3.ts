@@ -192,4 +192,3 @@ function afterLast(s: string, delim: string): string {
   const i = s.lastIndexOf(delim)
   return i < 0 ? s : s.slice(i + delim.length)
 }
-

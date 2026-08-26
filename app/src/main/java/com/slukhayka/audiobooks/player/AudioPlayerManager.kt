@@ -38,7 +38,10 @@ import com.slukhayka.audiobooks.data.source.headersFor
 import com.slukhayka.audiobooks.data.source.sourceIdForUrl
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.sample
@@ -51,6 +54,12 @@ import kotlinx.coroutines.flow.sample
  */
 internal fun sleepTimerFadeVolume(remainingSec: Int): Float =
     if (remainingSec in 1..30) remainingSec / 30f else 1.0f
+
+/** One-shot user feedback emitted only at sleep-timer transitions. */
+sealed interface SleepTimerNotice {
+    data object FadeWarning : SleepTimerNotice
+    data class Extended(val remainingSeconds: Int) : SleepTimerNotice
+}
 
 data class PlayerState(
     val currentBook: AudiobookEntity? = null,
@@ -401,6 +410,9 @@ class AudioPlayerManager(
     private var updateProgressJob: Job? = null
     private var sleepTimer: CountDownTimer? = null
     private var shakeDetector: ShakeDetector? = null
+    private var fadeWarningEmitted = false
+    private val _sleepTimerNotices = MutableSharedFlow<SleepTimerNotice>(extraBufferCapacity = 2)
+    val sleepTimerNotices: SharedFlow<SleepTimerNotice> = _sleepTimerNotices.asSharedFlow()
     private var prepareTimeoutJob: Job? = null
 
     /** Global playback preferences (wayfinder #26): default speed etc. */
@@ -666,7 +678,12 @@ class AudioPlayerManager(
             sleepTimerRemainingSeconds = 0,
             isSleepTimerEndOfChapter = false
         )
-        try { mediaPlayer?.volume = 1.0f } catch (_: Exception) {}
+        val hook = castEngineHook?.takeIf { it.isActive }
+        if (hook != null) {
+            try { hook.setVolume(1.0f) } catch (_: Exception) {}
+        } else {
+            try { mediaPlayer?.volume = 1.0f } catch (_: Exception) {}
+        }
         // A fresh load starts a new listening cycle: completion resets, chapter
         // history resets, and — when autoplaying — the resume + segment begin.
         completionLogged = false
@@ -1168,7 +1185,7 @@ class AudioPlayerManager(
      */
     fun savePreferredSpeed(speed: Float) {
         val book = _playerState.value.currentBook ?: return
-        scope.launch(Dispatchers.IO) {
+        scope.launch(ioDispatcher) {
             listeningState.setPreferredSpeed(book.id, speed)
         }
     }
@@ -1253,7 +1270,7 @@ class AudioPlayerManager(
     private fun persistPausedAt(epochMs: Long?) {
         val book = _playerState.value.currentBook ?: return
         val bookId = book.id
-        scope.launch(Dispatchers.IO) {
+        scope.launch(ioDispatcher) {
             listeningState.updatePausedAt(bookId, epochMs)
         }
     }
@@ -1318,6 +1335,34 @@ class AudioPlayerManager(
     }
 
     /**
+     * Canonical +15-minute command for both the visible timer action and the
+     * optional shake shortcut. The exact current remainder is preserved; an
+     * end-of-Chapter timer becomes an ordinary timed remainder.
+     *
+     * @return the new exact remainder in seconds, or `0` when no timer is active.
+     */
+    fun extendSleepTimerBy15Minutes(): Int {
+        val currentRemaining = _playerState.value.sleepTimerRemainingSeconds
+        if (currentRemaining <= 0) return 0
+
+        val extendedRemaining = currentRemaining + 15 * 60
+        sleepTimer?.cancel()
+        shakeDetector?.stopListening()
+        try { mediaPlayer?.volume = 1.0f } catch (_: Exception) {}
+        _playerState.value = _playerState.value.copy(
+            sleepTimerMinutes = (extendedRemaining + 59) / 60,
+            sleepTimerRemainingSeconds = extendedRemaining,
+            isSleepTimerEndOfChapter = false
+        )
+        startSleepTimerInternal(extendedRemaining * 1000L, isEndOfChapter = false)
+        _sleepTimerNotices.tryEmit(SleepTimerNotice.Extended(extendedRemaining))
+        return extendedRemaining
+    }
+
+    /** Testable boundary used as the [ShakeDetector] callback. */
+    internal fun handleSleepTimerShake(): Int = extendSleepTimerBy15Minutes()
+
+    /**
      * Spec-22 T5: if the timer is in «до кінця розділу» mode, re-arm it for
      * the newly prepared chapter (manual skip or auto-advance) so it still
      * stops exactly at the chapter boundary.
@@ -1336,16 +1381,10 @@ class AudioPlayerManager(
     }
 
     private fun startSleepTimerInternal(totalMs: Long, isEndOfChapter: Boolean) {
+        fadeWarningEmitted = false
         if (shakeDetector == null) {
             shakeDetector = ShakeDetector(context) {
-                // Shake during the fade-out window: +15 min and full volume.
-                val hook = castEngineHook?.takeIf { it.isActive }
-                if (hook != null) {
-                    try { hook.setVolume(1.0f) } catch (_: Exception) {}
-                } else {
-                    try { mediaPlayer?.volume = 1.0f } catch (_: Exception) {}
-                }
-                setSleepTimer(15)
+                handleSleepTimerShake()
             }
         }
 
@@ -1359,6 +1398,10 @@ class AudioPlayerManager(
                 // inside the fade window.
                 val vol = sleepTimerFadeVolume(remainingSec)
                 if (vol < 1.0f) {
+                    if (!fadeWarningEmitted) {
+                        fadeWarningEmitted = true
+                        _sleepTimerNotices.tryEmit(SleepTimerNotice.FadeWarning)
+                    }
                     val hook = castEngineHook?.takeIf { it.isActive }
                     if (hook != null) {
                         try { hook.setVolume(vol) } catch (_: Exception) {}
@@ -1380,7 +1423,7 @@ class AudioPlayerManager(
                 val posSec = _playerState.value.currentPositionMs / 1000L
 
                 if (book != null) {
-                    scope.launch(Dispatchers.IO) {
+                    scope.launch(ioDispatcher) {
                         listeningState.addBookmark(
                             BookmarkEntity(
                                 bookId = book.id,
@@ -1486,7 +1529,7 @@ class AudioPlayerManager(
         val chapter = currentChapter ?: return
         if (durationMs <= 0L) return
         val seconds = durationMs / 1000L
-        scope.launch(Dispatchers.IO) {
+        scope.launch(ioDispatcher) {
             listeningState.updateChapterDuration(chapter.id, seconds)
             val chapters = chapterFetcher(book.id)
             if (chapters.isNotEmpty() && chapters.all { it.chapter.durationSeconds > 0L }) {
@@ -1503,7 +1546,7 @@ class AudioPlayerManager(
         val book = _playerState.value.currentBook ?: return
         val currentChapter = _playerState.value.currentChapterIndex
         val posSec = _playerState.value.currentPositionMs / 1000L
-        scope.launch(Dispatchers.IO) {
+        scope.launch(ioDispatcher) {
             // ADR-0007: progress is keyed by the Edition — no source key.
             listeningState.updateProgress(book.id, currentChapter, posSec)
             listeningState.recordListeningTime(5L)
@@ -1528,7 +1571,7 @@ class AudioPlayerManager(
     ) {
         val book = _playerState.value.currentBook ?: return
         val bookId = book.id
-        scope.launch(Dispatchers.IO) {
+        scope.launch(ioDispatcher) {
             // ADR-0007: the event log is history — rows are written with
             // sourceKey = "" (the store's default).
             listeningState.recordPlaybackEvent(

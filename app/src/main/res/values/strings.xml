@@ -1,5 +1,9 @@
 <resources>
     <string name="app_name">Слухайка</string>
+    <string name="nav_listen">Слухати</string>
+    <string name="nav_explore">Огляд</string>
+    <string name="nav_library">Медіатека</string>
+    <string name="pane_player">Програвач</string>
     <string name="empty_tag"></string>
     <!-- fix(accessibility): #371 — override Material3 strings so TalkBack voices
          Ukrainian regardless of device language. These match values-pl/strings.xml. -->

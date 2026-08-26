@@ -199,6 +199,7 @@ dependencies {
   // casting; the receiver itself never touches the network (phone proxy).
   implementation(libs.androidx.media3.cast)
   implementation(libs.play.services.cast.framework)
+  implementation(libs.nanohttpd)
   // implementation(libs.androidx.datastore.preferences)
   implementation(libs.androidx.lifecycle.runtime.compose)
   implementation(libs.androidx.lifecycle.runtime.ktx)
@@ -341,6 +342,7 @@ val runRecommendationEval by tasks.registering(JavaExec::class) {
   args("${projectDir}/src/main/assets/models/e5")
   isIgnoreExitValue = false
 }
+  testImplementation(platform(libs.androidx.compose.bom))
   testImplementation(libs.androidx.compose.ui.test.junit4)
   testImplementation(libs.androidx.core)
   testImplementation(libs.androidx.junit)
@@ -352,6 +354,7 @@ val runRecommendationEval by tasks.registering(JavaExec::class) {
   testImplementation(libs.roborazzi.junit.rule)
   androidTestImplementation(platform(libs.androidx.compose.bom))
   androidTestImplementation(libs.androidx.compose.ui.test.junit4)
+  androidTestImplementation(libs.androidx.compose.ui.test.junit4.accessibility)
   androidTestImplementation(libs.androidx.compose.ui.test.manifest)
   androidTestImplementation(libs.androidx.core)
   androidTestImplementation(libs.androidx.espresso.core)
@@ -363,4 +366,10 @@ val runRecommendationEval by tasks.registering(JavaExec::class) {
   debugImplementation(libs.androidx.compose.ui.tooling)
   "ksp"(libs.androidx.room.compiler)
   "ksp"(libs.moshi.kotlin.codegen)
+}
+
+// Compose/Robolectric accessibility suites retain large rendered graphs.
+// Keep the CI test worker from exhausting Gradle's default heap mid-suite.
+tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
+  maxHeapSize = "2g"
 }

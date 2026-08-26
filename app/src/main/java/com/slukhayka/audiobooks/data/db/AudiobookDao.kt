@@ -2,6 +2,7 @@ package com.slukhayka.audiobooks.data.db
 
 import androidx.paging.PagingSource
 import androidx.room.*
+import com.slukhayka.audiobooks.data.authors.AuthorSummary
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -835,6 +836,42 @@ interface AudiobookDao {
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertAuthorAliases(rows: List<AuthorAliasEntity>)
+
+    @Transaction
+    suspend fun applyAuthorIndexRows(
+        authors: List<AuthorFacetEntity>,
+        aliases: List<AuthorAliasEntity>,
+        works: List<WorkFacetEntity>
+    ) {
+        upsertAuthorFacets(authors)
+        insertAuthorAliases(aliases)
+        works.forEach { mergeWorkFacet(it.workId, it.canonicalAuthorId, it.updatedAt) }
+    }
+
+    @Query(
+        "SELECT a.id, a.displayName, a.normalizedName, COUNT(DISTINCT wf.workId) AS workCount " +
+            "FROM author_facets a JOIN work_facets wf ON wf.canonicalAuthorId=a.id " +
+            "GROUP BY a.id, a.displayName, a.normalizedName " +
+            "ORDER BY a.normalizedName ASC, a.id ASC"
+    )
+    fun observeAuthorIndex(): Flow<List<AuthorSummary>>
+
+    @Query(
+        "SELECT a.id, a.displayName, a.normalizedName, COUNT(DISTINCT wf.workId) AS workCount " +
+            "FROM author_aliases aa INDEXED BY index_author_aliases_normalizedAlias " +
+            "JOIN author_facets a ON a.id=aa.authorId " +
+            "JOIN work_facets wf ON wf.canonicalAuthorId=a.id " +
+            "WHERE aa.normalizedAlias >= :lowerBound AND aa.normalizedAlias < :upperBound " +
+            "GROUP BY a.id, a.displayName, a.normalizedName " +
+            "ORDER BY a.normalizedName ASC, a.id ASC LIMIT :limit"
+    )
+    suspend fun searchAuthors(lowerBound: String, upperBound: String, limit: Int): List<AuthorSummary>
+
+    @Query(
+        "SELECT w.* FROM works w JOIN work_facets wf ON wf.workId=w.id " +
+            "WHERE wf.canonicalAuthorId=:authorId ORDER BY w.title COLLATE NOCASE ASC, w.id ASC"
+    )
+    suspend fun worksForAuthor(authorId: String): List<WorkEntity>
 
     @Transaction
     suspend fun applyFacetRows(

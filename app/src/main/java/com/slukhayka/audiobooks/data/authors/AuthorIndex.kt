@@ -1,0 +1,127 @@
+package com.slukhayka.audiobooks.data.authors
+
+import com.slukhayka.audiobooks.data.db.AuthorAliasEntity
+import com.slukhayka.audiobooks.data.db.AuthorFacetEntity
+import com.slukhayka.audiobooks.data.db.AudiobookDao
+import com.slukhayka.audiobooks.data.db.WorkEntity
+import com.slukhayka.audiobooks.data.db.WorkFacetEntity
+import kotlinx.coroutines.flow.Flow
+
+data class AuthorSummary(
+    val id: String,
+    val displayName: String,
+    val normalizedName: String,
+    val workCount: Int
+)
+
+interface AuthorIndex {
+    val authors: Flow<List<AuthorSummary>>
+
+    suspend fun search(query: String, limit: Int = DEFAULT_SEARCH_LIMIT): List<AuthorSummary>
+    suspend fun works(authorId: String): List<WorkEntity>
+    suspend fun indexWorks(works: List<WorkEntity>, sourceId: String)
+    suspend fun applyAssertion(
+        canonicalId: String,
+        displayName: String,
+        aliases: List<String>,
+        workIds: Set<String>,
+        sourceId: String,
+        observedAt: Long
+    )
+
+    companion object {
+        const val DEFAULT_SEARCH_LIMIT = 6
+        const val MAX_FULL_LIST = 10_000
+        const val MAX_INDEX_BATCH = 500
+    }
+}
+
+/** Room-backed canonical author read model; all interaction queries stay local. */
+class RoomAuthorIndex(private val dao: AudiobookDao) : AuthorIndex {
+    override val authors: Flow<List<AuthorSummary>> = dao.observeAuthorIndex()
+
+    override suspend fun search(query: String, limit: Int): List<AuthorSummary> {
+        val normalized = AuthorIdentity.searchableQuery(query) ?: return emptyList()
+        return dao.searchAuthors(
+            lowerBound = normalized,
+            upperBound = "$normalized\uFFFF",
+            limit = limit.coerceIn(1, AuthorIndex.MAX_FULL_LIST)
+        )
+    }
+
+    override suspend fun works(authorId: String): List<WorkEntity> = dao.worksForAuthor(authorId)
+
+    override suspend fun indexWorks(works: List<WorkEntity>, sourceId: String) {
+        require(sourceId.isNotBlank() && sourceId.length <= 80)
+        works.chunked(AuthorIndex.MAX_INDEX_BATCH).forEach { batch ->
+            val authors = linkedMapOf<String, AuthorFacetEntity>()
+            val aliases = linkedSetOf<AuthorAliasEntity>()
+            val workFacets = mutableListOf<WorkFacetEntity>()
+            batch.forEach workLoop@ { work ->
+                val identity = runCatching { AuthorIdentity.fromWorkName(work.author) }.getOrNull()
+                    ?: return@workLoop
+                authors[identity.id] = AuthorFacetEntity(
+                    identity.id,
+                    identity.displayName,
+                    identity.normalizedName,
+                    updatedAt = 0
+                )
+                aliases += searchAliasRows(identity.id, identity.displayName, sourceId, observedAt = 0)
+                workFacets += WorkFacetEntity(work.id, identity.id, updatedAt = 0)
+            }
+            dao.applyAuthorIndexRows(authors.values.toList(), aliases.toList(), workFacets)
+        }
+    }
+
+    override suspend fun applyAssertion(
+        canonicalId: String,
+        displayName: String,
+        aliases: List<String>,
+        workIds: Set<String>,
+        sourceId: String,
+        observedAt: Long
+    ) {
+        require(workIds.size <= AuthorIndex.MAX_INDEX_BATCH)
+        val assertion = AuthorIdentity.fromAssertion(
+            canonicalId = canonicalId,
+            displayName = displayName,
+            aliases = aliases,
+            sourceId = sourceId,
+            observedAt = observedAt
+        )
+        val searchRows = assertion.aliases
+            .sortedByDescending { it.normalizedAlias == assertion.author.normalizedName }
+            .flatMap { claim ->
+                searchAliasRows(
+                    authorId = claim.authorId,
+                    rawAlias = claim.rawAlias,
+                    sourceId = claim.sourceId,
+                    observedAt = claim.observedAt
+                )
+            }
+            .distinctBy { Triple(it.authorId, it.normalizedAlias, it.sourceId) }
+            .take(AuthorIdentity.MAX_ALIASES)
+        dao.applyAuthorIndexRows(
+            authors = listOf(
+                AuthorFacetEntity(
+                    assertion.author.id,
+                    assertion.author.displayName,
+                    assertion.author.normalizedName,
+                    observedAt
+                )
+            ),
+            aliases = searchRows,
+            works = workIds.map { WorkFacetEntity(it, canonicalId, observedAt) }
+        )
+    }
+
+    private fun searchAliasRows(
+        authorId: String,
+        rawAlias: String,
+        sourceId: String,
+        observedAt: Long
+    ): List<AuthorAliasEntity> = AuthorIdentity.searchKeys(rawAlias).map { searchKey ->
+        AuthorAliasEntity(authorId, searchKey, rawAlias.take(AuthorIdentity.MAX_NAME_LENGTH), sourceId, observedAt)
+    }
+
+}

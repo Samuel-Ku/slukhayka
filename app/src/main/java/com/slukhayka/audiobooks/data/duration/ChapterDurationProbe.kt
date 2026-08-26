@@ -8,8 +8,14 @@ import com.slukhayka.audiobooks.data.db.BookRow
 import com.slukhayka.audiobooks.data.metadata.DurationProvenance
 import com.slukhayka.audiobooks.data.metadata.DurationSanity
 import com.slukhayka.audiobooks.data.metadata.SharedBookMetaStore
+import com.slukhayka.audiobooks.data.source.sourceIdForUrl
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 
 /**
@@ -31,12 +37,17 @@ import kotlinx.coroutines.withContext
  * was unknown (0), the book total becomes the sum of the chapters — a
  * site-provided total is never overwritten.
  *
- * The pass is bounded (batch ≥ 10 books, aggressive by decision) and
- * throttled to one pass per hour in memory only (same doctrine as the
- * enrichment pass); a failing probe leaves the row untouched and never
- * aborts the batch. The chapter→track pairing rides the catalog seam
- * ([SourceCatalog.getPlayableChapters]) — the same 1:1-by-index pairing the
- * player uses, never a duplicated copy.
+ * The pass is bounded (batch ≥ 20 books since #350), sweeps newest books
+ * first and probes one book's tracks with bounded parallelism
+ * ([DEFAULT_PROBE_CONCURRENCY]); it is throttled to one pass per 30 minutes
+ * in memory only (same doctrine as the enrichment pass); a failing probe
+ * leaves the row untouched and never aborts the batch. The chapter→track
+ * pairing rides the catalog seam ([SourceCatalog.getPlayableChapters]) —
+ * the same 1:1-by-index pairing the player uses, never a duplicated copy.
+ *
+ * #349 adds the sibling targeted probe [probeBookNow]: fired detached by the
+ * import doors so a fresh card is filled in seconds, bypassing the sweep's
+ * throttle with its own per-book single-flight.
  */
 class ChapterDurationProbe(
     private val dao: AudiobookDao,
@@ -51,6 +62,35 @@ class ChapterDurationProbe(
 
     /** Timestamp of the last completed pass, as an atomic CAS gate. */
     private val lastProbeRunEpochMs = AtomicLong(0L)
+
+    /** #349: books with a targeted probe currently in flight — per-book single-flight. */
+    private val targetedInFlight = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
+    /**
+     * #349 — the targeted post-import probe of ONE book, fired detached by
+     * the import doors: a fresh card gets its chapter durations in seconds
+     * instead of waiting for the hourly sweep. It ignores the pass throttle
+     * (that CAS gate serves the bounded background sweep, not one eager user
+     * action) and is single-flight per book — a concurrent second call for
+     * the same book loses the race and probes nothing. Best-effort like the
+     * pass: any failure leaves rows untouched.
+     *
+     * @return how many chapters received a duration.
+     */
+    suspend fun probeBookNow(bookId: String): Int = withContext(Dispatchers.IO) {
+        if (!targetedInFlight.add(bookId)) return@withContext 0
+        try {
+            val book = dao.getAllAudiobooksOnce().firstOrNull { it.id == bookId }
+                ?: return@withContext 0
+            if (book.sourceUrl.isBlank()) return@withContext 0 // local copy — nothing to probe
+            probeBook(book)
+        } catch (e: Exception) {
+            Log.w(TAG, "Targeted duration probe failed for $bookId", e)
+            0
+        } finally {
+            targetedInFlight.remove(bookId)
+        }
+    }
 
     /**
      * @return how many chapters received a duration this pass.
@@ -69,9 +109,12 @@ class ChapterDurationProbe(
         // Candidates: books with at least one unknown-duration chapter (0 is
         // the unknown placeholder) and a stream URL — local imports (blank
         // sourceUrl, nothing to probe) never reach the transport.
+        // #350: newest books first — a freshly imported card must not sit at
+        // the tail of the batch behind stale ones.
         val unknownBookIds = dao.getBookIdsWithUnknownChapterDurations().toSet()
         val candidates = dao.getAllAudiobooksOnce()
             .filter { it.id in unknownBookIds && it.sourceUrl.isNotBlank() }
+            .sortedByDescending { it.createdAt }
             .take(batchLimit.coerceAtLeast(1))
 
         var probed = 0
@@ -87,19 +130,38 @@ class ChapterDurationProbe(
 
     /** @return how many chapters of one book received a duration. */
     private suspend fun probeBook(book: BookRow): Int {
-        var probed = 0
-        for (pair in playableChapters(book.id)) {
-            val chapter = pair.chapter
-            if (chapter.durationSeconds > 0L) continue // already known
-            val track = pair.track ?: continue // no stream for this chapter
-            if (track.url.isBlank()) continue // local copy / no probe target
-            // Best-effort: a failing probe leaves the row untouched.
-            val result = prober.probe(track.url) ?: continue
-            val durationSeconds = result.contentLength * 8L / (result.frame.bitrateKbps * 1000L)
-            if (durationSeconds <= 0L) continue
-            dao.updateChapterDuration(chapter.id, durationSeconds)
-            probed++
+        // #350: the book's unknown tracks probe with bounded parallelism
+        // (a semaphore caps the in-flight probes) instead of one by one — a
+        // long book converges in minutes, not a quarter of an hour. Each
+        // launch stays failure-isolated: an unexpected throw kills only its
+        // own probe, never the sibling chapters or the sweep.
+        val pairsToProbe = playableChapters(book.id).filter { pair ->
+            pair.chapter.durationSeconds <= 0L && // already known
+                pair.track != null && // no stream for this chapter
+                pair.track.url.isNotBlank() // local copy / no probe target
         }
+        val limiter = Semaphore(DEFAULT_PROBE_CONCURRENCY)
+        val probed = AtomicInteger(0)
+        coroutineScope {
+            for (pair in pairsToProbe) {
+                val track = requireNotNull(pair.track)
+                launch {
+                    try {
+                        limiter.withPermit {
+                            val result = prober.probe(track.url) ?: return@withPermit
+                            val durationSeconds =
+                                result.contentLength * 8L / (result.frame.bitrateKbps * 1000L)
+                            if (durationSeconds <= 0L) return@withPermit
+                            dao.updateChapterDuration(pair.chapter.id, durationSeconds)
+                            probed.incrementAndGet()
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Chapter probe failed for ${pair.chapter.id}", e)
+                    }
+                }
+            }
+        }
+        val probedCount = probed.get()
         // Book total: only when it was unknown (0) and EVERY chapter is now
         // known — a site-provided total is never overwritten.
         if (book.totalDurationSeconds == 0L) {
@@ -116,21 +178,32 @@ class ChapterDurationProbe(
                             editionId = EditionId.forBook(book.mergeKey ?: "", book.id, book.narrator),
                             durationSeconds = total,
                             provenance = DurationProvenance(
-                                DurationProvenance.SOURCE_DERIVED,
-                                System.currentTimeMillis()
+                                source = sourceIdForUrl(book.sourceUrl),
+                                derivedAt = System.currentTimeMillis(),
+                                method = DurationProvenance.METHOD_TECHNICAL_PROBE
                             )
                         )
                     }
                 }
             }
         }
-        return probed
+        return probedCount
     }
 
     companion object {
-        /** One pass per hour — the probe is cheap (a HEAD + a head window per track). */
-        const val MIN_PROBE_INTERVAL_MS = 1L * 60 * 60 * 1000
-        /** Aggressive by decision: ≥ 10 books per pass. */
-        const val DEFAULT_PROBE_BATCH = 10
+        /**
+         * #350 — one pass per 30 minutes (halved from an hour by decision):
+         * the sweep is still cheap (a HEAD + a head window per track) and a
+         * fresher cadence keeps a growing library converging.
+         */
+        const val MIN_PROBE_INTERVAL_MS = 30L * 60 * 1000
+        /** Aggressive by decision, more so since #350: ≥ 20 books per pass. */
+        const val DEFAULT_PROBE_BATCH = 20
+
+        /** #350 — at most this many tracks of ONE book probe concurrently. */
+        const val DEFAULT_PROBE_CONCURRENCY = 3
+
+        /** Log tag shared by the pass and the targeted probe. */
+        private const val TAG = "ChapterDurationProbe"
     }
 }

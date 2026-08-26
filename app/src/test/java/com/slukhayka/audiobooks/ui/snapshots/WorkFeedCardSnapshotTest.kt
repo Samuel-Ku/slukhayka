@@ -28,10 +28,8 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
 /**
- * Snapshot tests for the spec-23 T4/T5 feed card: the merged Work card shows
- * a compact «N джерел» badge when more than one source carries the Work
- * (T5), and stays quiet for a single source. Pure `@Composable` inputs — no
- * `MainViewModel`.
+ * Snapshot tests for the spec-42 T1 feed card: Source provenance no longer
+ * occupies the endless feed card. Pure `@Composable` inputs — no ViewModel.
  */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
@@ -72,17 +70,16 @@ class WorkFeedCardSnapshotTest {
     }
 
     @Test
-    fun feed_card_two_sources_shows_badge() {
+    fun feed_card_never_shows_source_count() {
         setContent {
             WorkFeedCard(
                 row = row("Пасажир", "Жан-Крістоф Гранже", editionCount = 2),
                 onClick = {}
             )
         }
-        // Self-verifying on top of the image: the «2 джерела» pill renders.
-        composeTestRule.onNodeWithText("2 джерела").assertExists()
+        composeTestRule.onNodeWithText("2 джерела").assertDoesNotExist()
         composeTestRule.onRoot().captureRoboImage(
-            filePath = "src/test/snapshots/work_feed_two_sources_badge.png"
+            filePath = "src/test/snapshots/work_feed_no_source_badge.png"
         )
     }
 

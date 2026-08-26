@@ -66,7 +66,12 @@ fun ReviewStarsRow(
         repeat(ListenerReviewLimits.MAX_RATING) { index ->
             val position = index + 1
             if (interactive) {
-                IconButton(onClick = { onRatingChange(position) }, modifier = Modifier.size(36.dp)) {
+                // #348: the position in the description doubles as the
+                // interaction seam for tests («Оцінка 4» = tap rates 4).
+                IconButton(
+                    onClick = { onRatingChange(position) },
+                    modifier = Modifier.size(36.dp).testTag("rating_star_$position")
+                ) {
                     StarIcon(filled = position <= rating, size = starSize)
                 }
             } else {
@@ -239,6 +244,76 @@ fun ReviewCard(
 
 /** «Не вказувати» — the dropdown's explicit no-tag choice (#278). */
 const val EDITION_TAG_NONE = "Не вказувати"
+
+/**
+ * ADR-0023 (#348) — the narration-rating row beside the narrator's name:
+ * the crowd average (when votes exist — honest absence otherwise, ADR-0014)
+ * and THIS listener's interactive stars. Renders nothing when there is
+ * nothing to show and nobody to ask.
+ */
+@Composable
+fun NarrationRatingRow(
+    average: Double?,
+    voteCount: Int,
+    ownRating: Int?,
+    canRate: Boolean,
+    onRate: (Int) -> Unit,
+    onDeleteOwn: (() -> Unit)? = null,
+    modifier: Modifier = Modifier
+) {
+    if (average == null && !canRate) return
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag("narration_rating_row"),
+        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = "Начитка:",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(modifier = Modifier.size(6.dp))
+        if (average != null) {
+            // The icon fill rounds for display; the real number travels beside
+            // it (ADR-0022: rounding is a presentation concern).
+            ReviewStarsRow(rating = kotlin.math.round(average).toInt(), starSize = 14)
+            Spacer(modifier = Modifier.size(4.dp))
+            Text(
+                text = String.format(java.util.Locale.US, "%.1f", average) + " · $voteCount",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.testTag("narration_rating_average")
+            )
+            Spacer(modifier = Modifier.size(10.dp))
+        }
+        if (canRate) {
+            ReviewStarsRow(
+                rating = ownRating ?: 0,
+                starSize = 14,
+                interactive = true,
+                onRatingChange = onRate,
+                modifier = Modifier.testTag("narration_rating_own_stars")
+            )
+            // #358: an own rating offers its removal — behind confirmation
+            // upstream; re-tapping a star is the edit.
+            if (ownRating != null && onDeleteOwn != null) {
+                IconButton(
+                    onClick = onDeleteOwn,
+                    modifier = Modifier.size(28.dp).testTag("narration_rating_delete")
+                ) {
+                    Icon(
+                        Icons.Default.Delete,
+                        contentDescription = "Видалити оцінку начитки",
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+        }
+    }
+}
 
 /**
  * #277/#278 — the write/edit form as a bottom sheet (ADR-0018: transient

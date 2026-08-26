@@ -109,6 +109,14 @@ fun BookDetailScreen(
     val siblingCards = remember(currentBook.id, currentBook.mergeKey, allBooks) {
         siblingNarrations(allBooks, currentBook.id, currentBook.mergeKey ?: "")
     }
+    // ADR-0023 (#357): each sibling card's Edition id → its own narration
+    // ratings (loaded once per Work by the reviews trigger above).
+    var siblingEditionIds by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    LaunchedEffect(siblingCards) {
+        siblingEditionIds = siblingCards.mapNotNull { sib ->
+            viewModel.editionIdForBook(sib.id)?.let { sib.id to it }
+        }.toMap()
+    }
     // Spec-10 T6: stream-only sources (lihtar — its ToS forbids reproduction)
     // hide the download action; the repository refuses anyway, in depth.
     // ADR-0008: the pure stream-only decision is read from the source helpers
@@ -128,6 +136,26 @@ fun BookDetailScreen(
     val listenerProfile by viewModel.listenerIdentity.collectAsState()
     val bookReviews by viewModel.bookReviews.collectAsState()
     val pendingReviewKeys by viewModel.pendingReviewKeys.collectAsState()
+
+    // ADR-0023 (#348): narration ratings of this Work + THIS card's Edition id.
+    val narrationRatings by viewModel.narrationRatings.collectAsState()
+    var currentEditionId by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(currentBook.id) {
+        currentEditionId = viewModel.editionIdForBook(currentBook.id)
+    }
+    val editionNarrationRatings = remember(narrationRatings, currentEditionId) {
+        currentEditionId?.let { id -> narrationRatings.filter { it.editionId == id } }.orEmpty()
+    }
+    val narrationAverage = remember(editionNarrationRatings) {
+        editionNarrationRatings.map { it.rating }.takeIf(List<Int>::isNotEmpty)
+            ?.let { votes -> votes.average() }
+    }
+    val ownNarrationRating = remember(editionNarrationRatings, listenerProfile) {
+        listenerProfile?.uid?.let { uid -> editionNarrationRatings.firstOrNull { it.uid == uid } }
+    }
+    // #358 — the delete confirmation lives here (destructive action never
+    // looks neutral, spec-27); the row only raises the request.
+    var showNarrationRatingDeleteConfirm by remember { mutableStateOf(false) }
     val detailPresentation = remember(currentBook, sourceProfiles, bookSources, bookReviews) {
         bookDetailPresentation(
             book = currentBook,
@@ -140,6 +168,33 @@ fun BookDetailScreen(
         viewModel.loadReviews(reviewsWorkId)
         // Spec-40 #281 — the local mute list rides every branch read.
         viewModel.loadHiddenAuthors()
+        // ADR-0023 (#348) — the narration ratings ride the same trigger.
+        viewModel.loadNarrationRatings(reviewsWorkId)
+    }
+
+    // #358 — delete confirmation quoting the exact scope (spec-27).
+    if (showNarrationRatingDeleteConfirm && currentEditionId != null) {
+        val editionId = currentEditionId.orEmpty()
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showNarrationRatingDeleteConfirm = false },
+            title = { Text("Видалити оцінку начитки?") },
+            text = {
+                Text(
+                    "Ваші зірки біля «${detailPresentation.narrator}» буде прибрано з цієї сторінки."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.deleteOwnNarrationRating(reviewsWorkId, editionId)
+                    showNarrationRatingDeleteConfirm = false
+                }) {
+                    Text("Видалити", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showNarrationRatingDeleteConfirm = false }) { Text("Скасувати") }
+            }
+        )
     }
 
     // Spec-40 #278 — THIS Work's editions from the local DB, labeled by
@@ -350,6 +405,26 @@ fun BookDetailScreen(
                     BookDetailCanonicalSummary(
                         presentation = detailPresentation,
                         universeName = bookUniverse?.universeName,
+                        narrationAverage = narrationAverage,
+                        narrationVoteCount = editionNarrationRatings.size,
+                        ownNarrationRating = ownNarrationRating?.rating,
+                        canRateNarration = viewModel.narrationRatingsStore != null &&
+                            listenerProfile != null && currentEditionId != null,
+                        onRateNarration = { stars ->
+                            val editionId = currentEditionId ?: return@BookDetailCanonicalSummary
+                            // Re-tapping the already-set star is a no-op —
+                            // never a rewrite with a fresh editedAt (#358).
+                            if (ownNarrationRating?.rating == stars) return@BookDetailCanonicalSummary
+                            viewModel.saveNarrationRating(
+                                workId = reviewsWorkId,
+                                editionId = editionId,
+                                rating = stars,
+                                editingCreatedAt = ownNarrationRating?.createdAt
+                            )
+                        },
+                        onDeleteNarrationRating = ownNarrationRating?.let {
+                            { showNarrationRatingDeleteConfirm = true }
+                        },
                         onAuthorClick = { author ->
                             viewModel.openPersonBooks(
                                 CatalogPerson(author, bookPersonPath("avtor", author), 0)
@@ -381,8 +456,18 @@ fun BookDetailScreen(
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         siblingCards.forEach { sibling ->
+                            // ADR-0023 (#348/#357): each rendition carries ITS
+                            // OWN narration average — the comparison point.
+                            val siblingStats = run {
+                                val eid = siblingEditionIds[sibling.id]
+                                val votes = eid?.let { id -> narrationRatings.filter { it.editionId == id } }
+                                    .orEmpty()
+                                votes.takeIf { it.isNotEmpty() }?.let { Pair(it.map { r -> r.rating }.average(), it.size) }
+                            }
                             NarrationRowCard(
                                 sibling = sibling,
+                                average = siblingStats?.first,
+                                voteCount = siblingStats?.second ?: 0,
                                 onClick = { viewModel.selectBook(sibling.id) }
                             )
                         }
@@ -1243,6 +1328,12 @@ fun BookmarkRowItem(
 fun BookDetailCanonicalSummary(
     presentation: BookDetailPresentation,
     universeName: String? = null,
+    narrationAverage: Double? = null,
+    narrationVoteCount: Int = 0,
+    ownNarrationRating: Int? = null,
+    canRateNarration: Boolean = false,
+    onRateNarration: (Int) -> Unit = {},
+    onDeleteNarrationRating: (() -> Unit)? = null,
     onAuthorClick: (String) -> Unit = {},
     onNarratorClick: (String) -> Unit = {},
     onSeriesClick: (String, String) -> Unit = { _, _ -> },
@@ -1282,6 +1373,17 @@ fun BookDetailCanonicalSummary(
             textAlign = TextAlign.Center
         )
     }
+    // ADR-0023 (#348): the narration rating lives beside the narrator's name —
+    // crowd average + this listener's stars, never in the book headline.
+    NarrationRatingRow(
+        average = narrationAverage,
+        voteCount = narrationVoteCount,
+        ownRating = ownNarrationRating,
+        canRate = canRateNarration,
+        onRate = onRateNarration,
+        onDeleteOwn = onDeleteNarrationRating,
+        modifier = Modifier.padding(top = 2.dp)
+    )
     Spacer(modifier = Modifier.height(12.dp))
     FlowRow(
         horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
@@ -1472,6 +1574,8 @@ fun WorkSourceRowCard(
 @Composable
 fun NarrationRowCard(
     sibling: com.slukhayka.audiobooks.data.db.AudiobookEntity,
+    average: Double? = null,
+    voteCount: Int = 0,
     onClick: () -> Unit
 ) {
     Surface(
@@ -1508,6 +1612,20 @@ fun NarrationRowCard(
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+            }
+            // ADR-0023 (#357): this rendition's own average — shown only when
+            // votes exist (honest absence, ADR-0014).
+            if (average != null) {
+                Spacer(modifier = Modifier.width(10.dp))
+                Column(horizontalAlignment = Alignment.End) {
+                    ReviewStarsRow(rating = kotlin.math.round(average).toInt(), starSize = 12)
+                    Text(
+                        text = String.format(java.util.Locale.US, "%.1f", average) + " · $voteCount",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.testTag("narration_rating_average_${sibling.id}")
+                    )
+                }
             }
         }
     }

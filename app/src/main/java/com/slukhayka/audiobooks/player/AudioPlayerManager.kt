@@ -1185,7 +1185,7 @@ class AudioPlayerManager(
      */
     fun savePreferredSpeed(speed: Float) {
         val book = _playerState.value.currentBook ?: return
-        scope.launch(Dispatchers.IO) {
+        scope.launch(ioDispatcher) {
             listeningState.setPreferredSpeed(book.id, speed)
         }
     }
@@ -1270,7 +1270,7 @@ class AudioPlayerManager(
     private fun persistPausedAt(epochMs: Long?) {
         val book = _playerState.value.currentBook ?: return
         val bookId = book.id
-        scope.launch(Dispatchers.IO) {
+        scope.launch(ioDispatcher) {
             listeningState.updatePausedAt(bookId, epochMs)
         }
     }
@@ -1423,7 +1423,7 @@ class AudioPlayerManager(
                 val posSec = _playerState.value.currentPositionMs / 1000L
 
                 if (book != null) {
-                    scope.launch(Dispatchers.IO) {
+                    scope.launch(ioDispatcher) {
                         listeningState.addBookmark(
                             BookmarkEntity(
                                 bookId = book.id,
@@ -1529,7 +1529,7 @@ class AudioPlayerManager(
         val chapter = currentChapter ?: return
         if (durationMs <= 0L) return
         val seconds = durationMs / 1000L
-        scope.launch(Dispatchers.IO) {
+        scope.launch(ioDispatcher) {
             listeningState.updateChapterDuration(chapter.id, seconds)
             val chapters = chapterFetcher(book.id)
             if (chapters.isNotEmpty() && chapters.all { it.chapter.durationSeconds > 0L }) {
@@ -1546,7 +1546,7 @@ class AudioPlayerManager(
         val book = _playerState.value.currentBook ?: return
         val currentChapter = _playerState.value.currentChapterIndex
         val posSec = _playerState.value.currentPositionMs / 1000L
-        scope.launch(Dispatchers.IO) {
+        scope.launch(ioDispatcher) {
             // ADR-0007: progress is keyed by the Edition — no source key.
             listeningState.updateProgress(book.id, currentChapter, posSec)
             listeningState.recordListeningTime(5L)
@@ -1571,7 +1571,7 @@ class AudioPlayerManager(
     ) {
         val book = _playerState.value.currentBook ?: return
         val bookId = book.id
-        scope.launch(Dispatchers.IO) {
+        scope.launch(ioDispatcher) {
             // ADR-0007: the event log is history — rows are written with
             // sourceKey = "" (the store's default).
             listeningState.recordPlaybackEvent(

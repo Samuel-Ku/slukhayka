@@ -273,6 +273,88 @@ class AccessibilityComponentsTest {
         assertEquals(1, restoreCount)
     }
 
+    @Test
+    fun modalFocusReturnUsesStableFallbackWhenDestructiveOriginIsDetached() {
+        var closeAndDetach: (() -> Unit)? = null
+        var restoreCount = 0
+        composeTestRule.setContent {
+            var modalVisible by remember { mutableStateOf(true) }
+            var showOrigin by remember { mutableStateOf(true) }
+            val origin = remember { FocusRequester() }
+            val fallback = remember { FocusRequester() }
+            closeAndDetach = {
+                showOrigin = false
+                modalVisible = false
+            }
+
+            RestoreFocusAfterModal(
+                modalVisible = modalVisible,
+                returnFocusRequester = origin,
+                fallbackFocusRequester = fallback,
+                onFocusRestored = { restoreCount += 1 }
+            )
+            Column {
+                if (showOrigin) {
+                    Box(
+                        Modifier
+                            .size(48.dp)
+                            .focusRequester(origin)
+                            .focusable()
+                            .testTag("destructive_origin")
+                    )
+                }
+                Box(
+                    Modifier
+                        .size(48.dp)
+                        .focusRequester(fallback)
+                        .focusable()
+                        .testTag("stable_focus_fallback")
+                )
+            }
+        }
+
+        composeTestRule.runOnIdle { closeAndDetach?.invoke() }
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("stable_focus_fallback").assertIsFocused()
+        assertEquals(1, restoreCount)
+    }
+
+    @Test
+    fun modalFocusReturnDoesNotConsumeOwnerWhenEveryTargetIsDetached() {
+        var closeAndDetach: (() -> Unit)? = null
+        var restoreCount = 0
+        composeTestRule.setContent {
+            var modalVisible by remember { mutableStateOf(true) }
+            var showOrigin by remember { mutableStateOf(true) }
+            val origin = remember { FocusRequester() }
+            closeAndDetach = {
+                showOrigin = false
+                modalVisible = false
+            }
+
+            RestoreFocusAfterModal(
+                modalVisible = modalVisible,
+                returnFocusRequester = origin,
+                onFocusRestored = { restoreCount += 1 }
+            )
+            if (showOrigin) {
+                Box(
+                    Modifier
+                        .size(48.dp)
+                        .focusRequester(origin)
+                        .focusable()
+                        .testTag("removed_focus_origin")
+                )
+            }
+        }
+
+        composeTestRule.runOnIdle { closeAndDetach?.invoke() }
+        composeTestRule.waitForIdle()
+
+        assertEquals(0, restoreCount)
+    }
+
     private fun loadedCoverImageLoader(context: Context): ImageLoader =
         ImageLoader.Builder(context)
             .allowHardware(false)

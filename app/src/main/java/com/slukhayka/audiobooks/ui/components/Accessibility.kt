@@ -44,6 +44,7 @@ fun Modifier.accessibilityPane(title: String): Modifier =
 fun RestoreFocusAfterModal(
     modalVisible: Boolean,
     returnFocusRequester: FocusRequester?,
+    fallbackFocusRequester: FocusRequester? = null,
     onFocusRestored: () -> Unit = {}
 ) {
     var modalWasVisible by remember { mutableStateOf(false) }
@@ -51,13 +52,27 @@ fun RestoreFocusAfterModal(
         if (modalVisible) {
             modalWasVisible = true
         } else if (modalWasVisible) {
-            returnFocusRequester?.let { requester ->
+            if (returnFocusRequester == null) {
+                modalWasVisible = false
+            } else {
                 withFrameNanos { }
-                requester.requestFocus()
-                modalWasVisible = false
-                onFocusRestored()
-            } ?: run {
-                modalWasVisible = false
+                val restoredToOrigin = runCatching {
+                    returnFocusRequester.requestFocus()
+                }.getOrDefault(false) || run {
+                    // A disappearing modal and its launcher can detach in the
+                    // same frame. Give layout one bounded retry before using a
+                    // stable screen-level fallback.
+                    withFrameNanos { }
+                    runCatching { returnFocusRequester.requestFocus() }
+                        .getOrDefault(false)
+                }
+                val restored = restoredToOrigin || fallbackFocusRequester?.let { fallback ->
+                    runCatching { fallback.requestFocus() }.getOrDefault(false)
+                } == true
+                if (restored) {
+                    modalWasVisible = false
+                    onFocusRestored()
+                }
             }
         }
     }

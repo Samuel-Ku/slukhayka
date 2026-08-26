@@ -396,6 +396,8 @@ fun ListenHeroCard(
                     Text(
                         text = "Розділ ${progress.currentChapterIndex + 1} із ${book.totalChapters.coerceAtLeast(1)}",
                         style = MaterialTheme.typography.labelMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                         color = MaterialTheme.colorScheme.secondary
                     )
                     Spacer(modifier = Modifier.height(6.dp))
@@ -406,6 +408,8 @@ fun ListenHeroCard(
                             MainViewModel.formatTime(positionSec)
                         },
                         style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                 }

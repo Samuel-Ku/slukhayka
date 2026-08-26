@@ -135,6 +135,24 @@ class PlayerToolsAccessibilityTest {
     }
 
     @Test
+    fun sleepTimerDoesNotExposeAnUnavailableClippedExtensionAction() {
+        composeTestRule.setContent {
+            PlayerTheme {
+                SleepTimerSheet(
+                    currentTimerMinutes = 0,
+                    remainingSeconds = 0,
+                    onSelectTimer = {},
+                    onExtendTimer = {},
+                    onDismiss = {}
+                )
+            }
+        }
+
+        composeTestRule.onNodeWithTag("extend_sleep_timer_button")
+            .assertDoesNotExist()
+    }
+
+    @Test
     fun chapterPickerNamesAndSelectsTheCurrentChapter() {
         val chapters = listOf(
             ChapterEntity("chapter-1", "book", 0, "Початок", 600),

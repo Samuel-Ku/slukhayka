@@ -27,6 +27,7 @@ import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
@@ -925,16 +926,11 @@ private fun DualProgress(
         Row(
             Modifier
                 .fillMaxWidth()
-                .testTag("book_progress_visual_row"),
-            verticalAlignment = Alignment.CenterVertically
+                .testTag("book_progress_visual_row")
+                .semantics { hideFromAccessibility() },
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text(
-                "Книга",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.clearAndSetSemantics { }
-            )
-            Spacer(Modifier.weight(1f))
+            Text("Книга", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(
                 if (progress.bookDurationSeconds > 0L) {
                     "${MainViewModel.formatTime(progress.bookPositionSeconds)}  /  ${MainViewModel.formatTime(progress.bookDurationSeconds)}"
@@ -942,50 +938,33 @@ private fun DualProgress(
                     stringResource(R.string.a11y_player_duration_unknown)
                 },
                 style = TabularTimerStyle,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.clearAndSetSemantics { }
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            if (bookmarkTarget != null) {
-                val bookmarkTime = MainViewModel.formatTime(bookmarkTarget.timestampSeconds)
-                val jumpDescription = stringResource(R.string.a11y_player_bookmark_jump, bookmarkTime)
-                Box(
-                    modifier = Modifier
-                        .size(AppDimens.TouchTarget)
-                        .focusRequester(bookmarkFocusRequester)
-                        .focusable()
-                        .clip(CircleShape)
-                        .combinedClickable(
-                            onClick = { onJumpToBookmark(bookmarkTarget) },
-                            onLongClick = onShowAllBookmarks
-                        )
-                        .clearAndSetSemantics {
-                            contentDescription = jumpDescription
-                            onClick {
-                                onJumpToBookmark(bookmarkTarget)
-                                true
-                            }
-                            onLongClick {
-                                onShowAllBookmarks()
-                                true
-                            }
-                        }
-                        .testTag("jump_to_last_bookmark"),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(Icons.Default.Bookmark, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                }
-            }
         }
-        BookProgressTrack(progress, bookPositionLabel, bookTimeDescription, onBookSeek)
+        BookProgressTrack(
+            progress = progress,
+            positionLabel = bookPositionLabel,
+            timeDescription = bookTimeDescription,
+            onSeek = onBookSeek,
+            bookmarkTarget = bookmarkTarget,
+            bookmarkFocusRequester = bookmarkFocusRequester,
+            onJumpToBookmark = onJumpToBookmark,
+            onShowAllBookmarks = onShowAllBookmarks
+        )
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun BookProgressTrack(
     progress: PlayerProgressUi,
     positionLabel: String,
     timeDescription: String,
-    onSeek: (Float) -> Unit
+    onSeek: (Float) -> Unit,
+    bookmarkTarget: BookmarkEntity?,
+    bookmarkFocusRequester: FocusRequester,
+    onJumpToBookmark: (BookmarkEntity) -> Unit,
+    onShowAllBookmarks: () -> Unit
 ) {
     val active = MaterialTheme.colorScheme.primary
     val activeMarker = MaterialTheme.colorScheme.onPrimary
@@ -998,6 +977,7 @@ private fun BookProgressTrack(
             enabled = progress.bookDurationSeconds > 0L,
             modifier = Modifier
                 .fillMaxWidth()
+                .padding(end = if (bookmarkTarget != null) 56.dp else 0.dp)
                 .semantics {
                     contentDescription = positionLabel
                     stateDescription = timeDescription
@@ -1026,6 +1006,37 @@ private fun BookProgressTrack(
             progress.bookmarkMarkers.forEach { marker ->
                 val color = if (marker <= progress.bookFraction) bookmarkColor else bookmarkColor.copy(alpha = 0.55f)
                 drawCircle(color, radius = 5.dp.toPx(), center = androidx.compose.ui.geometry.Offset(size.width * marker, centerY))
+            }
+        }
+        if (bookmarkTarget != null) {
+            val bookmarkTime = MainViewModel.formatTime(bookmarkTarget.timestampSeconds)
+            val jumpDescription = stringResource(R.string.a11y_player_bookmark_jump, bookmarkTime)
+            Box(
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .size(AppDimens.TouchTarget)
+                    .focusRequester(bookmarkFocusRequester)
+                    .focusable()
+                    .clip(CircleShape)
+                    .combinedClickable(
+                        onClick = { onJumpToBookmark(bookmarkTarget) },
+                        onLongClick = onShowAllBookmarks
+                    )
+                    .clearAndSetSemantics {
+                        contentDescription = jumpDescription
+                        onClick {
+                            onJumpToBookmark(bookmarkTarget)
+                            true
+                        }
+                        onLongClick {
+                            onShowAllBookmarks()
+                            true
+                        }
+                    }
+                    .testTag("jump_to_last_bookmark"),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Default.Bookmark, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
             }
         }
     }
@@ -1081,9 +1092,8 @@ private fun TransportControls(
     ) {
         TransportIcon(Icons.Default.SkipPrevious, previousDescription, onPreviousChapter)
         // Spec-27 (#207, BUG-012): the seek buttons carry a visible label
-        // («15 с»/«30 с») below the icon. The forward button reuses Redo (the
-        // clockwise circular arrow — the numberless mirror of Replay) so the
-        // "30" lives only in the label, never baked into the icon.
+        // («15 с»/«30 с») below the icon. Mirroring Replay keeps both seek
+        // controls visually paired without baking the number into either icon.
         SeekButton(Icons.Default.Replay, backDescription, "15 с", onBack)
         FilledIconButton(
             onClick = onPlayPause,
@@ -1102,7 +1112,13 @@ private fun TransportControls(
                 modifier = Modifier.size(40.dp)
             )
         }
-        SeekButton(Icons.Default.Redo, forwardDescription, "30 с", onForward)
+        SeekButton(
+            icon = Icons.Default.Replay,
+            description = forwardDescription,
+            label = "30 с",
+            onClick = onForward,
+            mirrorIcon = true
+        )
         TransportIcon(Icons.Default.SkipNext, nextDescription, onNextChapter)
     }
 }
@@ -1124,7 +1140,8 @@ private fun SeekButton(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     description: String,
     label: String,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    mirrorIcon: Boolean = false
 ) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         IconButton(
@@ -1133,7 +1150,13 @@ private fun SeekButton(
                 .size(AppDimens.TouchTarget)
                 .semantics { contentDescription = description }
         ) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(28.dp))
+            Icon(
+                icon,
+                contentDescription = null,
+                modifier = Modifier
+                    .size(28.dp)
+                    .then(if (mirrorIcon) Modifier.scale(scaleX = -1f, scaleY = 1f) else Modifier)
+            )
         }
         Text(
             label,
@@ -1245,6 +1268,9 @@ private fun RowScope.QuickTool(
             .weight(1f)
             .heightIn(min = 72.dp)
             .focusRequester(focusRequester)
+            // A physical Android FocusRequester needs an explicit target;
+            // clickable alone is not sufficient for modal return focus.
+            .focusable()
             .clip(RoundedCornerShape(AppDimens.RadiusCard))
             .clickable(onClick = onClick)
             .semantics(mergeDescendants = true) {

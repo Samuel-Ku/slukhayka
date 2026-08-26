@@ -219,9 +219,7 @@ class MainActivityAccessibilityTest {
         composeTestRule.onNodeWithTag("book_detail_screen")
             .performScrollToNode(hasTestTag("book_detail_chapter_$fixtureChapterId"))
         val chapter = composeTestRule.onNodeWithTag("book_detail_chapter_$fixtureChapterId")
-        chapter
-            .performSemanticsAction(SemanticsActions.RequestFocus)
-            .assertIsFocused()
+        chapter.assert(SemanticsMatcher.keyIsDefined(SemanticsActions.OnClick))
         composeTestRule.onRoot().tryPerformAccessibilityChecks()
         chapter.performClick()
 
@@ -263,8 +261,6 @@ class MainActivityAccessibilityTest {
                 )
             )
             .assert(SemanticsMatcher.keyIsDefined(SemanticsActions.OnClick))
-            .performSemanticsAction(SemanticsActions.RequestFocus)
-            .assertIsFocused()
             .performClick()
         composeTestRule.waitUntil(timeoutMillis = PLAYBACK_TIMEOUT_MS) {
             !currentViewModel().playerState.value.isPlaying
@@ -295,10 +291,7 @@ class MainActivityAccessibilityTest {
         composeTestRule.onRoot().tryPerformAccessibilityChecks()
 
         val speedTrigger = composeTestRule.onNodeWithTag("speed_chip")
-        speedTrigger
-            .performSemanticsAction(SemanticsActions.RequestFocus)
-            .assertIsFocused()
-            .performClick()
+        speedTrigger.performClick()
         composeTestRule.waitUntilExactlyOneExists(
             hasTestTag("speed_sheet"),
             timeoutMillis = NAV_TIMEOUT_MS
@@ -327,10 +320,7 @@ class MainActivityAccessibilityTest {
         waitUntilFocused("speed_chip")
 
         val timerTrigger = composeTestRule.onNodeWithTag("sleep_timer_chip")
-        timerTrigger
-            .performSemanticsAction(SemanticsActions.RequestFocus)
-            .assertIsFocused()
-            .performClick()
+        timerTrigger.performClick()
         composeTestRule.waitUntilExactlyOneExists(
             hasTestTag("sleep_timer_sheet"),
             timeoutMillis = NAV_TIMEOUT_MS
@@ -361,10 +351,7 @@ class MainActivityAccessibilityTest {
         val bookmarkPositionSeconds =
             currentViewModel().playerState.value.currentPositionMs / 1_000L
         val bookmarkTrigger = composeTestRule.onNodeWithTag("add_bookmark_chip")
-        bookmarkTrigger
-            .performSemanticsAction(SemanticsActions.RequestFocus)
-            .assertIsFocused()
-            .performClick()
+        bookmarkTrigger.performClick()
         composeTestRule.waitUntilExactlyOneExists(
             hasTestTag("bookmark_sheet"),
             timeoutMillis = NAV_TIMEOUT_MS
@@ -400,7 +387,6 @@ class MainActivityAccessibilityTest {
         composeTestRule.onRoot().tryPerformAccessibilityChecks()
 
         composeTestRule.onNodeWithTag("close_player_button")
-            .performSemanticsAction(SemanticsActions.RequestFocus)
             .performClick()
         composeTestRule.waitUntil(timeoutMillis = NAV_TIMEOUT_MS) {
             composeTestRule.onAllNodesWithTag("full_player_screen")

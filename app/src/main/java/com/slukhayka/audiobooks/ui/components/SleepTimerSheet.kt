@@ -174,16 +174,17 @@ fun SleepTimerSheet(
                 }
             }
 
-            Button(
-                onClick = onExtendTimer,
-                enabled = remainingSeconds > 0,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 48.dp)
-                    .semantics { contentDescription = extendDescription }
-                    .testTag("extend_sleep_timer_button")
-            ) {
-                Text(extendDescription, modifier = Modifier.clearAndSetSemantics { })
+            if (remainingSeconds > 0) {
+                Button(
+                    onClick = onExtendTimer,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp)
+                        .semantics { contentDescription = extendDescription }
+                        .testTag("extend_sleep_timer_button")
+                ) {
+                    Text(extendDescription, modifier = Modifier.clearAndSetSemantics { })
+                }
             }
             Spacer(modifier = Modifier.height(24.dp))
         }

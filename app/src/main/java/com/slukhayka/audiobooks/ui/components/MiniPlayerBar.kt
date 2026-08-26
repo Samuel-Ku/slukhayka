@@ -34,7 +34,10 @@ fun MiniPlayerBar(
     onPlayPauseClick: () -> Unit,
     onSkipNextClick: () -> Unit,
     onBarClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    // ADR-0024 (#362): the second (and last) home of the cast affordance —
+    // the same shared tool as on the player screen, never a duplicate.
+    castReady: Boolean = false
 ) {
     val book = playerState.currentBook ?: return
 
@@ -130,6 +133,9 @@ fun MiniPlayerBar(
                 }
 
                 Spacer(modifier = Modifier.width(8.dp))
+
+                // ADR-0024 (#362): cast affordance in the mini-player too.
+                CastButton(castReady = castReady)
 
                 // Play/Pause Button
                 IconButton(

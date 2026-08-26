@@ -44,7 +44,6 @@ class FakeSharedBookMetaStore(
         }
         val assertions = remaining.take(boundedLimit)
         val nextCursor = assertions.lastOrNull()
-            ?.takeIf { remaining.size > assertions.size }
             ?.let { FacetCursor(it.updatedAt, it.documentId) }
         return FacetPage(assertions, nextCursor)
     }

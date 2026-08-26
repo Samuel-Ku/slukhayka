@@ -121,6 +121,19 @@ class WebViewHtmlParser {
         audioStreams.clear()
         audioStreams.addAll(expandedStreams)
 
+        // YouTube-embed fallback (spec 2026-08-26): a page with NO direct
+        // audio at all — its narration lives on YouTube, embedded in the
+        // page. One embed = one chapter; the persisted track locator stays
+        // the watch URL and resolves to a real audio stream at play/download
+        // time (signed stream URLs expire; they are never stored). A page
+        // WITH playerjs audio never reaches this branch — direct audio wins,
+        // the embed adds nothing.
+        if (audioStreams.isEmpty()) {
+            YOUTUBE_VIDEO_ID.findAll(html).forEach { m ->
+                audioStreams.add("https://www.youtube.com/watch?v=${m.groupValues[1]}")
+            }
+        }
+
         val chapters = audioStreams.distinct().mapIndexed { index, audioUrl ->
             SourceChapter(
                 title = "Глава ${index + 1}",
@@ -188,6 +201,17 @@ class WebViewHtmlParser {
     private companion object {
         /** A full annotation is around this size — longer scanning is waste. */
         const val MIN_FULL_ANNOTATION = 1200
+
+        /**
+         * Spec 2026-08-26 — every YouTube video locator a 4read page can
+         * carry: embed iframes (incl. the nocookie variant), youtu.be short
+         * links and plain watch URLs. The id is the single group; the
+         * persisted track locator normalises to one watch-URL shape.
+         */
+        private val YOUTUBE_VIDEO_ID = Regex(
+            """(?:youtube(?:-nocookie)?\.com/(?:embed/|watch\?v=)|youtu\.be/)([A-Za-z0-9_-]{8,})""",
+            RegexOption.IGNORE_CASE
+        )
 
         private val paragraphRegex =
             Regex("""<p[^>]*>(.*?)</p>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))

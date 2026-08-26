@@ -251,7 +251,8 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                         identity = viewModel.listenerIdentityModule,
                         onBackClick = { viewModel.closeProfileSettings() },
                         hiddenAuthors = hiddenAuthors,
-                        onUnhideAuthor = { viewModel.unhideAuthor(it) }
+                        onUnhideAuthor = { viewModel.unhideAuthor(it) },
+                        progressSyncSettings = viewModel.progressSyncSettingsModule
                     )
 
                     // Genre (category) page ("Аудіокниги жанру:").

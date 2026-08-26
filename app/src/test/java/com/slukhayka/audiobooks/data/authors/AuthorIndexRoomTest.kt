@@ -7,6 +7,9 @@ import com.slukhayka.audiobooks.data.db.AudiobookDatabase
 import com.slukhayka.audiobooks.data.db.WorkEntity
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -83,6 +86,68 @@ class AuthorIndexRoomTest {
 
         assertEquals("Михайло Коцюбинський", author.displayName)
         assertEquals(listOf("Intermezzo"), index.works(author.id).map(WorkEntity::title))
+    }
+
+    @Test
+    fun `first read repairs only one bounded page then continues in background`() = runTest {
+        val sqlite = db.openHelper.writableDatabase
+        db.runInTransaction {
+            val insert = sqlite.compileStatement(
+                "INSERT INTO works(id, mergeKey, title, author, addedAt) VALUES(?, ?, ?, ?, 0)"
+            )
+            repeat(RoomAuthorIndex.BACKFILL_BATCH_SIZE + 1) { number ->
+                val id = "backfill-${number.toString().padStart(4, '0')}"
+                insert.bindString(1, id)
+                insert.bindString(2, id)
+                insert.bindString(3, "Книга $number")
+                insert.bindString(4, "Автор $number")
+                insert.executeInsert()
+                insert.clearBindings()
+            }
+        }
+        val backgroundDispatcher = StandardTestDispatcher(testScheduler)
+        val boundedIndex = RoomAuthorIndex(db.audiobookDao(), CoroutineScope(backgroundDispatcher))
+
+        assertTrue(boundedIndex.search("автор 0").isNotEmpty())
+        assertEquals(1, db.audiobookDao().worksMissingCanonicalAuthor(RoomAuthorIndex.BACKFILL_BATCH_SIZE).size)
+
+        testScheduler.advanceUntilIdle()
+        assertEquals(0, db.audiobookDao().worksMissingCanonicalAuthor(RoomAuthorIndex.BACKFILL_BATCH_SIZE).size)
+    }
+
+    @Test
+    fun `newer canonical display survives a raw catalog replay`() = runBlocking {
+        val work = WorkEntity("oconnor", "oconnor", "Оповідання", "О'КОННОР", addedAt = 1)
+        db.audiobookDao().upsertWork(work)
+        val identity = AuthorIdentity.fromWorkName(work.author)
+        index.applyAssertion(identity.id, "О’Коннор", emptyList(), setOf(work.id), "metadata", 10)
+
+        index.indexWorks(listOf(work), sourceId = "catalog-union")
+
+        assertEquals("О’Коннор", index.authorForWork(work.id)?.displayName)
+    }
+
+    @Test
+    fun `derived equal freshness cannot replace an existing canonical author`() = runBlocking {
+        val original = WorkEntity("equal-zero", "equal-zero", "Книга", "Автор Перший", addedAt = 1)
+        db.audiobookDao().upsertWork(original)
+        index.indexWorks(listOf(original), sourceId = "first-source")
+        val originalId = AuthorIdentity.fromWorkName(original.author).id
+
+        index.indexWorks(listOf(original.copy(author = "Автор Другий")), sourceId = "second-source")
+
+        assertEquals(originalId, index.authorForWork(original.id)?.id)
+    }
+
+    @Test
+    fun `missing canonical author is filled even when genre facet timestamp is newer`() = runBlocking {
+        val work = WorkEntity("genre-only", "genre-only", "Книга", "Автор Жанру", addedAt = 1)
+        db.audiobookDao().upsertWork(work)
+        db.audiobookDao().mergeWorkFacet(work.id, authorId = null, updatedAt = 100)
+
+        index.indexWorks(listOf(work), sourceId = "catalog-union")
+
+        assertEquals(AuthorIdentity.fromWorkName(work.author).id, index.authorForWork(work.id)?.id)
     }
 
     @Test

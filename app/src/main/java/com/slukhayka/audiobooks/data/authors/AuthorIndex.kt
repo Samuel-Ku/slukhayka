@@ -5,9 +5,13 @@ import com.slukhayka.audiobooks.data.db.AuthorFacetEntity
 import com.slukhayka.audiobooks.data.db.AudiobookDao
 import com.slukhayka.audiobooks.data.db.WorkEntity
 import com.slukhayka.audiobooks.data.db.WorkFacetEntity
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -42,8 +46,10 @@ interface AuthorIndex {
 }
 
 /** Room-backed canonical author read model; all interaction queries stay local. */
-class RoomAuthorIndex(private val dao: AudiobookDao) : AuthorIndex {
-    private val backfillMutex = Mutex()
+class RoomAuthorIndex(
+    private val dao: AudiobookDao,
+    private val backfillScope: CoroutineScope = BACKFILL_SCOPE
+) : AuthorIndex {
     @Volatile private var backfillChecked = false
 
     override val authors: Flow<List<AuthorSummary>> = flow {
@@ -146,11 +152,29 @@ class RoomAuthorIndex(private val dao: AudiobookDao) : AuthorIndex {
 
     private suspend fun ensureBackfilled() {
         if (backfillChecked) return
-        backfillMutex.withLock {
+        val hasMore = BACKFILL_MUTEX.withLock {
             if (backfillChecked) return
-            indexWorks(dao.worksMissingCanonicalAuthor(), sourceId = "local-backfill")
+            val page = dao.worksMissingCanonicalAuthor(BACKFILL_BATCH_SIZE)
+            indexWorks(page, sourceId = "local-backfill")
             backfillChecked = true
+            page.size == BACKFILL_BATCH_SIZE
+        }
+        if (hasMore) {
+            backfillScope.launch {
+                while (repairBackfillPage()) Unit
+            }
         }
     }
 
+    private suspend fun repairBackfillPage(): Boolean = BACKFILL_MUTEX.withLock {
+        val page = dao.worksMissingCanonicalAuthor(BACKFILL_BATCH_SIZE)
+        indexWorks(page, sourceId = "local-backfill")
+        page.size == BACKFILL_BATCH_SIZE
+    }
+
+    companion object {
+        const val BACKFILL_BATCH_SIZE = AuthorIndex.MAX_INDEX_BATCH
+        private val BACKFILL_MUTEX = Mutex()
+        private val BACKFILL_SCOPE = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    }
 }

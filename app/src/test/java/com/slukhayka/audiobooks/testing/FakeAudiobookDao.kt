@@ -934,10 +934,10 @@ class FakeAudiobookDao(
         val current = workFacetsState.value.firstOrNull { it.workId == workId }
         val merged = WorkFacetEntity(
             workId,
-            if (current == null || updatedAt >= current.updatedAt) {
-                authorId ?: current?.canonicalAuthorId
-            } else {
-                current.canonicalAuthorId
+            when {
+                current?.canonicalAuthorId == null -> authorId
+                authorId != null && updatedAt > current.updatedAt -> authorId
+                else -> current.canonicalAuthorId
             },
             maxOf(updatedAt, current?.updatedAt ?: 0)
         )
@@ -1005,8 +1005,16 @@ class FakeAudiobookDao(
         editionFacetsState.update { rows -> rows.filterNot { it.editionId == editionId } + merged }
     }
 
-    override suspend fun upsertAuthorFacets(rows: List<AuthorFacetEntity>) {
-        authorFacetsState.update { current -> (current.filterNot { old -> rows.any { it.id == old.id } } + rows) }
+    override suspend fun mergeAuthorFacet(id: String, displayName: String, normalizedName: String, updatedAt: Long) {
+        authorFacetsState.update { current ->
+            val old = current.firstOrNull { it.id == id }
+            val merged = if (old == null || updatedAt > old.updatedAt) {
+                AuthorFacetEntity(id, displayName, normalizedName, updatedAt)
+            } else {
+                old
+            }
+            current.filterNot { it.id == id } + merged
+        }
     }
 
     override suspend fun insertAuthorAliases(rows: List<AuthorAliasEntity>) {
@@ -1056,9 +1064,9 @@ class FakeAudiobookDao(
         )
     }
 
-    override suspend fun worksMissingCanonicalAuthor(): List<WorkEntity> {
+    override suspend fun worksMissingCanonicalAuthor(limit: Int): List<WorkEntity> {
         val indexed = workFacetsState.value.filter { it.canonicalAuthorId != null }.map { it.workId }.toSet()
-        return worksState.value.filterNot { it.id in indexed }.sortedBy(WorkEntity::id)
+        return worksState.value.filterNot { it.id in indexed }.sortedBy(WorkEntity::id).take(limit)
     }
 
     override fun observeGenreFacetOptions(): Flow<List<GenreFacetOption>> =

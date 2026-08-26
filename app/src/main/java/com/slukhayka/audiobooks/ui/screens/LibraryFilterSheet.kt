@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.ViewList
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -135,6 +136,11 @@ fun LibraryFilterSheet(
     val headingFocusRequester = remember { FocusRequester() }
     ModalBottomSheet(
         onDismissRequest = onDismiss,
+        // fix(accessibility): #371 — decorative drag handle must not create an extra
+        // TalkBack focus stop and must never be voiced in Polish on a Polish-system
+        // device. Hiding it from accessibility keeps the visual cue but removes the
+        // "Uchwyt do przeciągania" node entirely.
+        dragHandle = { BottomSheetDefaults.DragHandle(modifier = Modifier.clearAndSetSemantics {}) },
         containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         modifier = Modifier.accessibilityPane(stringResource(R.string.a11y_library_filter_pane))
     ) {

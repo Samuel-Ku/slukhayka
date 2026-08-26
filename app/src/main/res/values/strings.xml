@@ -5,4 +5,11 @@
     <string name="nav_library">Медіатека</string>
     <string name="pane_player">Програвач</string>
     <string name="empty_tag"></string>
+    <!-- fix(accessibility): #371 — override Material3 strings so TalkBack voices
+         Ukrainian regardless of device language. These match values-pl/strings.xml. -->
+    <string name="m3c_bottom_sheet_collapse_description">Згорнути аркуш</string>
+    <string name="m3c_bottom_sheet_dismiss_description">Закрити аркуш</string>
+    <string name="m3c_bottom_sheet_drag_handle_description">Маркер переміщення</string>
+    <string name="m3c_bottom_sheet_expand_description">Розгорнути аркуш</string>
+    <string name="m3c_bottom_sheet_pane_title">Аркуш</string>
 </resources>

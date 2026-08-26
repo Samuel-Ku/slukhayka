@@ -60,8 +60,8 @@ android {
     targetSdk = 36
     // spec-29 T1 (#210): first release under the permanent applicationId.
     // versionCode grows monotonically across the Слухайка line (v1.0 was 1).
-    versionCode = 4
-    versionName = "1.3"
+    versionCode = 5
+    versionName = "1.3.5"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -235,6 +235,9 @@ dependencies {
   // spec-38 T4 (#256): the RFC-8484 DoH resolver behind the privacy door —
   // same OkHttp version, one small artifact.
   implementation(libs.okhttp.dnsoverhttps)
+  // Spec #361 («Проксі відтворення»): the embedded HTTP server inside the
+  // playback proxy — plain sockets on one jar, no other surface.
+  implementation(libs.nanohttpd)
   // implementation(libs.play.services.location)
   implementation(libs.retrofit)
   // spec-19 T3: on-device ONNX inference for the recommendation embedder

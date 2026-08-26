@@ -135,6 +135,8 @@ internal interface CastEngineHook {
     fun prepareChapter(chapterIndex: Int, startPositionMs: Long, autoPlay: Boolean)
 
     fun setPlaybackSpeed(speed: Float)
+
+    fun setVolume(volume: Float)
 }
 
 class AudioPlayerManager(
@@ -676,7 +678,12 @@ class AudioPlayerManager(
             sleepTimerRemainingSeconds = 0,
             isSleepTimerEndOfChapter = false
         )
-        try { mediaPlayer?.volume = 1.0f } catch (_: Exception) {}
+        val hook = castEngineHook?.takeIf { it.isActive }
+        if (hook != null) {
+            try { hook.setVolume(1.0f) } catch (_: Exception) {}
+        } else {
+            try { mediaPlayer?.volume = 1.0f } catch (_: Exception) {}
+        }
         // A fresh load starts a new listening cycle: completion resets, chapter
         // history resets, and — when autoplaying — the resume + segment begin.
         completionLogged = false
@@ -1395,7 +1402,12 @@ class AudioPlayerManager(
                         fadeWarningEmitted = true
                         _sleepTimerNotices.tryEmit(SleepTimerNotice.FadeWarning)
                     }
-                    try { mediaPlayer?.volume = vol } catch (_: Exception) {}
+                    val hook = castEngineHook?.takeIf { it.isActive }
+                    if (hook != null) {
+                        try { hook.setVolume(vol) } catch (_: Exception) {}
+                    } else {
+                        try { mediaPlayer?.volume = vol } catch (_: Exception) {}
+                    }
                     shakeDetector?.startListening()
                 } else {
                     shakeDetector?.stopListening()
@@ -1433,7 +1445,12 @@ class AudioPlayerManager(
                     chapterIndex = chapterIdx,
                     positionSeconds = posSec
                 )
-                try { mediaPlayer?.volume = 1.0f } catch (_: Exception) {}
+                val hook = castEngineHook?.takeIf { it.isActive }
+                if (hook != null) {
+                    try { hook.setVolume(1.0f) } catch (_: Exception) {}
+                } else {
+                    try { mediaPlayer?.volume = 1.0f } catch (_: Exception) {}
+                }
                 _playerState.value = _playerState.value.copy(
                     sleepTimerMinutes = 0,
                     sleepTimerRemainingSeconds = 0,

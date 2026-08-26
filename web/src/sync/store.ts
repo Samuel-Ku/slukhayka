@@ -26,7 +26,12 @@ export class FirestoreProgressSyncStore implements ListenerProgressSyncStore {
       const id = `${uid}_${editionId}`
       const snap = await getDoc(doc(this.firestore, 'listening_state', id))
       if (!snap.exists()) return null
-      return ProgressSyncCodec.fromDocument(snap.data() as Record<string, unknown>)
+      const raw = { ...(snap.data() as Record<string, unknown>) }
+      const ts = raw[ProgressSyncCodec.FIELD_UPDATED_AT]
+      if (ts !== null && typeof ts === 'object' && 'toMillis' in (ts as Record<string, unknown>)) {
+        raw[ProgressSyncCodec.FIELD_UPDATED_AT] = (ts as { toMillis: () => number }).toMillis()
+      }
+      return ProgressSyncCodec.fromDocument(raw)
     } catch {
       return null
     }

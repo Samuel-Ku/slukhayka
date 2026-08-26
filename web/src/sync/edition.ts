@@ -16,10 +16,9 @@ function normalize(input: string): string {
 }
 
 function normalizeTitleRaw(title: string): string {
-  // Mirror Kotlin MetadataAssertions.normalizeTitle scrub is not available in web
-  // (it strips SEO suffixes). Here we apply the subtitle cut that MergeKey does
-  // after scrubbing — sufficient for edition identity.
-  const scrubbed = title // already closest we have; worker may have cleaned title
+  // Mirror Kotlin MetadataAssertions.normalizeTitle scrub + MergeKey subtitle cut.
+  // Strip the curated SEO suffix that Android scrubs before hashing.
+  const scrubbed = title.replace(/\s*-\s*аудіокниги українською\s*$/i, '').trim()
   const withoutSubtitle = scrubbed.split(':')[0]!.split('—')[0]!.split('–')[0]!.split(' - ')[0]!
   return normalize(withoutSubtitle)
 }

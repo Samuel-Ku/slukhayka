@@ -45,7 +45,9 @@ function Profile({
   const [restoring, setRestoring] = useState(false)
   const [syncEnabled, setSyncEnabled] = useState(() => {
     try {
-      return window.localStorage.getItem('slukhayka.progress_sync_enabled') !== '0'
+      const raw = window.localStorage.getItem('slukhayka.progress_sync_enabled')
+      if (raw === null) return true
+      return raw !== '0' && raw !== 'false'
     } catch {
       return true
     }

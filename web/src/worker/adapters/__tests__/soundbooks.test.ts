@@ -104,6 +104,8 @@ describe('soundbooks adapter', () => {
       author: 'Блейк Крауч',
       url: BOOK_URL,
       coverImageUrl: 'https://sound-books.net/uploads/posts/2026-07/bleik-krauch-temna-materiia.webp',
+      // cardExtras (Триває: 09:28:00) приїхав на картку, як у Kotlin.
+      durationSeconds: 9 * 3600 + 28 * 60,
     })
     expect(cards[0]?.narrator).toBeUndefined()
     expect(cards[1]).toMatchObject({

@@ -350,7 +350,20 @@ function parseBookMeta(html: string, pageUrl: string): BookMeta {
     genres: pmovieGenres(html),
     descriptionHtml: itempropDescription(html) || ogMeta(html, 'og:description')?.trim() || undefined,
     otherNarrations: parseRelatedBooks(html),
+    totalDurationSeconds: pageDuration(html),
   }
+}
+
+/** Реальна повна тривалість зі сторінки (формати `10:57:18` / `53:42`); null — невідома. */
+export function pageDuration(html: string): number | undefined {
+  const raw =
+    match(html, /(?:itemprop="duration"\s+content="|Триває:<\/span>\s*)(\d{1,2}:\d{2}(?::\d{2})?)/)?.[1]
+  if (!raw) return undefined
+  const parts = raw.split(':').map(Number)
+  if (parts.some((n) => !Number.isFinite(n))) return undefined
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2]
+  if (parts.length === 2) return parts[0] * 60 + parts[1]
+  return undefined
 }
 
 function titleFromPage(html: string, pageUrl: string): string {

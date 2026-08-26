@@ -9,7 +9,6 @@ import {
   type BookDetail,
   type CatalogCard,
   type CatalogSection,
-  type Chapter,
   type ParsedCatalog,
   type SourceAdapter,
 } from '../types'
@@ -30,8 +29,6 @@ const CARD_NARRATOR = /fa-microphone[^>]*>[\s\S]*?<a[^>]*>([^<]+)<\/a>/i
 const PAGE_GENRE_BLOCK = /Жанр:<\/span>([\s\S]*?)<\/div>/i
 const LINK_TEXT_G = /<a[^>]*>([^<]+)<\/a>/gi
 const DESC_P = /class="abook-desc"[\s\S]*?<p[^>]*>([\s\S]*?)<\/p>/i
-const FILE_G = /"file"\s*:\s*"([^"]+)"/gi
-const TITLE_G = /"title"\s*:\s*"([^"]*)"/gi
 
 interface AuthorTitle {
   author: string
@@ -105,16 +102,7 @@ export function playlistUrlOf(html: string): string | null {
   return PLAYLIST_URL.exec(html)?.[1] ?? null
 }
 
-export function parsePlayerjsPlaylist(json: string): Chapter[] {
-  if (!json.trim().startsWith('[{')) return []
-  const files = [...json.matchAll(FILE_G)].map((m) => m[1])
-  const titles = [...json.matchAll(TITLE_G)].map((m) => m[1])
-  return files.map((file, index) => {
-    const raw = titles[index]
-    const name = raw === undefined ? '' : beforeLast(raw, '.').trim()
-    return { title: name === '' ? `Глава ${index + 1}` : name, streamUrl: file }
-  })
-}
+export { parsePlayerjsPlaylist } from './playerjs'
 
 function cardNarrators(html: string): Map<string, string> {
   const out = new Map<string, string>()
@@ -205,7 +193,3 @@ function afterLast(s: string, delim: string): string {
   return i < 0 ? s : s.slice(i + delim.length)
 }
 
-function beforeLast(s: string, delim: string): string {
-  const i = s.lastIndexOf(delim)
-  return i < 0 ? s : s.slice(0, i)
-}

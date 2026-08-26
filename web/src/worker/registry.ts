@@ -13,7 +13,7 @@
  *     the adapter module.
  */
 import type { BookDetail, Chapter, SourceAdapter, SourceId } from './types'
-import { fourread } from './adapters/fourread'
+import { buildBookDetail, fourread } from './adapters/fourread'
 import { soundBooksAdapter, parseM3u, playlistUrlOf as sbPlaylistUrl } from './adapters/soundbooks'
 import { sluhayAdapter, parsePlayerjsPlaylist as sluhayPlaylist, playlistUrlOf as sluhayPlaylistUrl } from './adapters/sluhay'
 import { audiobookMp3Adapter, parsePlayerjsPlaylist as abMp3Playlist, playlistUrlOf as abMp3PlaylistUrl } from './adapters/audiobookmp3'
@@ -45,12 +45,13 @@ function hostAllowed(allowed: readonly string[], url: string): boolean {
 }
 
 async function expandViaPlaylist(
-  detail: BookDetail,
+  detail: BookDetail | null,
   html: string,
   playlistUrlOf: (html: string) => string | null,
   parse: (body: string) => Chapter[],
   fetchText: (url: string) => Promise<string | null>,
-): Promise<BookDetail> {
+): Promise<BookDetail | null> {
+  if (!detail) return null
   const url = playlistUrlOf(html)
   if (!url) return detail
   const body = await fetchText(url)
@@ -59,36 +60,55 @@ async function expandViaPlaylist(
   return chapters.length ? { ...detail, chapters } : detail
 }
 
+
+/** parseBookPage за контрактом може не впізнати сторінку — null чесно повертається нагору. */
+function soundBooksDetail(html: string, pageUrl: string): BookDetail | null {
+  return soundBooksAdapter.parseBookPage(html, pageUrl)
+}
+
+function sluhayDetail(html: string, pageUrl: string): BookDetail | null {
+  return sluhayAdapter.parseBookPage(html, pageUrl)
+}
+
+function audiobookMp3Detail(html: string, pageUrl: string): BookDetail | null {
+  return audiobookMp3Adapter.parseBookPage(html, pageUrl)
+}
+
+function lihtarDetail(html: string, pageUrl: string): BookDetail | null {
+  return lihtarAdapter.parseBookPage(html, pageUrl)
+}
+
 export const REGISTRY: Record<SourceId, SourceEntry> = {
   fourread: {
     adapter: fourread,
     allowedHosts: ['4read.org'],
-    buildBook: (html, pageUrl, fetchText) => buildFourreadBook(html, pageUrl, fetchText),
+    buildBook: (html, pageUrl, fetchText) => buildBookDetail(html, pageUrl, fetchText),
   },
   'sound-books': {
     adapter: soundBooksAdapter,
     allowedHosts: ['sound-books.net', 'arch.sound-books.net'],
     buildBook: async (html, pageUrl, fetchText) =>
-      expandViaPlaylist(soundBooksAdapter.parseBookPage(html, pageUrl)!, html, sbPlaylistUrl, parseM3u, fetchText),
+      await expandViaPlaylist(soundBooksDetail(html, pageUrl), html, sbPlaylistUrl, parseM3u, fetchText),
   },
   sluhay: {
     adapter: sluhayAdapter,
     // redirectto.cc — CDN плейлістів sluhay (позначено в еталоні).
     allowedHosts: ['sluhay.com', 'redirectto.cc'],
     buildBook: async (html, pageUrl, fetchText) =>
-      expandViaPlaylist(sluhayAdapter.parseBookPage(html, pageUrl)!, html, sluhayPlaylistUrl, sluhayPlaylist, fetchText),
+      await expandViaPlaylist(sluhayDetail(html, pageUrl), html, sluhayPlaylistUrl, sluhayPlaylist, fetchText),
   },
   'audiobook-mp3': {
     adapter: audiobookMp3Adapter,
     allowedHosts: ['audiobook-mp3.com'],
     buildBook: async (html, pageUrl, fetchText) =>
-      expandViaPlaylist(audiobookMp3Adapter.parseBookPage(html, pageUrl)!, html, abMp3PlaylistUrl, abMp3Playlist, fetchText),
+      await expandViaPlaylist(audiobookMp3Detail(html, pageUrl), html, abMp3PlaylistUrl, abMp3Playlist, fetchText),
   },
   lihtar: {
     adapter: lihtarAdapter,
     allowedHosts: ['lihtar.in.ua'],
     buildBook: async (html, pageUrl, fetchText) => {
-      const detail = lihtarAdapter.parseBookPage(html, pageUrl)!
+      const detail = lihtarDetail(html, pageUrl)
+      if (!detail) return null
       const playerUrl = lihtarPlayerUrl(html)
       if (!playerUrl) return detail
       const body = await fetchText(playerUrl)
@@ -101,7 +121,8 @@ export const REGISTRY: Record<SourceId, SourceEntry> = {
     adapter: sluhayuaAdapter,
     allowedHosts: ['sluhay.com.ua'],
     buildBook: async (html, pageUrl, fetchText) => {
-      const detail = sluhayuaAdapter.parseBookPage(html, pageUrl)!
+      const detail = sluhayuaAdapter.parseBookPage(html, pageUrl)
+      if (!detail) return null
       const bookId = pageUrl.split('/').pop()!.split(':')[0] ?? ''
       const chapterCount = chapterCountOf(html)
       if (!/^\d+$/.test(bookId) || chapterCount <= 0) return detail
@@ -117,15 +138,6 @@ export const REGISTRY: Record<SourceId, SourceEntry> = {
   },
 }
 
-/** Порт `WebViewHtmlParser.parse` для 4read: плейлісти та iframe через resolve. */
-async function buildFourreadBook(
-  html: string,
-  pageUrl: string,
-  fetchText: (url: string) => Promise<string | null>,
-): Promise<BookDetail | null> {
-  const { buildBookDetail } = await import('./adapters/fourread')
-  return buildBookDetail(html, pageUrl, fetchText)
-}
 
 export function sourceEntry(id: string): SourceEntry | null {
   return (REGISTRY as Record<string, SourceEntry | undefined>)[id] ?? null

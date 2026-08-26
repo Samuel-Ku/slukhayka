@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { ListenerProfile } from './identity/listenerIdentity'
+import { Catalog } from './ui/Catalog'
+import { BookPage } from './ui/BookPage'
 
 type Tab = 'listen' | 'catalog' | 'profile'
 
@@ -38,38 +40,45 @@ function Profile({ profile }: { profile: ListenerProfile | null }) {
 }
 
 export function App({ profile }: { profile: ListenerProfile | null }) {
-  const [tab, setTab] = useState<Tab>('listen')
+  const [tab, setTab] = useState<Tab>('catalog')
+  const [bookUrl, setBookUrl] = useState<string | null>(null)
   useEffect(() => {
     document.title = 'Слухайка — аудіокниги українською'
   }, [])
   return (
     <>
       <header className="app-header">
-        <h1 className="app-title">Слухайка</h1>
-        <p className="app-subtitle">аудіокниги українською · веб</p>
+        {bookUrl !== null ? (
+          <button className="back" onClick={() => setBookUrl(null)}>
+            ← Назад
+          </button>
+        ) : (
+          <>
+            <h1 className="app-title">Слухайка</h1>
+            <p className="app-subtitle">аудіокниги українською · веб</p>
+          </>
+        )}
       </header>
       <main className="surface">
-        {tab === 'listen' && (
-          <Stub
-            title="Продовження слухання і плеєр"
-            what="Каталог уже працює над приходом книжок: спершу транспорт джерел, потім відтворення."
-          />
+        {bookUrl !== null ? (
+          <BookPage url={bookUrl} onOpenBook={setBookUrl} />
+        ) : tab === 'listen' ? (
+          <Stub title="Продовження слухання і плеєр" what="Спершу транспорт джерел — він уже тут, плеєр наступним кроком." />
+        ) : tab === 'catalog' ? (
+          <Catalog onOpenBook={setBookUrl} />
+        ) : (
+          <Profile profile={profile} />
         )}
-        {tab === 'catalog' && (
-          <Stub
-            title="Огляд каталогу і сторінки книги"
-            what="Шість джерел українських аудіокниг в одному місці — скоро."
-          />
-        )}
-        {tab === 'profile' && <Profile profile={profile} />}
       </main>
-      <nav className="tab-bar" role="tablist">
-        {TABS.map((t) => (
-          <button key={t.id} role="tab" aria-selected={tab === t.id} onClick={() => setTab(t.id)}>
-            {t.label}
-          </button>
-        ))}
-      </nav>
+      {bookUrl === null && (
+        <nav className="tab-bar" role="tablist">
+          {TABS.map((t) => (
+            <button key={t.id} role="tab" aria-selected={tab === t.id} onClick={() => setTab(t.id)}>
+              {t.label}
+            </button>
+          ))}
+        </nav>
+      )}
     </>
   )
 }

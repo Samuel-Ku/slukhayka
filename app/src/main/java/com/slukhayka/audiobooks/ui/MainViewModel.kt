@@ -101,6 +101,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // ADR-0002 (#140): the god repository is gone — the ViewModel composes the
     // five deep modules directly.
     val listeningState: ListeningStateStore = App.instance.listeningState
+
+    /** ADR-0023 (spec-43 T6): pull-before-resume and push-after-save. */
+    private val progressSync = App.instance.progressSync
     val libraryImport: LibraryImport = App.instance.libraryImport
     val sourceCatalog: SourceCatalog = App.instance.sourceCatalog
     val offlineDownloads: OfflineDownloads = App.instance.offlineDownloads
@@ -500,6 +503,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
     }
+
+    // ADR-0023 (spec-43 T6): ⚙️ Профіль reads the settings store directly
+    // (ADR-0008) — no forwarding state here.
+    val progressSyncSettingsModule get() = App.instance.progressSyncSettings
 
     // Spec-40 #275 (t1): the ⚙️ Профіль destination — the silent listener
     // identity's one visible surface, reached from the same Медіатека ⋮
@@ -1393,6 +1400,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             // in flight (e.g. deleteBook on another screen), do not resurrect
             // playback for it.
             if (libraryEntries.getBookSync(updatedBook.id) == null) return@launch
+            // ADR-0023 (spec-43 T6): the cloud mirror lands BEFORE the resume
+            // decision — «почав на телефоні — продовж тут». A forced
+            // re-listen skips it: the explicit restart intent wins.
+            if (!forceRelisten) {
+                runCatching { progressSync.pullBeforeResume(updatedBook.id) }
+            }
             val progress = listeningState.getProgressSync(updatedBook.id)
 
             // ADR-0008: the ONE pure resume decision — an explicit chapter

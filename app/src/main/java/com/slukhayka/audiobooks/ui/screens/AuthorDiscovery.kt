@@ -25,7 +25,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -44,10 +46,11 @@ private const val INLINE_AUTHOR_LIMIT = 5
 fun AuthorsIndexScreen(
     authors: List<AuthorSummary>,
     onBackClick: () -> Unit,
-    onAuthorClick: (AuthorSummary) -> Unit
+    onAuthorClick: (AuthorSummary) -> Unit,
+    initialScrollIndex: Int = 0
 ) {
     AuthorDiscoveryScaffold(title = "Автори", onBackClick = onBackClick) { modifier ->
-        AuthorsIndexContent(authors = authors, onAuthorClick = onAuthorClick, modifier = modifier)
+        AuthorsIndexContent(authors = authors, onAuthorClick = onAuthorClick, modifier = modifier, initialScrollIndex = initialScrollIndex)
     }
 }
 
@@ -130,7 +133,8 @@ fun AuthorSearchResults(
 fun AuthorsIndexContent(
     authors: List<AuthorSummary>,
     onAuthorClick: (AuthorSummary) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    initialScrollIndex: Int = 0
 ) {
     if (authors.isEmpty()) {
         IndexEmptyState(
@@ -139,7 +143,11 @@ fun AuthorsIndexContent(
         )
         return
     }
+    val listState = rememberLazyListState(
+        initialFirstVisibleItemIndex = initialScrollIndex.coerceIn(0, (authors.size - 1).coerceAtLeast(0))
+    )
     LazyColumn(
+        state = listState,
         modifier = modifier.testTag("authors_index"),
         contentPadding = PaddingValues(top = 8.dp, bottom = 120.dp)
     ) {
@@ -165,7 +173,8 @@ fun CanonicalAuthorContent(
     onWorkClick: (WorkEntity) -> Unit,
     modifier: Modifier = Modifier,
     isLoading: Boolean = false,
-    loadFailed: Boolean = false
+    loadFailed: Boolean = false,
+    initialScrollIndex: Int = 0
 ) {
     if (isLoading) {
         Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -187,7 +196,11 @@ fun CanonicalAuthorContent(
         )
         return
     }
+    val listState = rememberLazyListState(
+        initialFirstVisibleItemIndex = initialScrollIndex.coerceIn(0, (works.size - 1).coerceAtLeast(0))
+    )
     LazyColumn(
+        state = listState,
         modifier = modifier.testTag("canonical_author_page"),
         contentPadding = PaddingValues(top = 8.dp, bottom = 120.dp)
     ) {

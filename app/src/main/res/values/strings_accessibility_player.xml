@@ -60,6 +60,10 @@
     <string name="a11y_chapter_current"> Поточний розділ</string>
 
     <string name="a11y_bookmark_pane">Додати закладку</string>
+    <string name="a11y_player_bookmarks_pane">Закладки книги</string>
+    <string name="a11y_player_bookmarks_close">Закрити закладки книги</string>
+    <string name="a11y_player_bookmark_jump">Повернутися до закладки на %1$s</string>
+    <string name="a11y_player_bookmark_delete">Видалити закладку «%1$s» на %2$s</string>
     <string name="a11y_bookmark_close">Закрити додавання закладки</string>
     <string name="a11y_bookmark_context">Закладка в розділі «%1$s» на позиції %2$s</string>
 </resources>

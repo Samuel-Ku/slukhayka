@@ -78,10 +78,12 @@ class OfflineDownloadsReliabilityTest {
     private fun harness(
         numChapters: Int,
         streamUrl: (Int) -> String,
-        fetcher: FakeFetcher
+        fetcher: FakeFetcher,
+        sourceId: String = "sluhay",
+        sourceUrl: String = "https://sluhay.com/svitova-literatura/6177-pasazhir.html"
     ): Triple<LibraryImport, SourceCatalog, OfflineDownloads> {
-        val book = SourceBook(title = "Пасажир", author = "Жан-Крістоф Гранже", url = "https://sluhay.com/svitova-literatura/6177-pasazhir.html", sourceId = "sluhay")
-        val adapter = FakeAdapter("sluhay", book, numChapters, streamUrl)
+        val book = SourceBook(title = "Пасажир", author = "Жан-Крістоф Гранже", url = sourceUrl, sourceId = sourceId)
+        val adapter = FakeAdapter(sourceId, book, numChapters, streamUrl)
         val imports = LibraryImport(dao, context, listOf(adapter))
         val catalog = SourceCatalog(dao, listOf(adapter), imports)
         // Spec-37 isolates bounded concurrency from spec-38's human rhythm:
@@ -95,11 +97,36 @@ class OfflineDownloadsReliabilityTest {
         return Triple(imports, catalog, downloads)
     }
 
+    @Test
+    fun `4read offline download sends the source referer`() = runBlocking {
+        val url = "https://s1.reasd.org/5370/01-bunker.mp3"
+        val audio = ByteArray(2048) { 0x42 }
+        val fetcher = FakeFetcher(sizedStreamResponses = mapOf(url to (audio to audio.size.toLong())))
+        val (imports, _, downloads) = harness(
+            numChapters = 1,
+            streamUrl = { url },
+            fetcher = fetcher,
+            sourceId = "4read",
+            sourceUrl = "https://4read.org/5370-gu-goui-bunker-iluziia.html"
+        )
+        val bookId = importBook(
+            imports,
+            "https://4read.org/5370-gu-goui-bunker-iluziia.html",
+            sourceId = "4read"
+        )
+
+        val result = downloads.downloadAudiobookOffline(bookId)
+
+        assertEquals(1, result.downloadedChapters)
+        assertEquals(listOf(mapOf("Referer" to "https://4read.org/")), fetcher.recordedHeaders)
+    }
+
     private suspend fun importBook(
         imports: LibraryImport,
-        url: String = "https://sluhay.com/svitova-literatura/6177-pasazhir.html"
+        url: String = "https://sluhay.com/svitova-literatura/6177-pasazhir.html",
+        sourceId: String = "sluhay"
     ): String {
-        val imported = imports.importFromSourceUrl("sluhay", url)
+        val imported = imports.importFromSourceUrl(sourceId, url)
         assertNotNull(imported)
         return imported!!.id
     }

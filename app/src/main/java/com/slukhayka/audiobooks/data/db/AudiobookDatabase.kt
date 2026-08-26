@@ -6,6 +6,8 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.slukhayka.audiobooks.data.facets.FacetIdentity
+import com.slukhayka.audiobooks.data.facets.GenreIdentity
 
 @Database(
     entities = [
@@ -29,9 +31,18 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         WorkSourceEntity::class,
         LibraryEntryEntity::class,
         HiddenReviewerEntity::class,
-        RecommendationPreferenceEntity::class
+        RecommendationPreferenceEntity::class,
+        WorkFacetEntity::class,
+        WorkFacetSeriesEntity::class,
+        GenreFacetEntity::class,
+        WorkGenreEntity::class,
+        GenreAssertionStateEntity::class,
+        GenreAssertionEntity::class,
+        EditionFacetEntity::class,
+        AuthorFacetEntity::class,
+        AuthorAliasEntity::class
     ],
-    version = 21,
+    version = 22,
     exportSchema = true
 )
 abstract class AudiobookDatabase : RoomDatabase() {
@@ -55,7 +66,7 @@ abstract class AudiobookDatabase : RoomDatabase() {
                     // upgrades, so a schema change fails loudly at runtime
                     // instead of silently dropping the database.
                     .addMigrations(
-                        MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21
+                        MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22
                     )
                     .build()
                 INSTANCE = instance
@@ -1015,6 +1026,102 @@ abstract class AudiobookDatabase : RoomDatabase() {
                     "CREATE INDEX IF NOT EXISTS index_recommendation_preferences_sourceWorkId " +
                         "ON recommendation_preferences(sourceWorkId)"
                 )
+            }
+        }
+
+        /**
+         * Spec-42 #304 expand gate. All structures are additive; the
+         * provenance-bearing assertion stays separate from its normalized,
+         * indexed Work↔genre projection.
+         */
+        internal val MIGRATION_21_22 = object : Migration(21, 22) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS work_facets (workId TEXT NOT NULL, canonicalAuthorId TEXT, updatedAt INTEGER NOT NULL, PRIMARY KEY(workId))")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_work_facets_canonicalAuthorId ON work_facets(canonicalAuthorId)")
+                db.execSQL("CREATE TABLE IF NOT EXISTS work_facet_series (workId TEXT NOT NULL, seriesId TEXT NOT NULL, PRIMARY KEY(workId, seriesId))")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_work_facet_series_seriesId ON work_facet_series(seriesId)")
+                db.execSQL("CREATE TABLE IF NOT EXISTS genre_facets (id TEXT NOT NULL, displayName TEXT NOT NULL, normalizedName TEXT NOT NULL, PRIMARY KEY(id))")
+                db.execSQL("CREATE TABLE IF NOT EXISTS work_genres (workId TEXT NOT NULL, genreId TEXT NOT NULL, sourceId TEXT NOT NULL, PRIMARY KEY(workId, genreId, sourceId))")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_work_genres_genreId ON work_genres(genreId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_work_genres_workId_sourceId ON work_genres(workId, sourceId)")
+                db.execSQL("CREATE TABLE IF NOT EXISTS genre_assertion_states (workId TEXT NOT NULL, sourceId TEXT NOT NULL, documentUpdatedAt INTEGER NOT NULL, PRIMARY KEY(workId, sourceId))")
+                db.execSQL("CREATE TABLE IF NOT EXISTS genre_assertions (id TEXT NOT NULL, assertionId TEXT NOT NULL, workId TEXT NOT NULL, genreId TEXT NOT NULL, rawText TEXT NOT NULL, sourceId TEXT NOT NULL, observedAt INTEGER NOT NULL, PRIMARY KEY(id))")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_genre_assertions_workId ON genre_assertions(workId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_genre_assertions_genreId ON genre_assertions(genreId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_genre_assertions_sourceId ON genre_assertions(sourceId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_genre_assertions_assertionId ON genre_assertions(assertionId)")
+                db.execSQL("CREATE TABLE IF NOT EXISTS edition_facets (editionId TEXT NOT NULL, workId TEXT NOT NULL, narratorId TEXT, language TEXT, durationSeconds INTEGER, durationBucketId TEXT, chapterCount INTEGER, isAbridged INTEGER, availabilityAvailable INTEGER, availabilityObservedAtMillis INTEGER, availabilityTtlSeconds INTEGER, updatedAt INTEGER NOT NULL, PRIMARY KEY(editionId))")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_edition_facets_workId ON edition_facets(workId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_edition_facets_narratorId ON edition_facets(narratorId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_edition_facets_durationBucketId ON edition_facets(durationBucketId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_edition_facets_language ON edition_facets(language)")
+                db.execSQL("CREATE TABLE IF NOT EXISTS author_facets (id TEXT NOT NULL, displayName TEXT NOT NULL, normalizedName TEXT NOT NULL, updatedAt INTEGER NOT NULL, PRIMARY KEY(id))")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_author_facets_normalizedName ON author_facets(normalizedName)")
+                db.execSQL("CREATE TABLE IF NOT EXISTS author_aliases (authorId TEXT NOT NULL, normalizedAlias TEXT NOT NULL, rawAlias TEXT NOT NULL, sourceId TEXT NOT NULL, observedAt INTEGER NOT NULL, PRIMARY KEY(authorId, normalizedAlias, sourceId))")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_author_aliases_normalizedAlias ON author_aliases(normalizedAlias)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_author_aliases_sourceId ON author_aliases(sourceId)")
+                backfillFacetProjections(db)
+            }
+        }
+
+        /** Public for the migration acceptance test; replay is idempotent. */
+        internal fun backfillFacetProjections(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "INSERT OR IGNORE INTO edition_facets (editionId, workId, narratorId, language, durationSeconds, durationBucketId, chapterCount, isAbridged, availabilityAvailable, availabilityObservedAtMillis, availabilityTtlSeconds, updatedAt) " +
+                    "SELECT e.id, COALESCE(le.workId, e.workId), NULL, NULLIF(e.language, ''), CASE WHEN e.totalDurationSeconds > 0 THEN e.totalDurationSeconds ELSE NULL END, NULL, CASE WHEN e.totalChapters > 0 THEN e.totalChapters ELSE NULL END, NULL, NULL, NULL, NULL, 0 " +
+                    "FROM editions e LEFT JOIN library_entries le ON le.id=e.workId"
+            )
+            db.query("SELECT id, author FROM works").use { cursor ->
+                while (cursor.moveToNext()) {
+                    val workId = cursor.getString(0)
+                    val author = cursor.getString(1)
+                    val normalizedAuthor = FacetIdentity.normalizedText(author)
+                    val authorId = normalizedAuthor?.let { FacetIdentity.boundedId("author", it) }
+                    if (authorId != null) {
+                        db.execSQL(
+                            "INSERT OR IGNORE INTO author_facets (id, displayName, normalizedName, updatedAt) VALUES (?, ?, ?, 0)",
+                            arrayOf(authorId, author.trim().take(120), normalizedAuthor.take(120))
+                        )
+                        db.execSQL(
+                            "INSERT OR IGNORE INTO author_aliases (authorId, normalizedAlias, rawAlias, sourceId, observedAt) VALUES (?, ?, ?, 'legacy:works', 0)",
+                            arrayOf(authorId, normalizedAuthor.take(120), author.take(120))
+                        )
+                    }
+                    db.execSQL(
+                        "INSERT OR IGNORE INTO work_facets (workId, canonicalAuthorId, updatedAt) VALUES (?, ?, 0)",
+                        arrayOf(workId, authorId)
+                    )
+                }
+            }
+            db.execSQL("INSERT OR IGNORE INTO work_facet_series (workId, seriesId) SELECT workId, seriesId FROM series_members")
+            db.query(
+                "SELECT le.workId, a.id, a.genre FROM audiobooks a " +
+                    "JOIN library_entries le ON le.id=a.id WHERE TRIM(a.genre) != ''"
+            ).use { cursor ->
+                while (cursor.moveToNext()) {
+                    val workId = cursor.getString(0)
+                    val bookId = cursor.getString(1)
+                    val rawText = cursor.getString(2)
+                    GenreIdentity.fromSourceText(rawText).forEach { genre ->
+                        db.execSQL(
+                            "INSERT OR IGNORE INTO genre_facets (id, displayName, normalizedName) VALUES (?, ?, ?)",
+                            arrayOf(genre.id, genre.label, FacetIdentity.normalizedText(genre.label).orEmpty())
+                        )
+                        db.execSQL(
+                            "INSERT OR IGNORE INTO work_genres (workId, genreId, sourceId) VALUES (?, ?, 'legacy:audiobooks')",
+                            arrayOf(workId, genre.id)
+                        )
+                        db.execSQL(
+                            "INSERT OR IGNORE INTO genre_assertions (id, assertionId, workId, genreId, rawText, sourceId, observedAt) VALUES (?, ?, ?, ?, ?, 'legacy:audiobooks', 0)",
+                            arrayOf("legacy:$bookId:${genre.id}", "legacy:$bookId", workId, genre.id, rawText)
+                        )
+                    }
+                    db.execSQL(
+                        "INSERT INTO genre_assertion_states (workId, sourceId, documentUpdatedAt) VALUES (?, 'legacy:audiobooks', 0) " +
+                            "ON CONFLICT(workId, sourceId) DO UPDATE SET documentUpdatedAt=MAX(documentUpdatedAt, excluded.documentUpdatedAt)",
+                        arrayOf(workId)
+                    )
+                }
             }
         }
     }

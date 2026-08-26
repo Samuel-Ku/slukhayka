@@ -475,11 +475,22 @@ class AudioPlayerManagerTest {
     }
 
     @Test
-    fun `plain-get sources apply no stream headers`() = playerTest { manager, _ ->
-        // The fixture book points at fixtures.4read.org.invalid — a plain-GET host.
-        manager.loadAndPlayBook(book, chapters, initialChapterIndex = 0, autoPlay = false)
+    fun `4read book applies the source referer`() = playerTest { manager, _ ->
+        val reasdPlayable = playable.mapIndexed { index, pair ->
+            pair.copy(track = pair.track?.copy(url = "https://s1.reasd.org/5370/chapter-$index.mp3"))
+        }
+        manager.loadAndPlayBook(
+            book,
+            chapters,
+            playable = reasdPlayable,
+            initialChapterIndex = 0,
+            autoPlay = false
+        )
 
-        assertTrue("no Referer may leak onto plain-GET hosts", manager.lastAppliedStreamHeaders.isEmpty())
+        assertEquals(
+            mapOf("Referer" to "https://4read.org/"),
+            manager.lastAppliedStreamHeaders
+        )
     }
 
     @Test
@@ -790,8 +801,10 @@ class AudioPlayerManagerTest {
     fun `resuming a nearly finished book keeps its position`() {
         val clock = TestClock()
         playerTest(clock = clock) { manager, factory ->
-            // 60 s before the end — not finished, so no reset and no RELISTEN.
-            val resumePosition = chapters.sumOf { it.durationSeconds } - 60L
+            // The stored player position is chapter-local. Resume 60 s before
+            // the end of the selected final chapter: it is not finished, so
+            // READY must seek there instead of resetting to 0 / RELISTEN.
+            val resumePosition = chapters.last().durationSeconds - 60L
             manager.loadAndPlayBook(
                 book, chapters,
                 initialChapterIndex = chapters.lastIndex,

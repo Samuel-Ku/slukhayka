@@ -37,17 +37,34 @@ fun streamOnlyFor(sourceId: String): Boolean = when (sourceId) {
  * - `sluhay`      → `Referer: https://sluhay.com/`
  * - `sluhayknigi` → `Referer: https://sluhayknigi.com/`
  * - `audiobookmp3`→ `Referer: https://audiobook-mp3.com/uk`
- * - everything else → no extra headers (4read/arch/sound-books serve plain
- *   GETs; SEC-004: never leak a Referer onto hosts that don't need one)
+ * - `4read`        → `Referer: https://4read.org/` (its `s*.reasd.org`
+ *   audio hosts reject both streaming and downloads with 403 without it)
+ * - everything else → no extra headers (arch/sound-books serve plain GETs;
+ *   SEC-004: never leak a Referer onto hosts that don't need one)
  *
- * [streamUrl] is kept in the signature because the policy may later want to
- * scope a Referer to specific CDN paths; today it is only a documentation
- * hook. Callers derive [sourceId] from the book's primary source URL via the
- * pure [sourceIdForUrl] function in this package.
+ * [streamUrl] scopes 4read's Referer to its own audio hosts so legacy tracks
+ * on an external archive never receive it. Callers derive [sourceId] from the
+ * book's primary source URL via the pure [sourceIdForUrl] function in this
+ * package.
  */
 fun headersFor(sourceId: String, streamUrl: String): Map<String, String> = when (sourceId) {
+    "4read" -> if (isFourReadAudioHost(streamUrl)) {
+        mapOf("Referer" to "https://4read.org/")
+    } else {
+        emptyMap()
+    }
     "sluhay" -> mapOf("Referer" to "https://sluhay.com/")
     "sluhayknigi" -> mapOf("Referer" to "https://sluhayknigi.com/")
     "audiobookmp3" -> mapOf("Referer" to "https://audiobook-mp3.com/uk")
     else -> emptyMap()
+}
+
+private fun isFourReadAudioHost(streamUrl: String): Boolean {
+    val host = try {
+        java.net.URI(streamUrl).host?.lowercase()
+    } catch (_: Exception) {
+        null
+    } ?: return false
+    return host == "4read.org" || host.endsWith(".4read.org") ||
+        host == "reasd.org" || host.endsWith(".reasd.org")
 }

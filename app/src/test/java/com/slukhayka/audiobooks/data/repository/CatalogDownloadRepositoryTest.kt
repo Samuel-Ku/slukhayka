@@ -167,9 +167,13 @@ class CatalogDownloadRepositoryTest {
         val url = "https://sluhay.com/svitova-literatura/6177-pasazhir.html"
         val track0 = "https://j3wccg4mgjcw.redirectto.cc/s05/2/6/5/4/4/track-0.mp3"
         val track1 = "https://j3wccg4mgjcw.redirectto.cc/s05/2/6/5/4/4/track-1.mp3"
-        // In-memory "audio" — large enough to pass the >100-byte check.
-        val audio = ByteArray(1024) { 0x42 }
-        val fetcher = FakeFetcher(streamResponses = mapOf(track0 to audio, track1 to audio))
+        // Distinct in-memory "audio" per URL, large enough to pass the
+        // >100-byte check. This test pins two headerful fetches; identical
+        // bytes would also exercise concurrent hash dedup and make the
+        // unrelated downloaded-count assertion order-dependent.
+        val audio0 = ByteArray(1024) { 0x42 }
+        val audio1 = ByteArray(1024) { 0x43 }
+        val fetcher = FakeFetcher(streamResponses = mapOf(track0 to audio0, track1 to audio1))
         val harness = harness(
             FakeAdapter("sluhay", book("sluhay", url)) { i -> if (i == 0) track0 else track1 },
             fetcher = fetcher

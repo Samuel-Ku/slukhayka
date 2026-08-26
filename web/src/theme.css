@@ -1,0 +1,192 @@
+:root {
+  color-scheme: dark;
+  --bg: #121212;
+  --surface: #1e1e1e;
+  --surface-raised: #262626;
+  --line: #333333;
+  --fg: #e8e8e8;
+  --fg-dim: #9a9a9a;
+  --accent: #7fa8d9;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font:
+    16px/1.5 -apple-system,
+    system-ui,
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+#root {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  max-width: 640px;
+  margin: 0 auto;
+}
+
+.app-header {
+  padding: calc(env(safe-area-inset-top) + 16px) 16px 12px;
+}
+
+.app-title {
+  font-size: 20px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.app-subtitle {
+  color: var(--fg-dim);
+  font-size: 13px;
+  margin: 2px 0 0;
+}
+
+.tab-bar {
+  margin-top: auto;
+  display: flex;
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.tab-bar button {
+  flex: 1;
+  background: none;
+  border: none;
+  color: var(--fg-dim);
+  padding: 12px 0 10px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.tab-bar button[aria-selected='true'] {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.surface {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 16px 24px;
+}
+
+.placeholder {
+  border: 1px dashed var(--line);
+  border-radius: 12px;
+  padding: 24px 16px;
+  text-align: center;
+  color: var(--fg-dim);
+  margin-top: 16px;
+}
+
+.profile-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 16px;
+  margin-top: 16px;
+  display: grid;
+  gap: 6px;
+}
+
+.profile-card .label {
+  color: var(--fg-dim);
+  font-size: 13px;
+}
+
+.profile-card .value {
+  font-size: 15px;
+  word-break: break-all;
+}
+
+.notice {
+  color: var(--fg-dim);
+  font-size: 13px;
+  margin-top: 12px;
+}
+
+/* --- spec-43/T3: каталог і сторінка книги -------------------------------- */
+
+.back {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 16px;
+  padding: 0;
+  cursor: pointer;
+}
+
+.card-list,
+.narrations,
+.chapters {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.chapters {
+  counter-reset: chapter;
+}
+
+.card-list button,
+.narrations button {
+  width: 100%;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 12px;
+  color: var(--fg);
+  cursor: pointer;
+}
+
+.card-list img {
+  width: 72px;
+  height: 72px;
+  object-fit: cover;
+  border-radius: 8px;
+  align-self: flex-start;
+}
+
+.card-title {
+  font-weight: 600;
+}
+
+.card-author {
+  color: var(--fg-dim);
+  font-size: 14px;
+}
+
+.byline,
+.genres {
+  color: var(--fg-dim);
+  font-size: 14px;
+  margin: 4px 0 0;
+}
+
+.cover {
+  max-width: 180px;
+  border-radius: 12px;
+  margin-top: 12px;
+}
+
+.description {
+  margin-top: 12px;
+}
+
+h2 {
+  font-size: 16px;
+  margin: 20px 0 0;
+}

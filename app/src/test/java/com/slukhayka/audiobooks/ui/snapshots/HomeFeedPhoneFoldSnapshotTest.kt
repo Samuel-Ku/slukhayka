@@ -5,13 +5,15 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.getBoundsInRoot
-import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createComposeRule
-import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
@@ -23,7 +25,7 @@ import androidx.paging.compose.collectAsLazyPagingItems
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
 import com.github.takahirom.roborazzi.captureRoboImage
 import com.slukhayka.audiobooks.data.catalog.CatalogBook
-import com.slukhayka.audiobooks.data.catalog.CatalogGenre
+import com.slukhayka.audiobooks.data.db.GenreFacetOption
 import com.slukhayka.audiobooks.data.catalog.CatalogSection
 import com.slukhayka.audiobooks.data.catalog.CatalogSectionId
 import com.slukhayka.audiobooks.data.catalog.CatalogSeries
@@ -45,16 +47,9 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
 /**
- * ADR-0017 closing pass for the spec-28 Огляд reorder (#203) — the visible
- * delta verified at PHONE size. The tall-viewport order test
- * ([HomeFeedOrderSnapshotTest]) proves the block ORDER; this test proves the
- * FOLD: on a real phone (Pixel 8, 411x914dp) the user's first screen shows
- * the nav row and curated shelves — NOT the endless feed. «Весь каталог» is
- * not composed at rest (below the fold, reachable by scrolling), and
- * scrolling to it confirms the feed is the screen's last element, with its
- * filter controls directly above the cards. Two goldens: the first screen
- * (`home_feed_phone_fold.png`) and the scrolled-to-feed state
- * (`home_feed_phone_feed.png`).
+ * Phone-size acceptance for spec-42 T1 (#302). The first screen starts with
+ * search and quick transitions, curated groups lead into the endless feed,
+ * and the compact controls pin once the feed is reached.
  */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
@@ -140,7 +135,17 @@ class HomeFeedPhoneFoldSnapshotTest {
             workId = "w2", mergeKey = "mk2", title = "Тигролови", author = "Іван Багряний",
             coverImageUrl = null, addedAt = 2L, sourceCount = 2
         )
-    )
+    ) + (3..15).map { index ->
+        WorkFeedRow(
+            workId = "w$index",
+            mergeKey = "mk$index",
+            title = "Книга $index",
+            author = "Автор $index",
+            coverImageUrl = null,
+            addedAt = index.toLong(),
+            sourceCount = 1
+        )
+    }
 
     @Test
     fun first_screen_is_curated_not_the_endless_feed() {
@@ -150,22 +155,10 @@ class HomeFeedPhoneFoldSnapshotTest {
         fun topOf(text: String): Dp =
             composeTestRule.onNodeWithText(text, ignoreCase = true).getBoundsInRoot().top
 
-        // The nav row is on the first screen, not buried under chrome.
-        assertTrue("nav row should be above the fold", topOf("Каталог") < foldBottom)
-        // Curated content starts on the first screen: the marquee
-        // «Рекомендовано для вас» shelf — the first row the spec order line
-        // names after genres — is above the fold. (The inline «Колекції»
-        // blocks live below the 4read sections, ADR-0017 closing pass.)
-        assertTrue("«Рекомендовано для вас» should be above the fold", topOf("Рекомендовано для вас") < foldBottom)
-        // The endless feed is NOT the first thing the user meets: «Весь
-        // каталог» is either uncomposed (LazyColumn didn't reach it) or
-        // strictly below the fold.
-        if (composeTestRule.onAllNodesWithText("Весь каталог", ignoreCase = true).fetchSemanticsNodes().isNotEmpty()) {
-            assertTrue(
-                "«Весь каталог» must not be above the fold",
-                composeTestRule.onNodeWithText("Весь каталог", ignoreCase = true).getBoundsInRoot().top >= foldBottom
-            )
-        }
+        assertTrue("quick transitions should be above the fold", topOf("Швидкі переходи") < foldBottom)
+        assertTrue("the first curated group should begin above the fold", topOf("Для вас") < foldBottom)
+        composeTestRule.onNodeWithText("Жанри", ignoreCase = true).assertDoesNotExist()
+        composeTestRule.onNodeWithText("Весь каталог", ignoreCase = true).assertDoesNotExist()
 
         composeTestRule.onRoot().captureRoboImage(
             filePath = "src/test/snapshots/home_feed_phone_fold.png"
@@ -173,25 +166,45 @@ class HomeFeedPhoneFoldSnapshotTest {
     }
 
     @Test
+    fun personal_group_distinguishes_loading_from_ready_empty() {
+        var recommendationsReady by mutableStateOf(false)
+        composeTestRule.setContent {
+            renderHomeFeed(
+                recommendedBooks = emptyList(),
+                recommendationsReady = recommendationsReady
+            )
+        }
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithText("Для вас").assertExists()
+        composeTestRule.onNodeWithText("Готуємо персональні добірки…").assertExists()
+        composeTestRule.onNodeWithText("Персональних добірок поки немає.").assertDoesNotExist()
+
+        composeTestRule.runOnIdle { recommendationsReady = true }
+        composeTestRule.onNodeWithText("Готуємо персональні добірки…").assertDoesNotExist()
+        composeTestRule.onNodeWithText("Персональних добірок поки немає.").assertExists()
+    }
+
+    @Test
     fun scrolling_reaches_the_feed_as_the_last_element() {
         composeTestRule.setContent { renderHomeFeed() }
         composeTestRule.waitForIdle()
 
-        // Scroll the endless feed into view — it exists, below every curated
-        // shelf, with its filter controls right above the cards.
+        // Reach the feed controls, then continue through enough Paging rows
+        // to prove that the same toolbar stays pinned at the viewport top.
         composeTestRule.onNodeWithTag("home_feed")
-            .performScrollToNode(hasText("Весь каталог", ignoreCase = true, substring = true))
+            .performScrollToNode(hasTestTag("work_feed_toolbar"))
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("home_feed")
+            .performScrollToNode(hasTestTag("work_feed_w12"))
         composeTestRule.waitForIdle()
 
-        fun topOf(text: String): Dp =
-            composeTestRule.onNodeWithText(text, ignoreCase = true).getBoundsInRoot().top
-
-        assertTrue("feed header should be in view after the scroll", topOf("Весь каталог") < foldBottom)
-        // The first feed card renders below the feed header — the header is
-        // the last block's title, and the cards belong to it. (The curated
-        // shelves above are no longer composed this far down — their relative
-        // order is pinned by HomeFeedOrderSnapshotTest on the tall viewport.)
-        assertTrue(topOf("Весь каталог") < topOf("Місто"))
+        assertTrue(
+            "feed toolbar should be pinned at the viewport top",
+            composeTestRule.onNodeWithTag("work_feed_toolbar").getBoundsInRoot().top <= 1.dp
+        )
+        composeTestRule.onNodeWithText("Спочатку нові").assertExists()
+        composeTestRule.onNodeWithText("Фільтри").assertExists()
 
         composeTestRule.onRoot().captureRoboImage(
             filePath = "src/test/snapshots/home_feed_phone_feed.png"
@@ -200,7 +213,10 @@ class HomeFeedPhoneFoldSnapshotTest {
 
     /** The real Огляд first screen: collapsed header + the feed body. */
     @Composable
-    private fun renderHomeFeed() {
+    private fun renderHomeFeed(
+        recommendedBooks: List<RecommendationEngine.Recommendation> = recommendations,
+        recommendationsReady: Boolean = true
+    ) {
         AudiobookTheme(darkTheme = true) {
             Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                 val feedFlow = remember { MutableStateFlow(PagingData.from(feedRows)) }
@@ -210,32 +226,29 @@ class HomeFeedPhoneFoldSnapshotTest {
                         HomeHeader(
                             searchExpanded = false,
                             searchQuery = "",
-                            selectedGenre = "Усі",
-                            genres = listOf("Усі", "Фантастика", "Детективи"),
                             onToggleSearch = {},
                             onRefresh = {},
                             onSearchQueryChange = {},
-                            onCloseSearch = {},
-                            onSelectGenre = {}
+                            onCloseSearch = {}
                         )
                     }
                     homeFeedContent(
                         isCatalogLoading = false,
                         hasLibraryBooks = true,
                         sections = sections,
-                        catalogGenres = listOf(
-                            CatalogGenre("Фантастика", "https://4read.org/fant"),
-                            CatalogGenre("Детективи", "https://4read.org/det")
+                        genreFacetOptions = listOf(
+                            GenreFacetOption("science-fiction", "Фантастика", 1),
+                            GenreFacetOption("detective", "Детективи", 1)
                         ),
                         collections = collections,
                         newArrivals = results,
-                        recommendedBooks = recommendations,
+                        recommendedBooks = recommendedBooks,
+                        recommendationsReady = recommendationsReady,
                         personalCycles = emptyList(),
                         shortBooks = books,
                         longBooks = books,
                         workFeedItems = feedItems,
-                        feedSourceFilter = null,
-                        feedGenreFilter = null,
+                        feedGenreFilters = emptySet(),
                         feedSortByTitle = false,
                         onRefreshCatalog = {},
                         onGoToLibrary = {},
@@ -243,14 +256,12 @@ class HomeFeedPhoneFoldSnapshotTest {
                         onOpenPeople = {},
                         onOpenSeriesIndex = {},
                         onOpenCollectionsIndex = {},
-                        onOpenGenre = { _, _ -> },
                         onOpenSeries = { _, _ -> },
                         onPlayGlobalSearchResult = {},
                         onOpenRecommendedBook = {},
                         onOpenWorkFeedRow = {},
                         onBookClick = {},
-                        onSetFeedSourceFilter = {},
-                        onSetFeedGenreFilter = {},
+                        onSetFeedGenreFilters = {},
                         onSetFeedSortByTitle = {},
                         onOpenWebSource = {}
                     )

@@ -16,7 +16,7 @@ import androidx.compose.ui.test.onRoot
 import androidx.paging.PagingData
 import androidx.paging.compose.collectAsLazyPagingItems
 import com.slukhayka.audiobooks.data.catalog.CatalogBook
-import com.slukhayka.audiobooks.data.catalog.CatalogGenre
+import com.slukhayka.audiobooks.data.db.GenreFacetOption
 import com.slukhayka.audiobooks.data.catalog.CatalogSection
 import com.slukhayka.audiobooks.data.catalog.CatalogSectionId
 import com.slukhayka.audiobooks.data.catalog.CatalogSeries
@@ -39,9 +39,8 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
 /**
- * spec-28 (#203) — snapshot + order pin for the Огляд feed body
- * ([homeFeedContent]): curated content sits ABOVE the endless «Весь каталог»
- * feed, which is always the screen's last element. A tall viewport
+ * spec-42 T1 (#302) — snapshot + order pin for the Огляд feed body
+ * ([homeFeedContent]): one hierarchy leads into the endless feed. A tall viewport
  * (Pixel8's density, 4000dp tall) composes every block, so the order is
  * asserted by y-position across the whole screen and the capture shows the
  * final layout end to end.
@@ -141,9 +140,9 @@ class HomeFeedOrderSnapshotTest {
                             isCatalogLoading = false,
                             hasLibraryBooks = true,
                             sections = sections,
-                            catalogGenres = listOf(
-                                CatalogGenre("Фантастика", "https://4read.org/fant"),
-                                CatalogGenre("Детективи", "https://4read.org/det")
+                            genreFacetOptions = listOf(
+                                GenreFacetOption("science-fiction", "Фантастика", 1),
+                                GenreFacetOption("detective", "Детективи", 1)
                             ),
                             collections = collections,
                             newArrivals = results,
@@ -152,8 +151,7 @@ class HomeFeedOrderSnapshotTest {
                             shortBooks = books,
                             longBooks = books,
                             workFeedItems = feedItems,
-                            feedSourceFilter = null,
-                            feedGenreFilter = null,
+                            feedGenreFilters = emptySet(),
                             feedSortByTitle = false,
                             onRefreshCatalog = {},
                             onGoToLibrary = {},
@@ -161,14 +159,12 @@ class HomeFeedOrderSnapshotTest {
                             onOpenPeople = {},
                             onOpenSeriesIndex = {},
                             onOpenCollectionsIndex = {},
-                            onOpenGenre = { _, _ -> },
                             onOpenSeries = { _, _ -> },
                             onPlayGlobalSearchResult = {},
                             onOpenRecommendedBook = {},
                             onOpenWorkFeedRow = {},
                             onBookClick = {},
-                            onSetFeedSourceFilter = {},
-                            onSetFeedGenreFilter = {},
+                            onSetFeedGenreFilters = {},
                             onSetFeedSortByTitle = {},
                             onOpenWebSource = {}
                         )
@@ -178,17 +174,17 @@ class HomeFeedOrderSnapshotTest {
         }
         composeTestRule.waitForIdle()
 
-        // Every block composes on the tall viewport — assert the spec-28
-        // order by y-position: nav → genres → recommended → rail → duration
-        // → 4read sections → collections → CTA → «Весь каталог» (last). The
-        // inline «Колекції» blocks sit AFTER the 4read sections (ADR-0017
-        // closing pass): «Рекомендовано для вас» is the first curated shelf
-        // per the spec order line (spec-28 lines 150-153).
+        // Every block composes on the tall viewport — assert the spec-42
+        // hierarchy: quick transitions → «Для вас» → «Відкрити нове» →
+        // compact feed toolbar → endless feed. Genre navigation and the
+        // redundant «Весь каталог» label have no second home on this screen.
         fun topOf(text: String): Dp =
             composeTestRule.onNodeWithText(text, ignoreCase = true).getBoundsInRoot().top
 
-        assertTrue(topOf("Каталог") < topOf("Жанри"))
-        assertTrue(topOf("Жанри") < topOf("Рекомендовано для вас"))
+        assertTrue(topOf("Швидкі переходи") < topOf("Для вас"))
+        assertTrue(topOf("Для вас") < topOf("Рекомендовано для вас"))
+        assertTrue(topOf("Рекомендовано для вас") < topOf("Відкрити нове"))
+        assertTrue(topOf("Відкрити нове") < topOf("Новинки"))
         assertTrue(topOf("Рекомендовано для вас") < topOf("Новинки"))
         // spec-28 (#195): «За тривалістю» headers are human-named shelves
         // stating the real bucket bounds (US-15, ADR-0014).
@@ -199,10 +195,15 @@ class HomeFeedOrderSnapshotTest {
         assertTrue(topOf("Цикли") < topOf("Нобелівські лауреати"))
         assertTrue(topOf("Нобелівські лауреати") < topOf("Букер"))
         assertTrue(topOf("Букер") < topOf("Більше книг на Sluhay"))
-        assertTrue(topOf("Більше книг на Sluhay") < topOf("Весь каталог"))
-        // «Весь каталог» is the last element: its feed cards render below it.
-        assertTrue(topOf("Весь каталог") < topOf("Місто"))
+        assertTrue(topOf("Більше книг на Sluhay") < topOf("Спочатку нові"))
+        // The sticky controls introduce the final unbounded layer directly:
+        // there is no redundant feed heading between controls and cards.
+        assertTrue(topOf("Спочатку нові") < topOf("Місто"))
         assertTrue(topOf("Місто") < topOf("Тигролови"))
+
+        composeTestRule.onNodeWithText("Жанри", ignoreCase = true).assertDoesNotExist()
+        composeTestRule.onNodeWithText("Весь каталог", ignoreCase = true).assertDoesNotExist()
+        composeTestRule.onNodeWithText("Усі джерела", ignoreCase = true).assertDoesNotExist()
 
         // The «Новинки»-titled catalogue section is skipped by typed id — the
         // rail is the only place the label renders (exactly-once, no dupes).
@@ -214,9 +215,8 @@ class HomeFeedOrderSnapshotTest {
     }
 
     /**
-     * spec-39 T1/T2 (#261/#262) — the mixed shelf: «Ваші цикли» sits between
-     * the genres and «Рекомендовано для вас» (the recorded spec-28 order
-     * amendment); own cycles come first with their honest progress line, a
+     * spec-39 T1/T2 (#261/#262) inside the spec-42 «Для вас» group: own
+     * cycles come first with their honest progress line, a
      * similar cycle appends after them carrying the engine's reason chip,
      * and the editorial 4read «Цикли» section row is hidden while the
      * personal shelf renders.
@@ -253,9 +253,9 @@ class HomeFeedOrderSnapshotTest {
                             isCatalogLoading = false,
                             hasLibraryBooks = true,
                             sections = sections,
-                            catalogGenres = listOf(
-                                CatalogGenre("Фантастика", "https://4read.org/fant"),
-                                CatalogGenre("Детективи", "https://4read.org/det")
+                            genreFacetOptions = listOf(
+                                GenreFacetOption("science-fiction", "Фантастика", 1),
+                                GenreFacetOption("detective", "Детективи", 1)
                             ),
                             collections = collections,
                             newArrivals = results,
@@ -264,8 +264,7 @@ class HomeFeedOrderSnapshotTest {
                             shortBooks = books,
                             longBooks = books,
                             workFeedItems = feedItems,
-                            feedSourceFilter = null,
-                            feedGenreFilter = null,
+                            feedGenreFilters = emptySet(),
                             feedSortByTitle = false,
                             onRefreshCatalog = {},
                             onGoToLibrary = {},
@@ -273,14 +272,12 @@ class HomeFeedOrderSnapshotTest {
                             onOpenPeople = {},
                             onOpenSeriesIndex = {},
                             onOpenCollectionsIndex = {},
-                            onOpenGenre = { _, _ -> },
                             onOpenSeries = { _, _ -> },
                             onPlayGlobalSearchResult = {},
                             onOpenRecommendedBook = {},
                             onOpenWorkFeedRow = {},
                             onBookClick = {},
-                            onSetFeedSourceFilter = {},
-                            onSetFeedGenreFilter = {},
+                            onSetFeedGenreFilters = {},
                             onSetFeedSortByTitle = {},
                             onOpenWebSource = {}
                         )
@@ -293,7 +290,7 @@ class HomeFeedOrderSnapshotTest {
         fun topOf(text: String): Dp =
             composeTestRule.onNodeWithText(text, ignoreCase = true).getBoundsInRoot().top
 
-        assertTrue(topOf("Жанри") < topOf("Ваші цикли"))
+        assertTrue(topOf("Для вас") < topOf("Ваші цикли"))
         assertTrue(topOf("Ваші цикли") < topOf("Рекомендовано для вас"))
         // The rest of the order is unchanged behind the new shelf.
         assertTrue(topOf("Рекомендовано для вас") < topOf("Новинки"))

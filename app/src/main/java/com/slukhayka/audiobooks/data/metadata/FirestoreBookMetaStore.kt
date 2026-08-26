@@ -12,9 +12,8 @@ import kotlinx.coroutines.suspendCancellableCoroutine
  * Spec-30 T2 (#217) — the Firestore implementation of [SharedBookMetaStore]:
  * reads the shared duration of one Edition from the `book_durations`
  * collection, document per editionId. Thin Android glue (like the transport
- * adapters — no unit tests here); the read-path logic and the document shape
- * are pinned by fixture tests over the seam and by [SharedDurationCodec]
- * tests.
+ * adapters); pure document shapes are pinned by codec/seam tests, while the
+ * write and ordered-page paths are traced against the real Firestore Emulator.
  *
  * Degrade-never-throw: a missing document, a network failure, a timeout or an
  * unreadable document all yield null / an empty map — the caller falls
@@ -26,6 +25,51 @@ import kotlinx.coroutines.suspendCancellableCoroutine
  * shared layer simply does not exist and the app behaves exactly as before.
  */
 class FirestoreBookMetaStore(private val firestore: FirebaseFirestore) : SharedBookMetaStore {
+
+    override suspend fun getFacet(key: FacetAssertionKey): FacetAssertion? {
+        return try {
+            val snapshot = firestore.collection(FACET_COLLECTION).document(key.documentId).get()
+                .awaitOrNull() ?: return null
+            if (!snapshot.exists()) null
+            else FacetAssertionCodec.fromMap(snapshot.id, snapshot.data ?: return null)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    override suspend fun putFacet(assertion: FacetAssertion) {
+        val document = FacetAssertionCodec.toMap(assertion) ?: return
+        runCatching {
+            firestore.collection(FACET_COLLECTION).document(assertion.documentId)
+                .set(document)
+                .awaitOrNull()
+        }
+    }
+
+    override suspend fun getFacetPage(after: FacetCursor?, limit: Int): FacetPage {
+        val boundedLimit = FacetPageLimits.bounded(limit)
+        if (boundedLimit == 0) return FacetPage(emptyList(), null)
+        return try {
+            var query = firestore.collection(FACET_COLLECTION)
+                .orderBy(FACET_CURSOR_FIELD)
+                .orderBy(FieldPath.documentId())
+            if (after != null) query = query.startAfter(after.updatedAt, after.documentId)
+            val snapshot = query.limit((boundedLimit + 1).toLong()).get().awaitOrNull()
+                ?: return FacetPage(emptyList(), null)
+            val pageDocuments = snapshot.documents.take(boundedLimit)
+            val assertions = pageDocuments.mapNotNull { document ->
+                FacetAssertionCodec.fromMap(document.id, document.data ?: return@mapNotNull null)
+            }
+            val nextCursor = pageDocuments.lastOrNull()
+                ?.let { document ->
+                    (document.data?.get(FACET_CURSOR_FIELD) as? Number)?.toLong()
+                        ?.let { updatedAt -> FacetCursor(updatedAt, document.id) }
+                }
+            FacetPage(assertions, nextCursor)
+        } catch (e: Exception) {
+            FacetPage(emptyList(), null)
+        }
+    }
 
     override suspend fun getDuration(editionId: String): Long? {
         return try {
@@ -64,13 +108,46 @@ class FirestoreBookMetaStore(private val firestore: FirebaseFirestore) : SharedB
         durationSeconds: Long,
         provenance: DurationProvenance
     ) {
-        // Best-effort fire-and-forget: the write proceeds in the background; a
-        // synchronous failure (a closed Firestore, a bad document) is caught
-        // here and the caller never sees it. set() on a document key is
-        // idempotent — a re-write replaces, never duplicates.
+        if (!DurationContractLimits.isPlausibleEditionId(editionId)) return
+        if (!DurationSanity.isPlausible(durationSeconds)) return
+        if (!DurationContractLimits.isPlausibleProvenance(provenance)) return
+
+        // One transaction protects the first-write-wins decision against two
+        // listeners observing the same gap concurrently. Rules independently
+        // deny canonical update/delete, so a client bug cannot bypass this
+        // door. Any transport/rules failure remains a silent best-effort miss.
         runCatching {
-            firestore.collection(COLLECTION).document(editionId)
-                .set(SharedDurationCodec.toMap(durationSeconds, provenance))
+            firestore.runTransaction { transaction ->
+                val canonicalRef = firestore.collection(COLLECTION).document(editionId)
+                val canonicalSnapshot = transaction.get(canonicalRef)
+                val canonicalDuration = canonicalSnapshot.data
+                    ?.let(SharedDurationCodec::fromMap)
+                when (
+                    DurationObservationPolicy.decide(
+                        canonicalDocumentExists = canonicalSnapshot.exists(),
+                        canonicalDurationSeconds = canonicalDuration,
+                        candidateSeconds = durationSeconds
+                    )
+                ) {
+                    DurationWriteDecision.CreateCanonical -> {
+                        transaction.set(
+                            canonicalRef,
+                            SharedDurationCodec.toMap(durationSeconds, provenance)
+                        )
+                    }
+
+                    DurationWriteDecision.CreateConflict -> {
+                        val conflict = DurationConflict(editionId, durationSeconds, provenance)
+                        val conflictRef = firestore.collection(CONFLICT_COLLECTION)
+                            .document(DurationConflictId.of(conflict))
+                        if (!transaction.get(conflictRef).exists()) {
+                            transaction.set(conflictRef, DurationConflictCodec.toMap(conflict))
+                        }
+                    }
+
+                    DurationWriteDecision.NoOp -> Unit
+                }
+            }.awaitOrNull()
         }
     }
 
@@ -166,6 +243,13 @@ class FirestoreBookMetaStore(private val firestore: FirebaseFirestore) : SharedB
 
     companion object {
         private const val COLLECTION = "book_durations"
+
+        /** Spec-42 #311 — compact Work/Edition assertions ordered by `updatedAt`. */
+        private const val FACET_COLLECTION = "book_facets"
+        private const val FACET_CURSOR_FIELD = "updatedAt"
+
+        /** Spec-42 #303 — idempotent Edition/value/method conflict evidence. */
+        private const val CONFLICT_COLLECTION = "book_duration_conflicts"
 
         /** Spec-32 T1 — the shared profile collection, keyed sourceId|editionId. */
         private const val PROFILE_COLLECTION = "book_profiles"

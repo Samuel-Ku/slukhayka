@@ -39,6 +39,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -62,6 +63,7 @@ import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.identity.ListenerIdentity
 import com.slukhayka.audiobooks.data.identity.ListenerProfile
+import com.slukhayka.audiobooks.data.listening.ProgressSyncSettingsStore
 import com.slukhayka.audiobooks.ui.components.accessibilityPane
 import com.slukhayka.audiobooks.ui.components.accessibilityModalBackground
 import com.slukhayka.audiobooks.ui.theme.AppDimens
@@ -83,7 +85,11 @@ fun ProfileScreen(
     identity: ListenerIdentity,
     onBackClick: () -> Unit,
     hiddenAuthors: List<String> = emptyList(),
-    onUnhideAuthor: (String) -> Unit = {}
+    onUnhideAuthor: (String) -> Unit = {},
+    // ADR-0023 (spec-43 T6): the visible Progress Sync switch — the screen
+    // reads the settings store directly (ADR-0008); defaults keep existing
+    // call sites and previews unchanged.
+    progressSyncSettings: ProgressSyncSettingsStore? = null
 ) {
     // The module is read directly (ADR-0008); suspend calls ride the
     // composition scope like every other screen.
@@ -259,6 +265,56 @@ fun ProfileScreen(
                 scope = scope,
                 onDialogVisibilityChange = { restoreDialogVisible = it }
             )
+
+            Spacer(modifier = Modifier.height(24.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Text(
+                text = "Синхронізація прогресу",
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                modifier = Modifier.semantics { heading() }
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("profile_sync_row"),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
+            ) {
+                if (progressSyncSettings != null) {
+                    val syncEnabled by progressSyncSettings.enabled.collectAsState()
+                    SettingsSwitchRow(
+                        title = "Позиція дзеркалиться між вашими пристроями",
+                        description = "Нічого не надсилається без вашого профілю. " +
+                            "Вимкнено — усе лишається на телефоні.",
+                        checked = syncEnabled,
+                        onCheckedChange = progressSyncSettings::setEnabled,
+                        testTag = "profile_sync_switch",
+                        modifier = Modifier.padding(horizontal = 16.dp)
+                    )
+                } else {
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Позиція дзеркалиться між вашими пристроями",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "Нічого не надсилається без вашого профілю. " +
+                                    "Вимкнено — усе лишається на телефоні.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                    }
+                }
+            }
         }
     }
 }

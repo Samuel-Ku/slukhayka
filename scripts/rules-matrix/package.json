@@ -2,7 +2,7 @@
   "name": "slukhayka-rules-matrix",
   "private": true,
   "version": "1.0.0",
-  "description": "Spec-40 #283 — контрольна матриця правил Firestore (book_reviews + device_bindings) на емуляторі",
+  "description": "Spec-40 #283 + spec-42 #303/#311 — контрольна матриця правил Firestore на емуляторі",
   "type": "module",
   "scripts": {
     "matrix": "node matrix.test.mjs"

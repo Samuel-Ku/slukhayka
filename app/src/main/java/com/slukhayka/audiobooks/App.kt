@@ -22,7 +22,11 @@ import com.slukhayka.audiobooks.data.identity.FirebaseListenerIdentity
 import com.slukhayka.audiobooks.data.identity.ListenerIdentity
 import com.slukhayka.audiobooks.data.identity.LocalOnlyIdentity
 import com.slukhayka.audiobooks.data.identity.SharedPreferencesLocalCredentialStore
+import com.slukhayka.audiobooks.data.listening.FirestoreListenerProgressSyncStore
 import com.slukhayka.audiobooks.data.listening.ListeningStateStore
+import com.slukhayka.audiobooks.data.listening.ProgressSyncController
+import com.slukhayka.audiobooks.data.listening.ProgressSyncSettingsStore
+import com.slukhayka.audiobooks.data.listening.SharedPreferencesProgressSyncLedger
 import com.slukhayka.audiobooks.data.metadata.FirestoreBookMetaStore
 import com.slukhayka.audiobooks.data.metadata.CuratedCoverAssets
 import com.slukhayka.audiobooks.data.metadata.CuratedCoverSeed
@@ -132,6 +136,30 @@ class App : Application() {
 
     /** ADR-0002: one Listening State Store shared by the player and the ViewModel. */
     val listeningState: ListeningStateStore by lazy { ListeningStateStore(database.audiobookDao()) }
+
+    /**
+     * ADR-0023 (spec-43 T6): the visible switch of Progress Sync — on by
+     * default, off keeps everything local as before.
+     */
+    val progressSyncSettings: ProgressSyncSettingsStore by lazy {
+        ProgressSyncSettingsStore(this)
+    }
+
+    /**
+     * ADR-0023 (spec-43 T6) — Progress Sync: pull before a resume, throttled
+     * push at every save point, only under a real cloud profile (`local-…`
+     * bootstraps never upload). Null Firestore store inside makes both paths
+     * no-ops — degrade-never.
+     */
+    val progressSync: ProgressSyncController by lazy {
+        ProgressSyncController(
+            identity = listenerIdentity,
+            mirror = listeningState,
+            store = FirestoreListenerProgressSyncStore.create(this),
+            ledger = SharedPreferencesProgressSyncLedger(this),
+            isEnabled = { progressSyncSettings.enabled.value }
+        )
+    }
 
     /**
      * Spec-38 T2 (#254): the persisted privacy choice — the settings screen
@@ -375,7 +403,8 @@ class App : Application() {
             sourceCatalog::getPlayableChapters,
             streamUrlHealer = { bookId, chapterIndex, failedUrl ->
                 libraryImport.refreshStreamUrl(bookId, chapterIndex, failedUrl)
-            }
+            },
+            progressSync = progressSync
         )
     }
 

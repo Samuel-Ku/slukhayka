@@ -3,7 +3,7 @@
  * degrades honestly: a failure or `{ok:false}` comes back null and the UI
  * shows its empty/error state, never fabricated data.
  */
-import type { BookDetail, ParsedCatalog } from '../worker/types'
+import type { BookDetail, CatalogCard, ParsedCatalog, SourceId } from '../worker/types'
 
 interface Envelope<T> {
   ok: boolean
@@ -22,13 +22,47 @@ async function call<T>(path: string): Promise<T | null> {
   }
 }
 
+export type SearchGroup = { id: string; displayName: string; cards: CatalogCard[] }
+
+/** Normalized key for cross-source Work deduplication. */
+export function workKey(card: Pick<CatalogCard, 'title' | 'author'>): string {
+  const norm = (s: string): string =>
+    s
+      .toLowerCase()
+      .replace(/\s*-\s*аудіокниги українською\s*$/i, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+  return `${norm(card.title)}|${norm(card.author)}`
+}
+
+/** Keeps FIRST occurrence of each Work across groups, preserving group order. */
+export function dedupeWorks(groups: SearchGroup[]): SearchGroup[] {
+  const seen = new Set<string>()
+  return groups
+    .map((group) => ({
+      ...group,
+      cards: group.cards.filter((card) => {
+        const key = workKey(card)
+        if (seen.has(key)) return false
+        seen.add(key)
+        return true
+      }),
+    }))
+    .filter((group) => group.cards.length > 0)
+}
+
 export interface Api {
-  catalog(source: 'fourread', url?: string): Promise<ParsedCatalog | null>
-  book(source: 'fourread', url: string): Promise<BookDetail | null>
+  catalog(source: SourceId, url?: string): Promise<ParsedCatalog | null>
+  book(source: SourceId, url: string): Promise<BookDetail | null>
+  search(source: SourceId, query: string): Promise<CatalogCard[] | null>
+  searchAll(query: string): Promise<SearchGroup[] | null>
 }
 
 export const api: Api = {
   catalog: (source, url) =>
     call<ParsedCatalog>(`/api/catalog?source=${source}${url ? `&url=${encodeURIComponent(url)}` : ''}`),
   book: (source, url) => call<BookDetail>(`/api/book?source=${source}&url=${encodeURIComponent(url)}`),
+  search: (source, query) =>
+    call<CatalogCard[]>(`/api/search?source=${source}&q=${encodeURIComponent(query)}`),
+  searchAll: (query) => call<SearchGroup[]>(`/api/search-all?q=${encodeURIComponent(query)}`),
 }

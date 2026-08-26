@@ -1,0 +1,208 @@
+/**
+ * spec-43/T5 — binding between PlaybackEngine and a single HTMLAudioElement.
+ * The engine owns state/timing; this layer mirrors attempt URL onto audio.src,
+ * forwards element events back to the engine, and wires Media Session + local
+ * persistence (via injected storage). One singleton audio element for the app
+ * lifetime — matches Android's single Player for MediaSession.
+ */
+import { PlaybackEngine, type EngineState } from './engine'
+import { updateNowPlaying } from './mediaSession'
+import { LocalListeningStateStore, type StorageLike, type LocalListeningStateSnapshot } from './localState'
+import { rewoundPositionMs } from './smartRewind'
+import type { Chapter } from '../worker/types'
+
+export interface AudioEngineOptions {
+  relayBase?: string
+  storage?: StorageLike
+}
+
+export class AudioEngine {
+  readonly engine: PlaybackEngine
+  private audio: HTMLAudioElement | null = null
+  private store: LocalListeningStateStore
+  private editionId: string | undefined
+  private bookTitle = ''
+  private chapters: Chapter[] = []
+  private ticker: number | null = null
+  private lastPersistMs = 0
+
+  constructor(opts: AudioEngineOptions = {}) {
+    const relayBase = opts.relayBase
+    this.engine = new PlaybackEngine({
+      relayUrlOf: relayBase ? (url) => `${relayBase}/audio?u=${encodeURIComponent(url)}` : undefined,
+    })
+    const storageLike: StorageLike = opts.storage ?? {
+      getItem: (k: string) => window.localStorage.getItem(k),
+      setItem: (k: string, v: string) => window.localStorage.setItem(k, v),
+      removeItem: (k: string) => window.localStorage.removeItem(k),
+    }
+    this.store = new LocalListeningStateStore(storageLike)
+    this.engine.subscribe((state) => this.onEngineState(state))
+  }
+
+  attachAudio(audio: HTMLAudioElement): void {
+    this.audio = audio
+    audio.addEventListener('playing', () => this.engine.attemptPlaying())
+    audio.addEventListener('error', () => this.engine.attemptErrored())
+    audio.addEventListener('ended', () => this.onEnded())
+  }
+
+  loadBook(detail: { title: string; chapters: Chapter[]; editionId?: string }, startChapter = 0): void {
+    this.bookTitle = detail.title
+    this.chapters = detail.chapters
+    this.editionId = detail.editionId ?? detail.title
+    const saved = this.store.load(this.editionId)
+    let startPosition = 0
+    let chapterIndex = startChapter
+    if (saved && saved.chapterIndex < detail.chapters.length) {
+      chapterIndex = saved.chapterIndex
+      const pausedFor = saved.lastPausedAtEpochMs ? Date.now() - saved.lastPausedAtEpochMs : 0
+      startPosition = pausedFor > 0 ? rewoundPositionMs(saved.positionSeconds, pausedFor) : saved.positionSeconds
+    }
+    this.engine.load(detail.chapters, {
+      startChapter: chapterIndex,
+      startPositionSeconds: startPosition,
+      editionId: this.editionId,
+    })
+    this.syncAudioSrc()
+    this.engine.play()
+    void this.audio?.play().catch(() => {})
+    this.startTicker()
+    this.updateSession()
+  }
+
+  play(): void {
+    this.engine.play()
+    this.syncAudioSrc()
+    void this.audio?.play().catch(() => {})
+    this.startTicker()
+  }
+
+  pause(): void {
+    this.engine.pause()
+    this.audio?.pause()
+    this.persist()
+    this.stopTicker()
+  }
+
+  seek(seconds: number): void {
+    this.engine.seek(seconds)
+    if (this.audio) this.audio.currentTime = seconds
+  }
+
+  setSpeed(speed: number): void {
+    this.engine.setSpeed(speed)
+    if (this.audio) this.audio.playbackRate = speed
+  }
+
+  skip(deltaSeconds: number): void {
+    const s = this.engine.getState()
+    this.seek(s.positionSeconds + deltaSeconds)
+  }
+
+  nextChapter(): void {
+    const s = this.engine.getState()
+    if (s.chapterIndex < this.chapters.length - 1) {
+      this.loadBook({ title: this.bookTitle, chapters: this.chapters, editionId: this.editionId }, s.chapterIndex + 1)
+    }
+  }
+
+  prevChapter(): void {
+    const s = this.engine.getState()
+    if (s.chapterIndex > 0) {
+      this.loadBook({ title: this.bookTitle, chapters: this.chapters, editionId: this.editionId }, s.chapterIndex - 1)
+    } else {
+      this.seek(0)
+    }
+  }
+
+  getState(): EngineState {
+    return this.engine.getState()
+  }
+
+  subscribe(listener: (state: EngineState) => void): () => void {
+    return this.engine.subscribe(listener)
+  }
+
+  private syncAudioSrc(): void {
+    if (!this.audio) return
+    const state = this.engine.getState()
+    const chapter = this.chapters[state.chapterIndex]
+    if (!chapter) return
+    const url = chapter.streamUrl
+    if (this.audio.src !== url) {
+      this.audio.src = url
+      this.audio.currentTime = state.positionSeconds
+      this.audio.playbackRate = state.speed
+    }
+  }
+
+  private onEngineState(state: EngineState): void {
+    this.updateSession()
+    if (state.status === 'paused' || state.status === 'unavailable') {
+      this.persist()
+    }
+  }
+
+  private onEnded(): void {
+    const state = this.engine.getState()
+    if (state.chapterIndex < this.chapters.length - 1) {
+      this.loadBook({ title: this.bookTitle, chapters: this.chapters, editionId: this.editionId }, state.chapterIndex + 1)
+    } else {
+      this.persist()
+    }
+  }
+
+  private startTicker(): void {
+    this.stopTicker()
+    this.ticker = window.setInterval(() => {
+      this.engine.tick(1000)
+      const state = this.engine.getState()
+      if (this.audio && state.status === 'playing' && Math.abs(this.audio.currentTime - state.positionSeconds) > 1) {
+        this.audio.currentTime = state.positionSeconds
+      }
+      if (Date.now() - this.lastPersistMs > 30000) this.persist()
+    }, 1000)
+  }
+
+  private stopTicker(): void {
+    if (this.ticker !== null) {
+      clearInterval(this.ticker)
+      this.ticker = null
+    }
+  }
+
+  private persist(): void {
+    if (!this.editionId) return
+    const s = this.engine.getState()
+    const snapshot: LocalListeningStateSnapshot = {
+      editionId: this.editionId,
+      chapterIndex: s.chapterIndex,
+      positionSeconds: s.positionSeconds,
+      isCompleted: s.isCompleted,
+      preferredSpeed: s.speed,
+      lastPausedAtEpochMs: s.status === 'paused' ? Date.now() : null,
+    }
+    this.store.save(snapshot)
+    this.lastPersistMs = Date.now()
+  }
+
+  private updateSession(): void {
+    const s = this.engine.getState()
+    if (s.status === 'idle' || this.chapters.length === 0) return
+    const chapter = this.chapters[s.chapterIndex]
+    updateNowPlaying(
+      {
+        title: chapter?.title ?? this.bookTitle,
+        author: this.bookTitle,
+        chapterTitle: `Розділ ${s.chapterIndex + 1} з ${this.chapters.length}`,
+      },
+      {
+        onPlay: () => this.play(),
+        onPause: () => this.pause(),
+        onPreviousTrack: () => this.prevChapter(),
+        onNextTrack: () => this.nextChapter(),
+      },
+    )
+  }
+}

@@ -33,6 +33,10 @@ export interface SourceEntry {
     pageUrl: string,
     fetchText: (url: string) => Promise<string | null>,
   ) => Promise<BookDetail | null>
+  /** Search URL builder; absent = source has no usable search endpoint. */
+  readonly searchUrl?: (query: string) => string
+  /** Extra headers the source's search endpoint requires (e.g. XHR). */
+  readonly searchHeaders?: Record<string, string>
 }
 
 function hostAllowed(allowed: readonly string[], url: string): boolean {
@@ -78,11 +82,20 @@ function lihtarDetail(html: string, pageUrl: string): BookDetail | null {
   return lihtarAdapter.parseBookPage(html, pageUrl)
 }
 
+function searchUrlFourread(query: string): string {
+  return `https://4read.org/index.php?do=search&subaction=search&story=${encodeURIComponent(query)}`
+}
+
+function searchUrlSluhayua(query: string): string {
+  return `https://sluhay.com.ua/find/allcards?search=${encodeURIComponent(query)}&page=1`
+}
+
 export const REGISTRY: Record<SourceId, SourceEntry> = {
   fourread: {
     adapter: fourread,
     allowedHosts: ['4read.org'],
     buildBook: (html, pageUrl, fetchText) => buildBookDetail(html, pageUrl, fetchText),
+    searchUrl: searchUrlFourread,
   },
   'sound-books': {
     adapter: soundBooksAdapter,
@@ -120,6 +133,8 @@ export const REGISTRY: Record<SourceId, SourceEntry> = {
   sluhayua: {
     adapter: sluhayuaAdapter,
     allowedHosts: ['sluhay.com.ua'],
+    searchUrl: searchUrlSluhayua,
+    searchHeaders: { 'x-requested-with': 'XMLHttpRequest' },
     buildBook: async (html, pageUrl, fetchText) => {
       const detail = sluhayuaAdapter.parseBookPage(html, pageUrl)
       if (!detail) return null

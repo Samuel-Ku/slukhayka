@@ -89,7 +89,10 @@ fun BookDetailScreen(
     // ADR-0011: the screen reads the other rendition cards of the same Work
     // (the «Інші начитки» block) straight from the module.
     libraryEntries: LibraryEntries,
-    onBackClick: () -> Unit
+    onBackClick: () -> Unit,
+    returnFocusOrigin: BookDetailLinkOrigin? = null,
+    onChildRouteOpened: (BookDetailLinkOrigin) -> Unit = {},
+    onReturnFocusRestored: (BookDetailLinkOrigin) -> Unit = {}
 ) {
     val book by viewModel.selectedBook.collectAsState()
     val chapters by viewModel.selectedBookChapters.collectAsState()
@@ -191,31 +194,30 @@ fun BookDetailScreen(
             viewModel.consumeDownloadMessage()
         }
     }
-    val reviewPublishedMessage = stringResource(R.string.book_detail_review_save_published)
     val reviewQueuedMessage = stringResource(R.string.book_detail_review_save_queued)
     val reviewFailureMessage = stringResource(R.string.book_detail_review_save_error)
-    LaunchedEffect(viewModel, snackbarHostState) {
-        viewModel.reviewSaveResults.collect { result ->
+    LaunchedEffect(viewModel, snackbarHostState, reviewsWorkId) {
+        viewModel.reviewSaveResults.collect { event ->
+            if (event.workId != reviewsWorkId) return@collect
             reviewSaveInProgress = false
-            when (result) {
+            when (event.result) {
                 ReviewSaveResult.FAILED -> {
                     reviewSaveError = reviewFailureMessage
                     if (reviewFailureNeedsSnackbar(showReviewForm)) {
                         snackbarHostState.showSnackbar(reviewFailureMessage)
                     }
                 }
-                ReviewSaveResult.PUBLISHED,
+                ReviewSaveResult.PUBLISHED -> {
+                    // The queue event already closed the form and announced
+                    // acceptance. Publication retires state without a second,
+                    // misleading success announcement.
+                    reviewSaveError = null
+                }
                 ReviewSaveResult.QUEUED -> {
                     reviewSaveError = null
                     showReviewForm = false
                     editingReview = null
-                    snackbarHostState.showSnackbar(
-                        if (result == ReviewSaveResult.PUBLISHED) {
-                            reviewPublishedMessage
-                        } else {
-                            reviewQueuedMessage
-                        }
-                    )
+                    snackbarHostState.showSnackbar(reviewQueuedMessage)
                 }
             }
         }
@@ -457,6 +459,9 @@ fun BookDetailScreen(
                         book = currentBook,
                         presentation = detailPresentation,
                         universeName = bookUniverse?.universeName,
+                        returnFocusOrigin = returnFocusOrigin,
+                        onChildRouteOpened = onChildRouteOpened,
+                        onReturnFocusRestored = onReturnFocusRestored,
                         onAuthorClick = { author ->
                             viewModel.openPersonBooks(
                                 CatalogPerson(author, bookPersonPath("avtor", author), 0)
@@ -1234,6 +1239,7 @@ fun FavoriteButton(
 fun SeriesPill(
     seriesTitle: String,
     seriesIndex: Int,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
     Surface(
@@ -1244,7 +1250,7 @@ fun SeriesPill(
             1.dp,
             MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
         ),
-        modifier = Modifier
+        modifier = modifier
             .testTag("book_detail_series_pill")
             .defaultMinSize(minHeight = 48.dp)
     ) {
@@ -1842,7 +1848,10 @@ fun BookDetailIdentityHeader(
     onAuthorClick: (String) -> Unit = {},
     onNarratorClick: (String) -> Unit = {},
     onSeriesClick: (String, String) -> Unit = { _, _ -> },
-    onWrongUniverse: () -> Unit = {}
+    onWrongUniverse: () -> Unit = {},
+    returnFocusOrigin: BookDetailLinkOrigin? = null,
+    onChildRouteOpened: (BookDetailLinkOrigin) -> Unit = {},
+    onReturnFocusRestored: (BookDetailLinkOrigin) -> Unit = {}
 ) {
     Card(
         modifier = Modifier
@@ -1868,12 +1877,23 @@ fun BookDetailIdentityHeader(
 
     BookDetailCanonicalSummary(
         presentation = presentation,
+        entryFocusKey = book.id,
         universeName = universeName,
         onAuthorClick = onAuthorClick,
         onNarratorClick = onNarratorClick,
         onSeriesClick = onSeriesClick,
-        onWrongUniverse = onWrongUniverse
+        onWrongUniverse = onWrongUniverse,
+        returnFocusOrigin = returnFocusOrigin,
+        onChildRouteOpened = onChildRouteOpened,
+        onReturnFocusRestored = onReturnFocusRestored
     )
+}
+
+/** The exact Book Detail control that launched a pushed child destination. */
+enum class BookDetailLinkOrigin {
+    AUTHOR,
+    NARRATOR,
+    SERIES
 }
 
 /** The production Work/Edition summary consumed by both the page and snapshots. */
@@ -1881,17 +1901,34 @@ fun BookDetailIdentityHeader(
 @Composable
 fun BookDetailCanonicalSummary(
     presentation: BookDetailPresentation,
+    entryFocusKey: Any = presentation.title,
     universeName: String? = null,
     onAuthorClick: (String) -> Unit = {},
     onNarratorClick: (String) -> Unit = {},
     onSeriesClick: (String, String) -> Unit = { _, _ -> },
-    onWrongUniverse: () -> Unit = {}
+    onWrongUniverse: () -> Unit = {},
+    returnFocusOrigin: BookDetailLinkOrigin? = null,
+    onChildRouteOpened: (BookDetailLinkOrigin) -> Unit = {},
+    onReturnFocusRestored: (BookDetailLinkOrigin) -> Unit = {}
 ) {
     val currentEditionState = stringResource(R.string.book_detail_current_edition)
-    val titleFocusRequester = remember(presentation.title) { FocusRequester() }
-    LaunchedEffect(presentation.title) {
+    val titleFocusRequester = remember(entryFocusKey) { FocusRequester() }
+    val authorFocusRequester = remember { FocusRequester() }
+    val narratorFocusRequester = remember { FocusRequester() }
+    val seriesFocusRequester = remember { FocusRequester() }
+    LaunchedEffect(entryFocusKey) {
         withFrameNanos { }
-        titleFocusRequester.requestFocus()
+        if (returnFocusOrigin == null) titleFocusRequester.requestFocus()
+    }
+    LaunchedEffect(returnFocusOrigin) {
+        val origin = returnFocusOrigin ?: return@LaunchedEffect
+        withFrameNanos { }
+        val restored = when (origin) {
+            BookDetailLinkOrigin.AUTHOR -> authorFocusRequester.requestFocus()
+            BookDetailLinkOrigin.NARRATOR -> narratorFocusRequester.requestFocus()
+            BookDetailLinkOrigin.SERIES -> seriesFocusRequester.requestFocus()
+        }
+        if (restored) onReturnFocusRestored(origin)
     }
     Text(
         text = presentation.title,
@@ -1914,8 +1951,12 @@ fun BookDetailCanonicalSummary(
             color = MaterialTheme.colorScheme.primary,
             modifier = Modifier
                 .testTag("book_detail_author_link")
+                .focusRequester(authorFocusRequester)
                 .defaultMinSize(minHeight = 48.dp)
-                .clickable { onAuthorClick(presentation.author) }
+                .clickable {
+                    onChildRouteOpened(BookDetailLinkOrigin.AUTHOR)
+                    onAuthorClick(presentation.author)
+                }
         )
     }
     if (presentation.narrator.isNotBlank()) {
@@ -1927,8 +1968,12 @@ fun BookDetailCanonicalSummary(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier
                 .fillMaxWidth()
+                .focusRequester(narratorFocusRequester)
                 .defaultMinSize(minHeight = 48.dp)
-                .clickable { onNarratorClick(presentation.narrator) }
+                .clickable {
+                    onChildRouteOpened(BookDetailLinkOrigin.NARRATOR)
+                    onNarratorClick(presentation.narrator)
+                }
                 .semantics { stateDescription = currentEditionState }
                 .testTag("book_detail_narrator_link"),
             textAlign = TextAlign.Center
@@ -1971,8 +2016,10 @@ fun BookDetailCanonicalSummary(
             SeriesPill(
                 seriesTitle = seriesTitle,
                 seriesIndex = presentation.seriesIndex ?: 0,
+                modifier = Modifier.focusRequester(seriesFocusRequester),
                 onClick = {
                     presentation.seriesUrl?.takeIf(String::isNotBlank)?.let { url ->
+                        onChildRouteOpened(BookDetailLinkOrigin.SERIES)
                         onSeriesClick(seriesTitle, url)
                     }
                 }

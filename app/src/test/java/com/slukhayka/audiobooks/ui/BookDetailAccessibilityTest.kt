@@ -1,11 +1,17 @@
 package com.slukhayka.audiobooks.ui
 
+import androidx.compose.material3.Button
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.Column
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
@@ -20,17 +26,21 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Density
 import com.slukhayka.audiobooks.data.catalog.SourceCatalog
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.ui.screens.BookDetailIdentityHeader
+import com.slukhayka.audiobooks.ui.screens.BookDetailCanonicalSummary
+import com.slukhayka.audiobooks.ui.screens.BookDetailLinkOrigin
 import com.slukhayka.audiobooks.ui.screens.BookDetailPrimaryActions
 import com.slukhayka.audiobooks.ui.screens.FavoriteButton
 import com.slukhayka.audiobooks.ui.screens.WorkSourceRowCard
 import com.slukhayka.audiobooks.ui.screens.bookDetailPresentation
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -77,6 +87,95 @@ class BookDetailAccessibilityTest {
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.Heading, Unit))
         composeTestRule.onNodeWithContentDescription(book.title, useUnmergedTree = true)
             .assertDoesNotExist()
+    }
+
+    @Test
+    fun changingToASameTitleEditionRefocusesTheBookHeading() {
+        val presentation = bookDetailPresentation(book, emptyList(), emptyList())
+        var editionId by mutableStateOf("edition-a")
+
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                Column {
+                    BookDetailCanonicalSummary(
+                        presentation = presentation,
+                        entryFocusKey = editionId
+                    )
+                    Button(
+                        onClick = {},
+                        modifier = Modifier.testTag("outside_book_heading")
+                    ) {
+                        Text("Інша дія")
+                    }
+                }
+            }
+        }
+
+        composeTestRule.onNodeWithTag("outside_book_heading")
+            .performSemanticsAction(SemanticsActions.RequestFocus)
+            .assertIsFocused()
+
+        composeTestRule.runOnUiThread { editionId = "edition-b" }
+
+        composeTestRule.onNodeWithTag("book_detail_title").assertIsFocused()
+    }
+
+    @Test
+    fun childRoutesReturnFocusToTheExactLaunchingBookLink() {
+        val seriesBook = book.copy().also {
+            it.seriesTitle = "Перший закон"
+            it.seriesUrl = "https://4read.org/series/first-law"
+        }
+        val presentation = bookDetailPresentation(
+            seriesBook,
+            emptyList(),
+            emptyList()
+        )
+        var returnOrigin by mutableStateOf<BookDetailLinkOrigin?>(null)
+        var openedOrigin: BookDetailLinkOrigin? = null
+        var restoredOrigin: BookDetailLinkOrigin? = null
+
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                Column {
+                    BookDetailCanonicalSummary(
+                        presentation = presentation,
+                        entryFocusKey = book.id,
+                        returnFocusOrigin = returnOrigin,
+                        onChildRouteOpened = { openedOrigin = it },
+                        onReturnFocusRestored = { restoredOrigin = it }
+                    )
+                    Button(
+                        onClick = {},
+                        modifier = Modifier.testTag("outside_book_links")
+                    ) {
+                        Text("Інша дія")
+                    }
+                }
+            }
+        }
+
+        listOf(
+            BookDetailLinkOrigin.AUTHOR to "book_detail_author_link",
+            BookDetailLinkOrigin.NARRATOR to "book_detail_narrator_link",
+            BookDetailLinkOrigin.SERIES to "book_detail_series_pill"
+        ).forEach { (origin, tag) ->
+            composeTestRule.runOnUiThread {
+                openedOrigin = null
+                restoredOrigin = null
+            }
+            composeTestRule.onNodeWithTag(tag).performClick()
+            composeTestRule.runOnIdle { assertEquals(origin, openedOrigin) }
+
+            composeTestRule.onNodeWithTag("outside_book_links")
+                .performSemanticsAction(SemanticsActions.RequestFocus)
+                .assertIsFocused()
+            composeTestRule.runOnUiThread { returnOrigin = origin }
+
+            composeTestRule.onNodeWithTag(tag).assertIsFocused()
+            composeTestRule.runOnIdle { assertEquals(origin, restoredOrigin) }
+            composeTestRule.runOnUiThread { returnOrigin = null }
+        }
     }
 
     @Test

@@ -50,6 +50,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 
 // Spec #8 ticket T4: the WebView is no longer a tab — it survives only as the
 // "open on site" fallback on the book page. Bookmarks moved into the Library
@@ -103,6 +105,41 @@ enum class ReviewSaveResult {
     FAILED
 }
 
+/** One submission outcome, scoped to both its Work and deterministic review document. */
+data class ReviewSaveEvent(
+    val workId: String,
+    val documentId: String,
+    val generation: Long,
+    val result: ReviewSaveResult
+)
+
+internal data class ReviewSubmission(
+    val workId: String,
+    val documentId: String,
+    val generation: Long
+) {
+    fun event(result: ReviewSaveResult): ReviewSaveEvent = ReviewSaveEvent(
+        workId = workId,
+        documentId = documentId,
+        generation = generation,
+        result = result
+    )
+}
+
+/** Rejects acknowledgements superseded by a newer write to the same review document. */
+internal class ReviewSubmissionGate {
+    private val generations = ConcurrentHashMap<String, AtomicLong>()
+
+    fun begin(workId: String, documentId: String): ReviewSubmission = ReviewSubmission(
+        workId = workId,
+        documentId = documentId,
+        generation = generations.computeIfAbsent(documentId) { AtomicLong() }.incrementAndGet()
+    )
+
+    fun isLatest(submission: ReviewSubmission): Boolean =
+        generations[submission.documentId]?.get() == submission.generation
+}
+
 /**
  * Delivers the local queue result before waiting for Firestore's backend Task.
  * Remote failure remains a visible event; caller cancellation still escapes.
@@ -118,9 +155,13 @@ internal suspend fun followReviewWrite(
             onVisibleResult(ReviewSaveResult.QUEUED)
             val remoteResult = receipt.awaitRemote()
             onRemoteResult(remoteResult)
-            if (remoteResult == ReviewRemoteResult.FAILED) {
-                onVisibleResult(ReviewSaveResult.FAILED)
-            }
+            onVisibleResult(
+                if (remoteResult == ReviewRemoteResult.PUBLISHED) {
+                    ReviewSaveResult.PUBLISHED
+                } else {
+                    ReviewSaveResult.FAILED
+                }
+            )
         }
     }
 }
@@ -1228,8 +1269,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     // A submission result is an event, not accessibility-specific state: the
     // screen uses it to keep failed input open and to retire successful forms.
-    private val _reviewSaveResults = MutableSharedFlow<ReviewSaveResult>(extraBufferCapacity = 1)
-    val reviewSaveResults: SharedFlow<ReviewSaveResult> = _reviewSaveResults.asSharedFlow()
+    private val reviewSubmissionGate = ReviewSubmissionGate()
+    private val _reviewSaveResults = MutableSharedFlow<ReviewSaveEvent>(extraBufferCapacity = 16)
+    val reviewSaveResults: SharedFlow<ReviewSaveEvent> = _reviewSaveResults.asSharedFlow()
 
     // Spec-40 #281 — the LOCAL mute list: purely per-device, server-free.
     private val _hiddenAuthors = MutableStateFlow<Set<String>>(emptySet())
@@ -1317,12 +1359,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     ) {
         val store = listenerReviews
         val profile = _listenerIdentity.value
+        val documentId = com.slukhayka.audiobooks.data.reviews.ListenerReviewCodec.documentId(
+            workId,
+            profile?.uid.orEmpty()
+        )
         if (
             store == null || profile == null ||
             rating !in com.slukhayka.audiobooks.data.reviews.ListenerReviewLimits.MIN_RATING..
                 com.slukhayka.audiobooks.data.reviews.ListenerReviewLimits.MAX_RATING
         ) {
-            _reviewSaveResults.tryEmit(ReviewSaveResult.FAILED)
+            val rejected = reviewSubmissionGate.begin(workId, documentId)
+            _reviewSaveResults.tryEmit(rejected.event(ReviewSaveResult.FAILED))
             return
         }
         val now = System.currentTimeMillis()
@@ -1337,8 +1384,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             editedAt = if (editing != null) now else null
         )
         val key = com.slukhayka.audiobooks.data.reviews.ListenerReviewCodec.documentId(review.workId, review.uid)
+        val submission = reviewSubmissionGate.begin(review.workId, key)
         // Optimistic insert FIRST — the user sees their card instantly.
-        _pendingReviews.value = _pendingReviews.value + (key to review)
+        _pendingReviews.update { it + (key to review) }
         viewModelScope.launch(Dispatchers.IO) {
             val receipt = try {
                 store.enqueueReview(review)
@@ -1350,19 +1398,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             followReviewWrite(
                 receipt = receipt,
                 onVisibleResult = { result ->
+                    if (!reviewSubmissionGate.isLatest(submission)) return@followReviewWrite
                     if (result == ReviewSaveResult.FAILED) {
-                        _pendingReviews.value = _pendingReviews.value - key
+                        _pendingReviews.update { it - key }
                     }
-                    _reviewSaveResults.emit(result)
+                    _reviewSaveResults.emit(submission.event(result))
                 },
                 onRemoteResult = {
+                    if (!reviewSubmissionGate.isLatest(submission)) return@followReviewWrite
                     // Either backend verdict ends the local pending badge. A
                     // failure is announced by followReviewWrite immediately
                     // after this callback; publication needs no second toast.
-                    _pendingReviews.value = _pendingReviews.value - key
+                    _pendingReviews.update { it - key }
                 }
             )
-            loadReviews(workId)
+            if (reviewSubmissionGate.isLatest(submission)) loadReviews(workId)
         }
     }
 
@@ -1376,7 +1426,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: Exception) {
                 // Silent — the refresh below restores whatever is real.
             }
-            _pendingReviews.value = _pendingReviews.value - key
+            _pendingReviews.update { it - key }
             loadReviews(workId)
         }
     }

@@ -15,7 +15,13 @@ sealed interface ReviewWriteReceipt {
     class Queued internal constructor(
         private val acknowledgement: suspend () -> ReviewRemoteResult
     ) : ReviewWriteReceipt {
-        suspend fun awaitRemote(): ReviewRemoteResult = acknowledgement()
+        suspend fun awaitRemote(): ReviewRemoteResult = try {
+            acknowledgement()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            ReviewRemoteResult.FAILED
+        }
     }
 }
 

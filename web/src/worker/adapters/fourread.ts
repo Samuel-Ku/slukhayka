@@ -16,6 +16,7 @@ export const fourread: SourceAdapter = {
   baseUrl: SITE,
   parseCatalog,
   parseBookPage: parseBookPageSync,
+  search: parseSearchResults,
 }
 
 // --- Каталог ---------------------------------------------------------------
@@ -173,6 +174,67 @@ function splitPosters(html: string): string[] {
     idx = html.indexOf(opener, idx + opener.length)
   }
   return starts.map((start, i) => html.substring(start, i + 1 < starts.length ? starts[i + 1] : html.length))
+}
+
+// --- Пошук (порт FourReadAdapter.search, spec-43/T4) ------------------------
+
+const POSTER_START_G = /<div class="poster\b/gi
+const SEARCH_LINK_RE = /href="(https?:\/\/4read\.org\/([^"]+)\.html)"/i
+const SEARCH_TITLE_RE = /poster__title[^>]*>\s*([^<]+?)\s*</i
+const SEARCH_SUBTITLE_G = /poster__subtitle[^>]*>\s*([\s\S]*?)\s*<\/div>/gi
+const SEARCH_IMG_RE = /<img[^>]+src="([^"]+)"[^>]*>/i
+
+/**
+ * Порт `FourReadAdapter.search`: кожен хіт — блок `.poster`, справжня
+ * кирилична назва в poster__title, справжній автор у першому непорожньому
+ * poster__subtitle (другий несе годинник тривалості й після stripTags
+ * порожніє). Справжні автори потрібні для крос-джерельного злиття.
+ */
+export function parseSearchResults(html: string, _pageUrl: string): CatalogCard[] {
+  const starts: number[] = []
+  POSTER_START_G.lastIndex = 0
+  for (let m = POSTER_START_G.exec(html); m !== null; m = POSTER_START_G.exec(html)) {
+    starts.push(m.index)
+  }
+
+  const seenSlugs = new Set<string>()
+  const cards: CatalogCard[] = []
+  for (let i = 0; i < starts.length; i++) {
+    const block = html.substring(starts[i], i + 1 < starts.length ? starts[i + 1] : html.length)
+
+    const link = SEARCH_LINK_RE.exec(block)
+    if (!link) continue
+    const slug = link[2]
+    const rawTitle = (SEARCH_TITLE_RE.exec(block)?.[1] ?? '').trim()
+    // index/page-заглушки, короткі «назви» та повтори слугів — сміття, не хіти.
+    if (slug.includes('index') || slug.includes('page') || rawTitle.length < 3 || seenSlugs.has(slug)) {
+      continue
+    }
+    seenSlugs.add(slug)
+
+    let author = ''
+    for (const subtitle of block.matchAll(SEARCH_SUBTITLE_G)) {
+      const candidate = stripTags(subtitle[1]).trim()
+      if (candidate !== '') {
+        author = candidate
+        break
+      }
+    }
+
+    const rawCover = SEARCH_IMG_RE.exec(block)?.[1]
+    cards.push({
+      url: link[1],
+      title: decodeEntities(rawTitle),
+      author,
+      coverImageUrl:
+        rawCover !== undefined && rawCover.includes('/uploads/posts/')
+          ? rawCover.startsWith('http')
+            ? rawCover
+            : `${SITE}${rawCover}`
+          : undefined,
+    })
+  }
+  return cards
 }
 
 // --- Сторінка книги ---------------------------------------------------------

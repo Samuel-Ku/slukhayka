@@ -76,6 +76,13 @@ export interface SourceAdapter {
   readonly baseUrl: string
   parseCatalog(html: string, pageUrl: string): ParsedCatalog | null
   parseBookPage(html: string, pageUrl: string): BookDetail | null
+  /**
+   * spec-43/T4 — best-effort search over an ALREADY-FETCHED result payload
+   * (pure parse; the Worker owns the query URL and the transport). Optional:
+   * a source without a usable search endpoint simply lacks the member —
+   * exactly the Kotlin adapters whose `search` returns emptyList (spec-10 T1).
+   */
+  search?(html: string, pageUrl: string): CatalogCard[]
 }
 
 // --- HTML walking helpers shared by every adapter -------------------------

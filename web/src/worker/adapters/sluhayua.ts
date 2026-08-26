@@ -35,14 +35,8 @@ export const sluhayuaAdapter: SourceAdapter = {
   displayName: 'Sluhay UA',
   baseUrl: BASE,
   parseCatalog(jsonText, pageUrl): ParsedCatalog | null {
-    let parsed: unknown
-    try {
-      parsed = JSON.parse(jsonText)
-    } catch {
-      return null
-    }
-    if (!isRecord(parsed) || !Array.isArray(parsed['cards'])) return null
-    const cards = parsed['cards'].filter(isRecord).map(cardFromRecord)
+    const cards = cardsFromJson(jsonText)
+    if (cards === null) return null
     const section: CatalogSection = { id: 'allcards', title: '', url: pageUrl, cards }
     return { sections: [section] }
   },
@@ -63,6 +57,24 @@ export const sluhayuaAdapter: SourceAdapter = {
       otherNarrations: relatedFromPage(html, pageUrl),
     }
   },
+  // spec-43/T4 — той самий /find/allcards JSON, що й у fetchNew (порт
+  // `SluhayuaAdapter.search`): пошук лише змінює query-параметр запиту.
+  search: (jsonText, _pageUrl) => cardsFromJson(jsonText) ?? [],
+}
+
+/**
+ * spec-43/T4 — спільний розір `/find/allcards` JSON для каталогу й пошуку:
+ * невпізнаний payload чесно дає null, картки без `cards` не вигадуються.
+ */
+function cardsFromJson(jsonText: string): CatalogCard[] | null {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(jsonText)
+  } catch {
+    return null
+  }
+  if (!isRecord(parsed) || !Array.isArray(parsed['cards'])) return null
+  return parsed['cards'].filter(isRecord).map(cardFromRecord)
 }
 
 export function chapterCountOf(html: string): number {

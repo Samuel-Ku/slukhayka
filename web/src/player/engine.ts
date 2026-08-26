@@ -23,6 +23,11 @@
  *   prepare (fresh DIRECT attempt); pause/resume within one prepare keeps
  *   it. `attemptErrored()` / `attemptPlaying()` feed the fallback policy;
  *   the engine exposes `attemptKind` but never touches media elements.
+ * - T5 binding surface (added minimally): `currentAttemptUrl()` exposes the
+ *   running attempt's URL for the `<audio>` binding to mirror onto `src`;
+ *   `chapterEnded()` lets the element report a natural end-of-track;
+ *   `jumpToChapter()` serves lock-screen previous/next. Same advance/park
+ *   rules as the ticker path — one `finishChapter()` tail, no drift.
  */
 
 import type { Chapter } from '../worker/types'

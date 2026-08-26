@@ -3,7 +3,6 @@ package com.slukhayka.audiobooks.ui.screens
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -16,7 +15,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.focusable
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SdCard
@@ -27,13 +25,9 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -50,11 +44,9 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.ui.MainViewModel
-import com.slukhayka.audiobooks.ui.components.accessibilityPane
 import com.slukhayka.audiobooks.ui.components.accessibilityModalBackground
 import com.slukhayka.audiobooks.ui.library.ukPlural
 import com.slukhayka.audiobooks.ui.theme.*
@@ -82,38 +74,11 @@ fun StorageDestinationScreen(
 
     val offlineCount = libraryBooks.count { it.book.isDownloaded }
     val hasLocalBooks = libraryBooks.any { it.isLocal }
-    val screenTitle = stringResource(R.string.storage_title)
 
-    Scaffold(
-        modifier = Modifier
-            .accessibilityPane(screenTitle)
-            .accessibilityModalBackground(storageDialogVisible),
-        topBar = {
-            // Host Scaffold in MainActivity already consumed the status bar
-            // (innerPadding.top); don't let this inner TopAppBar add it again.
-            TopAppBar(
-                windowInsets = WindowInsets(0, 0, 0, 0),
-                title = {
-                    Text(
-                        text = screenTitle,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                        modifier = Modifier.semantics { heading() }
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBackClick) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = stringResource(R.string.action_back)
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
-            )
-        },
-        containerColor = MaterialTheme.colorScheme.background
+    SettingsDestinationScaffold(
+        destination = SettingsDestination.Storage,
+        onBackClick = onBackClick,
+        modalVisible = storageDialogVisible
     ) { padding ->
         StorageDestinationPane(
             storageText = "$cacheSizeFormatted · $offlineCount " +

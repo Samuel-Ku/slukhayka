@@ -60,8 +60,8 @@ android {
     targetSdk = 36
     // spec-29 T1 (#210): first release under the permanent applicationId.
     // versionCode grows monotonically across the Слухайка line (v1.0 was 1).
-    versionCode = 5
-    versionName = "1.3.5"
+    versionCode = 6
+    versionName = "1.3.6"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -232,6 +232,11 @@ dependencies {
   implementation(libs.logging.interceptor)
   implementation(libs.moshi.kotlin)
   implementation(libs.okhttp)
+  // Spec 2026-08-26: YouTube stream extraction for audio-less 4read pages —
+  // the watch URL resolves to a progressive audio stream at play/download
+  // time. Distribution is JitPack; rhino (deobfuscation) needs keep rules
+  // under minification (see proguard-rules.pro).
+  implementation("com.github.teamnewpipe:NewPipeExtractor:v0.26.5")
   // spec-38 T4 (#256): the RFC-8484 DoH resolver behind the privacy door —
   // same OkHttp version, one small artifact.
   implementation(libs.okhttp.dnsoverhttps)

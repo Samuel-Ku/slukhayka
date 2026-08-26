@@ -1031,6 +1031,50 @@ class AudioPlayerManagerTest {
     }
 
     @Test
+    fun `a youtube track resolves per use and prepares the engine with the resolved url`() = playerTest(
+        resolver = { "https://cdn.example.org/fresh-audio.m4a" }
+    ) { manager, factory ->
+        // Arrange -- the persisted track locator is a YouTube watch URL
+        // (spec 2026-08-26: an audio-less 4read page persists the embed's
+        // watch URL; the signed stream URL never is).
+        val ytTrack = playable[0].track!!.copy(url = "https://www.youtube.com/watch?v=ozaZXk5Qcwc")
+        manager.loadAndPlayBook(
+            book,
+            chapters,
+            playable = listOf(playable[0].copy(track = ytTrack)),
+            autoPlay = true
+        )
+        runCurrent() // the resolution launch rides the test scheduler
+
+        // Assert -- the engine prepared the RESOLVED url, never the watch URL
+        val engine = factory.current
+        assertEquals(1, engine.prepareCount)
+        assertEquals("https://cdn.example.org/fresh-audio.m4a", engine.lastMediaItemUri)
+    }
+
+    @Test
+    fun `a failed youtube resolution reports the honest failure and never prepares the engine`() = playerTest(
+        resolver = { null }
+    ) { manager, factory ->
+        val ytTrack = playable[0].track!!.copy(url = "https://www.youtube.com/watch?v=ozaZXk5Qcwc")
+        manager.loadAndPlayBook(
+            book,
+            chapters,
+            playable = listOf(playable[0].copy(track = ytTrack)),
+            autoPlay = true
+        )
+        runCurrent()
+
+        assertEquals("no fabricated audio", 0, factory.current.prepareCount)
+        val state = manager.playerState.value
+        assertFalse(state.isBuffering)
+        assertTrue(
+            "the honest unavailable state must surface",
+            state.lastErrorMsg.contains("недоступна", ignoreCase = true)
+        )
+    }
+
+    @Test
     fun `a user-initiated prepare resets the heal budget`() {
         var healCalls = 0
         playerTest(healer = HealerSeam { _, _, _ -> if (++healCalls == 1) HEALED_URL else HEALED_URL_2 }) { manager, factory ->
@@ -1058,6 +1102,9 @@ class AudioPlayerManagerTest {
     private fun playerTest(
         clock: TestClock? = null,
         healer: HealerSeam? = null,
+        // Spec 2026-08-26: the per-use stream resolution seam (YouTube watch
+        // URLs). Null keeps the identity resolver (plain URL pass-through).
+        resolver: (suspend (String) -> String?)? = null,
         body: suspend TestScope.(AudioPlayerManager, RecordingPlayerFactory) -> Unit
     ) = runTest(dispatcher) {
         val factory = RecordingPlayerFactory()
@@ -1071,6 +1118,8 @@ class AudioPlayerManagerTest {
             // Spec-32 T4 (#234): the self-healing seam — production wires
             // LibraryImport.refreshStreamUrl here; tests inject a fake.
             streamUrlHealer = healer?.heal,
+            // Spec 2026-08-26: the YouTube per-use resolution seam.
+            streamUrlResolver = resolver ?: { url -> url },
             // Spec-16 T3 flake (#101): the undo-candidate restore runs on the
             // test scheduler, so runCurrent() observes it instead of a
             // wall-clock awaitTrue budget that flakes under full-suite load.

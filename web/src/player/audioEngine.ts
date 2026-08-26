@@ -10,16 +10,20 @@ import { updateNowPlaying } from './mediaSession'
 import { LocalListeningStateStore, type StorageLike, type LocalListeningStateSnapshot } from './localState'
 import { rewoundPositionMs } from './smartRewind'
 import type { Chapter } from '../worker/types'
+import type { ProgressSyncController } from '../sync/controller'
 
 export interface AudioEngineOptions {
   relayBase?: string
   storage?: StorageLike
+  store?: LocalListeningStateStore
+  syncController?: ProgressSyncController | null
 }
 
 export class AudioEngine {
   readonly engine: PlaybackEngine
   private audio: HTMLAudioElement | null = null
   private store: LocalListeningStateStore
+  private syncController: ProgressSyncController | null
   private editionId: string | undefined
   private bookTitle = ''
   private chapters: Chapter[] = []
@@ -29,16 +33,25 @@ export class AudioEngine {
 
   constructor(opts: AudioEngineOptions = {}) {
     this.relayBase = opts.relayBase
+    this.syncController = opts.syncController ?? null
     this.engine = new PlaybackEngine({
       relayUrlOf: this.relayBase ? (url) => `${this.relayBase}/audio?u=${encodeURIComponent(url)}` : undefined,
     })
-    const storageLike: StorageLike = opts.storage ?? {
-      getItem: (k: string) => window.localStorage.getItem(k),
-      setItem: (k: string, v: string) => window.localStorage.setItem(k, v),
-      removeItem: (k: string) => window.localStorage.removeItem(k),
+    if (opts.store) {
+      this.store = opts.store
+    } else {
+      const storageLike: StorageLike = opts.storage ?? {
+        getItem: (k: string) => window.localStorage.getItem(k),
+        setItem: (k: string, v: string) => window.localStorage.setItem(k, v),
+        removeItem: (k: string) => window.localStorage.removeItem(k),
+      }
+      this.store = new LocalListeningStateStore(storageLike)
     }
-    this.store = new LocalListeningStateStore(storageLike)
     this.engine.subscribe((state) => this.onEngineState(state))
+  }
+
+  setSyncController(controller: ProgressSyncController | null): void {
+    this.syncController = controller
   }
 
   attachAudio(audio: HTMLAudioElement): void {
@@ -48,11 +61,19 @@ export class AudioEngine {
     audio.addEventListener('ended', () => this.onEnded())
   }
 
-  loadBook(detail: { title: string; chapters: Chapter[]; editionId?: string }, startChapter = 0): void {
+  async loadBook(detail: { title: string; chapters: Chapter[]; editionId?: string }, startChapter = 0): Promise<void> {
     this.bookTitle = detail.title
     this.chapters = detail.chapters
     this.editionId = detail.editionId ?? detail.title
-    const saved = this.store.load(this.editionId)
+    // Progress Sync: pull the cloud state before resuming (LWW).
+    if (this.syncController && this.editionId) {
+      try {
+        await this.syncController.pullBeforeResume(this.editionId)
+      } catch {
+        // degrade-never
+      }
+    }
+    const saved = this.editionId ? this.store.load(this.editionId) : null
     let startPosition = 0
     let chapterIndex = startChapter
     if (saved && saved.chapterIndex < detail.chapters.length) {
@@ -82,18 +103,20 @@ export class AudioEngine {
   pause(): void {
     this.engine.pause()
     this.audio?.pause()
-    this.persist()
+    this.persist(true)
     this.stopTicker()
   }
 
   seek(seconds: number): void {
     this.engine.seek(seconds)
     if (this.audio) this.audio.currentTime = seconds
+    this.persist(true)
   }
 
   setSpeed(speed: number): void {
     this.engine.setSpeed(speed)
     if (this.audio) this.audio.playbackRate = speed
+    this.persist(true)
   }
 
   skip(deltaSeconds: number): void {
@@ -148,16 +171,16 @@ export class AudioEngine {
     }
     this.updateSession()
     if (state.status === 'paused' || state.status === 'unavailable') {
-      this.persist()
+      this.persist(true)
     }
   }
 
   private onEnded(): void {
     const state = this.engine.getState()
     if (state.chapterIndex < this.chapters.length - 1) {
-      this.loadBook({ title: this.bookTitle, chapters: this.chapters, editionId: this.editionId }, state.chapterIndex + 1)
+      void this.loadBook({ title: this.bookTitle, chapters: this.chapters, editionId: this.editionId }, state.chapterIndex + 1)
     } else {
-      this.persist()
+      this.persist(true)
     }
   }
 
@@ -169,7 +192,7 @@ export class AudioEngine {
       if (this.audio && state.status === 'playing' && Math.abs(this.audio.currentTime - state.positionSeconds) > 1) {
         this.audio.currentTime = state.positionSeconds
       }
-      if (Date.now() - this.lastPersistMs > 30000) this.persist()
+      if (Date.now() - this.lastPersistMs > 30000) this.persist(false)
     }, 1000)
   }
 
@@ -180,7 +203,7 @@ export class AudioEngine {
     }
   }
 
-  private persist(): void {
+  private persist(immediate = false): void {
     if (!this.editionId) return
     const s = this.engine.getState()
     const snapshot: LocalListeningStateSnapshot = {
@@ -193,6 +216,10 @@ export class AudioEngine {
     }
     this.store.save(snapshot)
     this.lastPersistMs = Date.now()
+    // Progress Sync: mirror to cloud when bound and enabled (LWW, throttled).
+    if (this.syncController) {
+      void this.syncController.pushAfterSave(this.editionId, immediate).catch(() => {})
+    }
   }
 
   private updateSession(): void {

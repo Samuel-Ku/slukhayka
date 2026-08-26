@@ -3,10 +3,20 @@ import { api } from '../api/client'
 import type { BookDetail } from '../worker/types'
 
 /**
- * spec-43/T3 — сторінка книги: метадані, розділи й «Інші начитки».
- * Плеєр прибуде в T5 — поки чесно без кнопки «грати».
+ * spec-43/T3+T5 — сторінка книги: метадані, розділи й «Інші начитки».
+ * Розділи — кнопки ▶ для плеєра (T5).
  */
-export function BookPage({ url, onOpenBook }: { url: string; onOpenBook: (next: string) => void }) {
+export function BookPage({
+  url,
+  source,
+  onOpenBook,
+  onPlay,
+}: {
+  url: string
+  source: import('../worker/types').SourceId
+  onOpenBook: (next: string, source: import('../worker/types').SourceId) => void
+  onPlay?: (detail: BookDetail, chapterIndex: number) => void
+}) {
   const [detail, setDetail] = useState<BookDetail | null>(null)
   const [failed, setFailed] = useState(false)
 
@@ -14,7 +24,7 @@ export function BookPage({ url, onOpenBook }: { url: string; onOpenBook: (next: 
     let alive = true
     setDetail(null)
     setFailed(false)
-    api.book('fourread', url).then((result) => {
+    api.book(source, url).then((result) => {
       if (!alive) return
       if (result === null) setFailed(true)
       else setDetail(result)
@@ -22,7 +32,7 @@ export function BookPage({ url, onOpenBook }: { url: string; onOpenBook: (next: 
     return () => {
       alive = false
     }
-  }, [url])
+  }, [url, source])
 
   if (failed) return <div className="placeholder">Книга недоступна — джерело не відповіло.</div>
   if (detail === null) return <div className="placeholder">Завантажуємо книгу…</div>
@@ -49,8 +59,19 @@ export function BookPage({ url, onOpenBook }: { url: string; onOpenBook: (next: 
         <p className="notice">Розділів не знайшли — джерело не віддає аудіо для цієї книги.</p>
       ) : (
         <ol className="chapters">
-          {detail.chapters.map((chapter) => (
-            <li key={chapter.streamUrl}>{chapter.title}</li>
+          {detail.chapters.map((chapter, idx) => (
+            <li key={chapter.streamUrl} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>{chapter.title}</span>
+              {onPlay && (
+                <button
+                  onClick={() => onPlay(detail, idx)}
+                  aria-label={`Слухати розділ ${idx + 1}`}
+                  style={{ background: 'var(--accent)', color: '#000', border: 'none', borderRadius: 999, padding: '4px 12px' }}
+                >
+                  ▶
+                </button>
+              )}
+            </li>
           ))}
         </ol>
       )}
@@ -61,7 +82,7 @@ export function BookPage({ url, onOpenBook }: { url: string; onOpenBook: (next: 
           <ul className="narrations">
             {detail.otherNarrations.map((card) => (
               <li key={card.url}>
-                <button onClick={() => onOpenBook(card.url)}>{`${card.title} — ${card.author}`}</button>
+                <button onClick={() => onOpenBook(card.url, source)}>{`${card.title} — ${card.author}`}</button>
               </li>
             ))}
           </ul>

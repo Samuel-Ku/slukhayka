@@ -367,3 +367,9 @@ val runRecommendationEval by tasks.registering(JavaExec::class) {
   "ksp"(libs.androidx.room.compiler)
   "ksp"(libs.moshi.kotlin.codegen)
 }
+
+// Compose/Robolectric accessibility suites retain large rendered graphs.
+// Keep the CI test worker from exhausting Gradle's default heap mid-suite.
+tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
+  maxHeapSize = "2g"
+}

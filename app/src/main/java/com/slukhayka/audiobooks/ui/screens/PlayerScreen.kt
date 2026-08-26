@@ -436,6 +436,7 @@ fun PlayerScreen(
             onDismiss = { activeTool = null }
         )
         PlayerQuickTool.Bookmarks -> BookmarksListSheet(
+            workTitle = book.title,
             bookmarks = bookmarks.sortedWith(compareBy({ it.chapterIndex }, { it.timestampSeconds })),
             onSelect = { bookmark ->
                 viewModel.jumpToBookmark(bookmark)
@@ -1352,17 +1353,37 @@ private fun PlayerPlaybackError(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun BookmarksListSheet(
+internal fun BookmarksListSheet(
+    workTitle: String,
     bookmarks: List<BookmarkEntity>,
     onSelect: (BookmarkEntity) -> Unit,
     onDelete: (BookmarkEntity) -> Unit,
     onDismiss: () -> Unit
 ) {
     val headingFocusRequester = remember { FocusRequester() }
+    var bookmarkToDelete by remember { mutableStateOf<BookmarkEntity?>(null) }
+    var deleteOriginFocusRequester by remember { mutableStateOf<FocusRequester?>(null) }
+    var returnToHeadingAfterDelete by remember { mutableStateOf(false) }
     val paneTitle = stringResource(R.string.a11y_player_bookmarks_pane)
+    RestoreFocusAfterModal(
+        modalVisible = bookmarkToDelete != null,
+        returnFocusRequester = if (returnToHeadingAfterDelete) {
+            headingFocusRequester
+        } else {
+            deleteOriginFocusRequester
+        },
+        fallbackFocusRequester = headingFocusRequester,
+        onFocusRestored = {
+            deleteOriginFocusRequester = null
+            returnToHeadingAfterDelete = false
+        }
+    )
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        modifier = Modifier.accessibilityPane(paneTitle)
+        modifier = Modifier
+            .accessibilityPane(paneTitle)
+            .accessibilityModalBackground(bookmarkToDelete != null)
+            .testTag("bookmarks_sheet")
     ) {
         LaunchedEffect(headingFocusRequester) {
             withFrameNanos { }
@@ -1399,6 +1420,7 @@ private fun BookmarksListSheet(
         ) {
             itemsIndexed(bookmarks, key = { _, bookmark -> bookmark.id }) { _, bookmark ->
                 val timestamp = MainViewModel.formatTime(bookmark.timestampSeconds)
+                val deleteFocusRequester = remember(bookmark.id) { FocusRequester() }
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1418,8 +1440,15 @@ private fun BookmarksListSheet(
                         )
                     }
                     IconButton(
-                        onClick = { onDelete(bookmark) },
-                        modifier = Modifier.size(AppDimens.TouchTarget)
+                        onClick = {
+                            deleteOriginFocusRequester = deleteFocusRequester
+                            returnToHeadingAfterDelete = false
+                            bookmarkToDelete = bookmark
+                        },
+                        modifier = Modifier
+                            .size(AppDimens.TouchTarget)
+                            .focusRequester(deleteFocusRequester)
+                            .testTag("bookmarks_sheet_delete_${bookmark.id}")
                     ) {
                         Icon(
                             Icons.Default.Delete,
@@ -1434,6 +1463,24 @@ private fun BookmarksListSheet(
                 }
             }
         }
+    }
+
+    bookmarkToDelete?.let { bookmark ->
+        BookmarkDeleteConfirmation(
+            workTitle = workTitle,
+            bookmark = bookmark,
+            onConfirm = {
+                // The destructive action removes its own launcher. Return to
+                // the sheet heading rather than trying to focus a stale row.
+                returnToHeadingAfterDelete = true
+                onDelete(bookmark)
+                bookmarkToDelete = null
+            },
+            onDismiss = {
+                returnToHeadingAfterDelete = false
+                bookmarkToDelete = null
+            }
+        )
     }
 }
 

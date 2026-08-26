@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ListenerProfile } from './identity/listenerIdentity'
 import { Catalog } from './ui/Catalog'
 import { BookPage } from './ui/BookPage'
@@ -6,6 +6,13 @@ import { AudioEngine } from './player/audioEngine'
 import { MiniPlayer } from './ui/MiniPlayer'
 import { PlayerSheet } from './ui/PlayerSheet'
 import type { BookDetail, SourceId } from './worker/types'
+import { LocalListeningStateStore } from './player/localState'
+import { BrowserProgressSyncLedger } from './sync/ledger'
+import { ProgressSyncSettings } from './sync/settings'
+import { FirestoreProgressSyncStore } from './sync/store'
+import { ProgressSyncController } from './sync/controller'
+import { getFirestoreForEnv } from './firebase/firestore'
+import { editionIdFor, mergeKeyFor } from './sync/edition'
 
 type Tab = 'listen' | 'catalog' | 'profile'
 
@@ -25,15 +32,36 @@ function Stub({ title, what }: { title: string; what: string }) {
   )
 }
 
-function Profile({ profile: initialProfile }: { profile: ListenerProfile | null }) {
+function Profile({
+  profile: initialProfile,
+  onProfileChange,
+}: {
+  profile: ListenerProfile | null
+  onProfileChange?: (p: ListenerProfile) => void
+}) {
   const [profile, setProfile] = useState(initialProfile)
   const [code, setCode] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [restoring, setRestoring] = useState(false)
+  const [syncEnabled, setSyncEnabled] = useState(() => {
+    try {
+      const raw = window.localStorage.getItem('slukhayka.progress_sync_enabled')
+      if (raw === null) return true
+      return raw !== '0' && raw !== 'false'
+    } catch {
+      return true
+    }
+  })
 
   useEffect(() => setProfile(initialProfile), [initialProfile])
+  // Keep parent in sync when local profile changes (after restore)
+  useEffect(() => {
+    if (profile && initialProfile && profile.uid !== initialProfile.uid) {
+      onProfileChange?.(profile)
+    }
+  }, [profile, initialProfile, onProfileChange])
 
-  if (profile === null) return <Stub title="Профіль" what="Профіль з’явиться разом із першим запуском." />
+  const isBound = profile !== null && !profile.uid.startsWith('local-')
 
   const handleRestore = async (): Promise<void> => {
     setError(null)
@@ -50,11 +78,27 @@ function Profile({ profile: initialProfile }: { profile: ListenerProfile | null 
       const store = new BrowserCredentialStore(window.localStorage)
       const restored = await restoreFromCode(gateway, code, (pair) => store.save(pair))
       if (!restored) setError('Не вдалося відновити — перевірте код і з’єднання')
-      else setProfile(restored)
+      else {
+        setProfile(restored)
+        // Also persist as current parent profile
+        onProfileChange?.(restored)
+      }
     } finally {
       setRestoring(false)
     }
   }
+
+  const handleSyncToggle = (next: boolean): void => {
+    try {
+      window.localStorage.setItem('slukhayka.progress_sync_enabled', next ? '1' : '0')
+    } catch {
+      // degrade-never
+    }
+    setSyncEnabled(next)
+    // Dispatch storage event for controller's isEnabled check if needed
+  }
+
+  if (profile === null) return <Stub title="Профіль" what="Профіль з’явиться разом із першим запуском." />
 
   return (
     <div>
@@ -81,12 +125,36 @@ function Profile({ profile: initialProfile }: { profile: ListenerProfile | null 
         </button>
         {error && <span style={{ color: 'var(--bad)', fontSize: 13 }}>{error}</span>}
         {!error && profile.uid.startsWith('local-') && <span style={{ color: 'var(--fg-dim)', fontSize: 13 }}>Введіть код з ⚙️ Профіль на телефоні, щоб побачити свій нік і відгуки тут.</span>}
+        {!error && isBound && <span style={{ color: 'var(--fg-dim)', fontSize: 13 }}>Профіль прив’язано — ваш нік і відгуки тепер тут.</span>}
       </div>
+      {isBound && (
+        <div style={{ marginTop: 20, padding: 12, border: '1px solid var(--line)', borderRadius: 8, background: 'var(--surface)' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={syncEnabled}
+              onChange={(e) => handleSyncToggle(e.target.checked)}
+            />
+            <span style={{ fontSize: 14, fontWeight: 600 }}>Синхронізація прогресу</span>
+          </label>
+          <p style={{ margin: '8px 0 0', fontSize: 13, color: 'var(--fg-dim)' }}>
+            Коли ввімкнено, позиція дзеркалиться між телефоном і браузером (останній запис виграє). Вимкніть — дзеркалення зупиниться одразу, локальний прогрес лишиться.
+          </p>
+        </div>
+      )}
+      {!isBound && (
+        <p style={{ marginTop: 16, fontSize: 13, color: 'var(--fg-dim)' }}>
+          Поки профіль не прив’язано, браузер не надсилає нічого особистого — прогрес лишається лише тут.
+        </p>
+      )}
     </div>
   )
 }
 
-export function App({ profile }: { profile: ListenerProfile | null }) {
+export function App({ profile: initialProfile }: { profile: ListenerProfile | null }) {
+  const [profile, setProfile] = useState(initialProfile)
+  useEffect(() => setProfile(initialProfile), [initialProfile])
+
   const [tab, setTab] = useState<Tab>('catalog')
   const [book, setBook] = useState<{ url: string; source: SourceId } | null>(null)
   const bookUrl = book?.url ?? null
@@ -95,10 +163,69 @@ export function App({ profile }: { profile: ListenerProfile | null }) {
   const [playerOpen, setPlayerOpen] = useState(false)
   const [, forceUpdate] = useState(0)
 
+  // Shared local store for engine + sync mirror (same localStorage backing).
+  const localStore = useMemo(() => {
+    const storageLike = {
+      getItem: (k: string) => window.localStorage.getItem(k),
+      setItem: (k: string, v: string) => window.localStorage.setItem(k, v),
+      removeItem: (k: string) => window.localStorage.removeItem(k),
+    }
+    return new LocalListeningStateStore(storageLike as never)
+  }, [])
+
+  const ledger = useMemo(() => new BrowserProgressSyncLedger(window.localStorage), [])
+  const settings = useMemo(() => new ProgressSyncSettings(window.localStorage), [])
+  const firestore = useMemo(() => getFirestoreForEnv(import.meta.env), [])
+  const syncStore = useMemo(() => (firestore ? new FirestoreProgressSyncStore(firestore) : null), [firestore])
+
+  // Identity reads current profile (updated after restore) — no writes before binding.
+  const profileRef = useRef(profile)
+  useEffect(() => {
+    profileRef.current = profile
+  }, [profile])
+
+  const syncController = useMemo(() => {
+    const mirror = {
+      editionIdForSync: (bookId: string) => bookId,
+      progressByEdition: (editionId: string) => {
+        const snap = localStore.load(editionId)
+        if (!snap) return null
+        return {
+          editionId,
+          chapterIndex: snap.chapterIndex,
+          positionSeconds: snap.positionSeconds,
+          isCompleted: snap.isCompleted,
+          preferredSpeed: snap.preferredSpeed,
+          updatedAtServerMs: 0,
+        }
+      },
+      applyRemoteProgress: (_bookId: string, remote: import('./sync/policy').RemoteListeningState) => {
+        localStore.save({
+          editionId: remote.editionId,
+          chapterIndex: remote.chapterIndex,
+          positionSeconds: remote.positionSeconds,
+          isCompleted: remote.isCompleted,
+          preferredSpeed: remote.preferredSpeed,
+          lastPausedAtEpochMs: null,
+        })
+      },
+    }
+    return new ProgressSyncController(
+      { getUid: () => profileRef.current?.uid ?? null },
+      mirror,
+      syncStore,
+      ledger,
+      () => settings.isEnabled(),
+    )
+  }, [localStore, ledger, settings, syncStore])
+
   if (!engineRef.current) {
-    engineRef.current = new AudioEngine({ relayBase: '/api' })
+    engineRef.current = new AudioEngine({ relayBase: '/api', store: localStore })
   }
   const engine = engineRef.current
+  // Keep engine's sync controller in sync with current profile/settings.
+  // Set synchronously so the first loadBook after restore sees the bound controller.
+  engine.setSyncController(syncController)
 
   useEffect(() => {
     document.title = 'Слухайка — аудіокниги українською'
@@ -111,7 +238,9 @@ export function App({ profile }: { profile: ListenerProfile | null }) {
   }, [engine])
 
   const handlePlay = (detail: BookDetail, chapterIndex: number): void => {
-    engine.loadBook({ title: detail.title, chapters: detail.chapters, editionId: detail.url }, chapterIndex)
+    const mergeKey = mergeKeyFor(detail.title, detail.author)
+    const editionId = editionIdFor(mergeKey, detail.url, detail.narrator ?? '')
+    void engine.loadBook({ title: detail.title, chapters: detail.chapters, editionId }, chapterIndex)
     setPlayerOpen(true)
   }
   return (
@@ -137,7 +266,7 @@ export function App({ profile }: { profile: ListenerProfile | null }) {
         ) : tab === 'catalog' ? (
           <Catalog onOpenBook={(url, source) => setBook({ url, source })} />
         ) : (
-          <Profile profile={profile} />
+          <Profile profile={profile} onProfileChange={setProfile} />
         )}
       </main>
       <MiniPlayer engine={engine} onExpand={() => setPlayerOpen(true)} />

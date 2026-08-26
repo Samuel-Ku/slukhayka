@@ -396,7 +396,7 @@ fun NarrationRatingRow(
                     ) {
                         Icon(
                             Icons.Default.Delete,
-                            contentDescription = "Видалити оцінку начитки",
+                            contentDescription = stringResource(R.string.book_detail_narration_rating_delete),
                             tint = MaterialTheme.colorScheme.error,
                             modifier = Modifier.size(16.dp)
                         )

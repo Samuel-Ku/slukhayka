@@ -12,6 +12,7 @@ import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.assertWidthIsEqualTo
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
@@ -72,6 +73,8 @@ class ListenAccessibilityTest {
         compose.onNodeWithContentDescription("Не цікаво: ${book.title}")
             .assertIsDisplayed()
             .assertHeightIsAtLeast(48.dp)
+        compose.onNodeWithTag("not_interested_visual_${book.id}", useUnmergedTree = true)
+            .assertWidthIsEqualTo(28.dp)
         compose.onNodeWithContentDescription(book.title, useUnmergedTree = true)
             .assertDoesNotExist()
     }

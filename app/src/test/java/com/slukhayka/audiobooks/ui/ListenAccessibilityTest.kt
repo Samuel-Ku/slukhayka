@@ -77,6 +77,28 @@ class ListenAccessibilityTest {
     }
 
     @Test
+    fun compactCardAlwaysAnnouncesWhenAConnectionIsRequired() {
+        val streamingBook = book.copy(isDownloaded = false)
+        compose.setContent {
+            AudiobookTheme(darkTheme = true) {
+                CompactBookCard(
+                    book = streamingBook,
+                    onClick = {},
+                    progress = 0.5f
+                )
+            }
+        }
+
+        compose.onNodeWithTag("compact_book_${streamingBook.id}")
+            .assert(
+                SemanticsMatcher.expectValue(
+                    SemanticsProperties.StateDescription,
+                    "Прослухано 50%. Для прослуховування потрібне підключення до інтернету"
+                )
+            )
+    }
+
+    @Test
     fun listenBlockTitleIsAHeadingAndMenuNamesItsBlock() {
         compose.setContent {
             AudiobookTheme(darkTheme = true) {

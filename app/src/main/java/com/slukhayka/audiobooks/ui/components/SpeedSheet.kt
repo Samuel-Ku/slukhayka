@@ -198,7 +198,7 @@ fun SpeedSheet(
 }
 
 /** Formats a speed value with one or two decimals, e.g. 1.0 → "1.0", 1.25 → "1.25". */
-private fun formatSpeed(speed: Float): String {
+internal fun formatSpeed(speed: Float): String {
     val tenth = (speed * 10f).toInt()
     return if ((speed * 100f).toInt() % 10 == 0) {
         "${tenth / 10}.${tenth % 10}"
@@ -207,5 +207,5 @@ private fun formatSpeed(speed: Float): String {
     }
 }
 
-private fun formatSpeedForSpeech(speed: Float): String =
+internal fun formatSpeedForSpeech(speed: Float): String =
     formatSpeed(speed).replace('.', ',')

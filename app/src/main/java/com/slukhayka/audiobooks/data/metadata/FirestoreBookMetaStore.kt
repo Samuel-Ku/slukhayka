@@ -64,13 +64,46 @@ class FirestoreBookMetaStore(private val firestore: FirebaseFirestore) : SharedB
         durationSeconds: Long,
         provenance: DurationProvenance
     ) {
-        // Best-effort fire-and-forget: the write proceeds in the background; a
-        // synchronous failure (a closed Firestore, a bad document) is caught
-        // here and the caller never sees it. set() on a document key is
-        // idempotent — a re-write replaces, never duplicates.
+        if (!DurationContractLimits.isPlausibleEditionId(editionId)) return
+        if (!DurationSanity.isPlausible(durationSeconds)) return
+        if (!DurationContractLimits.isPlausibleProvenance(provenance)) return
+
+        // One transaction protects the first-write-wins decision against two
+        // listeners observing the same gap concurrently. Rules independently
+        // deny canonical update/delete, so a client bug cannot bypass this
+        // door. Any transport/rules failure remains a silent best-effort miss.
         runCatching {
-            firestore.collection(COLLECTION).document(editionId)
-                .set(SharedDurationCodec.toMap(durationSeconds, provenance))
+            firestore.runTransaction { transaction ->
+                val canonicalRef = firestore.collection(COLLECTION).document(editionId)
+                val canonicalSnapshot = transaction.get(canonicalRef)
+                val canonicalDuration = canonicalSnapshot.data
+                    ?.let(SharedDurationCodec::fromMap)
+                when (
+                    DurationObservationPolicy.decide(
+                        canonicalDocumentExists = canonicalSnapshot.exists(),
+                        canonicalDurationSeconds = canonicalDuration,
+                        candidateSeconds = durationSeconds
+                    )
+                ) {
+                    DurationWriteDecision.CreateCanonical -> {
+                        transaction.set(
+                            canonicalRef,
+                            SharedDurationCodec.toMap(durationSeconds, provenance)
+                        )
+                    }
+
+                    DurationWriteDecision.CreateConflict -> {
+                        val conflict = DurationConflict(editionId, durationSeconds, provenance)
+                        val conflictRef = firestore.collection(CONFLICT_COLLECTION)
+                            .document(DurationConflictId.of(conflict))
+                        if (!transaction.get(conflictRef).exists()) {
+                            transaction.set(conflictRef, DurationConflictCodec.toMap(conflict))
+                        }
+                    }
+
+                    DurationWriteDecision.NoOp -> Unit
+                }
+            }.awaitOrNull()
         }
     }
 
@@ -166,6 +199,9 @@ class FirestoreBookMetaStore(private val firestore: FirebaseFirestore) : SharedB
 
     companion object {
         private const val COLLECTION = "book_durations"
+
+        /** Spec-42 #303 — idempotent Edition/value/method conflict evidence. */
+        private const val CONFLICT_COLLECTION = "book_duration_conflicts"
 
         /** Spec-32 T1 — the shared profile collection, keyed sourceId|editionId. */
         private const val PROFILE_COLLECTION = "book_profiles"

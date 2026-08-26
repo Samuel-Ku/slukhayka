@@ -14,7 +14,9 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.BookmarkEntity
@@ -22,6 +24,7 @@ import com.slukhayka.audiobooks.data.db.ChapterEntity
 import com.slukhayka.audiobooks.player.PlayerState
 import com.slukhayka.audiobooks.ui.screens.PlayerScreenContent
 import com.slukhayka.audiobooks.ui.screens.calculatePlayerProgress
+import com.slukhayka.audiobooks.ui.screens.lastCreatedBookmark
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
 import com.github.takahirom.roborazzi.captureRoboImage
@@ -81,13 +84,6 @@ class PlayerScreenSnapshotTest {
         durationMs = chapters[1].durationSeconds * 1_000,
         playbackSpeed = 1.25f,
         isOfflineMode = true
-    )
-    private val progress = calculatePlayerProgress(
-        chapters,
-        state.currentChapterIndex,
-        state.currentPositionMs,
-        state.durationMs,
-        listOf(bookmark)
     )
 
     @Test
@@ -169,15 +165,65 @@ class PlayerScreenSnapshotTest {
         assertEquals(1, speedClicks)
     }
 
+    @Test
+    fun jump_to_last_bookmark_button_is_shown_and_jumps() {
+        var jumpedId: Long? = null
+        setPlayerContent(onJumpToBookmark = { jumpedId = it.id })
+
+        composeTestRule.onNodeWithTag("jump_to_last_bookmark").assertIsDisplayed().performClick()
+
+        assertEquals(bookmark.id, jumpedId)
+    }
+
+    // #355: the full bookmarks list lives behind a LONG press on the return
+    // button — rare action in the secondary gesture (spec-27).
+    @Test
+    fun long_press_on_jump_button_opens_the_all_bookmarks_sheet() {
+        var opened = 0
+        setPlayerContent(onShowAllBookmarks = { opened++ })
+
+        composeTestRule.onNodeWithTag("jump_to_last_bookmark").performTouchInput { longClick() }
+
+        assertEquals(1, opened)
+    }
+
+    @Test
+    fun no_bookmarks_renders_no_jump_button() {
+        setPlayerContent(bookmarks = emptyList())
+
+        composeTestRule.onNodeWithTag("jump_to_last_bookmark").assertDoesNotExist()
+        // #352: the track reports how many bookmark markers it draws — zero here.
+        composeTestRule.onNodeWithContentDescription("Закладки на шкалі: 0").assertExists()
+    }
+
+    // #352: one drawn bookmark marker per valid bookmark — observable through
+    // the track's content description instead of pixel inspection.
+    @Test
+    fun bookmark_markers_match_the_bookmark_count() {
+        setPlayerContent()
+
+        composeTestRule.onNodeWithContentDescription("Закладки на шкалі: 1").assertExists()
+    }
+
     private fun setPlayerContent(
         narrator: String = book.narrator,
         onPlayPause: () -> Unit = {},
-        onSpeed: () -> Unit = {}
+        onSpeed: () -> Unit = {},
+        bookmarks: List<BookmarkEntity> = listOf(bookmark),
+        onJumpToBookmark: (BookmarkEntity) -> Unit = {},
+        onShowAllBookmarks: () -> Unit = {}
     ) {
         composeTestRule.setContent {
             AudiobookTheme(darkTheme = true) {
                 Surface(modifier = Modifier, color = MaterialTheme.colorScheme.background) {
-                    PlayerContent(narrator = narrator, onPlayPause = onPlayPause, onSpeed = onSpeed)
+                    PlayerContent(
+                        narrator = narrator,
+                        onPlayPause = onPlayPause,
+                        onSpeed = onSpeed,
+                        bookmarks = bookmarks,
+                        onJumpToBookmark = onJumpToBookmark,
+                        onShowAllBookmarks = onShowAllBookmarks
+                    )
                 }
             }
         }
@@ -188,14 +234,23 @@ class PlayerScreenSnapshotTest {
     private fun PlayerContent(
         narrator: String = book.narrator,
         onPlayPause: () -> Unit = {},
-        onSpeed: () -> Unit = {}
+        onSpeed: () -> Unit = {},
+        bookmarks: List<BookmarkEntity> = listOf(bookmark),
+        onJumpToBookmark: (BookmarkEntity) -> Unit = {},
+        onShowAllBookmarks: () -> Unit = {}
     ) {
         val fixtureBook = if (narrator == book.narrator) book else book.copy(narrator = narrator)
         PlayerScreenContent(
             playerState = if (fixtureBook === book) state else state.copy(currentBook = fixtureBook),
             book = fixtureBook,
             currentChapterTitle = chapters[1].title,
-            progress = progress,
+            progress = calculatePlayerProgress(
+                chapters,
+                state.currentChapterIndex,
+                state.currentPositionMs,
+                state.durationMs,
+                bookmarks
+            ),
             // Simulates the muted tint emitted after a real cover loads.
             artworkAccent = androidx.compose.ui.graphics.Color(0xFF355D67),
             onArtworkLoaded = {},
@@ -213,7 +268,10 @@ class PlayerScreenSnapshotTest {
             onSpeed = onSpeed,
             onTimer = {},
             onBookmark = {},
-            onChapters = {}
+            onChapters = {},
+            lastBookmarkTarget = lastCreatedBookmark(bookmarks),
+            onJumpToBookmark = onJumpToBookmark,
+            onShowAllBookmarks = onShowAllBookmarks
         )
     }
 }

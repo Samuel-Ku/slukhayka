@@ -1,0 +1,26 @@
+name: 4read stream contract
+
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: 4read-stream-contract
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    name: Page → playlist → audio
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Probe live 4read stream contract
+        run: python3 scripts/check-4read-stream.py

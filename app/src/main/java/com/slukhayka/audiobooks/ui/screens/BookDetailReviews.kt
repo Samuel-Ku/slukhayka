@@ -107,6 +107,7 @@ fun ReviewStarsRow(
                 Box(
                     modifier = Modifier
                         .size(48.dp)
+                        .testTag("rating_star_$position")
                         .selectable(
                             selected = position == rating,
                             role = Role.RadioButton,
@@ -329,6 +330,82 @@ fun ReviewCard(
 
 /** «Не вказувати» — the dropdown's explicit no-tag choice (#278). */
 const val EDITION_TAG_NONE = "Не вказувати"
+
+/**
+ * ADR-0023 (#348) — the narration-rating row beside the narrator's name:
+ * the crowd average (when votes exist — honest absence otherwise, ADR-0014)
+ * and THIS listener's interactive stars. Renders nothing when there is
+ * nothing to show and nobody to ask.
+ */
+@Composable
+fun NarrationRatingRow(
+    average: Double?,
+    voteCount: Int,
+    ownRating: Int?,
+    canRate: Boolean,
+    onRate: (Int) -> Unit,
+    onDeleteOwn: (() -> Unit)? = null,
+    deleteFocusRequester: FocusRequester? = null,
+    modifier: Modifier = Modifier
+) {
+    if (average == null && !canRate) return
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag("narration_rating_row"),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(4.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = "Начитка:",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            if (average != null) {
+                Spacer(modifier = Modifier.size(6.dp))
+                ReviewStarsRow(rating = kotlin.math.round(average).toInt(), starSize = 14)
+                Spacer(modifier = Modifier.size(4.dp))
+                Text(
+                    text = String.format(java.util.Locale.US, "%.1f", average) + " · $voteCount",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.testTag("narration_rating_average")
+                )
+            }
+        }
+        if (canRate) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                ReviewStarsRow(
+                    rating = ownRating ?: 0,
+                    starSize = 14,
+                    interactive = true,
+                    onRatingChange = onRate,
+                    modifier = Modifier.testTag("narration_rating_own_stars")
+                )
+                if (ownRating != null && onDeleteOwn != null) {
+                    IconButton(
+                        onClick = onDeleteOwn,
+                        modifier = Modifier
+                            .then(
+                                deleteFocusRequester?.let { Modifier.focusRequester(it) }
+                                    ?: Modifier
+                            )
+                            .size(48.dp)
+                            .testTag("narration_rating_delete")
+                    ) {
+                        Icon(
+                            Icons.Default.Delete,
+                            contentDescription = "Видалити оцінку начитки",
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
 
 /**
  * #277/#278 — the write/edit form as a bottom sheet (ADR-0018: transient

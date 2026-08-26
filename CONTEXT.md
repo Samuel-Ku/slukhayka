@@ -74,16 +74,28 @@ _Avoid_: sleep timer, resume offset
 A durable record that a listener intentionally removed or rejected a relationship, preventing imports, catalog refreshes, or sync from silently recreating it. Its identity anchors at the Work: one tombstone blocks every Edition and Source of that Work.
 _Avoid_: Missing Source, unavailable file
 
+**Progress Sync**:
+The rule that one listener's Listening State mirrors across that listener's own linked devices, resolved last-write-wins by server time. It exists only between devices the listener deliberately linked and never carries Library Entries, Metadata Overrides, or anything belonging to another listener.
+_Avoid_: backup, history upload, library sync
+
+**Web Client**:
+The browser surface of Слухайка — installable to the iOS home screen — where a listener browses the Source Catalog, plays Editions, and keeps a Listening State exactly like any other device. There is one listener relationship model across platforms; the Web Client introduces no second kind of profile.
+_Avoid_: mobile site, native iOS app, companion viewer
+
 **Listener Review**:
 The one shared review («Відгук») a listener may leave per Work — a required 1–5 star rating plus optional bounded text and an optional narration tag (`editionTag`). Anchored at the Work mergeKey like Canonical covers; document identity `workId_uid` in the shared base's `book_reviews` collection makes double-voting impossible by construction. The headline score above the cards is the honest flat average over every source WITH a rating and every review (ADR-0022); a source's own ★ stays a separate row. A source page's visitors' comments are NOT reviews — they render as a plainly-labelled simple subblock, never mixed into community cards.
-_Avoid_: source visitor comment, Edition-scoped rating, fabricated zeros
+_Avoid_: source visitor comment, fabricated zeros
+
+**Narration Rating**:
+The listener's stars-only verdict (1–5) on one Edition of a Work — «як мені ось ця озвучка» — beside, never instead of, the Work-level Listener Review. One rating per (Work × Edition × listener); document identity `workId_uid_editionId` in the shared base's `edition_ratings` collection makes double voting impossible by construction, with the review's security model mirrored rule-for-rule (public read, owner-only writes under App Check, shape gate). Narration averages render by the narrator's name and on «Інші начитки» cards; they NEVER feed the book's headline average or recommendations (ADR-0023).
+_Avoid_: mixing into the headline average, edition-scoped Listener Review (the old wording), stars + text
 
 **Recommendation Preference**:
 An explicit, local-only listener verdict that changes discovery ranking without changing a Work, Library Entry, Listening State or Listener Review. It is one of `HIDE_WORK`, `REDUCE_SIMILAR` or `HIDE_AUTHOR`, keyed by normalized Work/author identity and reversible from recommendation settings. It stores no embedding or listening history.
 _Avoid_: deletion, tombstone, implicit dislike, server-side listening profile
 
 **Recovery Code**:
-The encoded credential pair of the silent anonymous profile («Код відновлення профілю»), shown in ⚙️ Профіль only behind BiometricPrompt and accepted on a fresh install to restore the same uid. Surviving reinstall also rides Android Auto Backup of the generated credentials and the Firestore `device_bindings/{ANDROID_ID} → uid` silent restore — the binding exists ONLY for recovery of one's own profile, written solely for the caller's own uid.
+The encoded credential pair of the silent anonymous profile («Код відновлення профілю»), shown in ⚙️ Профіль only behind BiometricPrompt and accepted on a fresh install — or in the Web Client — to restore or link the same uid. Surviving reinstall also rides Android Auto Backup of the generated credentials and the Firestore `device_bindings/{ANDROID_ID} → uid` silent restore — the binding exists ONLY for recovery of one's own profile, written solely for the caller's own uid.
 _Avoid_: login screen, hardware identifiers (IMEI), password reset
 
 ## Playback
@@ -106,9 +118,17 @@ _Avoid_: forwarding StateFlows, 1:1 ViewModel forwarders
 `audiobooks` is ONE concept — the metadata of the user's copy. The Work identity (mergeKey, series) lives in `works` (the shared spec-23 table, #142), the Library Entry (isFavorite, createdAt, downloadProgress) in `library_entries` (one row per audiobooks row, `workId` linking to the Work), and the per-book speed in the Listening State row (`playback_progress.preferredSpeed`). DAO reads join all three and fill `@Ignore` projections on `AudiobookEntity` (via the `BookRow` projection), so the UI keeps reading one shaped row while the persisted columns are gone (ADR-0009).
 _Avoid_: fused columns on audiobooks
 
+**Local facet projection**:
+The indexed Room read model used by «Огляд» filters. Work facets carry canonical author/series references and indexed genre memberships; every genre membership is Source-owned, and a strictly newer Source document atomically replaces that Source's whole set (including an empty set) while equal/older replay is a no-op. Edition facets separately carry narrator, language, duration bucket, chapter count, full/abridged status and an expiring availability assertion. Edition availability is atomic (available, observed-at epoch milliseconds and bounded TTL), is stale at exact expiry, and never moves onto Work. Raw genre assertions keep their exact Source text, assertion identity and observation provenance beside the derived relation. `LocalFacetWriter` is the one bounded transactional write door for both local raw normalization and canonical shared assertions, and `WorkFacetFilter` is the frozen Paging query contract: values inside one dimension are OR, dimensions are AND, and an empty dimension is unfiltered. It is a projection of Metadata Assertions, never a replacement Work, Edition or Source.
+_Avoid_: free-form `LIKE` filters, genre text as identity, duration on Work, direct facet-table writes from sync
+
 **One Source seam, one HTTP transport**:
 Captured-page import is a [SourceAdapter] capability — `parseCapturedPage(html, url)` with a "not mine" default; the WebView-pattern adapters (4read, sluhay) override it under one name and no import door downcasts to a concrete adapter. All HTTP goes through the shared [HttpFetcher] on the ONE shared OkHttp client (pool, identity, route, DoH): it serves text (`getText`) and binary streams (`getStream`), and the offline download loop consumes the stream method — every request carries the device's browser identity (the real system WebView User-Agent, static fallback on JVM; superseding ADR-0006's dedicated download agent) and rides the listener's network privacy route (spec-38), never silently falling back to direct. Domain names resolve through encrypted DoH with a transparent system-resolver fallback (spec-38 T4) — one decision independent of the chosen route, on by default. Offline downloads ride the human-rhythm pacing from the privacy door (`PacingPolicy`: random pause + per-domain burst budget; the loop owns no thresholds) so bulk fetching never looks like scraping (spec-38 T5). The relay prototype (spec-38 T6) is just another resolved route: requests are rewritten `<base>?url=<target>` at the transport's single request-shaping seam, never a default; a route WebView cannot carry refuses the browser instead of going direct. The source-browser WebView sessions ride the SAME route through the official webkit proxy controller and keep the same session hygiene (third-party cookies rejected, geolocation/sensors denied, cookies isolated per source by purge-on-entry). Per-source header rules (Referer) stay beside the transport in the source package.
 _Avoid_: per-adapter captured-page methods, raw HttpURLConnection in modules, app-named User-Agents, system-DNS lookups for transport hosts, special-cased relay branches outside the door, WebView sessions off-route
+
+**Web Transport**:
+The web-side transport door for the Web Client: it resolves Source pages into structured catalog and book data server-side, and relays an audio stream only when the Source refuses direct playback. Direct-to-source audio is the default path; relaying everything is not this concept.
+_Avoid_: full-traffic proxy, client-side CORS workarounds
 
 **Bibliographic Work, Edition-owned narrator**:
 The Work is `title|author` — the mergeKey carries NO narrator. The narrator is an Edition (rendition) property: it lives on `editions` and on the audiobooks row (the user's copy of one rendition), never on `works`. The Edition id hashes `mergeKey|narrator|language`, so two narrations of one Work never share listening state (ADR-0001) even though they share the Work (ADR-0010).
@@ -161,7 +181,7 @@ A displayed count, percent or duration must be the truth the user can verify —
 _Avoid_: stale counters, in-chapter percent passed off as book progress, fabricated 4:00:00
 
 **One tool, one place**:
-Each capability has one obvious home: import is «+ Додати» (a sheet), genre navigation is the «Жанри» chip row while genre filtering lives in the feed, destructive delete lives in ⋮. Duplicate affordances (three genre rows, two import buttons) are the defect this rule kills.
+Each capability has one obvious home: import is «+ Додати» (a sheet), genre filtering lives only behind the feed's «Фільтри» control (spec-42 #302 superseded the separate homepage «Жанри» navigation row), destructive delete lives in ⋮. Duplicate affordances (three genre rows, two import buttons) are the defect this rule kills.
 _Avoid_: the same action reachable from competing buttons/chips
 
 **A landing answers one question**:

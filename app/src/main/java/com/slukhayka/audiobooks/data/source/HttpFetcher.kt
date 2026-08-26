@@ -160,6 +160,36 @@ open class HttpFetcher(
             .build()
     }
 
+    /**
+     * ADR-0024 (#361/#362) — ranged binary GET for the Playback Proxy: the
+     * receiver seeks by issuing HTTP Range requests, and the proxy forwards
+     * them upstream through this ONE transport (per-source Referer, privacy
+     * route, DoH — the same [buildRequest] as every other call). Unlike
+     * [getStream]/[getSizedStream] it accepts BOTH 200 (full body, no range
+     * honoured) and 206 (partial content) — the status travels with the
+     * stream so the proxy can mirror 206 semantics honestly. Returns null on
+     * any failure; caller owns reading and closing.
+     */
+    open fun getRangeStream(url: String, extraHeaders: Map<String, String> = emptyMap()): RangeResponse? {
+        val response = execute(url, extraHeaders) ?: return null
+        return try {
+            if (response.code == HTTP_OK || response.code == HTTP_PARTIAL) {
+                RangeResponse(
+                    stream = ownedStream(response),
+                    status = response.code,
+                    contentLength = response.body?.contentLength()?.takeIf { it >= 0 },
+                    contentRange = response.header("Content-Range")
+                )
+            } else {
+                response.close()
+                null
+            }
+        } catch (e: Exception) {
+            runCatching { response.close() }
+            null
+        }
+    }
+
     /** One network attempt; any failure degrades to null (never throws). */
     private fun execute(url: String, extraHeaders: Map<String, String>): Response? = try {
         TransportClients.okHttp.newCall(buildRequest(url, extraHeaders)).execute()
@@ -194,5 +224,18 @@ open class HttpFetcher(
 
     private companion object {
         private const val HTTP_OK = 200
+        private const val HTTP_PARTIAL = 206
     }
+
+    /**
+     * ADR-0024 — the ranged variant of a binary response: [status] is 200
+     * (whole body) or 206 (a slice), [contentRange] carries the upstream's
+     * own `bytes s-e/total` header verbatim when it sent one.
+     */
+    class RangeResponse(
+        val stream: InputStream,
+        val status: Int,
+        val contentLength: Long?,
+        val contentRange: String?
+    )
 }

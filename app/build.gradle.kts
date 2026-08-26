@@ -195,6 +195,11 @@ dependencies {
   implementation(libs.androidx.biometric)
   implementation(libs.androidx.media3.exoplayer)
   implementation(libs.androidx.media3.session)
+  // ADR-0024: CastPlayer swaps in behind the MediaSession player seam while
+  // casting; the receiver itself never touches the network (phone proxy).
+  implementation(libs.androidx.media3.cast)
+  implementation(libs.play.services.cast.framework)
+  implementation(libs.nanohttpd)
   // implementation(libs.androidx.datastore.preferences)
   implementation(libs.androidx.lifecycle.runtime.compose)
   implementation(libs.androidx.lifecycle.runtime.ktx)

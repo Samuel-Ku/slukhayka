@@ -283,6 +283,7 @@ class PlayerAccessibilityTest {
                                     onSelect = { activeTool = null },
                                     onDismiss = { activeTool = null }
                                 )
+                                PlayerQuickTool.Bookmarks -> Unit
                                 null -> Unit
                             }
                         }

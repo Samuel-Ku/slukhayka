@@ -401,28 +401,29 @@ interface AudiobookDao {
 
     /**
      * The endless feed's paging source: one row per Work with its source
-     * count, newest first. Filters compose with paging: `sourceId` keeps only
-     * Works carried by that source (EXISTS on work_sources); `genre` keeps
-     * only Works whose library row carries the genre (LEFT JOIN — null until
-     * the Work is linked into audiobooks). Dedup is inherited from
-     * merge-on-write — the feed never re-implements it at read time.
+     * count, newest first. Facet dimensions compose with AND and selected
+     * values within one dimension compose with OR. Every predicate uses an
+     * indexed projection relation; raw assertion text is never searched.
      */
     @Query(
         """
         SELECT w.id AS workId, w.mergeKey, w.title, w.author, w.seriesTitle, w.seriesIndex,
                w.coverImageUrl, w.addedAt,
                (SELECT COUNT(*) FROM work_sources ws WHERE ws.workId = w.id) AS sourceCount,
-               a.genre AS genre,
-               (SELECT e.totalDurationSeconds FROM editions e WHERE e.workId = le.id LIMIT 1) AS durationSeconds
+               (SELECT gf.displayName FROM work_genres wg JOIN genre_facets gf ON gf.id=wg.genreId WHERE wg.workId=w.id ORDER BY gf.displayName ASC LIMIT 1) AS genre,
+               (SELECT e.totalDurationSeconds FROM editions e JOIN library_entries le2 ON le2.id=e.workId WHERE le2.workId=w.id LIMIT 1) AS durationSeconds
         FROM works w
-        LEFT JOIN library_entries le ON le.workId = w.id
-        LEFT JOIN audiobooks a ON a.id = le.id
-        WHERE (:sourceId IS NULL OR EXISTS (SELECT 1 FROM work_sources ws WHERE ws.workId = w.id AND ws.sourceId = :sourceId))
-          AND (:genre IS NULL OR a.genre LIKE '%' || :genre || '%')
+        WHERE (:genreActive = 0 OR EXISTS (SELECT 1 FROM work_genres wg WHERE wg.workId=w.id AND wg.genreId IN (:genreIds)))
+          AND (:durationActive = 0 OR EXISTS (SELECT 1 FROM edition_facets ef WHERE ef.workId=w.id AND ef.durationBucketId IN (:durationBucketIds)))
+          AND (:authorActive = 0 OR EXISTS (SELECT 1 FROM work_facets wf WHERE wf.workId=w.id AND wf.canonicalAuthorId IN (:authorIds)))
         ORDER BY w.addedAt DESC, w.id ASC
         """
     )
-    fun pagedWorksFeedRecent(sourceId: String?, genre: String?): PagingSource<Int, WorkFeedRow>
+    fun pagedWorksFeedRecent(
+        genreIds: List<String>, genreActive: Int,
+        durationBucketIds: List<String>, durationActive: Int,
+        authorIds: List<String>, authorActive: Int
+    ): PagingSource<Int, WorkFeedRow>
 
     /** Same feed, sorted by title (stable tiebreak: addedAt DESC). */
     @Query(
@@ -430,17 +431,20 @@ interface AudiobookDao {
         SELECT w.id AS workId, w.mergeKey, w.title, w.author, w.seriesTitle, w.seriesIndex,
                w.coverImageUrl, w.addedAt,
                (SELECT COUNT(*) FROM work_sources ws WHERE ws.workId = w.id) AS sourceCount,
-               a.genre AS genre,
-               (SELECT e.totalDurationSeconds FROM editions e WHERE e.workId = le.id LIMIT 1) AS durationSeconds
+               (SELECT gf.displayName FROM work_genres wg JOIN genre_facets gf ON gf.id=wg.genreId WHERE wg.workId=w.id ORDER BY gf.displayName ASC LIMIT 1) AS genre,
+               (SELECT e.totalDurationSeconds FROM editions e JOIN library_entries le2 ON le2.id=e.workId WHERE le2.workId=w.id LIMIT 1) AS durationSeconds
         FROM works w
-        LEFT JOIN library_entries le ON le.workId = w.id
-        LEFT JOIN audiobooks a ON a.id = le.id
-        WHERE (:sourceId IS NULL OR EXISTS (SELECT 1 FROM work_sources ws WHERE ws.workId = w.id AND ws.sourceId = :sourceId))
-          AND (:genre IS NULL OR a.genre LIKE '%' || :genre || '%')
+        WHERE (:genreActive = 0 OR EXISTS (SELECT 1 FROM work_genres wg WHERE wg.workId=w.id AND wg.genreId IN (:genreIds)))
+          AND (:durationActive = 0 OR EXISTS (SELECT 1 FROM edition_facets ef WHERE ef.workId=w.id AND ef.durationBucketId IN (:durationBucketIds)))
+          AND (:authorActive = 0 OR EXISTS (SELECT 1 FROM work_facets wf WHERE wf.workId=w.id AND wf.canonicalAuthorId IN (:authorIds)))
         ORDER BY w.title COLLATE NOCASE ASC, w.addedAt DESC, w.id ASC
         """
     )
-    fun pagedWorksFeedByTitle(sourceId: String?, genre: String?): PagingSource<Int, WorkFeedRow>
+    fun pagedWorksFeedByTitle(
+        genreIds: List<String>, genreActive: Int,
+        durationBucketIds: List<String>, durationActive: Int,
+        authorIds: List<String>, authorActive: Int
+    ): PagingSource<Int, WorkFeedRow>
 
     // Bookmarks (ADR-0007: anchored to the Edition)
     @Query("SELECT * FROM bookmarks WHERE bookId = :bookId ORDER BY timestampSeconds ASC")
@@ -763,4 +767,117 @@ interface AudiobookDao {
     /** Scoped reset: never touches Library Entry, progress or playback events. */
     @Query("DELETE FROM recommendation_preferences")
     suspend fun clearRecommendationPreferences()
+
+    // --- Local catalogue facets (spec-42 #304, frozen Wave-3 seam) -------
+
+    @Query(
+        "INSERT INTO work_facets (workId, canonicalAuthorId, updatedAt) " +
+            "VALUES (:workId, :authorId, :updatedAt) " +
+            "ON CONFLICT(workId) DO UPDATE SET " +
+            "canonicalAuthorId=COALESCE(excluded.canonicalAuthorId, canonicalAuthorId), " +
+            "updatedAt=MAX(updatedAt, excluded.updatedAt)"
+    )
+    suspend fun mergeWorkFacet(workId: String, authorId: String?, updatedAt: Long)
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertWorkFacetSeries(rows: List<WorkFacetSeriesEntity>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertGenreFacets(rows: List<GenreFacetEntity>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertWorkGenres(rows: List<WorkGenreEntity>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertGenreAssertions(rows: List<GenreAssertionEntity>)
+
+    @Query("SELECT documentUpdatedAt FROM genre_assertion_states WHERE workId=:workId AND sourceId=:sourceId")
+    suspend fun genreDocumentUpdatedAt(workId: String, sourceId: String): Long?
+
+    @Query("DELETE FROM work_genres WHERE workId=:workId AND sourceId=:sourceId")
+    suspend fun deleteWorkGenresForSource(workId: String, sourceId: String)
+
+    @Query("DELETE FROM genre_assertions WHERE workId=:workId AND sourceId=:sourceId")
+    suspend fun deleteGenreAssertionsForSource(workId: String, sourceId: String)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertGenreAssertionState(row: GenreAssertionStateEntity)
+
+    @Query(
+        "INSERT INTO edition_facets (editionId, workId, narratorId, language, durationSeconds, durationBucketId, chapterCount, isAbridged, availabilityAvailable, availabilityObservedAtMillis, availabilityTtlSeconds, updatedAt) " +
+            "VALUES (:editionId, :workId, :narratorId, :language, :durationSeconds, :durationBucketId, :chapterCount, :isAbridged, :availabilityAvailable, :availabilityObservedAtMillis, :availabilityTtlSeconds, :updatedAt) " +
+            "ON CONFLICT(editionId) DO UPDATE SET workId=excluded.workId, " +
+            "narratorId=COALESCE(excluded.narratorId, narratorId), language=COALESCE(excluded.language, language), " +
+            "durationSeconds=COALESCE(excluded.durationSeconds, durationSeconds), durationBucketId=COALESCE(excluded.durationBucketId, durationBucketId), " +
+            "chapterCount=COALESCE(excluded.chapterCount, chapterCount), isAbridged=COALESCE(excluded.isAbridged, isAbridged), " +
+            "availabilityAvailable=CASE WHEN excluded.availabilityObservedAtMillis IS NOT NULL AND (availabilityObservedAtMillis IS NULL OR excluded.availabilityObservedAtMillis > availabilityObservedAtMillis) THEN excluded.availabilityAvailable ELSE availabilityAvailable END, " +
+            "availabilityObservedAtMillis=CASE WHEN excluded.availabilityObservedAtMillis IS NOT NULL AND (availabilityObservedAtMillis IS NULL OR excluded.availabilityObservedAtMillis > availabilityObservedAtMillis) THEN excluded.availabilityObservedAtMillis ELSE availabilityObservedAtMillis END, " +
+            "availabilityTtlSeconds=CASE WHEN excluded.availabilityObservedAtMillis IS NOT NULL AND (availabilityObservedAtMillis IS NULL OR excluded.availabilityObservedAtMillis > availabilityObservedAtMillis) THEN excluded.availabilityTtlSeconds ELSE availabilityTtlSeconds END, " +
+            "updatedAt=MAX(updatedAt, excluded.updatedAt)"
+    )
+    suspend fun mergeEditionFacet(
+        editionId: String,
+        workId: String,
+        narratorId: String?,
+        language: String?,
+        durationSeconds: Long?,
+        durationBucketId: String?,
+        chapterCount: Int?,
+        isAbridged: Boolean?,
+        availabilityAvailable: Boolean?,
+        availabilityObservedAtMillis: Long?,
+        availabilityTtlSeconds: Long?,
+        updatedAt: Long
+    )
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAuthorFacets(rows: List<AuthorFacetEntity>)
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertAuthorAliases(rows: List<AuthorAliasEntity>)
+
+    @Transaction
+    suspend fun applyFacetRows(
+        works: List<WorkFacetEntity>,
+        workSeries: List<WorkFacetSeriesEntity>,
+        genreSources: List<GenreSourceFacetRows>,
+        editions: List<EditionFacetEntity>,
+        authors: List<AuthorFacetEntity>,
+        aliases: List<AuthorAliasEntity>
+    ) {
+        works.forEach { mergeWorkFacet(it.workId, it.canonicalAuthorId, it.updatedAt) }
+        insertWorkFacetSeries(workSeries)
+        genreSources.forEach { sourceRows ->
+            val currentUpdatedAt = genreDocumentUpdatedAt(sourceRows.workId, sourceRows.sourceId)
+            if (currentUpdatedAt == null || sourceRows.documentUpdatedAt > currentUpdatedAt) {
+                deleteWorkGenresForSource(sourceRows.workId, sourceRows.sourceId)
+                deleteGenreAssertionsForSource(sourceRows.workId, sourceRows.sourceId)
+                insertGenreFacets(sourceRows.genres)
+                insertWorkGenres(sourceRows.memberships)
+                insertGenreAssertions(sourceRows.assertions)
+                upsertGenreAssertionState(
+                    GenreAssertionStateEntity(sourceRows.workId, sourceRows.sourceId, sourceRows.documentUpdatedAt)
+                )
+            }
+        }
+        editions.forEach {
+            mergeEditionFacet(
+                it.editionId, it.workId, it.narratorId, it.language, it.durationSeconds,
+                it.durationBucketId, it.chapterCount, it.isAbridged, it.availabilityAvailable,
+                it.availabilityObservedAtMillis, it.availabilityTtlSeconds, it.updatedAt
+            )
+        }
+        upsertAuthorFacets(authors)
+        insertAuthorAliases(aliases)
+    }
+
+    @Query(
+        "SELECT g.id AS id, g.displayName AS label, COUNT(DISTINCT wg.workId) AS workCount " +
+            "FROM genre_facets g JOIN work_genres wg ON wg.genreId=g.id " +
+            "GROUP BY g.id, g.displayName ORDER BY g.displayName COLLATE NOCASE ASC, g.id ASC"
+    )
+    fun observeGenreFacetOptions(): Flow<List<GenreFacetOption>>
+
+    @Query("SELECT * FROM genre_assertions WHERE workId=:workId ORDER BY id ASC")
+    suspend fun genreAssertionsForWork(workId: String): List<GenreAssertionEntity>
 }

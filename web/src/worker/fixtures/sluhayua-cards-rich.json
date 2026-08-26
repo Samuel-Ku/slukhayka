@@ -1,0 +1,4 @@
+{"cards":[
+  {"_id":111,"slug":"a","bookName":"Книга А","bookAuthor":["Автор А"],"audioAuthor":["Диктор"],"kindSrc":"/uploads/a.png","genre":["поема","казка"],"timeLength":"01:44"},
+  {"_id":222,"slug":"b","bookName":"Книга Б","bookAuthor":["Автор Б"],"audioAuthor":["Диктор"],"kindSrc":"/uploads/b.png","genre":[],"totalSeconds":3723}
+],"pageCount":1}

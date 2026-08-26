@@ -16,6 +16,8 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.BookmarkEntity
@@ -23,6 +25,7 @@ import com.slukhayka.audiobooks.data.db.ChapterEntity
 import com.slukhayka.audiobooks.player.PlayerState
 import com.slukhayka.audiobooks.ui.screens.PlayerScreenContent
 import com.slukhayka.audiobooks.ui.screens.calculatePlayerProgress
+import com.slukhayka.audiobooks.ui.screens.lastCreatedBookmark
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
 import com.github.takahirom.roborazzi.captureRoboImage
@@ -182,15 +185,54 @@ class PlayerScreenSnapshotTest {
         assertEquals(1, speedClicks)
     }
 
+    @Test
+    fun jump_to_last_bookmark_button_is_shown_and_jumps() {
+        var jumpedId: Long? = null
+        setPlayerContent(onJumpToBookmark = { jumpedId = it.id })
+
+        composeTestRule.onNodeWithContentDescription("Повернутися до закладки на 02:00")
+            .performSemanticsAction(SemanticsActions.OnClick)
+
+        assertEquals(bookmark.id, jumpedId)
+    }
+
+    @Test
+    fun long_press_on_jump_button_opens_the_all_bookmarks_sheet() {
+        var opened = 0
+        setPlayerContent(onShowAllBookmarks = { opened++ })
+
+        composeTestRule.onNodeWithContentDescription("Повернутися до закладки на 02:00")
+            .performSemanticsAction(SemanticsActions.OnLongClick)
+
+        assertEquals(1, opened)
+    }
+
+    @Test
+    fun no_bookmarks_renders_no_jump_button() {
+        setPlayerContent(bookmarks = emptyList())
+
+        composeTestRule.onNodeWithTag("jump_to_last_bookmark").assertDoesNotExist()
+    }
+
     private fun setPlayerContent(
         narrator: String = book.narrator,
         onPlayPause: () -> Unit = {},
-        onSpeed: () -> Unit = {}
+        onSpeed: () -> Unit = {},
+        bookmarks: List<BookmarkEntity> = listOf(bookmark),
+        onJumpToBookmark: (BookmarkEntity) -> Unit = {},
+        onShowAllBookmarks: () -> Unit = {}
     ) {
         composeTestRule.setContent {
             AudiobookTheme(darkTheme = true) {
                 Surface(modifier = Modifier, color = MaterialTheme.colorScheme.background) {
-                    PlayerContent(narrator = narrator, onPlayPause = onPlayPause, onSpeed = onSpeed)
+                    PlayerContent(
+                        narrator = narrator,
+                        onPlayPause = onPlayPause,
+                        onSpeed = onSpeed,
+                        bookmarks = bookmarks,
+                        onJumpToBookmark = onJumpToBookmark,
+                        onShowAllBookmarks = onShowAllBookmarks
+                    )
                 }
             }
         }
@@ -201,14 +243,23 @@ class PlayerScreenSnapshotTest {
     private fun PlayerContent(
         narrator: String = book.narrator,
         onPlayPause: () -> Unit = {},
-        onSpeed: () -> Unit = {}
+        onSpeed: () -> Unit = {},
+        bookmarks: List<BookmarkEntity> = listOf(bookmark),
+        onJumpToBookmark: (BookmarkEntity) -> Unit = {},
+        onShowAllBookmarks: () -> Unit = {}
     ) {
         val fixtureBook = if (narrator == book.narrator) book else book.copy(narrator = narrator)
         PlayerScreenContent(
             playerState = if (fixtureBook === book) state else state.copy(currentBook = fixtureBook),
             book = fixtureBook,
             currentChapterTitle = chapters[1].title,
-            progress = progress,
+            progress = calculatePlayerProgress(
+                chapters,
+                state.currentChapterIndex,
+                state.currentPositionMs,
+                state.durationMs,
+                bookmarks
+            ),
             // Simulates the muted tint emitted after a real cover loads.
             artworkAccent = androidx.compose.ui.graphics.Color(0xFF355D67),
             onArtworkLoaded = {},
@@ -227,7 +278,10 @@ class PlayerScreenSnapshotTest {
             onTimer = {},
             onBookmark = {},
             onChapters = {},
-            onRetryPlayback = {}
+            onRetryPlayback = {},
+            lastBookmarkTarget = lastCreatedBookmark(bookmarks),
+            onJumpToBookmark = onJumpToBookmark,
+            onShowAllBookmarks = onShowAllBookmarks
         )
     }
 }

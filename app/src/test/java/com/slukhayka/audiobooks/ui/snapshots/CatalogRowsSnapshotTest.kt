@@ -139,9 +139,9 @@ class CatalogRowsSnapshotTest {
         )
     }
 
-    // Spec-22 T3: the Explore header is collapsible — brand + [🔍] + [🔄]
-    // when collapsed, search field + chips when expanded. Both states are
-    // pinned so the redesign cannot drift.
+    // spec-42 T1: the Огляд header is collapsible — brand + [🔍] + [🔄]
+    // when collapsed and one text-search field when expanded. Genre filtering
+    // has one home in the feed sheet, never a duplicate search row.
     @Test
     fun explore_header_collapsed() {
         composeTestRule.setContent {
@@ -150,13 +150,10 @@ class CatalogRowsSnapshotTest {
                     HomeHeader(
                         searchExpanded = false,
                         searchQuery = "",
-                        selectedGenre = "Усі",
-                        genres = listOf("Усі", "Фантастика", "Короткі", "Завантажені"),
                         onToggleSearch = {},
                         onRefresh = {},
                         onSearchQueryChange = {},
-                        onCloseSearch = {},
-                        onSelectGenre = {}
+                        onCloseSearch = {}
                     )
                 }
             }
@@ -174,17 +171,16 @@ class CatalogRowsSnapshotTest {
                     HomeHeader(
                         searchExpanded = true,
                         searchQuery = "Шевченко",
-                        selectedGenre = "Класика",
-                        genres = listOf("Усі", "Фантастика", "Короткі", "Завантажені"),
                         onToggleSearch = {},
                         onRefresh = {},
                         onSearchQueryChange = {},
-                        onCloseSearch = {},
-                        onSelectGenre = {}
+                        onCloseSearch = {}
                     )
                 }
             }
         }
+        composeTestRule.onNodeWithText("Фантастика").assertDoesNotExist()
+        composeTestRule.onNodeWithText("Короткі").assertDoesNotExist()
         composeTestRule.onRoot().captureRoboImage(
             filePath = "src/test/snapshots/explore_header_expanded.png"
         )

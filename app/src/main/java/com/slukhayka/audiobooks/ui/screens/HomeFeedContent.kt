@@ -1,5 +1,6 @@
 package com.slukhayka.audiobooks.ui.screens
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyRow
@@ -17,10 +18,10 @@ import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.itemContentType
 import androidx.paging.compose.itemKey
 import com.slukhayka.audiobooks.data.catalog.CatalogBook
-import com.slukhayka.audiobooks.data.catalog.CatalogGenre
 import com.slukhayka.audiobooks.data.catalog.CatalogSection
 import com.slukhayka.audiobooks.data.catalog.CatalogSectionId
 import com.slukhayka.audiobooks.data.collections.CollectionMatcher
+import com.slukhayka.audiobooks.data.db.GenreFacetOption
 import com.slukhayka.audiobooks.data.db.WorkFeedRow
 import com.slukhayka.audiobooks.data.recommend.RecommendationEngine
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
@@ -33,10 +34,9 @@ import com.slukhayka.audiobooks.ui.components.NavigationChip
  * stateless `LazyListScope` emitter so the block order (spec-28 lines
  * 150-153, amended by spec-39) is testable and snapshot-pinned:
  *
- * search → 5-chip nav row → genres → «Ваші цикли» (spec-39; only when the
- * listener owns cycles) → Рекомендовано для вас → «Новинки» → За тривалістю
- * → 4read sections («Цикли» row skipped while «Ваші цикли» renders) →
- * [Колекції] → «Більше книг на Sluhay» CTA → «Весь каталог» (always last).
+ * search → quick navigation → «Для вас» → «Відкрити нове» → sticky controls
+ * → endless Work feed. The two group headings carry more visual weight than
+ * their individual shelf headings; curated content stays above the feed.
  * Curated content sits above the endless feed; the feed is the final
  * element of the screen. The inline «Колекції» blocks (ADR-0017 closing
  * pass, #203) sit AFTER the 4read sections: they now have a dedicated index
@@ -46,21 +46,22 @@ import com.slukhayka.audiobooks.ui.components.NavigationChip
  * the editorial 4read «Цикли» row hides while it does (a recorded amendment
  * of the spec-28 order line, spec-39 Р1/Р7).
  */
+@OptIn(ExperimentalFoundationApi::class)
 fun LazyListScope.homeFeedContent(
     isCatalogLoading: Boolean,
     hasLibraryBooks: Boolean,
     sections: List<CatalogSection>,
-    catalogGenres: List<CatalogGenre>,
+    genreFacetOptions: List<GenreFacetOption>,
     collections: List<CollectionMatcher.MatchedCollection>,
     newArrivals: List<GlobalSearchResult>,
     recommendedBooks: List<RecommendationEngine.Recommendation>,
+    recommendationsReady: Boolean = true,
     personalCycles: List<com.slukhayka.audiobooks.ui.library.PersonalCycle>,
     similarCycles: List<com.slukhayka.audiobooks.ui.library.SimilarCycle> = emptyList(),
     shortBooks: List<CatalogBook>,
     longBooks: List<CatalogBook>,
     workFeedItems: LazyPagingItems<WorkFeedRow>,
-    feedSourceFilter: String?,
-    feedGenreFilter: String?,
+    feedGenreFilters: Set<String>,
     feedSortByTitle: Boolean,
     onRefreshCatalog: () -> Unit,
     onGoToLibrary: () -> Unit,
@@ -68,14 +69,12 @@ fun LazyListScope.homeFeedContent(
     onOpenPeople: (PeopleKind) -> Unit,
     onOpenSeriesIndex: () -> Unit,
     onOpenCollectionsIndex: () -> Unit,
-    onOpenGenre: (title: String, url: String) -> Unit,
     onOpenSeries: (title: String, url: String) -> Unit,
     onPlayGlobalSearchResult: (GlobalSearchResult) -> Unit,
     onOpenRecommendedBook: (candidateId: String) -> Unit,
     onOpenWorkFeedRow: (WorkFeedRow) -> Unit,
     onBookClick: (String) -> Unit,
-    onSetFeedSourceFilter: (String?) -> Unit,
-    onSetFeedGenreFilter: (String?) -> Unit,
+    onSetFeedGenreFilters: (Set<String>) -> Unit,
     onSetFeedSortByTitle: (Boolean) -> Unit,
     onOpenWebSource: (() -> Unit)? = null,
     onRecommendationFeedback: (RecommendationEngine.Recommendation, String) -> Unit = { _, _ -> },
@@ -127,7 +126,7 @@ fun LazyListScope.homeFeedContent(
     // NAVIGATE, so they are NavigationChips (filled, no outline) —
     // never filter-shaped chips.
     item {
-        CatalogRowHeader(title = "Каталог")
+        CatalogRowHeader(title = "Швидкі переходи")
     }
     item {
         CatalogNavRow(
@@ -138,34 +137,28 @@ fun LazyListScope.homeFeedContent(
         )
     }
 
-    // Genre navigation ("Аудіокниги жанру:") — chips that open the
-    // genre's own book list, mirroring the site's primary sidebar nav.
-    if (catalogGenres.isNotEmpty()) {
+    val hasForYouContent = personalCycles.isNotEmpty() ||
+        similarCycles.isNotEmpty() || recommendedBooks.isNotEmpty() || showRecommendationConsent
+    item { OverviewGroupHeader(title = "Для вас") }
+    if (!hasForYouContent) {
         item {
-            CatalogRowHeader(title = "Жанри")
-        }
-        item {
-            LazyRow(
-                contentPadding = PaddingValues(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                items(catalogGenres, key = { it.url }) { genre ->
-                    // The genre row NAVIGATES (opens the genre list) —
-                    // NavigationChip per ADR-0018; the genre FILTERS
-                    // inside «Весь каталог» stay FilterChips.
-                    NavigationChip(
-                        title = genre.title,
-                        onClick = { onOpenGenre(genre.title, genre.url) }
-                    )
-                }
-            }
+            Text(
+                text = if (recommendationsReady) {
+                    "Персональних добірок поки немає."
+                } else {
+                    "Готуємо персональні добірки…"
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+            )
         }
     }
 
     // Spec-39 T1 (#261): «Ваші цикли» — the listener's own cycles, built
-    // purely from the local base (no network, no loading states). Sits right
-    // after the genres; while it renders, the editorial 4read «Цикли»
-    // section row below is skipped (gradual replacement, spec-39 Р1).
+    // purely from the local base (no network, no loading states). It starts
+    // the «Для вас» group; while it renders, the editorial 4read «Цикли»
+    // shelf below is skipped (gradual replacement, spec-39 Р1).
     if (personalCycles.isNotEmpty()) {
         item {
             CatalogRowHeader(title = "Ваші цикли")
@@ -252,6 +245,9 @@ fun LazyListScope.homeFeedContent(
             }
         }
     }
+
+    // Editorial and catalogue shelves form the second top-level group.
+    item { OverviewGroupHeader(title = "Відкрити нове") }
 
     // spec-28 (#192): «Новинки» — the ONE cross-source new-arrivals
     // rail (4read's «Новинки» section + every other source's feed,
@@ -373,26 +369,16 @@ fun LazyListScope.homeFeedContent(
         }
     }
 
-    // Spec-23 T4: the endless merged feed — every Work in the
-    // persisted catalogue, paged via Paging 3. It supersedes the
-    // spec-15 T1 ephemeral union: the same merge key / one card per
-    // Work, but scrolling pages through the whole catalogue instead
-    // of stopping at the session snapshot. Filters (source / genre /
-    // sort) rebuild the Pager; the row header shows the live count.
-    // spec-28 (#203): always the LAST element of Огляд — the curated
-    // shelves above never drown in the endless list.
-    item {
-        CatalogRowHeader(title = "Весь каталог")
-    }
-    item {
+    // spec-42 T1 (#302): compact controls are the one home for feed sort and
+    // genre. The persisted, Room-backed Work Pager remains the LAST element
+    // of Огляд, so the curated shelves above never drown in the endless list.
+    stickyHeader(key = "work_feed_controls") {
         WorkFeedFilters(
-            sourceFilter = feedSourceFilter,
-            genreFilter = feedGenreFilter,
+            selectedGenreIds = feedGenreFilters,
             sortByTitle = feedSortByTitle,
-            genres = catalogGenres.map { it.title },
-            onSourceChange = onSetFeedSourceFilter,
-            onGenreChange = onSetFeedGenreFilter,
-            onSortToggle = { onSetFeedSortByTitle(!feedSortByTitle) }
+            genres = genreFacetOptions,
+            onGenresChange = onSetFeedGenreFilters,
+            onSortChange = onSetFeedSortByTitle
         )
     }
     if (workFeedItems.itemCount == 0 && workFeedItems.loadState.refresh is LoadState.Loading) {

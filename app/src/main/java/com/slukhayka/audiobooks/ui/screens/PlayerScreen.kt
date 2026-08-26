@@ -5,6 +5,8 @@ import android.graphics.drawable.Drawable
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
@@ -46,6 +48,8 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.hideFromAccessibility
 import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
@@ -54,6 +58,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.drawable.toBitmap
 import com.slukhayka.audiobooks.BuildConfig
+import com.slukhayka.audiobooks.App
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.BookmarkEntity
@@ -64,6 +69,7 @@ import com.slukhayka.audiobooks.player.SleepTimerNotice
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.components.BookCoverImage
 import com.slukhayka.audiobooks.ui.components.BookCoverSemantics
+import com.slukhayka.audiobooks.ui.components.CastButton
 import com.slukhayka.audiobooks.ui.components.PlayerDebugOverlay
 import com.slukhayka.audiobooks.ui.components.RestoreFocusAfterModal
 import com.slukhayka.audiobooks.ui.components.SleepTimerSheet
@@ -94,7 +100,8 @@ enum class PlayerQuickTool {
     Speed,
     Timer,
     Bookmark,
-    Chapters
+    Chapters,
+    Bookmarks
 }
 
 
@@ -181,6 +188,10 @@ fun calculatePlayerProgress(
     )
 }
 
+/** The one predictable target for returning to the most recently created bookmark. */
+fun lastCreatedBookmark(bookmarks: List<BookmarkEntity>): BookmarkEntity? =
+    bookmarks.maxWithOrNull(compareBy({ it.createdAt }, { it.id }))
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PlayerScreen(
@@ -201,6 +212,11 @@ fun PlayerScreen(
     // scope (same pattern as playerManager's call-through).
     val scope = rememberCoroutineScope()
     val bookmarks = remember(allBookmarks, book.id) { allBookmarks.filter { it.bookId == book.id } }
+    val lastBookmarkTarget = remember(bookmarks) { lastCreatedBookmark(bookmarks) }
+    val castReady = remember(playerState.currentStreamUrl) {
+        runCatching { App.instance.castController.isCastAvailable() }.getOrDefault(false) &&
+            playerState.currentStreamUrl.let { it.startsWith("https://") || it.startsWith("http://") }
+    }
 
     var activeTool by rememberSaveable { mutableStateOf<PlayerQuickTool?>(null) }
     var showDebugOverlay by rememberSaveable { mutableStateOf(false) }
@@ -327,7 +343,11 @@ fun PlayerScreen(
                     autoPlay = true
                 )
             },
-            activeTool = activeTool
+            activeTool = activeTool,
+            castReady = castReady,
+            lastBookmarkTarget = lastBookmarkTarget,
+            onJumpToBookmark = viewModel::jumpToBookmark,
+            onShowAllBookmarks = { activeTool = PlayerQuickTool.Bookmarks }
         )
 
         SnackbarHost(
@@ -414,6 +434,17 @@ fun PlayerScreen(
             },
             onDismiss = { activeTool = null }
         )
+        PlayerQuickTool.Bookmarks -> BookmarksListSheet(
+            bookmarks = bookmarks.sortedWith(compareBy({ it.chapterIndex }, { it.timestampSeconds })),
+            onSelect = { bookmark ->
+                viewModel.jumpToBookmark(bookmark)
+                activeTool = null
+            },
+            onDelete = { bookmark ->
+                scope.launch { viewModel.listeningState.deleteBookmark(bookmark.id) }
+            },
+            onDismiss = { activeTool = null }
+        )
         null -> Unit
     }
 }
@@ -464,7 +495,11 @@ fun PlayerScreenContent(
     onChapters: () -> Unit,
     onRetryPlayback: () -> Unit,
     modifier: Modifier = Modifier,
-    activeTool: PlayerQuickTool? = null
+    activeTool: PlayerQuickTool? = null,
+    castReady: Boolean = false,
+    lastBookmarkTarget: BookmarkEntity? = null,
+    onJumpToBookmark: (BookmarkEntity) -> Unit = {},
+    onShowAllBookmarks: () -> Unit = {}
 ) {
     val background = MaterialTheme.colorScheme.background
     val tint = artworkAccent ?: MaterialTheme.colorScheme.primary
@@ -475,6 +510,7 @@ fun PlayerScreenContent(
     val timerFocusRequester = remember { FocusRequester() }
     val bookmarkFocusRequester = remember { FocusRequester() }
     val chaptersFocusRequester = remember { FocusRequester() }
+    val bookmarksFocusRequester = remember { FocusRequester() }
     var restoreTool by remember { mutableStateOf<PlayerQuickTool?>(null) }
     val playerNarrator = book.displayNarrator
     val editionDescription = if (playerNarrator.isNotBlank()) {
@@ -503,6 +539,11 @@ fun PlayerScreenContent(
         PlayerQuickTool.Timer -> timerFocusRequester
         PlayerQuickTool.Bookmark -> bookmarkFocusRequester
         PlayerQuickTool.Chapters -> chaptersFocusRequester
+        PlayerQuickTool.Bookmarks -> if (lastBookmarkTarget != null) {
+            bookmarksFocusRequester
+        } else {
+            playerContextFocusRequester
+        }
         null -> null
     }
     RestoreFocusAfterModal(
@@ -557,6 +598,7 @@ fun PlayerScreenContent(
                 // The cover absorbs the leftover vertical space: when it is
                 // tight the cover shrinks (the aspect-ratio sizing honours the
                 // bounded height), never pushing the transport row off-screen.
+                val coverMaxHeight = if (lastBookmarkTarget != null) 288.dp else 336.dp
                 Box(
                     modifier = (if (largeFont) {
                         Modifier.height(208.dp)
@@ -581,7 +623,7 @@ fun PlayerScreenContent(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth(0.9f)
-                            .heightIn(max = 336.dp)
+                            .heightIn(max = coverMaxHeight)
                             .aspectRatio(coverAspect)
                             .background(
                                 Brush.radialGradient(
@@ -603,7 +645,7 @@ fun PlayerScreenContent(
                         // ratio (spec-24 T6).
                         modifier = Modifier
                             .widthIn(max = 272.dp)
-                            .heightIn(max = 336.dp)
+                            .heightIn(max = coverMaxHeight)
                             .fillMaxWidth(0.76f)
                             .aspectRatio(coverAspect)
                             .testTag("player_cover")
@@ -686,7 +728,11 @@ fun PlayerScreenContent(
                     chapterPositionSeconds = playerState.currentPositionMs / 1000L,
                     chapterDurationSeconds = playerState.durationMs / 1000L,
                     onSeek = onSeek,
-                    onBookSeek = onBookSeek
+                    onBookSeek = onBookSeek,
+                    bookmarkTarget = lastBookmarkTarget,
+                    bookmarkFocusRequester = bookmarksFocusRequester,
+                    onJumpToBookmark = onJumpToBookmark,
+                    onShowAllBookmarks = onShowAllBookmarks
                 )
 
                 Spacer(Modifier.height(AppDimens.SpaceMd))
@@ -718,6 +764,7 @@ fun PlayerScreenContent(
                 QuickTools(
                     speed = playerState.playbackSpeed,
                     timerMinutes = playerState.sleepTimerMinutes,
+                    castReady = castReady,
                     onSpeed = onSpeed,
                     onTimer = onTimer,
                     onBookmark = onBookmark,
@@ -805,13 +852,18 @@ private fun PlayerTopBar(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun DualProgress(
     progress: PlayerProgressUi,
     chapterPositionSeconds: Long,
     chapterDurationSeconds: Long,
     onSeek: (Float) -> Unit,
-    onBookSeek: (Float) -> Unit
+    onBookSeek: (Float) -> Unit,
+    bookmarkTarget: BookmarkEntity? = null,
+    bookmarkFocusRequester: FocusRequester,
+    onJumpToBookmark: (BookmarkEntity) -> Unit = {},
+    onShowAllBookmarks: () -> Unit = {}
 ) {
     val chapterPositionLabel = stringResource(R.string.a11y_player_chapter_position)
     val bookPositionLabel = stringResource(R.string.a11y_player_book_position)
@@ -873,11 +925,16 @@ private fun DualProgress(
         Row(
             Modifier
                 .fillMaxWidth()
-                .testTag("book_progress_visual_row")
-                .semantics { hideFromAccessibility() },
-            horizontalArrangement = Arrangement.SpaceBetween
+                .testTag("book_progress_visual_row"),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("Книга", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                "Книга",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.clearAndSetSemantics { }
+            )
+            Spacer(Modifier.weight(1f))
             Text(
                 if (progress.bookDurationSeconds > 0L) {
                     "${MainViewModel.formatTime(progress.bookPositionSeconds)}  /  ${MainViewModel.formatTime(progress.bookDurationSeconds)}"
@@ -885,8 +942,39 @@ private fun DualProgress(
                     stringResource(R.string.a11y_player_duration_unknown)
                 },
                 style = TabularTimerStyle,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.clearAndSetSemantics { }
             )
+            if (bookmarkTarget != null) {
+                val bookmarkTime = MainViewModel.formatTime(bookmarkTarget.timestampSeconds)
+                val jumpDescription = stringResource(R.string.a11y_player_bookmark_jump, bookmarkTime)
+                Box(
+                    modifier = Modifier
+                        .size(AppDimens.TouchTarget)
+                        .focusRequester(bookmarkFocusRequester)
+                        .focusable()
+                        .clip(CircleShape)
+                        .combinedClickable(
+                            onClick = { onJumpToBookmark(bookmarkTarget) },
+                            onLongClick = onShowAllBookmarks
+                        )
+                        .clearAndSetSemantics {
+                            contentDescription = jumpDescription
+                            onClick {
+                                onJumpToBookmark(bookmarkTarget)
+                                true
+                            }
+                            onLongClick {
+                                onShowAllBookmarks()
+                                true
+                            }
+                        }
+                        .testTag("jump_to_last_bookmark"),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Default.Bookmark, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                }
+            }
         }
         BookProgressTrack(progress, bookPositionLabel, bookTimeDescription, onBookSeek)
     }
@@ -902,6 +990,7 @@ private fun BookProgressTrack(
     val active = MaterialTheme.colorScheme.primary
     val activeMarker = MaterialTheme.colorScheme.onPrimary
     val inactiveMarker = MaterialTheme.colorScheme.onSurfaceVariant
+    val bookmarkColor = MaterialTheme.colorScheme.tertiary
     Box(modifier = Modifier.fillMaxWidth().testTag("book_progress_track")) {
         Slider(
             value = progress.bookFraction,
@@ -935,8 +1024,8 @@ private fun BookProgressTrack(
                 drawMarker(marker, color, size.height, 1.5.dp.toPx())
             }
             progress.bookmarkMarkers.forEach { marker ->
-                val color = if (marker <= progress.bookFraction) activeMarker else active
-                drawCircle(color, radius = 3.5.dp.toPx(), center = androidx.compose.ui.geometry.Offset(size.width * marker, centerY))
+                val color = if (marker <= progress.bookFraction) bookmarkColor else bookmarkColor.copy(alpha = 0.55f)
+                drawCircle(color, radius = 5.dp.toPx(), center = androidx.compose.ui.geometry.Offset(size.width * marker, centerY))
             }
         }
     }
@@ -1059,6 +1148,7 @@ private fun SeekButton(
 private fun QuickTools(
     speed: Float,
     timerMinutes: Int,
+    castReady: Boolean,
     onSpeed: () -> Unit,
     onTimer: () -> Unit,
     onBookmark: () -> Unit,
@@ -1112,6 +1202,7 @@ private fun QuickTools(
             timerFocusRequester,
             onTimer
         )
+        CastButton(castReady = castReady)
         QuickTool(
             Icons.Default.BookmarkAdd,
             stringResource(R.string.a11y_player_tool_bookmark),
@@ -1228,6 +1319,93 @@ private fun PlayerPlaybackError(
                     }
             ) {
                 Text(retryLabel, modifier = Modifier.clearAndSetSemantics { })
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun BookmarksListSheet(
+    bookmarks: List<BookmarkEntity>,
+    onSelect: (BookmarkEntity) -> Unit,
+    onDelete: (BookmarkEntity) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val headingFocusRequester = remember { FocusRequester() }
+    val paneTitle = stringResource(R.string.a11y_player_bookmarks_pane)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        modifier = Modifier.accessibilityPane(paneTitle)
+    ) {
+        LaunchedEffect(headingFocusRequester) {
+            withFrameNanos { }
+            headingFocusRequester.requestFocus()
+        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = AppDimens.PageSides, vertical = AppDimens.SpaceSm),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = paneTitle,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier
+                    .focusRequester(headingFocusRequester)
+                    .focusable()
+                    .semantics { heading() }
+                    .testTag("bookmarks_sheet_heading")
+            )
+            IconButton(onClick = onDismiss, modifier = Modifier.size(AppDimens.TouchTarget)) {
+                Icon(
+                    Icons.Default.Close,
+                    contentDescription = stringResource(R.string.a11y_player_bookmarks_close)
+                )
+            }
+        }
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = AppDimens.SpaceLg)
+        ) {
+            itemsIndexed(bookmarks, key = { _, bookmark -> bookmark.id }) { _, bookmark ->
+                val timestamp = MainViewModel.formatTime(bookmark.timestampSeconds)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = AppDimens.TouchTarget)
+                        .clickable { onSelect(bookmark) }
+                        .padding(horizontal = AppDimens.PageSides, vertical = AppDimens.SpaceSm),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Default.Bookmark, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.width(AppDimens.SpaceSm))
+                    Column(Modifier.weight(1f)) {
+                        Text(bookmark.chapterTitle, style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            if (bookmark.note.isBlank()) timestamp else "$timestamp · ${bookmark.note}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    IconButton(
+                        onClick = { onDelete(bookmark) },
+                        modifier = Modifier.size(AppDimens.TouchTarget)
+                    ) {
+                        Icon(
+                            Icons.Default.Delete,
+                            contentDescription = stringResource(
+                                R.string.a11y_player_bookmark_delete,
+                                bookmark.chapterTitle,
+                                timestamp
+                            ),
+                            tint = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
             }
         }
     }

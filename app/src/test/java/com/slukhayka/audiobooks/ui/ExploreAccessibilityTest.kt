@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.data.catalog.CatalogSeries
 import com.slukhayka.audiobooks.data.db.WorkFeedRow
+import com.slukhayka.audiobooks.data.db.GenreFacetOption
 import com.slukhayka.audiobooks.data.recommend.RecommendationEngine
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.data.source.GlobalSearchSource
@@ -86,13 +87,10 @@ class ExploreAccessibilityTest {
                 HomeHeader(
                     searchExpanded = true,
                     searchQuery = "",
-                    selectedGenre = "Фантастика",
-                    genres = listOf("Усі", "Фантастика"),
                     onToggleSearch = {},
                     onRefresh = {},
                     onSearchQueryChange = {},
-                    onCloseSearch = {},
-                    onSelectGenre = {}
+                    onCloseSearch = {}
                 )
             }
         }
@@ -100,8 +98,6 @@ class ExploreAccessibilityTest {
         compose.onNodeWithTag("home_search_input")
             .assertTextContains("Пошук книги або автора")
             .assertIsDisplayed()
-        compose.onNodeWithTag("home_genre_chip_Фантастика")
-            .assertIsSelected()
         compose.onNodeWithContentDescription("Закрити пошук")
             .assertHeightIsAtLeast(48.dp)
     }
@@ -315,20 +311,17 @@ class ExploreAccessibilityTest {
         compose.setContent {
             AudiobookTheme(darkTheme = true) {
                 WorkFeedFilters(
-                    sourceFilter = "4read",
-                    genreFilter = "Фантастика",
+                    selectedGenreIds = setOf("fantasy"),
                     sortByTitle = true,
-                    genres = listOf("Фантастика"),
-                    onSourceChange = {},
-                    onGenreChange = {},
-                    onSortToggle = {}
+                    genres = listOf(GenreFacetOption("fantasy", "Фантастика", 1)),
+                    onGenresChange = {},
+                    onSortChange = {}
                 )
             }
         }
 
-        compose.onNodeWithTag("feed_sort_title").assertIsSelected()
-        compose.onNodeWithTag("feed_source_4read").assertIsSelected()
-        compose.onNodeWithTag("feed_genre_Фантастика").assertIsSelected()
+        compose.onNodeWithTag("feed_filters").assertIsSelected().performClick()
+        compose.onNodeWithTag("feed_genre_fantasy").assertIsSelected()
     }
 
     @Test
@@ -342,13 +335,10 @@ class ExploreAccessibilityTest {
                     HomeHeader(
                         searchExpanded = true,
                         searchQuery = "",
-                        selectedGenre = "Усі",
-                        genres = listOf("Усі", "Фантастика"),
                         onToggleSearch = {},
                         onRefresh = {},
                         onSearchQueryChange = {},
-                        onCloseSearch = {},
-                        onSelectGenre = {}
+                        onCloseSearch = {}
                     )
                 }
             }

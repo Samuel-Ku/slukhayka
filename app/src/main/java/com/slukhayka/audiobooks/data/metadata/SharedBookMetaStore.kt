@@ -14,11 +14,20 @@ import com.slukhayka.audiobooks.data.duration.DurationBuckets
  * The identity is the book's **Edition id** (`EditionId.forBook` —
  * `hash(mergeKey|narrator|language)`): duration is rendition-scoped
  * (ADR-0010 — two narrations of one Work never share a duration), and the
- * same key the local `editions` rows already use. Covers land here later
- * (spec-30) keyed by the Work mergeKey; this tracer bullet carries duration
- * only.
+ * same key the local `editions` rows already use. Other public metadata keeps
+ * its own explicit identity: facets use `(kind, entityId, Source)`, covers
+ * use the Work mergeKey, and profiles use Source×Edition.
  */
 interface SharedBookMetaStore {
+    /** One compact Work/Edition assertion, addressed by stable entity+Source identity. */
+    suspend fun getFacet(key: FacetAssertionKey): FacetAssertion? = null
+
+    /** Best-effort full-shape create/update. Invalid assertions contribute nothing. */
+    suspend fun putFacet(assertion: FacetAssertion) = Unit
+
+    /** Bounded ordered remote delta page; applying/committing it belongs to spec-42 #308. */
+    suspend fun getFacetPage(after: FacetCursor?, limit: Int): FacetPage = FacetPage(emptyList(), null)
+
     /** The shared duration of one Edition, or null on miss/failure. */
     suspend fun getDuration(editionId: String): Long?
 
@@ -33,10 +42,11 @@ interface SharedBookMetaStore {
     /**
      * Best-effort write-back of one derived duration into the shared base,
      * keyed by the SAME Edition id the read path uses, so the next user reads
-     * it instead of deriving again. Carries the [DurationProvenance]
-     * (source, derivedAt). Idempotent by contract (a document key is
-     * replaced, never duplicated — Firestore set()); a failing write
-     * contributes nothing.
+     * it instead of deriving again. Carries bounded [DurationProvenance]
+     * (source, method, derivedAt). The first plausible value is canonical;
+     * repeats are no-ops and a materially different value creates one
+     * deterministic conflict record without replacing the canonical fact.
+     * A failing write contributes nothing.
      */
     suspend fun putDuration(
         editionId: String,
@@ -372,13 +382,17 @@ object BookProfileCodec {
  * older documents decode fine.
  */
 data class DurationProvenance(
-    /** The origin of the duration: [SOURCE_DERIVED] today. */
+    /** The public Source identifier or another bounded origin label. */
     val source: String,
-    val derivedAt: Long
+    val derivedAt: Long,
+    /** How the value was observed; part of deterministic conflict identity. */
+    val method: String = METHOD_SOURCE_METADATA
 ) {
     companion object {
         /** A duration derived from real source metadata (page, stream probe). */
         const val SOURCE_DERIVED = "derived"
+        const val METHOD_SOURCE_METADATA = "source_metadata"
+        const val METHOD_TECHNICAL_PROBE = "technical_probe"
     }
 }
 
@@ -404,6 +418,7 @@ object DurationSanity {
  * ```
  * durationSeconds: Long   (the rendition's total duration)
  * source:         String  (provenance — e.g. "derived")
+ * method:         String  (how it was observed)
  * derivedAt:      Long    (provenance — when the duration was derived)
  * ```
  *
@@ -416,11 +431,12 @@ object SharedDurationCodec {
     fun toMap(durationSeconds: Long, provenance: DurationProvenance): Map<String, Any> = mapOf(
         "durationSeconds" to durationSeconds,
         "source" to provenance.source,
+        "method" to provenance.method,
         "derivedAt" to provenance.derivedAt
     )
 
     fun fromMap(map: Map<String, Any>): Long? {
-        val duration = (map["durationSeconds"] as? Number)?.toLong() ?: return null
+        val duration = map["durationSeconds"] as? Long ?: return null
         return duration.takeIf { DurationSanity.isPlausible(it) }
     }
 }

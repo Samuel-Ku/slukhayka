@@ -24,6 +24,7 @@ class SharedDurationCodecTest {
 
         assertEquals(7_200L, map["durationSeconds"])
         assertEquals(DurationProvenance.SOURCE_DERIVED, map["source"])
+        assertEquals(DurationProvenance.METHOD_SOURCE_METADATA, map["method"])
         assertEquals(1_234_567L, map["derivedAt"])
 
         assertEquals(7_200L, SharedDurationCodec.fromMap(map))
@@ -36,6 +37,8 @@ class SharedDurationCodecTest {
         map.remove("durationSeconds")
         assertNull(SharedDurationCodec.fromMap(map))
         map["durationSeconds"] = "три години"
+        assertNull(SharedDurationCodec.fromMap(map))
+        map["durationSeconds"] = 7_200.5
         assertNull(SharedDurationCodec.fromMap(map))
     }
 

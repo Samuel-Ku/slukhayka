@@ -10,6 +10,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.*
@@ -23,6 +24,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.translate
@@ -640,6 +642,7 @@ private fun PlayerTopBar(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun DualProgress(
     progress: PlayerProgressUi,
@@ -649,6 +652,17 @@ private fun DualProgress(
     onBookSeek: (Float) -> Unit
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
+        // #293: «Книга» leads — the whole-book timeline answers «де я в книзі»
+        // first, the chapter slider below answers «де я в главі».
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text("Книга", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                "${MainViewModel.formatTime(progress.bookPositionSeconds)}  /  ${MainViewModel.formatTime(progress.bookDurationSeconds)}",
+                style = TabularTimerStyle,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        BookProgressTrack(progress, onBookSeek)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text("Розділ", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             // Spec-22 T2: tabular (monospace) digits — the timer ticks without
@@ -659,44 +673,66 @@ private fun DualProgress(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
+        val chapterColors = SliderDefaults.colors(
+            thumbColor = MaterialTheme.colorScheme.primary,
+            activeTrackColor = MaterialTheme.colorScheme.primary,
+            inactiveTrackColor = MaterialTheme.colorScheme.outlineVariant
+        )
+        val chapterInteraction = remember { MutableInteractionSource() }
         Slider(
             value = progress.chapterFraction,
             onValueChange = onSeek,
             modifier = Modifier.fillMaxWidth().testTag("player_progress_slider"),
-            colors = SliderDefaults.colors(
-                thumbColor = MaterialTheme.colorScheme.primary,
-                activeTrackColor = MaterialTheme.colorScheme.primary,
-                inactiveTrackColor = MaterialTheme.colorScheme.outlineVariant
-            )
+            colors = chapterColors,
+            interactionSource = chapterInteraction,
+            thumb = {
+                SliderDefaults.Thumb(interactionSource = chapterInteraction, colors = chapterColors)
+            },
+            track = { sliderState ->
+                SliderDefaults.Track(
+                    sliderState = sliderState,
+                    colors = chapterColors,
+                    // #292: M3 1.3.0 draws a stop-indicator dot at the track end
+                    // with activeTrackColor (amber) — listeners read it as a
+                    // phantom bookmark in every book. An empty drawer removes it.
+                    drawStopIndicator = {}
+                )
+            }
         )
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("Книга", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(
-                "${MainViewModel.formatTime(progress.bookPositionSeconds)}  /  ${MainViewModel.formatTime(progress.bookDurationSeconds)}",
-                style = TabularTimerStyle,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-        BookProgressTrack(progress, onBookSeek)
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun BookProgressTrack(progress: PlayerProgressUi, onSeek: (Float) -> Unit) {
     val active = MaterialTheme.colorScheme.primary
     val activeMarker = MaterialTheme.colorScheme.onPrimary
     val inactiveMarker = MaterialTheme.colorScheme.onSurfaceVariant
     Box(modifier = Modifier.fillMaxWidth().testTag("book_progress_track")) {
+        val bookColors = SliderDefaults.colors(
+            thumbColor = active,
+            activeTrackColor = active,
+            inactiveTrackColor = MaterialTheme.colorScheme.outlineVariant
+        )
+        val bookInteraction = remember { MutableInteractionSource() }
         Slider(
             value = progress.bookFraction,
             onValueChange = onSeek,
             enabled = progress.bookDurationSeconds > 0L,
             modifier = Modifier.fillMaxWidth().testTag("book_progress_slider"),
-            colors = SliderDefaults.colors(
-                thumbColor = active,
-                activeTrackColor = active,
-                inactiveTrackColor = MaterialTheme.colorScheme.outlineVariant
-            )
+            colors = bookColors,
+            interactionSource = bookInteraction,
+            thumb = {
+                SliderDefaults.Thumb(interactionSource = bookInteraction, colors = bookColors)
+            },
+            track = { sliderState ->
+                SliderDefaults.Track(
+                    sliderState = sliderState,
+                    colors = bookColors,
+                    // #292: same stop-indicator dot removal as the chapter slider.
+                    drawStopIndicator = {}
+                )
+            }
         )
         Canvas(
             modifier = Modifier
@@ -745,10 +781,9 @@ private fun TransportControls(
         verticalAlignment = Alignment.CenterVertically
     ) {
         TransportIcon(Icons.Default.SkipPrevious, "Попередній розділ", onPreviousChapter)
-        // Spec-27 (#207, BUG-012): the seek buttons carry a visible label
-        // («15 с»/«30 с») below the icon. The forward button reuses Redo (the
-        // clockwise circular arrow — the numberless mirror of Replay) so the
-        // "30" lives only in the label, never baked into the icon.
+        // Seek buttons use the SAME vector (Replay — counter-clockwise arrow) with
+        // the forward one mirrored via scaleX = -1 so the "30 с" icon is the exact
+        // horizontal mirror of "15 с", never a different glyph (Redo).
         SeekButton(Icons.Default.Replay, "Назад на 15 секунд", "15 с", onBack)
         FilledIconButton(
             onClick = onPlayPause,
@@ -761,7 +796,7 @@ private fun TransportControls(
                 modifier = Modifier.size(40.dp)
             )
         }
-        SeekButton(Icons.Default.Redo, "Вперед на 30 секунд", "30 с", onForward)
+        SeekButton(Icons.Default.Replay, "Вперед на 30 секунд", "30 с", onForward, isMirrored = true)
         TransportIcon(Icons.Default.SkipNext, "Наступний розділ", onNextChapter)
     }
 }
@@ -778,11 +813,16 @@ private fun SeekButton(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     description: String,
     label: String,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    isMirrored: Boolean = false
 ) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         IconButton(onClick = onClick, modifier = Modifier.size(AppDimens.TouchTarget)) {
-            Icon(icon, contentDescription = description, modifier = Modifier.size(28.dp))
+            Icon(
+                icon,
+                contentDescription = description,
+                modifier = Modifier.size(28.dp).graphicsLayer(scaleX = if (isMirrored) -1f else 1f)
+            )
         }
         Text(
             label,

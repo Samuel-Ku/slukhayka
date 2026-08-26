@@ -112,7 +112,14 @@ android {
     compose = true
     buildConfig = true
   }
-  testOptions { unitTests { isIncludeAndroidResources = true } }
+  testOptions {
+    unitTests {
+      isIncludeAndroidResources = true
+      // The full JVM suite (1.2k tests, Robolectric NATIVE graphics) does not
+      // fit the 512m Gradle default — OOM-killed hundreds of tests mid-run.
+      all { it.maxHeapSize = "2g" }
+    }
+  }
 }
 
 // spec-29 T1 (#210): the release artifact carries the version in its name

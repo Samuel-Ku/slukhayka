@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -18,6 +19,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -96,14 +98,30 @@ fun SpeedSheet(
                 style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                 color = MaterialTheme.colorScheme.primary
             )
+            val speedColors = SliderDefaults.colors()
+            val speedInteraction = remember { MutableInteractionSource() }
             Slider(
                 value = sliderSpeed,
                 onValueChange = {
                     sliderSpeed = it
                     onSpeedChange(it)
                 },
-                valueRange = AudioPlayerManager.SPEED_MIN..AudioPlayerManager.SPEED_MAX,
-                steps = 9 // 0.25 increments between 0.5 and 3.0
+                modifier = Modifier.fillMaxWidth(),
+                colors = speedColors,
+                interactionSource = speedInteraction,
+                steps = 9, // 0.25 increments between 0.5 and 3.0
+                thumb = {
+                    SliderDefaults.Thumb(interactionSource = speedInteraction, colors = speedColors)
+                },
+                track = { sliderState ->
+                    SliderDefaults.Track(
+                        sliderState = sliderState,
+                        colors = speedColors,
+                        // #292: same stop-indicator dot removal as the player sliders.
+                        drawStopIndicator = {}
+                    )
+                },
+                valueRange = AudioPlayerManager.SPEED_MIN..AudioPlayerManager.SPEED_MAX
             )
 
             Spacer(modifier = Modifier.height(16.dp))

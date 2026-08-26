@@ -196,9 +196,7 @@ jobs:
             mkdir -p app/build/reports/androidTests
             adb logcat -c
             test_status=0
-            ./gradlew :app:connectedDebugAndroidTest \
-              -Pandroid.testInstrumentationRunnerArguments.class=com.slukhayka.audiobooks.accessibility.MainActivityAccessibilityTest \
-              --no-daemon --max-workers=1 --stacktrace || test_status=$?
+            ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.slukhayka.audiobooks.accessibility.MainActivityAccessibilityTest --no-daemon --max-workers=1 --stacktrace || test_status=$?
             adb logcat -d > app/build/reports/androidTests/accessibility-api35-logcat.txt
             exit "$test_status"
 

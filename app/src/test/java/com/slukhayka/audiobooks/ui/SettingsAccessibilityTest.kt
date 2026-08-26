@@ -3,15 +3,21 @@ package com.slukhayka.audiobooks.ui
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.state.ToggleableState
@@ -22,7 +28,10 @@ import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.assertWidthIsAtLeast
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -35,6 +44,8 @@ import com.slukhayka.audiobooks.ui.screens.SettingsRadioOption
 import com.slukhayka.audiobooks.ui.screens.SettingsSwitchRow
 import com.slukhayka.audiobooks.ui.screens.ProfileScreen
 import com.slukhayka.audiobooks.ui.screens.StorageDestinationPane
+import com.slukhayka.audiobooks.ui.screens.SettingsDestinationScaffold
+import com.slukhayka.audiobooks.ui.screens.SettingsDestination
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
 import com.slukhayka.audiobooks.data.identity.FakeListenerIdentity
 import org.junit.Assert.assertEquals
@@ -51,6 +62,74 @@ class SettingsAccessibilityTest {
 
     @get:Rule
     val composeTestRule = createComposeRule()
+
+    @Test
+    fun profileDestinationFocusesItsHeadingAndReflowsAtTwoHundredPercentText() {
+        var backClicks = 0
+        composeTestRule.setContent {
+            val density = LocalDensity.current
+            CompositionLocalProvider(
+                LocalDensity provides Density(density.density, fontScale = 2f)
+            ) {
+                AudiobookTheme(darkTheme = true) {
+                    Box(Modifier.width(320.dp).height(480.dp)) {
+                        ProfileScreen(
+                            identity = FakeListenerIdentity(Random(44)),
+                            onBackClick = { backClicks += 1 }
+                        )
+                    }
+                }
+            }
+        }
+
+        composeTestRule.onAllNodes(
+            SemanticsMatcher.expectValue(SemanticsProperties.PaneTitle, "Профіль"),
+            useUnmergedTree = true
+        ).assertCountEquals(1)
+        composeTestRule.onNodeWithTag("profile_screen_heading", useUnmergedTree = true)
+            .assertTextEquals("Профіль")
+            .assertIsDisplayed()
+            .assertIsFocused()
+        composeTestRule.onNodeWithContentDescription("Назад")
+            .assertWidthIsAtLeast(48.dp)
+            .assertHeightIsAtLeast(48.dp)
+            .performClick()
+        composeTestRule.onNodeWithTag("profile_nickname_field")
+            .performScrollTo()
+            .assertIsDisplayed()
+        composeTestRule.onNodeWithTag("profile_nickname_save")
+            .performScrollTo()
+            .assertIsDisplayed()
+            .assertHeightIsAtLeast(48.dp)
+        assertEquals(1, backClicks)
+    }
+
+    @Test
+    fun networkPrivacyDestinationChromeReflowsAndFocusesItsHeadingAtTwoHundredPercentText() {
+        assertSettingsDestinationChrome(
+            destination = SettingsDestination.NetworkPrivacy,
+            title = "Приватність мережі",
+            headingTag = "network_privacy_screen_heading"
+        )
+    }
+
+    @Test
+    fun recommendationDestinationChromeReflowsAndFocusesItsHeadingAtTwoHundredPercentText() {
+        assertSettingsDestinationChrome(
+            destination = SettingsDestination.Recommendations,
+            title = "Персональні рекомендації",
+            headingTag = "recommendations_screen_heading"
+        )
+    }
+
+    @Test
+    fun storageDestinationChromeReflowsAndFocusesItsHeadingAtTwoHundredPercentText() {
+        assertSettingsDestinationChrome(
+            destination = SettingsDestination.Storage,
+            title = "Завантаження та пам'ять",
+            headingTag = "storage_destination_screen_heading"
+        )
+    }
 
     @Test
     fun switchRowIsOneContextualToggleAndForwardsTheChange() {
@@ -340,5 +419,65 @@ class SettingsAccessibilityTest {
         composeTestRule.onNodeWithText("Скасувати").performClick()
         composeTestRule.onNodeWithTag("profile_restore_button")
             .assertIsFocused()
+    }
+
+    private fun assertSettingsDestinationChrome(
+        destination: SettingsDestination,
+        title: String,
+        headingTag: String
+    ) {
+        var backClicks = 0
+        composeTestRule.setContent {
+            val density = LocalDensity.current
+            CompositionLocalProvider(
+                LocalDensity provides Density(density.density, fontScale = 2f)
+            ) {
+                AudiobookTheme(darkTheme = true) {
+                    Box(Modifier.width(320.dp).height(480.dp)) {
+                        SettingsDestinationScaffold(
+                            destination = destination,
+                            onBackClick = { backClicks += 1 }
+                        ) { padding ->
+                            Column(
+                                Modifier
+                                    .fillMaxSize()
+                                    .padding(padding)
+                                    .verticalScroll(rememberScrollState())
+                                    .padding(16.dp)
+                            ) {
+                                Text("Налаштування")
+                                Button(
+                                    onClick = {},
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(min = 48.dp)
+                                        .testTag("settings_destination_action")
+                                ) {
+                                    Text("Застосувати")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        composeTestRule.onAllNodes(
+            SemanticsMatcher.expectValue(SemanticsProperties.PaneTitle, title),
+            useUnmergedTree = true
+        ).assertCountEquals(1)
+        composeTestRule.onNodeWithTag(headingTag, useUnmergedTree = true)
+            .assertTextEquals(title)
+            .assertIsDisplayed()
+            .assertIsFocused()
+        composeTestRule.onNodeWithContentDescription("Назад")
+            .assertWidthIsAtLeast(48.dp)
+            .assertHeightIsAtLeast(48.dp)
+            .performClick()
+        composeTestRule.onNodeWithTag("settings_destination_action")
+            .performScrollTo()
+            .assertIsDisplayed()
+            .assertHeightIsAtLeast(48.dp)
+        assertEquals(1, backClicks)
     }
 }

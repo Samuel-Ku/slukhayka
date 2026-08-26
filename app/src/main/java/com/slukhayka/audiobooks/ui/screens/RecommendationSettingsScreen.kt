@@ -4,7 +4,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -21,8 +20,6 @@ import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.db.RecommendationPreferenceEntity
 import com.slukhayka.audiobooks.ui.MainViewModel
-import com.slukhayka.audiobooks.ui.components.accessibilityPane
-import com.slukhayka.audiobooks.ui.components.accessibilityModalBackground
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -36,34 +33,18 @@ fun RecommendationSettingsScreen(viewModel: MainViewModel, onBackClick: () -> Un
     var resetNotice by remember { mutableStateOf<String?>(null) }
     var resetDialogVisible by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
-    val screenTitle = stringResource(R.string.recommendations_title)
     val resetDoneMessage = stringResource(R.string.recommendations_reset_done)
 
-    Scaffold(
-        modifier = Modifier
-            .accessibilityPane(screenTitle)
-            .accessibilityModalBackground(resetDialogVisible),
-        topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        screenTitle,
-                        modifier = Modifier.semantics { heading() }
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBackClick) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = stringResource(R.string.action_back)
-                        )
-                    }
-                }
-            )
-        }
+    SettingsDestinationScaffold(
+        destination = SettingsDestination.Recommendations,
+        onBackClick = onBackClick,
+        modalVisible = resetDialogVisible
     ) { padding ->
         LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(padding),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .testTag("recommendations_screen"),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {

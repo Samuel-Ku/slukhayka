@@ -65,6 +65,7 @@ import com.slukhayka.audiobooks.ui.reviewWorkIdFor
 import com.slukhayka.audiobooks.ui.components.BookmarkDialog
 import com.slukhayka.audiobooks.ui.components.BookCoverImage
 import com.slukhayka.audiobooks.ui.components.BookCoverSemantics
+import com.slukhayka.audiobooks.ui.components.RestoreFocusAfterModal
 import com.slukhayka.audiobooks.ui.components.accessibilityModalBackground
 import com.slukhayka.audiobooks.ui.components.accessibilityPane
 import com.slukhayka.audiobooks.ui.displayAuthor
@@ -873,6 +874,11 @@ fun BookDetailScreen(
         )
     }
 
+    RestoreFocusAfterModal(
+        modalVisible = bookmarkToDelete != null,
+        returnFocusRequester = bookmarkDeleteOrigin,
+        onFocusRestored = { bookmarkDeleteOrigin = null }
+    )
     bookmarkToDelete?.let { doomed ->
         val deletedMessage = stringResource(R.string.book_detail_bookmark_deleted)
         val deleteError = stringResource(R.string.book_detail_bookmark_delete_error)
@@ -887,8 +893,7 @@ fun BookDetailScreen(
                         .onFailure { snackbarHostState.showSnackbar(deleteError) }
                 }
             },
-            onDismiss = { bookmarkToDelete = null },
-            returnFocusRequester = bookmarkDeleteOrigin
+            onDismiss = { bookmarkToDelete = null }
         )
     }
 
@@ -1505,17 +1510,10 @@ fun BookDeleteModalLifecycle(
     onRequestConfirmation: () -> Unit,
     onConfirmationDismiss: () -> Unit
 ) {
-    var modalWasVisible by remember { mutableStateOf(showOptions || showConfirmation) }
-    LaunchedEffect(showOptions, showConfirmation) {
-        val modalVisible = showOptions || showConfirmation
-        if (modalVisible) {
-            modalWasVisible = true
-        } else if (modalWasVisible) {
-            withFrameNanos { }
-            returnFocusRequester.requestFocus()
-            modalWasVisible = false
-        }
-    }
+    RestoreFocusAfterModal(
+        modalVisible = showOptions || showConfirmation,
+        returnFocusRequester = returnFocusRequester
+    )
 
     if (showOptions) {
         BookDeleteOptionsSheet(
@@ -1744,23 +1742,12 @@ fun BookmarkDeleteConfirmation(
     workTitle: String,
     bookmark: BookmarkEntity,
     onConfirm: () -> Unit,
-    onDismiss: () -> Unit,
-    returnFocusRequester: FocusRequester? = null
+    onDismiss: () -> Unit
 ) {
     val timestamp = MainViewModel.formatTime(bookmark.timestampSeconds)
     val headingFocusRequester = remember { FocusRequester() }
-    val scope = rememberCoroutineScope()
-    fun finishAndRestore(action: () -> Unit) {
-        action()
-        returnFocusRequester?.let { requester ->
-            scope.launch {
-                withFrameNanos { }
-                requester.requestFocus()
-            }
-        }
-    }
     AlertDialog(
-        onDismissRequest = { finishAndRestore(onDismiss) },
+        onDismissRequest = onDismiss,
         modifier = Modifier
             .accessibilityPane(stringResource(R.string.book_detail_bookmark_delete_pane))
             .testTag("book_detail_bookmark_delete_dialog"),
@@ -1808,7 +1795,7 @@ fun BookmarkDeleteConfirmation(
         },
         confirmButton = {
             Button(
-                onClick = { finishAndRestore(onConfirm) },
+                onClick = onConfirm,
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
                 modifier = Modifier
                     .heightIn(min = 48.dp)
@@ -1823,7 +1810,7 @@ fun BookmarkDeleteConfirmation(
         },
         dismissButton = {
             TextButton(
-                onClick = { finishAndRestore(onDismiss) },
+                onClick = onDismiss,
                 modifier = Modifier.heightIn(min = 48.dp)
             ) {
                 Text(

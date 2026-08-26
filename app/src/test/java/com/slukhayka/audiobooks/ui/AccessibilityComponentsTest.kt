@@ -4,16 +4,26 @@ import android.content.Context
 import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
 import android.net.Uri
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertContentDescriptionEquals
+import androidx.compose.ui.test.assertIsFocused
+import androidx.compose.ui.test.assertIsNotFocused
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
@@ -32,9 +42,11 @@ import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.ui.components.AppSectionHeader
 import com.slukhayka.audiobooks.ui.components.BookCoverImage
 import com.slukhayka.audiobooks.ui.components.BookCoverSemantics
+import com.slukhayka.audiobooks.ui.components.RestoreFocusAfterModal
 import com.slukhayka.audiobooks.ui.components.accessibilityModalBackground
 import com.slukhayka.audiobooks.ui.components.accessibilityPane
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
+import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -207,6 +219,58 @@ class AccessibilityComponentsTest {
                     "Програвач"
                 )
             )
+    }
+
+    @Test
+    fun modalFocusReturnRunsOnlyAfterAVisibleToClosedTransition() {
+        var setModalVisible: ((Boolean) -> Unit)? = null
+        var restoreCount = 0
+        composeTestRule.setContent {
+            var modalVisible by remember { mutableStateOf(false) }
+            val initialFocusRequester = remember { FocusRequester() }
+            val returnFocusRequester = remember { FocusRequester() }
+            setModalVisible = { modalVisible = it }
+
+            RestoreFocusAfterModal(
+                modalVisible = modalVisible,
+                returnFocusRequester = returnFocusRequester,
+                onFocusRestored = { restoreCount += 1 }
+            )
+            LaunchedEffect(initialFocusRequester) {
+                initialFocusRequester.requestFocus()
+            }
+            Column {
+                Box(
+                    Modifier
+                        .size(48.dp)
+                        .focusRequester(initialFocusRequester)
+                        .focusable()
+                        .testTag("initial_focus_target")
+                )
+                Box(
+                    Modifier
+                        .size(48.dp)
+                        .focusRequester(returnFocusRequester)
+                        .focusable()
+                        .testTag("modal_return_focus_target")
+                )
+            }
+        }
+
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("initial_focus_target").assertIsFocused()
+        composeTestRule.onNodeWithTag("modal_return_focus_target").assertIsNotFocused()
+        assertEquals(0, restoreCount)
+
+        composeTestRule.runOnIdle { setModalVisible?.invoke(true) }
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("modal_return_focus_target").assertIsNotFocused()
+        assertEquals(0, restoreCount)
+
+        composeTestRule.runOnIdle { setModalVisible?.invoke(false) }
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("modal_return_focus_target").assertIsFocused()
+        assertEquals(1, restoreCount)
     }
 
     private fun loadedCoverImageLoader(context: Context): ImageLoader =

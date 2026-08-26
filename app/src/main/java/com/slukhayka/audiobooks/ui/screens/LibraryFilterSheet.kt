@@ -33,7 +33,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,7 +52,6 @@ import com.slukhayka.audiobooks.ui.library.SHEET_FILTERS
 import com.slukhayka.audiobooks.ui.library.STATUS_FILTERS
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.ui.components.accessibilityPane
-import kotlinx.coroutines.launch
 
 /**
  * spec-28 #193 — the Медіатека filter chrome, split into a visible segmented
@@ -132,22 +130,11 @@ fun LibraryFilterSheet(
     onFilterChange: (LibraryFilter) -> Unit,
     onSortChange: (LibrarySort) -> Unit,
     onGridModeChange: (Boolean) -> Unit,
-    onDismiss: () -> Unit,
-    returnFocusRequester: FocusRequester? = null
+    onDismiss: () -> Unit
 ) {
-    val scope = rememberCoroutineScope()
     val headingFocusRequester = remember { FocusRequester() }
-    fun dismissAndRestore() {
-        onDismiss()
-        returnFocusRequester?.let { requester ->
-            scope.launch {
-                withFrameNanos { }
-                requester.requestFocus()
-            }
-        }
-    }
     ModalBottomSheet(
-        onDismissRequest = ::dismissAndRestore,
+        onDismissRequest = onDismiss,
         containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         modifier = Modifier.accessibilityPane(stringResource(R.string.a11y_library_filter_pane))
     ) {
@@ -160,7 +147,7 @@ fun LibraryFilterSheet(
             onGridModeChange = onGridModeChange,
             headingFocusRequester = headingFocusRequester,
             includePaneSemantics = false,
-            onClose = ::dismissAndRestore
+            onClose = onDismiss
         )
     }
 }

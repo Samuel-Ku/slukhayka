@@ -28,7 +28,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,7 +44,6 @@ import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.ui.theme.AppDimens
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.ui.components.accessibilityPane
-import kotlinx.coroutines.launch
 
 /**
  * spec-28 (#194) — the «+ Додати» sheet: one import action opening a sheet
@@ -59,31 +57,20 @@ import kotlinx.coroutines.launch
 fun LibraryImportSheet(
     onImportFile: () -> Unit,
     onImportFolder: () -> Unit,
-    onDismiss: () -> Unit,
-    returnFocusRequester: FocusRequester? = null
+    onDismiss: () -> Unit
 ) {
-    val scope = rememberCoroutineScope()
     val headingFocusRequester = remember { FocusRequester() }
-    fun finishAndRestore(action: () -> Unit) {
-        action()
-        returnFocusRequester?.let { requester ->
-            scope.launch {
-                withFrameNanos { }
-                requester.requestFocus()
-            }
-        }
-    }
     ModalBottomSheet(
-        onDismissRequest = { finishAndRestore(onDismiss) },
+        onDismissRequest = onDismiss,
         containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         modifier = Modifier.accessibilityPane(stringResource(R.string.a11y_library_import_pane))
     ) {
         LibraryImportSheetContent(
-            onImportFile = { finishAndRestore(onImportFile) },
-            onImportFolder = { finishAndRestore(onImportFolder) },
+            onImportFile = onImportFile,
+            onImportFolder = onImportFolder,
             headingFocusRequester = headingFocusRequester,
             includePaneSemantics = false,
-            onClose = { finishAndRestore(onDismiss) }
+            onClose = onDismiss
         )
     }
 }

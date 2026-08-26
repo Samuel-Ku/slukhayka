@@ -76,6 +76,8 @@ fun LazyListScope.homeFeedContent(
     onBookClick: (String) -> Unit,
     onSetFeedGenreFilters: (Set<String>) -> Unit,
     onSetFeedSortByTitle: (Boolean) -> Unit,
+    onOpenFeedFilters: (() -> Unit)? = null,
+    feedFilterTriggerModifier: Modifier = Modifier,
     onOpenWebSource: (() -> Unit)? = null,
     onRecommendationFeedback: (RecommendationEngine.Recommendation, String) -> Unit = { _, _ -> },
     showRecommendationConsent: Boolean = false,
@@ -378,7 +380,9 @@ fun LazyListScope.homeFeedContent(
             sortByTitle = feedSortByTitle,
             genres = genreFacetOptions,
             onGenresChange = onSetFeedGenreFilters,
-            onSortChange = onSetFeedSortByTitle
+            onSortChange = onSetFeedSortByTitle,
+            onOpenFilters = onOpenFeedFilters,
+            filterTriggerModifier = feedFilterTriggerModifier
         )
     }
     if (workFeedItems.itemCount == 0 && workFeedItems.loadState.refresh is LoadState.Loading) {

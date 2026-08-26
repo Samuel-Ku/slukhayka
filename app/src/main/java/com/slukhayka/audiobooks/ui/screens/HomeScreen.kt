@@ -58,6 +58,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.catalog.CatalogBook
@@ -79,6 +80,7 @@ import com.slukhayka.audiobooks.ui.components.NavigationChip
 import com.slukhayka.audiobooks.ui.components.UpdateBanner
 import com.slukhayka.audiobooks.ui.components.accessibilityModalBackground
 import com.slukhayka.audiobooks.ui.components.accessibilityPane
+import com.slukhayka.audiobooks.ui.components.RestoreFocusAfterModal
 import com.slukhayka.audiobooks.ui.components.genreAccentColor
 import com.slukhayka.audiobooks.ui.displayAuthor
 import com.slukhayka.audiobooks.ui.durationBooksFrom
@@ -142,6 +144,13 @@ fun HomeScreen(
     val recommendationSettings by viewModel.recommendationSettings.collectAsState()
     var showRecommendationDisclosure by rememberSaveable { mutableStateOf(false) }
     val recommendationDisclosureTriggerFocusRequester = remember { FocusRequester() }
+    var showWorkFeedFilters by rememberSaveable { mutableStateOf(false) }
+    val workFeedFilterTriggerFocusRequester = remember { FocusRequester() }
+
+    RestoreFocusAfterModal(
+        modalVisible = showWorkFeedFilters,
+        returnFocusRequester = workFeedFilterTriggerFocusRequester
+    )
 
     // Spec-39 T1 (#261): «Ваші цикли» — derived purely from the local base
     // (library rows + Listening State + every known Work), no network and no
@@ -234,10 +243,9 @@ fun HomeScreen(
     // Text-search mode: genre filtering has one home in the feed sheet.
     val inSearchMode = searchQuery.isNotBlank()
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .accessibilityModalBackground(showRecommendationDisclosure)
+    HomeModalUnderlay(
+        modalVisible = showRecommendationDisclosure || showWorkFeedFilters,
+        modifier = Modifier.fillMaxSize()
     ) {
         LazyColumn(
             modifier = Modifier
@@ -384,6 +392,8 @@ fun HomeScreen(
                 onBookClick = onBookClick,
                 onSetFeedGenreFilters = { viewModel.setFeedGenreFilters(it) },
                 onSetFeedSortByTitle = { viewModel.setFeedSortByTitle(it) },
+                onOpenFeedFilters = { showWorkFeedFilters = true },
+                feedFilterTriggerModifier = Modifier.focusRequester(workFeedFilterTriggerFocusRequester),
                 onOpenWebSource = onOpenWebSource,
                 onRecommendationFeedback = { rec, kind ->
                     scope.launch {
@@ -423,6 +433,14 @@ fun HomeScreen(
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 80.dp)
         )
     }
+    if (showWorkFeedFilters) {
+        WorkFeedFilterSheet(
+            selectedGenreIds = feedGenreFilters,
+            genres = genreFacetOptions,
+            onGenresChange = { viewModel.setFeedGenreFilters(it) },
+            onDismiss = { showWorkFeedFilters = false }
+        )
+    }
     RecommendationDisclosureDialog(
         visible = showRecommendationDisclosure,
         returnFocusRequester = recommendationDisclosureTriggerFocusRequester,
@@ -435,6 +453,21 @@ fun HomeScreen(
             showRecommendationDisclosure = false
         },
         onDismiss = { showRecommendationDisclosure = false }
+    )
+}
+
+/** The complete non-modal Огляд layer, including its Snackbar feedback. */
+@Composable
+internal fun HomeModalUnderlay(
+    modalVisible: Boolean,
+    modifier: Modifier = Modifier,
+    content: @Composable BoxScope.() -> Unit
+) {
+    Box(
+        modifier = modifier
+            .testTag("home_modal_underlay")
+            .accessibilityModalBackground(modalVisible),
+        content = content
     )
 }
 
@@ -1602,11 +1635,12 @@ fun WorkFeedFilters(
     sortByTitle: Boolean,
     genres: List<GenreFacetOption>,
     onGenresChange: (Set<String>) -> Unit,
-    onSortChange: (Boolean) -> Unit
+    onSortChange: (Boolean) -> Unit,
+    onOpenFilters: (() -> Unit)? = null,
+    filterTriggerModifier: Modifier = Modifier
 ) {
     var sortExpanded by remember { mutableStateOf(false) }
     var showFilterSheet by rememberSaveable { mutableStateOf(false) }
-    val filterSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     Surface(
         color = MaterialTheme.colorScheme.surface,
@@ -1623,7 +1657,9 @@ fun WorkFeedFilters(
             Box {
                 OutlinedButton(
                     onClick = { sortExpanded = true },
-                    modifier = Modifier.testTag("feed_sort")
+                    modifier = Modifier
+                        .heightIn(min = 48.dp)
+                        .testTag("feed_sort")
                 ) {
                     Text(if (sortByTitle) "За назвою" else "Спочатку нові")
                     Spacer(modifier = Modifier.width(4.dp))
@@ -1651,7 +1687,9 @@ fun WorkFeedFilters(
             }
             FilterChip(
                 selected = selectedGenreIds.isNotEmpty(),
-                onClick = { showFilterSheet = true },
+                onClick = {
+                    if (onOpenFilters != null) onOpenFilters() else showFilterSheet = true
+                },
                 label = { Text("Фільтри") },
                 leadingIcon = {
                     Icon(
@@ -1660,70 +1698,122 @@ fun WorkFeedFilters(
                         modifier = Modifier.size(FilterChipDefaults.IconSize)
                     )
                 },
-                modifier = Modifier.testTag("feed_filters")
+                modifier = filterTriggerModifier
+                    .heightIn(min = 48.dp)
+                    .testTag("feed_filters")
             )
         }
     }
 
     if (showFilterSheet) {
-        ModalBottomSheet(
-            onDismissRequest = { showFilterSheet = false },
-            sheetState = filterSheetState,
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
-        ) {
-            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-                val genreListMaxHeight = maxHeight * 0.55f
-                Column(
+        WorkFeedFilterSheet(
+            selectedGenreIds = selectedGenreIds,
+            genres = genres,
+            onGenresChange = onGenresChange,
+            onDismiss = { showFilterSheet = false }
+        )
+    }
+}
+
+/** Modal catalogue-facet surface, kept outside the Home underlay by its owner. */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+fun WorkFeedFilterSheet(
+    selectedGenreIds: Set<String>,
+    genres: List<GenreFacetOption>,
+    onGenresChange: (Set<String>) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val paneTitle = stringResource(R.string.a11y_work_feed_filter_pane)
+    val headingFocusRequester = remember { FocusRequester() }
+    val filterSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    LaunchedEffect(filterSheetState) {
+        snapshotFlow { filterSheetState.currentValue }
+            .first { it == SheetValue.Expanded }
+        withFrameNanos { }
+        headingFocusRequester.requestFocus()
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = filterSheetState,
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        modifier = Modifier
+            .testTag("work_feed_filter_sheet")
+            .accessibilityPane(paneTitle)
+    ) {
+        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+            val genreListMaxHeight = maxHeight * 0.55f
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp)
+                    .navigationBarsPadding()
+            ) {
+                Text(
+                    text = "Фільтри",
+                    style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp)
-                        .navigationBarsPadding()
+                        .focusRequester(headingFocusRequester)
+                        .focusable()
+                        .testTag("work_feed_filter_heading")
+                        .semantics { heading() }
+                )
+                Spacer(modifier = Modifier.height(20.dp))
+                Text(text = "Жанри", style = MaterialTheme.typography.titleMedium)
+                Spacer(modifier = Modifier.height(12.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier
+                        .heightIn(max = genreListMaxHeight)
+                        .verticalScroll(rememberScrollState())
                 ) {
-                    Text(
-                        text = "Фільтри",
-                        style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold)
-                    )
-                    Spacer(modifier = Modifier.height(20.dp))
-                    Text(text = "Жанри", style = MaterialTheme.typography.titleMedium)
-                    Spacer(modifier = Modifier.height(12.dp))
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    FilterChip(
+                        selected = selectedGenreIds.isEmpty(),
+                        onClick = { onGenresChange(emptySet()) },
+                        label = { Text("Усі жанри") },
                         modifier = Modifier
-                            .heightIn(max = genreListMaxHeight)
-                            .verticalScroll(rememberScrollState())
-                    ) {
+                            .heightIn(min = 48.dp)
+                            .testTag("feed_genre_all")
+                    )
+                    genres.forEach { genre ->
                         FilterChip(
-                            selected = selectedGenreIds.isEmpty(),
-                            onClick = { onGenresChange(emptySet()) },
-                            label = { Text("Усі жанри") },
-                            modifier = Modifier.testTag("feed_genre_all")
+                            selected = genre.id in selectedGenreIds,
+                            onClick = {
+                                onGenresChange(
+                                    if (genre.id in selectedGenreIds) selectedGenreIds - genre.id
+                                    else selectedGenreIds + genre.id
+                                )
+                            },
+                            label = { Text(genre.label) },
+                            modifier = Modifier
+                                .heightIn(min = 48.dp)
+                                .testTag("feed_genre_${genre.id}")
                         )
-                        genres.forEach { genre ->
-                            FilterChip(
-                                selected = genre.id in selectedGenreIds,
-                                onClick = {
-                                    onGenresChange(
-                                        if (genre.id in selectedGenreIds) selectedGenreIds - genre.id
-                                        else selectedGenreIds + genre.id
-                                    )
-                                },
-                                label = { Text(genre.label) },
-                                modifier = Modifier.testTag("feed_genre_${genre.id}")
-                            )
-                        }
                     }
-                    Spacer(modifier = Modifier.height(24.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        TextButton(onClick = { onGenresChange(emptySet()) }) { Text("Скинути все") }
-                        Button(onClick = { showFilterSheet = false }) { Text("Готово") }
-                    }
-                    Spacer(modifier = Modifier.height(12.dp))
                 }
+                Spacer(modifier = Modifier.height(24.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TextButton(
+                        onClick = { onGenresChange(emptySet()) },
+                        modifier = Modifier
+                            .heightIn(min = 48.dp)
+                            .testTag("feed_filter_reset")
+                    ) { Text("Скинути все") }
+                    Button(
+                        onClick = onDismiss,
+                        modifier = Modifier
+                            .heightIn(min = 48.dp)
+                            .testTag("feed_filter_done")
+                    ) { Text("Готово") }
+                }
+                Spacer(modifier = Modifier.height(12.dp))
             }
         }
     }

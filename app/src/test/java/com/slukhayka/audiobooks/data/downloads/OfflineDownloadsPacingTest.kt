@@ -14,6 +14,7 @@ import com.slukhayka.audiobooks.data.source.SourceBookDetail
 import com.slukhayka.audiobooks.data.source.SourceChapter
 import com.slukhayka.audiobooks.testing.FakeFetcher
 import java.io.File
+import java.util.Collections
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.random.Random
 import kotlinx.coroutines.awaitCancellation
@@ -136,7 +137,7 @@ class OfflineDownloadsPacingTest {
             burstLimit = 6,
             burstWindowMillis = 60_000
         )
-        val attempts = mutableListOf<Long>()
+        val attempts = Collections.synchronizedList(mutableListOf<Long>())
         val clock = VirtualClock()
         val fetcher = fetcherFor((0 until 4).map { "https://cdn.example.com/track-$it.mp3" })
         val (imports, downloads) = harness(

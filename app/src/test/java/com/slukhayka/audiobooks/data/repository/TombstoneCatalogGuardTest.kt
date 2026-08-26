@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.slukhayka.audiobooks.data.catalog.CatalogBook
+import com.slukhayka.audiobooks.data.catalog.CatalogFetchResult
 import com.slukhayka.audiobooks.data.catalog.SourceCatalog
 import com.slukhayka.audiobooks.data.db.AudiobookDao
 import com.slukhayka.audiobooks.data.db.AudiobookDatabase
@@ -13,12 +14,16 @@ import com.slukhayka.audiobooks.data.source.SourceAdapter
 import com.slukhayka.audiobooks.data.source.SourceBook
 import com.slukhayka.audiobooks.data.source.SourceBookDetail
 import com.slukhayka.audiobooks.data.source.SourceChapter
+import com.slukhayka.audiobooks.data.source.HttpFetcher
 import com.slukhayka.audiobooks.testing.FakeFetcher
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
+import java.io.IOException
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -62,6 +67,13 @@ class TombstoneCatalogGuardTest {
         emptyList(),
         LibraryImport(dao, context, emptyList()),
         fourReadFetcher = FakeFetcher(pages)
+    )
+
+    private fun catalog(fetcher: HttpFetcher) = SourceCatalog(
+        dao,
+        emptyList(),
+        LibraryImport(dao, context, emptyList()),
+        fourReadFetcher = fetcher
     )
 
     private fun poster(url: String, title: String, author: String) = """
@@ -162,6 +174,46 @@ class TombstoneCatalogGuardTest {
     }
 
     // --- Catalog fetches assemble what actually landed ---------------------
+
+    @Test
+    fun `blank remote page is a failed fetch rather than an empty catalogue`() = runBlocking {
+        val result = catalog(mapOf(seriesUrl to " ")).fetchSeriesBooksResult(seriesUrl)
+
+        assertTrue(result is CatalogFetchResult.Failure)
+    }
+
+    @Test
+    fun `nonblank remote page with no books is an honest successful empty result`() = runBlocking {
+        val result = catalog(mapOf(seriesUrl to "<html><body></body></html>"))
+            .fetchSeriesBooksResult(seriesUrl)
+
+        when (result) {
+            is CatalogFetchResult.Success -> assertTrue(result.value.isEmpty())
+            CatalogFetchResult.Failure -> error("Expected a successful empty parse")
+        }
+    }
+
+    @Test
+    fun `transport exception is a failed fetch`() = runBlocking {
+        val fetcher = object : HttpFetcher() {
+            override fun getText(url: String): String = throw IOException("offline")
+        }
+
+        val result = catalog(fetcher).fetchSeriesBooksResult(seriesUrl)
+
+        assertTrue(result is CatalogFetchResult.Failure)
+    }
+
+    @Test
+    fun `fetch cancellation is propagated`() {
+        val fetcher = object : HttpFetcher() {
+            override fun getText(url: String): String = throw CancellationException("closed")
+        }
+
+        assertThrows(CancellationException::class.java) {
+            runBlocking { catalog(fetcher).fetchSeriesBooksResult(seriesUrl) }
+        }
+    }
 
     @Test
     fun `series fetch skips tombstoned works`() = runBlocking {

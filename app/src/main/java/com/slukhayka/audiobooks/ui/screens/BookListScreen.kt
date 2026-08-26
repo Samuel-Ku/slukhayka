@@ -2,19 +2,21 @@ package com.slukhayka.audiobooks.ui.screens
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.MenuBook
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
+import com.slukhayka.audiobooks.ui.components.IndexScreenScaffold
+import com.slukhayka.audiobooks.ui.components.SecondaryLoadingState
+import com.slukhayka.audiobooks.ui.components.SecondaryMessageState
 import com.slukhayka.audiobooks.ui.theme.*
 
 /**
@@ -34,33 +36,32 @@ fun BookListScreen(
     onBackClick: () -> Unit,
     onBookClick: (String) -> Unit,
     onPlayClick: (AudiobookEntity) -> Unit,
-    testTag: String
+    testTag: String,
+    errorMessage: String? = null,
+    restoreFocusBookId: String? = null,
+    onBookFocusRestored: (String) -> Unit = {},
+    listState: LazyListState = rememberLazyListState()
 ) {
-    Scaffold(
-        topBar = {
-            // Host Scaffold in MainActivity already consumed the status bar
-            // (innerPadding.top); don't let this inner TopAppBar add it again.
-            TopAppBar(
-                windowInsets = WindowInsets(0, 0, 0, 0),
-                title = {
-                    Text(
-                        text = title,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBackClick) {
-                        Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
-            )
-        },
-        containerColor = MaterialTheme.colorScheme.background
+    val returnFocusRequester = remember { FocusRequester() }
+
+    IndexScreenScaffold(
+        title = title,
+        onBackClick = onBackClick
     ) { padding ->
+        LaunchedEffect(restoreFocusBookId, books, isLoading, errorMessage) {
+            val bookId = restoreFocusBookId ?: return@LaunchedEffect
+            if (isLoading || errorMessage != null) return@LaunchedEffect
+            val bookIndex = books.indexOfFirst { it.id == bookId }
+            if (bookIndex < 0) return@LaunchedEffect
+            val countOffset = if (countLabel != null) 1 else 0
+            listState.scrollToItem(bookIndex + countOffset)
+            withFrameNanos { }
+            if (runCatching { returnFocusRequester.requestFocus() }.getOrDefault(false)) {
+                onBookFocusRestored(bookId)
+            }
+        }
         LazyColumn(
+            state = listState,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
@@ -70,40 +71,34 @@ fun BookListScreen(
             when {
                 isLoading -> {
                     item {
-                        Box(
+                        SecondaryLoadingState(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(48.dp)
+                        )
+                    }
+                }
+
+                errorMessage != null -> {
+                    item {
+                        SecondaryMessageState(
+                            message = errorMessage,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(48.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                        }
+                            isError = true
+                        )
                     }
                 }
 
                 books.isEmpty() -> {
                     item {
-                        Box(
+                        SecondaryMessageState(
+                            message = emptyMessage,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(48.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(
-                                    imageVector = Icons.Default.MenuBook,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(48.dp)
-                                )
-                                Spacer(modifier = Modifier.height(12.dp))
-                                Text(
-                                    text = emptyMessage,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
+                                .padding(48.dp)
+                        )
                     }
                 }
 
@@ -122,7 +117,12 @@ fun BookListScreen(
                         AudiobookListItem(
                             book = book,
                             onClick = { onBookClick(book.id) },
-                            onPlayClick = { onPlayClick(book) }
+                            onPlayClick = { onPlayClick(book) },
+                            modifier = if (book.id == restoreFocusBookId) {
+                                Modifier.focusRequester(returnFocusRequester)
+                            } else {
+                                Modifier
+                            }
                         )
                     }
                 }

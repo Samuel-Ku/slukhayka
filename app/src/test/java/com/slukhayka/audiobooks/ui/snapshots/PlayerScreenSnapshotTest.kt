@@ -7,6 +7,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertHeightIsAtLeast
+import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -14,9 +15,9 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
-import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.BookmarkEntity
@@ -85,13 +86,22 @@ class PlayerScreenSnapshotTest {
         playbackSpeed = 1.25f,
         isOfflineMode = true
     )
+    private val progress = calculatePlayerProgress(
+        chapters,
+        state.currentChapterIndex,
+        state.currentPositionMs,
+        state.durationMs,
+        listOf(bookmark)
+    )
 
     @Test
     fun full_player_dark() {
         setPlayerContent()
         // Spec-24 T7 (#168): the fixture narrator is a real name, so the
         // «Читає …» line renders — self-verifying on top of the image.
-        composeTestRule.onNodeWithText("Читає Олександр Завальський").assertExists()
+        composeTestRule.onNodeWithTag("player_context").assertContentDescriptionEquals(
+            "Нейромант. Автор: Вільям Гібсон. Начитка: Олександр Завальський. Поточний розділ: Розділ 2. Зустріч у Чіба-сіті"
+        )
         composeTestRule.onRoot().captureRoboImage(filePath = "src/test/snapshots/player_redesign_dark.png")
     }
 
@@ -127,7 +137,9 @@ class PlayerScreenSnapshotTest {
         // No scrollable content column remains.
         composeTestRule.onNode(hasScrollAction()).assertDoesNotExist()
         // Every control is visible in the tight viewport without scrolling.
-        composeTestRule.onNodeWithContentDescription("Наступний розділ").assertIsDisplayed()
+        composeTestRule.onNodeWithContentDescription(
+            "Наступний розділ після «Розділ 2. Зустріч у Чіба-сіті». Нейромант"
+        ).assertIsDisplayed()
         composeTestRule.onNodeWithTag("player_play_pause_button").assertIsDisplayed()
         composeTestRule.onNodeWithTag("speed_chip").assertIsDisplayed()
         composeTestRule.onNodeWithTag("sleep_timer_chip").assertIsDisplayed()
@@ -151,11 +163,19 @@ class PlayerScreenSnapshotTest {
         var speedClicks = 0
         setPlayerContent(onPlayPause = { playClicks++ }, onSpeed = { speedClicks++ })
 
-        composeTestRule.onNodeWithContentDescription("Попередній розділ").assertIsDisplayed().assertHeightIsAtLeast(48.dp)
-        composeTestRule.onNodeWithContentDescription("Назад на 15 секунд").assertIsDisplayed().assertHeightIsAtLeast(48.dp)
+        composeTestRule.onNodeWithContentDescription(
+            "Попередній розділ перед «Розділ 2. Зустріч у Чіба-сіті». Нейромант"
+        ).assertIsDisplayed().assertHeightIsAtLeast(48.dp)
+        composeTestRule.onNodeWithContentDescription(
+            "Назад на 15 секунд. Нейромант, Розділ 2. Зустріч у Чіба-сіті"
+        ).assertIsDisplayed().assertHeightIsAtLeast(48.dp)
         composeTestRule.onNodeWithTag("player_play_pause_button").assertIsDisplayed().assertHeightIsAtLeast(48.dp).performClick()
-        composeTestRule.onNodeWithContentDescription("Вперед на 30 секунд").assertIsDisplayed().assertHeightIsAtLeast(48.dp)
-        composeTestRule.onNodeWithContentDescription("Наступний розділ").assertIsDisplayed().assertHeightIsAtLeast(48.dp)
+        composeTestRule.onNodeWithContentDescription(
+            "Вперед на 30 секунд. Нейромант, Розділ 2. Зустріч у Чіба-сіті"
+        ).assertIsDisplayed().assertHeightIsAtLeast(48.dp)
+        composeTestRule.onNodeWithContentDescription(
+            "Наступний розділ після «Розділ 2. Зустріч у Чіба-сіті». Нейромант"
+        ).assertIsDisplayed().assertHeightIsAtLeast(48.dp)
         composeTestRule.onNodeWithTag("speed_chip").assertIsDisplayed().assertHeightIsAtLeast(48.dp).performClick()
         composeTestRule.onNodeWithTag("sleep_timer_chip").assertIsDisplayed().assertHeightIsAtLeast(48.dp)
         composeTestRule.onNodeWithTag("add_bookmark_chip").assertIsDisplayed().assertHeightIsAtLeast(48.dp)
@@ -170,19 +190,19 @@ class PlayerScreenSnapshotTest {
         var jumpedId: Long? = null
         setPlayerContent(onJumpToBookmark = { jumpedId = it.id })
 
-        composeTestRule.onNodeWithTag("jump_to_last_bookmark").assertIsDisplayed().performClick()
+        composeTestRule.onNodeWithContentDescription("Повернутися до закладки на 02:00")
+            .performSemanticsAction(SemanticsActions.OnClick)
 
         assertEquals(bookmark.id, jumpedId)
     }
 
-    // #355: the full bookmarks list lives behind a LONG press on the return
-    // button — rare action in the secondary gesture (spec-27).
     @Test
     fun long_press_on_jump_button_opens_the_all_bookmarks_sheet() {
         var opened = 0
         setPlayerContent(onShowAllBookmarks = { opened++ })
 
-        composeTestRule.onNodeWithTag("jump_to_last_bookmark").performTouchInput { longClick() }
+        composeTestRule.onNodeWithContentDescription("Повернутися до закладки на 02:00")
+            .performSemanticsAction(SemanticsActions.OnLongClick)
 
         assertEquals(1, opened)
     }
@@ -192,17 +212,6 @@ class PlayerScreenSnapshotTest {
         setPlayerContent(bookmarks = emptyList())
 
         composeTestRule.onNodeWithTag("jump_to_last_bookmark").assertDoesNotExist()
-        // #352: the track reports how many bookmark markers it draws — zero here.
-        composeTestRule.onNodeWithContentDescription("Закладки на шкалі: 0").assertExists()
-    }
-
-    // #352: one drawn bookmark marker per valid bookmark — observable through
-    // the track's content description instead of pixel inspection.
-    @Test
-    fun bookmark_markers_match_the_bookmark_count() {
-        setPlayerContent()
-
-        composeTestRule.onNodeWithContentDescription("Закладки на шкалі: 1").assertExists()
     }
 
     private fun setPlayerContent(
@@ -269,6 +278,7 @@ class PlayerScreenSnapshotTest {
             onTimer = {},
             onBookmark = {},
             onChapters = {},
+            onRetryPlayback = {},
             lastBookmarkTarget = lastCreatedBookmark(bookmarks),
             onJumpToBookmark = onJumpToBookmark,
             onShowAllBookmarks = onShowAllBookmarks

@@ -32,6 +32,8 @@ import com.slukhayka.audiobooks.data.privacy.NetworkPrivacy
 import com.slukhayka.audiobooks.data.privacy.PrivacyPrefs
 import com.slukhayka.audiobooks.data.privacy.RouteResolution
 import com.slukhayka.audiobooks.data.privacy.TransportPrivacy
+import com.slukhayka.audiobooks.data.reviews.ReviewRemoteResult
+import com.slukhayka.audiobooks.data.reviews.ReviewWriteReceipt
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.player.AudioPlayerManager
 import com.slukhayka.audiobooks.player.PlayerState
@@ -39,14 +41,18 @@ import com.slukhayka.audiobooks.ui.library.OutcomeMessages
 import com.slukhayka.audiobooks.ui.library.ResumeStart
 import com.slukhayka.audiobooks.ui.library.computeResumeStart
 import com.slukhayka.audiobooks.ui.library.formatBytes
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 
 // Spec #8 ticket T4: the WebView is no longer a tab — it survives only as the
 // "open on site" fallback on the book page. Bookmarks moved into the Library
@@ -92,6 +98,96 @@ data class SelectedPerson(
     val name: String,
     val path: String
 )
+
+/** One-shot visible outcome of submitting a listener review. */
+enum class ReviewSaveResult {
+    PUBLISHED,
+    QUEUED,
+    FAILED
+}
+
+/** One submission outcome, scoped to both its Work and deterministic review document. */
+data class ReviewSaveEvent(
+    val workId: String,
+    val documentId: String,
+    val generation: Long,
+    val result: ReviewSaveResult
+)
+
+internal data class ReviewSubmission(
+    val workId: String,
+    val documentId: String,
+    val generation: Long
+) {
+    fun event(result: ReviewSaveResult): ReviewSaveEvent = ReviewSaveEvent(
+        workId = workId,
+        documentId = documentId,
+        generation = generation,
+        result = result
+    )
+}
+
+/** Rejects acknowledgements superseded by a newer write to the same review document. */
+internal class ReviewSubmissionGate {
+    private val generations = ConcurrentHashMap<String, AtomicLong>()
+
+    fun begin(workId: String, documentId: String): ReviewSubmission = ReviewSubmission(
+        workId = workId,
+        documentId = documentId,
+        generation = generations.computeIfAbsent(documentId) { AtomicLong() }.incrementAndGet()
+    )
+
+    fun isLatest(submission: ReviewSubmission): Boolean =
+        generations[submission.documentId]?.get() == submission.generation
+}
+
+internal data class ReviewLoadRequest(
+    val workId: String,
+    val generation: Long
+)
+
+/** Prevents an older fetch of one Work from replacing a newer server snapshot. */
+internal class ReviewLoadGate {
+    private val generations = ConcurrentHashMap<String, AtomicLong>()
+
+    fun begin(workId: String): ReviewLoadRequest = ReviewLoadRequest(
+        workId = workId,
+        generation = generations.computeIfAbsent(workId) { AtomicLong() }.incrementAndGet()
+    )
+
+    fun isLatest(request: ReviewLoadRequest): Boolean =
+        generations[request.workId]?.get() == request.generation
+}
+
+/**
+ * Delivers the local queue result before waiting for Firestore's backend Task.
+ * Remote failure remains a visible event; caller cancellation still escapes.
+ */
+internal suspend fun followReviewWrite(
+    receipt: ReviewWriteReceipt,
+    onVisibleResult: suspend (ReviewSaveResult) -> Unit,
+    onRemoteResult: suspend (ReviewRemoteResult) -> Unit
+) {
+    when (receipt) {
+        ReviewWriteReceipt.Rejected -> onVisibleResult(ReviewSaveResult.FAILED)
+        is ReviewWriteReceipt.Queued -> {
+            onVisibleResult(ReviewSaveResult.QUEUED)
+            val remoteResult = receipt.awaitRemote()
+            onRemoteResult(remoteResult)
+            onVisibleResult(
+                if (remoteResult == ReviewRemoteResult.PUBLISHED) {
+                    ReviewSaveResult.PUBLISHED
+                } else {
+                    ReviewSaveResult.FAILED
+                }
+            )
+        }
+    }
+}
+
+/** Listener reviews belong to a Work; legacy Editions fall back to their own id. */
+internal fun reviewWorkIdFor(editionId: String, workId: String?): String =
+    workId?.takeIf { it.isNotBlank() } ?: editionId
 
 // Phase 2.5 hotfix: flatMapLatest is @ExperimentalCoroutinesApi.
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -377,38 +473,46 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _selectedSeries = MutableStateFlow<SelectedSeries?>(null)
     val selectedSeries: StateFlow<SelectedSeries?> = _selectedSeries.asStateFlow()
 
-    private val _seriesBooks = MutableStateFlow<List<AudiobookEntity>>(emptyList())
-    val seriesBooks: StateFlow<List<AudiobookEntity>> = _seriesBooks.asStateFlow()
-
-    private val _isSeriesLoading = MutableStateFlow(false)
-    val isSeriesLoading: StateFlow<Boolean> = _isSeriesLoading.asStateFlow()
+    private val seriesLoader = KeyedCatalogLoader<SelectedSeries, AudiobookEntity>(viewModelScope) {
+        sourceCatalog.fetchSeriesBooksResult(it.url)
+    }
+    val seriesBooks: StateFlow<List<AudiobookEntity>> = seriesLoader.items
+    val isSeriesLoading: StateFlow<Boolean> = seriesLoader.isLoading
+    val seriesLoadFailed: StateFlow<Boolean> = seriesLoader.failed
 
     // Spec-25 (#171): the resolved universe context of the CURRENT series
     // page (the header block: universe name, position, precedes/follows
     // chips). Null until a seeded series page is opened — silent.
     private val _selectedSeriesUniverse = MutableStateFlow<SeriesUniverseContext?>(null)
     val selectedSeriesUniverse: StateFlow<SeriesUniverseContext?> = _selectedSeriesUniverse.asStateFlow()
+    private var seriesUniverseJob: Job? = null
 
     fun openSeries(title: String, url: String) {
-        _selectedSeries.value = SelectedSeries(title, url)
-        _seriesBooks.value = emptyList()
-        _isSeriesLoading.value = true
+        val selected = SelectedSeries(title, url)
+        _selectedSeries.value = selected
+        seriesLoader.open(selected)
         _selectedSeriesUniverse.value = null
-        viewModelScope.launch(Dispatchers.IO) {
-            val books = sourceCatalog.fetchSeriesBooks(url)
-            _seriesBooks.value = books
-            _isSeriesLoading.value = false
-            // Spec-25 (#171): resolve + surface the series' universe, same
-            // cache-first-then-fresher idiom as selectBook.
-            _selectedSeriesUniverse.value = seriesUniverses.contextOf(title, url)
+        seriesUniverseJob?.cancel()
+        seriesUniverseJob = viewModelScope.launch(Dispatchers.IO) {
+            // The universe lookup is an independent cache/refresh sidecar, so
+            // it has the same route-key guard as the catalogue loader.
+            val cached = seriesUniverses.contextOf(title, url)
+            if (_selectedSeries.value == selected) {
+                _selectedSeriesUniverse.value = cached
+            }
             seriesUniverses.resolveForSeries(title, url)
-            _selectedSeriesUniverse.value = seriesUniverses.contextOf(title, url)
+            val refreshed = seriesUniverses.contextOf(title, url)
+            if (_selectedSeries.value == selected) {
+                _selectedSeriesUniverse.value = refreshed
+            }
         }
     }
 
     fun closeSeries() {
         _selectedSeries.value = null
-        _seriesBooks.value = emptyList()
+        seriesLoader.close()
+        seriesUniverseJob?.cancel()
+        seriesUniverseJob = null
         _selectedSeriesUniverse.value = null
     }
 
@@ -544,101 +648,86 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _selectedGenre = MutableStateFlow<SelectedGenre?>(null)
     val selectedGenre: StateFlow<SelectedGenre?> = _selectedGenre.asStateFlow()
 
-    private val _genreBooks = MutableStateFlow<List<AudiobookEntity>>(emptyList())
-    val genreBooks: StateFlow<List<AudiobookEntity>> = _genreBooks.asStateFlow()
-
-    private val _isGenreLoading = MutableStateFlow(false)
-    val isGenreLoading: StateFlow<Boolean> = _isGenreLoading.asStateFlow()
+    private val genreLoader = KeyedCatalogLoader<SelectedGenre, AudiobookEntity>(viewModelScope) {
+        sourceCatalog.fetchGenreBooksResult(it.url)
+    }
+    val genreBooks: StateFlow<List<AudiobookEntity>> = genreLoader.items
+    val isGenreLoading: StateFlow<Boolean> = genreLoader.isLoading
+    val genreLoadFailed: StateFlow<Boolean> = genreLoader.failed
 
     fun openGenre(title: String, url: String) {
-        _selectedGenre.value = SelectedGenre(title, url)
-        _genreBooks.value = emptyList()
-        _isGenreLoading.value = true
-        viewModelScope.launch(Dispatchers.IO) {
-            val books = sourceCatalog.fetchGenreBooks(url)
-            _genreBooks.value = books
-            _isGenreLoading.value = false
-        }
+        val selected = SelectedGenre(title, url)
+        _selectedGenre.value = selected
+        genreLoader.open(selected)
     }
 
     fun closeGenre() {
         _selectedGenre.value = null
-        _genreBooks.value = emptyList()
+        genreLoader.close()
     }
 
     // ТОП 100 АудіоКниг (`/top-100.html`): a ranked book list.
     private val _selectedTop100 = MutableStateFlow(false)
     val selectedTop100: StateFlow<Boolean> = _selectedTop100.asStateFlow()
 
-    private val _top100Books = MutableStateFlow<List<AudiobookEntity>>(emptyList())
-    val top100Books: StateFlow<List<AudiobookEntity>> = _top100Books.asStateFlow()
-
-    private val _isTop100Loading = MutableStateFlow(false)
-    val isTop100Loading: StateFlow<Boolean> = _isTop100Loading.asStateFlow()
+    private val top100Loader = KeyedCatalogLoader<Unit, AudiobookEntity>(viewModelScope) {
+        sourceCatalog.fetchTop100Result()
+    }
+    val top100Books: StateFlow<List<AudiobookEntity>> = top100Loader.items
+    val isTop100Loading: StateFlow<Boolean> = top100Loader.isLoading
+    val top100LoadFailed: StateFlow<Boolean> = top100Loader.failed
 
     fun openTop100() {
         _selectedTop100.value = true
-        _top100Books.value = emptyList()
-        _isTop100Loading.value = true
-        viewModelScope.launch(Dispatchers.IO) {
-            _top100Books.value = sourceCatalog.fetchTop100()
-            _isTop100Loading.value = false
-        }
+        top100Loader.open(Unit)
     }
 
     fun closeTop100() {
         _selectedTop100.value = false
-        _top100Books.value = emptyList()
+        top100Loader.close()
     }
 
     // Виконавці / Автори index pages (`/readers.html`, `/avtors.html`).
     private val _selectedPeopleKind = MutableStateFlow<PeopleKind?>(null)
     val selectedPeopleKind: StateFlow<PeopleKind?> = _selectedPeopleKind.asStateFlow()
 
-    private val _peopleEntries = MutableStateFlow<List<CatalogPerson>>(emptyList())
-    val peopleEntries: StateFlow<List<CatalogPerson>> = _peopleEntries.asStateFlow()
-
-    private val _isPeopleLoading = MutableStateFlow(false)
-    val isPeopleLoading: StateFlow<Boolean> = _isPeopleLoading.asStateFlow()
+    private val peopleLoader = KeyedCatalogLoader<PeopleKind, CatalogPerson>(viewModelScope) {
+        sourceCatalog.fetchPeopleResult(it.url)
+    }
+    val peopleEntries: StateFlow<List<CatalogPerson>> = peopleLoader.items
+    val isPeopleLoading: StateFlow<Boolean> = peopleLoader.isLoading
+    val peopleLoadFailed: StateFlow<Boolean> = peopleLoader.failed
 
     fun openPeople(kind: PeopleKind) {
         _selectedPeopleKind.value = kind
-        _peopleEntries.value = emptyList()
-        _isPeopleLoading.value = true
-        viewModelScope.launch(Dispatchers.IO) {
-            _peopleEntries.value = sourceCatalog.fetchPeople(kind.url)
-            _isPeopleLoading.value = false
-        }
+        peopleLoader.open(kind)
     }
 
     fun closePeople() {
         _selectedPeopleKind.value = null
-        _peopleEntries.value = emptyList()
+        peopleLoader.close()
     }
 
     // One person's books (`/xfsearch/chitaet|avtor/<name>/` — a poster grid).
     private val _selectedPerson = MutableStateFlow<SelectedPerson?>(null)
     val selectedPerson: StateFlow<SelectedPerson?> = _selectedPerson.asStateFlow()
 
-    private val _personBooks = MutableStateFlow<List<AudiobookEntity>>(emptyList())
-    val personBooks: StateFlow<List<AudiobookEntity>> = _personBooks.asStateFlow()
-
-    private val _isPersonLoading = MutableStateFlow(false)
-    val isPersonLoading: StateFlow<Boolean> = _isPersonLoading.asStateFlow()
+    private val personLoader = KeyedCatalogLoader<SelectedPerson, AudiobookEntity>(viewModelScope) {
+        sourceCatalog.fetchPersonBooksResult(it.path)
+    }
+    val personBooks: StateFlow<List<AudiobookEntity>> = personLoader.items
+    val isPersonLoading: StateFlow<Boolean> = personLoader.isLoading
+    val personLoadFailed: StateFlow<Boolean> = personLoader.failed
 
     fun openPersonBooks(person: CatalogPerson) {
-        _selectedPerson.value = SelectedPerson(person.name, person.path)
-        _personBooks.value = emptyList()
-        _isPersonLoading.value = true
-        viewModelScope.launch(Dispatchers.IO) {
-            _personBooks.value = sourceCatalog.fetchPersonBooks(person.path)
-            _isPersonLoading.value = false
-        }
+        val selected = SelectedPerson(person.name, person.path)
+        _selectedPerson.value = selected
+        personLoader.open(selected)
     }
 
     fun closePersonBooks() {
         _selectedPerson.value = null
-        _personBooks.value = emptyList()
+        personLoader.close()
     }
 
     // Continue-the-series block (spec-9 T4): the next volume of the currently
@@ -684,29 +773,49 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _isGlobalSearchLoading = MutableStateFlow(false)
     val isGlobalSearchLoading: StateFlow<Boolean> = _isGlobalSearchLoading.asStateFlow()
 
+    // Spec-44 #328 coordinator-approved boundary exception: this is a
+    // general, user-visible search failure state, not accessibility-only
+    // branching. Without it the screen cannot distinguish a failed request
+    // from an honest empty result.
+    private val _globalSearchError = MutableStateFlow(false)
+    val globalSearchError: StateFlow<Boolean> = _globalSearchError.asStateFlow()
+
     private var globalSearchJob: kotlinx.coroutines.Job? = null
 
     fun updateSearchQuery(query: String) {
         _searchQuery.value = query
         globalSearchJob?.cancel()
         val clean = query.trim()
+        _globalSearchError.value = false
         if (clean.length < 2) {
             _globalSearchResults.value = emptyList()
             _isGlobalSearchLoading.value = false
             return
         }
+        // Do not leave a previous query's Works visible under a new query;
+        // the screen now presents the truthful loading state instead.
+        _globalSearchResults.value = emptyList()
         _isGlobalSearchLoading.value = true
         globalSearchJob = viewModelScope.launch(Dispatchers.IO) {
             // Debounce keystrokes; cancellation keeps a stale search from
             // overwriting a newer one.
             delay(350)
-            val results = try {
-                sourceCatalog.searchAllSources(clean)
+            try {
+                val results = sourceCatalog.searchAllSources(clean)
+                if (_searchQuery.value.trim() == clean) {
+                    _globalSearchResults.value = results
+                    _globalSearchError.value = false
+                    _isGlobalSearchLoading.value = false
+                }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
             } catch (e: Exception) {
-                emptyList()
+                if (_searchQuery.value.trim() == clean) {
+                    _globalSearchResults.value = emptyList()
+                    _globalSearchError.value = true
+                    _isGlobalSearchLoading.value = false
+                }
             }
-            _globalSearchResults.value = results
-            _isGlobalSearchLoading.value = false
         }
     }
 
@@ -1273,6 +1382,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val pendingReviewKeys: StateFlow<Set<String>> = _pendingReviews
         .map { it.keys }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
 
+    // A submission result is an event, not accessibility-specific state: the
+    // screen uses it to keep failed input open and to retire successful forms.
+    private val reviewSubmissionGate = ReviewSubmissionGate()
+    private val reviewLoadGate = ReviewLoadGate()
+    private val _reviewSaveResults = MutableSharedFlow<ReviewSaveEvent>(extraBufferCapacity = 16)
+    val reviewSaveResults: SharedFlow<ReviewSaveEvent> = _reviewSaveResults.asSharedFlow()
+
     // Spec-40 #281 — the LOCAL mute list: purely per-device, server-free.
     private val _hiddenAuthors = MutableStateFlow<Set<String>>(emptySet())
     val hiddenAuthors: StateFlow<List<String>> = _hiddenAuthors
@@ -1331,26 +1447,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /** Best-effort refresh of one Work's reviews; offline serves the cache silently (#280). */
     fun loadReviews(workId: String) {
         val store = listenerReviews ?: return
+        val request = reviewLoadGate.begin(workId)
         viewModelScope.launch(Dispatchers.IO) {
             val fresh = try {
                 store.getReviews(workId)
             } catch (e: Exception) {
                 emptyList()
             }
-            if (_selectedBookId.value == workId) _serverBookReviews.value = fresh
-            // A queued write has reached the server when a live read carries
-            // its card back — only then does the «надішлемо при мережі»
-            // badge honestly retire.
-            if (!fresh.isEmpty()) retireConfirmedPending(fresh)
+            val selectedEdition = selectedBook.value
+            val stillSelected = selectedEdition?.id == _selectedBookId.value &&
+                selectedEdition?.let { reviewWorkIdFor(it.id, it.workId) } == workId
+            if (stillSelected && reviewLoadGate.isLatest(request)) {
+                _serverBookReviews.value = fresh
+            }
         }
-    }
-
-    private fun retireConfirmedPending(serverReviews: List<com.slukhayka.audiobooks.data.reviews.ListenerReview>) {
-        if (_pendingReviews.value.isEmpty() || !isOnline()) return
-        val serverKeys = serverReviews
-            .map { com.slukhayka.audiobooks.data.reviews.ListenerReviewCodec.documentId(it.workId, it.uid) }
-            .toSet()
-        _pendingReviews.value = _pendingReviews.value.filterKeys { it !in serverKeys }
     }
 
     /**
@@ -1366,8 +1476,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         editionTag: String?,
         editing: com.slukhayka.audiobooks.data.reviews.ListenerReview?
     ) {
-        val store = listenerReviews ?: return
-        val profile = _listenerIdentity.value ?: return
+        val store = listenerReviews
+        val profile = _listenerIdentity.value
+        val documentId = com.slukhayka.audiobooks.data.reviews.ListenerReviewCodec.documentId(
+            workId,
+            profile?.uid.orEmpty()
+        )
+        if (
+            store == null || profile == null ||
+            rating !in com.slukhayka.audiobooks.data.reviews.ListenerReviewLimits.MIN_RATING..
+                com.slukhayka.audiobooks.data.reviews.ListenerReviewLimits.MAX_RATING
+        ) {
+            val rejected = reviewSubmissionGate.begin(workId, documentId)
+            _reviewSaveResults.tryEmit(rejected.event(ReviewSaveResult.FAILED))
+            return
+        }
         val now = System.currentTimeMillis()
         val review = com.slukhayka.audiobooks.data.reviews.ListenerReview(
             workId = workId,
@@ -1380,21 +1503,35 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             editedAt = if (editing != null) now else null
         )
         val key = com.slukhayka.audiobooks.data.reviews.ListenerReviewCodec.documentId(review.workId, review.uid)
+        val submission = reviewSubmissionGate.begin(review.workId, key)
         // Optimistic insert FIRST — the user sees their card instantly.
-        _pendingReviews.value = _pendingReviews.value + (key to review)
+        _pendingReviews.update { it + (key to review) }
         viewModelScope.launch(Dispatchers.IO) {
-            val accepted = try {
-                store.putReview(review)
+            val receipt = try {
+                store.enqueueReview(review)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                false
+                ReviewWriteReceipt.Rejected
             }
-            // Online: the local ack IS the send — retire the badge. Offline:
-            // true means durably queued locally; the badge stays («надішлемо
-            // при мережі») until a later live refresh carries the card back.
-            if (accepted && isOnline()) {
-                _pendingReviews.value = _pendingReviews.value - key
-            }
-            loadReviews(workId)
+            followReviewWrite(
+                receipt = receipt,
+                onVisibleResult = { result ->
+                    if (!reviewSubmissionGate.isLatest(submission)) return@followReviewWrite
+                    if (result == ReviewSaveResult.FAILED) {
+                        _pendingReviews.update { it - key }
+                    }
+                    _reviewSaveResults.emit(submission.event(result))
+                },
+                onRemoteResult = {
+                    if (!reviewSubmissionGate.isLatest(submission)) return@followReviewWrite
+                    // Either backend verdict ends the local pending badge. A
+                    // failure is announced by followReviewWrite immediately
+                    // after this callback; publication needs no second toast.
+                    _pendingReviews.update { it - key }
+                }
+            )
+            if (reviewSubmissionGate.isLatest(submission)) loadReviews(workId)
         }
     }
 
@@ -1408,18 +1545,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: Exception) {
                 // Silent — the refresh below restores whatever is real.
             }
-            _pendingReviews.value = _pendingReviews.value - key
+            _pendingReviews.update { it - key }
             loadReviews(workId)
         }
     }
-
-    /** The cheap connectivity gate behind the pending-badge honesty (#280). */
-    private fun isOnline(): Boolean = runCatching {
-        val cm = getApplication<Application>().getSystemService(android.content.Context.CONNECTIVITY_SERVICE)
-            as? android.net.ConnectivityManager ?: return false
-        val caps = cm.getNetworkCapabilities(cm.activeNetwork) ?: return false
-        caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
-    }.getOrDefault(false)
 
     // Spec-15 T5: the labelled per-source detail blocks of the selected book.
     val sourceProfiles: StateFlow<List<LibraryEntries.SourceProfile>> = bookDetailSourceState.profiles

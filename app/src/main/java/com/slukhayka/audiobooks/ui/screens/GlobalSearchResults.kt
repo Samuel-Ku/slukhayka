@@ -27,13 +27,17 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.testTag
+import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.ui.MainViewModel
+import com.slukhayka.audiobooks.ui.components.BookCoverSemantics
 import com.slukhayka.audiobooks.ui.theme.AppBadgeScrim
 import com.slukhayka.audiobooks.ui.theme.AppBadgeScrimBorder
 import com.slukhayka.audiobooks.ui.theme.AppDimens
@@ -68,6 +72,7 @@ fun GlobalSearchResultCard(
             CatalogCoverImage(
                 coverImageUrl = result.coverImageUrl,
                 title = result.title,
+                semantics = BookCoverSemantics.Decorative,
                 modifier = Modifier
                     .size(56.dp)
                     .clip(RoundedCornerShape(AppDimens.RadiusCover))
@@ -77,6 +82,7 @@ fun GlobalSearchResultCard(
                 modifier = Modifier
                     .size(56.dp)
                     .clip(RoundedCornerShape(AppDimens.RadiusCover))
+                    .clearAndSetSemantics { }
                     .background(MaterialTheme.colorScheme.surfaceContainerHighest),
                 contentAlignment = Alignment.Center
             ) {
@@ -127,7 +133,7 @@ fun GlobalSearchResultCard(
         }
         Icon(
             imageVector = Icons.Default.PlayArrow,
-            contentDescription = "Відтворити",
+            contentDescription = null,
             tint = MaterialTheme.colorScheme.primary,
             modifier = Modifier.size(32.dp)
         )
@@ -187,6 +193,7 @@ fun UnifiedCatalogCard(
             CatalogCoverImage(
                 coverImageUrl = result.coverImageUrl,
                 title = result.title,
+                semantics = BookCoverSemantics.Decorative,
                 modifier = Modifier
                     .width(120.dp)
                     .height(168.dp)
@@ -218,7 +225,7 @@ fun UnifiedCatalogCard(
                         onClick = onDownload,
                         modifier = Modifier
                             .align(Alignment.BottomEnd)
-                            .size(32.dp)
+                            .size(AppDimens.TouchTarget)
                             .clip(RoundedCornerShape(AppDimens.RadiusXs))
                             // Spec-22 T2: solid badge scrim over the cover — a
                             // translucent wash lost contrast on light artwork.
@@ -228,7 +235,10 @@ fun UnifiedCatalogCard(
                     ) {
                         Icon(
                             imageVector = if (isDownloaded) Icons.Default.CloudDone else Icons.Default.CloudDownload,
-                            contentDescription = if (isDownloaded) "Завантажено" else "Завантажити",
+                            contentDescription = stringResource(
+                                if (isDownloaded) R.string.a11y_downloaded_work else R.string.a11y_download_work,
+                                result.title
+                            ),
                             tint = if (isDownloaded) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(18.dp)
                         )

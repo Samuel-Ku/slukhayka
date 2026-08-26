@@ -1,11 +1,13 @@
 package com.slukhayka.audiobooks.ui.screens
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -14,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.FileUpload
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -21,15 +24,26 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
+import androidx.compose.material3.IconButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.ui.theme.AppDimens
+import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.ui.components.accessibilityPane
 
 /**
  * spec-28 (#194) — the «+ Додати» sheet: one import action opening a sheet
@@ -45,13 +59,18 @@ fun LibraryImportSheet(
     onImportFolder: () -> Unit,
     onDismiss: () -> Unit
 ) {
+    val headingFocusRequester = remember { FocusRequester() }
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        modifier = Modifier.accessibilityPane(stringResource(R.string.a11y_library_import_pane))
     ) {
         LibraryImportSheetContent(
             onImportFile = onImportFile,
-            onImportFolder = onImportFolder
+            onImportFolder = onImportFolder,
+            headingFocusRequester = headingFocusRequester,
+            includePaneSemantics = false,
+            onClose = onDismiss
         )
     }
 }
@@ -63,19 +82,47 @@ fun LibraryImportSheet(
 @Composable
 fun LibraryImportSheetContent(
     onImportFile: () -> Unit,
-    onImportFolder: () -> Unit
+    onImportFolder: () -> Unit,
+    headingFocusRequester: FocusRequester? = null,
+    includePaneSemantics: Boolean = true,
+    onClose: (() -> Unit)? = null
 ) {
+    val localHeadingFocusRequester = remember { FocusRequester() }
+    val effectiveHeadingFocusRequester = headingFocusRequester ?: localHeadingFocusRequester
+    LaunchedEffect(effectiveHeadingFocusRequester) {
+        withFrameNanos { }
+        effectiveHeadingFocusRequester.requestFocus()
+    }
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .then(
+                if (includePaneSemantics) {
+                    Modifier.accessibilityPane(stringResource(R.string.a11y_library_import_pane))
+                } else Modifier
+            )
             .padding(horizontal = 24.dp)
             .padding(bottom = 32.dp)
+            .testTag("library_import_sheet_content")
     ) {
-        Text(
-            text = "Додати аудіо",
-            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-            color = MaterialTheme.colorScheme.onSurface
-        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = "Додати аудіо",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier
+                    .weight(1f)
+                    .focusRequester(effectiveHeadingFocusRequester)
+                    .focusable()
+                    .semantics { heading() }
+                    .testTag("library_import_sheet_heading")
+            )
+            if (onClose != null) {
+                IconButton(onClick = onClose, modifier = Modifier.size(48.dp)) {
+                    Icon(Icons.Default.Close, contentDescription = stringResource(R.string.a11y_library_import_close))
+                }
+            }
+        }
         Spacer(modifier = Modifier.height(16.dp))
 
         ImportOptionRow(
@@ -107,6 +154,7 @@ private fun ImportOptionRow(
     Card(
         modifier = Modifier
             .fillMaxWidth()
+            .heightIn(min = 48.dp)
             .clip(RoundedCornerShape(AppDimens.RadiusCardLg))
             .clickable(onClick = onClick)
             .testTag(tag),

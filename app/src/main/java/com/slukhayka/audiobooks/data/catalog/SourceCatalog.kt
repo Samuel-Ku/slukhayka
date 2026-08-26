@@ -36,6 +36,7 @@ import com.slukhayka.audiobooks.data.source.sourceDisplayName
 import com.slukhayka.audiobooks.data.source.sourceIdForUrl
 import com.slukhayka.audiobooks.data.source.streamOnlyFor
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -1087,18 +1088,33 @@ class SourceCatalog(
      * Слухати tab's "continue the series" block (spec-9 T4) can re-read a
      * series without a network round-trip on every recomposition.
      */
-    suspend fun fetchSeriesBooks(seriesUrl: String): List<AudiobookEntity> =
+    suspend fun fetchSeriesBooksResult(
+        seriesUrl: String
+    ): CatalogFetchResult<List<AudiobookEntity>> =
         withContext(Dispatchers.IO) {
-            seriesBooksCache[seriesUrl]?.let { return@withContext it }
-            val html = fourReadFetcher.getText(seriesUrl)
-            if (html.isBlank()) return@withContext emptyList()
-            // ADR-0005: the upsert's persistence-layer guard drops tombstoned
-            // Works — the published list is what actually landed.
-            val books = CatalogParser.parseSeriesPage(html)
-                .mapNotNull { book -> libraryImport.upsertCatalogBook(book) }
-            seriesBooksCache[seriesUrl] = books
-            books
+            seriesBooksCache[seriesUrl]?.let {
+                return@withContext CatalogFetchResult.Success(it)
+            }
+            try {
+                val html = fourReadFetcher.getText(seriesUrl)
+                if (html.isBlank()) return@withContext CatalogFetchResult.Failure
+                // ADR-0005: the upsert's persistence-layer guard drops tombstoned
+                // Works — the published list is what actually landed.
+                val books = CatalogParser.parseSeriesPage(html)
+                    .mapNotNull { book -> libraryImport.upsertCatalogBook(book) }
+                seriesBooksCache[seriesUrl] = books
+                CatalogFetchResult.Success(books)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                Log.w("SourceCatalog", "Series fetch failed for $seriesUrl", failure)
+                CatalogFetchResult.Failure
+            }
         }
+
+    /** Backward-compatible best-effort list API for non-UI consumers. */
+    suspend fun fetchSeriesBooks(seriesUrl: String): List<AudiobookEntity> =
+        fetchSeriesBooksResult(seriesUrl).valueOrEmpty()
 
     /**
      * The next volume of the series a book belongs to (spec-9 T4). Returns
@@ -1125,7 +1141,11 @@ class SourceCatalog(
      * homepage, so the series-page parser and cache apply unchanged.
      */
     suspend fun fetchGenreBooks(genreUrl: String): List<AudiobookEntity> =
-        fetchSeriesBooks(genreUrl)
+        fetchGenreBooksResult(genreUrl).valueOrEmpty()
+
+    suspend fun fetchGenreBooksResult(
+        genreUrl: String
+    ): CatalogFetchResult<List<AudiobookEntity>> = fetchSeriesBooksResult(genreUrl)
 
     /**
      * ТОП 100 АудіоКниг (`/top-100.html`): ranked `linek` cards, not posters.
@@ -1133,29 +1153,49 @@ class SourceCatalog(
      * and opens its own detail. Cached per session; rank is the list order.
      */
     private var top100Cache: List<AudiobookEntity>? = null
-    suspend fun fetchTop100(): List<AudiobookEntity> =
+    suspend fun fetchTop100Result(): CatalogFetchResult<List<AudiobookEntity>> =
         withContext(Dispatchers.IO) {
-            top100Cache?.let { return@withContext it }
-            val html = fourReadFetcher.getText("https://4read.org/top-100.html")
-            if (html.isBlank()) return@withContext emptyList()
-            // ADR-0005: the upsert's persistence-layer guard drops tombstoned
-            // Works — the published list is what actually landed.
-            val books = CatalogParser.parseTop100(html)
-                .mapNotNull { libraryImport.upsertCatalogBook(it) }
-            top100Cache = books
-            books
+            top100Cache?.let { return@withContext CatalogFetchResult.Success(it) }
+            try {
+                val html = fourReadFetcher.getText("https://4read.org/top-100.html")
+                if (html.isBlank()) return@withContext CatalogFetchResult.Failure
+                // ADR-0005: the upsert's persistence-layer guard drops tombstoned
+                // Works — the published list is what actually landed.
+                val books = CatalogParser.parseTop100(html)
+                    .mapNotNull { libraryImport.upsertCatalogBook(it) }
+                top100Cache = books
+                CatalogFetchResult.Success(books)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                Log.w("SourceCatalog", "Top-100 fetch failed", failure)
+                CatalogFetchResult.Failure
+            }
         }
+
+    suspend fun fetchTop100(): List<AudiobookEntity> = fetchTop100Result().valueOrEmpty()
 
     /** Виконавці/Автори index pages, cached per URL for the session. */
     private val peopleCache = java.util.concurrent.ConcurrentHashMap<String, List<CatalogPerson>>()
-    suspend fun fetchPeople(url: String): List<CatalogPerson> = withContext(Dispatchers.IO) {
-        peopleCache[url]?.let { return@withContext it }
-        val html = fourReadFetcher.getText(url)
-        if (html.isBlank()) return@withContext emptyList()
-        val people = CatalogParser.parsePeopleList(html)
-        peopleCache[url] = people
-        people
-    }
+    suspend fun fetchPeopleResult(url: String): CatalogFetchResult<List<CatalogPerson>> =
+        withContext(Dispatchers.IO) {
+            peopleCache[url]?.let { return@withContext CatalogFetchResult.Success(it) }
+            try {
+                val html = fourReadFetcher.getText(url)
+                if (html.isBlank()) return@withContext CatalogFetchResult.Failure
+                val people = CatalogParser.parsePeopleList(html)
+                peopleCache[url] = people
+                CatalogFetchResult.Success(people)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                Log.w("SourceCatalog", "People fetch failed for $url", failure)
+                CatalogFetchResult.Failure
+            }
+        }
+
+    suspend fun fetchPeople(url: String): List<CatalogPerson> =
+        fetchPeopleResult(url).valueOrEmpty()
 
     /**
      * Books narrated/written by one person. The `/xfsearch/<kind>/<name>/`
@@ -1163,8 +1203,14 @@ class SourceCatalog(
      * The person's name is URL-encoded (the site serves raw Cyrillic paths).
      */
     suspend fun fetchPersonBooks(path: String): List<AudiobookEntity> {
+        return fetchPersonBooksResult(path).valueOrEmpty()
+    }
+
+    suspend fun fetchPersonBooksResult(
+        path: String
+    ): CatalogFetchResult<List<AudiobookEntity>> {
         val encoded = "https://4read.org" + android.net.Uri.encode(path, "/")
-        return fetchSeriesBooks(encoded)
+        return fetchSeriesBooksResult(encoded)
     }
 
     /**

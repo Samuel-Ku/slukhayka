@@ -6,11 +6,13 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -23,22 +25,40 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
+import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.BookmarkEntity
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
 import com.slukhayka.audiobooks.data.listening.ListeningStateStore
 import com.slukhayka.audiobooks.ui.MainViewModel
+import com.slukhayka.audiobooks.ui.components.BookCoverSemantics
 import com.slukhayka.audiobooks.ui.components.BookCoverImage
 import com.slukhayka.audiobooks.ui.components.EmptyState
+import com.slukhayka.audiobooks.ui.components.RestoreFocusAfterModal
+import com.slukhayka.audiobooks.ui.components.accessibilityPane
+import com.slukhayka.audiobooks.ui.components.accessibilityModalBackground
 import com.slukhayka.audiobooks.ui.displayAuthor
 import com.slukhayka.audiobooks.ui.library.LibraryBook
 import com.slukhayka.audiobooks.ui.library.LibraryFilter
@@ -48,6 +68,7 @@ import com.slukhayka.audiobooks.ui.library.SHEET_FILTERS
 import com.slukhayka.audiobooks.ui.library.filterAndSortLibrary
 import com.slukhayka.audiobooks.ui.library.formatRemainingTime
 import com.slukhayka.audiobooks.ui.theme.*
+import kotlin.math.roundToInt
 
 /**
  * Wayfinder #39 — Медіатека as one unified library. Local files and 4read
@@ -70,7 +91,11 @@ fun LibraryScreen(
     listeningState: ListeningStateStore,
     onBookClick: (String) -> Unit,
     onPlayClick: (AudiobookEntity) -> Unit,
-    onBrowseClick: () -> Unit
+    onBrowseClick: () -> Unit,
+    restoreFocusBookId: String? = null,
+    onBookFocusRestored: (String) -> Unit = {},
+    restoreOverflowFocus: Boolean = false,
+    onOverflowFocusRestored: () -> Unit = {}
 ) {
     val libraryBooks by viewModel.libraryBooks.collectAsState()
     // ADR-0008: module flows are read directly — no forwarding StateFlow on
@@ -127,16 +152,6 @@ fun LibraryScreen(
     // The plan is pure data; confirming calls apply, dismissing leaves zero
     // trace. Merge suggestions render as review rows, never silent merges.
     val importPreview by viewModel.importPreview.collectAsState()
-    if (importPreview != null) {
-        ImportPreviewDialog(
-            preview = importPreview!!,
-            onAcceptMerge = viewModel::acceptMergeInPreview,
-            onRejectMerge = viewModel::rejectMergeInPreview,
-            onConfirm = viewModel::confirmImportPreview,
-            onDismiss = viewModel::dismissImportPreview
-        )
-    }
-
     var activeTab by remember { mutableStateOf(0) } // 0 = Книги, 1 = Закладки, 2 = Статистика
     var filter by remember { mutableStateOf(LibraryFilter.ALL) }
     var sort by remember { mutableStateOf(LibrarySort.RECENTLY_LISTENED) }
@@ -148,16 +163,73 @@ fun LibraryScreen(
     // storage destination is reached from the ⋮ overflow menu.
     var showImportSheet by remember { mutableStateOf(false) }
     var showOverflowMenu by remember { mutableStateOf(false) }
+    val filterFocusRequester = remember { FocusRequester() }
+    val importFocusRequester = remember { FocusRequester() }
+    val libraryHeadingFocusRequester = remember { FocusRequester() }
+    val bookReturnFocusRequester = remember { FocusRequester() }
+    val overflowFocusRequester = remember { FocusRequester() }
+    val libraryGridState = rememberLazyGridState()
+    val modalVisible = showFilterSheet || showImportSheet || importPreview != null
+
+    RestoreFocusAfterModal(
+        modalVisible = showFilterSheet,
+        returnFocusRequester = filterFocusRequester
+    )
+    RestoreFocusAfterModal(
+        modalVisible = showImportSheet,
+        returnFocusRequester = importFocusRequester
+    )
+    RestoreFocusAfterModal(
+        modalVisible = importPreview != null,
+        returnFocusRequester = importFocusRequester
+    )
 
     val visibleBooks = remember(libraryBooks, filter, sort, query) {
         filterAndSortLibrary(libraryBooks, filter, sort, query)
     }
 
+    LaunchedEffect(
+        restoreFocusBookId,
+        visibleBooks,
+        libraryBooks,
+        activeTab,
+        modalVisible
+    ) {
+        val bookId = restoreFocusBookId ?: return@LaunchedEffect
+        if (activeTab != 0 || modalVisible) return@LaunchedEffect
+        val visibleIndex = visibleBooks.indexOfFirst { it.book.id == bookId }
+        when {
+            visibleIndex >= 0 -> {
+                libraryGridState.scrollToItem(visibleIndex)
+                withFrameNanos { }
+                bookReturnFocusRequester.requestFocus()
+                onBookFocusRestored(bookId)
+            }
+            libraryBooks.isNotEmpty() -> {
+                withFrameNanos { }
+                libraryHeadingFocusRequester.requestFocus()
+                onBookFocusRestored(bookId)
+            }
+        }
+    }
+
+    LaunchedEffect(restoreOverflowFocus, modalVisible) {
+        if (!restoreOverflowFocus || modalVisible) return@LaunchedEffect
+        withFrameNanos { }
+        overflowFocusRequester.requestFocus()
+        onOverflowFocusRestored()
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
+        LibraryModalUnderlay(
+            modalVisible = modalVisible,
+            modifier = Modifier.fillMaxSize()
+        ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .testTag("library_screen")
+                .accessibilityPane(stringResource(com.slukhayka.audiobooks.R.string.a11y_library_pane))
         ) {
             // Top Header — one row: title + subtitle, «+ Додати» (the import
             // sheet) and the ⋮ overflow (the storage destination). Collapsing
@@ -174,7 +246,12 @@ fun LibraryScreen(
                         text = "Медіатека",
                         style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
                         color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1
+                        maxLines = 2,
+                        modifier = Modifier
+                            .focusRequester(libraryHeadingFocusRequester)
+                            .focusable()
+                            .testTag("library_heading")
+                            .semantics { heading() }
                     )
                     Text(
                         // Spec-15 T6: one library for local files and every
@@ -182,7 +259,7 @@ fun LibraryScreen(
                         text = "Всі книги — в одному місці",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1
+                        maxLines = 2
                     )
                 }
 
@@ -193,7 +270,10 @@ fun LibraryScreen(
                     onClick = { showImportSheet = true },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                     shape = RoundedCornerShape(AppDimens.RadiusCardLg),
-                    modifier = Modifier.testTag("library_add_button")
+                    modifier = Modifier
+                        .heightIn(min = 48.dp)
+                        .focusRequester(importFocusRequester)
+                        .testTag("library_add_button")
                 ) {
                     Icon(
                         imageVector = Icons.Default.Add,
@@ -216,9 +296,15 @@ fun LibraryScreen(
                 Box {
                     IconButton(
                         onClick = { showOverflowMenu = true },
-                        modifier = Modifier.testTag("library_overflow_button")
+                        modifier = Modifier
+                            .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                            .focusRequester(overflowFocusRequester)
+                            .testTag("library_overflow_button")
                     ) {
-                        Icon(imageVector = Icons.Default.MoreVert, contentDescription = "Більше")
+                        Icon(
+                            imageVector = Icons.Default.MoreVert,
+                            contentDescription = stringResource(com.slukhayka.audiobooks.R.string.a11y_library_more_actions)
+                        )
                     }
                     DropdownMenu(
                         expanded = showOverflowMenu,
@@ -299,12 +385,16 @@ fun LibraryScreen(
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 8.dp)
                         .testTag("library_search"),
-                    placeholder = { Text("Пошук у медіатеці…") },
+                    label = { Text(stringResource(com.slukhayka.audiobooks.R.string.a11y_library_search)) },
+                    placeholder = { Text("Назва, автор або серія") },
                     leadingIcon = { Icon(imageVector = Icons.Default.Search, contentDescription = null) },
                     trailingIcon = if (query.isNotEmpty()) {
                         {
                             IconButton(onClick = { query = "" }) {
-                                Icon(imageVector = Icons.Default.Clear, contentDescription = "Очистити пошук")
+                                Icon(
+                                    imageVector = Icons.Default.Clear,
+                                    contentDescription = stringResource(R.string.a11y_library_clear_search)
+                                )
                             }
                         }
                     } else null,
@@ -345,6 +435,8 @@ fun LibraryScreen(
                     ),
                     modifier = Modifier
                         .padding(horizontal = 16.dp)
+                        .heightIn(min = 48.dp)
+                        .focusRequester(filterFocusRequester)
                         .testTag("library_filter_button")
                 )
 
@@ -352,59 +444,20 @@ fun LibraryScreen(
                 // файли» moved to the «Завантаження та пам'ять» destination
                 // (⋮ overflow) — nothing destructive sits on the main screen.
 
-                if (showFilterSheet) {
-                    LibraryFilterSheet(
-                        filter = filter,
-                        sort = sort,
-                        gridMode = gridMode,
-                        onFilterChange = { filter = it },
-                        onSortChange = { sort = it },
-                        onGridModeChange = { gridMode = it },
-                        onDismiss = { showFilterSheet = false }
-                    )
-                }
-
-                if (showImportSheet) {
-                    LibraryImportSheet(
-                        onImportFile = {
-                            showImportSheet = false
-                            importLauncher.launch(arrayOf("audio/*", "application/ogg", "application/mpeg"))
-                        },
-                        onImportFolder = {
-                            showImportSheet = false
-                            folderLauncher.launch(null)
-                        },
-                        onDismiss = { showImportSheet = false }
-                    )
-                }
             }
 
             when (activeTab) {
                 0 -> {
                     when {
                         libraryBooks.isEmpty() -> {
-                            EmptyState(
-                                icon = Icons.Default.MenuBook,
-                                title = "Медіатека порожня",
-                                body = "Додайте власні аудіокниги з пристрою або знайдіть нові в каталозі."
-                            ) {
-                                Button(
-                                    onClick = { importLauncher.launch(arrayOf("audio/*", "application/ogg", "application/mpeg")) },
-                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                                    shape = RoundedCornerShape(AppDimens.RadiusCard),
-                                    modifier = Modifier.height(48.dp).testTag("library_empty_import")
-                                ) {
-                                    Text("Додати свої файли")
-                                }
-                                Spacer(modifier = Modifier.height(8.dp))
-                                OutlinedButton(
-                                    onClick = onBrowseClick,
-                                    shape = RoundedCornerShape(AppDimens.RadiusCard),
-                                    modifier = Modifier.height(48.dp)
-                                ) {
-                                    Text("Знайти книгу")
-                                }
-                            }
+                            LibraryEmptyState(
+                                onImportClick = {
+                                    importLauncher.launch(
+                                        arrayOf("audio/*", "application/ogg", "application/mpeg")
+                                    )
+                                },
+                                onBrowseClick = onBrowseClick
+                            )
                         }
 
                         visibleBooks.isEmpty() -> EmptyState(
@@ -415,6 +468,7 @@ fun LibraryScreen(
 
                         else -> LazyVerticalGrid(
                             columns = if (gridMode) GridCells.Fixed(2) else GridCells.Fixed(1),
+                            state = libraryGridState,
                             modifier = Modifier.fillMaxSize(),
                             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 120.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -424,7 +478,12 @@ fun LibraryScreen(
                                 LibraryBookCard(
                                     book = entry,
                                     grid = gridMode,
-                                    onClick = { onBookClick(entry.book.id) }
+                                    onClick = { onBookClick(entry.book.id) },
+                                    modifier = if (entry.book.id == restoreFocusBookId) {
+                                        Modifier.focusRequester(bookReturnFocusRequester)
+                                    } else {
+                                        Modifier
+                                    }
                                 )
                             }
                         }
@@ -476,7 +535,96 @@ fun LibraryScreen(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .padding(16.dp)
+                .semantics { liveRegion = LiveRegionMode.Polite }
         )
+        }
+
+        if (showFilterSheet) {
+            LibraryFilterSheet(
+                filter = filter,
+                sort = sort,
+                gridMode = gridMode,
+                onFilterChange = { filter = it },
+                onSortChange = { sort = it },
+                onGridModeChange = { gridMode = it },
+                onDismiss = { showFilterSheet = false }
+            )
+        }
+
+        if (showImportSheet) {
+            LibraryImportSheet(
+                onImportFile = {
+                    showImportSheet = false
+                    importLauncher.launch(arrayOf("audio/*", "application/ogg", "application/mpeg"))
+                },
+                onImportFolder = {
+                    showImportSheet = false
+                    folderLauncher.launch(null)
+                },
+                onDismiss = { showImportSheet = false }
+            )
+        }
+
+        importPreview?.let { preview ->
+            ImportPreviewDialog(
+                preview = preview,
+                onAcceptMerge = viewModel::acceptMergeInPreview,
+                onRejectMerge = viewModel::rejectMergeInPreview,
+                onConfirm = viewModel::confirmImportPreview,
+                onDismiss = viewModel::dismissImportPreview
+            )
+        }
+    }
+}
+
+/**
+ * Owns the complete non-modal library layer, including transient snackbar
+ * feedback, so a sheet or import dialog is the only TalkBack surface left.
+ */
+@Composable
+internal fun LibraryModalUnderlay(
+    modalVisible: Boolean,
+    modifier: Modifier = Modifier,
+    content: @Composable BoxScope.() -> Unit
+) {
+    Box(
+        modifier = modifier
+            .testTag("library_modal_underlay")
+            .accessibilityModalBackground(modalVisible),
+        content = content
+    )
+}
+
+@Composable
+fun LibraryEmptyState(
+    onImportClick: () -> Unit,
+    onBrowseClick: () -> Unit
+) {
+    EmptyState(
+        icon = Icons.Default.MenuBook,
+        title = "Медіатека порожня",
+        body = "Додайте власні аудіокниги з пристрою або знайдіть нові в каталозі."
+    ) {
+        Button(
+            onClick = onImportClick,
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+            shape = RoundedCornerShape(AppDimens.RadiusCard),
+            modifier = Modifier
+                .heightIn(min = 48.dp)
+                .testTag("library_empty_import")
+        ) {
+            Text("Додати свої файли")
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        OutlinedButton(
+            onClick = onBrowseClick,
+            shape = RoundedCornerShape(AppDimens.RadiusCard),
+            modifier = Modifier
+                .heightIn(min = 48.dp)
+                .testTag("library_empty_browse")
+        ) {
+            Text("Знайти книгу")
+        }
     }
 }
 
@@ -490,14 +638,58 @@ fun LibraryScreen(
 fun LibraryBookCard(
     book: LibraryBook,
     grid: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
+    val author = book.book.displayAuthor
+    val description = if (author.isBlank()) {
+        book.book.title
+    } else {
+        stringResource(
+            com.slukhayka.audiobooks.R.string.a11y_library_entry_description,
+            book.book.title,
+            author
+        )
+    }
+    val progressState = if (book.totalDurationSeconds > 0L) {
+        stringResource(
+            com.slukhayka.audiobooks.R.string.a11y_library_progress,
+            (book.percent * 100f).roundToInt(),
+            formatRemainingTime(book.remainingSeconds)
+        )
+    } else {
+        stringResource(com.slukhayka.audiobooks.R.string.a11y_library_progress_unknown)
+    }
+    val availability = when {
+        book.isLocal -> stringResource(com.slukhayka.audiobooks.R.string.a11y_library_local)
+        book.book.isDownloaded -> stringResource(com.slukhayka.audiobooks.R.string.a11y_library_offline)
+        else -> stringResource(com.slukhayka.audiobooks.R.string.a11y_library_online)
+    }
+    val sourceState = stringResource(
+        com.slukhayka.audiobooks.R.string.a11y_library_source,
+        book.sourceName
+    )
+    val state = listOf(progressState, availability, sourceState).joinToString(". ")
+    val openLabel = stringResource(
+        com.slukhayka.audiobooks.R.string.a11y_library_open_book,
+        book.book.title
+    )
+    val performOpen = onClick
     Card(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clip(MaterialTheme.shapes.medium)
-            .clickable(onClick = onClick)
-            .testTag("library_book_item_${book.book.id}"),
+            .clickable(onClick = performOpen)
+            .testTag("library_book_item_${book.book.id}")
+            .clearAndSetSemantics {
+                contentDescription = description
+                stateDescription = state
+                role = Role.Button
+                onClick(label = openLabel) {
+                    performOpen()
+                    true
+                }
+            },
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
     ) {
         if (grid) {
@@ -518,7 +710,7 @@ private fun LibraryBookRowContent(book: LibraryBook) {
     ) {
         BookCoverImage(
             book = book.book,
-            contentDescription = book.book.title,
+            semantics = BookCoverSemantics.Decorative,
             modifier = Modifier
                 .size(56.dp)
                 .clip(MaterialTheme.shapes.medium),
@@ -559,7 +751,8 @@ private fun LibraryBookRowContent(book: LibraryBook) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(4.dp)
-                    .clip(RoundedCornerShape(AppDimens.RadiusProgress)),
+                    .clip(RoundedCornerShape(AppDimens.RadiusProgress))
+                    .clearAndSetSemantics { },
                 color = MaterialTheme.colorScheme.primary,
                 trackColor = MaterialTheme.colorScheme.outlineVariant
             )
@@ -580,7 +773,7 @@ private fun LibraryBookRowContent(book: LibraryBook) {
                     Spacer(modifier = Modifier.width(6.dp))
                     Icon(
                         imageVector = Icons.Default.CloudDone,
-                        contentDescription = "Завантажено",
+                        contentDescription = null,
                         tint = MaterialTheme.colorScheme.secondary,
                         modifier = Modifier.size(14.dp)
                     )
@@ -595,7 +788,7 @@ private fun LibraryBookGridContent(book: LibraryBook) {
     Column {
         BookCoverImage(
             book = book.book,
-            contentDescription = book.book.title,
+            semantics = BookCoverSemantics.Decorative,
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(3f / 4f),
@@ -633,7 +826,8 @@ private fun LibraryBookGridContent(book: LibraryBook) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(4.dp)
-                    .clip(RoundedCornerShape(AppDimens.RadiusProgress)),
+                    .clip(RoundedCornerShape(AppDimens.RadiusProgress))
+                    .clearAndSetSemantics { },
                 color = MaterialTheme.colorScheme.primary,
                 trackColor = MaterialTheme.colorScheme.outlineVariant
             )
@@ -656,7 +850,7 @@ private fun LibraryBookGridContent(book: LibraryBook) {
                     Spacer(modifier = Modifier.width(6.dp))
                     Icon(
                         imageVector = Icons.Default.CloudDone,
-                        contentDescription = "Завантажено",
+                        contentDescription = null,
                         tint = MaterialTheme.colorScheme.secondary,
                         modifier = Modifier.size(14.dp)
                     )
@@ -800,6 +994,19 @@ fun GlobalBookmarkItem(
     onJumpClick: () -> Unit,
     onDeleteClick: () -> Unit
 ) {
+    val bookmarkTime = MainViewModel.formatTime(bookmark.timestampSeconds)
+    val jumpLabel = stringResource(
+        com.slukhayka.audiobooks.R.string.a11y_library_jump_bookmark,
+        bookTitle,
+        bookmark.chapterTitle,
+        bookmarkTime
+    )
+    val deleteLabel = stringResource(
+        com.slukhayka.audiobooks.R.string.a11y_library_delete_bookmark,
+        bookTitle,
+        bookmark.chapterTitle,
+        bookmarkTime
+    )
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -844,18 +1051,30 @@ fun GlobalBookmarkItem(
                 )
             }
 
-            IconButton(onClick = onJumpClick) {
+            IconButton(
+                onClick = onJumpClick,
+                modifier = Modifier
+                    .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                    .semantics { contentDescription = jumpLabel }
+                    .testTag("bookmark_jump_${bookmark.id}")
+            ) {
                 Icon(
                     imageVector = Icons.Default.PlayArrow,
-                    contentDescription = "Jump to bookmark",
+                    contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary
                 )
             }
 
-            IconButton(onClick = onDeleteClick) {
+            IconButton(
+                onClick = onDeleteClick,
+                modifier = Modifier
+                    .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                    .semantics { contentDescription = deleteLabel }
+                    .testTag("bookmark_delete_${bookmark.id}")
+            ) {
                 Icon(
                     imageVector = Icons.Default.Delete,
-                    contentDescription = "Delete bookmark",
+                    contentDescription = null,
                     tint = MaterialTheme.colorScheme.error
                 )
             }
@@ -878,21 +1097,45 @@ fun ClearCacheConfirmDialog(
     onConfirm: () -> Unit,
     onDismiss: () -> Unit
 ) {
+    val title = stringResource(R.string.storage_delete_dialog_title)
+    val confirmFocusRequester = remember { FocusRequester() }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Видалити завантажені файли?") },
+        modifier = Modifier
+            .testTag("clear_cache_dialog")
+            .accessibilityPane(title),
+        title = {
+            LaunchedEffect(Unit) {
+                withFrameNanos { }
+                confirmFocusRequester.requestFocus()
+            }
+            Text(
+                title,
+                modifier = Modifier
+                    .focusRequester(confirmFocusRequester)
+                    .focusable()
+                    .testTag("clear_cache_dialog_heading")
+                    .semantics { heading() }
+            )
+        },
         text = { Text(clearCacheConfirmText(bookCount, bytes)) },
         confirmButton = {
             TextButton(
                 onClick = onConfirm,
-                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                modifier = Modifier
+                    .heightIn(min = 48.dp)
+                    .testTag("clear_cache_confirm")
             ) {
-                Text("Видалити")
+                Text(stringResource(R.string.action_delete))
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Скасувати")
+            TextButton(
+                onClick = onDismiss,
+                modifier = Modifier.heightIn(min = 48.dp)
+            ) {
+                Text(stringResource(R.string.action_cancel))
             }
         }
     )
@@ -913,9 +1156,26 @@ fun ImportPreviewDialog(
     onDismiss: () -> Unit
 ) {
     val mergedCount = preview.plan.books.count { it.mergedIntoBookId != null }
+    val headingFocusRequester = remember { FocusRequester() }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Перед імпортом") },
+        modifier = Modifier
+            .accessibilityPane(stringResource(R.string.a11y_library_import_preview_pane))
+            .testTag("library_import_preview_dialog"),
+        title = {
+            LaunchedEffect(headingFocusRequester) {
+                withFrameNanos { }
+                headingFocusRequester.requestFocus()
+            }
+            Text(
+                stringResource(R.string.a11y_library_import_preview_title),
+                modifier = Modifier
+                    .focusRequester(headingFocusRequester)
+                    .focusable()
+                    .semantics { heading() }
+                    .testTag("library_import_preview_heading")
+            )
+        },
         text = {
             Column(
                 modifier = Modifier
@@ -978,7 +1238,12 @@ fun ImportPreviewDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onConfirm) {
+            TextButton(
+                onClick = onConfirm,
+                modifier = Modifier
+                    .heightIn(min = 48.dp)
+                    .testTag("library_import_preview_confirm")
+            ) {
                 Text(
                     if (mergedCount > 0) {
                         "Імпортувати (${preview.plan.books.size - mergedCount} нових, $mergedCount з'єднати)"
@@ -989,7 +1254,10 @@ fun ImportPreviewDialog(
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
+            TextButton(
+                onClick = onDismiss,
+                modifier = Modifier.heightIn(min = 48.dp)
+            ) {
                 Text("Скасувати")
             }
         }

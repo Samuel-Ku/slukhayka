@@ -77,7 +77,7 @@ class LibraryFilterSheetAccessibilityTest {
 
         // The sheet body itself must be reachable in Ukrainian — the static
         // header from the content, not the system Polish scrim.
-        composeTestRule.onNodeWithTag("library_sheet_filter_all").assertExists()
+        composeTestRule.onNodeWithTag("library_filter_sheet_heading").assertExists()
         // The scrim's dismiss action (when present) must not be Polish. If a
         // node with Polish dismiss text exists, the values-pl override failed.
         composeTestRule.onNode(hasContentDescription("Zamknij arkusz"), useUnmergedTree = true)

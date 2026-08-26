@@ -15,6 +15,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -24,6 +26,24 @@ import coil.request.ImageRequest
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.ui.displayAuthor
 import com.slukhayka.audiobooks.ui.theme.*
+
+/**
+ * Accessibility contract for a Work cover.
+ *
+ * A cover inside a card that already exposes the Work title is decorative.
+ * A standalone cover is meaningful and owns one caller-supplied description.
+ */
+sealed interface BookCoverSemantics {
+    data object Decorative : BookCoverSemantics
+
+    data class Meaningful(val description: String) : BookCoverSemantics {
+        init {
+            require(description.isNotBlank()) {
+                "A meaningful Work cover needs a non-blank description"
+            }
+        }
+    }
+}
 
 /**
  * Genre-mapped accent for cover-fallback art (spec-22 T3). When a cover is
@@ -53,7 +73,7 @@ fun genreAccentColor(genre: String?): Color? {
 @Composable
 fun BookCoverImage(
     book: AudiobookEntity,
-    contentDescription: String?,
+    semantics: BookCoverSemantics,
     modifier: Modifier = Modifier,
     contentScale: ContentScale = ContentScale.Crop,
     onImageLoaded: ((Drawable) -> Unit)? = null
@@ -61,6 +81,10 @@ fun BookCoverImage(
     val context = LocalContext.current
     var isError by remember(book.coverImageUrl) { mutableStateOf(false) }
     val imageUrl = book.coverImageUrl
+    val resolvedContentDescription = when (semantics) {
+        BookCoverSemantics.Decorative -> null
+        is BookCoverSemantics.Meaningful -> semantics.description
+    }
 
     val imageRequest = remember(imageUrl) {
         if (!imageUrl.isNullOrBlank()) {
@@ -77,7 +101,7 @@ fun BookCoverImage(
     if (!imageUrl.isNullOrBlank() && !isError) {
         AsyncImage(
             model = imageRequest,
-            contentDescription = contentDescription ?: book.title,
+            contentDescription = resolvedContentDescription,
             modifier = modifier,
             contentScale = contentScale,
             onSuccess = { onImageLoaded?.invoke(it.result.drawable) },
@@ -90,6 +114,9 @@ fun BookCoverImage(
         val fallbackAccent = genreAccentColor(book.genre)
         Box(
             modifier = modifier
+                .clearAndSetSemantics {
+                    resolvedContentDescription?.let { contentDescription = it }
+                }
                 .background(
                     brush = Brush.verticalGradient(
                         colors = listOf(

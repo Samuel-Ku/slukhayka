@@ -1,0 +1,25 @@
+<resources>
+    <string name="a11y_debug_collapse">Згорнути діагностику відтворення</string>
+    <string name="a11y_debug_expand">Розгорнути діагностику відтворення</string>
+    <string name="a11y_debug_close">Закрити діагностику відтворення</string>
+    <string name="a11y_debug_copy_stream">Копіювати адресу потоку для «%1$s»</string>
+    <string name="a11y_debug_copy_journal">Копіювати журнал відтворення для «%1$s»</string>
+    <string name="a11y_debug_retry_audio">Повторити завантаження аудіо для «%1$s»</string>
+    <string name="debug_overlay_title">Діагностика відтворення</string>
+    <string name="debug_retry_audio">Повторити завантаження</string>
+    <string name="debug_stream_copied">Адресу потоку скопійовано</string>
+    <string name="debug_journal_copied">Журнал відтворення скопійовано</string>
+    <string name="a11y_browser_close_source">Закрити браузер джерела «%1$s»</string>
+    <string name="a11y_browser_back">Назад у браузері джерела «%1$s»</string>
+    <string name="a11y_browser_forward">Вперед у браузері джерела «%1$s»</string>
+    <string name="a11y_browser_reload">Оновити сторінку джерела «%1$s»</string>
+    <string name="a11y_browser_home">Відкрити головну сторінку джерела «%1$s»</string>
+    <string name="a11y_browser_open_external">Відкрити адресу %1$s у зовнішньому браузері</string>
+    <string name="a11y_browser_go_to_address">Перейти до адреси %1$s</string>
+    <string name="a11y_browser_close_route_message">Закрити повідомлення про маршрут браузера</string>
+    <string name="a11y_browser_close_network_error">Закрити повідомлення про мережеву помилку</string>
+    <string name="a11y_widget_rewind_work">Перемотати «%1$s» на 15 секунд назад</string>
+    <string name="a11y_widget_play_work">Відтворити «%1$s»</string>
+    <string name="a11y_widget_pause_work">Поставити «%1$s» на паузу</string>
+    <string name="a11y_widget_forward_work">Перемотати «%1$s» на 15 секунд уперед</string>
+</resources>

@@ -5,6 +5,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
@@ -89,8 +93,10 @@ class CollectionsIndexSnapshotTest {
 
         // Self-verifying on top of the image: both collection headers (which
         // [CatalogRowHeader] renders uppercased) and a book title render.
-        composeTestRule.onNodeWithText("Нобелівські лауреати", ignoreCase = true).assertExists()
-        composeTestRule.onNodeWithText("Шевченківська премія", ignoreCase = true).assertExists()
+        composeTestRule.onNodeWithText("Нобелівські лауреати", ignoreCase = true)
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.Heading, Unit))
+        composeTestRule.onNodeWithText("Шевченківська премія", ignoreCase = true)
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.Heading, Unit))
         composeTestRule.onNodeWithText("Старий і море").assertExists()
         composeTestRule.onRoot().captureRoboImage(
             filePath = "src/test/snapshots/collections_index_populated.png"
@@ -108,7 +114,13 @@ class CollectionsIndexSnapshotTest {
         }
 
         // The no-collections placeholder renders a sensible message, not a crash.
-        composeTestRule.onNodeWithText("Колекції з'являться після завантаження каталогу.").assertExists()
+        composeTestRule.onNodeWithText("Колекції з'являться після завантаження каталогу.")
+            .assert(
+                SemanticsMatcher.expectValue(
+                    SemanticsProperties.LiveRegion,
+                    LiveRegionMode.Polite
+                )
+            )
         composeTestRule.onRoot().captureRoboImage(
             filePath = "src/test/snapshots/collections_index_empty.png"
         )

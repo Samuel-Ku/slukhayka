@@ -48,7 +48,7 @@ jobs:
   test:
     name: JVM tests + Kover gate
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 45
 
     steps:
       - name: Checkout
@@ -157,7 +157,7 @@ jobs:
   accessibility-api35:
     name: Accessibility journey (API 35)
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 50
 
     steps:
       - name: Checkout

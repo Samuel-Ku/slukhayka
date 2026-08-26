@@ -107,6 +107,27 @@ fun interface PlayerFactory {
  * [PlaybackService] to keep working across chapter switches, and it avoids
  * paying the ExoPlayer construction cost on every chapter boundary.
  */
+/**
+ * ADR-0024 (#362): while a cast session is live, module-level commands route
+ * to the remote engine through this hook at exactly ONE branch point per
+ * public method — the engine boundary only. Everything above it (state
+ * bookkeeping, listening events, smart rewind, progress persistence) stays
+ * shared, so no second «cast logic» path can drift from the local one.
+ */
+internal interface CastEngineHook {
+    val isActive: Boolean
+
+    fun play()
+
+    fun pause()
+
+    fun seekTo(positionMs: Long)
+
+    fun prepareChapter(chapterIndex: Int, startPositionMs: Long, autoPlay: Boolean)
+
+    fun setPlaybackSpeed(speed: Float)
+}
+
 class AudioPlayerManager(
     private val context: Context,
     // ADR-0002: the player runs on the Listening State Store + the chapter-
@@ -291,6 +312,33 @@ class AudioPlayerManager(
 
     /** Access for [PlaybackService] to build its [androidx.media3.session.MediaSession]. */
     val player: Player get() = ensurePlayerCreated()
+
+    /**
+     * ADR-0024 (#362): the cast controller installs itself here once at
+     * composition time; null (tests, pre-cast builds) means every command
+     * behaves exactly as before. The hook is consulted only through
+     * [castEngineHook] branch points.
+     */
+    internal fun attachCastHook(hook: CastEngineHook?) {
+        castEngineHook = hook
+    }
+
+    private var castEngineHook: CastEngineHook? = null
+
+    /** Read-only snapshot the cast controller needs to build its playlist. */
+    internal fun castSnapshot(): PlayerState = _playerState.value
+
+    internal fun playableTracksForCast(): List<SourceCatalog.PlayableChapter> = playableChapters.toList()
+
+    /**
+     * ADR-0024 (#362): the receiver is the truth while it plays — the cast
+     * controller mirrors position, play state and chapter index into the ONE
+     * StateFlow the UI, the progress tracker and the persistence path read,
+     * so Listening State stays written from a single place.
+     */
+    internal fun mirrorCastState(transform: (PlayerState) -> PlayerState) {
+        _playerState.value = transform(_playerState.value)
+    }
 
     /** Chapter currently loaded on the player; used by the single listener. */
     private var currentChapter: ChapterEntity? = null
@@ -736,6 +784,14 @@ class AudioPlayerManager(
         playbackMetrics.recordAttempt()
         playbackEventLog.record("PREPARE ch${chapterIndex} ${track?.url}")
 
+        // ADR-0024 (#362): a chapter change while casting re-targets the
+        // receiver's playlist item — same state bookkeeping above, remote
+        // engine below.
+        castEngineHook?.takeIf { it.isActive }?.let { hook ->
+            hook.prepareChapter(chapterIndex, startPositionMs, autoPlay)
+            return
+        }
+
         try {
             // Spec-13 T2 — per-source stream headers: the playerjs CDN
             // (redirectto.cc) 403s without the owning source's Referer. The
@@ -940,6 +996,13 @@ class AudioPlayerManager(
             }
             playbackSegmentStartMs = now()
         }
+        // ADR-0024 (#362): while casting, everything above ran unchanged (the
+        // resume event, the segment start, the smart-rewind target written
+        // into the state); only the engine command routes remotely.
+        castEngineHook?.takeIf { it.isActive }?.let { hook ->
+            hook.play()
+            return
+        }
         if (_playerState.value.isBuffering) return
 
         val mp = mediaPlayer
@@ -975,13 +1038,21 @@ class AudioPlayerManager(
             recordPlaybackEvent(PlaybackEventKind.PAUSE)
         }
         playbackSegmentStartMs = null
-        if (_playerState.value.isBuffering) return
-
-        mediaPlayer?.let { mp ->
-            try {
-                if (mp.isPlaying) mp.pause()
-            } catch (e: Exception) {
-                Log.e("AudioPlayer", "Error pause", e)
+        val hook = castEngineHook?.takeIf { it.isActive }
+        if (hook != null) {
+            // ADR-0024 (#362): the pause bookkeeping above (marker, event,
+            // segment end) is shared; only the engine command is remote. A
+            // receiver pause persists progress — there is no buffering gate
+            // to honour remotely (the mirror state already carries truth).
+            hook.pause()
+        } else {
+            if (_playerState.value.isBuffering) return
+            mediaPlayer?.let { mp ->
+                try {
+                    if (mp.isPlaying) mp.pause()
+                } catch (e: Exception) {
+                    Log.e("AudioPlayer", "Error pause", e)
+                }
             }
         }
         // ADR-0023 (spec-43 T6): a pause is an honest moment — push at once.
@@ -1034,6 +1105,13 @@ class AudioPlayerManager(
             return
         }
 
+        // ADR-0024 (#362): a remote seek rides the same history bookkeeping
+        // above; only the engine command routes to the receiver.
+        castEngineHook?.takeIf { it.isActive }?.let { hook ->
+            hook.seekTo(targetMs)
+            return
+        }
+
         mediaPlayer?.let { mp ->
             try {
                 mp.seekTo(targetMs)
@@ -1079,7 +1157,7 @@ class AudioPlayerManager(
 
     fun setPlaybackSpeed(speed: Float) {
         _playerState.value = _playerState.value.copy(playbackSpeed = speed)
-        applyPlaybackSpeed(speed)
+        castEngineHook?.takeIf { it.isActive }?.let { it.setPlaybackSpeed(speed) } ?: applyPlaybackSpeed(speed)
     }
 
     /**
@@ -1150,6 +1228,12 @@ class AudioPlayerManager(
         val targetMs = SmartRewind.rewoundPositionMs(currentPos, now() - pausedAt)
         if (targetMs == currentPos) return
         _playerState.value = _playerState.value.copy(currentPositionMs = targetMs)
+        // ADR-0024 (#362): the rewind rule is player-agnostic (ADR-0003) — a
+        // pause that happened on the receiver rewinds the receiver too.
+        castEngineHook?.takeIf { it.isActive }?.let {
+            it.seekTo(targetMs)
+            return
+        }
         mediaPlayer?.let { mp ->
             try {
                 if (mp.playbackState == Player.STATE_READY) {

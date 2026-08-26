@@ -22,4 +22,5 @@
     <string name="a11y_library_import_close">Закрити додавання аудіо</string>
     <string name="a11y_library_import_preview_pane">Перегляд імпорту</string>
     <string name="a11y_library_import_preview_title">Перед імпортом</string>
+    <string name="a11y_work_feed_filter_pane">Фільтри каталогу</string>
 </resources>

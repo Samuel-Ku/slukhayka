@@ -5,6 +5,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onAllNodesWithText
@@ -166,6 +167,10 @@ class WorkFeedFilterWiringTest {
 
         // THE SYMPTOM UNDER TEST: tap the genre chip — the feed must show
         // matching books and never disappear.
+        compose.onNodeWithTag("feed_filters").performClick()
+        compose.waitUntil(5_000) {
+            compose.onAllNodesWithTag("feed_genre_science-fiction").fetchSemanticsNodes().isNotEmpty()
+        }
         compose.onNodeWithTag("feed_genre_science-fiction").performClick()
         compose.waitUntil(20_000) {
             feed.loadState.refresh !is androidx.paging.LoadState.Loading &&
@@ -224,7 +229,7 @@ class WorkFeedFilterWiringTest {
                 batch++
                 Thread.sleep(600)
             }
-        }.apply { isDaemon = true; start() }
+        }.apply { isDaemon = true }
 
         try {
             compose.setContent {
@@ -270,6 +275,12 @@ class WorkFeedFilterWiringTest {
 
             compose.waitUntil(30_000) { feed.itemCount >= 12 }
 
+            writer.start()
+            kotlinx.coroutines.delay(100)
+            compose.onNodeWithTag("feed_filters").performClick()
+            compose.waitUntil(5_000) {
+                compose.onAllNodesWithTag("feed_genre_science-fiction").fetchSemanticsNodes().isNotEmpty()
+            }
             compose.onNodeWithTag("feed_genre_science-fiction").performClick()
             // The tap lands MID-STORM (the user's exact moment); then the
             // sync settles and the switched generation MUST present exactly

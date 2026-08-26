@@ -16,7 +16,7 @@ import {
 
 const BASE = 'https://sound-books.net'
 
-const PLAYLIST_URL = /file\s*:\s*"([^"]+\.m3u)"/i
+const PLAYLIST_URL = /file\s*:\s*"(https?:\/\/[^"]+\.m3u)"/i
 const BOOK_LINK_G =
   /<a\s+[^>]*href="(https:\/\/sound-books\.net\/[^"]+\.html)"[^>]*>([\s\S]*?)<\/a>/gi
 const COVER_TILE_G =
@@ -37,8 +37,15 @@ export const soundBooksAdapter: SourceAdapter = {
   displayName: 'Sound-Books',
   baseUrl: BASE,
   parseCatalog(html, pageUrl): ParsedCatalog | null {
-    const cards = parseTiles(html)
+    let cards = parseTiles(html)
     if (cards.length === 0) return null
+    // Порт cardExtras (SoundBooksAdapter.kt): тривалість рядка «Триває:»
+    // приєднується до картки за її URL; жанри рядків прийде з UI-квітом T4.
+    const durations = durationExtras(html)
+    cards = cards.map((card) => {
+      const durationSeconds = durations.get(card.url)
+      return durationSeconds === undefined ? card : { ...card, durationSeconds }
+    })
     const section: CatalogSection = { id: sectionIdFromUrl(pageUrl), title: '', url: pageUrl, cards }
     return { sections: [section] }
   },
@@ -76,6 +83,20 @@ export function parseM3u(m3u: string): Chapter[] {
       const name = beforeLast(afterLast(stream, '/'), '.').trim()
       return { title: name === '' ? `Глава ${index + 1}` : name, streamUrl: stream }
     })
+}
+
+/** Тривалість із блоків `short-item` («Триває:»), зчеплена за URL книги. */
+function durationExtras(html: string): Map<string, number> {
+  const out = new Map<string, number>()
+  for (const part of html.split('<div class="short-item">').slice(1)) {
+    const url = /href="(https:\/\/sound-books\.net\/[^"]+\.html)"/.exec(part)?.[1]
+    const raw = /Триває:\s*(?:<\/[a-z]+>)?\s*(\d{1,2}:\d{2}(?::\d{2})?)/.exec(part)?.[1]
+    if (!url || !raw) continue
+    const parts = raw.split(':').map(Number)
+    if (parts.some((n) => !Number.isFinite(n))) continue
+    out.set(url, parts.length === 3 ? parts[0] * 3600 + parts[1] * 60 + parts[2] : parts[0] * 60 + parts[1])
+  }
+  return out
 }
 
 function parseTiles(html: string): CatalogCard[] {

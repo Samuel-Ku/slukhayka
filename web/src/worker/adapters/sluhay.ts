@@ -11,7 +11,6 @@ import {
   type BookDetail,
   type CatalogCard,
   type CatalogSection,
-  type Chapter,
   type ParsedCatalog,
   type SourceAdapter,
 } from '../types'
@@ -20,8 +19,6 @@ const BASE = 'https://sluhay.com'
 const HOME_SECTION_ID = 'home'
 
 const PLAYLIST_URL = /(https:\/\/[a-z0-9]+\.redirectto\.cc\/[^"'<>\s]+\.pl\.txt)/i
-const FILE_G = /"file"\s*:\s*"([^"]+)"/gi
-const TITLE_G = /"title"\s*:\s*"([^"]*)"/gi
 const IMG_DATA_SRC = /<img[^>]*data-src="([^"]*(?:uploads|books)[^"]*)"[^>]*>/i
 const DATA_POSTER = /data-poster="([^"]*(?:uploads|books)[^"]*)"/i
 
@@ -106,16 +103,7 @@ export function playlistUrlOf(html: string): string | null {
   return PLAYLIST_URL.exec(html)?.[1] ?? null
 }
 
-export function parsePlayerjsPlaylist(json: string): Chapter[] {
-  if (!json.trim().startsWith('[{')) return []
-  const files = [...json.matchAll(FILE_G)].map((m) => m[1])
-  const titles = [...json.matchAll(TITLE_G)].map((m) => m[1])
-  return files.map((file, index) => {
-    const raw = titles[index]
-    const name = raw === undefined ? '' : beforeLast(raw, '.').trim()
-    return { title: name === '' ? `Глава ${index + 1}` : name, streamUrl: file }
-  })
-}
+export { parsePlayerjsPlaylist } from './playerjs'
 
 function metaRow(html: string, key: string): string {
   const row =

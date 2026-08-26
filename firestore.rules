@@ -358,5 +358,37 @@ service cloud.firestore {
         && request.auth.uid == request.resource.data.uid
         && request.resource.data.uid is string;
     }
+
+    // ADR-0023 (spec-43 T6) — Progress Sync: one Listening State mirror per
+    // listener per Edition (`{uid}_{editionId}`), readable and writable ONLY
+    // by its own listener under App Check. The FIELD uid is the ownership
+    // anchor (the rules language cannot see the document id). The shape gate
+    // mirrors ProgressSyncCodec's bounds; `updatedAt` must be a server
+    // timestamp, so a client can never forge the LWW ordering clock.
+    function isWellFormedListeningState(d) {
+      return d.editionId is string && d.editionId.size() > 0 && d.editionId.size() <= 300
+        && d.uid is string && d.uid.size() > 0
+        && d.chapterIndex is int && d.chapterIndex >= 0
+        && d.positionSeconds is number && d.positionSeconds >= 0 && d.positionSeconds < 86400000
+        && d.isCompleted is bool
+        && (!('preferredSpeed' in d) || (d.preferredSpeed is number && d.preferredSpeed >= 0.25 && d.preferredSpeed <= 4.0))
+        && d.updatedAt == request.time;
+    }
+
+    match /listening_state/{document} {
+      allow read: if isAppCheckValid()
+        && request.auth != null
+        && resource.data.uid == request.auth.uid;
+      allow create: if isAppCheckValid()
+        && request.auth != null
+        && request.resource.data.uid == request.auth.uid
+        && isWellFormedListeningState(request.resource.data);
+      allow update: if isAppCheckValid()
+        && request.auth != null
+        && request.resource.data.uid == request.auth.uid
+        && resource.data.uid == request.auth.uid
+        && isWellFormedListeningState(request.resource.data);
+      allow delete: if false;
+    }
   }
 }

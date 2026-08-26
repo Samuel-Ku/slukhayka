@@ -2,6 +2,7 @@ package com.slukhayka.audiobooks
 
 import android.app.Application
 import android.util.Log
+import androidx.room.withTransaction
 import com.google.firebase.FirebaseApp
 import com.google.firebase.appcheck.FirebaseAppCheck
 import com.google.firebase.appcheck.recaptcha.RecaptchaAppCheckProviderFactory
@@ -22,7 +23,11 @@ import com.slukhayka.audiobooks.data.identity.FirebaseListenerIdentity
 import com.slukhayka.audiobooks.data.identity.ListenerIdentity
 import com.slukhayka.audiobooks.data.identity.LocalOnlyIdentity
 import com.slukhayka.audiobooks.data.identity.SharedPreferencesLocalCredentialStore
+import com.slukhayka.audiobooks.data.listening.FirestoreListenerProgressSyncStore
 import com.slukhayka.audiobooks.data.listening.ListeningStateStore
+import com.slukhayka.audiobooks.data.listening.ProgressSyncController
+import com.slukhayka.audiobooks.data.listening.ProgressSyncSettingsStore
+import com.slukhayka.audiobooks.data.listening.SharedPreferencesProgressSyncLedger
 import com.slukhayka.audiobooks.data.metadata.FirestoreBookMetaStore
 import com.slukhayka.audiobooks.data.metadata.CuratedCoverAssets
 import com.slukhayka.audiobooks.data.metadata.CuratedCoverSeed
@@ -134,6 +139,30 @@ class App : Application() {
     val listeningState: ListeningStateStore by lazy { ListeningStateStore(database.audiobookDao()) }
 
     /**
+     * ADR-0023 (spec-43 T6): the visible switch of Progress Sync — on by
+     * default, off keeps everything local as before.
+     */
+    val progressSyncSettings: ProgressSyncSettingsStore by lazy {
+        ProgressSyncSettingsStore(this)
+    }
+
+    /**
+     * ADR-0023 (spec-43 T6) — Progress Sync: pull before a resume, throttled
+     * push at every save point, only under a real cloud profile (`local-…`
+     * bootstraps never upload). Null Firestore store inside makes both paths
+     * no-ops — degrade-never.
+     */
+    val progressSync: ProgressSyncController by lazy {
+        ProgressSyncController(
+            identity = listenerIdentity,
+            mirror = listeningState,
+            store = FirestoreListenerProgressSyncStore.create(this),
+            ledger = SharedPreferencesProgressSyncLedger(this),
+            isEnabled = { progressSyncSettings.enabled.value }
+        )
+    }
+
+    /**
      * Spec-38 T2 (#254): the persisted privacy choice — the settings screen
      * reads and writes it, startup installs it into [TransportPrivacy]. The
      * store itself is dumb; the route decision lives behind the door.
@@ -232,7 +261,15 @@ class App : Application() {
             // sluhayua search endpoints; a miss or a stale entry resolves
             // live and writes back best-effort. Null without Firebase keys:
             // search then behaves exactly as before.
-            searchCache = FirestoreSearchCache.create(this)
+            searchCache = FirestoreSearchCache.create(this),
+            // Catalogue crawls land each page's merge-on-write block as ONE
+            // Room transaction — one invalidation of the endless feed's
+            // PagingSource per page instead of two per row (row-by-row
+            // invalidations starved every freshly-switched feed generation,
+            // which read as «фільтри не працюють» while the catalogue synced).
+            writeBatchRunner = { block ->
+                database.withTransaction { block() }
+            }
         )
     }
 
@@ -375,7 +412,8 @@ class App : Application() {
             sourceCatalog::getPlayableChapters,
             streamUrlHealer = { bookId, chapterIndex, failedUrl ->
                 libraryImport.refreshStreamUrl(bookId, chapterIndex, failedUrl)
-            }
+            },
+            progressSync = progressSync
         )
     }
 

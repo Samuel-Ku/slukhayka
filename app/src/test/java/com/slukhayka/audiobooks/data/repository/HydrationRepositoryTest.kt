@@ -75,6 +75,33 @@ class HydrationRepositoryTest {
     private fun repo(vararg adapters: SourceAdapter) =
         SourceCatalog(dao, adapters.toList(), LibraryImport(dao, context, adapters.toList()))
 
+    @Test
+    fun `crawl batches its merge-on-write rows through the writeBatchRunner`() = runBlocking {
+        // The endless feed's PagingSource is invalidated by every write to
+        // works/work_sources; row-by-row invalidations starve every freshly-
+        // switched feed generation (the «фільтри не працюють» bug). The crawl
+        // must therefore route its writes through the batching seam — one
+        // invocation per book here proves the routing exists and would wrap
+        // in a transaction at the composition root.
+        val pasazhyr = book("Пасажир", "Жан-Крістоф Гранже", "sluhay")
+        val kobzar = book("Кобзар", "Тарас Шевченко", "sluhay")
+        var batches = 0
+        val repository = SourceCatalog(
+            dao,
+            listOf(FakeAdapter("sluhay", listOf(pasazhyr, kobzar), ::detailOf)),
+            LibraryImport(dao, context, emptyList()),
+            writeBatchRunner = { block ->
+                batches++
+                block()
+            }
+        )
+
+        repository.hydrateWebSourceCatalog("sluhay")
+
+        assertTrue("кравл не пройшов через батч-шов", batches >= 2)
+        assertEquals(2, dao.getAllAudiobooks().first().size)
+    }
+
     private fun book(title: String, author: String, sourceId: String) =
         SourceBook(title = title, author = author, url = "https://$sourceId.example/${title.lowercase()}.html", sourceId = sourceId)
 

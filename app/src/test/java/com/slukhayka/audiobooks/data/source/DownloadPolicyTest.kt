@@ -60,9 +60,24 @@ class DownloadPolicyTest {
     }
 
     @Test
+    fun `4read tracks require the 4read referer`() {
+        val track = "https://s1.reasd.org/5370/01-bunker.mp3"
+        assertEquals(
+            mapOf("Referer" to "https://4read.org/"),
+            headersFor("4read", track)
+        )
+    }
+
+    @Test
+    fun `4read source does not leak its referer to an external archive track`() {
+        val track = "https://archive.org/download/example/chapter-01.mp3"
+        assertTrue(headersFor("4read", track).isEmpty())
+    }
+
+    @Test
     fun `sources that serve plain GETs need no extra headers`() {
         val anyUrl = "https://cdn.example.invalid/s05/1/2/3/track-0.mp3"
-        listOf("4read", "soundbooks", "sluhayua", "lihtar", "local", "unknown-source").forEach { sourceId ->
+        listOf("soundbooks", "sluhayua", "lihtar", "local", "unknown-source").forEach { sourceId ->
             assertTrue("$sourceId must send no headers", headersFor(sourceId, anyUrl).isEmpty())
         }
     }

@@ -27,6 +27,7 @@ import com.slukhayka.audiobooks.data.imports.LibraryImport
 import com.slukhayka.audiobooks.data.listening.ListeningStateStore
 import com.slukhayka.audiobooks.data.imports.ImportPlanner
 import com.slukhayka.audiobooks.data.identity.ListenerIdentity
+import com.slukhayka.audiobooks.data.facets.WorkFacetFilter
 import com.slukhayka.audiobooks.data.privacy.NetworkPrivacy
 import com.slukhayka.audiobooks.data.privacy.PrivacyPrefs
 import com.slukhayka.audiobooks.data.privacy.RouteResolution
@@ -350,9 +351,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 null
             }
             if (book != null) {
+                probeDurationsAfterImport(book.id)
                 playAudiobook(book)
                 _showFullPlayer.value = true
             }
+        }
+    }
+
+    /**
+     * #349 — the targeted post-import duration probe: fire-and-forget on the
+     * ViewModel scope, so a fresh card gets its chapter durations in seconds
+     * instead of waiting for the throttled Огляд pass (#350). Best-effort —
+     * a failing probe never surfaces as an import error.
+     */
+    private fun probeDurationsAfterImport(bookId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { chapterDurationProbe.probeBookNow(bookId) }
         }
     }
 
@@ -707,6 +721,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 null
             }
             if (book != null) {
+                probeDurationsAfterImport(book.id)
                 selectBook(book.id)
             }
         }
@@ -726,6 +741,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 null
             }
             if (book != null) {
+                probeDurationsAfterImport(book.id)
                 playAudiobook(book)
             }
         }
@@ -734,39 +750,34 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // Spec-23 T4: the endless merged feed (Paging 3) over the persisted
     // Works/Editions catalogue — one card per Work, dedup inherited from
     // merge-on-write (never re-implemented at read time). Filters live at the
-    // SQL level (source / genre) so they compose with paging; the Pager is
-    // rebuilt when a filter or the sort changes. `null` source = all sources,
-    // `null` genre = all genres, sort = newest-first unless by title.
-    private val _feedSourceFilter = MutableStateFlow<String?>(null)
-    val feedSourceFilter: StateFlow<String?> = _feedSourceFilter.asStateFlow()
+    // SQL level so they compose with paging; the Pager is rebuilt when a
+    // committed filter set or sort changes. Empty genre set = all genres;
+    // selected ids compose with OR.
 
-    private val _feedGenreFilter = MutableStateFlow<String?>(null)
-    val feedGenreFilter: StateFlow<String?> = _feedGenreFilter.asStateFlow()
+    private val _feedGenreFilters = MutableStateFlow<Set<String>>(emptySet())
+    val feedGenreFilters: StateFlow<Set<String>> = _feedGenreFilters.asStateFlow()
 
     private val _feedSortByTitle = MutableStateFlow(false)
     val feedSortByTitle: StateFlow<Boolean> = _feedSortByTitle.asStateFlow()
 
     val workFeed: Flow<PagingData<WorkFeedRow>> =
-        combine(_feedSourceFilter, _feedGenreFilter, _feedSortByTitle) { sourceId, genre, byTitle ->
-            Triple(sourceId, genre, byTitle)
-        }.flatMapLatest { (sourceId, genre, byTitle) ->
+        combine(_feedGenreFilters, _feedSortByTitle) { genres, byTitle -> genres to byTitle }
+        .distinctUntilChanged()
+        .flatMapLatest { (genres, byTitle) ->
+            val filter = WorkFacetFilter(genreIds = genres)
             Pager(
                 config = PagingConfig(pageSize = 30, prefetchDistance = 15, enablePlaceholders = false)
             ) {
                 if (byTitle) {
-                    sourceCatalog.pagedWorkFeedByTitle(sourceId, genre)
+                    sourceCatalog.pagedWorkFeedByTitle(filter)
                 } else {
-                    sourceCatalog.pagedWorkFeedRecent(sourceId, genre)
+                    sourceCatalog.pagedWorkFeedRecent(filter)
                 }
             }.flow
         }.cachedIn(viewModelScope)
 
-    fun setFeedSourceFilter(sourceId: String?) {
-        _feedSourceFilter.value = sourceId
-    }
-
-    fun setFeedGenreFilter(genre: String?) {
-        _feedGenreFilter.value = genre
+    fun setFeedGenreFilters(genres: Set<String>) {
+        _feedGenreFilters.value = genres
     }
 
     fun setFeedSortByTitle(byTitle: Boolean) {
@@ -1068,6 +1079,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (book != null) {
                 pendingRecommendationBookId.set(book.id)
                 recommendationPersonalization.recordDetailOpen()
+                probeDurationsAfterImport(book.id)
                 selectBook(book.id)
             }
         }
@@ -1159,6 +1171,79 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     val listenerReviews: com.slukhayka.audiobooks.data.reviews.ListenerReviewsStore? =
         App.instance.listenerReviews
+
+    // --- ADR-0023 (#348): «Оцінка начитки» — stars per (Work × Edition) ----
+
+    /** Null without Firebase keys: the rating UI simply does not render. */
+    val narrationRatingsStore: com.slukhayka.audiobooks.data.reviews.NarrationRatingsStore? =
+        App.instance.narrationRatings
+
+    private val _narrationRatings =
+        MutableStateFlow<List<com.slukhayka.audiobooks.data.reviews.NarrationRating>>(emptyList())
+
+    /** Every rating of one Work across its Editions; the UI filters by editionId. */
+    val narrationRatings: StateFlow<List<com.slukhayka.audiobooks.data.reviews.NarrationRating>> =
+        _narrationRatings.asStateFlow()
+
+    /** Best-effort refresh of one Work's narration ratings; a failure serves silence. */
+    fun loadNarrationRatings(workId: String) {
+        val store = narrationRatingsStore ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            _narrationRatings.value = try {
+                store.getForWork(workId)
+            } catch (e: Exception) {
+                emptyList()
+            }
+        }
+    }
+
+    /**
+     * Best-effort removal of THIS listener's narration rating (#358); the
+     * reload restores the truth.
+     */
+    fun deleteOwnNarrationRating(workId: String, editionId: String) {
+        val store = narrationRatingsStore ?: return
+        val profile = _listenerIdentity.value ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { store.deleteRating(workId, profile.uid, editionId) }
+            loadNarrationRatings(workId)
+        }
+    }
+
+    /**
+     * The stored Edition id of one book row — the anchor of the current
+     * card's own narration rating.
+     */
+    suspend fun editionIdForBook(bookId: String): String? =
+        App.instance.audiobookDao.getEditionIdForBook(bookId)
+
+    /**
+     * Create or EDIT one narration rating (idempotent `set()` under the same
+     * `${workId}_${uid}_${editionId}` key). Needs a listener identity; a
+     * failing write stays silent and the reload restores the truth.
+     */
+    fun saveNarrationRating(
+        workId: String,
+        editionId: String,
+        rating: Int,
+        editingCreatedAt: Long? = null
+    ) {
+        val store = narrationRatingsStore ?: return
+        val profile = _listenerIdentity.value ?: return
+        val now = System.currentTimeMillis()
+        val value = com.slukhayka.audiobooks.data.reviews.NarrationRating(
+            workId = workId,
+            uid = profile.uid,
+            editionId = editionId,
+            rating = rating,
+            createdAt = editingCreatedAt ?: now,
+            editedAt = if (editingCreatedAt != null) now else null
+        )
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { store.putRating(value) }
+            loadNarrationRatings(workId)
+        }
+    }
 
     /**
      * Lane-a wiring point: attach the [com.slukhayka.audiobooks.data.identity.ListenerIdentity]
@@ -1560,6 +1645,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 )
                 if (book != null) {
                     _downloadingBookId.value = book.id
+                    probeDurationsAfterImport(book.id)
                     offlineDownloads.downloadAudiobookOffline(book.id)
                 }
             } catch (e: Exception) {

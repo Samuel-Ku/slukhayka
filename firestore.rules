@@ -262,6 +262,40 @@ service cloud.firestore {
         && resource.data.uid == request.auth.uid;
     }
 
+    // ADR-0023 (#348) — the shape gate for one narration rating: identity
+    // fields real and bounded, rating exactly 1..5, timestamps numeric.
+    // Mirrors the client codec's bounds so a document the rules accept is
+    // one the app can decode.
+    function isWellFormedNarrationRating(d) {
+      return d.workId is string && d.workId.size() > 0 && d.workId.size() <= 300
+        && d.uid is string && d.uid.size() > 0
+        && d.editionId is string && d.editionId.size() > 0 && d.editionId.size() <= 200
+        && d.rating is int && d.rating >= 1 && d.rating <= 5
+        && d.createdAt is number
+        && (!('editedAt' in d) || d.editedAt is number);
+    }
+
+    // ADR-0023 (#348) — listener ratings of ONE Edition («Оцінка начитки»):
+    // readable by everyone, writable only by the rating's own owner under
+    // App Check — the exact model of book_reviews above. The document key is
+    // `${workId}_${uid}_${editionId}` but the FIELD uid is the ownership
+    // anchor.
+    match /edition_ratings/{document} {
+      allow read: if true;
+      allow create: if isAppCheckValid()
+        && request.auth != null
+        && request.resource.data.uid == request.auth.uid
+        && isWellFormedNarrationRating(request.resource.data);
+      allow update: if isAppCheckValid()
+        && request.auth != null
+        && resource.data.uid == request.auth.uid
+        && request.resource.data.uid == request.auth.uid
+        && isWellFormedNarrationRating(request.resource.data);
+      allow delete: if isAppCheckValid()
+        && request.auth != null
+        && resource.data.uid == request.auth.uid;
+    }
+
     match /universe_resolutions/{document} {
       allow read: if true;
       allow write: if isAppCheckValid();

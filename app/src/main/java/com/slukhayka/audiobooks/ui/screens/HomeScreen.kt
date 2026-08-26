@@ -53,6 +53,7 @@ import com.slukhayka.audiobooks.data.catalog.CatalogBook
 import com.slukhayka.audiobooks.data.catalog.CatalogSeries
 import com.slukhayka.audiobooks.data.catalog.SourceCatalog
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
+import com.slukhayka.audiobooks.data.db.GenreFacetOption
 import com.slukhayka.audiobooks.data.duration.ChapterDurationProbe
 import com.slukhayka.audiobooks.data.duration.DurationEnrichment
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
@@ -107,7 +108,7 @@ fun HomeScreen(
     val searchQuery by viewModel.searchQuery.collectAsState()
     val sections by sourceCatalog.catalogSections.collectAsState()
     val isCatalogLoading by sourceCatalog.isCatalogLoading.collectAsState()
-    val catalogGenres by sourceCatalog.catalogGenres.collectAsState()
+    val genreFacetOptions by sourceCatalog.genreFacetOptions.collectAsState(initial = emptyList())
     // Spec-10 T4: aggregated global search across all verified sources.
     val globalResults by viewModel.globalSearchResults.collectAsState()
     val isGlobalSearchLoading by viewModel.isGlobalSearchLoading.collectAsState()
@@ -116,7 +117,7 @@ fun HomeScreen(
     // per Work, dedup inherited from merge-on-write. Filter/sort states live
     // in the ViewModel (they rebuild the Pager); the feed is collected here.
     val workFeedItems = viewModel.workFeed.collectAsLazyPagingItems()
-    val feedGenreFilter by viewModel.feedGenreFilter.collectAsState()
+    val feedGenreFilters by viewModel.feedGenreFilters.collectAsState()
     val feedSortByTitle by viewModel.feedSortByTitle.collectAsState()
     // Spec-19 Track A: the on-device «Рекомендовано для вас» row — semantic
     // similarity of catalogue descriptions to favourite/completed/recent
@@ -158,9 +159,6 @@ fun HomeScreen(
     val scope = rememberCoroutineScope()
     val recommendationSnackbar = remember { SnackbarHostState() }
     LaunchedEffect(Unit) {
-        // spec-42 T1 (#302): Sources are provenance, not an Огляд control.
-        // Clear any in-memory legacy selection before the paged feed is used.
-        viewModel.setFeedSourceFilter(null)
         sourceCatalog.refreshUnifiedCatalog()
         sourceCatalog.refreshSourceFeeds()
         viewModel.refreshEmbeddingVectors()
@@ -347,7 +345,7 @@ fun HomeScreen(
                 isCatalogLoading = isCatalogLoading,
                 hasLibraryBooks = allBooks.isNotEmpty(),
                 sections = sections,
-                catalogGenres = catalogGenres,
+                genreFacetOptions = genreFacetOptions,
                 collections = collections,
                 newArrivals = newArrivals,
                 recommendedBooks = recommendedBooks,
@@ -357,7 +355,7 @@ fun HomeScreen(
                 shortBooks = durationBooks.short.map { it.asCatalogBook() },
                 longBooks = durationBooks.long.map { it.asCatalogBook() },
                 workFeedItems = workFeedItems,
-                feedGenreFilter = feedGenreFilter,
+                feedGenreFilters = feedGenreFilters,
                 feedSortByTitle = feedSortByTitle,
                 onRefreshCatalog = { scope.launch { sourceCatalog.fetchCatalogSections() } },
                 onGoToLibrary = { viewModel.selectTab(com.slukhayka.audiobooks.ui.SelectedTab.LIBRARY) },
@@ -370,7 +368,7 @@ fun HomeScreen(
                 onOpenRecommendedBook = { viewModel.openRecommendedBook(it) },
                 onOpenWorkFeedRow = { viewModel.openWorkFeedRow(it) },
                 onBookClick = onBookClick,
-                onSetFeedGenreFilter = { viewModel.setFeedGenreFilter(it) },
+                onSetFeedGenreFilters = { viewModel.setFeedGenreFilters(it) },
                 onSetFeedSortByTitle = { viewModel.setFeedSortByTitle(it) },
                 onOpenWebSource = onOpenWebSource,
                 onRecommendationFeedback = { rec, kind ->
@@ -1430,16 +1428,17 @@ fun WorkFeedCard(
 
 /**
  * spec-42 T1 (#302) — the endless feed's compact sticky toolbar. It exposes
- * one current-value sort control and one selected/unselected filter control;
- * the single-genre tracer lives in a transient sheet until #304 adds facets.
+ * one current-value sort control and one selected/unselected filter control.
+ * Genre ids are committed immediately as an OR-set through the local facet
+ * seam; the sheet has no draft state and repeated taps toggle one value.
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun WorkFeedFilters(
-    genreFilter: String?,
+    selectedGenreIds: Set<String>,
     sortByTitle: Boolean,
-    genres: List<String>,
-    onGenreChange: (String?) -> Unit,
+    genres: List<GenreFacetOption>,
+    onGenresChange: (Set<String>) -> Unit,
     onSortChange: (Boolean) -> Unit
 ) {
     var sortExpanded by remember { mutableStateOf(false) }
@@ -1488,7 +1487,7 @@ fun WorkFeedFilters(
                 }
             }
             FilterChip(
-                selected = genreFilter != null,
+                selected = selectedGenreIds.isNotEmpty(),
                 onClick = { showFilterSheet = true },
                 label = { Text("Фільтри") },
                 leadingIcon = {
@@ -1532,17 +1531,22 @@ fun WorkFeedFilters(
                             .verticalScroll(rememberScrollState())
                     ) {
                         FilterChip(
-                            selected = genreFilter == null,
-                            onClick = { onGenreChange(null) },
+                            selected = selectedGenreIds.isEmpty(),
+                            onClick = { onGenresChange(emptySet()) },
                             label = { Text("Усі жанри") },
                             modifier = Modifier.testTag("feed_genre_all")
                         )
                         genres.forEach { genre ->
                             FilterChip(
-                                selected = genreFilter == genre,
-                                onClick = { onGenreChange(if (genreFilter == genre) null else genre) },
-                                label = { Text(genre) },
-                                modifier = Modifier.testTag("feed_genre_$genre")
+                                selected = genre.id in selectedGenreIds,
+                                onClick = {
+                                    onGenresChange(
+                                        if (genre.id in selectedGenreIds) selectedGenreIds - genre.id
+                                        else selectedGenreIds + genre.id
+                                    )
+                                },
+                                label = { Text(genre.label) },
+                                modifier = Modifier.testTag("feed_genre_${genre.id}")
                             )
                         }
                     }
@@ -1552,7 +1556,7 @@ fun WorkFeedFilters(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        TextButton(onClick = { onGenreChange(null) }) { Text("Скинути все") }
+                        TextButton(onClick = { onGenresChange(emptySet()) }) { Text("Скинути все") }
                         Button(onClick = { showFilterSheet = false }) { Text("Готово") }
                     }
                     Spacer(modifier = Modifier.height(12.dp))

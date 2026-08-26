@@ -26,10 +26,21 @@ import com.slukhayka.audiobooks.data.db.TombstoneEntity
 import com.slukhayka.audiobooks.data.db.WorkEntity
 import com.slukhayka.audiobooks.data.db.WorkFeedRow
 import com.slukhayka.audiobooks.data.db.WorkSourceEntity
+import com.slukhayka.audiobooks.data.db.WorkFacetEntity
+import com.slukhayka.audiobooks.data.db.WorkFacetSeriesEntity
+import com.slukhayka.audiobooks.data.db.GenreFacetEntity
+import com.slukhayka.audiobooks.data.db.WorkGenreEntity
+import com.slukhayka.audiobooks.data.db.GenreAssertionEntity
+import com.slukhayka.audiobooks.data.db.GenreAssertionStateEntity
+import com.slukhayka.audiobooks.data.db.GenreFacetOption
+import com.slukhayka.audiobooks.data.db.EditionFacetEntity
+import com.slukhayka.audiobooks.data.db.AuthorFacetEntity
+import com.slukhayka.audiobooks.data.db.AuthorAliasEntity
 import androidx.paging.PagingSource
 import androidx.paging.PagingState
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 
@@ -76,6 +87,15 @@ class FakeAudiobookDao(
     private val universesState = MutableStateFlow(emptyList<UniverseEntity>())
     private val seriesState = MutableStateFlow(emptyList<SeriesEntity>())
     private val seriesMembersState = MutableStateFlow(emptyList<SeriesMemberEntity>())
+    private val workFacetsState = MutableStateFlow(emptyList<WorkFacetEntity>())
+    private val workFacetSeriesState = MutableStateFlow(emptyList<WorkFacetSeriesEntity>())
+    private val genreFacetsState = MutableStateFlow(emptyList<GenreFacetEntity>())
+    private val workGenresState = MutableStateFlow(emptyList<WorkGenreEntity>())
+    private val genreAssertionsState = MutableStateFlow(emptyList<GenreAssertionEntity>())
+    private val genreAssertionStatesState = MutableStateFlow(emptyList<GenreAssertionStateEntity>())
+    private val editionFacetsState = MutableStateFlow(emptyList<EditionFacetEntity>())
+    private val authorFacetsState = MutableStateFlow(emptyList<AuthorFacetEntity>())
+    private val authorAliasesState = MutableStateFlow(emptyList<AuthorAliasEntity>())
 
     /** Snapshot of the recorded playback failures, for assertions. */
     val savedFailures: List<PlaybackFailureEntity> get() = failuresState.value
@@ -841,23 +861,28 @@ class FakeAudiobookDao(
 
     override suspend fun countWorkSources(): Int = workSourcesState.value.size
 
-    override fun pagedWorksFeedRecent(sourceId: String?, genre: String?): PagingSource<Int, WorkFeedRow> =
-        fakeFeed(sourceId, genre, sortByTitle = false)
+    override fun pagedWorksFeedRecent(genreIds: List<String>, genreActive: Int, durationBucketIds: List<String>, durationActive: Int, authorIds: List<String>, authorActive: Int): PagingSource<Int, WorkFeedRow> =
+        fakeFeed(genreIds, genreActive, durationBucketIds, durationActive, authorIds, authorActive, sortByTitle = false)
 
-    override fun pagedWorksFeedByTitle(sourceId: String?, genre: String?): PagingSource<Int, WorkFeedRow> =
-        fakeFeed(sourceId, genre, sortByTitle = true)
+    override fun pagedWorksFeedByTitle(genreIds: List<String>, genreActive: Int, durationBucketIds: List<String>, durationActive: Int, authorIds: List<String>, authorActive: Int): PagingSource<Int, WorkFeedRow> =
+        fakeFeed(genreIds, genreActive, durationBucketIds, durationActive, authorIds, authorActive, sortByTitle = true)
 
     /** In-memory PagingSource over the same state the fake DAO owns. */
-    private fun fakeFeed(sourceId: String?, genre: String?, sortByTitle: Boolean): PagingSource<Int, WorkFeedRow> {
+    private fun fakeFeed(
+        genreIds: List<String>, genreActive: Int,
+        durationBucketIds: List<String>, durationActive: Int,
+        authorIds: List<String>, authorActive: Int,
+        sortByTitle: Boolean
+    ): PagingSource<Int, WorkFeedRow> {
         val rows = worksState.value.mapNotNull { work ->
-            if (sourceId != null && workSourcesState.value.none { it.workId == work.id && it.sourceId == sourceId }) {
+            if (genreActive != 0 && workGenresState.value.none { it.workId == work.id && it.genreId in genreIds }) {
                 return@mapNotNull null
             }
+            if (durationActive != 0 && editionFacetsState.value.none { it.workId == work.id && it.durationBucketId in durationBucketIds }) return@mapNotNull null
+            if (authorActive != 0 && workFacetsState.value.none { it.workId == work.id && it.canonicalAuthorId in authorIds }) return@mapNotNull null
             val libraryBook = booksState.value.firstOrNull { it.workId == work.id }
-            val libraryGenre = libraryBook?.genre
-            if (genre != null && (libraryGenre == null || !libraryGenre.contains(genre, ignoreCase = true))) {
-                return@mapNotNull null
-            }
+            val libraryGenre = workGenresState.value.firstOrNull { it.workId == work.id }
+                ?.let { relation -> genreFacetsState.value.firstOrNull { it.id == relation.genreId }?.displayName }
             // Spec-24 T1: mirrors the real feed SQL — the Work's duration is
             // the linked library copy's Edition total (the Edition owns the
             // listening totals, ADR-0010); null until one exists.
@@ -903,4 +928,97 @@ class FakeAudiobookDao(
 
     /** Snapshot of the persisted catalogue work-sources, for assertions. */
     val savedWorkSources: List<WorkSourceEntity> get() = workSourcesState.value
+
+    override suspend fun mergeWorkFacet(workId: String, authorId: String?, updatedAt: Long) {
+        val current = workFacetsState.value.firstOrNull { it.workId == workId }
+        val merged = WorkFacetEntity(
+            workId,
+            authorId ?: current?.canonicalAuthorId,
+            maxOf(updatedAt, current?.updatedAt ?: 0)
+        )
+        workFacetsState.update { rows -> rows.filterNot { it.workId == workId } + merged }
+    }
+
+    override suspend fun insertWorkFacetSeries(rows: List<WorkFacetSeriesEntity>) {
+        workFacetSeriesState.update { current -> (current + rows).distinctBy { it.workId to it.seriesId } }
+    }
+
+    override suspend fun insertGenreFacets(rows: List<GenreFacetEntity>) {
+        genreFacetsState.update { current -> current.filterNot { old -> rows.any { it.id == old.id } } + rows }
+    }
+
+    override suspend fun insertWorkGenres(rows: List<WorkGenreEntity>) {
+        workGenresState.update { current -> (current + rows).distinctBy { Triple(it.workId, it.genreId, it.sourceId) } }
+    }
+
+    override suspend fun insertGenreAssertions(rows: List<GenreAssertionEntity>) {
+        genreAssertionsState.update { current -> current.filterNot { old -> rows.any { it.id == old.id } } + rows }
+    }
+
+    override suspend fun genreDocumentUpdatedAt(workId: String, sourceId: String): Long? =
+        genreAssertionStatesState.value.firstOrNull { it.workId == workId && it.sourceId == sourceId }?.documentUpdatedAt
+
+    override suspend fun deleteWorkGenresForSource(workId: String, sourceId: String) {
+        workGenresState.update { rows -> rows.filterNot { it.workId == workId && it.sourceId == sourceId } }
+    }
+
+    override suspend fun deleteGenreAssertionsForSource(workId: String, sourceId: String) {
+        genreAssertionsState.update { rows -> rows.filterNot { it.workId == workId && it.sourceId == sourceId } }
+    }
+
+    override suspend fun upsertGenreAssertionState(row: GenreAssertionStateEntity) {
+        genreAssertionStatesState.update { rows -> rows.filterNot { it.workId == row.workId && it.sourceId == row.sourceId } + row }
+    }
+
+    override suspend fun mergeEditionFacet(
+        editionId: String,
+        workId: String,
+        narratorId: String?,
+        language: String?,
+        durationSeconds: Long?,
+        durationBucketId: String?,
+        chapterCount: Int?,
+        isAbridged: Boolean?,
+        availabilityAvailable: Boolean?,
+        availabilityObservedAtMillis: Long?,
+        availabilityTtlSeconds: Long?,
+        updatedAt: Long
+    ) {
+        val current = editionFacetsState.value.firstOrNull { it.editionId == editionId }
+        val currentObservedAt = current?.availabilityObservedAtMillis
+        val acceptAvailability = availabilityObservedAtMillis != null &&
+            (currentObservedAt == null || availabilityObservedAtMillis > currentObservedAt)
+        val merged = EditionFacetEntity(
+            editionId, workId, narratorId ?: current?.narratorId, language ?: current?.language,
+            durationSeconds ?: current?.durationSeconds, durationBucketId ?: current?.durationBucketId,
+            chapterCount ?: current?.chapterCount, isAbridged ?: current?.isAbridged,
+            if (acceptAvailability) availabilityAvailable else current?.availabilityAvailable,
+            if (acceptAvailability) availabilityObservedAtMillis else current?.availabilityObservedAtMillis,
+            if (acceptAvailability) availabilityTtlSeconds else current?.availabilityTtlSeconds,
+            maxOf(updatedAt, current?.updatedAt ?: 0)
+        )
+        editionFacetsState.update { rows -> rows.filterNot { it.editionId == editionId } + merged }
+    }
+
+    override suspend fun upsertAuthorFacets(rows: List<AuthorFacetEntity>) {
+        authorFacetsState.update { current -> (current.filterNot { old -> rows.any { it.id == old.id } } + rows) }
+    }
+
+    override suspend fun insertAuthorAliases(rows: List<AuthorAliasEntity>) {
+        authorAliasesState.update { current -> (current + rows).distinctBy { Triple(it.authorId, it.normalizedAlias, it.sourceId) } }
+    }
+
+    override fun observeGenreFacetOptions(): Flow<List<GenreFacetOption>> =
+        combine(genreFacetsState, workGenresState) { genres, memberships ->
+            genres.map { genre ->
+                GenreFacetOption(
+                    genre.id,
+                    genre.displayName,
+                    memberships.filter { it.genreId == genre.id }.map { it.workId }.distinct().size
+                )
+            }.filter { it.workCount > 0 }.sortedWith(compareBy({ it.label.lowercase() }, { it.id }))
+        }
+
+    override suspend fun genreAssertionsForWork(workId: String): List<GenreAssertionEntity> =
+        genreAssertionsState.value.filter { it.workId == workId }.sortedBy { it.id }
 }

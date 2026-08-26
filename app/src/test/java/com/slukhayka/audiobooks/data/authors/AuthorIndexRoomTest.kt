@@ -55,6 +55,10 @@ class AuthorIndexRoomTest {
             observedAt = 10
         )
 
+        // A later catalogue rewrite carries only derived freshness (0) and
+        // must not undo the trusted assertion's canonical Work mapping.
+        index.indexWorks(listOf(works[1]), sourceId = "catalog-union")
+
         assertEquals(listOf("Леся Українка"), index.search("косач").map { it.displayName })
         assertEquals(2, index.search("леся").first().workCount)
         assertEquals(emptyList<AuthorSummary>(), index.search("л"))
@@ -66,6 +70,34 @@ class AuthorIndexRoomTest {
             listOf("Lеся Українка", "Леся Українка"),
             index.authors.first().map { it.displayName }
         )
+        assertEquals(lesia.id, index.authorForWork("w-larysa")?.id)
+    }
+
+    @Test
+    fun `first local read backfills persisted Works without network or provider people`() = runBlocking {
+        db.audiobookDao().upsertWork(
+            WorkEntity("legacy-work", "legacy-work", "Intermezzo", "Михайло Коцюбинський", addedAt = 1)
+        )
+
+        val author = index.search("коцюбинський").single()
+
+        assertEquals("Михайло Коцюбинський", author.displayName)
+        assertEquals(listOf("Intermezzo"), index.works(author.id).map(WorkEntity::title))
+    }
+
+    @Test
+    fun `stored Work mapping wins when two canonical identities share an alias claim`() = runBlocking {
+        val works = listOf(
+            WorkEntity("collision-a", "collision-a", "Книга А", "Автор А", addedAt = 2),
+            WorkEntity("collision-b", "collision-b", "Книга Б", "Автор Б", addedAt = 1)
+        )
+        works.forEach { db.audiobookDao().upsertWork(it) }
+        index.indexWorks(works, sourceId = "catalog-union")
+        index.applyAssertion("canonical-a", "Автор А", listOf("Спільне Ім’я"), setOf("collision-a"), "metadata-a", 10)
+        index.applyAssertion("canonical-b", "Автор Б", listOf("Спільне Ім’я"), setOf("collision-b"), "metadata-b", 10)
+
+        assertEquals(2, index.search("спільне", limit = 10).size)
+        assertEquals("canonical-b", index.authorForWork("collision-b")?.id)
     }
 
     @Test

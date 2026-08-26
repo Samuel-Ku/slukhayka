@@ -934,7 +934,11 @@ class FakeAudiobookDao(
         val current = workFacetsState.value.firstOrNull { it.workId == workId }
         val merged = WorkFacetEntity(
             workId,
-            authorId ?: current?.canonicalAuthorId,
+            if (current == null || updatedAt >= current.updatedAt) {
+                authorId ?: current?.canonicalAuthorId
+            } else {
+                current.canonicalAuthorId
+            },
             maxOf(updatedAt, current?.updatedAt ?: 0)
         )
         workFacetsState.update { rows -> rows.filterNot { it.workId == workId } + merged }
@@ -1039,6 +1043,22 @@ class FakeAudiobookDao(
     override suspend fun worksForAuthor(authorId: String): List<WorkEntity> {
         val ids = workFacetsState.value.filter { it.canonicalAuthorId == authorId }.map { it.workId }.toSet()
         return worksState.value.filter { it.id in ids }.sortedWith(compareBy(WorkEntity::title, WorkEntity::id))
+    }
+
+    override suspend fun authorForWork(workId: String): AuthorSummary? {
+        val authorId = workFacetsState.value.firstOrNull { it.workId == workId }?.canonicalAuthorId ?: return null
+        val author = authorFacetsState.value.firstOrNull { it.id == authorId } ?: return null
+        return AuthorSummary(
+            author.id,
+            author.displayName,
+            author.normalizedName,
+            workFacetsState.value.count { it.canonicalAuthorId == authorId }
+        )
+    }
+
+    override suspend fun worksMissingCanonicalAuthor(): List<WorkEntity> {
+        val indexed = workFacetsState.value.filter { it.canonicalAuthorId != null }.map { it.workId }.toSet()
+        return worksState.value.filterNot { it.id in indexed }.sortedBy(WorkEntity::id)
     }
 
     override fun observeGenreFacetOptions(): Flow<List<GenreFacetOption>> =

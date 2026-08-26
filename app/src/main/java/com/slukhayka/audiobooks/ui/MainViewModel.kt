@@ -10,6 +10,7 @@ import androidx.paging.cachedIn
 import com.slukhayka.audiobooks.App
 import com.slukhayka.audiobooks.data.authors.AuthorSummary
 import com.slukhayka.audiobooks.data.authors.AuthorIndex
+import com.slukhayka.audiobooks.data.authors.AuthorIdentity
 import com.slukhayka.audiobooks.data.authors.authorMatchesOrEmpty
 import com.slukhayka.audiobooks.data.catalog.CatalogPerson
 import com.slukhayka.audiobooks.data.catalog.CatalogSeries
@@ -682,11 +683,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun openCanonicalAuthorByName(name: String) {
+    fun openCanonicalAuthorForWork(workId: String?, fallbackName: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            val author = authorMatchesOrEmpty(name) {
-                sourceCatalog.searchAuthors(it, AuthorIndex.MAX_FULL_LIST)
-            }.firstOrNull() ?: return@launch
+            val author = workId?.let { sourceCatalog.authorForWork(it) } ?: run {
+                val exactId = runCatching { AuthorIdentity.fromWorkName(fallbackName).id }.getOrNull()
+                    ?: return@launch
+                authorMatchesOrEmpty(fallbackName) {
+                    sourceCatalog.searchAuthors(it, AuthorIndex.MAX_FULL_LIST)
+                }.firstOrNull { it.id == exactId } ?: return@launch
+            }
             openCanonicalAuthor(author)
         }
     }

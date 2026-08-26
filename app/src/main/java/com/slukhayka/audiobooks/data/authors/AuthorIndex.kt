@@ -6,6 +6,10 @@ import com.slukhayka.audiobooks.data.db.AudiobookDao
 import com.slukhayka.audiobooks.data.db.WorkEntity
 import com.slukhayka.audiobooks.data.db.WorkFacetEntity
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 data class AuthorSummary(
     val id: String,
@@ -19,6 +23,7 @@ interface AuthorIndex {
 
     suspend fun search(query: String, limit: Int = DEFAULT_SEARCH_LIMIT): List<AuthorSummary>
     suspend fun works(authorId: String): List<WorkEntity>
+    suspend fun authorForWork(workId: String): AuthorSummary?
     suspend fun indexWorks(works: List<WorkEntity>, sourceId: String)
     suspend fun applyAssertion(
         canonicalId: String,
@@ -38,10 +43,17 @@ interface AuthorIndex {
 
 /** Room-backed canonical author read model; all interaction queries stay local. */
 class RoomAuthorIndex(private val dao: AudiobookDao) : AuthorIndex {
-    override val authors: Flow<List<AuthorSummary>> = dao.observeAuthorIndex()
+    private val backfillMutex = Mutex()
+    @Volatile private var backfillChecked = false
+
+    override val authors: Flow<List<AuthorSummary>> = flow {
+        ensureBackfilled()
+        emitAll(dao.observeAuthorIndex())
+    }
 
     override suspend fun search(query: String, limit: Int): List<AuthorSummary> {
         val normalized = AuthorIdentity.searchableQuery(query) ?: return emptyList()
+        ensureBackfilled()
         return dao.searchAuthors(
             lowerBound = normalized,
             upperBound = "$normalized\uFFFF",
@@ -49,7 +61,15 @@ class RoomAuthorIndex(private val dao: AudiobookDao) : AuthorIndex {
         )
     }
 
-    override suspend fun works(authorId: String): List<WorkEntity> = dao.worksForAuthor(authorId)
+    override suspend fun works(authorId: String): List<WorkEntity> {
+        ensureBackfilled()
+        return dao.worksForAuthor(authorId)
+    }
+
+    override suspend fun authorForWork(workId: String): AuthorSummary? {
+        ensureBackfilled()
+        return dao.authorForWork(workId)
+    }
 
     override suspend fun indexWorks(works: List<WorkEntity>, sourceId: String) {
         require(sourceId.isNotBlank() && sourceId.length <= 80)
@@ -122,6 +142,15 @@ class RoomAuthorIndex(private val dao: AudiobookDao) : AuthorIndex {
         observedAt: Long
     ): List<AuthorAliasEntity> = AuthorIdentity.searchKeys(rawAlias).map { searchKey ->
         AuthorAliasEntity(authorId, searchKey, rawAlias.take(AuthorIdentity.MAX_NAME_LENGTH), sourceId, observedAt)
+    }
+
+    private suspend fun ensureBackfilled() {
+        if (backfillChecked) return
+        backfillMutex.withLock {
+            if (backfillChecked) return
+            indexWorks(dao.worksMissingCanonicalAuthor(), sourceId = "local-backfill")
+            backfillChecked = true
+        }
     }
 
 }

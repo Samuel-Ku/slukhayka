@@ -773,9 +773,10 @@ interface AudiobookDao {
 
     @Query(
         "INSERT INTO work_facets (workId, canonicalAuthorId, updatedAt) " +
-            "VALUES (:workId, :authorId, :updatedAt) " +
-            "ON CONFLICT(workId) DO UPDATE SET " +
-            "canonicalAuthorId=COALESCE(excluded.canonicalAuthorId, canonicalAuthorId), " +
+        "VALUES (:workId, :authorId, :updatedAt) " +
+        "ON CONFLICT(workId) DO UPDATE SET " +
+            "canonicalAuthorId=CASE WHEN excluded.updatedAt >= updatedAt " +
+            "THEN COALESCE(excluded.canonicalAuthorId, canonicalAuthorId) ELSE canonicalAuthorId END, " +
             "updatedAt=MAX(updatedAt, excluded.updatedAt)"
     )
     suspend fun mergeWorkFacet(workId: String, authorId: String?, updatedAt: Long)
@@ -872,6 +873,21 @@ interface AudiobookDao {
             "WHERE wf.canonicalAuthorId=:authorId ORDER BY w.title COLLATE NOCASE ASC, w.id ASC"
     )
     suspend fun worksForAuthor(authorId: String): List<WorkEntity>
+
+    @Query(
+        "SELECT a.id, a.displayName, a.normalizedName, COUNT(DISTINCT allWf.workId) AS workCount " +
+            "FROM work_facets selected " +
+            "JOIN author_facets a ON a.id=selected.canonicalAuthorId " +
+            "JOIN work_facets allWf ON allWf.canonicalAuthorId=a.id " +
+            "WHERE selected.workId=:workId GROUP BY a.id, a.displayName, a.normalizedName LIMIT 1"
+    )
+    suspend fun authorForWork(workId: String): AuthorSummary?
+
+    @Query(
+        "SELECT w.* FROM works w LEFT JOIN work_facets wf ON wf.workId=w.id " +
+            "WHERE wf.canonicalAuthorId IS NULL ORDER BY w.id ASC"
+    )
+    suspend fun worksMissingCanonicalAuthor(): List<WorkEntity>
 
     @Transaction
     suspend fun applyFacetRows(

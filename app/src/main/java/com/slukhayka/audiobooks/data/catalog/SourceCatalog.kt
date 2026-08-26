@@ -117,6 +117,8 @@ class SourceCatalog(
 
     suspend fun authorWorks(authorId: String): List<WorkEntity> = authorIndex.works(authorId)
 
+    suspend fun authorForWork(workId: String): AuthorSummary? = authorIndex.authorForWork(workId)
+
     private val fourReadAdapter: SourceAdapter =
         sourceAdapters.firstOrNull { it.sourceId == SourceIds.FOUR_READ } ?: FourReadAdapter()
 

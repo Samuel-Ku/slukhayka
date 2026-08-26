@@ -3,6 +3,10 @@ package com.slukhayka.audiobooks.ui
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsActions
@@ -17,12 +21,15 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performSemanticsAction
 import com.slukhayka.audiobooks.data.db.ChapterEntity
+import com.slukhayka.audiobooks.data.db.BookmarkEntity
 import com.slukhayka.audiobooks.ui.components.SleepTimerSheet
 import com.slukhayka.audiobooks.ui.components.SpeedSheet
 import com.slukhayka.audiobooks.ui.screens.BookmarkBottomSheet
+import com.slukhayka.audiobooks.ui.screens.BookmarksListSheet
 import com.slukhayka.audiobooks.ui.screens.ChapterBottomSheet
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
 import org.junit.Assert.assertEquals
@@ -225,6 +232,53 @@ class PlayerToolsAccessibilityTest {
             .performClick()
 
         assertEquals(1, dismisses)
+    }
+
+    @Test
+    fun bookmarksListConfirmsDeletionAndRestoresAStableFocusTarget() {
+        val bookmark = BookmarkEntity(
+            id = 17,
+            bookId = "work-1",
+            editionId = "edition-1",
+            chapterIndex = 1,
+            chapterTitle = "Зустріч",
+            timestampSeconds = 320,
+            note = "Важливе місце",
+            createdAt = 42
+        )
+        var deletedId: Long? = null
+        composeTestRule.setContent {
+            var bookmarks by remember { mutableStateOf(listOf(bookmark)) }
+            PlayerTheme {
+                BookmarksListSheet(
+                    workTitle = "Трохи ненависті",
+                    bookmarks = bookmarks,
+                    onSelect = {},
+                    onDelete = {
+                        deletedId = it.id
+                        bookmarks = bookmarks.filterNot { candidate -> candidate.id == it.id }
+                    },
+                    onDismiss = {}
+                )
+            }
+        }
+
+        composeTestRule.onNodeWithTag("bookmarks_sheet_heading").assertIsFocused()
+        composeTestRule.onNodeWithTag("bookmarks_sheet_delete_17").performClick()
+        composeTestRule.onNodeWithTag("bookmarks_sheet", useUnmergedTree = true)
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.HideFromAccessibility, Unit))
+        composeTestRule.onNodeWithTag("book_detail_bookmark_delete_heading").assertIsFocused()
+        composeTestRule.onAllNodesWithText(
+            "Видалити закладку у «Трохи ненависті», розділ «Зустріч», 05:20?"
+        ).assertCountEquals(1)
+
+        composeTestRule.onNodeWithText("Скасувати").performClick()
+        composeTestRule.onNodeWithTag("bookmarks_sheet_delete_17").assertIsFocused()
+        composeTestRule.onNodeWithTag("bookmarks_sheet_delete_17").performClick()
+        composeTestRule.onNodeWithTag("book_detail_bookmark_delete_confirm").performClick()
+
+        composeTestRule.onNodeWithTag("bookmarks_sheet_heading").assertIsFocused()
+        assertEquals(17L, deletedId)
     }
 
     @androidx.compose.runtime.Composable

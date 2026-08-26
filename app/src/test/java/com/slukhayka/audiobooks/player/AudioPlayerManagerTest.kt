@@ -988,6 +988,49 @@ class AudioPlayerManagerTest {
         }
 
     @Test
+    fun `a book without chapters stops the engine and surfaces the honest unavailable state`() = playerTest { manager, factory ->
+        // Arrange -- the PREVIOUS book is loaded and playing on the engine
+        // (the 2026-08-26 device bug scene: «грає попередня книга»).
+        manager.loadAndPlayBook(book, chapters, playable = playable, initialChapterIndex = 0, autoPlay = true)
+        val engine = factory.current
+        engine.simulateReady()
+        assertTrue(engine.isPlaying)
+        val previousPrepareCount = engine.prepareCount
+        awaitEvents(1) // the healthy load records its RESUME event
+
+        // Act -- the user opens a book whose chapters never resolved: the
+        // source page carries no playerjs audio at all (0 chapters, 0 tracks).
+        val chapterless = TestDataFactory.dataBooks().first { it.id != book.id }
+        manager.loadAndPlayBook(chapterless, emptyList(), playable = emptyList(), autoPlay = true)
+
+        // Assert -- the engine is stopped: the previous book's audio must not
+        // keep playing under the new book's UI, and nothing is fabricated.
+        assertTrue("the engine must be stopped", engine.stopCount > 0)
+        assertFalse("no audio may keep playing", engine.isPlaying)
+        assertEquals(
+            "a chapterless book must never reach the engine",
+            previousPrepareCount,
+            engine.prepareCount
+        )
+
+        // Assert -- the honest state per ADR-0014/ADR-0019: the unavailable
+        // book is surfaced with its «недоступна» message and NO fake
+        // «00:01» duration placeholder.
+        val state = manager.playerState.value
+        assertEquals(chapterless.id, state.currentBook?.id)
+        assertTrue(state.chapters.isEmpty())
+        assertEquals("no fabricated 1s duration", 0L, state.durationMs)
+        assertFalse(state.isBuffering)
+        assertTrue(
+            "the honest unavailable state must surface",
+            state.lastErrorMsg.contains("недоступна", ignoreCase = true)
+        )
+
+        // Assert -- no fabricated RESUME event for a book that never played.
+        assertEventCountStays(1)
+    }
+
+    @Test
     fun `a user-initiated prepare resets the heal budget`() {
         var healCalls = 0
         playerTest(healer = HealerSeam { _, _, _ -> if (++healCalls == 1) HEALED_URL else HEALED_URL_2 }) { manager, factory ->

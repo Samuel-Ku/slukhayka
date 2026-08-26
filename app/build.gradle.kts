@@ -170,6 +170,24 @@ googleServices { missingGoogleServicesStrategy = MissingGoogleServicesStrategy.W
 // Some unused dependencies are commented out below instead of being removed.
 // This makes it easy to add them back in the future if needed.
 dependencies {
+  // Spec 2026-08-26: ONE protobuf runtime in the APK — protobuf-javalite
+  // 3.25.5, the version Firestore's protolite codegen pairs with and the
+  // version the JVM probe verified NewPipeExtractor extracts fully on.
+  // Three artifacts were fighting over com.google.protobuf classes —
+  // Firebase's protolite (old, stripped: NewPipe died invisibly on its
+  // missing InvalidProtocolBufferException), NewPipe's javalite 4.35.1, and
+  // Firestore's transitive javalite 3.25.1 — and the APK build refuses
+  // duplicates. protolite is excluded entirely; its NON-protobuf half (the
+  // googleapis common protos Firestore decodes — com.google.type.LatLng et
+  // al., without which GeoPoint/WriteBatch crash) ships as the surgical
+  // app/libs/protolite-googleapis.jar with com/google/protobuf stripped.
+  configurations.all {
+    exclude(group = "com.google.firebase", module = "protolite-well-known-types")
+    resolutionStrategy {
+      force("com.google.protobuf:protobuf-javalite:3.25.5")
+    }
+  }
+  implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.jar"))))
   implementation(platform(libs.androidx.compose.bom))
   implementation(platform(libs.firebase.bom))
   // implementation(libs.accompanist.permissions)
@@ -218,7 +236,6 @@ dependencies {
   // Spec-26 T5: the shared universe-knowledge base (Firestore free tier).
   // Requires a local (gitignored) google-services.json — without it the
   // shared layer is simply absent and the app works as before.
-  implementation(libs.firebase.firestore)
   // Spec-40 #275 (t1): the silent listener identity — Anonymous Auth
   // immediately elevated with generated credentials. Without Firebase keys
   // the identity degrades to the local-only profile.
@@ -236,14 +253,9 @@ dependencies {
   // the watch URL resolves to a progressive audio stream at play/download
   // time. Distribution is JitPack; rhino (deobfuscation) needs keep rules
   // under minification (see proguard-rules.pro).
-  implementation("com.github.teamnewpipe:NewPipeExtractor:v0.26.5") {
-    // The extractor's protobuf-javalite clashes with Firebase's bundled
-    // protolite-well-known-types (same com.google.protobuf classes). The
-    // Firebase AAR wins — Firestore needs it; the extractor's protobuf
-    // surface (ByteString/MessageNano reads) is satisfied by the same
-    // classes. Removing the module-level duplicate unblocks the APK.
-    exclude(group = "com.google.protobuf", module = "protobuf-javalite")
-  }
+  implementation("com.github.teamnewpipe:NewPipeExtractor:v0.26.5")
+  implementation(libs.firebase.firestore)
+
   // spec-38 T4 (#256): the RFC-8484 DoH resolver behind the privacy door —
   // same OkHttp version, one small artifact.
   implementation(libs.okhttp.dnsoverhttps)

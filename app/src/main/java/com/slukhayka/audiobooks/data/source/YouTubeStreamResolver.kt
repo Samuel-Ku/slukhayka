@@ -1,5 +1,6 @@
 package com.slukhayka.audiobooks.data.source
 
+import android.util.Log
 import com.slukhayka.audiobooks.data.privacy.BrowserIdentity
 import com.slukhayka.audiobooks.data.privacy.TransportClients
 import com.slukhayka.audiobooks.data.privacy.TransportPrivacy
@@ -107,18 +108,32 @@ object NewPipeYouTubeExtractor {
 
     /**
      * Extracts the audio streams of one video. Blocking extraction on the IO
-     * dispatcher — callers already sit off the main thread.
+     * dispatcher — callers already sit off the main thread. A failure is
+     * logged HERE (with the exception): the pure resolver above swallows into
+     * an honest null by design, and without this line a device-side
+     * extraction death is undiagnosable (device debugging, 2026-08-26).
      */
     suspend fun extract(watchUrl: String): List<AudioStreamSpec> = withContext(Dispatchers.IO) {
         ensureInitialized()
-        val info = StreamInfo.getInfo(watchUrl)
-        info.audioStreams.map { stream ->
-            AudioStreamSpec(
-                url = stream.content,
-                isM4a = stream.format == org.schabi.newpipe.extractor.MediaFormat.M4A,
-                isDirectUrl = stream.isUrl,
-                bitrateKbps = stream.averageBitrate
-            )
+        try {
+            val info = StreamInfo.getInfo(watchUrl)
+            info.audioStreams.map { stream ->
+                AudioStreamSpec(
+                    url = stream.content,
+                    isM4a = stream.format == org.schabi.newpipe.extractor.MediaFormat.M4A,
+                    isDirectUrl = stream.isUrl,
+                    bitrateKbps = stream.averageBitrate
+                )
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            // Throwable deliberately: the classpath death this module exists
+            // to surface is a NoClassDefFoundError (an Error, not an
+            // Exception) — the 2026-08-26 protobuf clash died invisibly
+            // until this catch was widened.
+            Log.e("YouTubeResolver", "extraction failed for $watchUrl", t)
+            throw t
         }
     }
 
@@ -139,17 +154,22 @@ object NewPipeYouTubeExtractor {
     private object SharedClientDownloader : Downloader() {
         override fun execute(request: Request): Response {
             val target = TransportPrivacy.rewriteThroughRelay(request.url())
-            val okhttpRequest = okhttp3.Request.Builder()
-                .url(target)
-                .get()
-                .header("User-Agent", BrowserIdentity.currentUserAgent())
-                .apply {
-                    request.headers().forEach { (name, values) ->
-                        values.forEach { value -> header(name, value) }
-                    }
-                }
-                .build()
-            return TransportClients.okHttp.newCall(okhttpRequest).execute().use { response ->
+            val builder = okhttp3.Request.Builder().url(target)
+            // YouTube's innertube API (the player endpoint) is POST with a
+            // body — a GET-only downloader answers every call with garbage
+            // and extraction dies honestly. NewPipe's method + body lead.
+            request.dataToSend()?.let { body ->
+                builder.post(okhttp3.RequestBody.create(null, body))
+            } ?: builder.get()
+            // NewPipe's own headers (Accept-Language, the localization set)
+            // win where present; the device browser identity fills the gap.
+            request.headers().forEach { (name, values) ->
+                values.filter { it.isNotBlank() }.forEach { value -> builder.header(name, value) }
+            }
+            if (request.headers()["User-Agent"].isNullOrEmpty()) {
+                builder.header("User-Agent", BrowserIdentity.currentUserAgent())
+            }
+            return TransportClients.okHttp.newCall(builder.build()).execute().use { response ->
                 Response(
                     response.code,
                     response.message,

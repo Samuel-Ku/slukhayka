@@ -124,6 +124,7 @@ androidx-credentials = { group = "androidx.credentials", name = "credentials", v
 androidx-credentials-play-services = { group = "androidx.credentials", name = "credentials-play-services-auth", version.ref = "credentials" }
 googleid = { group = "com.google.android.libraries.identity.googleid", name = "googleid", version.ref = "googleid" }
 androidx-documentfile = { group = "androidx.documentfile", name = "documentfile", version.ref = "documentfile" }
+nanohttpd = { group = "org.nanohttpd", name = "nanohttpd", version.ref = "nanohttpd" }
 androidx-webkit = { group = "androidx.webkit", name = "webkit", version.ref = "androidxWebkit" }
 # Spec-40 #276 (t2): the BiometricPrompt gate for the recovery code.
 androidx-biometric = { group = "androidx.biometric", name = "biometric", version.ref = "biometric" }

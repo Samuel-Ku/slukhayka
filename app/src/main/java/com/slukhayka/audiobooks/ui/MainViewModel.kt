@@ -10,6 +10,7 @@ import androidx.paging.cachedIn
 import com.slukhayka.audiobooks.App
 import com.slukhayka.audiobooks.data.authors.AuthorSummary
 import com.slukhayka.audiobooks.data.authors.AuthorIndex
+import com.slukhayka.audiobooks.data.authors.authorMatchesOrEmpty
 import com.slukhayka.audiobooks.data.catalog.CatalogPerson
 import com.slukhayka.audiobooks.data.catalog.CatalogSeries
 import com.slukhayka.audiobooks.data.catalog.CatalogSeriesIndex
@@ -793,7 +794,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _authorSearchResults.value = emptyList()
         authorSearchJob = viewModelScope.launch(Dispatchers.IO) {
             delay(350)
-            _authorSearchResults.value = runCatching { sourceCatalog.searchAuthors(clean) }.getOrDefault(emptyList())
+            _authorSearchResults.value = authorMatchesOrEmpty(clean) { sourceCatalog.searchAuthors(it) }
         }
         _isGlobalSearchLoading.value = true
         globalSearchJob = viewModelScope.launch(Dispatchers.IO) {

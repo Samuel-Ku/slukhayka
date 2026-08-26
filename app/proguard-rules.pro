@@ -19,3 +19,10 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
+# Spec 2026-08-26: NewPipeExtractor (YouTube stream extraction) — the JS
+# deobfuscation engine is invoked reflectively and breaks under renaming.
+-keep class org.mozilla.javascript.** { *; }
+-keep class org.schabi.newpipe.extractor.** { *; }
+-dontwarn org.mozilla.javascript.**
+-dontwarn org.schabi.newpipe.extractor.**

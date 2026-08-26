@@ -34,6 +34,7 @@ import com.slukhayka.audiobooks.data.db.PlaybackEventPolicy
 import com.slukhayka.audiobooks.data.db.SourceTrackEntity
 import com.slukhayka.audiobooks.data.listening.ListeningStateStore
 import com.slukhayka.audiobooks.data.listening.ProgressSyncController
+import com.slukhayka.audiobooks.data.source.YouTubeTracks
 import com.slukhayka.audiobooks.data.source.headersFor
 import com.slukhayka.audiobooks.data.source.sourceIdForUrl
 import kotlinx.coroutines.*
@@ -182,7 +183,15 @@ class AudioPlayerManager(
      * immediate on pauses/completions. Null in tests and without Firebase —
      * then nothing ever leaves the device.
      */
-    private val progressSync: ProgressSyncController? = null
+    private val progressSync: ProgressSyncController? = null,
+    /**
+     * Spec 2026-08-26 — the per-use stream resolution seam: a persisted track
+     * URL that needs fresh resolution (YouTube watch URLs — the signed stream
+     * URL expires and is never persisted) maps to a concrete playable URL
+     * right before setMediaItem. Identity for plain URLs; null = honest
+     * failure, no fabricated audio (ADR-0019).
+     */
+    private val streamUrlResolver: suspend (String) -> String? = { url -> url }
 ) {
 
     private val _playerState = MutableStateFlow(PlayerState())
@@ -594,6 +603,21 @@ class AudioPlayerManager(
             lastErrorMsg = ""
         )
         scope.launch {
+            // Spec 2026-08-26: a YouTube track's persisted URL never changes —
+            // the watch URL IS the identity, and the heal IS the
+            // re-resolution (a fresh signed stream URL). The page re-fetch
+            // would yield the same watch URL and be refused above, so the
+            // re-prepare goes straight to the resolver; the heal budget stays
+            // spent, so a broken extraction cannot loop.
+            if (YouTubeTracks.isYouTubeWatchUrl(failedUrl)) {
+                prepareChapter(
+                    chapterIndex,
+                    startPositionMs = _playerState.value.currentPositionMs,
+                    autoPlay = true,
+                    resetHealBudget = false
+                )
+                return@launch
+            }
             // Fail-open: a dead page contributes nothing — the honest
             // failure stays, exactly one retry was spent.
             val freshUrl = runCatching {
@@ -899,6 +923,42 @@ class AudioPlayerManager(
             // setMediaItem replaces the previous playlist entry and resets the
             // player to IDLE; prepare() re-enters BUFFERING -> READY.
             val mp = ensurePlayerCreated()
+            val persistedUrl = track?.url.orEmpty()
+            // Spec 2026-08-26: a YouTube watch URL resolves PER-USE — the
+            // signed stream URL expires (~6h) and is never persisted. The
+            // resolution is a network extraction, so it runs off the player
+            // thread; isBuffering (set above) stays honest and the prepare
+            // timeout armed above still bounds the wait.
+            if (YouTubeTracks.isYouTubeWatchUrl(persistedUrl)) {
+                // Launch on the player's main scope; only the resolution
+                // itself hops to IO — setMediaItem/prepare must stay on the
+                // engine's application looper.
+                scope.launch {
+                    val resolved = withContext(ioDispatcher) {
+                        runCatching { streamUrlResolver(persistedUrl) }
+                            .onFailure { Log.w("AudioPlayer", "stream resolution failed for $persistedUrl", it) }
+                            .getOrNull()
+                    }
+                    if (resolved == null) {
+                        reportPlaybackFailure(
+                            errorCodeName = "RESOLVE_FAILED",
+                            detail = "Книга зараз недоступна: не вдалося отримати аудіо з YouTube."
+                        )
+                        return@launch
+                    }
+                    try {
+                        mp.setMediaItem(buildMediaItem(chapter, track, resolved))
+                        mp.prepare()
+                    } catch (e: Exception) {
+                        Log.e("AudioPlayer", "Exception in prepareChapter (resolved stream)", e)
+                        reportPlaybackFailure(
+                            errorCodeName = e::class.java.simpleName,
+                            detail = "Exception in prepareChapter (${e::class.java.simpleName})"
+                        )
+                    }
+                }
+                return
+            }
             mp.setMediaItem(buildMediaItem(chapter, track))
             mp.prepare()
         } catch (e: Exception) {
@@ -975,7 +1035,13 @@ class AudioPlayerManager(
      * MediaItem with book/chapter metadata so the system media notification
      * (and Android Auto / lock screen) shows a real title instead of a URL.
      */
-    private fun buildMediaItem(chapter: ChapterEntity, track: SourceTrackEntity?): MediaItem {
+    private fun buildMediaItem(
+        chapter: ChapterEntity,
+        track: SourceTrackEntity?,
+        // Spec 2026-08-26: overrides the persisted track URL when the URL
+        // needed per-use resolution (a resolved YouTube stream URL).
+        resolvedStreamUrl: String? = null
+    ): MediaItem {
         val book = _playerState.value.currentBook
         val metadata = MediaMetadata.Builder()
             .setTitle(chapter.title)
@@ -997,7 +1063,7 @@ class AudioPlayerManager(
             // shared HTTP factory by prepareChapter (spec-13 T2) — the media
             // item itself carries only the URI and metadata.
             MediaItem.Builder()
-                .setUri(track?.url.orEmpty().toUri())
+                .setUri((resolvedStreamUrl ?: track?.url.orEmpty()).toUri())
                 .setMediaMetadata(metadata)
                 .build()
         }

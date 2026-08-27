@@ -168,6 +168,12 @@ fun SpeedSheet(
                 },
                 valueRange = AudioPlayerManager.SPEED_MIN..AudioPlayerManager.SPEED_MAX,
                 steps = 9, // 0.25 increments between 0.5 and 3.0
+                track = { sliderState ->
+                    SliderDefaults.Track(
+                        sliderState = sliderState,
+                        drawStopIndicator = {}
+                    )
+                },
                 modifier = Modifier
                     .semantics {
                         contentDescription = exactSpeedDescription

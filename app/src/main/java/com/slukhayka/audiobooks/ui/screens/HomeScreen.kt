@@ -277,20 +277,8 @@ fun HomeScreen(
 
         if (inSearchMode) {
             // ---- Search / genre result list -------------------------------
-            // Canonical authors are local and appear first, before both book
-            // result sections. The compact block is capped at five.
-            if (authorResults.isNotEmpty()) {
-                item(key = "author_search_results") {
-                    AuthorSearchResults(
-                        authors = authorResults,
-                        onAuthorClick = viewModel::openCanonicalAuthor,
-                        onShowAll = viewModel::openAllAuthorSearchResults
-                    )
-                }
-            }
-
-            // In-library matches next, then the spec-10 T4 global section
-            // (all sources, imported on tap).
+            // In-library matches first (local filter, instant), then the
+            // spec-10 T4 global section (all sources, imported on tap).
             item {
                 Text(
                     text = "У вашій медіатеці (${filteredBooks.size})",
@@ -394,10 +382,7 @@ fun HomeScreen(
                 onRefreshCatalog = { scope.launch { sourceCatalog.fetchCatalogSections() } },
                 onGoToLibrary = { viewModel.selectTab(com.slukhayka.audiobooks.ui.SelectedTab.LIBRARY) },
                 onOpenTop100 = { viewModel.openTop100() },
-                onOpenPeople = { kind ->
-                    if (kind.title == "Автори") viewModel.openAuthorsIndex()
-                    else viewModel.openPeople(kind)
-                },
+                onOpenPeople = { viewModel.openPeople(it) },
                 onOpenSeriesIndex = { viewModel.openSeriesIndex() },
                 onOpenCollectionsIndex = { viewModel.openCollectionsIndex() },
                 onOpenSeries = { title, url -> viewModel.openSeries(title, url) },

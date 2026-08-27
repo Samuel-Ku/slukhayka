@@ -8,10 +8,6 @@ import androidx.paging.PagingConfig
 import androidx.paging.PagingData
 import androidx.paging.cachedIn
 import com.slukhayka.audiobooks.App
-import com.slukhayka.audiobooks.data.authors.AuthorSummary
-import com.slukhayka.audiobooks.data.authors.AuthorIndex
-import com.slukhayka.audiobooks.data.authors.AuthorIdentity
-import com.slukhayka.audiobooks.data.authors.authorMatchesOrEmpty
 import com.slukhayka.audiobooks.data.catalog.CatalogPerson
 import com.slukhayka.audiobooks.data.catalog.CatalogSeries
 import com.slukhayka.audiobooks.data.catalog.CatalogSeriesIndex
@@ -349,9 +345,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
-
-    private val _authorSearchResults = MutableStateFlow<List<AuthorSummary>>(emptyList())
-    val authorSearchResults: StateFlow<List<AuthorSummary>> = _authorSearchResults.asStateFlow()
 
     private val _selectedGenreFilter = MutableStateFlow("Усі")
     val selectedGenreFilter: StateFlow<String> = _selectedGenreFilter.asStateFlow()
@@ -715,106 +708,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         peopleLoader.close()
     }
 
-    // Canonical cross-source author destinations. Provider narrator pages keep
-    // using [selectedPeopleKind]; author discovery always reads the local Work
-    // index, so it remains instant and does not depend on a provider page.
-    private val _authorsIndexOpen = MutableStateFlow(false)
-    val authorsIndexOpen: StateFlow<Boolean> = _authorsIndexOpen.asStateFlow()
-
-    private val _authorsIndexResults = MutableStateFlow<List<AuthorSummary>?>(null)
-    val authorsIndexResults: StateFlow<List<AuthorSummary>?> = _authorsIndexResults.asStateFlow()
-
-    private val _selectedCanonicalAuthor = MutableStateFlow<AuthorSummary?>(null)
-    val selectedCanonicalAuthor: StateFlow<AuthorSummary?> = _selectedCanonicalAuthor.asStateFlow()
-
-    private val _canonicalAuthorWorks = MutableStateFlow<List<WorkEntity>>(emptyList())
-    val canonicalAuthorWorks: StateFlow<List<WorkEntity>> = _canonicalAuthorWorks.asStateFlow()
-
-    private val _isCanonicalAuthorLoading = MutableStateFlow(false)
-    val isCanonicalAuthorLoading: StateFlow<Boolean> = _isCanonicalAuthorLoading.asStateFlow()
-
-    private val _canonicalAuthorLoadFailed = MutableStateFlow(false)
-    val canonicalAuthorLoadFailed: StateFlow<Boolean> = _canonicalAuthorLoadFailed.asStateFlow()
-
-    fun openAuthorsIndex() {
-        _authorsIndexResults.value = null
-        _authorsIndexOpen.value = true
-    }
-
-    fun openAllAuthorSearchResults() {
-        _authorsIndexResults.value = _authorSearchResults.value
-        _authorsIndexOpen.value = true
-        val query = _searchQuery.value.trim()
-        viewModelScope.launch(Dispatchers.IO) {
-            val allMatches = runCatching {
-                sourceCatalog.searchAuthors(query, AuthorIndex.MAX_FULL_LIST)
-            }.getOrNull() ?: return@launch
-            if (_authorsIndexOpen.value && _searchQuery.value.trim() == query) {
-                _authorsIndexResults.value = allMatches
-            }
-        }
-    }
-
-    fun closeAuthorsIndex() {
-        _authorsIndexOpen.value = false
-        _authorsIndexResults.value = null
-    }
-
-    fun openCanonicalAuthor(author: AuthorSummary) {
-        _selectedCanonicalAuthor.value = author
-        _canonicalAuthorWorks.value = emptyList()
-        _canonicalAuthorLoadFailed.value = false
-        _isCanonicalAuthorLoading.value = true
-        viewModelScope.launch(Dispatchers.IO) {
-            val works = runCatching { sourceCatalog.authorWorks(author.id) }
-            if (_selectedCanonicalAuthor.value?.id == author.id) {
-                works.onSuccess { _canonicalAuthorWorks.value = it }
-                    .onFailure { _canonicalAuthorLoadFailed.value = true }
-                _isCanonicalAuthorLoading.value = false
-            }
-        }
-    }
-
-    fun openCanonicalAuthorForWork(workId: String?, fallbackName: String) {
-        viewModelScope.launch(Dispatchers.IO) {
-            val author = workId?.let { sourceCatalog.authorForWork(it) } ?: run {
-                val exactId = runCatching { AuthorIdentity.fromWorkName(fallbackName).id }.getOrNull()
-                    ?: return@launch
-                authorMatchesOrEmpty(fallbackName) {
-                    sourceCatalog.searchAuthors(it, AuthorIndex.MAX_FULL_LIST)
-                }.firstOrNull { it.id == exactId } ?: return@launch
-            }
-            openCanonicalAuthor(author)
-        }
-    }
-
-    fun closeCanonicalAuthor() {
-        _selectedCanonicalAuthor.value = null
-        _canonicalAuthorWorks.value = emptyList()
-        _isCanonicalAuthorLoading.value = false
-        _canonicalAuthorLoadFailed.value = false
-    }
-
-    fun openCanonicalAuthorWork(work: WorkEntity) {
-        viewModelScope.launch(Dispatchers.IO) {
-            val source = sourceCatalog.workSourcesForWork(work.id).firstOrNull() ?: return@launch
-            val book = try {
-                libraryImport.importFromSourceUrl(
-                    source.sourceId,
-                    source.sourceUrl,
-                    KnownBookIdentity(work.title, work.author, coverImageUrl = work.coverImageUrl)
-                )
-            } catch (_: Exception) {
-                null
-            }
-            if (book != null) {
-                closeCanonicalAuthor()
-                closeAuthorsIndex()
-                selectBook(book.id)
-            }
-        }
-    }
-
     // One person's books (`/xfsearch/chitaet|avtor/<name>/` — a poster grid).
     private val _selectedPerson = MutableStateFlow<SelectedPerson?>(null)
     val selectedPerson: StateFlow<SelectedPerson?> = _selectedPerson.asStateFlow()
@@ -888,17 +781,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val globalSearchError: StateFlow<Boolean> = _globalSearchError.asStateFlow()
 
     private var globalSearchJob: kotlinx.coroutines.Job? = null
-    private var authorSearchJob: kotlinx.coroutines.Job? = null
 
     fun updateSearchQuery(query: String) {
         _searchQuery.value = query
         globalSearchJob?.cancel()
-        authorSearchJob?.cancel()
         val clean = query.trim()
         _globalSearchError.value = false
         if (clean.length < 2) {
             _globalSearchResults.value = emptyList()
-            _authorSearchResults.value = emptyList()
             _isGlobalSearchLoading.value = false
             return
         }
@@ -1332,25 +1222,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (bookId != null) {
             _selectedBookUniverse.value = null
             viewModelScope.launch(Dispatchers.IO) {
-                // #388 — refresh is best-effort; a FK violation or network
-                // failure must never crash the book page (tapping «Сни» was
-                // force-finishing MainActivity). Degrade gracefully.
-                try {
-                    libraryEntries.refreshBookCoverAndDetails(bookId)
-                } catch (e: Exception) {
-                    android.util.Log.w("MainViewModel", "refreshBookCoverAndDetails failed for $bookId", e)
-                }
+                libraryEntries.refreshBookCoverAndDetails(bookId)
                 // Spec-25 (#171): resolve the book's series universe lazily —
                 // cache-first read, then the (idempotent) resolution, then the
                 // fresher read. Best-effort: an unseeded series contributes
                 // nothing.
-                try {
-                    _selectedBookUniverse.value = seriesUniverses.contextOfBook(bookId)
-                    seriesUniverses.resolveForBook(bookId)
-                    _selectedBookUniverse.value = seriesUniverses.contextOfBook(bookId)
-                } catch (e: Exception) {
-                    android.util.Log.w("MainViewModel", "series universe resolve failed for $bookId", e)
-                }
+                _selectedBookUniverse.value = seriesUniverses.contextOfBook(bookId)
+                seriesUniverses.resolveForBook(bookId)
+                _selectedBookUniverse.value = seriesUniverses.contextOfBook(bookId)
             }
             // Spec-15 T5: load what every source carrying the Work says about
             // it (description, rating, narrator, genres) — best-effort per
@@ -1898,7 +1777,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val source = result.sources.firstOrNull() ?: return
         val key = result.key
         if (_catalogDownloadingKeys.value.contains(key)) return
-        if (_downloadingBookId.value != null) return
+        if (com.slukhayka.audiobooks.data.downloads.DownloadService.downloadingBookId.value != null) {
+            _downloadMessage.value = "Вже завантажується інша книга"
+            return
+        }
         _catalogDownloadingKeys.update { it + key }
         viewModelScope.launch(Dispatchers.IO) {
             try {
@@ -1907,48 +1789,39 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     KnownBookIdentity(result.title, result.author, result.narrator, result.coverImageUrl)
                 )
                 if (book != null) {
-                    _downloadingBookId.value = book.id
                     probeDurationsAfterImport(book.id)
-                    offlineDownloads.downloadAudiobookOffline(book.id)
+                    com.slukhayka.audiobooks.data.downloads.DownloadService.setDownloading(book.id)
+                    _downloadingBookId.value = book.id
+                    val intent = com.slukhayka.audiobooks.data.downloads.DownloadService.startIntent(
+                        getApplication(), book.id, book.title, book.author
+                    )
+                    androidx.core.content.ContextCompat.startForegroundService(getApplication(), intent)
                 }
             } catch (e: Exception) {
                 android.util.Log.w("MainViewModel", "Catalog download failed", e)
-            } finally {
+                com.slukhayka.audiobooks.data.downloads.DownloadService.setDownloading(null)
                 _downloadingBookId.value = null
+            } finally {
                 _catalogDownloadingKeys.update { it - key }
-                // Spec-27 (#185) BUG-013: the storage row must reflect a
-                // finished download without a screen restart — the byte
-                // counter refreshes after every download attempt.
-                refreshCacheSize()
             }
         }
     }
 
     fun downloadBookOffline(bookId: String) {
-        if (_downloadingBookId.value != null) return
-        _downloadingBookId.value = bookId
+        if (com.slukhayka.audiobooks.data.downloads.DownloadService.downloadingBookId.value != null) {
+            _downloadMessage.value = "Вже завантажується інша книга"
+            return
+        }
         viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val result = offlineDownloads.downloadAudiobookOffline(bookId)
-                // Stale-result guard (same pattern as relatedBooks): only
-                // surface the outcome while the user is still on this book —
-                // otherwise the message would pop on whichever book screen is
-                // open next.
-                if (_selectedBookId.value == bookId) {
-                    _downloadMessage.value = OutcomeMessages.downloadOutcome(result)
-                }
-            } catch (e: Exception) {
-                android.util.Log.w("MainViewModel", "Offline download failed", e)
-                if (_selectedBookId.value == bookId) {
-                    _downloadMessage.value = OutcomeMessages.downloadFailure()
-                }
-            } finally {
-                _downloadingBookId.value = null
-                // Spec-27 (#185) BUG-013: the storage row must reflect a
-                // finished download without a screen restart — the byte
-                // counter refreshes after every download attempt.
-                refreshCacheSize()
-            }
+            val row = App.instance.audiobookDao.getAudiobookById(bookId) ?: return@launch
+            val title = row.title
+            val author = row.author
+            com.slukhayka.audiobooks.data.downloads.DownloadService.setDownloading(bookId)
+            _downloadingBookId.value = bookId
+            val intent = com.slukhayka.audiobooks.data.downloads.DownloadService.startIntent(
+                getApplication(), bookId, title, author
+            )
+            androidx.core.content.ContextCompat.startForegroundService(getApplication(), intent)
         }
     }
 

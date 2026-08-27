@@ -288,8 +288,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     BackHandler(enabled = showFullPlayer || selectedBookId != null ||
         selectedWebSource != null || selectedSeries != null || seriesIndexOpen || collectionsIndexOpen ||
         storageDestinationOpen || privacySettingsOpen || recommendationSettingsOpen || profileOpen || selectedGenre != null ||
-        selectedTop100 || selectedPeopleKind != null || selectedPerson != null ||
-        authorsIndexOpen || selectedCanonicalAuthor != null) {
+        selectedTop100 || selectedPeopleKind != null || selectedPerson != null) {
         if (showFullPlayer) {
             viewModel.setShowFullPlayer(false)
         } else if (selectedWebSource != null) {
@@ -328,10 +327,6 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
         } else if (selectedTop100) {
             secondaryBookRoute = SecondaryBookRouteFrame()
             viewModel.closeTop100()
-        } else if (selectedCanonicalAuthor != null) {
-            viewModel.closeCanonicalAuthor()
-        } else if (authorsIndexOpen) {
-            viewModel.closeAuthorsIndex()
         } else if (selectedPerson != null) {
             secondaryBookRoute = SecondaryBookRouteFrame()
             viewModel.closePersonBooks()
@@ -630,26 +625,6 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                         },
                         listState = top100BookListState
                     )
-
-                    selectedCanonicalAuthor != null -> CanonicalAuthorScreen(
-                        author = selectedCanonicalAuthor!!,
-                        works = canonicalAuthorWorks,
-                        isLoading = isCanonicalAuthorLoading,
-                        loadFailed = canonicalAuthorLoadFailed,
-                        onBackClick = { viewModel.closeCanonicalAuthor() },
-                        onWorkClick = viewModel::openCanonicalAuthorWork
-                    )
-
-                    authorsIndexOpen -> {
-                        // The full 10k-capable alphabetical projection is cold:
-                        // collect it only while its destination is visible.
-                        val canonicalAuthors by viewModel.sourceCatalog.authors.collectAsState(initial = emptyList())
-                        AuthorsIndexScreen(
-                            authors = authorsIndexResults ?: canonicalAuthors,
-                            onBackClick = { viewModel.closeAuthorsIndex() },
-                            onAuthorClick = viewModel::openCanonicalAuthor
-                        )
-                    }
 
                     // One person's books (opened from Виконавці/Автори index).
                     selectedPerson != null -> PersonBooksScreen(

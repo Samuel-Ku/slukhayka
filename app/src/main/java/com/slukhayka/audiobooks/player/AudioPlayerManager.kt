@@ -38,7 +38,10 @@ import com.slukhayka.audiobooks.data.source.headersFor
 import com.slukhayka.audiobooks.data.source.sourceIdForUrl
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.sample
@@ -51,6 +54,12 @@ import kotlinx.coroutines.flow.sample
  */
 internal fun sleepTimerFadeVolume(remainingSec: Int): Float =
     if (remainingSec in 1..30) remainingSec / 30f else 1.0f
+
+/** One-shot user feedback emitted only at sleep-timer transitions. */
+sealed interface SleepTimerNotice {
+    data object FadeWarning : SleepTimerNotice
+    data class Extended(val remainingSeconds: Int) : SleepTimerNotice
+}
 
 data class PlayerState(
     val currentBook: AudiobookEntity? = null,
@@ -107,6 +116,29 @@ fun interface PlayerFactory {
  * [PlaybackService] to keep working across chapter switches, and it avoids
  * paying the ExoPlayer construction cost on every chapter boundary.
  */
+/**
+ * ADR-0024 (#362): while a cast session is live, module-level commands route
+ * to the remote engine through this hook at exactly ONE branch point per
+ * public method — the engine boundary only. Everything above it (state
+ * bookkeeping, listening events, smart rewind, progress persistence) stays
+ * shared, so no second «cast logic» path can drift from the local one.
+ */
+internal interface CastEngineHook {
+    val isActive: Boolean
+
+    fun play()
+
+    fun pause()
+
+    fun seekTo(positionMs: Long)
+
+    fun prepareChapter(chapterIndex: Int, startPositionMs: Long, autoPlay: Boolean)
+
+    fun setPlaybackSpeed(speed: Float)
+
+    fun setVolume(volume: Float)
+}
+
 class AudioPlayerManager(
     private val context: Context,
     // ADR-0002: the player runs on the Listening State Store + the chapter-
@@ -292,6 +324,33 @@ class AudioPlayerManager(
     /** Access for [PlaybackService] to build its [androidx.media3.session.MediaSession]. */
     val player: Player get() = ensurePlayerCreated()
 
+    /**
+     * ADR-0024 (#362): the cast controller installs itself here once at
+     * composition time; null (tests, pre-cast builds) means every command
+     * behaves exactly as before. The hook is consulted only through
+     * [castEngineHook] branch points.
+     */
+    internal fun attachCastHook(hook: CastEngineHook?) {
+        castEngineHook = hook
+    }
+
+    private var castEngineHook: CastEngineHook? = null
+
+    /** Read-only snapshot the cast controller needs to build its playlist. */
+    internal fun castSnapshot(): PlayerState = _playerState.value
+
+    internal fun playableTracksForCast(): List<SourceCatalog.PlayableChapter> = playableChapters.toList()
+
+    /**
+     * ADR-0024 (#362): the receiver is the truth while it plays — the cast
+     * controller mirrors position, play state and chapter index into the ONE
+     * StateFlow the UI, the progress tracker and the persistence path read,
+     * so Listening State stays written from a single place.
+     */
+    internal fun mirrorCastState(transform: (PlayerState) -> PlayerState) {
+        _playerState.value = transform(_playerState.value)
+    }
+
     /** Chapter currently loaded on the player; used by the single listener. */
     private var currentChapter: ChapterEntity? = null
 
@@ -351,6 +410,9 @@ class AudioPlayerManager(
     private var updateProgressJob: Job? = null
     private var sleepTimer: CountDownTimer? = null
     private var shakeDetector: ShakeDetector? = null
+    private var fadeWarningEmitted = false
+    private val _sleepTimerNotices = MutableSharedFlow<SleepTimerNotice>(extraBufferCapacity = 2)
+    val sleepTimerNotices: SharedFlow<SleepTimerNotice> = _sleepTimerNotices.asSharedFlow()
     private var prepareTimeoutJob: Job? = null
 
     /** Global playback preferences (wayfinder #26): default speed etc. */
@@ -616,7 +678,12 @@ class AudioPlayerManager(
             sleepTimerRemainingSeconds = 0,
             isSleepTimerEndOfChapter = false
         )
-        try { mediaPlayer?.volume = 1.0f } catch (_: Exception) {}
+        val hook = castEngineHook?.takeIf { it.isActive }
+        if (hook != null) {
+            try { hook.setVolume(1.0f) } catch (_: Exception) {}
+        } else {
+            try { mediaPlayer?.volume = 1.0f } catch (_: Exception) {}
+        }
         // A fresh load starts a new listening cycle: completion resets, chapter
         // history resets, and — when autoplaying — the resume + segment begin.
         completionLogged = false
@@ -735,6 +802,14 @@ class AudioPlayerManager(
 
         playbackMetrics.recordAttempt()
         playbackEventLog.record("PREPARE ch${chapterIndex} ${track?.url}")
+
+        // ADR-0024 (#362): a chapter change while casting re-targets the
+        // receiver's playlist item — same state bookkeeping above, remote
+        // engine below.
+        castEngineHook?.takeIf { it.isActive }?.let { hook ->
+            hook.prepareChapter(chapterIndex, startPositionMs, autoPlay)
+            return
+        }
 
         try {
             // Spec-13 T2 — per-source stream headers: the playerjs CDN
@@ -940,6 +1015,13 @@ class AudioPlayerManager(
             }
             playbackSegmentStartMs = now()
         }
+        // ADR-0024 (#362): while casting, everything above ran unchanged (the
+        // resume event, the segment start, the smart-rewind target written
+        // into the state); only the engine command routes remotely.
+        castEngineHook?.takeIf { it.isActive }?.let { hook ->
+            hook.play()
+            return
+        }
         if (_playerState.value.isBuffering) return
 
         val mp = mediaPlayer
@@ -975,13 +1057,21 @@ class AudioPlayerManager(
             recordPlaybackEvent(PlaybackEventKind.PAUSE)
         }
         playbackSegmentStartMs = null
-        if (_playerState.value.isBuffering) return
-
-        mediaPlayer?.let { mp ->
-            try {
-                if (mp.isPlaying) mp.pause()
-            } catch (e: Exception) {
-                Log.e("AudioPlayer", "Error pause", e)
+        val hook = castEngineHook?.takeIf { it.isActive }
+        if (hook != null) {
+            // ADR-0024 (#362): the pause bookkeeping above (marker, event,
+            // segment end) is shared; only the engine command is remote. A
+            // receiver pause persists progress — there is no buffering gate
+            // to honour remotely (the mirror state already carries truth).
+            hook.pause()
+        } else {
+            if (_playerState.value.isBuffering) return
+            mediaPlayer?.let { mp ->
+                try {
+                    if (mp.isPlaying) mp.pause()
+                } catch (e: Exception) {
+                    Log.e("AudioPlayer", "Error pause", e)
+                }
             }
         }
         // ADR-0023 (spec-43 T6): a pause is an honest moment — push at once.
@@ -1034,6 +1124,13 @@ class AudioPlayerManager(
             return
         }
 
+        // ADR-0024 (#362): a remote seek rides the same history bookkeeping
+        // above; only the engine command routes to the receiver.
+        castEngineHook?.takeIf { it.isActive }?.let { hook ->
+            hook.seekTo(targetMs)
+            return
+        }
+
         mediaPlayer?.let { mp ->
             try {
                 mp.seekTo(targetMs)
@@ -1079,7 +1176,7 @@ class AudioPlayerManager(
 
     fun setPlaybackSpeed(speed: Float) {
         _playerState.value = _playerState.value.copy(playbackSpeed = speed)
-        applyPlaybackSpeed(speed)
+        castEngineHook?.takeIf { it.isActive }?.let { it.setPlaybackSpeed(speed) } ?: applyPlaybackSpeed(speed)
     }
 
     /**
@@ -1088,7 +1185,7 @@ class AudioPlayerManager(
      */
     fun savePreferredSpeed(speed: Float) {
         val book = _playerState.value.currentBook ?: return
-        scope.launch(Dispatchers.IO) {
+        scope.launch(ioDispatcher) {
             listeningState.setPreferredSpeed(book.id, speed)
         }
     }
@@ -1150,6 +1247,12 @@ class AudioPlayerManager(
         val targetMs = SmartRewind.rewoundPositionMs(currentPos, now() - pausedAt)
         if (targetMs == currentPos) return
         _playerState.value = _playerState.value.copy(currentPositionMs = targetMs)
+        // ADR-0024 (#362): the rewind rule is player-agnostic (ADR-0003) — a
+        // pause that happened on the receiver rewinds the receiver too.
+        castEngineHook?.takeIf { it.isActive }?.let {
+            it.seekTo(targetMs)
+            return
+        }
         mediaPlayer?.let { mp ->
             try {
                 if (mp.playbackState == Player.STATE_READY) {
@@ -1167,7 +1270,7 @@ class AudioPlayerManager(
     private fun persistPausedAt(epochMs: Long?) {
         val book = _playerState.value.currentBook ?: return
         val bookId = book.id
-        scope.launch(Dispatchers.IO) {
+        scope.launch(ioDispatcher) {
             listeningState.updatePausedAt(bookId, epochMs)
         }
     }
@@ -1232,6 +1335,34 @@ class AudioPlayerManager(
     }
 
     /**
+     * Canonical +15-minute command for both the visible timer action and the
+     * optional shake shortcut. The exact current remainder is preserved; an
+     * end-of-Chapter timer becomes an ordinary timed remainder.
+     *
+     * @return the new exact remainder in seconds, or `0` when no timer is active.
+     */
+    fun extendSleepTimerBy15Minutes(): Int {
+        val currentRemaining = _playerState.value.sleepTimerRemainingSeconds
+        if (currentRemaining <= 0) return 0
+
+        val extendedRemaining = currentRemaining + 15 * 60
+        sleepTimer?.cancel()
+        shakeDetector?.stopListening()
+        try { mediaPlayer?.volume = 1.0f } catch (_: Exception) {}
+        _playerState.value = _playerState.value.copy(
+            sleepTimerMinutes = (extendedRemaining + 59) / 60,
+            sleepTimerRemainingSeconds = extendedRemaining,
+            isSleepTimerEndOfChapter = false
+        )
+        startSleepTimerInternal(extendedRemaining * 1000L, isEndOfChapter = false)
+        _sleepTimerNotices.tryEmit(SleepTimerNotice.Extended(extendedRemaining))
+        return extendedRemaining
+    }
+
+    /** Testable boundary used as the [ShakeDetector] callback. */
+    internal fun handleSleepTimerShake(): Int = extendSleepTimerBy15Minutes()
+
+    /**
      * Spec-22 T5: if the timer is in «до кінця розділу» mode, re-arm it for
      * the newly prepared chapter (manual skip or auto-advance) so it still
      * stops exactly at the chapter boundary.
@@ -1250,11 +1381,10 @@ class AudioPlayerManager(
     }
 
     private fun startSleepTimerInternal(totalMs: Long, isEndOfChapter: Boolean) {
+        fadeWarningEmitted = false
         if (shakeDetector == null) {
             shakeDetector = ShakeDetector(context) {
-                // Shake during the fade-out window: +15 min and full volume.
-                try { mediaPlayer?.volume = 1.0f } catch (_: Exception) {}
-                setSleepTimer(15)
+                handleSleepTimerShake()
             }
         }
 
@@ -1268,7 +1398,16 @@ class AudioPlayerManager(
                 // inside the fade window.
                 val vol = sleepTimerFadeVolume(remainingSec)
                 if (vol < 1.0f) {
-                    try { mediaPlayer?.volume = vol } catch (_: Exception) {}
+                    if (!fadeWarningEmitted) {
+                        fadeWarningEmitted = true
+                        _sleepTimerNotices.tryEmit(SleepTimerNotice.FadeWarning)
+                    }
+                    val hook = castEngineHook?.takeIf { it.isActive }
+                    if (hook != null) {
+                        try { hook.setVolume(vol) } catch (_: Exception) {}
+                    } else {
+                        try { mediaPlayer?.volume = vol } catch (_: Exception) {}
+                    }
                     shakeDetector?.startListening()
                 } else {
                     shakeDetector?.stopListening()
@@ -1284,7 +1423,7 @@ class AudioPlayerManager(
                 val posSec = _playerState.value.currentPositionMs / 1000L
 
                 if (book != null) {
-                    scope.launch(Dispatchers.IO) {
+                    scope.launch(ioDispatcher) {
                         listeningState.addBookmark(
                             BookmarkEntity(
                                 bookId = book.id,
@@ -1306,7 +1445,12 @@ class AudioPlayerManager(
                     chapterIndex = chapterIdx,
                     positionSeconds = posSec
                 )
-                try { mediaPlayer?.volume = 1.0f } catch (_: Exception) {}
+                val hook = castEngineHook?.takeIf { it.isActive }
+                if (hook != null) {
+                    try { hook.setVolume(1.0f) } catch (_: Exception) {}
+                } else {
+                    try { mediaPlayer?.volume = 1.0f } catch (_: Exception) {}
+                }
                 _playerState.value = _playerState.value.copy(
                     sleepTimerMinutes = 0,
                     sleepTimerRemainingSeconds = 0,
@@ -1385,7 +1529,7 @@ class AudioPlayerManager(
         val chapter = currentChapter ?: return
         if (durationMs <= 0L) return
         val seconds = durationMs / 1000L
-        scope.launch(Dispatchers.IO) {
+        scope.launch(ioDispatcher) {
             listeningState.updateChapterDuration(chapter.id, seconds)
             val chapters = chapterFetcher(book.id)
             if (chapters.isNotEmpty() && chapters.all { it.chapter.durationSeconds > 0L }) {
@@ -1402,7 +1546,7 @@ class AudioPlayerManager(
         val book = _playerState.value.currentBook ?: return
         val currentChapter = _playerState.value.currentChapterIndex
         val posSec = _playerState.value.currentPositionMs / 1000L
-        scope.launch(Dispatchers.IO) {
+        scope.launch(ioDispatcher) {
             // ADR-0007: progress is keyed by the Edition — no source key.
             listeningState.updateProgress(book.id, currentChapter, posSec)
             listeningState.recordListeningTime(5L)
@@ -1427,7 +1571,7 @@ class AudioPlayerManager(
     ) {
         val book = _playerState.value.currentBook ?: return
         val bookId = book.id
-        scope.launch(Dispatchers.IO) {
+        scope.launch(ioDispatcher) {
             // ADR-0007: the event log is history — rows are written with
             // sourceKey = "" (the store's default).
             listeningState.recordPlaybackEvent(

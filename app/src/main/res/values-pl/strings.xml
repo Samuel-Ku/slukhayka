@@ -1,0 +1,11 @@
+<resources>
+    <!-- fix(accessibility): #371 — override Material3 Polish strings so TalkBack
+         voices the filter sheet in Ukrainian even on a Polish-system device.
+         The app's UI is Ukrainian (CONTEXT.md) and the sheet is decorative;
+         Polish "Zamknij arkusz / Uchwyt do przeciągania" must never be voiced. -->
+    <string name="m3c_bottom_sheet_collapse_description">Згорнути аркуш</string>
+    <string name="m3c_bottom_sheet_dismiss_description">Закрити аркуш</string>
+    <string name="m3c_bottom_sheet_drag_handle_description">Маркер переміщення</string>
+    <string name="m3c_bottom_sheet_expand_description">Розгорнути аркуш</string>
+    <string name="m3c_bottom_sheet_pane_title">Аркуш</string>
+</resources>

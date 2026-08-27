@@ -65,6 +65,7 @@ import com.slukhayka.audiobooks.data.universe.UniverseAssets
 import com.slukhayka.audiobooks.data.universe.WikidataResponse
 import com.slukhayka.audiobooks.data.universe.WikidataSeriesProvider
 import com.slukhayka.audiobooks.player.AudioPlayerManager
+import com.slukhayka.audiobooks.player.CastPlaybackController
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -415,6 +416,24 @@ class App : Application() {
             },
             progressSync = progressSync
         )
+    }
+
+    /**
+     * ADR-0024 (#362): cast ownership — proxy, CastPlayer, session listener,
+     * locks. Constructed lazily beside [playerManager] and installs itself as
+     * its engine hook; without Google services it stays an inert no-op.
+     */
+    val castController: CastPlaybackController by lazy {
+        CastPlaybackController(
+            context = this,
+            managerProvider = { playerManager },
+            streamUrlHealer = { bookId, chapterIndex, failedUrl ->
+                libraryImport.refreshStreamUrl(bookId, chapterIndex, failedUrl)
+            }
+        ).also { controller ->
+            playerManager.attachCastHook(controller)
+            controller.bind()
+        }
     }
 
     override fun onCreate() {

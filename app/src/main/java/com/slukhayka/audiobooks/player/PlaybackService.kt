@@ -48,6 +48,13 @@ class PlaybackService : MediaSessionService() {
         mediaSession = MediaSession.Builder(this, App.instance.playerManager.player)
             .setSessionActivity(sessionActivity)
             .build()
+        // ADR-0024 (#362): while a cast session is live, the CastPlayer owns
+        // the session (notification + media buttons drive the RECEIVER); when
+        // it ends, the local player takes back over. A null argument means
+        // «restore local».
+        App.instance.castController.sessionPlayerSwapper = { remoteOrNull ->
+            mediaSession?.player = remoteOrNull ?: App.instance.playerManager.player
+        }
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? =

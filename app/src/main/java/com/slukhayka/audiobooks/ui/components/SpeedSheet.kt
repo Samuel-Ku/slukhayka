@@ -25,6 +25,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -167,6 +168,12 @@ fun SpeedSheet(
                 },
                 valueRange = AudioPlayerManager.SPEED_MIN..AudioPlayerManager.SPEED_MAX,
                 steps = 9, // 0.25 increments between 0.5 and 3.0
+                track = { sliderState ->
+                    SliderDefaults.Track(
+                        sliderState = sliderState,
+                        drawStopIndicator = {}
+                    )
+                },
                 modifier = Modifier
                     .semantics {
                         contentDescription = exactSpeedDescription

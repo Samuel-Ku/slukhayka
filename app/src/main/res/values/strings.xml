@@ -12,4 +12,11 @@
     <string name="m3c_bottom_sheet_drag_handle_description">Маркер переміщення</string>
     <string name="m3c_bottom_sheet_expand_description">Розгорнути аркуш</string>
     <string name="m3c_bottom_sheet_pane_title">Аркуш</string>
+    <!-- #393 — Download notification -->
+    <string name="download_notification_channel_name">Завантаження</string>
+    <string name="download_notification_channel_description">Прогрес завантаження аудіокниг</string>
+    <string name="download_notification_title">Завантаження: %1$s</string>
+    <string name="download_notification_chapters">Розділ %1$d/%2$d</string>
+    <string name="download_notification_size">%1$s%2$d / %3$d МБ (%4$d%%)</string>
+    <string name="download_notification_preparing">Підготовка…</string>
 </resources>

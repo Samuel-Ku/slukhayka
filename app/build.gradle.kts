@@ -60,8 +60,8 @@ android {
     targetSdk = 36
     // spec-29 T1 (#210): first release under the permanent applicationId.
     // versionCode grows monotonically across the Слухайка line (v1.0 was 1).
-    versionCode = 4
-    versionName = "1.3"
+    versionCode = 6
+    versionName = "1.3.6"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -170,6 +170,24 @@ googleServices { missingGoogleServicesStrategy = MissingGoogleServicesStrategy.W
 // Some unused dependencies are commented out below instead of being removed.
 // This makes it easy to add them back in the future if needed.
 dependencies {
+  // Spec 2026-08-26: ONE protobuf runtime in the APK — protobuf-javalite
+  // 3.25.5, the version Firestore's protolite codegen pairs with and the
+  // version the JVM probe verified NewPipeExtractor extracts fully on.
+  // Three artifacts were fighting over com.google.protobuf classes —
+  // Firebase's protolite (old, stripped: NewPipe died invisibly on its
+  // missing InvalidProtocolBufferException), NewPipe's javalite 4.35.1, and
+  // Firestore's transitive javalite 3.25.1 — and the APK build refuses
+  // duplicates. protolite is excluded entirely; its NON-protobuf half (the
+  // googleapis common protos Firestore decodes — com.google.type.LatLng et
+  // al., without which GeoPoint/WriteBatch crash) ships as the surgical
+  // app/libs/protolite-googleapis.jar with com/google/protobuf stripped.
+  configurations.all {
+    exclude(group = "com.google.firebase", module = "protolite-well-known-types")
+    resolutionStrategy {
+      force("com.google.protobuf:protobuf-javalite:3.25.5")
+    }
+  }
+  implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.jar"))))
   implementation(platform(libs.androidx.compose.bom))
   implementation(platform(libs.firebase.bom))
   // implementation(libs.accompanist.permissions)
@@ -195,6 +213,11 @@ dependencies {
   implementation(libs.androidx.biometric)
   implementation(libs.androidx.media3.exoplayer)
   implementation(libs.androidx.media3.session)
+  // ADR-0024: CastPlayer swaps in behind the MediaSession player seam while
+  // casting; the receiver itself never touches the network (phone proxy).
+  implementation(libs.androidx.media3.cast)
+  implementation(libs.play.services.cast.framework)
+  implementation(libs.nanohttpd)
   // implementation(libs.androidx.datastore.preferences)
   implementation(libs.androidx.lifecycle.runtime.compose)
   implementation(libs.androidx.lifecycle.runtime.ktx)
@@ -213,7 +236,6 @@ dependencies {
   // Spec-26 T5: the shared universe-knowledge base (Firestore free tier).
   // Requires a local (gitignored) google-services.json — without it the
   // shared layer is simply absent and the app works as before.
-  implementation(libs.firebase.firestore)
   // Spec-40 #275 (t1): the silent listener identity — Anonymous Auth
   // immediately elevated with generated credentials. Without Firebase keys
   // the identity degrades to the local-only profile.
@@ -227,9 +249,19 @@ dependencies {
   implementation(libs.logging.interceptor)
   implementation(libs.moshi.kotlin)
   implementation(libs.okhttp)
+  // Spec 2026-08-26: YouTube stream extraction for audio-less 4read pages —
+  // the watch URL resolves to a progressive audio stream at play/download
+  // time. Distribution is JitPack; rhino (deobfuscation) needs keep rules
+  // under minification (see proguard-rules.pro).
+  implementation("com.github.teamnewpipe:NewPipeExtractor:v0.26.5")
+  implementation(libs.firebase.firestore)
+
   // spec-38 T4 (#256): the RFC-8484 DoH resolver behind the privacy door —
   // same OkHttp version, one small artifact.
   implementation(libs.okhttp.dnsoverhttps)
+  // Spec #361 («Проксі відтворення»): the embedded HTTP server inside the
+  // playback proxy — plain sockets on one jar, no other surface.
+  implementation(libs.nanohttpd)
   // implementation(libs.play.services.location)
   implementation(libs.retrofit)
   // spec-19 T3: on-device ONNX inference for the recommendation embedder
@@ -334,6 +366,7 @@ val runRecommendationEval by tasks.registering(JavaExec::class) {
   args("${projectDir}/src/main/assets/models/e5")
   isIgnoreExitValue = false
 }
+  testImplementation(platform(libs.androidx.compose.bom))
   testImplementation(libs.androidx.compose.ui.test.junit4)
   testImplementation(libs.androidx.core)
   testImplementation(libs.androidx.junit)
@@ -345,6 +378,7 @@ val runRecommendationEval by tasks.registering(JavaExec::class) {
   testImplementation(libs.roborazzi.junit.rule)
   androidTestImplementation(platform(libs.androidx.compose.bom))
   androidTestImplementation(libs.androidx.compose.ui.test.junit4)
+  androidTestImplementation(libs.androidx.compose.ui.test.junit4.accessibility)
   androidTestImplementation(libs.androidx.compose.ui.test.manifest)
   androidTestImplementation(libs.androidx.core)
   androidTestImplementation(libs.androidx.espresso.core)
@@ -356,4 +390,10 @@ val runRecommendationEval by tasks.registering(JavaExec::class) {
   debugImplementation(libs.androidx.compose.ui.tooling)
   "ksp"(libs.androidx.room.compiler)
   "ksp"(libs.moshi.kotlin.codegen)
+}
+
+// Compose/Robolectric accessibility suites retain large rendered graphs.
+// Keep the CI test worker from exhausting Gradle's default heap mid-suite.
+tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
+  maxHeapSize = "2g"
 }

@@ -1,0 +1,73 @@
+<resources>
+    <string name="settings_state_on">Увімкнено</string>
+    <string name="settings_state_off">Вимкнено</string>
+    <string name="settings_state_selected">Обрано</string>
+    <string name="settings_state_not_selected">Не обрано</string>
+    <string name="action_cancel">Скасувати</string>
+    <string name="action_back">Назад</string>
+    <string name="action_restore">Повернути</string>
+    <string name="action_apply">Застосувати</string>
+    <string name="action_delete">Видалити</string>
+
+    <string name="recommendations_title">Персональні рекомендації</string>
+    <string name="recommendations_local_title">Навчатися лише на цьому пристрої</string>
+    <string name="recommendations_local_description">Обрані книги, прогрес і ваші відмови не залишають пристрій.</string>
+    <string name="recommendations_shared_title">Допомагати покращувати спільну модель</string>
+    <string name="recommendations_shared_description">Ваша згода стосується лише майбутніх тижневих оновлень п’яти ваг. Передавання технічно вимкнене до перевірки приватності, безпеки та юридичних умов; книги й історія не надсилатимуться.</string>
+    <string name="recommendations_shared_on">Згоду збережено локально</string>
+    <string name="recommendations_shared_off">Не беру участі</string>
+    <string name="recommendations_hidden_heading">Приховане вами</string>
+    <string name="recommendations_reset_action">Скинути персоналізацію</string>
+    <string name="recommendations_reset_consequence">Скидання видалить лише явні налаштування рекомендацій і локально адаптовані ваги. Книги, прогрес та історія відтворення залишаться.</string>
+    <string name="recommendations_reset_dialog_title">Скинути персоналізацію?</string>
+    <string name="recommendations_reset_dialog_body">Буде видалено явні налаштування рекомендацій і локально адаптовані ваги. Медіатека, прогрес та історія відтворення залишаться.</string>
+    <string name="recommendations_reset_confirm">Скинути</string>
+    <string name="recommendations_reset_done">Персоналізацію скинуто</string>
+    <string name="recommendations_restore_description">Повернути: %1$s</string>
+
+    <string name="privacy_title">Приватність мережі</string>
+    <string name="privacy_route_direct_title">Пряме з’єднання</string>
+    <string name="privacy_route_direct_description">Без проксі. Запити виглядають як звичайний браузер на вашому телефоні.</string>
+    <string name="privacy_route_proxy_title">Власний проксі</string>
+    <string name="privacy_route_proxy_description">HTTP або SOCKS5 адреса — джерела бачать адресу проксі, а не вашу.</string>
+    <string name="privacy_route_tor_title">Максимальна приватність</string>
+    <string name="privacy_route_tor_description">Через Tor локально (Orbot, 127.0.0.1:9050). Потрібен запущений Orbot.</string>
+    <string name="privacy_route_relay_title">Реле (прототип Workers)</string>
+    <string name="privacy_route_relay_description">Ваше саморозгорнуте реле: джерела бачать адресу реле, а не вашу. Довіра — оператору реле.</string>
+    <string name="privacy_doh_title">Шифрування DNS (DoH)</string>
+    <string name="privacy_doh_description">Імена доменів ідуть зашифрованими до публічного DNS, тож провайдер не бачить, які сайти відкриває застосунок. Якщо DoH недоступний — автоматично працює системний резолвер.</string>
+    <string name="privacy_error">Помилка: %1$s</string>
+    <string name="privacy_saved">Налаштування приватності збережено</string>
+
+    <string name="profile_title">Профіль</string>
+    <string name="profile_loading">Профіль завантажується</string>
+    <string name="profile_nickname_saved">Нік збережено</string>
+    <string name="profile_unhide_author_description">Показувати відгуки автора %1$s</string>
+    <string name="profile_biometric_unavailable">Біометричне підтвердження недоступне на цьому пристрої.</string>
+    <string name="profile_recovery_unavailable">Для цього профілю ще немає коду — він з’явиться після першого підключення до мережі.</string>
+    <string name="profile_biometric_title">Підтвердіть, що це ви</string>
+    <string name="profile_biometric_subtitle">Щоб показати код відновлення профілю</string>
+    <string name="profile_recovery_heading">Код відновлення профілю</string>
+    <string name="profile_recovery_description">Код переносить профіль на новий телефон: встановіть застосунок, відкрийте Профіль і введіть код. Показ коду вимагає підтвердження біометрією або PIN-кодом пристрою.</string>
+    <string name="profile_recovery_show">Показати код</string>
+    <string name="profile_recovery_hide">Приховати код</string>
+    <string name="profile_recovery_copy">Копіювати код відновлення профілю</string>
+    <string name="profile_recovery_copied">Код відновлення скопійовано</string>
+    <string name="profile_restore_heading">Відновити з коду</string>
+    <string name="profile_restore_consequence">Відновлення замінить поточний профіль на профіль із коду. Книги на пристрої не видаляться.</string>
+    <string name="profile_restore_field_label">Код із попереднього телефона</string>
+    <string name="profile_restore_action">Відновити профіль</string>
+    <string name="profile_restore_dialog_title">Замінити поточний профіль?</string>
+    <string name="profile_restore_dialog_body">Після підтвердження застосунок відновить профіль із коду. Поточний профіль буде замінено, але книги на пристрої залишаться.</string>
+    <string name="profile_restore_confirm">Замінити й відновити</string>
+    <string name="profile_restore_success">Профіль відновлено: %1$s</string>
+    <string name="profile_restore_error">Не вдалося відновити — перевірте код і з’єднання.</string>
+
+    <string name="storage_title">Завантаження та пам\'ять</string>
+    <string name="storage_device_heading">Пам\'ять пристрою</string>
+    <string name="storage_rescan_action">Пересканувати локальні файли</string>
+    <string name="storage_danger_heading">Небезпечна зона</string>
+    <string name="storage_delete_consequence">Видаляє всі завантажені файли з пристрою. Цю дію не можна скасувати.</string>
+    <string name="storage_delete_action">Видалити завантажені файли</string>
+    <string name="storage_delete_dialog_title">Видалити завантажені файли?</string>
+</resources>

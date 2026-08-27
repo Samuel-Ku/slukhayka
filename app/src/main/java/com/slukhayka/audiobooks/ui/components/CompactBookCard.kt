@@ -9,6 +9,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -16,10 +17,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.ui.displayAuthor
 import com.slukhayka.audiobooks.ui.theme.AppDimens
@@ -49,96 +55,121 @@ fun CompactBookCard(
     // shelf — the canonical card shape stays unchanged.
     caption: String? = null
 ) {
-    Column(
-        modifier = modifier
-            .width(120.dp)
-            .clickable { onClick() }
-            .testTag("compact_book_${book.id}"),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Box {
-            BookCoverImage(
-                book = book,
-                contentDescription = book.title,
-                modifier = Modifier
-                    .width(120.dp)
-                    .height(168.dp)
-                    .clip(RoundedCornerShape(AppDimens.RadiusCardLg))
-                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(AppDimens.RadiusCardLg))
-            )
-            // US-3: the thin progress hairline along the cover's bottom edge,
-            // clipped to the cover's rounded shape and filled to the consumed
-            // fraction. Only a STARTED book draws it — an unstarted or
-            // unknown-duration book keeps a clean cover (ADR-0014 honest data).
-            if (progress != null && progress > 0f) {
-                Box(
+    val progressDescription = progress
+        ?.takeIf { it > 0f }
+        ?.let { stringResource(R.string.a11y_listened_percent, (it.coerceIn(0f, 1f) * 100).toInt()) }
+    // Local imports are playable from their SAF/file source even when the
+    // legacy downloaded projection is false. A blank sourceUrl is their
+    // canonical domain identity; only remote, non-downloaded works need data.
+    val availabilityDescription = if (book.isDownloaded || book.sourceUrl.isBlank()) {
+        stringResource(R.string.a11y_available_offline)
+    } else {
+        stringResource(R.string.a11y_connection_required)
+    }
+    val workState = listOfNotNull(progressDescription, availabilityDescription).joinToString(". ")
+
+    Box(modifier = modifier.width(120.dp)) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .semantics {
+                    if (workState.isNotBlank()) stateDescription = workState
+                }
+                .clickable(role = Role.Button, onClick = onClick)
+                .testTag("compact_book_${book.id}"),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Box {
+                BookCoverImage(
+                    book = book,
+                    semantics = BookCoverSemantics.Decorative,
                     modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .fillMaxWidth()
-                        .height(3.dp)
+                        .width(120.dp)
+                        .height(168.dp)
                         .clip(RoundedCornerShape(AppDimens.RadiusCardLg))
-                        .testTag("compact_book_progress_${book.id}")
-                ) {
+                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(AppDimens.RadiusCardLg))
+                )
+                // US-3: the thin progress hairline along the cover's bottom edge,
+                // clipped to the cover's rounded shape and filled to the consumed
+                // fraction. Only a STARTED book draws it — an unstarted or
+                // unknown-duration book keeps a clean cover (ADR-0014 honest data).
+                if (progress != null && progress > 0f) {
                     Box(
                         modifier = Modifier
-                            .fillMaxWidth(progress.coerceIn(0f, 1f))
-                            .fillMaxHeight()
-                            .background(MaterialTheme.colorScheme.primary)
-                    )
+                            .align(Alignment.BottomStart)
+                            .fillMaxWidth()
+                            .height(3.dp)
+                            .clip(RoundedCornerShape(AppDimens.RadiusCardLg))
+                            .testTag("compact_book_progress_${book.id}")
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(progress.coerceIn(0f, 1f))
+                                .fillMaxHeight()
+                                .background(MaterialTheme.colorScheme.primary)
+                        )
+                    }
                 }
             }
-            if (onNotInterested != null) {
+            Spacer(modifier = Modifier.height(6.dp))
+            caption?.let {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                    color = MaterialTheme.colorScheme.secondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+            }
+            Text(
+                text = book.title,
+                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
+            if (book.displayAuthor.isNotBlank()) {
+                Text(
+                    text = book.displayAuthor,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+
+        if (onNotInterested != null) {
+            IconButton(
+                onClick = onNotInterested,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .size(AppDimens.TouchTarget)
+                    .testTag("not_interested_${book.id}")
+            ) {
                 Box(
                     modifier = Modifier
-                        .align(Alignment.TopEnd)
                         .size(28.dp)
                         .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f))
-                        .clickable(onClick = onNotInterested)
-                        .testTag("not_interested_${book.id}"),
+                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.88f))
+                        .testTag("not_interested_visual_${book.id}"),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = Icons.Default.Close,
-                        contentDescription = "Не цікаво",
+                        contentDescription = stringResource(R.string.a11y_not_interested_work, book.title),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(14.dp)
+                        modifier = Modifier.size(16.dp)
                     )
                 }
             }
-        }
-        Spacer(modifier = Modifier.height(6.dp))
-        caption?.let {
-            Text(
-                text = it,
-                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                color = MaterialTheme.colorScheme.secondary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth()
-            )
-            Spacer(modifier = Modifier.height(2.dp))
-        }
-        Text(
-            text = book.title,
-            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth()
-        )
-        if (book.displayAuthor.isNotBlank()) {
-            Text(
-                text = book.displayAuthor,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth()
-            )
         }
     }
 }

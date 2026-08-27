@@ -1,0 +1,85 @@
+<resources>
+    <string name="a11y_player_close">Згорнути програвач</string>
+    <string name="a11y_player_actions">Дії з аудіокнигою %1$s</string>
+    <string name="a11y_player_context">%1$s. Автор: %2$s. %3$s Поточний розділ: %4$s</string>
+    <string name="a11y_player_edition">Начитка: %1$s.</string>
+    <string name="a11y_player_edition_unknown">Начитка: виконавця не вказано.</string>
+
+    <string name="a11y_player_previous_chapter">Попередній розділ перед «%2$s». %1$s</string>
+    <string name="a11y_player_next_chapter">Наступний розділ після «%2$s». %1$s</string>
+    <string name="a11y_player_seek_back">Назад на 15 секунд. %1$s, %2$s</string>
+    <string name="a11y_player_seek_forward">Вперед на 30 секунд. %1$s, %2$s</string>
+    <string name="a11y_player_pause">Поставити на паузу. %1$s, %2$s</string>
+    <string name="a11y_player_play">Відтворити. %1$s, %2$s</string>
+    <string name="a11y_player_state_playing">Відтворюється</string>
+    <string name="a11y_player_state_paused">Призупинено</string>
+    <!-- Issue #381: третій стан кнопки play/pause — резолюція стріму
+         (isBuffering) більше не промовляється застарілим «Призупинено». -->
+    <string name="a11y_player_state_loading">Завантаження</string>
+
+    <string name="a11y_player_tool_speed">Швидкість відтворення</string>
+    <string name="a11y_player_tool_timer">Таймер сну</string>
+    <string name="a11y_player_tool_bookmark">Додати закладку</string>
+    <string name="a11y_player_tool_chapters">Вибрати розділ</string>
+    <string name="a11y_player_speed_value">%1$s раза</string>
+    <plurals name="a11y_player_timer_minutes">
+        <item quantity="one">%1$d хвилина</item>
+        <item quantity="few">%1$d хвилини</item>
+        <item quantity="many">%1$d хвилин</item>
+        <item quantity="other">%1$d хвилини</item>
+    </plurals>
+    <string name="a11y_player_timer_end_of_chapter">до кінця розділу</string>
+    <string name="a11y_player_timer_off">вимкнено</string>
+    <string name="player_tool_speed_label">Швидкість</string>
+    <string name="player_tool_timer_label">Таймер</string>
+    <string name="player_tool_bookmark_label">Закладка</string>
+    <string name="player_tool_chapters_label">Розділи</string>
+    <string name="player_speed_value">%1$s×</string>
+    <string name="player_timer_minutes_value">%1$d хв</string>
+    <string name="player_timer_end_value">До кінця</string>
+
+    <string name="a11y_player_chapter_position">Позиція в поточному розділі</string>
+    <string name="a11y_player_book_position">Позиція у книзі</string>
+    <string name="a11y_player_time_of">%1$s із %2$s</string>
+    <string name="a11y_player_duration_unknown">Тривалість невідома</string>
+
+    <string name="a11y_player_error_title">Книга недоступна</string>
+    <string name="a11y_player_retry">Повторити відтворення %1$s</string>
+
+    <!-- Issue #381: тексти помилок плеєра українською (раніше були hardcoded в
+         AudioPlayerManager, зокрема англійські, які TTS читав англійською).
+         Категорія UNAVAILABLE тримає слово «недоступна» у тексті — назву карти
+         показують без деталі; TRANSIENT (потік/таймаут/виняток підготовки)
+         показує деталь із технічним кодом у дужках. -->
+    <string name="a11y_player_error_stream">Помилка відтворення потоку (%1$s)</string>
+    <string name="a11y_player_error_timeout">Перевищено час очікування потоку (%1$d с)</string>
+    <string name="a11y_player_error_prepare_exception">Не вдалося підготувати розділ (%1$s)</string>
+    <string name="a11y_player_error_heal_failed">Книга зараз недоступна: файл джерела переїхав або заблокований, і оновити його не вдалося.</string>
+    <string name="a11y_player_error_book_unavailable">Книга зараз недоступна: аудіо цієї книги на джерелі не знайдено.</string>
+    <string name="a11y_player_error_resolve_failed">Книга зараз недоступна: не вдалося отримати аудіо з YouTube.</string>
+
+    <string name="a11y_speed_pane">Швидкість відтворення</string>
+    <string name="a11y_speed_close">Закрити налаштування швидкості</string>
+    <string name="a11y_speed_preset">Швидкість %1$s раза</string>
+    <string name="a11y_speed_exact">Точна швидкість відтворення</string>
+
+    <string name="a11y_timer_pane">Таймер сну</string>
+    <string name="a11y_timer_close">Закрити таймер сну</string>
+    <string name="a11y_timer_extend">Додати 15 хвилин до таймера</string>
+    <string name="a11y_timer_fade_warning">Таймер сну: останні 30 секунд. За потреби додайте 15 хвилин.</string>
+    <string name="a11y_timer_extended">Додано 15 хвилин. Залишилось %1$s.</string>
+
+    <string name="a11y_chapter_pane">Вибір розділу</string>
+    <string name="a11y_chapter_close">Закрити вибір розділу</string>
+    <string name="a11y_chapter_option">%1$s. Тривалість %2$s.%3$s</string>
+    <string name="a11y_chapter_current"> Поточний розділ</string>
+
+    <string name="a11y_bookmark_pane">Додати закладку</string>
+    <string name="a11y_player_bookmarks_pane">Закладки книги</string>
+    <string name="a11y_player_bookmarks_close">Закрити закладки книги</string>
+    <string name="a11y_player_bookmark_jump">Повернутися до закладки на %1$s</string>
+    <string name="a11y_player_bookmark_delete">Видалити закладку «%1$s» на %2$s</string>
+    <string name="a11y_cast_unavailable">Трансляція недоступна для цієї книги</string>
+    <string name="a11y_bookmark_close">Закрити додавання закладки</string>
+    <string name="a11y_bookmark_context">Закладка в розділі «%1$s» на позиції %2$s</string>
+</resources>

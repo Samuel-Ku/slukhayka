@@ -47,6 +47,8 @@ import com.slukhayka.audiobooks.data.privacy.SharedPreferencesPrivacySettingsSto
 import com.slukhayka.audiobooks.data.privacy.TransportPrivacy
 import com.slukhayka.audiobooks.data.source.AudiobookMp3Adapter
 import com.slukhayka.audiobooks.data.source.FourReadAdapter
+import com.slukhayka.audiobooks.data.source.NewPipeYouTubeExtractor
+import com.slukhayka.audiobooks.data.source.YouTubeStreamResolver
 import com.slukhayka.audiobooks.data.source.LihtarAdapter
 import com.slukhayka.audiobooks.data.source.SluhayAdapter
 import com.slukhayka.audiobooks.data.source.SluhayuaAdapter
@@ -65,6 +67,7 @@ import com.slukhayka.audiobooks.data.universe.UniverseAssets
 import com.slukhayka.audiobooks.data.universe.WikidataResponse
 import com.slukhayka.audiobooks.data.universe.WikidataSeriesProvider
 import com.slukhayka.audiobooks.player.AudioPlayerManager
+import com.slukhayka.audiobooks.player.CastPlaybackController
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -275,7 +278,13 @@ class App : Application() {
 
     /** Offline Downloads: download/remove/cache-clear over the catalog's chapter fetch. */
     val offlineDownloads: OfflineDownloads by lazy {
-        OfflineDownloads(database.audiobookDao(), this, sourceCatalog)
+        OfflineDownloads(
+            database.audiobookDao(),
+            this,
+            sourceCatalog,
+            // Spec 2026-08-26: YouTube watch URLs resolve per-use before the fetch.
+            streamUrlResolver = { url -> youTubeStreamResolver.resolve(url) }
+        )
     }
 
     /** Library Entries: delete/remove/favourite/metadata + library reads. */
@@ -397,6 +406,15 @@ class App : Application() {
         )
     }
 
+    /**
+     * Spec 2026-08-26: the per-use YouTube stream resolution seam — playback
+     * and offline downloads both resolve the persisted watch URL to a fresh
+     * signed audio stream URL. One instance; NewPipe initialises once.
+     */
+    private val youTubeStreamResolver by lazy {
+        YouTubeStreamResolver(NewPipeYouTubeExtractor::extract)
+    }
+
     /** Single player manager; created lazily on first playback/service access. */
     val playerManager: AudioPlayerManager by lazy {
         // The player runs on the store; chapter materialisation (incl. the
@@ -413,8 +431,28 @@ class App : Application() {
             streamUrlHealer = { bookId, chapterIndex, failedUrl ->
                 libraryImport.refreshStreamUrl(bookId, chapterIndex, failedUrl)
             },
-            progressSync = progressSync
+            progressSync = progressSync,
+            // Spec 2026-08-26: YouTube watch URLs resolve per-use before setMediaItem.
+            streamUrlResolver = { url -> youTubeStreamResolver.resolve(url) }
         )
+    }
+
+    /**
+     * ADR-0024 (#362): cast ownership — proxy, CastPlayer, session listener,
+     * locks. Constructed lazily beside [playerManager] and installs itself as
+     * its engine hook; without Google services it stays an inert no-op.
+     */
+    val castController: CastPlaybackController by lazy {
+        CastPlaybackController(
+            context = this,
+            managerProvider = { playerManager },
+            streamUrlHealer = { bookId, chapterIndex, failedUrl ->
+                libraryImport.refreshStreamUrl(bookId, chapterIndex, failedUrl)
+            }
+        ).also { controller ->
+            playerManager.attachCastHook(controller)
+            controller.bind()
+        }
     }
 
     override fun onCreate() {

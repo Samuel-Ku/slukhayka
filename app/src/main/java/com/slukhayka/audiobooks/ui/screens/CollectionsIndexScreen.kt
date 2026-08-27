@@ -8,6 +8,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.data.collections.CollectionMatcher
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
@@ -75,7 +77,9 @@ fun CollectionsIndexContent(
     ) {
         collections.forEach { collection ->
             item(key = "header_${collection.id}") {
-                CatalogRowHeader(title = collection.name)
+                Box(Modifier.semantics(mergeDescendants = true) { heading() }) {
+                    CatalogRowHeader(title = collection.name)
+                }
             }
             item(key = "row_${collection.id}") {
                 LazyRow(

@@ -3,18 +3,18 @@ package com.slukhayka.audiobooks.ui.screens
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.focusable
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SdCard
@@ -25,14 +25,11 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -40,11 +37,17 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.ui.MainViewModel
+import com.slukhayka.audiobooks.ui.components.accessibilityModalBackground
 import com.slukhayka.audiobooks.ui.library.ukPlural
 import com.slukhayka.audiobooks.ui.theme.*
 
@@ -67,57 +70,93 @@ fun StorageDestinationScreen(
     // The raw bytes back the confirm dialog's exact scope, and gate the
     // delete button (nothing to delete → no button).
     val cacheSizeBytes by viewModel.cacheSizeBytes.collectAsState()
-    var showClearCacheDialog by remember { mutableStateOf(false) }
+    var storageDialogVisible by remember { mutableStateOf(false) }
 
     val offlineCount = libraryBooks.count { it.book.isDownloaded }
     val hasLocalBooks = libraryBooks.any { it.isLocal }
 
-    Scaffold(
-        topBar = {
-            // Host Scaffold in MainActivity already consumed the status bar
-            // (innerPadding.top); don't let this inner TopAppBar add it again.
-            TopAppBar(
-                windowInsets = WindowInsets(0, 0, 0, 0),
-                title = {
-                    Text(
-                        text = "Завантаження та пам'ять",
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBackClick) {
-                        Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
-            )
-        },
-        containerColor = MaterialTheme.colorScheme.background
+    SettingsDestinationScaffold(
+        destination = SettingsDestination.Storage,
+        onBackClick = onBackClick,
+        modalVisible = storageDialogVisible
     ) { padding ->
-        StorageDestinationContent(
+        StorageDestinationPane(
             storageText = "$cacheSizeFormatted · $offlineCount " +
-                ukPlural(offlineCount, "аудіокнига", "аудіокниги", "аудіокниг") + " offline",
+                ukPlural(offlineCount, "аудіокнига", "аудіокниги", "аудіокниг") + " офлайн",
             hasLocalBooks = hasLocalBooks,
             showDelete = offlineCount > 0 || cacheSizeBytes > 0L,
+            bookCount = offlineCount,
+            bytes = cacheSizeBytes,
             onRescan = { viewModel.rescanLocalFolders() },
-            onDeleteClick = { showClearCacheDialog = true },
+            onDeleteConfirmed = viewModel::clearAllAudioCache,
+            onDialogVisibilityChange = { storageDialogVisible = it },
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
         )
     }
+}
+
+/** Stateful storage confirmation seam shared by production and Compose behavior tests. */
+@Composable
+fun StorageDestinationPane(
+    storageText: String,
+    hasLocalBooks: Boolean,
+    showDelete: Boolean,
+    bookCount: Int,
+    bytes: Long,
+    onRescan: () -> Unit,
+    onDeleteConfirmed: () -> Unit,
+    modifier: Modifier = Modifier,
+    onDialogVisibilityChange: (Boolean) -> Unit = {}
+) {
+    var showClearCacheDialog by remember { mutableStateOf(false) }
+    var focusAfterDialog by remember { mutableStateOf<StorageDialogFocusTarget?>(null) }
+    val deleteFocusRequester = remember { FocusRequester() }
+    val storageSummaryFocusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(showClearCacheDialog) {
+        if (!showClearCacheDialog) {
+            when (focusAfterDialog) {
+                StorageDialogFocusTarget.DeleteAction -> deleteFocusRequester.requestFocus()
+                StorageDialogFocusTarget.StorageSummary -> storageSummaryFocusRequester.requestFocus()
+                null -> Unit
+            }
+            focusAfterDialog = null
+        }
+    }
+
+    StorageDestinationContent(
+        storageText = storageText,
+        hasLocalBooks = hasLocalBooks,
+        showDelete = showDelete,
+        onRescan = onRescan,
+        onDeleteClick = {
+            showClearCacheDialog = true
+            onDialogVisibilityChange(true)
+        },
+        modifier = modifier.accessibilityModalBackground(showClearCacheDialog),
+        deleteButtonModifier = Modifier.focusRequester(deleteFocusRequester),
+        storageHeadingModifier = Modifier
+            .focusRequester(storageSummaryFocusRequester)
+            .focusable()
+    )
 
     if (showClearCacheDialog) {
         ClearCacheConfirmDialog(
-            bookCount = offlineCount,
-            bytes = cacheSizeBytes,
+            bookCount = bookCount,
+            bytes = bytes,
             onConfirm = {
+                focusAfterDialog = StorageDialogFocusTarget.StorageSummary
                 showClearCacheDialog = false
-                viewModel.clearAllAudioCache()
+                onDialogVisibilityChange(false)
+                onDeleteConfirmed()
             },
-            onDismiss = { showClearCacheDialog = false }
+            onDismiss = {
+                focusAfterDialog = StorageDialogFocusTarget.DeleteAction
+                showClearCacheDialog = false
+                onDialogVisibilityChange(false)
+            }
         )
     }
 }
@@ -135,7 +174,9 @@ fun StorageDestinationContent(
     showDelete: Boolean,
     onRescan: () -> Unit,
     onDeleteClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    deleteButtonModifier: Modifier = Modifier,
+    storageHeadingModifier: Modifier = Modifier
 ) {
     Column(
         modifier = modifier
@@ -160,9 +201,12 @@ fun StorageDestinationContent(
                 Spacer(modifier = Modifier.width(12.dp))
                 Column {
                     Text(
-                        text = "Пам'ять пристрою",
+                        text = stringResource(R.string.storage_device_heading),
                         style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = storageHeadingModifier
+                            .testTag("storage_device_heading")
+                            .semantics { heading() }
                     )
                     Text(
                         text = storageText,
@@ -177,11 +221,13 @@ fun StorageDestinationContent(
             Spacer(modifier = Modifier.height(12.dp))
             OutlinedButton(
                 onClick = onRescan,
-                modifier = Modifier.testTag("rescan_folders_button")
+                modifier = Modifier
+                    .heightIn(min = 48.dp)
+                    .testTag("rescan_folders_button")
             ) {
                 Icon(imageVector = Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(6.dp))
-                Text("Пересканувати локальні файли")
+                Text(stringResource(R.string.storage_rescan_action))
             }
         }
 
@@ -193,13 +239,14 @@ fun StorageDestinationContent(
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             Spacer(modifier = Modifier.height(24.dp))
             Text(
-                text = "Небезпечна зона",
+                text = stringResource(R.string.storage_danger_heading),
                 style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                color = MaterialTheme.colorScheme.error
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.semantics { heading() }
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = "Видаляє всі завантажені файли з пристрою. Цю дію не можна скасувати.",
+                text = stringResource(R.string.storage_delete_consequence),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -213,13 +260,19 @@ fun StorageDestinationContent(
                 shape = RoundedCornerShape(AppDimens.RadiusCardLg),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(48.dp)
+                    .heightIn(min = 48.dp)
                     .testTag("clear_cache_button")
+                    .then(deleteButtonModifier)
             ) {
                 Icon(imageVector = Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(6.dp))
-                Text("Видалити завантажені файли")
+                Text(stringResource(R.string.storage_delete_action))
             }
         }
     }
+}
+
+private enum class StorageDialogFocusTarget {
+    DeleteAction,
+    StorageSummary
 }

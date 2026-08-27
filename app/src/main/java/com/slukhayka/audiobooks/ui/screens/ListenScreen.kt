@@ -18,10 +18,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.PlaybackProgressEntity
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
@@ -206,7 +210,12 @@ fun ListenBlockHeader(
             .padding(start = 16.dp, end = 8.dp, top = 10.dp, bottom = 2.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Column(modifier = Modifier.weight(1f)) {
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .semantics { heading() }
+                .testTag("listen_block_heading_${blockId.name}")
+        ) {
             Text(
                 text = title,
                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
@@ -229,7 +238,7 @@ fun ListenBlockHeader(
             ) {
                 Icon(
                     imageVector = Icons.Default.MoreVert,
-                    contentDescription = "Опції блоку",
+                    contentDescription = stringResource(R.string.a11y_listen_block_actions, title),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
@@ -326,6 +335,7 @@ fun ListenHeroCard(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 10.dp)
+            .semantics(mergeDescendants = true) { }
             .clip(RoundedCornerShape(AppDimens.RadiusHero)),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
         elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
@@ -345,7 +355,8 @@ fun ListenHeroCard(
                         fontWeight = FontWeight.Bold,
                         letterSpacing = 1.sp
                     ),
-                    color = MaterialTheme.colorScheme.primary
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.semantics { heading() }
                 )
             }
 
@@ -354,7 +365,7 @@ fun ListenHeroCard(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 com.slukhayka.audiobooks.ui.components.BookCoverImage(
                     book = book,
-                    contentDescription = book.title,
+                    semantics = com.slukhayka.audiobooks.ui.components.BookCoverSemantics.Decorative,
                     modifier = Modifier
                         .size(88.dp)
                         .clip(RoundedCornerShape(AppDimens.RadiusCardLg)),
@@ -385,6 +396,8 @@ fun ListenHeroCard(
                     Text(
                         text = "Розділ ${progress.currentChapterIndex + 1} із ${book.totalChapters.coerceAtLeast(1)}",
                         style = MaterialTheme.typography.labelMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                         color = MaterialTheme.colorScheme.secondary
                     )
                     Spacer(modifier = Modifier.height(6.dp))
@@ -395,6 +408,8 @@ fun ListenHeroCard(
                             MainViewModel.formatTime(positionSec)
                         },
                         style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                 }
@@ -412,7 +427,7 @@ fun ListenHeroCard(
                     ) {
                         Icon(
                             imageVector = Icons.Default.PlayArrow,
-                            contentDescription = "Продовжити",
+                            contentDescription = stringResource(R.string.a11y_resume_work, book.title),
                             tint = MaterialTheme.colorScheme.onPrimary,
                             modifier = Modifier.size(32.dp)
                         )
@@ -420,11 +435,11 @@ fun ListenHeroCard(
                     Spacer(modifier = Modifier.height(4.dp))
                     IconButton(
                         onClick = onBookClick,
-                        modifier = Modifier.size(32.dp)
+                        modifier = Modifier.size(AppDimens.TouchTarget)
                     ) {
                         Icon(
                             imageVector = Icons.Default.Info,
-                            contentDescription = "До книги",
+                            contentDescription = stringResource(R.string.a11y_open_work, book.title),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(18.dp)
                         )
@@ -467,6 +482,7 @@ fun RecentlyListenedRow(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 5.dp)
+            .semantics(mergeDescendants = true) { }
             .clip(RoundedCornerShape(AppDimens.RadiusCardLg))
             .clickable { onClick() }
             .testTag("recently_listened_${book.id}"),
@@ -477,7 +493,7 @@ fun RecentlyListenedRow(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 com.slukhayka.audiobooks.ui.components.BookCoverImage(
                     book = book,
-                    contentDescription = book.title,
+                    semantics = com.slukhayka.audiobooks.ui.components.BookCoverSemantics.Decorative,
                     modifier = Modifier
                         .size(44.dp)
                         .clip(RoundedCornerShape(AppDimens.RadiusInner)),
@@ -509,7 +525,7 @@ fun RecentlyListenedRow(
                 ) {
                     Icon(
                         imageVector = Icons.Default.PlayArrow,
-                        contentDescription = "Play",
+                        contentDescription = stringResource(R.string.a11y_play_work, book.title),
                         tint = MaterialTheme.colorScheme.onPrimaryContainer,
                         modifier = Modifier.size(22.dp)
                     )

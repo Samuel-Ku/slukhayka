@@ -9,6 +9,7 @@ import com.slukhayka.audiobooks.data.db.PlaybackEventEntity
 import com.slukhayka.audiobooks.data.db.PlaybackEventPolicy
 import com.slukhayka.audiobooks.data.db.PlaybackFailureEntity
 import com.slukhayka.audiobooks.data.db.PlaybackProgressEntity
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
@@ -35,7 +36,10 @@ import kotlinx.coroutines.withContext
  * sourceKey concept is gone from listening identity. New playback-event rows
  * write sourceKey = "" (the column is history).
  */
-class ListeningStateStore(private val dao: AudiobookDao) : ProgressMirror {
+class ListeningStateStore(
+    private val dao: AudiobookDao,
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
+) : ProgressMirror {
 
     // --- Progress (keyed by Edition, ADR-0007) -----------------------------
 
@@ -181,7 +185,7 @@ class ListeningStateStore(private val dao: AudiobookDao) : ProgressMirror {
         errorCodeName: String,
         streamUrl: String,
         audioEngineMode: String
-    ) = withContext(Dispatchers.IO) {
+    ) = withContext(ioDispatcher) {
         dao.insertPlaybackFailure(
             PlaybackFailureEntity(
                 timestamp = System.currentTimeMillis(),
@@ -233,7 +237,7 @@ class ListeningStateStore(private val dao: AudiobookDao) : ProgressMirror {
     suspend fun recordListeningTime(seconds: Long) {
         if (seconds <= 0) return
         val dateIso = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
-        withContext(Dispatchers.IO) {
+        withContext(ioDispatcher) {
             val current = dao.getListeningStatForDate(dateIso)
             val updatedSeconds = (current?.listenedSeconds ?: 0L) + seconds
             dao.saveListeningStat(ListeningStatEntity(dateIso, updatedSeconds))

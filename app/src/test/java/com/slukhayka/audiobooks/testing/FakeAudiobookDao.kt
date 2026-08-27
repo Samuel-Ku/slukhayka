@@ -36,6 +36,7 @@ import com.slukhayka.audiobooks.data.db.GenreFacetOption
 import com.slukhayka.audiobooks.data.db.EditionFacetEntity
 import com.slukhayka.audiobooks.data.db.AuthorFacetEntity
 import com.slukhayka.audiobooks.data.db.AuthorAliasEntity
+import com.slukhayka.audiobooks.data.authors.AuthorSummary
 import androidx.paging.PagingSource
 import androidx.paging.PagingState
 import kotlinx.coroutines.flow.Flow
@@ -933,7 +934,11 @@ class FakeAudiobookDao(
         val current = workFacetsState.value.firstOrNull { it.workId == workId }
         val merged = WorkFacetEntity(
             workId,
-            authorId ?: current?.canonicalAuthorId,
+            when {
+                current?.canonicalAuthorId == null -> authorId
+                authorId != null && updatedAt > current.updatedAt -> authorId
+                else -> current.canonicalAuthorId
+            },
             maxOf(updatedAt, current?.updatedAt ?: 0)
         )
         workFacetsState.update { rows -> rows.filterNot { it.workId == workId } + merged }
@@ -1000,12 +1005,68 @@ class FakeAudiobookDao(
         editionFacetsState.update { rows -> rows.filterNot { it.editionId == editionId } + merged }
     }
 
-    override suspend fun upsertAuthorFacets(rows: List<AuthorFacetEntity>) {
-        authorFacetsState.update { current -> (current.filterNot { old -> rows.any { it.id == old.id } } + rows) }
+    override suspend fun mergeAuthorFacet(id: String, displayName: String, normalizedName: String, updatedAt: Long) {
+        authorFacetsState.update { current ->
+            val old = current.firstOrNull { it.id == id }
+            val merged = if (old == null || updatedAt > old.updatedAt) {
+                AuthorFacetEntity(id, displayName, normalizedName, updatedAt)
+            } else {
+                old
+            }
+            current.filterNot { it.id == id } + merged
+        }
     }
 
     override suspend fun insertAuthorAliases(rows: List<AuthorAliasEntity>) {
         authorAliasesState.update { current -> (current + rows).distinctBy { Triple(it.authorId, it.normalizedAlias, it.sourceId) } }
+    }
+
+    override fun observeAuthorIndex(): Flow<List<AuthorSummary>> =
+        combine(authorFacetsState, workFacetsState) { authors, workFacets ->
+            authors.mapNotNull { author ->
+                val count = workFacets.count { it.canonicalAuthorId == author.id }
+                author.takeIf { count > 0 }?.let {
+                    AuthorSummary(it.id, it.displayName, it.normalizedName, count)
+                }
+            }.sortedWith(compareBy(AuthorSummary::normalizedName, AuthorSummary::id))
+        }
+
+    override suspend fun searchAuthors(
+        lowerBound: String,
+        upperBound: String,
+        limit: Int
+    ): List<AuthorSummary> {
+        val matchingIds = authorAliasesState.value
+            .filter { it.normalizedAlias >= lowerBound && it.normalizedAlias < upperBound }
+            .map { it.authorId }
+            .toSet()
+        return authorFacetsState.value.mapNotNull { author ->
+            val count = workFacetsState.value.count { it.canonicalAuthorId == author.id }
+            author.takeIf { it.id in matchingIds && count > 0 }?.let {
+                AuthorSummary(it.id, it.displayName, it.normalizedName, count)
+            }
+        }.sortedWith(compareBy(AuthorSummary::normalizedName, AuthorSummary::id)).take(limit)
+    }
+
+    override suspend fun worksForAuthor(authorId: String): List<WorkEntity> {
+        val ids = workFacetsState.value.filter { it.canonicalAuthorId == authorId }.map { it.workId }.toSet()
+        return worksState.value.filter { it.id in ids }.sortedWith(compareBy(WorkEntity::title, WorkEntity::id))
+    }
+
+    override suspend fun authorForWork(workId: String): AuthorSummary? {
+        val authorId = workFacetsState.value.firstOrNull { it.workId == workId }?.canonicalAuthorId ?: return null
+        val author = authorFacetsState.value.firstOrNull { it.id == authorId } ?: return null
+        return AuthorSummary(
+            author.id,
+            author.displayName,
+            author.normalizedName,
+            workFacetsState.value.count { it.canonicalAuthorId == authorId }
+        )
+    }
+
+    override suspend fun worksMissingCanonicalAuthor(limit: Int): List<WorkEntity> {
+        val indexed = workFacetsState.value.filter { it.canonicalAuthorId != null }.map { it.workId }.toSet()
+        return worksState.value.filterNot { it.id in indexed }.sortedBy(WorkEntity::id).take(limit)
     }
 
     override fun observeGenreFacetOptions(): Flow<List<GenreFacetOption>> =

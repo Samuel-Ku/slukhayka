@@ -602,11 +602,19 @@ fun PlayerScreenContent(
                     .padding(horizontal = AppDimens.PageSides),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // The cover absorbs the leftover vertical space: when it is
-                // tight the cover shrinks (the aspect-ratio sizing honours the
-                // bounded height), never pushing the transport row off-screen.
-                val coverMaxHeight = if (lastBookmarkTarget != null) 288.dp else 336.dp
-                Box(
+                // The cover absorbs the leftover vertical space (weight slot).
+                // Issue #385: розмір обкладинки рахується напряму від живої
+                // висоти слота (BoxWithConstraints дає її в dp), а не через
+                // .aspectRatio() після fillMaxWidth — той вимірюється від
+                // ШИРИНИ і, коли жоден candidate не вміщується в обмеження,
+                // падає в fallback, який ігнорує і heightIn, і weight-частку:
+                // з'являється рядок «Завантаження» (#381) чи картка помилки →
+                // слот стискається, а обкладинка лишається w/ratio заввишки й
+                // «випадає» за нижню межу слота поверх заголовка (Compose не
+                // кліпує сусідів). У спокійному стані виходить той самий
+                // w/ratio, що й раніше; у стиснутому — висота слота зі
+                // збереженням пропорцій.
+                BoxWithConstraints(
                     modifier = (if (largeFont) {
                         Modifier.height(208.dp)
                     } else {
@@ -622,16 +630,11 @@ fun PlayerScreenContent(
                     val glowRadiusPx = with(androidx.compose.ui.platform.LocalDensity.current) { 300.dp.toPx() }
                     // The glow mirrors the cover's (real) aspect ratio instead
                     // of a hard-coded square, so the halo hugs the artwork.
-                    // aspectRatio honours the heightIn cap (so the cover can
-                    // never blow up on tablets) and shrinks the WIDTH to match
-                    // when vertical space is tight — a tall cover is scaled
-                    // (never cropped), and the whole column always fits.
                     val coverAspect = artworkAspect.coerceIn(0.6f, 1.6f)
+                    val glowWidth = maxWidth * 0.9f
                     Box(
                         modifier = Modifier
-                            .fillMaxWidth(0.9f)
-                            .heightIn(max = coverMaxHeight)
-                            .aspectRatio(coverAspect)
+                            .size(width = glowWidth, height = glowWidth / coverAspect)
                             .background(
                                 Brush.radialGradient(
                                     colors = listOf(
@@ -643,18 +646,23 @@ fun PlayerScreenContent(
                                 )
                             )
                     )
+                    // Cover width keeps the old widthIn(272.dp) + fillMaxWidth(0.76f)
+                    // result; the height is w/ratio while it fits the slot and
+                    // clamps to the slot (ratio kept) when a status row or the
+                    // error card squeezes the column — so the artwork can never
+                    // outgrow its slot into the title.
+                    val coverWidth = (272.dp).coerceAtMost(maxWidth) * 0.76f
+                    val coverHeight = (coverWidth / coverAspect).coerceAtMost(maxHeight)
                     Surface(
                         shape = RoundedCornerShape(AppDimens.RadiusHero),
                         tonalElevation = 1.dp,
                         shadowElevation = 6.dp,
                         // Test seam: the tight-viewport snapshot measures the
                         // cover to pin that it shrinks while keeping its aspect
-                        // ratio (spec-24 T6).
+                        // ratio (spec-24 T6) — and, since #385, that it stays
+                        // inside its slot.
                         modifier = Modifier
-                            .widthIn(max = 272.dp)
-                            .heightIn(max = coverMaxHeight)
-                            .fillMaxWidth(0.76f)
-                            .aspectRatio(coverAspect)
+                            .size(width = coverHeight * coverAspect, height = coverHeight)
                             .testTag("player_cover")
                     ) {
                         BookCoverImage(

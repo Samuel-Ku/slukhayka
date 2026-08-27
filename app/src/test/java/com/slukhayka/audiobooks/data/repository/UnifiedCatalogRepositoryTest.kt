@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.slukhayka.audiobooks.data.catalog.SourceCatalog
+import com.slukhayka.audiobooks.data.catalog.CatalogBook
 import com.slukhayka.audiobooks.data.db.AudiobookDao
 import com.slukhayka.audiobooks.data.db.AudiobookDatabase
 import com.slukhayka.audiobooks.data.imports.LibraryImport
@@ -173,5 +174,60 @@ class UnifiedCatalogRepositoryTest {
         assertEquals(3, sessionFetches)
         assertEquals(1, cachedFetches)
         assertEquals(2, repository.refreshUnifiedCatalog().size)
+    }
+
+    @Test
+    fun `persisted Works from every Source feed the canonical author seam`() = runBlocking {
+        val repository = repo(
+            FakeAdapter("soundbooks", emptyList()),
+            FakeAdapter("lihtar", emptyList())
+        )
+
+        repository.writeWorkEdition(
+            sourceId = "soundbooks",
+            title = "Кобзар",
+            author = "Тарас Шевченко",
+            narrator = "",
+            sourceUrl = "https://soundbooks.example/kobzar"
+        )
+        repository.writeWorkEdition(
+            sourceId = "lihtar",
+            title = "Гайдамаки",
+            author = "Тарас Шевченко",
+            narrator = "",
+            sourceUrl = "https://lihtar.example/haidamaky"
+        )
+
+        val author = repository.searchAuthors("шевченко").single()
+        assertEquals(2, author.workCount)
+        assertEquals(
+            listOf("Гайдамаки", "Кобзар"),
+            repository.authorWorks(author.id).map { it.title }
+        )
+
+        // An unrelated transient/empty provider refresh cannot clear or limit
+        // the valid local cross-source index.
+        repository.refreshUnifiedCatalog()
+        assertEquals(listOf("Тарас Шевченко"), repository.searchAuthors("тарас").map { it.displayName })
+    }
+
+    @Test
+    fun `catalog upsert indexes its Work without opening the provider person page`() = runBlocking {
+        val repository = repo(FakeAdapter("4read", emptyList()))
+
+        repository.upsertCatalogBook(
+            CatalogBook(
+                id = "4read-kotsiubynskyi",
+                title = "Тіні забутих предків",
+                author = "Михайло Коцюбинський",
+                url = "https://4read.org/kotsiubynskyi.html",
+                coverImageUrl = null
+            )
+        )
+
+        assertEquals(
+            listOf("Михайло Коцюбинський"),
+            repository.searchAuthors("коцюбинський").map { it.displayName }
+        )
     }
 }

@@ -4,6 +4,8 @@ import android.content.Context
 import android.net.Uri
 import android.util.Log
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.data.authors.AuthorIndex
+import com.slukhayka.audiobooks.data.authors.RoomAuthorIndex
 import com.slukhayka.audiobooks.data.EditionId
 import com.slukhayka.audiobooks.data.HASH_BUFFER_SIZE
 import com.slukhayka.audiobooks.data.contentHashOf
@@ -73,6 +75,7 @@ class LibraryImport(
     // before. Best-effort by contract — a failing write never breaks import.
     private val profileStore: SharedBookMetaStore? = null
 ) {
+    private val authorIndex: AuthorIndex = RoomAuthorIndex(dao)
 
     // ---------------------------------------------------------------------
     // Door 1 + 2 core: the shared import path (explicit + captured pages)
@@ -195,6 +198,7 @@ class LibraryImport(
                 } else {
                     bookId
                 }
+                dao.getWorkById(workId)?.let { work -> authorIndex.indexWorks(listOf(work), sourceId) }
                 dao.upsertLibraryEntry(
                     id = bookId,
                     workId = workId,
@@ -792,6 +796,12 @@ class LibraryImport(
             null
         }
         val workId = work?.id ?: bookId
+        dao.getWorkById(workId)?.let { work ->
+            authorIndex.indexWorks(
+                listOf(work),
+                sourceId = book.url.takeIf(String::isNotBlank)?.let(::sourceIdForUrl) ?: "catalog-union"
+            )
+        }
         dao.upsertLibraryEntry(
             id = bookId,
             workId = workId,

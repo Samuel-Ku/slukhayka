@@ -6,6 +6,9 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -138,6 +141,17 @@ fun BookDetailScreen(
 
     val currentBook = book ?: return
     val isDownloadingThis = downloadingBookId == currentBook.id
+    // #392 — estimated size and live download progress
+    var estimatedSize by remember(currentBook.id) {
+        mutableStateOf<OfflineDownloads.EstimatedSize?>(null)
+    }
+    LaunchedEffect(currentBook.id) {
+        if (!currentBook.isDownloaded && !isDownloadingThis) {
+            estimatedSize = try { offlineDownloads.estimateOfflineSize(currentBook.id) } catch (_: Exception) { null }
+        }
+    }
+    val downloadBytesMap by offlineDownloads.downloadBytesProgress.collectAsState()
+    val bytesProgress = downloadBytesMap[currentBook.id]
     // ADR-0011: the other rendition cards of this Work — the «Інші начитки»
     // block. Cold flow collected once per composition; the pure filter is
     // JVM-tested (siblingNarrations).
@@ -494,6 +508,57 @@ fun BookDetailScreen(
                                 )
                             }
                         }
+                    }
+                    // #392 — size display below download button
+                    if (!streamOnly && !currentBook.isDownloaded && !isDownloadingThis) {
+                        val sizeText = when {
+                            bytesProgress != null -> {
+                                val dl = bytesProgress!!.downloadedBytes / (1024 * 1024)
+                                val tot = bytesProgress!!.totalBytes?.let { it / (1024 * 1024) } ?: 0L
+                                val pct = if (tot > 0) (dl * 100 / tot).toInt() else 0
+                                stringResource(
+                                    R.string.book_detail_download_progress,
+                                    bytesProgress!!.completedChapters,
+                                    bytesProgress!!.totalChapters,
+                                    dl,
+                                    tot,
+                                    pct
+                                )
+                            }
+                            estimatedSize != null -> {
+                                val es = estimatedSize!!
+                                val mb = es.totalBytes?.let { it / (1024 * 1024) }
+                                if (mb != null && mb > 0) {
+                                    if (es.isApproximate) stringResource(R.string.book_detail_size_approximate, mb)
+                                    else stringResource(R.string.book_detail_size_format, mb)
+                                } else stringResource(R.string.book_detail_size_unknown)
+                            }
+                            else -> stringResource(R.string.book_detail_size_unknown)
+                        }
+                        Text(
+                            text = sizeText,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(start = 4.dp)
+                        )
+                    } else if (!streamOnly && isDownloadingThis && bytesProgress != null) {
+                        val bp = bytesProgress!!
+                        val dl = bp.downloadedBytes / (1024 * 1024)
+                        val tot = bp.totalBytes?.let { it / (1024 * 1024) } ?: 0L
+                        val pct = if (tot > 0) (dl * 100 / tot).toInt() else 0
+                        Text(
+                            text = stringResource(
+                                R.string.book_detail_download_progress,
+                                bp.completedChapters,
+                                bp.totalChapters,
+                                dl,
+                                tot,
+                                pct
+                            ),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(start = 4.dp)
+                        )
                     }
                     // #382 (spec-27): deletion is a rare action — it lives in
                     // the ⋮ overflow, not next to Favorite/Download. The

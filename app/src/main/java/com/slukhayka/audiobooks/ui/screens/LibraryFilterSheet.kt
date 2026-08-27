@@ -73,7 +73,7 @@ fun LibraryStatusRow(
         modifier = Modifier
             .fillMaxWidth()
             .horizontalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp)
+            .padding(start = 16.dp)
             .testTag("library_status_row"),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
@@ -93,6 +93,12 @@ fun LibraryStatusRow(
                 modifier = Modifier.testTag("library_status_${f.name.lowercase()}")
             )
         }
+        // #390: trailing scroll-content padding — a plain Row+horizontalScroll
+        // does not honour end viewport padding as scroll extents, so the last
+        // chip («Завантажені») was clipped at the right edge. A spacer inside
+        // the scroll content guarantees a full reveal.
+        Spacer(Modifier.width(16.dp))
+    }
     }
 }
 

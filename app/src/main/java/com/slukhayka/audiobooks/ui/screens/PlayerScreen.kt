@@ -679,7 +679,7 @@ private fun PlayerTopBar(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 private fun DualProgress(
     progress: PlayerProgressUi,
@@ -757,6 +757,7 @@ private fun DualProgress(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun BookProgressTrack(progress: PlayerProgressUi, onSeek: (Float) -> Unit) {
     val active = MaterialTheme.colorScheme.primary

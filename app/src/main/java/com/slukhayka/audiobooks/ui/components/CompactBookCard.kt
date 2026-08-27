@@ -88,22 +88,31 @@ fun CompactBookCard(
                 }
             }
             if (onNotInterested != null) {
+                // #372: компактна видима іконка з окремим невидимим hit target.
+                // Видимий гурток лишається малим і не домінує над обкладинкою,
+                // а торкання (>=48dp) лишається доступним у кутку картки.
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .size(28.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f))
+                        .size(AppDimens.TouchTarget)
                         .clickable(onClick = onNotInterested)
                         .testTag("not_interested_${book.id}"),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "Не цікаво",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(14.dp)
-                    )
+                    Box(
+                        modifier = Modifier
+                            .size(26.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Не цікаво",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(14.dp)
+                        )
+                    }
                 }
             }
         }

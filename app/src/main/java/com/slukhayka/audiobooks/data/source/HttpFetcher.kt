@@ -91,6 +91,35 @@ open class HttpFetcher(
     }
 
     /**
+     * #392 — lightweight HEAD for size estimation. Returns Content-Length
+     * without fetching the body. Null when the header is missing or the
+     * request fails. Never throws. Uses the same privacy route, UA and
+     * headers as every other GET.
+     */
+    open fun headContentLength(url: String, extraHeaders: Map<String, String> = emptyMap()): Long? {
+        val request = buildRequest(url, extraHeaders).newBuilder().head().build()
+        return try {
+            TransportClients.okHttp.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    response.header("Content-Length")
+                        ?.substringBefore(';')?.trim()?.toLongOrNull()
+                        ?.takeIf { it >= 0 }
+                } else null
+            }
+        } catch (e: Exception) {
+            val viaPrivacyRoute = TransportPrivacy.currentJavaProxy() != null ||
+                TransportPrivacy.isRelayActive()
+            Log.w(
+                "HttpFetcher",
+                "HEAD $url failed" +
+                    if (viaPrivacyRoute) " (privacy route active — no direct fallback)" else "",
+                e
+            )
+            null
+        }
+    }
+
+    /**
      * Spec-37 T1 — sized binary GET: the download path's verified transport.
      * Like [getStream] but the response's `Content-Length` travels alongside the
      * stream so the caller can honestly reject a short body. Null when the

@@ -70,6 +70,7 @@ data class AudiobookEntity(
     /** The Library Entry concerns — read from `library_entries`. */
     @Ignore var isFavorite: Boolean = false
     @Ignore var downloadProgress: Float = 0f
+    @Ignore var downloadState: String = DownloadState.IDLE
     /** The Work identity (mergeKey, workId) — read from `works` via
      *  `library_entries.workId`. */
     @Ignore var mergeKey: String = ""
@@ -96,8 +97,20 @@ data class LibraryEntryEntity(
     // the audiobooks.createdAt they carried.
     @ColumnInfo(defaultValue = "0")
     val createdAt: Long = System.currentTimeMillis(),
-    val downloadProgress: Float = 0f
+    val downloadProgress: Float = 0f,
+    // #392 — download state for Edition: the listener's download progress
+    // state that survives process death. Stored alongside downloadProgress
+    // in the same Library Entry row so one transaction updates both.
+    @ColumnInfo(defaultValue = "IDLE")
+    val downloadState: String = DownloadState.IDLE
 )
+
+/** #392 — download state of an Edition's offline copy (Library Entry scope). */
+object DownloadState {
+    const val IDLE = "IDLE"
+    const val DOWNLOADING = "DOWNLOADING"
+    const val PAUSED = "PAUSED"
+}
 
 @Entity(tableName = "listening_stats")
 data class ListeningStatEntity(

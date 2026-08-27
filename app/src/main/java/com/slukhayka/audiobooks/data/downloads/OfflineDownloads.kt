@@ -7,6 +7,7 @@ import com.slukhayka.audiobooks.data.contentHashOf
 import com.slukhayka.audiobooks.data.db.AudiobookDao
 import com.slukhayka.audiobooks.data.privacy.PacingPolicy
 import com.slukhayka.audiobooks.data.source.HttpFetcher
+import com.slukhayka.audiobooks.data.source.YouTubeTracks
 import com.slukhayka.audiobooks.data.source.headersFor
 import com.slukhayka.audiobooks.data.source.sourceIdForUrl
 import com.slukhayka.audiobooks.data.source.streamOnlyFor
@@ -60,7 +61,13 @@ class OfflineDownloads(
     // workers run on Dispatchers.IO — real time, invisible to a test
     // scheduler — so tests substitute a virtual pause (and, for cancellation,
     // an endless one) instead of sleeping.
-    private val pauseFor: suspend (Long) -> Unit = { pauseMillis -> delay(pauseMillis) }
+    private val pauseFor: suspend (Long) -> Unit = { pauseMillis -> delay(pauseMillis) },
+    // Spec 2026-08-26: a persisted YouTube watch URL resolves per-use to a
+    // concrete audio stream URL before the fetch — the signed URL expires
+    // (~6h) and is never stored. Identity for plain URLs; null (extraction
+    // failed) fails the chapter honestly. Injectable so tests pin the seam.
+    // LAST: keeps every pre-existing positional call site valid.
+    private val streamUrlResolver: suspend (String) -> String? = { url -> url }
 ) {
 
     /**
@@ -210,8 +217,14 @@ class OfflineDownloads(
                                     if (targetFile.exists() && targetFile.length() <= 100) {
                                         try { targetFile.delete() } catch (_: Exception) {}
                                     }
-                                    val streamUrl = track.url
-                                    if (streamUrl.startsWith("http")) {
+                                    // Spec 2026-08-26: YouTube watch URLs resolve
+                                    // right before the fetch; null = honest
+                                    // failed chapter (never a fabricated file).
+                                    val streamUrl = runCatching { streamUrlResolver(track.url) }
+                                        .onFailure { Log.w("OfflineDownloads", "resolve failed for ${track.url}: ${it.message}") }
+                                        .getOrNull()
+                                        ?: track.url.takeIf { !YouTubeTracks.isYouTubeWatchUrl(it) }
+                                    if (streamUrl != null && streamUrl.startsWith("http")) {
                                         // Spec-38 T5 (#257): the human rhythm —
                                         // every fresh fetch first waits a random
                                         // pause from the policy range (never

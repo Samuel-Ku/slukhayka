@@ -692,26 +692,8 @@ private fun DualProgress(
     onShowAllBookmarks: () -> Unit = {}
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("Розділ", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            // Spec-22 T2: tabular (monospace) digits — the timer ticks without
-            // shifting its advance width, so the layout never jitters.
-            Text(
-                "${MainViewModel.formatTime(chapterPositionSeconds)}  /  ${MainViewModel.formatTime(chapterDurationSeconds)}",
-                style = TabularTimerStyle,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-        Slider(
-            value = progress.chapterFraction,
-            onValueChange = onSeek,
-            modifier = Modifier.fillMaxWidth().testTag("player_progress_slider"),
-            colors = SliderDefaults.colors(
-                thumbColor = MaterialTheme.colorScheme.primary,
-                activeTrackColor = MaterialTheme.colorScheme.primary,
-                inactiveTrackColor = MaterialTheme.colorScheme.outlineVariant
-            )
-        )
+        // #293: «Книга» зверху, «Розділ» знизу — спочатку загальний прогрес
+        // книги (де мітки глав і закладок), під ним поточна глава.
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text("Книга", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(
@@ -744,6 +726,34 @@ private fun DualProgress(
             }
         }
         BookProgressTrack(progress, onBookSeek)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text("Розділ", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            // Spec-22 T2: tabular (monospace) digits — the timer ticks without
+            // shifting its advance width, so the layout never jitters.
+            Text(
+                "${MainViewModel.formatTime(chapterPositionSeconds)}  /  ${MainViewModel.formatTime(chapterDurationSeconds)}",
+                style = TabularTimerStyle,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        // #292: drawStopIndicator = {} removes the M3 stop dot that users
+        // confused with a bookmark marker.
+        Slider(
+            value = progress.chapterFraction,
+            onValueChange = onSeek,
+            modifier = Modifier.fillMaxWidth().testTag("player_progress_slider"),
+            colors = SliderDefaults.colors(
+                thumbColor = MaterialTheme.colorScheme.primary,
+                activeTrackColor = MaterialTheme.colorScheme.primary,
+                inactiveTrackColor = MaterialTheme.colorScheme.outlineVariant
+            ),
+            track = { sliderState ->
+                SliderDefaults.Track(
+                    sliderState = sliderState,
+                    drawStopIndicator = {}
+                )
+            }
+        )
     }
 }
 
@@ -756,6 +766,8 @@ private fun BookProgressTrack(progress: PlayerProgressUi, onSeek: (Float) -> Uni
     // chapter ticks (primary) — and larger, so one glance finds your marks.
     val bookmarkColor = MaterialTheme.colorScheme.tertiary
     Box(modifier = Modifier.fillMaxWidth().testTag("book_progress_track")) {
+        // #292: drawStopIndicator = {} removes the M3 stop dot that users
+        // confused with a bookmark marker.
         Slider(
             value = progress.bookFraction,
             onValueChange = onSeek,
@@ -765,7 +777,13 @@ private fun BookProgressTrack(progress: PlayerProgressUi, onSeek: (Float) -> Uni
                 thumbColor = active,
                 activeTrackColor = active,
                 inactiveTrackColor = MaterialTheme.colorScheme.outlineVariant
-            )
+            ),
+            track = { sliderState ->
+                SliderDefaults.Track(
+                    sliderState = sliderState,
+                    drawStopIndicator = {}
+                )
+            }
         )
         Canvas(
             modifier = Modifier

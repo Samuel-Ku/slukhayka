@@ -890,7 +890,7 @@ private fun PlayerTopBar(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 private fun DualProgress(
     progress: PlayerProgressUi,
@@ -924,42 +924,8 @@ private fun DualProgress(
         stringResource(R.string.a11y_player_duration_unknown)
     }
     Column(modifier = Modifier.fillMaxWidth()) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .testTag("chapter_progress_visual_row")
-                .semantics { hideFromAccessibility() },
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text("Розділ", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            // Spec-22 T2: tabular (monospace) digits — the timer ticks without
-            // shifting its advance width, so the layout never jitters.
-            Text(
-                if (chapterDurationSeconds > 0L) {
-                    "${MainViewModel.formatTime(chapterPositionSeconds)}  /  ${MainViewModel.formatTime(chapterDurationSeconds)}"
-                } else {
-                    stringResource(R.string.a11y_player_duration_unknown)
-                },
-                style = TabularTimerStyle,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-        Slider(
-            value = progress.chapterFraction,
-            onValueChange = onSeek,
-            modifier = Modifier
-                .fillMaxWidth()
-                .semantics {
-                    contentDescription = chapterPositionLabel
-                    stateDescription = chapterTimeDescription
-                }
-                .testTag("player_progress_slider"),
-            colors = SliderDefaults.colors(
-                thumbColor = MaterialTheme.colorScheme.primary,
-                activeTrackColor = MaterialTheme.colorScheme.primary,
-                inactiveTrackColor = MaterialTheme.colorScheme.outlineVariant
-            )
-        )
+        // #293: «Книга» зверху, «Розділ» знизу — спочатку загальний прогрес
+        // книги (де мітки глав і закладок), під ним поточна глава.
         Row(
             Modifier
                 .fillMaxWidth()
@@ -988,10 +954,54 @@ private fun DualProgress(
             onJumpToBookmark = onJumpToBookmark,
             onShowAllBookmarks = onShowAllBookmarks
         )
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .testTag("chapter_progress_visual_row")
+                .semantics { hideFromAccessibility() },
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text("Розділ", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            // Spec-22 T2: tabular (monospace) digits — the timer ticks without
+            // shifting its advance width, so the layout never jitters.
+            Text(
+                if (chapterDurationSeconds > 0L) {
+                    "${MainViewModel.formatTime(chapterPositionSeconds)}  /  ${MainViewModel.formatTime(chapterDurationSeconds)}"
+                } else {
+                    stringResource(R.string.a11y_player_duration_unknown)
+                },
+                style = TabularTimerStyle,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        // #292: drawStopIndicator = {} removes the M3 stop dot that users
+        // confused with a bookmark marker.
+        Slider(
+            value = progress.chapterFraction,
+            onValueChange = onSeek,
+            modifier = Modifier
+                .fillMaxWidth()
+                .semantics {
+                    contentDescription = chapterPositionLabel
+                    stateDescription = chapterTimeDescription
+                }
+                .testTag("player_progress_slider"),
+            colors = SliderDefaults.colors(
+                thumbColor = MaterialTheme.colorScheme.primary,
+                activeTrackColor = MaterialTheme.colorScheme.primary,
+                inactiveTrackColor = MaterialTheme.colorScheme.outlineVariant
+            ),
+            track = { sliderState ->
+                SliderDefaults.Track(
+                    sliderState = sliderState,
+                    drawStopIndicator = {}
+                )
+            }
+        )
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 private fun BookProgressTrack(
     progress: PlayerProgressUi,
@@ -1008,6 +1018,8 @@ private fun BookProgressTrack(
     val inactiveMarker = MaterialTheme.colorScheme.onSurfaceVariant
     val bookmarkColor = MaterialTheme.colorScheme.tertiary
     Box(modifier = Modifier.fillMaxWidth().testTag("book_progress_track")) {
+        // #292: drawStopIndicator = {} removes the M3 stop dot that users
+        // confused with a bookmark marker.
         Slider(
             value = progress.bookFraction,
             onValueChange = onSeek,
@@ -1024,7 +1036,13 @@ private fun BookProgressTrack(
                 thumbColor = active,
                 activeTrackColor = active,
                 inactiveTrackColor = MaterialTheme.colorScheme.outlineVariant
-            )
+            ),
+            track = { sliderState ->
+                SliderDefaults.Track(
+                    sliderState = sliderState,
+                    drawStopIndicator = {}
+                )
+            }
         )
         Canvas(
             modifier = Modifier

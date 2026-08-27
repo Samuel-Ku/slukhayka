@@ -2046,7 +2046,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun downloadCatalogBook(result: GlobalSearchResult) {
         val key = result.key
         if (_catalogDownloadingKeys.value.contains(key)) return
-        if (_downloadingBookId.value != null) return
+        if (_downloadingBookId.value != null) {
+            android.widget.Toast.makeText(getApplication(), "Вже завантажується інша книга", android.widget.Toast.LENGTH_SHORT).show()
+            return
+        }
         _catalogDownloadingKeys.update { it + key }
         viewModelScope.launch(Dispatchers.IO) {
             try {
@@ -2054,6 +2057,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (book != null) {
                     _downloadingBookId.value = book.id
                     probeDurationsAfterImport(book.id)
+                    startDownloadNotification(book.id, result.title, result.author)
                     offlineDownloads.downloadAudiobookOffline(book.id)
                 }
             } catch (e: CancellationException) {
@@ -2063,24 +2067,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             } finally {
                 _downloadingBookId.value = null
                 _catalogDownloadingKeys.update { it - key }
-                // Spec-27 (#185) BUG-013: the storage row must reflect a
-                // finished download without a screen restart — the byte
-                // counter refreshes after every download attempt.
+                stopDownloadNotification()
                 refreshCacheSize()
             }
         }
     }
 
     fun downloadBookOffline(bookId: String) {
-        if (_downloadingBookId.value != null) return
+        if (_downloadingBookId.value != null) {
+            android.widget.Toast.makeText(getApplication(), "Вже завантажується інша книга", android.widget.Toast.LENGTH_SHORT).show()
+            return
+        }
         _downloadingBookId.value = bookId
         viewModelScope.launch(Dispatchers.IO) {
             try {
+                val book = libraryEntries.getBookSync(bookId)
+                startDownloadNotification(bookId, book?.title ?: "", book?.author ?: "")
                 val result = offlineDownloads.downloadAudiobookOffline(bookId)
-                // Stale-result guard (same pattern as relatedBooks): only
-                // surface the outcome while the user is still on this book —
-                // otherwise the message would pop on whichever book screen is
-                // open next.
                 if (_selectedBookId.value == bookId) {
                     _downloadMessage.value = OutcomeMessages.downloadOutcome(result)
                     _downloadRecoveryBookId.value = bookId.takeIf { result.requiresBrowserRefresh }
@@ -2095,12 +2098,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             } finally {
                 _downloadingBookId.value = null
-                // Spec-27 (#185) BUG-013: the storage row must reflect a
-                // finished download without a screen restart — the byte
-                // counter refreshes after every download attempt.
+                stopDownloadNotification()
                 refreshCacheSize()
             }
         }
+    }
+
+    // #393 — download notification helpers
+    private var downloadProgressJob: kotlinx.coroutines.Job? = null
+    private fun startDownloadNotification(bookId: String, title: String, author: String) {
+        val ctx = getApplication<Application>()
+        com.slukhayka.audiobooks.data.downloads.DownloadNotificationService.start(ctx, bookId, title, author)
+        downloadProgressJob?.cancel()
+        downloadProgressJob = viewModelScope.launch {
+            offlineDownloads.downloadBytesProgress.collect { map ->
+                val p = map[bookId] ?: return@collect
+                com.slukhayka.audiobooks.data.downloads.DownloadNotificationService.updateProgress(
+                    ctx, p.completedChapters, p.totalChapters, p.totalBytes, p.isApproximate
+                )
+            }
+        }
+    }
+    private fun stopDownloadNotification() {
+        downloadProgressJob?.cancel(); downloadProgressJob = null
+        com.slukhayka.audiobooks.data.downloads.DownloadNotificationService.stop(getApplication())
     }
 
     fun consumeDownloadMessage() {

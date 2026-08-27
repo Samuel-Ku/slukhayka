@@ -2,6 +2,9 @@ package com.slukhayka.audiobooks.data.catalog
 
 import android.util.Log
 import androidx.paging.PagingSource
+import com.slukhayka.audiobooks.data.authors.AuthorIndex
+import com.slukhayka.audiobooks.data.authors.AuthorSummary
+import com.slukhayka.audiobooks.data.authors.RoomAuthorIndex
 import com.slukhayka.audiobooks.data.EditionId
 import com.slukhayka.audiobooks.data.db.AudiobookDao
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
@@ -108,6 +111,17 @@ class SourceCatalog(
 
     /** Bounded local options for the filter sheet; never a Work materialization. */
     val genreFacetOptions = dao.observeGenreFacetOptions()
+
+    /** Canonical cross-Source author read model; provider people pages never own it. */
+    private val authorIndex: AuthorIndex = RoomAuthorIndex(dao)
+    val authors = authorIndex.authors
+
+    suspend fun searchAuthors(query: String, limit: Int = AuthorIndex.DEFAULT_SEARCH_LIMIT): List<AuthorSummary> =
+        authorIndex.search(query, limit)
+
+    suspend fun authorWorks(authorId: String): List<WorkEntity> = authorIndex.works(authorId)
+
+    suspend fun authorForWork(workId: String): AuthorSummary? = authorIndex.authorForWork(workId)
 
     private val fourReadAdapter: SourceAdapter =
         sourceAdapters.firstOrNull { it.sourceId == SourceIds.FOUR_READ } ?: FourReadAdapter()
@@ -828,6 +842,9 @@ class SourceCatalog(
             ).also { dao.upsertWork(it) }
         }
         val workSourceId = "${work.id}|$sourceId|${stableIdOf(sourceUrl)}"
+        // Every persisted Work immediately participates in the canonical
+        // cross-Source author index. This is idempotent and entirely local.
+        authorIndex.indexWorks(listOf(work), sourceId)
         val sourceAlreadyKnown = dao.getWorkSourcesForWorkSync(work.id).any { it.id == workSourceId }
         dao.upsertWorkWithSource(
             work,

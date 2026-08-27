@@ -99,7 +99,6 @@ fun LibraryStatusRow(
         // the scroll content guarantees a full reveal.
         Spacer(Modifier.width(16.dp))
     }
-    }
 }
 
 /**

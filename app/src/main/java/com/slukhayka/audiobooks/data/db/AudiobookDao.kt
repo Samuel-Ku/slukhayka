@@ -350,6 +350,44 @@ interface AudiobookDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertWorkSource(workSource: WorkSourceEntity)
 
+    /**
+     * #388 — transactional work+source pair. The `work_sources` FK requires
+     * the parent `works` row to exist; a bare `upsertWorkSource` with a
+     * missing `workId` throws `SQLITE_CONSTRAINT_FOREIGNKEY` and crashes the
+     * process (observed on «Сни» by Лесь Курбас). Wrapping both upserts in
+     * one Room transaction makes the pair atomic and prevents interleaving
+     * deletes from creating a dangling child.
+     */
+    @Transaction
+    suspend fun upsertWorkWithSource(work: WorkEntity, workSource: WorkSourceEntity) {
+        upsertWork(work)
+        upsertWorkSource(workSource)
+    }
+
+    /**
+     * #388 — safe work_source upsert. If the parent Work does not exist
+     * (blank-key book, tombstoned Work, or race), the FK would fail. We check
+     * existence first and skip gracefully instead of crashing; callers that
+     * need the source must ensure the Work exists.
+     */
+    @Transaction
+    suspend fun safeUpsertWorkSource(workSource: WorkSourceEntity): Boolean {
+        return try {
+            if (getWorkById(workSource.workId) == null) {
+                android.util.Log.w(
+                    "AudiobookDao",
+                    "safeUpsertWorkSource skipped: work ${workSource.workId} not found for source ${workSource.id}"
+                )
+                return false
+            }
+            upsertWorkSource(workSource)
+            true
+        } catch (e: Exception) {
+            android.util.Log.w("AudiobookDao", "safeUpsertWorkSource failed for ${workSource.id}: ${e.message}")
+            false
+        }
+    }
+
     // --- Spec-25: series universes (the lazy resolution cache) -------------
     // The universe rows, the series rows (with their universe anchor + order)
     // and the book→series memberships are the cache of the lazy resolution;

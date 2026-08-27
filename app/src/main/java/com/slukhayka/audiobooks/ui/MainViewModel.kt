@@ -1337,14 +1337,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (bookId != null) {
             _selectedBookUniverse.value = null
             viewModelScope.launch(Dispatchers.IO) {
-                libraryEntries.refreshBookCoverAndDetails(bookId)
+                // #388 — refresh is best-effort; a FK violation or network
+                // failure must never crash the book page (tapping «Сни» was
+                // force-finishing MainActivity). Degrade gracefully.
+                try {
+                    libraryEntries.refreshBookCoverAndDetails(bookId)
+                } catch (e: Exception) {
+                    android.util.Log.w("MainViewModel", "refreshBookCoverAndDetails failed for $bookId", e)
+                }
                 // Spec-25 (#171): resolve the book's series universe lazily —
                 // cache-first read, then the (idempotent) resolution, then the
                 // fresher read. Best-effort: an unseeded series contributes
                 // nothing.
-                _selectedBookUniverse.value = seriesUniverses.contextOfBook(bookId)
-                seriesUniverses.resolveForBook(bookId)
-                _selectedBookUniverse.value = seriesUniverses.contextOfBook(bookId)
+                try {
+                    _selectedBookUniverse.value = seriesUniverses.contextOfBook(bookId)
+                    seriesUniverses.resolveForBook(bookId)
+                    _selectedBookUniverse.value = seriesUniverses.contextOfBook(bookId)
+                } catch (e: Exception) {
+                    android.util.Log.w("MainViewModel", "series universe resolve failed for $bookId", e)
+                }
             }
             // Spec-15 T5: load what every source carrying the Work says about
             // it (description, rating, narrator, genres) — best-effort per

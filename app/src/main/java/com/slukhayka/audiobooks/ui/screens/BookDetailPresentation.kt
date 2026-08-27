@@ -61,7 +61,7 @@ fun bookDetailPresentation(
             name = source.sourceName,
             url = source.url,
             streamOnly = source.streamOnly,
-            rating = profile?.rating ?: book.rating.takeIf { isCurrent && it > 0f }?.toDouble(),
+            rating = profile?.rating,
             isCurrent = isCurrent,
             selectable = playableSources.size > 1,
             differingDescription = profileDescription.takeIf {

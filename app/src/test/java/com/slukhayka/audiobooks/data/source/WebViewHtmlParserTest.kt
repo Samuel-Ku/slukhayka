@@ -308,4 +308,76 @@ class WebViewHtmlParserTest {
         val detail = parser.parse(html, "https://4read.org/y.html") { "" }
         assertEquals("Лише мета-блурб", detail.description)
     }
+
+    // -----------------------------------------------------------------
+    // Spec 2026-08-26 — the YouTube-embed fallback: a page with NO direct
+    // audio at all resolves its chapters FROM the embed. Device case:
+    // «Звички невдах» (4read 4355) — one YouTube embed (`ozaZXk5Qcwc`),
+    // zero playerjs audio.
+    // -----------------------------------------------------------------
+
+    private fun minimalPage(vararg body: String): String = """
+        <html>
+        <head><title>Звички невдах. Досить мислити як лузер! - АудіоКниги Українською</title></head>
+        <body>
+        <div class="pmovie"><pmovie>Автор: Стівен Адамс</pmovie><pmovie>Читає: Корисні книги</pmovie></div>
+        ${body.joinToString("\n")}
+        </body>
+        </html>
+    """.trimIndent()
+
+    @Test
+    fun `a page without playerjs audio but with a youtube embed resolves chapters from the embed`() {
+        val html = minimalPage(
+            """<iframe data-src="https://www.youtube.com/embed/ozaZXk5Qcwc" allowfullscreen></iframe>"""
+        )
+
+        val detail = WebViewHtmlParser().parse(html, "https://4read.org/4355-adams-stiven-zvychky-nevdakh.html")
+
+        assertEquals(1, detail.chapters.size)
+        assertEquals(
+            "the watch URL is the persisted track locator",
+            "https://www.youtube.com/watch?v=ozaZXk5Qcwc",
+            detail.chapters[0].streamUrl
+        )
+    }
+
+    @Test
+    fun `multiple embeds become chapters in document order without duplicates`() {
+        val html = minimalPage(
+            """<iframe data-src="https://www.youtube.com/embed/aaaaaaaaaaa" allowfullscreen></iframe>""",
+            """<a href="https://youtu.be/bbbbbbbbbbb">Частина 2</a>""",
+            """<iframe src="https://www.youtube-nocookie.com/embed/aaaaaaaaaaa"></iframe>"""
+        )
+
+        val detail = WebViewHtmlParser().parse(html, "https://4read.org/some-book.html")
+
+        assertEquals(
+            listOf("aaaaaaaaaaa", "bbbbbbbbbbb"),
+            detail.chapters.map { it.streamUrl.substringAfter("v=") }
+        )
+    }
+
+    @Test
+    fun `a page with playerjs audio never gains youtube chapters`() {
+        val html = minimalPage(
+            """<div id="playerjs1"></div><script>var playerjs1 = new Playerjs({id:"playerjs1",file:"https://cdn.example.org/audio.mp3"});</script>""",
+            """<iframe data-src="https://www.youtube.com/embed/ozaZXk5Qcwc" allowfullscreen></iframe>"""
+        )
+
+        val detail = WebViewHtmlParser().parse(html, "https://4read.org/with-audio.html")
+
+        assertTrue(detail.chapters.isNotEmpty())
+        assertTrue(
+            "direct audio wins; the embed adds nothing",
+            detail.chapters.none { it.streamUrl.contains("youtube.com") }
+        )
+    }
+
+    @Test
+    fun `a page with neither audio nor embeds stays chapterless`() {
+        val detail = WebViewHtmlParser().parse(minimalPage("<p>Просто текст</p>"), "https://4read.org/empty.html")
+
+        assertEquals(0, detail.chapters.size)
+    }
 }

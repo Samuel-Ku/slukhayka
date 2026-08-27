@@ -117,6 +117,9 @@ fun BookDetailScreen(
     var activeTab by remember { mutableStateOf(0) } // 0 = Chapters, 1 = Bookmarks
     var showAddBookmarkDialog by remember { mutableStateOf(false) }
     var showDeleteSheet by remember { mutableStateOf(false) }
+    // #382 (spec-27): видалення переїхало в ⋮ меню шапки — тригер сам по собі
+    // не запускає видалення, лише відкриває список рідкісних дій.
+    var showOverflowMenu by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
     var bookmarkToDelete by remember { mutableStateOf<BookmarkEntity?>(null) }
     var bookmarkDeleteOrigin by remember { mutableStateOf<FocusRequester?>(null) }
@@ -492,24 +495,45 @@ fun BookDetailScreen(
                             }
                         }
                     }
-                    // Wayfinder #28: deletion is a choice — remove from library,
-                    // delete the downloaded copy, or delete everything.
-                    IconButton(
-                        onClick = {
-                            showDeleteSheet = true
-                        },
-                        modifier = Modifier
-                            .focusRequester(deleteTriggerFocusRequester)
-                            .testTag("book_detail_delete_trigger")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Delete,
-                            contentDescription = stringResource(
-                                R.string.a11y_book_detail_delete_work,
-                                currentBook.title
-                            ),
-                            tint = MaterialTheme.colorScheme.error
-                        )
+                    // #382 (spec-27): deletion is a rare action — it lives in
+                    // the ⋮ overflow, not next to Favorite/Download. The
+                    // confirmation flow (Wayfinder #28 sheet) is untouched:
+                    // only the entry point moved.
+                    Box {
+                        IconButton(
+                            onClick = { showOverflowMenu = true },
+                            modifier = Modifier
+                                .size(AppDimens.TouchTarget)
+                                // Фокус повертається сюди ж: ⋮ — нова точка входу
+                                // видалення, контракт модалок не змінювався.
+                                .focusRequester(deleteTriggerFocusRequester)
+                                .testTag("book_detail_delete_trigger")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.MoreVert,
+                                contentDescription = "Інші дії",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = showOverflowMenu,
+                            onDismissRequest = { showOverflowMenu = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.a11y_book_detail_delete_work, currentBook.title)) },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Default.Delete,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.error
+                                    )
+                                },
+                                onClick = {
+                                    showOverflowMenu = false
+                                    showDeleteSheet = true
+                                }
+                            )
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
@@ -569,9 +593,7 @@ fun BookDetailScreen(
                         },
                         narrationRatingDeleteFocusRequester = narrationRatingDeleteFocusRequester,
                         onAuthorClick = { author ->
-                            viewModel.openPersonBooks(
-                                CatalogPerson(author, bookPersonPath("avtor", author), 0)
-                            )
+                            viewModel.openCanonicalAuthorForWork(currentBook.workId, author)
                         },
                         onNarratorClick = { narrator ->
                             viewModel.openPersonBooks(
@@ -1074,9 +1096,14 @@ fun BookDetailScreen(
 
 internal fun reviewFailureNeedsSnackbar(formVisible: Boolean): Boolean = !formVisible
 
+// #382: найдовший реальний лейбл кнопки — «Продовжити з HH:MM:SS»; такі лейбли
+// не влазять в один рядок дій без розриву посередині слова («Продовж/ити»).
+private const val PLAY_LABEL_ROW_LIMIT = 12
+
 /**
  * Primary book actions reflow into a vertical stack at accessibility font
- * scale. The visible and semantic controls are the same in both layouts;
+ * scale or when the play label alone is too long for one row (#382). The
+ * visible and semantic controls are the same in both layouts;
  * nothing is hidden behind a TalkBack-only branch.
  */
 @Composable
@@ -1114,7 +1141,12 @@ fun BookDetailPrimaryActions(
     val bookmarkAction = stringResource(R.string.book_detail_add_bookmark, workTitle)
 
     BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
-        val stackActions = fontScale >= 1.5f || maxWidth < 340.dp
+        // #382: довгий лейбл сам по собі привід складати дії вертикально —
+        // у рядку «Продовжити з HH:MM:SS» слову бракує місця навіть із
+        // обтягнутим contentPadding. Короткі («Слухати», «Пауза») далі живуть
+        // в одному рядку.
+        val playLabelIsLong = playLabel.length > PLAY_LABEL_ROW_LIMIT
+        val stackActions = fontScale >= 1.5f || playLabelIsLong || maxWidth < 340.dp
         if (stackActions) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 BookDetailPlayButton(
@@ -1181,7 +1213,12 @@ private fun BookDetailPlayButton(
         onClick = onClick,
         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
         shape = RoundedCornerShape(AppDimens.RadiusPanel),
+        // #382: дефолтні 24dp по горизонталі плюс іконка з'їдали ширину слова
+        // «Продовжити»; паддінг однаковий з download-кнопкою, підлога ширини
+        // тримає найдовший лейбл на вузьких панелях.
+        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
         modifier = modifier
+            .widthIn(min = 150.dp)
             .heightIn(min = 50.dp)
             .testTag("play_book_button")
             .semantics { contentDescription = actionDescription }
@@ -1225,7 +1262,8 @@ private fun BookDetailDownloadButton(
             contentColor = if (isDownloaded) MaterialTheme.colorScheme.secondary
             else MaterialTheme.colorScheme.onSurface
         ),
-        contentPadding = PaddingValues(horizontal = 10.dp),
+        // #382: спільний паддінг із play-кнопкою — жодних per-button налаштувань.
+        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
         modifier = modifier
             .heightIn(min = 50.dp)
             .testTag("download_offline_button")
@@ -2078,14 +2116,18 @@ fun BookDetailCanonicalSummary(
             text = "Автор: ${presentation.author}",
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.primary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
             modifier = Modifier
+                .fillMaxWidth()
                 .testTag("book_detail_author_link")
                 .focusRequester(authorFocusRequester)
                 .defaultMinSize(minHeight = 48.dp)
                 .clickable {
                     onChildRouteOpened(BookDetailLinkOrigin.AUTHOR)
                     onAuthorClick(presentation.author)
-                }
+                },
+            textAlign = TextAlign.Center
         )
     }
     if (presentation.narrator.isNotBlank()) {

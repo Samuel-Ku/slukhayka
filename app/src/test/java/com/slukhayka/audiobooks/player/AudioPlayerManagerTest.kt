@@ -967,7 +967,13 @@ class AudioPlayerManagerTest {
 
             assertEquals("no heal retry", 1, engine.prepareCount)
             assertEquals(1, manager.playbackMetrics.failures())
-            assertTrue(manager.playerState.value.lastErrorMsg.contains("Primary stream error"))
+            // Issue #381: the failure text is a Ukrainian resource now —
+            // the typed kind is the stable contract, not the wording.
+            assertEquals(
+                PlaybackErrorKind.TRANSIENT,
+                manager.playerState.value.errorKind
+            )
+            assertTrue(manager.playerState.value.lastErrorMsg.isNotBlank())
         }
 
     @Test
@@ -986,6 +992,93 @@ class AudioPlayerManagerTest {
             assertEquals(1, manager.playbackMetrics.failures())
             awaitLedgerRows(1)
         }
+
+    @Test
+    fun `a book without chapters stops the engine and surfaces the honest unavailable state`() = playerTest { manager, factory ->
+        // Arrange -- the PREVIOUS book is loaded and playing on the engine
+        // (the 2026-08-26 device bug scene: «грає попередня книга»).
+        manager.loadAndPlayBook(book, chapters, playable = playable, initialChapterIndex = 0, autoPlay = true)
+        val engine = factory.current
+        engine.simulateReady()
+        assertTrue(engine.isPlaying)
+        val previousPrepareCount = engine.prepareCount
+        awaitEvents(1) // the healthy load records its RESUME event
+
+        // Act -- the user opens a book whose chapters never resolved: the
+        // source page carries no playerjs audio at all (0 chapters, 0 tracks).
+        val chapterless = TestDataFactory.dataBooks().first { it.id != book.id }
+        manager.loadAndPlayBook(chapterless, emptyList(), playable = emptyList(), autoPlay = true)
+
+        // Assert -- the engine is stopped: the previous book's audio must not
+        // keep playing under the new book's UI, and nothing is fabricated.
+        assertTrue("the engine must be stopped", engine.stopCount > 0)
+        assertFalse("no audio may keep playing", engine.isPlaying)
+        assertEquals(
+            "a chapterless book must never reach the engine",
+            previousPrepareCount,
+            engine.prepareCount
+        )
+
+        // Assert -- the honest state per ADR-0014/ADR-0019: the unavailable
+        // book is surfaced with its «недоступна» message and NO fake
+        // «00:01» duration placeholder.
+        val state = manager.playerState.value
+        assertEquals(chapterless.id, state.currentBook?.id)
+        assertTrue(state.chapters.isEmpty())
+        assertEquals("no fabricated 1s duration", 0L, state.durationMs)
+        assertFalse(state.isBuffering)
+        assertTrue(
+            "the honest unavailable state must surface",
+            state.lastErrorMsg.contains("недоступна", ignoreCase = true)
+        )
+
+        // Assert -- no fabricated RESUME event for a book that never played.
+        assertEventCountStays(1)
+    }
+
+    @Test
+    fun `a youtube track resolves per use and prepares the engine with the resolved url`() = playerTest(
+        resolver = { "https://cdn.example.org/fresh-audio.m4a" }
+    ) { manager, factory ->
+        // Arrange -- the persisted track locator is a YouTube watch URL
+        // (spec 2026-08-26: an audio-less 4read page persists the embed's
+        // watch URL; the signed stream URL never is).
+        val ytTrack = playable[0].track!!.copy(url = "https://www.youtube.com/watch?v=ozaZXk5Qcwc")
+        manager.loadAndPlayBook(
+            book,
+            chapters,
+            playable = listOf(playable[0].copy(track = ytTrack)),
+            autoPlay = true
+        )
+        runCurrent() // the resolution launch rides the test scheduler
+
+        // Assert -- the engine prepared the RESOLVED url, never the watch URL
+        val engine = factory.current
+        assertEquals(1, engine.prepareCount)
+        assertEquals("https://cdn.example.org/fresh-audio.m4a", engine.lastMediaItemUri)
+    }
+
+    @Test
+    fun `a failed youtube resolution reports the honest failure and never prepares the engine`() = playerTest(
+        resolver = { null }
+    ) { manager, factory ->
+        val ytTrack = playable[0].track!!.copy(url = "https://www.youtube.com/watch?v=ozaZXk5Qcwc")
+        manager.loadAndPlayBook(
+            book,
+            chapters,
+            playable = listOf(playable[0].copy(track = ytTrack)),
+            autoPlay = true
+        )
+        runCurrent()
+
+        assertEquals("no fabricated audio", 0, factory.current.prepareCount)
+        val state = manager.playerState.value
+        assertFalse(state.isBuffering)
+        assertTrue(
+            "the honest unavailable state must surface",
+            state.lastErrorMsg.contains("недоступна", ignoreCase = true)
+        )
+    }
 
     @Test
     fun `a user-initiated prepare resets the heal budget`() {
@@ -1015,6 +1108,9 @@ class AudioPlayerManagerTest {
     private fun playerTest(
         clock: TestClock? = null,
         healer: HealerSeam? = null,
+        // Spec 2026-08-26: the per-use stream resolution seam (YouTube watch
+        // URLs). Null keeps the identity resolver (plain URL pass-through).
+        resolver: (suspend (String) -> String?)? = null,
         body: suspend TestScope.(AudioPlayerManager, RecordingPlayerFactory) -> Unit
     ) = runTest(dispatcher) {
         val factory = RecordingPlayerFactory()
@@ -1028,6 +1124,8 @@ class AudioPlayerManagerTest {
             // Spec-32 T4 (#234): the self-healing seam — production wires
             // LibraryImport.refreshStreamUrl here; tests inject a fake.
             streamUrlHealer = healer?.heal,
+            // Spec 2026-08-26: the YouTube per-use resolution seam.
+            streamUrlResolver = resolver ?: { url -> url },
             // Spec-16 T3 flake (#101): the undo-candidate restore runs on the
             // test scheduler, so runCurrent() observes it instead of a
             // wall-clock awaitTrue budget that flakes under full-suite load.

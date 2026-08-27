@@ -65,6 +65,7 @@ import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.BookmarkEntity
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
 import com.slukhayka.audiobooks.data.db.ChapterEntity
+import com.slukhayka.audiobooks.player.PlaybackErrorKind
 import com.slukhayka.audiobooks.player.PlayerState
 import com.slukhayka.audiobooks.player.SleepTimerNotice
 import com.slukhayka.audiobooks.ui.MainViewModel
@@ -720,8 +721,35 @@ fun PlayerScreenContent(
                     PlayerPlaybackError(
                         bookTitle = book.title,
                         detail = playerState.lastErrorMsg,
+                        // Issue #381: типізована категорія замість substring-
+                        // матчу «недоступна» у тексті помилки.
+                        kind = playerState.errorKind,
                         onRetryPlayback = onRetryPlayback
                     )
+                } else if (playerState.isBuffering) {
+                    // Issue #381 (a11y/UX-аудит v1.3.6): під час резолюції
+                    // YouTube-стріму TalkBack промовляв застаріле «Призупинено»
+                    // — polite liveRegion оголошує «Завантаження» поки стрім
+                    // готується і немає помилки (зразок HomeFeedContent).
+                    val loadingLabel = stringResource(R.string.a11y_player_state_loading)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("player_loading_status")
+                            .semantics(mergeDescendants = true) {
+                                liveRegion = LiveRegionMode.Polite
+                            },
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(AppDimens.TouchTarget / 2))
+                        Spacer(Modifier.width(AppDimens.SpaceXs))
+                        Text(
+                            text = loadingLabel,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
 
                 Spacer(Modifier.height(AppDimens.SpaceLg))
@@ -742,6 +770,9 @@ fun PlayerScreenContent(
                     bookTitle = book.title,
                     currentChapterTitle = currentChapterTitle,
                     isPlaying = playerState.isPlaying,
+                    // Issue #381: під час резолюції стріму кнопка не має
+                    // промовляти застаріле «Призупинено».
+                    isBuffering = playerState.isBuffering,
                     onPreviousChapter = onPreviousChapter,
                     onBack = onBack,
                     onPlayPause = onPlayPause,
@@ -1078,6 +1109,7 @@ private fun TransportControls(
     bookTitle: String,
     currentChapterTitle: String,
     isPlaying: Boolean,
+    isBuffering: Boolean,
     onPreviousChapter: () -> Unit,
     onBack: () -> Unit,
     onPlayPause: () -> Unit,
@@ -1095,8 +1127,14 @@ private fun TransportControls(
         bookTitle,
         currentChapterTitle
     )
+    // Issue #381: третій стан «Завантаження» поки стрім резолвиться/буфериться —
+    // інакше TalkBack озвучує минулий стан («Призупинено») кілька секунд.
     val playbackStateDescription = stringResource(
-        if (isPlaying) R.string.a11y_player_state_playing else R.string.a11y_player_state_paused
+        when {
+            isBuffering -> R.string.a11y_player_state_loading
+            isPlaying -> R.string.a11y_player_state_playing
+            else -> R.string.a11y_player_state_paused
+        }
     )
     val forwardDescription = stringResource(R.string.a11y_player_seek_forward, bookTitle, currentChapterTitle)
     val nextDescription = stringResource(
@@ -1331,6 +1369,9 @@ private fun RowScope.QuickTool(
 private fun PlayerPlaybackError(
     bookTitle: String,
     detail: String,
+    // Issue #381: типізована категорія помилки — замінює substring-матч
+    // detail.contains(«недоступна»), який ламався від зміни формулювання.
+    kind: PlaybackErrorKind,
     onRetryPlayback: () -> Unit
 ) {
     val errorTitle = stringResource(R.string.a11y_player_error_title)
@@ -1346,13 +1387,20 @@ private fun PlayerPlaybackError(
                 color = MaterialTheme.colorScheme.onErrorContainer,
                 modifier = Modifier
                     .testTag("player_playback_error")
-                    .semantics { liveRegion = LiveRegionMode.Polite }
+                    .semantics {
+                        liveRegion = LiveRegionMode.Polite
+                        heading()
+                    }
             )
-            if (!detail.contains("недоступна", ignoreCase = true)) {
+            // TRANSIENT показує деталь (потік/таймаут/виняток підготовки);
+            // UNAVAILABLE — тільки заголовок карти, постійний стан.
+            if (kind == PlaybackErrorKind.TRANSIENT) {
                 Text(
                     text = detail,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onErrorContainer
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
             OutlinedButton(

@@ -40,6 +40,8 @@ import com.slukhayka.audiobooks.ui.components.MiniPlayerBar
 import com.slukhayka.audiobooks.ui.components.accessibilityModalBackground
 import com.slukhayka.audiobooks.ui.components.accessibilityPane
 import com.slukhayka.audiobooks.ui.screens.BookDetailScreen
+import com.slukhayka.audiobooks.ui.screens.AuthorsIndexScreen
+import com.slukhayka.audiobooks.ui.screens.CanonicalAuthorScreen
 import com.slukhayka.audiobooks.ui.screens.BookDetailLinkOrigin
 import com.slukhayka.audiobooks.ui.screens.CollectionsIndexScreen
 import com.slukhayka.audiobooks.ui.screens.GenreScreen
@@ -215,6 +217,12 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     val selectedTop100 by viewModel.selectedTop100.collectAsState()
     val selectedPeopleKind by viewModel.selectedPeopleKind.collectAsState()
     val selectedPerson by viewModel.selectedPerson.collectAsState()
+    val authorsIndexOpen by viewModel.authorsIndexOpen.collectAsState()
+    val authorsIndexResults by viewModel.authorsIndexResults.collectAsState()
+    val selectedCanonicalAuthor by viewModel.selectedCanonicalAuthor.collectAsState()
+    val canonicalAuthorWorks by viewModel.canonicalAuthorWorks.collectAsState()
+    val isCanonicalAuthorLoading by viewModel.isCanonicalAuthorLoading.collectAsState()
+    val canonicalAuthorLoadFailed by viewModel.canonicalAuthorLoadFailed.collectAsState()
     val secondaryBookParentActive = when (secondaryBookRoute.parent) {
         SecondaryBookParent.SERIES -> selectedSeries != null
         SecondaryBookParent.GENRE -> selectedGenre != null
@@ -288,7 +296,8 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     BackHandler(enabled = showFullPlayer || selectedBookId != null ||
         selectedWebSource != null || selectedSeries != null || seriesIndexOpen || collectionsIndexOpen ||
         storageDestinationOpen || privacySettingsOpen || recommendationSettingsOpen || profileOpen || selectedGenre != null ||
-        selectedTop100 || selectedPeopleKind != null || selectedPerson != null) {
+        selectedTop100 || selectedPeopleKind != null || selectedPerson != null ||
+        authorsIndexOpen || selectedCanonicalAuthor != null) {
         if (showFullPlayer) {
             viewModel.setShowFullPlayer(false)
         } else if (selectedWebSource != null) {
@@ -327,6 +336,10 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
         } else if (selectedTop100) {
             secondaryBookRoute = SecondaryBookRouteFrame()
             viewModel.closeTop100()
+        } else if (selectedCanonicalAuthor != null) {
+            viewModel.closeCanonicalAuthor()
+        } else if (authorsIndexOpen) {
+            viewModel.closeAuthorsIndex()
         } else if (selectedPerson != null) {
             secondaryBookRoute = SecondaryBookRouteFrame()
             viewModel.closePersonBooks()
@@ -625,6 +638,26 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                         },
                         listState = top100BookListState
                     )
+
+                    selectedCanonicalAuthor != null -> CanonicalAuthorScreen(
+                        author = selectedCanonicalAuthor!!,
+                        works = canonicalAuthorWorks,
+                        isLoading = isCanonicalAuthorLoading,
+                        loadFailed = canonicalAuthorLoadFailed,
+                        onBackClick = { viewModel.closeCanonicalAuthor() },
+                        onWorkClick = viewModel::openCanonicalAuthorWork
+                    )
+
+                    authorsIndexOpen -> {
+                        // The full 10k-capable alphabetical projection is cold:
+                        // collect it only while its destination is visible.
+                        val canonicalAuthors by viewModel.sourceCatalog.authors.collectAsState(initial = emptyList())
+                        AuthorsIndexScreen(
+                            authors = authorsIndexResults ?: canonicalAuthors,
+                            onBackClick = { viewModel.closeAuthorsIndex() },
+                            onAuthorClick = viewModel::openCanonicalAuthor
+                        )
+                    }
 
                     // One person's books (opened from Виконавці/Автори index).
                     selectedPerson != null -> PersonBooksScreen(

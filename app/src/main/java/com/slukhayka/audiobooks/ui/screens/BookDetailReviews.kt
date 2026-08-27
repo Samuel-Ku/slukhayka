@@ -333,8 +333,11 @@ const val EDITION_TAG_NONE = "Не вказувати"
 
 /**
  * ADR-0023 (#348) — the narration-rating row beside the narrator's name:
- * the crowd average (when votes exist — honest absence otherwise, ADR-0014)
- * and THIS listener's interactive stars. Renders nothing when there is
+ * the crowd average ONLY when votes exist (#383 / ADR-0014 — zero votes
+ * never draw even the bare «Начитка:» line, same honest-absence rule as the
+ * combined-average guard), below it THIS listener's interactive stars under
+ * the explicit invitation «Оцінити начитку» so an unrated narration asks for
+ * a rating instead of faking a 0-star value. Renders nothing when there is
  * nothing to show and nobody to ask.
  */
 @Composable
@@ -356,13 +359,15 @@ fun NarrationRatingRow(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(4.dp)
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = "Начитка:",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            if (average != null) {
+        // #383 — the whole average line (label + stars + count) exists only
+        // behind real votes; without them there is nothing truthful to show.
+        if (average != null) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "Начитка:",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
                 Spacer(modifier = Modifier.size(6.dp))
                 ReviewStarsRow(rating = kotlin.math.round(average).toInt(), starSize = 14)
                 Spacer(modifier = Modifier.size(4.dp))
@@ -375,7 +380,16 @@ fun NarrationRatingRow(
             }
         }
         if (canRate) {
+            // The rater block always names itself («Оцінити начитку») — with
+            // no own rating yet these five outline stars are an invitation to
+            // rate, never a displayed value.
             Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "Оцінити начитку",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.size(6.dp))
                 ReviewStarsRow(
                     rating = ownRating ?: 0,
                     starSize = 14,

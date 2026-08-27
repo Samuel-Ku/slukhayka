@@ -2,6 +2,7 @@ package com.slukhayka.audiobooks.data.db
 
 import androidx.paging.PagingSource
 import androidx.room.*
+import com.slukhayka.audiobooks.data.authors.AuthorSummary
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -772,9 +773,12 @@ interface AudiobookDao {
 
     @Query(
         "INSERT INTO work_facets (workId, canonicalAuthorId, updatedAt) " +
-            "VALUES (:workId, :authorId, :updatedAt) " +
-            "ON CONFLICT(workId) DO UPDATE SET " +
-            "canonicalAuthorId=COALESCE(excluded.canonicalAuthorId, canonicalAuthorId), " +
+        "VALUES (:workId, :authorId, :updatedAt) " +
+        "ON CONFLICT(workId) DO UPDATE SET " +
+            "canonicalAuthorId=CASE " +
+            "WHEN canonicalAuthorId IS NULL THEN excluded.canonicalAuthorId " +
+            "WHEN excluded.canonicalAuthorId IS NOT NULL AND excluded.updatedAt > updatedAt " +
+            "THEN excluded.canonicalAuthorId ELSE canonicalAuthorId END, " +
             "updatedAt=MAX(updatedAt, excluded.updatedAt)"
     )
     suspend fun mergeWorkFacet(workId: String, authorId: String?, updatedAt: Long)
@@ -830,11 +834,76 @@ interface AudiobookDao {
         updatedAt: Long
     )
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsertAuthorFacets(rows: List<AuthorFacetEntity>)
+    @Query(
+        "INSERT INTO author_facets(id, displayName, normalizedName, updatedAt) " +
+            "VALUES (:id, :displayName, :normalizedName, :updatedAt) " +
+            "ON CONFLICT(id) DO UPDATE SET " +
+            "displayName=CASE WHEN excluded.updatedAt > author_facets.updatedAt " +
+            "THEN excluded.displayName ELSE author_facets.displayName END, " +
+            "normalizedName=CASE WHEN excluded.updatedAt > author_facets.updatedAt " +
+            "THEN excluded.normalizedName ELSE author_facets.normalizedName END, " +
+            "updatedAt=MAX(author_facets.updatedAt, excluded.updatedAt)"
+    )
+    suspend fun mergeAuthorFacet(
+        id: String,
+        displayName: String,
+        normalizedName: String,
+        updatedAt: Long
+    )
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertAuthorAliases(rows: List<AuthorAliasEntity>)
+
+    @Transaction
+    suspend fun applyAuthorIndexRows(
+        authors: List<AuthorFacetEntity>,
+        aliases: List<AuthorAliasEntity>,
+        works: List<WorkFacetEntity>
+    ) {
+        authors.forEach { mergeAuthorFacet(it.id, it.displayName, it.normalizedName, it.updatedAt) }
+        insertAuthorAliases(aliases)
+        works.forEach { mergeWorkFacet(it.workId, it.canonicalAuthorId, it.updatedAt) }
+    }
+
+    @Query(
+        "SELECT a.id, a.displayName, a.normalizedName, COUNT(DISTINCT wf.workId) AS workCount " +
+            "FROM author_facets a JOIN work_facets wf ON wf.canonicalAuthorId=a.id " +
+            "GROUP BY a.id, a.displayName, a.normalizedName " +
+            "ORDER BY a.normalizedName ASC, a.id ASC"
+    )
+    fun observeAuthorIndex(): Flow<List<AuthorSummary>>
+
+    @Query(
+        "SELECT a.id, a.displayName, a.normalizedName, COUNT(DISTINCT wf.workId) AS workCount " +
+            "FROM author_aliases aa INDEXED BY index_author_aliases_normalizedAlias " +
+            "JOIN author_facets a ON a.id=aa.authorId " +
+            "JOIN work_facets wf ON wf.canonicalAuthorId=a.id " +
+            "WHERE aa.normalizedAlias >= :lowerBound AND aa.normalizedAlias < :upperBound " +
+            "GROUP BY a.id, a.displayName, a.normalizedName " +
+            "ORDER BY a.normalizedName ASC, a.id ASC LIMIT :limit"
+    )
+    suspend fun searchAuthors(lowerBound: String, upperBound: String, limit: Int): List<AuthorSummary>
+
+    @Query(
+        "SELECT w.* FROM works w JOIN work_facets wf ON wf.workId=w.id " +
+            "WHERE wf.canonicalAuthorId=:authorId ORDER BY w.title COLLATE NOCASE ASC, w.id ASC"
+    )
+    suspend fun worksForAuthor(authorId: String): List<WorkEntity>
+
+    @Query(
+        "SELECT a.id, a.displayName, a.normalizedName, COUNT(DISTINCT allWf.workId) AS workCount " +
+            "FROM work_facets selected " +
+            "JOIN author_facets a ON a.id=selected.canonicalAuthorId " +
+            "JOIN work_facets allWf ON allWf.canonicalAuthorId=a.id " +
+            "WHERE selected.workId=:workId GROUP BY a.id, a.displayName, a.normalizedName LIMIT 1"
+    )
+    suspend fun authorForWork(workId: String): AuthorSummary?
+
+    @Query(
+        "SELECT w.* FROM works w LEFT JOIN work_facets wf ON wf.workId=w.id " +
+            "WHERE wf.canonicalAuthorId IS NULL ORDER BY w.id ASC LIMIT :limit"
+    )
+    suspend fun worksMissingCanonicalAuthor(limit: Int): List<WorkEntity>
 
     @Transaction
     suspend fun applyFacetRows(
@@ -867,7 +936,7 @@ interface AudiobookDao {
                 it.availabilityObservedAtMillis, it.availabilityTtlSeconds, it.updatedAt
             )
         }
-        upsertAuthorFacets(authors)
+        authors.forEach { mergeAuthorFacet(it.id, it.displayName, it.normalizedName, it.updatedAt) }
         insertAuthorAliases(aliases)
     }
 

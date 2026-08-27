@@ -8,6 +8,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.paging.LoadState
 import androidx.paging.compose.LazyPagingItems
@@ -21,6 +25,7 @@ import com.slukhayka.audiobooks.data.db.GenreFacetOption
 import com.slukhayka.audiobooks.data.db.WorkFeedRow
 import com.slukhayka.audiobooks.data.recommend.RecommendationEngine
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
+import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.ui.PeopleKind
 import com.slukhayka.audiobooks.ui.components.NavigationChip
 
@@ -73,11 +78,14 @@ fun LazyListScope.homeFeedContent(
     onSetFeedSortByTitle: (Boolean) -> Unit,
     feedDurationFilters: Set<String> = emptySet(),
     onSetFeedDurationFilters: (Set<String>) -> Unit = {},
+    onOpenFeedFilters: (() -> Unit)? = null,
+    feedFilterTriggerModifier: Modifier = Modifier,
     onOpenWebSource: (() -> Unit)? = null,
     onRecommendationFeedback: (RecommendationEngine.Recommendation, String) -> Unit = { _, _ -> },
     showRecommendationConsent: Boolean = false,
     onOpenRecommendationConsent: () -> Unit = {},
-    onDeclineRecommendationConsent: () -> Unit = {}
+    onDeclineRecommendationConsent: () -> Unit = {},
+    recommendationDisclosureTriggerModifier: Modifier = Modifier
 ) {
     // Loading spinner while the catalogue syncs on a fresh start.
     if (isCatalogLoading && !hasLibraryBooks && sections.isEmpty()) {
@@ -88,11 +96,16 @@ fun LazyListScope.homeFeedContent(
                     .padding(48.dp),
                 contentAlignment = Alignment.Center
             ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.semantics(mergeDescendants = true) {
+                        liveRegion = LiveRegionMode.Polite
+                    }
+                ) {
                     CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
                     Spacer(modifier = Modifier.height(12.dp))
                     Text(
-                        text = "Завантажуємо каталог...",
+                        text = stringResource(R.string.a11y_catalogue_loading),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -227,7 +240,10 @@ fun LazyListScope.homeFeedContent(
                     )
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                         TextButton(onClick = onDeclineRecommendationConsent) { Text("Не зараз") }
-                        TextButton(onClick = onOpenRecommendationConsent) { Text("Докладніше") }
+                        TextButton(
+                            onClick = onOpenRecommendationConsent,
+                            modifier = recommendationDisclosureTriggerModifier
+                        ) { Text("Докладніше") }
                     }
                 }
             }
@@ -368,7 +384,9 @@ fun LazyListScope.homeFeedContent(
             genres = genreFacetOptions,
             onGenresChange = onSetFeedGenreFilters,
             onDurationBucketsChange = onSetFeedDurationFilters,
-            onSortChange = onSetFeedSortByTitle
+            onSortChange = onSetFeedSortByTitle,
+            onOpenFilters = onOpenFeedFilters,
+            filterTriggerModifier = feedFilterTriggerModifier
         )
     }
     if (workFeedItems.itemCount == 0 && workFeedItems.loadState.refresh is LoadState.Loading) {
@@ -414,10 +432,12 @@ fun LazyListScope.homeFeedContent(
         }
         is LoadState.Error -> item {
             Text(
-                text = "Не вдалося завантажити ще: ${append.error.message.orEmpty()}",
+                text = stringResource(R.string.a11y_catalogue_page_error),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
-                modifier = Modifier.padding(16.dp)
+                modifier = Modifier
+                    .padding(16.dp)
+                    .semantics { liveRegion = LiveRegionMode.Polite }
             )
         }
         else -> Unit

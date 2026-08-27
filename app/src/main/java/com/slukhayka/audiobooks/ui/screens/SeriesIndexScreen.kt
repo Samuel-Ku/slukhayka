@@ -3,12 +3,16 @@ package com.slukhayka.audiobooks.ui.screens
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -30,7 +34,10 @@ import com.slukhayka.audiobooks.ui.theme.*
 fun SeriesIndexScreen(
     viewModel: MainViewModel,
     onBackClick: () -> Unit,
-    onSeriesClick: (CatalogSeries) -> Unit
+    onSeriesClick: (CatalogSeries) -> Unit,
+    restoreFocusSeriesUrl: String? = null,
+    onSeriesFocusRestored: (String) -> Unit = {},
+    gridState: LazyGridState = rememberLazyGridState()
 ) {
     val series by viewModel.seriesIndex.collectAsState()
 
@@ -41,6 +48,9 @@ fun SeriesIndexScreen(
         SeriesIndexContent(
             series = series,
             onSeriesClick = onSeriesClick,
+            restoreFocusSeriesUrl = restoreFocusSeriesUrl,
+            onSeriesFocusRestored = onSeriesFocusRestored,
+            gridState = gridState,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
@@ -58,7 +68,10 @@ fun SeriesIndexScreen(
 fun SeriesIndexContent(
     series: List<CatalogSeries>,
     onSeriesClick: (CatalogSeries) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    restoreFocusSeriesUrl: String? = null,
+    onSeriesFocusRestored: (String) -> Unit = {},
+    gridState: LazyGridState = rememberLazyGridState()
 ) {
     if (series.isEmpty()) {
         // No-series state: the shared index placeholder, never a crash — the
@@ -70,8 +83,22 @@ fun SeriesIndexContent(
         return
     }
 
+    val returnFocusRequester = remember { FocusRequester() }
+    LaunchedEffect(restoreFocusSeriesUrl, series) {
+        val url = restoreFocusSeriesUrl ?: return@LaunchedEffect
+        val seriesIndex = series.indexOfFirst { it.url == url }
+        if (seriesIndex < 0) return@LaunchedEffect
+        // The count spans item zero; series cards start at item one.
+        gridState.scrollToItem(seriesIndex + 1)
+        withFrameNanos { }
+        if (runCatching { returnFocusRequester.requestFocus() }.getOrDefault(false)) {
+            onSeriesFocusRestored(url)
+        }
+    }
+
     LazyVerticalGrid(
         columns = GridCells.Fixed(2),
+        state = gridState,
         modifier = modifier.testTag("series_index_screen"),
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 120.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -89,7 +116,15 @@ fun SeriesIndexContent(
             // The card is a fixed-width poster (the same shape as the Огляд
             // «Цикли» row); center it inside its grid cell.
             Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                CatalogSeriesCard(series = s, onClick = { onSeriesClick(s) })
+                CatalogSeriesCard(
+                    series = s,
+                    onClick = { onSeriesClick(s) },
+                    modifier = if (s.url == restoreFocusSeriesUrl) {
+                        Modifier.focusRequester(returnFocusRequester)
+                    } else {
+                        Modifier
+                    }
+                )
             }
         }
     }

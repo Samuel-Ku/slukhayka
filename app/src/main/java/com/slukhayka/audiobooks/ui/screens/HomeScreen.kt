@@ -12,6 +12,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
@@ -40,6 +41,15 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -48,7 +58,9 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
+import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.catalog.CatalogBook
 import com.slukhayka.audiobooks.data.catalog.CatalogSeries
 import com.slukhayka.audiobooks.data.catalog.SourceCatalog
@@ -65,8 +77,12 @@ import com.slukhayka.audiobooks.data.update.UpdateChecker
 import com.slukhayka.audiobooks.ui.DurationBooks
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.components.EmptyState
+import com.slukhayka.audiobooks.ui.components.BookCoverSemantics
 import com.slukhayka.audiobooks.ui.components.NavigationChip
 import com.slukhayka.audiobooks.ui.components.UpdateBanner
+import com.slukhayka.audiobooks.ui.components.accessibilityModalBackground
+import com.slukhayka.audiobooks.ui.components.accessibilityPane
+import com.slukhayka.audiobooks.ui.components.RestoreFocusAfterModal
 import com.slukhayka.audiobooks.ui.components.genreAccentColor
 import com.slukhayka.audiobooks.ui.displayAuthor
 import com.slukhayka.audiobooks.ui.durationBooksFrom
@@ -114,6 +130,8 @@ fun HomeScreen(
     // Spec-10 T4: aggregated global search across all verified sources.
     val globalResults by viewModel.globalSearchResults.collectAsState()
     val isGlobalSearchLoading by viewModel.isGlobalSearchLoading.collectAsState()
+    val authorResults by viewModel.authorSearchResults.collectAsState()
+    val globalSearchError by viewModel.globalSearchError.collectAsState()
     // Spec-23 T4: the endless merged feed (Paging 3) over the persisted
     // Works/Editions catalogue — pages through the whole catalogue, one card
     // per Work, dedup inherited from merge-on-write. Filter/sort states live
@@ -129,6 +147,14 @@ fun HomeScreen(
     val recommendationsReady by viewModel.recommendationsReady.collectAsState()
     val recommendationSettings by viewModel.recommendationSettings.collectAsState()
     var showRecommendationDisclosure by rememberSaveable { mutableStateOf(false) }
+    val recommendationDisclosureTriggerFocusRequester = remember { FocusRequester() }
+    var showWorkFeedFilters by rememberSaveable { mutableStateOf(false) }
+    val workFeedFilterTriggerFocusRequester = remember { FocusRequester() }
+
+    RestoreFocusAfterModal(
+        modalVisible = showWorkFeedFilters,
+        returnFocusRequester = workFeedFilterTriggerFocusRequester
+    )
 
     // Spec-39 T1 (#261): «Ваші цикли» — derived purely from the local base
     // (library rows + Listening State + every known Work), no network and no
@@ -221,7 +247,10 @@ fun HomeScreen(
     // Text-search mode: genre filtering has one home in the feed sheet.
     val inSearchMode = searchQuery.isNotBlank()
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    HomeModalUnderlay(
+        modalVisible = showRecommendationDisclosure || showWorkFeedFilters,
+        modifier = Modifier.fillMaxSize()
+    ) {
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
@@ -252,14 +281,28 @@ fun HomeScreen(
 
         if (inSearchMode) {
             // ---- Search / genre result list -------------------------------
-            // In-library matches first (local filter, instant), then the
-            // spec-10 T4 global section (all sources, imported on tap).
+            // Canonical authors are local and appear first, before both book
+            // result sections. The compact block is capped at five.
+            if (authorResults.isNotEmpty()) {
+                item(key = "author_search_results") {
+                    AuthorSearchResults(
+                        authors = authorResults,
+                        onAuthorClick = viewModel::openCanonicalAuthor,
+                        onShowAll = viewModel::openAllAuthorSearchResults
+                    )
+                }
+            }
+
+            // In-library matches next, then the spec-10 T4 global section
+            // (all sources, imported on tap).
             item {
                 Text(
                     text = "У вашій медіатеці (${filteredBooks.size})",
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                     color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                    modifier = Modifier
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .semantics { heading() }
                 )
             }
             if (filteredBooks.isEmpty()) {
@@ -267,7 +310,10 @@ fun HomeScreen(
                     EmptyState(
                         icon = Icons.Default.SearchOff,
                         title = "Нічого не знайдено",
-                        body = "Спробуйте змінити запит або фільтр."
+                        body = "Спробуйте змінити запит або фільтр.",
+                        modifier = Modifier.semantics(mergeDescendants = true) {
+                            liveRegion = LiveRegionMode.Polite
+                        }
                     )
                 }
             }
@@ -289,28 +335,17 @@ fun HomeScreen(
                         text = "Усі джерела (${globalResults.size})",
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                         color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                        modifier = Modifier
+                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                            .semantics { heading() }
                     )
                 }
-                if (isGlobalSearchLoading && globalResults.isEmpty()) {
+                if (globalResults.isEmpty()) {
                     item {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 16.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                        }
-                    }
-                }
-                if (!isGlobalSearchLoading && globalResults.isEmpty() && searchQuery.trim().length >= 2) {
-                    item {
-                        Text(
-                            text = "В інших джерелах нічого не знайдено.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                        GlobalSearchStatus(
+                            isLoading = isGlobalSearchLoading,
+                            hasError = globalSearchError,
+                            resultsEmpty = true
                         )
                     }
                 }
@@ -364,7 +399,10 @@ fun HomeScreen(
                 onRefreshCatalog = { scope.launch { sourceCatalog.fetchCatalogSections() } },
                 onGoToLibrary = { viewModel.selectTab(com.slukhayka.audiobooks.ui.SelectedTab.LIBRARY) },
                 onOpenTop100 = { viewModel.openTop100() },
-                onOpenPeople = { viewModel.openPeople(it) },
+                onOpenPeople = { kind ->
+                    if (kind.title == "Автори") viewModel.openAuthorsIndex()
+                    else viewModel.openPeople(kind)
+                },
                 onOpenSeriesIndex = { viewModel.openSeriesIndex() },
                 onOpenCollectionsIndex = { viewModel.openCollectionsIndex() },
                 onOpenSeries = { title, url -> viewModel.openSeries(title, url) },
@@ -375,6 +413,8 @@ fun HomeScreen(
                 onSetFeedGenreFilters = { viewModel.setFeedGenreFilters(it) },
                 onSetFeedDurationFilters = { viewModel.setFeedDurationFilters(it) },
                 onSetFeedSortByTitle = { viewModel.setFeedSortByTitle(it) },
+                onOpenFeedFilters = { showWorkFeedFilters = true },
+                feedFilterTriggerModifier = Modifier.focusRequester(workFeedFilterTriggerFocusRequester),
                 onOpenWebSource = onOpenWebSource,
                 onRecommendationFeedback = { rec, kind ->
                     scope.launch {
@@ -399,7 +439,10 @@ fun HomeScreen(
                 },
                 showRecommendationConsent = recommendationSettings.shouldOfferSharedLearning(System.currentTimeMillis()),
                 onOpenRecommendationConsent = { showRecommendationDisclosure = true },
-                onDeclineRecommendationConsent = viewModel.recommendationPersonalization::declineSharedLearning
+                onDeclineRecommendationConsent = viewModel.recommendationPersonalization::declineSharedLearning,
+                recommendationDisclosureTriggerModifier = Modifier
+                    .focusRequester(recommendationDisclosureTriggerFocusRequester)
+                    .testTag("recommendation_disclosure_trigger")
             )
 
             // Spec-9: the full library list lives in Медіатека (Library tab),
@@ -411,27 +454,140 @@ fun HomeScreen(
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 80.dp)
         )
     }
-    if (showRecommendationDisclosure) {
-        AlertDialog(
-            onDismissRequest = { showRecommendationDisclosure = false },
-            title = { Text("Спільне покращення рекомендацій") },
-            text = {
-                Text(
-                    "Мета — покращувати п’ять ваг ранжування. Після запуску телефон зможе підготувати не більше одного update на ISO-тиждень: версії, тижневий псевдонім і п’ять чисел gradient. Назви, Work ID, автори, жанри, оцінки, прогрес, UID, дані пристрою та точний час не входять у payload. Сирі внески видаляються після epoch. Згоду можна відкликати в налаштуваннях; локальні рекомендації від цього не зміняться. Передавання зараз технічно вимкнене до privacy/legal/security перевірки."
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    viewModel.recommendationPersonalization.setSharedLearningConsent(true)
-                    showRecommendationDisclosure = false
-                }) { Text("Погоджуюсь") }
-            },
-            dismissButton = {
-                TextButton(onClick = {
-                    viewModel.recommendationPersonalization.declineSharedLearning()
-                    showRecommendationDisclosure = false
-                }) { Text("Не зараз") }
+    if (showWorkFeedFilters) {
+        WorkFeedFilterSheet(
+            selectedGenreIds = feedGenreFilters,
+            genres = genreFacetOptions,
+            onGenresChange = { viewModel.setFeedGenreFilters(it) },
+            onDismiss = { showWorkFeedFilters = false },
+            selectedDurationBucketIds = feedDurationFilters,
+            onDurationBucketsChange = { viewModel.setFeedDurationFilters(it) }
+        )
+    }
+    RecommendationDisclosureDialog(
+        visible = showRecommendationDisclosure,
+        returnFocusRequester = recommendationDisclosureTriggerFocusRequester,
+        onAgree = {
+            viewModel.recommendationPersonalization.setSharedLearningConsent(true)
+            showRecommendationDisclosure = false
+        },
+        onDecline = {
+            viewModel.recommendationPersonalization.declineSharedLearning()
+            showRecommendationDisclosure = false
+        },
+        onDismiss = { showRecommendationDisclosure = false }
+    )
+}
+
+/** The complete non-modal Огляд layer, including its Snackbar feedback. */
+@Composable
+internal fun HomeModalUnderlay(
+    modalVisible: Boolean,
+    modifier: Modifier = Modifier,
+    content: @Composable BoxScope.() -> Unit
+) {
+    Box(
+        modifier = modifier
+            .testTag("home_modal_underlay")
+            .accessibilityModalBackground(modalVisible),
+        content = content
+    )
+}
+
+@Composable
+fun RecommendationDisclosureDialog(
+    visible: Boolean,
+    returnFocusRequester: FocusRequester,
+    onAgree: () -> Unit,
+    onDecline: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val title = stringResource(R.string.recommendation_disclosure_title)
+    val headingFocusRequester = remember { FocusRequester() }
+    var restoreFocusAfterClose by remember { mutableStateOf(false) }
+
+    LaunchedEffect(visible) {
+        if (visible) {
+            restoreFocusAfterClose = true
+        } else if (restoreFocusAfterClose) {
+            withFrameNanos { }
+            runCatching { returnFocusRequester.requestFocus() }
+            restoreFocusAfterClose = false
+        }
+    }
+
+    if (!visible) return
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        modifier = Modifier
+            .testTag("recommendation_disclosure_dialog")
+            .accessibilityPane(title),
+        title = {
+            LaunchedEffect(Unit) {
+                withFrameNanos { }
+                headingFocusRequester.requestFocus()
             }
+            Text(
+                text = title,
+                modifier = Modifier
+                    .focusRequester(headingFocusRequester)
+                    .focusable()
+                    .semantics { heading() }
+                    .testTag("recommendation_disclosure_heading")
+            )
+        },
+        text = { Text(stringResource(R.string.recommendation_disclosure_body)) },
+        confirmButton = {
+            TextButton(
+                onClick = onAgree,
+                modifier = Modifier.testTag("recommendation_disclosure_agree")
+            ) { Text(stringResource(R.string.recommendation_disclosure_agree)) }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = onDecline,
+                modifier = Modifier.testTag("recommendation_disclosure_decline")
+            ) { Text(stringResource(R.string.recommendation_disclosure_decline)) }
+        }
+    )
+}
+
+/** Honest, one-shot visible state for the cross-source search. */
+@Composable
+fun GlobalSearchStatus(
+    isLoading: Boolean,
+    hasError: Boolean,
+    resultsEmpty: Boolean,
+    modifier: Modifier = Modifier
+) {
+    if (!resultsEmpty) return
+    val message = when {
+        isLoading -> stringResource(R.string.a11y_search_loading)
+        hasError -> stringResource(R.string.a11y_search_error)
+        else -> stringResource(R.string.a11y_search_empty)
+    }
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+            .semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite }
+            .testTag("global_search_status"),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        if (isLoading) {
+            CircularProgressIndicator(
+                modifier = Modifier
+                    .size(28.dp)
+                    .clearAndSetSemantics { },
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
+        Text(
+            text = message,
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (hasError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
 }
@@ -454,6 +610,7 @@ fun HomeHeader(
     modifier: Modifier = Modifier
 ) {
     val focusRequester = remember { FocusRequester() }
+    val searchFieldLabel = stringResource(R.string.a11y_search_books)
     BackHandler(enabled = searchExpanded) { onCloseSearch() }
     LaunchedEffect(searchExpanded) {
         if (searchExpanded) focusRequester.requestFocus()
@@ -496,7 +653,10 @@ fun HomeHeader(
                     onClick = onRefresh,
                     modifier = Modifier.size(AppDimens.TouchTarget).testTag("home_refresh")
                 ) {
-                    Icon(Icons.Default.Refresh, contentDescription = "Оновити каталог")
+                    Icon(
+                        Icons.Default.Refresh,
+                        contentDescription = stringResource(R.string.a11y_refresh_catalogue)
+                    )
                 }
                 IconButton(
                     onClick = onToggleSearch,
@@ -504,7 +664,9 @@ fun HomeHeader(
                 ) {
                     Icon(
                         imageVector = if (searchExpanded) Icons.Default.Close else Icons.Default.Search,
-                        contentDescription = if (searchExpanded) "Закрити пошук" else "Пошук"
+                        contentDescription = stringResource(
+                            if (searchExpanded) R.string.a11y_close_search else R.string.a11y_open_search
+                        )
                     )
                 }
             }
@@ -521,18 +683,22 @@ fun HomeHeader(
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = onSearchQueryChange,
+                    label = { Text(searchFieldLabel) },
                     placeholder = { Text("Пошук книги або автора...") },
                     leadingIcon = {
                         Icon(
                             imageVector = Icons.Default.Search,
-                            contentDescription = "Search",
+                            contentDescription = null,
                             tint = MaterialTheme.colorScheme.primary
                         )
                     },
                     trailingIcon = {
                         // ✕ collapses search and resets the filters (US-2).
                         IconButton(onClick = onCloseSearch, modifier = Modifier.testTag("home_search_close")) {
-                            Icon(imageVector = Icons.Default.Clear, contentDescription = "Закрити пошук")
+                            Icon(
+                                imageVector = Icons.Default.Clear,
+                                contentDescription = stringResource(R.string.a11y_clear_close_search)
+                            )
                         }
                     },
                     modifier = Modifier
@@ -564,7 +730,9 @@ fun CatalogRowHeader(title: String) {
             letterSpacing = 0.5.sp
         ),
         color = MaterialTheme.colorScheme.onSurface,
-        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 8.dp)
+        modifier = Modifier
+            .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 8.dp)
+            .semantics { heading() }
     )
 }
 
@@ -726,6 +894,7 @@ fun CatalogBookCard(
         CatalogCoverImage(
             coverImageUrl = book.coverImageUrl,
             title = book.title,
+            semantics = BookCoverSemantics.Decorative,
             modifier = Modifier
                 .width(120.dp)
                 .height(168.dp)
@@ -768,16 +937,18 @@ fun CollectionBookCard(
     result: com.slukhayka.audiobooks.data.source.GlobalSearchResult,
     onClick: () -> Unit
 ) {
+    val openLabel = stringResource(R.string.a11y_open_work, result.title)
     Column(
         modifier = Modifier
             .width(120.dp)
-            .clickable { onClick() }
+            .clickable(onClickLabel = openLabel, onClick = onClick)
             .testTag("collection_book_${result.key.hashCode()}"),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         CatalogCoverImage(
             coverImageUrl = result.coverImageUrl,
             title = result.title,
+            semantics = BookCoverSemantics.Decorative,
             modifier = Modifier
                 .width(120.dp)
                 .height(168.dp)
@@ -833,9 +1004,17 @@ fun RecommendedBookCard(
                 Box {
                     IconButton(
                         onClick = { menuExpanded = true },
-                        modifier = Modifier.size(32.dp).testTag("recommendation_menu_${rec.candidate.id}")
+                        modifier = Modifier
+                            .size(AppDimens.TouchTarget)
+                            .testTag("recommendation_menu_${rec.candidate.id}")
                     ) {
-                        Icon(Icons.Default.MoreVert, contentDescription = "Дії з рекомендацією")
+                        Icon(
+                            Icons.Default.MoreVert,
+                            contentDescription = stringResource(
+                                R.string.a11y_recommendation_actions,
+                                rec.candidate.title
+                            )
+                        )
                     }
                     DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
                         DropdownMenuItem(
@@ -847,16 +1026,22 @@ fun RecommendedBookCard(
                         )
                     }
                     DropdownMenu(expanded = feedbackExpanded, onDismissRequest = { feedbackExpanded = false }) {
-                        FeedbackMenuItem("Цю книгу") {
+                        FeedbackMenuItem(
+                            stringResource(R.string.a11y_hide_recommended_work, rec.candidate.title)
+                        ) {
                             onFeedback(com.slukhayka.audiobooks.data.db.RecommendationPreferenceEntity.HIDE_WORK)
                             feedbackExpanded = false
                         }
-                        FeedbackMenuItem("Менше схожих") {
+                        FeedbackMenuItem(
+                            stringResource(R.string.a11y_reduce_similar_recommendations, rec.candidate.title)
+                        ) {
                             onFeedback(com.slukhayka.audiobooks.data.db.RecommendationPreferenceEntity.REDUCE_SIMILAR)
                             feedbackExpanded = false
                         }
                         if (rec.candidate.author.isNotBlank()) {
-                            FeedbackMenuItem("Цього автора") {
+                            FeedbackMenuItem(
+                                stringResource(R.string.a11y_hide_recommended_author, rec.candidate.author)
+                            ) {
                                 onFeedback(com.slukhayka.audiobooks.data.db.RecommendationPreferenceEntity.HIDE_AUTHOR)
                                 feedbackExpanded = false
                             }
@@ -951,18 +1136,21 @@ fun CatalogNavRow(
 @Composable
 fun CatalogSeriesCard(
     series: CatalogSeries,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
+    val openLabel = stringResource(R.string.a11y_open_series, series.title)
     Column(
-        modifier = Modifier
+        modifier = modifier
             .width(132.dp)
-            .clickable { onClick() }
+            .clickable(onClickLabel = openLabel, onClick = onClick)
             .testTag("catalog_series_${series.url.hashCode()}"),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         CatalogCoverImage(
             coverImageUrl = series.coverImageUrl,
             title = series.title,
+            semantics = BookCoverSemantics.Decorative,
             modifier = Modifier
                 .width(132.dp)
                 .height(78.dp)
@@ -1006,6 +1194,7 @@ fun PersonalCycleCard(
         CatalogCoverImage(
             coverImageUrl = cycle.coverImageUrl,
             title = cycle.title,
+            semantics = BookCoverSemantics.Decorative,
             modifier = Modifier
                 .width(132.dp)
                 .height(78.dp)
@@ -1079,6 +1268,7 @@ fun SimilarCycleCard(
         CatalogCoverImage(
             coverImageUrl = cycle.coverImageUrl,
             title = cycle.title,
+            semantics = BookCoverSemantics.Decorative,
             modifier = Modifier
                 .width(132.dp)
                 .height(78.dp)
@@ -1116,11 +1306,16 @@ fun SimilarCycleCard(
 fun CatalogCoverImage(
     coverImageUrl: String?,
     title: String,
+    semantics: BookCoverSemantics,
     modifier: Modifier = Modifier,
     genre: String? = null
 ) {
     val context = LocalContext.current
     var isError by remember(coverImageUrl) { mutableStateOf(false) }
+    val resolvedContentDescription = when (semantics) {
+        BookCoverSemantics.Decorative -> null
+        is BookCoverSemantics.Meaningful -> semantics.description
+    }
 
     if (!coverImageUrl.isNullOrBlank() && !isError) {
         val request = remember(coverImageUrl) {
@@ -1134,7 +1329,7 @@ fun CatalogCoverImage(
         }
         AsyncImage(
             model = request,
-            contentDescription = title,
+            contentDescription = resolvedContentDescription,
             modifier = modifier,
             contentScale = ContentScale.Crop,
             onError = { isError = true }
@@ -1142,16 +1337,20 @@ fun CatalogCoverImage(
     } else {
         val fallbackAccent = genreAccentColor(genre)
         Box(
-            modifier = modifier.background(
-                brush = Brush.verticalGradient(
-                    colors = listOf(
-                        MaterialTheme.colorScheme.surface,
-                        MaterialTheme.colorScheme.surfaceContainerHigh,
-                        (fallbackAccent ?: MaterialTheme.colorScheme.primary)
-                            .copy(alpha = if (fallbackAccent != null) 0.45f else 0.25f)
+            modifier = modifier
+                .clearAndSetSemantics {
+                    resolvedContentDescription?.let { contentDescription = it }
+                }
+                .background(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(
+                            MaterialTheme.colorScheme.surface,
+                            MaterialTheme.colorScheme.surfaceContainerHigh,
+                            (fallbackAccent ?: MaterialTheme.colorScheme.primary)
+                                .copy(alpha = if (fallbackAccent != null) 0.45f else 0.25f)
+                        )
                     )
-                )
-            ),
+                ),
             contentAlignment = Alignment.Center
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -1206,7 +1405,8 @@ fun EmptyCatalogState(
         Text(
             text = "Знайдіть свою першу книгу",
             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-            color = MaterialTheme.colorScheme.onSurface
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.semantics { heading() }
         )
         Spacer(modifier = Modifier.height(6.dp))
         Text(
@@ -1243,15 +1443,24 @@ fun EmptyCatalogState(
 fun AudiobookListItem(
     book: AudiobookEntity,
     onClick: () -> Unit,
-    onPlayClick: () -> Unit
+    onPlayClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
+    val availabilityState = stringResource(
+        if (book.isDownloaded) R.string.a11y_available_offline
+        else R.string.a11y_connection_required
+    )
+    val openLabel = stringResource(R.string.a11y_open_work, book.title)
     Card(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 6.dp)
+            .semantics {
+                stateDescription = availabilityState
+            }
             .clip(RoundedCornerShape(AppDimens.RadiusPanel))
             .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(AppDimens.RadiusPanel))
-            .clickable { onClick() }
+            .clickable(onClickLabel = openLabel, onClick = onClick)
             .testTag("book_item_${book.id}"),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
     ) {
@@ -1263,7 +1472,7 @@ fun AudiobookListItem(
         ) {
             com.slukhayka.audiobooks.ui.components.BookCoverImage(
                 book = book,
-                contentDescription = book.title,
+                semantics = BookCoverSemantics.Decorative,
                 modifier = Modifier
                     .size(68.dp)
                     .clip(RoundedCornerShape(AppDimens.RadiusCard)),
@@ -1289,7 +1498,7 @@ fun AudiobookListItem(
                         Spacer(modifier = Modifier.width(6.dp))
                         Icon(
                             imageVector = Icons.Default.CloudDone,
-                            contentDescription = "Downloaded",
+                            contentDescription = null,
                             tint = MaterialTheme.colorScheme.secondary,
                             modifier = Modifier.size(14.dp)
                         )
@@ -1319,7 +1528,11 @@ fun AudiobookListItem(
                 // Each part renders only when known, so a source that carries a
                 // real duration but no chapter count (e.g. "Популярне") shows
                 // just the duration, never "0 Chapters".
-                val chaptersLabel = if (book.totalChapters > 0) "${book.totalChapters} Chapters" else null
+                val chaptersLabel = if (book.totalChapters > 0) {
+                    pluralStringResource(R.plurals.chapter_count, book.totalChapters, book.totalChapters)
+                } else {
+                    null
+                }
                 val durationLabel = if (book.totalDurationSeconds > 0L) MainViewModel.formatTime(book.totalDurationSeconds) else null
                 val statsLabel = when {
                     chaptersLabel != null && durationLabel != null -> "$chaptersLabel • $durationLabel"
@@ -1346,13 +1559,13 @@ fun AudiobookListItem(
                     onPlayClick()
                 },
                 modifier = Modifier
-                    .size(40.dp)
+                    .size(AppDimens.TouchTarget)
                     .clip(CircleShape)
                     .background(MaterialTheme.colorScheme.surfaceContainerHigh)
             ) {
                 Icon(
                     imageVector = Icons.Default.PlayArrow,
-                    contentDescription = "Play",
+                    contentDescription = stringResource(R.string.a11y_play_work, book.title),
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(24.dp)
                 )
@@ -1384,6 +1597,7 @@ fun WorkFeedCard(
         CatalogCoverImage(
             coverImageUrl = row.coverImageUrl,
             title = row.title,
+            semantics = BookCoverSemantics.Decorative,
             modifier = Modifier
                 .width(56.dp)
                 .height(80.dp)
@@ -1432,7 +1646,7 @@ fun WorkFeedCard(
         Spacer(modifier = Modifier.width(8.dp))
         Icon(
             imageVector = Icons.Default.PlayArrow,
-            contentDescription = "Відтворити",
+            contentDescription = null,
             tint = MaterialTheme.colorScheme.primary,
             modifier = Modifier.size(28.dp)
         )
@@ -1449,16 +1663,17 @@ fun WorkFeedCard(
 @Composable
 fun WorkFeedFilters(
     selectedGenreIds: Set<String>,
-    selectedDurationBucketIds: Set<String>,
     sortByTitle: Boolean,
     genres: List<GenreFacetOption>,
     onGenresChange: (Set<String>) -> Unit,
-    onDurationBucketsChange: (Set<String>) -> Unit,
-    onSortChange: (Boolean) -> Unit
+    onSortChange: (Boolean) -> Unit,
+    selectedDurationBucketIds: Set<String> = emptySet(),
+    onDurationBucketsChange: (Set<String>) -> Unit = {},
+    onOpenFilters: (() -> Unit)? = null,
+    filterTriggerModifier: Modifier = Modifier
 ) {
     var sortExpanded by remember { mutableStateOf(false) }
     var showFilterSheet by rememberSaveable { mutableStateOf(false) }
-    val filterSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     Surface(
         color = MaterialTheme.colorScheme.surface,
@@ -1475,7 +1690,9 @@ fun WorkFeedFilters(
             Box {
                 OutlinedButton(
                     onClick = { sortExpanded = true },
-                    modifier = Modifier.testTag("feed_sort")
+                    modifier = Modifier
+                        .heightIn(min = 48.dp)
+                        .testTag("feed_sort")
                 ) {
                     Text(if (sortByTitle) "За назвою" else "Спочатку нові")
                     Spacer(modifier = Modifier.width(4.dp))
@@ -1503,7 +1720,9 @@ fun WorkFeedFilters(
             }
             FilterChip(
                 selected = selectedGenreIds.isNotEmpty() || selectedDurationBucketIds.isNotEmpty(),
-                onClick = { showFilterSheet = true },
+                onClick = {
+                    if (onOpenFilters != null) onOpenFilters() else showFilterSheet = true
+                },
                 label = { Text("Фільтри") },
                 leadingIcon = {
                     Icon(
@@ -1512,99 +1731,155 @@ fun WorkFeedFilters(
                         modifier = Modifier.size(FilterChipDefaults.IconSize)
                     )
                 },
-                modifier = Modifier.testTag("feed_filters")
+                modifier = filterTriggerModifier
+                    .heightIn(min = 48.dp)
+                    .testTag("feed_filters")
             )
         }
     }
 
     if (showFilterSheet) {
-        ModalBottomSheet(
-            onDismissRequest = { showFilterSheet = false },
-            sheetState = filterSheetState,
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
-        ) {
-            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-                val genreListMaxHeight = maxHeight * 0.55f
-                Column(
+        WorkFeedFilterSheet(
+            selectedGenreIds = selectedGenreIds,
+            genres = genres,
+            onGenresChange = onGenresChange,
+            onDismiss = { showFilterSheet = false },
+            selectedDurationBucketIds = selectedDurationBucketIds,
+            onDurationBucketsChange = onDurationBucketsChange
+        )
+    }
+}
+
+/** Modal catalogue-facet surface, kept outside the Home underlay by its owner. */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+fun WorkFeedFilterSheet(
+    selectedGenreIds: Set<String>,
+    genres: List<GenreFacetOption>,
+    onGenresChange: (Set<String>) -> Unit,
+    onDismiss: () -> Unit,
+    selectedDurationBucketIds: Set<String> = emptySet(),
+    onDurationBucketsChange: (Set<String>) -> Unit = {}
+) {
+    val paneTitle = stringResource(R.string.a11y_work_feed_filter_pane)
+    val headingFocusRequester = remember { FocusRequester() }
+    val filterSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    LaunchedEffect(filterSheetState) {
+        snapshotFlow { filterSheetState.currentValue }
+            .first { it == SheetValue.Expanded }
+        withFrameNanos { }
+        headingFocusRequester.requestFocus()
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = filterSheetState,
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        modifier = Modifier
+            .testTag("work_feed_filter_sheet")
+            .accessibilityPane(paneTitle)
+    ) {
+        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+            val genreListMaxHeight = maxHeight * 0.55f
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp)
+                    .navigationBarsPadding()
+            ) {
+                Text(
+                    text = "Фільтри",
+                    style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp)
-                        .navigationBarsPadding()
+                        .focusRequester(headingFocusRequester)
+                        .focusable()
+                        .testTag("work_feed_filter_heading")
+                        .semantics { heading() }
+                )
+                Spacer(modifier = Modifier.height(20.dp))
+                Text(text = "Жанри", style = MaterialTheme.typography.titleMedium)
+                Spacer(modifier = Modifier.height(12.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier
+                        .heightIn(max = genreListMaxHeight)
+                        .verticalScroll(rememberScrollState())
                 ) {
-                    Text(
-                        text = "Фільтри",
-                        style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold)
-                    )
-                    Spacer(modifier = Modifier.height(20.dp))
-                    Text(text = "Жанри", style = MaterialTheme.typography.titleMedium)
-                    Spacer(modifier = Modifier.height(12.dp))
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    FilterChip(
+                        selected = selectedGenreIds.isEmpty(),
+                        onClick = { onGenresChange(emptySet()) },
+                        label = { Text("Усі жанри") },
                         modifier = Modifier
-                            .heightIn(max = genreListMaxHeight)
-                            .verticalScroll(rememberScrollState())
-                    ) {
+                            .heightIn(min = 48.dp)
+                            .testTag("feed_genre_all")
+                    )
+                    genres.forEach { genre ->
                         FilterChip(
-                            selected = selectedGenreIds.isEmpty(),
-                            onClick = { onGenresChange(emptySet()) },
-                            label = { Text("Усі жанри") },
-                            modifier = Modifier.testTag("feed_genre_all")
-                        )
-                        genres.forEach { genre ->
-                            FilterChip(
-                                selected = genre.id in selectedGenreIds,
-                                onClick = {
-                                    onGenresChange(
-                                        if (genre.id in selectedGenreIds) selectedGenreIds - genre.id
-                                        else selectedGenreIds + genre.id
-                                    )
-                                },
-                                label = { Text(genre.label) },
-                                modifier = Modifier.testTag("feed_genre_${genre.id}")
-                            )
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(20.dp))
-                    Text(text = "Тривалість", style = MaterialTheme.typography.titleMedium)
-                    Spacer(modifier = Modifier.height(12.dp))
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        EditionDurationPolicy.buckets.forEach { bucket ->
-                            FilterChip(
-                                selected = bucket.wireName in selectedDurationBucketIds,
-                                onClick = {
-                                    onDurationBucketsChange(
-                                        if (bucket.wireName in selectedDurationBucketIds) {
-                                            selectedDurationBucketIds - bucket.wireName
-                                        } else {
-                                            selectedDurationBucketIds + bucket.wireName
-                                        }
-                                    )
-                                },
-                                label = { Text(EditionDurationPolicy.labelFor(bucket)) },
-                                modifier = Modifier.testTag("feed_duration_${bucket.wireName}")
-                            )
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(24.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        TextButton(
+                            selected = genre.id in selectedGenreIds,
                             onClick = {
-                                onGenresChange(emptySet())
-                                onDurationBucketsChange(emptySet())
-                            }
-                        ) { Text("Скинути все") }
-                        Button(onClick = { showFilterSheet = false }) { Text("Готово") }
+                                onGenresChange(
+                                    if (genre.id in selectedGenreIds) selectedGenreIds - genre.id
+                                    else selectedGenreIds + genre.id
+                                )
+                            },
+                            label = { Text(genre.label) },
+                            modifier = Modifier
+                                .heightIn(min = 48.dp)
+                                .testTag("feed_genre_${genre.id}")
+                        )
                     }
-                    Spacer(modifier = Modifier.height(12.dp))
                 }
+                Spacer(modifier = Modifier.height(20.dp))
+                Text(text = "Тривалість", style = MaterialTheme.typography.titleMedium)
+                Spacer(modifier = Modifier.height(12.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    EditionDurationPolicy.buckets.forEach { bucket ->
+                        FilterChip(
+                            selected = bucket.wireName in selectedDurationBucketIds,
+                            onClick = {
+                                onDurationBucketsChange(
+                                    if (bucket.wireName in selectedDurationBucketIds) {
+                                        selectedDurationBucketIds - bucket.wireName
+                                    } else {
+                                        selectedDurationBucketIds + bucket.wireName
+                                    }
+                                )
+                            },
+                            label = { Text(EditionDurationPolicy.labelFor(bucket)) },
+                            modifier = Modifier
+                                .heightIn(min = 48.dp)
+                                .testTag("feed_duration_${bucket.wireName}")
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(24.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TextButton(
+                        onClick = {
+                            onGenresChange(emptySet())
+                            onDurationBucketsChange(emptySet())
+                        },
+                        modifier = Modifier
+                            .heightIn(min = 48.dp)
+                            .testTag("feed_filter_reset")
+                    ) { Text("Скинути все") }
+                    Button(
+                        onClick = onDismiss,
+                        modifier = Modifier
+                            .heightIn(min = 48.dp)
+                            .testTag("feed_filter_done")
+                    ) { Text("Готово") }
+                }
+                Spacer(modifier = Modifier.height(12.dp))
             }
         }
     }

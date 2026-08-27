@@ -24,6 +24,7 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
+import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.catalog.SourceCatalog
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.BookmarkEntity
@@ -34,11 +35,15 @@ import com.slukhayka.audiobooks.data.db.PlaybackEventPolicy
 import com.slukhayka.audiobooks.data.db.SourceTrackEntity
 import com.slukhayka.audiobooks.data.listening.ListeningStateStore
 import com.slukhayka.audiobooks.data.listening.ProgressSyncController
+import com.slukhayka.audiobooks.data.source.YouTubeTracks
 import com.slukhayka.audiobooks.data.source.headersFor
 import com.slukhayka.audiobooks.data.source.sourceIdForUrl
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.sample
@@ -51,6 +56,30 @@ import kotlinx.coroutines.flow.sample
  */
 internal fun sleepTimerFadeVolume(remainingSec: Int): Float =
     if (remainingSec in 1..30) remainingSec / 30f else 1.0f
+
+/** One-shot user feedback emitted only at sleep-timer transitions. */
+sealed interface SleepTimerNotice {
+    data object FadeWarning : SleepTimerNotice
+    data class Extended(val remainingSeconds: Int) : SleepTimerNotice
+}
+
+/**
+ * Issue #381 (a11y/UX-аудит v1.3.6): typed category of the failure carried
+ * next to [PlayerState.lastErrorMsg]. The UI used to substring-match the
+ * human text («недоступна») to decide whether a detail line may render — a
+ * fragile coupling that breaks the moment the wording changes or a non-
+ * Ukrainian string slips in ([reportPlaybackFailure] appends «(host: …)»).
+ * The manager classifies every failure itself:
+ * - [TRANSIENT] — recoverable in principle (stream error, 45 s prepare
+ *   timeout, generic prepare exceptions): the detail text is shown as-is;
+ * - [UNAVAILABLE] — the permanent honest state (exhausted heal budget, no
+ *   resolved chapters, failed YouTube resolution): title-only card.
+ */
+enum class PlaybackErrorKind {
+    NONE,
+    TRANSIENT,
+    UNAVAILABLE
+}
 
 data class PlayerState(
     val currentBook: AudiobookEntity? = null,
@@ -69,6 +98,9 @@ data class PlayerState(
     val audioEngineMode: String = "4read Audio Engine",
     val currentStreamUrl: String = "",
     val lastErrorMsg: String = "",
+    // Issue #381: category of [lastErrorMsg]; reset together with it on every
+    // new prepare so a stale UNAVAILABLE can never leak onto a retrying card.
+    val errorKind: PlaybackErrorKind = PlaybackErrorKind.NONE,
     // Position-history undo (wayfinder #25): true while a big accidental seek
     // can be undone back to [undoFromPositionMs].
     val canUndoSeek: Boolean = false,
@@ -173,7 +205,15 @@ class AudioPlayerManager(
      * immediate on pauses/completions. Null in tests and without Firebase —
      * then nothing ever leaves the device.
      */
-    private val progressSync: ProgressSyncController? = null
+    private val progressSync: ProgressSyncController? = null,
+    /**
+     * Spec 2026-08-26 — the per-use stream resolution seam: a persisted track
+     * URL that needs fresh resolution (YouTube watch URLs — the signed stream
+     * URL expires and is never persisted) maps to a concrete playable URL
+     * right before setMediaItem. Identity for plain URLs; null = honest
+     * failure, no fabricated audio (ADR-0019).
+     */
+    private val streamUrlResolver: suspend (String) -> String? = { url -> url }
 ) {
 
     private val _playerState = MutableStateFlow(PlayerState())
@@ -359,9 +399,21 @@ class AudioPlayerManager(
      */
     private var healAttemptsForChapter = 0
 
+    // Issue #381: user-facing failure texts moved out of code into
+    // strings_accessibility_player.xml (Ukrainian-first, TalkBack-friendly).
+    // The UNAVAILABLE ones keep «недоступна» in their wording even though the
+    // UI now branches on [PlaybackErrorKind], not on the substring.
+
     /** Spec-32 T4 (#234) — honest state after an exhausted heal budget. */
-    private val healFailedDetail =
-        "Книга зараз недоступна: файл джерела переїхав або заблокований, і оновити його не вдалося."
+    private fun healFailedDetail(): String =
+        context.getString(R.string.a11y_player_error_heal_failed)
+
+    /**
+     * The honest state for a book with NO resolved chapters — the source page
+     * never served playerjs audio at all (2026-08-26 device bug).
+     */
+    private fun unavailableBookDetail(): String =
+        context.getString(R.string.a11y_player_error_book_unavailable)
 
     /** Whether the current prepare should auto-start once READY. */
     private var shouldAutoPlay: Boolean = false
@@ -401,6 +453,9 @@ class AudioPlayerManager(
     private var updateProgressJob: Job? = null
     private var sleepTimer: CountDownTimer? = null
     private var shakeDetector: ShakeDetector? = null
+    private var fadeWarningEmitted = false
+    private val _sleepTimerNotices = MutableSharedFlow<SleepTimerNotice>(extraBufferCapacity = 2)
+    val sleepTimerNotices: SharedFlow<SleepTimerNotice> = _sleepTimerNotices.asSharedFlow()
     private var prepareTimeoutJob: Job? = null
 
     /** Global playback preferences (wayfinder #26): default speed etc. */
@@ -517,12 +572,17 @@ class AudioPlayerManager(
                 reportHealFailed()
                 return
             }
+            // Issue #381: Ukrainian-first wording (string resource) + the
+            // TRANSIENT category — this failure may recover on a retry.
+            val errorMessage = context.getString(R.string.a11y_player_error_stream, error.errorCodeName)
             _playerState.value = _playerState.value.copy(
-                lastErrorMsg = "Primary stream error (${error.errorCodeName})"
+                lastErrorMsg = errorMessage,
+                errorKind = PlaybackErrorKind.TRANSIENT
             )
             reportPlaybackFailure(
                 errorCodeName = error.errorCodeName,
-                detail = "Primary stream error (${error.errorCodeName})"
+                detail = errorMessage,
+                kind = PlaybackErrorKind.TRANSIENT
             )
         }
     }
@@ -535,7 +595,8 @@ class AudioPlayerManager(
     private fun reportHealFailed() {
         reportPlaybackFailure(
             errorCodeName = "STREAM_HEAL_FAILED",
-            detail = healFailedDetail
+            detail = healFailedDetail(),
+            kind = PlaybackErrorKind.UNAVAILABLE
         )
     }
 
@@ -571,9 +632,25 @@ class AudioPlayerManager(
         healAttemptsForChapter++
         _playerState.value = state.copy(
             isBuffering = true,
-            lastErrorMsg = ""
+            lastErrorMsg = "",
+            errorKind = PlaybackErrorKind.NONE
         )
         scope.launch {
+            // Spec 2026-08-26: a YouTube track's persisted URL never changes —
+            // the watch URL IS the identity, and the heal IS the
+            // re-resolution (a fresh signed stream URL). The page re-fetch
+            // would yield the same watch URL and be refused above, so the
+            // re-prepare goes straight to the resolver; the heal budget stays
+            // spent, so a broken extraction cannot loop.
+            if (YouTubeTracks.isYouTubeWatchUrl(failedUrl)) {
+                prepareChapter(
+                    chapterIndex,
+                    startPositionMs = _playerState.value.currentPositionMs,
+                    autoPlay = true,
+                    resetHealBudget = false
+                )
+                return@launch
+            }
             // Fail-open: a dead page contributes nothing — the honest
             // failure stays, exactly one retry was spent.
             val freshUrl = runCatching {
@@ -617,6 +694,18 @@ class AudioPlayerManager(
         // is the last chapter's in-chapter seconds, below the book total).
         forceRelisten: Boolean = false
     ) {
+        // 2026-08-26 device bug («грає попередня книга»): a book whose
+        // chapters never resolved — the source page carries no playerjs audio
+        // at all — must never reach the engine. The old code faked a
+        // 1000 ms duration («00:01/00:01»), swapped currentBook under a still-
+        // loaded previous item, and prepareChapter silently returned, so the
+        // user heard the previous book while the screen showed the new one.
+        // ADR-0019's honest failure applies BEFORE any prepare: stop the
+        // engine, surface the unavailable state, record nothing.
+        if (chapters.isEmpty()) {
+            stopEngineForUnavailableBook(book)
+            return
+        }
         // ADR-0007: keep the chapter→track pairing for prepare/build; the
         // display list stays the logical chapters.
         playableChapters = if (playable.isEmpty()) {
@@ -666,7 +755,12 @@ class AudioPlayerManager(
             sleepTimerRemainingSeconds = 0,
             isSleepTimerEndOfChapter = false
         )
-        try { mediaPlayer?.volume = 1.0f } catch (_: Exception) {}
+        val hook = castEngineHook?.takeIf { it.isActive }
+        if (hook != null) {
+            try { hook.setVolume(1.0f) } catch (_: Exception) {}
+        } else {
+            try { mediaPlayer?.volume = 1.0f } catch (_: Exception) {}
+        }
         // A fresh load starts a new listening cycle: completion resets, chapter
         // history resets, and — when autoplaying — the resume + segment begin.
         completionLogged = false
@@ -707,6 +801,62 @@ class AudioPlayerManager(
         }
 
         prepareChapter(chapterIdx, positionSeconds * 1000L, autoPlay)
+    }
+
+    /**
+     * The honest terminal state of a book with NO chapters (ADR-0019 applied
+     * before any prepare): the source never served a playable track — the page
+     * carries no playerjs audio at all — so nothing may play and nothing is
+     * fabricated.
+     *
+     * Root cause of the 2026-08-26 device bug («грає попередня книга»):
+     * opening such a book used to swap [PlayerState.currentBook] while the
+     * engine kept the previously loaded chapter, faked `durationMs = 1000`
+     * («00:01/00:01») and silently returned from [prepareChapter] — the user
+     * heard the previous book while the screen showed the new one, and a
+     * phantom 1 s progress row got persisted.
+     *
+     * Stops the engine (the same stop path as [stopAndClear], minus the full
+     * state reset) so the screen keeps showing THIS book with the
+     * [unavailableBookDetail] message ([PlaybackErrorKind.UNAVAILABLE]) and
+     * the standard retry affordance.
+     */
+    private fun stopEngineForUnavailableBook(book: AudiobookEntity) {
+        sleepTimer?.cancel()
+        prepareTimeoutJob?.cancel()
+        mediaPlayer?.let { mp ->
+            try {
+                mp.pause()
+                mp.stop()
+            } catch (e: Exception) {
+                Log.e("AudioPlayer", "Error stopping player", e)
+            }
+        }
+        currentChapter = null
+        currentTrack = null
+        playableChapters = emptyList()
+        shouldAutoPlay = false
+        pendingResumeSeekMs = -1L
+        // A stopped engine ends the listening cycle: the next load starts a
+        // fresh trail (the same session fields [stopAndClear] resets).
+        playbackSegmentStartMs = null
+        lastPreparedChapterIndex = null
+        completionLogged = false
+        lastLoadedBookId = null
+        _playerState.value = _playerState.value.copy(
+            currentBook = book,
+            chapters = emptyList(),
+            currentChapterIndex = 0,
+            currentPositionMs = 0L,
+            durationMs = 0L,
+            isPlaying = false,
+            isBuffering = false,
+            currentStreamUrl = "",
+            lastErrorMsg = unavailableBookDetail(),
+            // Issue #381: permanent state — PlayerScreen renders the card
+            // title-only instead of substring-matching the message.
+            errorKind = PlaybackErrorKind.UNAVAILABLE
+        )
     }
 
     fun prepareChapter(
@@ -751,6 +901,7 @@ class AudioPlayerManager(
             isBuffering = true,
             currentStreamUrl = track?.url.orEmpty(),
             lastErrorMsg = "",
+            errorKind = PlaybackErrorKind.NONE,
             // A chapter switch is deliberate — the seek history is cleared.
             canUndoSeek = false,
             undoFromPositionMs = 0L
@@ -769,12 +920,18 @@ class AudioPlayerManager(
             delay(PREPARE_TIMEOUT_MS)
             if (_playerState.value.isBuffering) {
                 Log.w("AudioPlayer", "Primary stream timeout")
+                // Issue #381: Ukrainian-first wording (string resource); the
+                // raw second count stays as the technical detail in brackets.
+                val timeoutMessage =
+                    context.getString(R.string.a11y_player_error_timeout, PREPARE_TIMEOUT_MS / 1000L)
                 _playerState.value = _playerState.value.copy(
-                    lastErrorMsg = "Primary stream timeout (${PREPARE_TIMEOUT_MS / 1000}s)"
+                    lastErrorMsg = timeoutMessage,
+                    errorKind = PlaybackErrorKind.TRANSIENT
                 )
                 reportPlaybackFailure(
                     errorCodeName = "PREPARE_TIMEOUT",
-                    detail = "Primary stream timeout (${PREPARE_TIMEOUT_MS / 1000}s)"
+                    detail = timeoutMessage,
+                    kind = PlaybackErrorKind.TRANSIENT
                 )
             }
         }
@@ -810,16 +967,60 @@ class AudioPlayerManager(
             // setMediaItem replaces the previous playlist entry and resets the
             // player to IDLE; prepare() re-enters BUFFERING -> READY.
             val mp = ensurePlayerCreated()
+            val persistedUrl = track?.url.orEmpty()
+            // Spec 2026-08-26: a YouTube watch URL resolves PER-USE — the
+            // signed stream URL expires (~6h) and is never persisted. The
+            // resolution is a network extraction, so it runs off the player
+            // thread; isBuffering (set above) stays honest and the prepare
+            // timeout armed above still bounds the wait.
+            if (YouTubeTracks.isYouTubeWatchUrl(persistedUrl)) {
+                // Launch on the player's main scope; only the resolution
+                // itself hops to IO — setMediaItem/prepare must stay on the
+                // engine's application looper.
+                scope.launch {
+                    val resolved = withContext(ioDispatcher) {
+                        runCatching { streamUrlResolver(persistedUrl) }
+                            .onFailure { Log.w("AudioPlayer", "stream resolution failed for $persistedUrl", it) }
+                            .getOrNull()
+                    }
+                    if (resolved == null) {
+                        reportPlaybackFailure(
+                            errorCodeName = "RESOLVE_FAILED",
+                            detail = context.getString(R.string.a11y_player_error_resolve_failed),
+                            kind = PlaybackErrorKind.UNAVAILABLE
+                        )
+                        return@launch
+                    }
+                    try {
+                        mp.setMediaItem(buildMediaItem(chapter, track, resolved))
+                        mp.prepare()
+                    } catch (e: Exception) {
+                        Log.e("AudioPlayer", "Exception in prepareChapter (resolved stream)", e)
+                        reportPrepareException(e)
+                    }
+                }
+                return
+            }
             mp.setMediaItem(buildMediaItem(chapter, track))
             mp.prepare()
         } catch (e: Exception) {
             prepareTimeoutJob?.cancel()
             Log.e("AudioPlayer", "Exception in prepareChapter", e)
-            reportPlaybackFailure(
-                errorCodeName = e::class.java.simpleName,
-                detail = "Exception in prepareChapter (${e::class.java.simpleName})"
-            )
+            reportPrepareException(e)
         }
+    }
+
+    /**
+     * Issue #381: a generic [prepareChapter] exception surfaced honestly —
+     * Ukrainian-first detail from a resource plus the exception class as the
+     * technical hint. TRANSIENT: a later retry may well succeed.
+     */
+    private fun reportPrepareException(e: Exception) {
+        reportPlaybackFailure(
+            errorCodeName = e::class.java.simpleName,
+            detail = context.getString(R.string.a11y_player_error_prepare_exception, e::class.java.simpleName),
+            kind = PlaybackErrorKind.TRANSIENT
+        )
     }
 
     /**
@@ -843,7 +1044,10 @@ class AudioPlayerManager(
      */
     private fun reportPlaybackFailure(
         errorCodeName: String = "UNKNOWN",
-        detail: String = "Цю главу зараз не вдалося відтворити. Спробуйте пізніше або інший розділ."
+        detail: String = "Цю главу зараз не вдалося відтворити. Спробуйте пізніше або інший розділ.",
+        // Issue #381: typed category read by PlayerScreen instead of a
+        // substring match on the human text.
+        kind: PlaybackErrorKind = PlaybackErrorKind.TRANSIENT
     ) {
         prepareTimeoutJob?.cancel()
         val state = _playerState.value
@@ -860,7 +1064,8 @@ class AudioPlayerManager(
             isPlaying = false,
             currentStreamUrl = "",
             audioEngineMode = "Playback error",
-            lastErrorMsg = enriched
+            lastErrorMsg = enriched,
+            errorKind = kind
         )
         val chapter = currentChapter
         val bookId = state.currentBook?.id
@@ -886,7 +1091,13 @@ class AudioPlayerManager(
      * MediaItem with book/chapter metadata so the system media notification
      * (and Android Auto / lock screen) shows a real title instead of a URL.
      */
-    private fun buildMediaItem(chapter: ChapterEntity, track: SourceTrackEntity?): MediaItem {
+    private fun buildMediaItem(
+        chapter: ChapterEntity,
+        track: SourceTrackEntity?,
+        // Spec 2026-08-26: overrides the persisted track URL when the URL
+        // needed per-use resolution (a resolved YouTube stream URL).
+        resolvedStreamUrl: String? = null
+    ): MediaItem {
         val book = _playerState.value.currentBook
         val metadata = MediaMetadata.Builder()
             .setTitle(chapter.title)
@@ -908,7 +1119,7 @@ class AudioPlayerManager(
             // shared HTTP factory by prepareChapter (spec-13 T2) — the media
             // item itself carries only the URI and metadata.
             MediaItem.Builder()
-                .setUri(track?.url.orEmpty().toUri())
+                .setUri((resolvedStreamUrl ?: track?.url.orEmpty()).toUri())
                 .setMediaMetadata(metadata)
                 .build()
         }
@@ -1168,7 +1379,7 @@ class AudioPlayerManager(
      */
     fun savePreferredSpeed(speed: Float) {
         val book = _playerState.value.currentBook ?: return
-        scope.launch(Dispatchers.IO) {
+        scope.launch(ioDispatcher) {
             listeningState.setPreferredSpeed(book.id, speed)
         }
     }
@@ -1253,7 +1464,7 @@ class AudioPlayerManager(
     private fun persistPausedAt(epochMs: Long?) {
         val book = _playerState.value.currentBook ?: return
         val bookId = book.id
-        scope.launch(Dispatchers.IO) {
+        scope.launch(ioDispatcher) {
             listeningState.updatePausedAt(bookId, epochMs)
         }
     }
@@ -1318,6 +1529,34 @@ class AudioPlayerManager(
     }
 
     /**
+     * Canonical +15-minute command for both the visible timer action and the
+     * optional shake shortcut. The exact current remainder is preserved; an
+     * end-of-Chapter timer becomes an ordinary timed remainder.
+     *
+     * @return the new exact remainder in seconds, or `0` when no timer is active.
+     */
+    fun extendSleepTimerBy15Minutes(): Int {
+        val currentRemaining = _playerState.value.sleepTimerRemainingSeconds
+        if (currentRemaining <= 0) return 0
+
+        val extendedRemaining = currentRemaining + 15 * 60
+        sleepTimer?.cancel()
+        shakeDetector?.stopListening()
+        try { mediaPlayer?.volume = 1.0f } catch (_: Exception) {}
+        _playerState.value = _playerState.value.copy(
+            sleepTimerMinutes = (extendedRemaining + 59) / 60,
+            sleepTimerRemainingSeconds = extendedRemaining,
+            isSleepTimerEndOfChapter = false
+        )
+        startSleepTimerInternal(extendedRemaining * 1000L, isEndOfChapter = false)
+        _sleepTimerNotices.tryEmit(SleepTimerNotice.Extended(extendedRemaining))
+        return extendedRemaining
+    }
+
+    /** Testable boundary used as the [ShakeDetector] callback. */
+    internal fun handleSleepTimerShake(): Int = extendSleepTimerBy15Minutes()
+
+    /**
      * Spec-22 T5: if the timer is in «до кінця розділу» mode, re-arm it for
      * the newly prepared chapter (manual skip or auto-advance) so it still
      * stops exactly at the chapter boundary.
@@ -1336,16 +1575,10 @@ class AudioPlayerManager(
     }
 
     private fun startSleepTimerInternal(totalMs: Long, isEndOfChapter: Boolean) {
+        fadeWarningEmitted = false
         if (shakeDetector == null) {
             shakeDetector = ShakeDetector(context) {
-                // Shake during the fade-out window: +15 min and full volume.
-                val hook = castEngineHook?.takeIf { it.isActive }
-                if (hook != null) {
-                    try { hook.setVolume(1.0f) } catch (_: Exception) {}
-                } else {
-                    try { mediaPlayer?.volume = 1.0f } catch (_: Exception) {}
-                }
-                setSleepTimer(15)
+                handleSleepTimerShake()
             }
         }
 
@@ -1359,6 +1592,10 @@ class AudioPlayerManager(
                 // inside the fade window.
                 val vol = sleepTimerFadeVolume(remainingSec)
                 if (vol < 1.0f) {
+                    if (!fadeWarningEmitted) {
+                        fadeWarningEmitted = true
+                        _sleepTimerNotices.tryEmit(SleepTimerNotice.FadeWarning)
+                    }
                     val hook = castEngineHook?.takeIf { it.isActive }
                     if (hook != null) {
                         try { hook.setVolume(vol) } catch (_: Exception) {}
@@ -1380,7 +1617,7 @@ class AudioPlayerManager(
                 val posSec = _playerState.value.currentPositionMs / 1000L
 
                 if (book != null) {
-                    scope.launch(Dispatchers.IO) {
+                    scope.launch(ioDispatcher) {
                         listeningState.addBookmark(
                             BookmarkEntity(
                                 bookId = book.id,
@@ -1486,7 +1723,7 @@ class AudioPlayerManager(
         val chapter = currentChapter ?: return
         if (durationMs <= 0L) return
         val seconds = durationMs / 1000L
-        scope.launch(Dispatchers.IO) {
+        scope.launch(ioDispatcher) {
             listeningState.updateChapterDuration(chapter.id, seconds)
             val chapters = chapterFetcher(book.id)
             if (chapters.isNotEmpty() && chapters.all { it.chapter.durationSeconds > 0L }) {
@@ -1503,7 +1740,7 @@ class AudioPlayerManager(
         val book = _playerState.value.currentBook ?: return
         val currentChapter = _playerState.value.currentChapterIndex
         val posSec = _playerState.value.currentPositionMs / 1000L
-        scope.launch(Dispatchers.IO) {
+        scope.launch(ioDispatcher) {
             // ADR-0007: progress is keyed by the Edition — no source key.
             listeningState.updateProgress(book.id, currentChapter, posSec)
             listeningState.recordListeningTime(5L)
@@ -1528,7 +1765,7 @@ class AudioPlayerManager(
     ) {
         val book = _playerState.value.currentBook ?: return
         val bookId = book.id
-        scope.launch(Dispatchers.IO) {
+        scope.launch(ioDispatcher) {
             // ADR-0007: the event log is history — rows are written with
             // sourceKey = "" (the store's default).
             listeningState.recordPlaybackEvent(

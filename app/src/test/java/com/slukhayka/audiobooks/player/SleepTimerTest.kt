@@ -8,8 +8,11 @@ import com.slukhayka.audiobooks.data.listening.ListeningStateStore
 import com.slukhayka.audiobooks.testing.FakeAudiobookDao
 import com.slukhayka.audiobooks.testing.TestDataFactory
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -19,6 +22,8 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.robolectric.shadows.ShadowLooper
+import java.util.concurrent.TimeUnit
 import kotlin.math.abs
 
 /**
@@ -82,6 +87,98 @@ class SleepTimerTest {
         assertEquals(0, state.sleepTimerMinutes)
         assertEquals(0, state.sleepTimerRemainingSeconds)
         assertFalse(state.isSleepTimerEndOfChapter)
+    }
+
+    @Test
+    fun `canonical extension adds exactly fifteen minutes to the honest remainder`() = testScope.runTest {
+        playerManager.setSleepTimer(5)
+
+        val result = playerManager.extendSleepTimerBy15Minutes()
+        val state = playerManager.playerState.value
+
+        assertEquals(1_200, result)
+        assertEquals(1_200, state.sleepTimerRemainingSeconds)
+        assertEquals(20, state.sleepTimerMinutes)
+        assertFalse(state.isSleepTimerEndOfChapter)
+    }
+
+    @Test
+    fun `shake path invokes the same extension command as the visible path`() = testScope.runTest {
+        playerManager.setSleepTimer(5)
+        val visibleResult = playerManager.extendSleepTimerBy15Minutes()
+
+        playerManager.setSleepTimer(5)
+        val shakeResult = playerManager.handleSleepTimerShake()
+
+        assertEquals(visibleResult, shakeResult)
+        assertEquals(1_200, playerManager.playerState.value.sleepTimerRemainingSeconds)
+    }
+
+    @Test
+    fun `extension converts end-of-chapter mode into an exact timed remainder`() = testScope.runTest {
+        playerManager.loadAndPlayBook(
+            book = book,
+            chapters = chapters,
+            initialChapterIndex = 0,
+            initialPositionSeconds = 300,
+            autoPlay = false
+        )
+        playerManager.setSleepTimer(-1)
+        val before = playerManager.playerState.value.sleepTimerRemainingSeconds
+
+        val result = playerManager.extendSleepTimerBy15Minutes()
+
+        assertEquals(before + 900, result)
+        assertEquals(before + 900, playerManager.playerState.value.sleepTimerRemainingSeconds)
+        assertFalse(playerManager.playerState.value.isSleepTimerEndOfChapter)
+    }
+
+    @Test
+    fun `inactive timer cannot be extended`() = testScope.runTest {
+        assertEquals(0, playerManager.extendSleepTimerBy15Minutes())
+        assertEquals(0, playerManager.playerState.value.sleepTimerRemainingSeconds)
+    }
+
+    @Test
+    fun `extension emits one announcement with the exact new remainder`() = testScope.runTest {
+        val notices = mutableListOf<SleepTimerNotice>()
+        val collection = launch(start = CoroutineStart.UNDISPATCHED) {
+            playerManager.sleepTimerNotices.collect(notices::add)
+        }
+        try {
+            playerManager.setSleepTimer(5)
+            playerManager.extendSleepTimerBy15Minutes()
+            runCurrent()
+
+            assertEquals(listOf(SleepTimerNotice.Extended(1_200)), notices)
+        } finally {
+            collection.cancel()
+        }
+    }
+
+    @Test
+    fun `fade window emits its warning only once`() = testScope.runTest {
+        val notices = mutableListOf<SleepTimerNotice>()
+        val collection = launch(start = CoroutineStart.UNDISPATCHED) {
+            playerManager.sleepTimerNotices.collect(notices::add)
+        }
+        try {
+            val shortChapter = chapters.first().copy(durationSeconds = 31)
+            playerManager.loadAndPlayBook(
+                book = book,
+                chapters = listOf(shortChapter),
+                initialChapterIndex = 0,
+                autoPlay = false
+            )
+            playerManager.setSleepTimer(-1)
+
+            ShadowLooper.idleMainLooper(5, TimeUnit.SECONDS)
+            runCurrent()
+
+            assertEquals(listOf(SleepTimerNotice.FadeWarning), notices)
+        } finally {
+            collection.cancel()
+        }
     }
 
     @Test

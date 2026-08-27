@@ -593,7 +593,9 @@ fun BookDetailScreen(
                         },
                         narrationRatingDeleteFocusRequester = narrationRatingDeleteFocusRequester,
                         onAuthorClick = { author ->
-                            viewModel.openCanonicalAuthorForWork(currentBook.workId, author)
+                            viewModel.openPersonBooks(
+                                CatalogPerson(author, bookPersonPath("avtor", author), 0)
+                            )
                         },
                         onNarratorClick = { narrator ->
                             viewModel.openPersonBooks(

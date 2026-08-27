@@ -135,6 +135,13 @@ fun BookDetailScreen(
 
     val currentBook = book ?: return
     val isDownloadingThis = downloadingBookId == currentBook.id
+    // #392 — MB progress and estimated size (uses same HttpFetcher + privacy route as download)
+    val bytesProgressMap by offlineDownloads.downloadBytesProgress.collectAsState()
+    val bytesProgress = bytesProgressMap[currentBook.id]
+    var estimatedSize by remember { mutableStateOf<com.slukhayka.audiobooks.data.downloads.OfflineDownloads.EstimatedSize?>(null) }
+    LaunchedEffect(currentBook.id) {
+        estimatedSize = try { offlineDownloads.estimateOfflineSize(currentBook.id) } catch (_: Exception) { null }
+    }
     // ADR-0011: the other rendition cards of this Work — the «Інші начитки»
     // block. Cold flow collected once per composition; the pure filter is
     // JVM-tested (siblingNarrations).
@@ -623,6 +630,36 @@ fun BookDetailScreen(
                     // current book's own source is marked.
                     BookDetailSourceSection(detailPresentation) { source ->
                         viewModel.playFromSource(source.sourceId, source.url)
+                    }
+
+                    // #392 — estimated total size before download, or live MB progress
+                    if (!streamOnly) {
+                        val es = estimatedSize
+                        val sizeText = when {
+                            isDownloadingThis && bytesProgress != null -> {
+                                val total = bytesProgress.totalBytes
+                                val downloaded = bytesProgress.downloadedBytes
+                                val totalStr = if (total != null) com.slukhayka.audiobooks.ui.library.formatBytes(total) else "невідомо"
+                                val downloadedStr = com.slukhayka.audiobooks.ui.library.formatBytes(downloaded)
+                                val prefix = if (bytesProgress.isApproximate) "~" else ""
+                                "${bytesProgress.completedChapters}/${bytesProgress.totalChapters} • $downloadedStr / $prefix$totalStr (${(currentBook.downloadProgress.coerceIn(0f, 1f) * 100).toInt()}%)"
+                            }
+                            es != null -> when {
+                                es.totalBytes == null -> "Розмір: невідомо"
+                                es.isApproximate -> "Розмір: ~${com.slukhayka.audiobooks.ui.library.formatBytes(es.totalBytes)}"
+                                else -> "Розмір: ${com.slukhayka.audiobooks.ui.library.formatBytes(es.totalBytes)}"
+                            }
+                            else -> null
+                        }
+                        if (sizeText != null) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = sizeText,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 8.dp).testTag("book_detail_size")
+                            )
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(20.dp))

@@ -1,5 +1,3 @@
-@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
-
 package com.slukhayka.audiobooks.ui.screens
 
 import android.graphics.Bitmap
@@ -856,7 +854,7 @@ private fun PlayerTopBar(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun DualProgress(
     progress: PlayerProgressUi,
@@ -974,8 +972,6 @@ private fun BookProgressTrack(
     val inactiveMarker = MaterialTheme.colorScheme.onSurfaceVariant
     val bookmarkColor = MaterialTheme.colorScheme.tertiary
     Box(modifier = Modifier.fillMaxWidth().testTag("book_progress_track")) {
-        // #292: drawStopIndicator = {} removes the M3 stop dot that users
-        // confused with a bookmark marker.
         Slider(
             value = progress.bookFraction,
             onValueChange = onSeek,
@@ -992,13 +988,7 @@ private fun BookProgressTrack(
                 thumbColor = active,
                 activeTrackColor = active,
                 inactiveTrackColor = MaterialTheme.colorScheme.outlineVariant
-            ),
-            track = { sliderState ->
-                SliderDefaults.Track(
-                    sliderState = sliderState,
-                    drawStopIndicator = {}
-                )
-            }
+            )
         )
         Canvas(
             modifier = Modifier

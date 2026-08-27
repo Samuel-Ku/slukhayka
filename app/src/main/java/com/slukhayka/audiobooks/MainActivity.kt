@@ -40,6 +40,8 @@ import com.slukhayka.audiobooks.ui.components.MiniPlayerBar
 import com.slukhayka.audiobooks.ui.components.accessibilityModalBackground
 import com.slukhayka.audiobooks.ui.components.accessibilityPane
 import com.slukhayka.audiobooks.ui.screens.BookDetailScreen
+import com.slukhayka.audiobooks.ui.screens.AuthorsIndexScreen
+import com.slukhayka.audiobooks.ui.screens.CanonicalAuthorScreen
 import com.slukhayka.audiobooks.ui.screens.BookDetailLinkOrigin
 import com.slukhayka.audiobooks.ui.screens.CollectionsIndexScreen
 import com.slukhayka.audiobooks.ui.screens.GenreScreen
@@ -215,6 +217,12 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     val selectedTop100 by viewModel.selectedTop100.collectAsState()
     val selectedPeopleKind by viewModel.selectedPeopleKind.collectAsState()
     val selectedPerson by viewModel.selectedPerson.collectAsState()
+    val authorsIndexOpen by viewModel.authorsIndexOpen.collectAsState()
+    val authorsIndexResults by viewModel.authorsIndexResults.collectAsState()
+    val selectedCanonicalAuthor by viewModel.selectedCanonicalAuthor.collectAsState()
+    val canonicalAuthorWorks by viewModel.canonicalAuthorWorks.collectAsState()
+    val isCanonicalAuthorLoading by viewModel.isCanonicalAuthorLoading.collectAsState()
+    val canonicalAuthorLoadFailed by viewModel.canonicalAuthorLoadFailed.collectAsState()
     val secondaryBookParentActive = when (secondaryBookRoute.parent) {
         SecondaryBookParent.SERIES -> selectedSeries != null
         SecondaryBookParent.GENRE -> selectedGenre != null

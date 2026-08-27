@@ -128,6 +128,7 @@ fun HomeScreen(
     // Spec-10 T4: aggregated global search across all verified sources.
     val globalResults by viewModel.globalSearchResults.collectAsState()
     val isGlobalSearchLoading by viewModel.isGlobalSearchLoading.collectAsState()
+    val authorResults by viewModel.authorSearchResults.collectAsState()
     val globalSearchError by viewModel.globalSearchError.collectAsState()
     // Spec-23 T4: the endless merged feed (Paging 3) over the persisted
     // Works/Editions catalogue — pages through the whole catalogue, one card

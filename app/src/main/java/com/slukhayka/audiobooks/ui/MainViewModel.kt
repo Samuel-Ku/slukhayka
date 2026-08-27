@@ -902,6 +902,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _isGlobalSearchLoading.value = false
             return
         }
+        _authorSearchResults.value = emptyList()
+        authorSearchJob = viewModelScope.launch(Dispatchers.IO) {
+            delay(350)
+            _authorSearchResults.value = authorMatchesOrEmpty(clean) { sourceCatalog.searchAuthors(it) }
+        }
         // Do not leave a previous query's Works visible under a new query;
         // the screen now presents the truthful loading state instead.
         _globalSearchResults.value = emptyList()
@@ -1332,25 +1337,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (bookId != null) {
             _selectedBookUniverse.value = null
             viewModelScope.launch(Dispatchers.IO) {
-                // #388 — refresh is best-effort; a FK violation or network
-                // failure must never crash the book page (tapping «Сни» was
-                // force-finishing MainActivity). Degrade gracefully.
-                try {
-                    libraryEntries.refreshBookCoverAndDetails(bookId)
-                } catch (e: Exception) {
-                    android.util.Log.w("MainViewModel", "refreshBookCoverAndDetails failed for $bookId", e)
-                }
+                libraryEntries.refreshBookCoverAndDetails(bookId)
                 // Spec-25 (#171): resolve the book's series universe lazily —
                 // cache-first read, then the (idempotent) resolution, then the
                 // fresher read. Best-effort: an unseeded series contributes
                 // nothing.
-                try {
-                    _selectedBookUniverse.value = seriesUniverses.contextOfBook(bookId)
-                    seriesUniverses.resolveForBook(bookId)
-                    _selectedBookUniverse.value = seriesUniverses.contextOfBook(bookId)
-                } catch (e: Exception) {
-                    android.util.Log.w("MainViewModel", "series universe resolve failed for $bookId", e)
-                }
+                _selectedBookUniverse.value = seriesUniverses.contextOfBook(bookId)
+                seriesUniverses.resolveForBook(bookId)
+                _selectedBookUniverse.value = seriesUniverses.contextOfBook(bookId)
             }
             // Spec-15 T5: load what every source carrying the Work says about
             // it (description, rating, narrator, genres) — best-effort per

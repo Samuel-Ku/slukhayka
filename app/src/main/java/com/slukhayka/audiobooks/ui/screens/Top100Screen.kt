@@ -5,12 +5,12 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -18,13 +18,23 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import com.slukhayka.audiobooks.ui.library.ukPlural
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
+import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.ui.MainViewModel
+import com.slukhayka.audiobooks.ui.components.BookCoverImage
+import com.slukhayka.audiobooks.ui.components.BookCoverSemantics
+import com.slukhayka.audiobooks.ui.components.IndexScreenScaffold
+import com.slukhayka.audiobooks.ui.components.SecondaryLoadingState
+import com.slukhayka.audiobooks.ui.components.SecondaryMessageState
 import com.slukhayka.audiobooks.ui.displayAuthor
 import com.slukhayka.audiobooks.ui.theme.*
 
@@ -39,36 +49,31 @@ import com.slukhayka.audiobooks.ui.theme.*
 fun Top100Screen(
     viewModel: MainViewModel,
     onBackClick: () -> Unit,
-    onBookClick: (String) -> Unit
+    onBookClick: (String) -> Unit,
+    restoreFocusBookId: String? = null,
+    onBookFocusRestored: (String) -> Unit = {},
+    listState: LazyListState = rememberLazyListState()
 ) {
     val books by viewModel.top100Books.collectAsState()
     val isLoading by viewModel.isTop100Loading.collectAsState()
+    val loadFailed by viewModel.top100LoadFailed.collectAsState()
+    val returnFocusRequester = remember { FocusRequester() }
 
-    Scaffold(
-        topBar = {
-            // Host Scaffold in MainActivity already consumed the status bar
-            // (innerPadding.top); don't let this inner TopAppBar add it again.
-            TopAppBar(
-                windowInsets = WindowInsets(0, 0, 0, 0),
-                title = {
-                    Text(
-                        text = "ТОП 100 АудіоКниг",
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBackClick) {
-                        Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
-            )
-        },
-        containerColor = MaterialTheme.colorScheme.background
-    ) { padding ->
+    IndexScreenScaffold(title = "ТОП 100 АудіоКниг", onBackClick = onBackClick) { padding ->
+        LaunchedEffect(restoreFocusBookId, books, isLoading, loadFailed) {
+            val bookId = restoreFocusBookId ?: return@LaunchedEffect
+            if (isLoading || loadFailed) return@LaunchedEffect
+            val bookIndex = books.indexOfFirst { it.id == bookId }
+            if (bookIndex < 0) return@LaunchedEffect
+            // The count row is item zero; ranked books start at item one.
+            listState.scrollToItem(bookIndex + 1)
+            withFrameNanos { }
+            if (runCatching { returnFocusRequester.requestFocus() }.getOrDefault(false)) {
+                onBookFocusRestored(bookId)
+            }
+        }
         LazyColumn(
+            state = listState,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
@@ -78,40 +83,34 @@ fun Top100Screen(
             when {
                 isLoading -> {
                     item {
-                        Box(
+                        SecondaryLoadingState(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(48.dp)
+                        )
+                    }
+                }
+
+                loadFailed -> {
+                    item {
+                        SecondaryMessageState(
+                            message = stringResource(R.string.secondary_top100_error),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(48.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                        }
+                            isError = true
+                        )
                     }
                 }
 
                 books.isEmpty() -> {
                     item {
-                        Box(
+                        SecondaryMessageState(
+                            message = stringResource(R.string.secondary_top100_empty),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(48.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(
-                                    imageVector = Icons.Default.MenuBook,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(48.dp)
-                                )
-                                Spacer(modifier = Modifier.height(12.dp))
-                                Text(
-                                    text = "Не вдалося завантажити рейтинг. Перевірте з'єднання.",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
+                                .padding(48.dp)
+                        )
                     }
                 }
 
@@ -135,6 +134,11 @@ fun Top100Screen(
                             onPlayClick = {
                                 viewModel.playAudiobook(book)
                                 viewModel.setShowFullPlayer(true)
+                            },
+                            modifier = if (book.id == restoreFocusBookId) {
+                                Modifier.focusRequester(returnFocusRequester)
+                            } else {
+                                Modifier
                             }
                         )
                     }
@@ -146,19 +150,22 @@ fun Top100Screen(
 
 /** One ranked row: rank badge + cover + title/author/duration. */
 @Composable
-private fun Top100Row(
+fun Top100Row(
     rank: Int,
     book: AudiobookEntity,
     onClick: () -> Unit,
-    onPlayClick: () -> Unit
+    onPlayClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     Card(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 4.dp)
+            .defaultMinSize(minHeight = 48.dp)
             .clip(RoundedCornerShape(AppDimens.RadiusPanel))
             .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(AppDimens.RadiusPanel))
             .clickable { onClick() }
+            .semantics(mergeDescendants = true) { }
             .testTag("top100_rank_$rank"),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
     ) {
@@ -189,9 +196,9 @@ private fun Top100Row(
 
             Spacer(modifier = Modifier.width(12.dp))
 
-            com.slukhayka.audiobooks.ui.components.BookCoverImage(
+            BookCoverImage(
                 book = book,
-                contentDescription = book.title,
+                semantics = BookCoverSemantics.Decorative,
                 modifier = Modifier
                     .size(56.dp)
                     .clip(RoundedCornerShape(AppDimens.RadiusCover)),
@@ -227,10 +234,13 @@ private fun Top100Row(
                 }
             }
 
-            IconButton(onClick = onPlayClick) {
+            IconButton(
+                onClick = onPlayClick,
+                modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
+            ) {
                 Icon(
                     imageVector = Icons.Default.PlayArrow,
-                    contentDescription = "Відтворити",
+                    contentDescription = stringResource(R.string.secondary_play_book, book.title),
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(26.dp)
                 )

@@ -82,7 +82,7 @@ class AudioPlayerManagerTest {
         )
         // ADR-0002: the player runs on the store + a chapter fetcher — no
         // repository graph. The fake DAO is the in-memory persistence.
-        listeningState = ListeningStateStore(dao)
+        listeningState = ListeningStateStore(dao, dispatcher)
     }
 
     @After

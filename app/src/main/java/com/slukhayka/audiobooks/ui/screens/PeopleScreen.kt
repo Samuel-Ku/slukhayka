@@ -5,25 +5,34 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.data.catalog.CatalogPerson
+import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.ui.MainViewModel
+import com.slukhayka.audiobooks.ui.components.IndexScreenScaffold
+import com.slukhayka.audiobooks.ui.components.SecondaryLoadingState
+import com.slukhayka.audiobooks.ui.components.SecondaryMessageState
+import com.slukhayka.audiobooks.ui.library.ukPlural
 import com.slukhayka.audiobooks.ui.theme.*
 
 /**
@@ -37,100 +46,120 @@ fun PeopleScreen(
     viewModel: MainViewModel,
     onBackClick: () -> Unit,
     onBookClick: (String) -> Unit,
-    onPersonClick: (CatalogPerson) -> Unit
+    onPersonClick: (CatalogPerson) -> Unit,
+    restoreFocusPersonPath: String? = null,
+    onPersonFocusRestored: (String) -> Unit = {},
+    listState: LazyListState = rememberLazyListState()
 ) {
     val kind by viewModel.selectedPeopleKind.collectAsState()
     val people by viewModel.peopleEntries.collectAsState()
     val isLoading by viewModel.isPeopleLoading.collectAsState()
+    val loadFailed by viewModel.peopleLoadFailed.collectAsState()
 
     val currentKind = kind ?: return
 
-    Scaffold(
-        topBar = {
-            // Host Scaffold in MainActivity already consumed the status bar
-            // (innerPadding.top); don't let this inner TopAppBar add it again.
-            TopAppBar(
-                windowInsets = WindowInsets(0, 0, 0, 0),
-                title = {
-                    Text(
-                        text = currentKind.title,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBackClick) {
-                        Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
-            )
-        },
-        containerColor = MaterialTheme.colorScheme.background
-    ) { padding ->
-        LazyColumn(
+    IndexScreenScaffold(title = currentKind.title, onBackClick = onBackClick) { padding ->
+        PeopleContent(
+            people = people,
+            isLoading = isLoading,
+            loadFailed = loadFailed,
+            peopleCountLabel = "${people.size} ${if (currentKind.title == "Виконавці") "виконавців" else "авторів"}",
+            onPersonClick = onPersonClick,
+            restoreFocusPersonPath = restoreFocusPersonPath,
+            onPersonFocusRestored = onPersonFocusRestored,
+            listState = listState,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .testTag("people_screen"),
-            contentPadding = PaddingValues(bottom = 120.dp, top = 8.dp)
-        ) {
-            when {
-                isLoading -> {
-                    item {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(48.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                        }
-                    }
-                }
+        )
+    }
+}
 
-                people.isEmpty() -> {
-                    item {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(48.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(
-                                    imageVector = Icons.Default.MenuBook,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(48.dp)
-                                )
-                                Spacer(modifier = Modifier.height(12.dp))
-                                Text(
-                                    text = "Не вдалося завантажити список. Перевірте з'єднання.",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    }
-                }
+@Composable
+fun PeopleContent(
+    people: List<CatalogPerson>,
+    isLoading: Boolean,
+    loadFailed: Boolean,
+    peopleCountLabel: String,
+    onPersonClick: (CatalogPerson) -> Unit,
+    modifier: Modifier = Modifier,
+    restoreFocusPersonPath: String? = null,
+    onPersonFocusRestored: (String) -> Unit = {},
+    listState: LazyListState = rememberLazyListState()
+) {
+    val returnFocusRequester = remember { FocusRequester() }
 
-                else -> {
-                    item {
-                        Text(
-                            text = "${people.size} ${if (currentKind.title == "Виконавці") "виконавців" else "авторів"}",
-                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                            color = MaterialTheme.colorScheme.secondary,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-                        )
-                    }
-                    items(people, key = { it.path }) { person ->
-                        PersonRow(
-                            person = person,
-                            onClick = { onPersonClick(person) }
-                        )
-                    }
+    LaunchedEffect(restoreFocusPersonPath, people, isLoading, loadFailed) {
+        val path = restoreFocusPersonPath ?: return@LaunchedEffect
+        if (isLoading || loadFailed) return@LaunchedEffect
+        val personIndex = people.indexOfFirst { it.path == path }
+        if (personIndex < 0) return@LaunchedEffect
+        // The count row is item zero; people start at item one.
+        listState.scrollToItem(personIndex + 1)
+        withFrameNanos { }
+        if (runCatching { returnFocusRequester.requestFocus() }.getOrDefault(false)) {
+            onPersonFocusRestored(path)
+        }
+    }
+
+    LazyColumn(
+        state = listState,
+        modifier = modifier.testTag("people_screen"),
+        contentPadding = PaddingValues(bottom = 120.dp, top = 8.dp)
+    ) {
+        when {
+            isLoading -> {
+                item {
+                    SecondaryLoadingState(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(48.dp)
+                    )
+                }
+            }
+
+            loadFailed -> {
+                item {
+                    SecondaryMessageState(
+                        message = stringResource(R.string.secondary_people_error),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(48.dp),
+                        isError = true
+                    )
+                }
+            }
+
+            people.isEmpty() -> {
+                item {
+                    SecondaryMessageState(
+                        message = stringResource(R.string.secondary_people_empty),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(48.dp)
+                    )
+                }
+            }
+
+            else -> {
+                item {
+                    Text(
+                        text = peopleCountLabel,
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                        color = MaterialTheme.colorScheme.secondary,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                    )
+                }
+                items(people, key = { it.path }) { person ->
+                    PersonRow(
+                        person = person,
+                        onClick = { onPersonClick(person) },
+                        modifier = if (person.path == restoreFocusPersonPath) {
+                            Modifier.focusRequester(returnFocusRequester)
+                        } else {
+                            Modifier
+                        }
+                    )
                 }
             }
         }
@@ -139,17 +168,20 @@ fun PeopleScreen(
 
 /** One person: avatar-initial, name and book count. */
 @Composable
-private fun PersonRow(
+fun PersonRow(
     person: CatalogPerson,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     Card(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 4.dp)
+            .defaultMinSize(minHeight = 48.dp)
             .clip(RoundedCornerShape(AppDimens.RadiusCardLg))
             .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(AppDimens.RadiusCardLg))
             .clickable { onClick() }
+            .semantics(mergeDescendants = true) { }
             .testTag("person_${person.path.hashCode()}"),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
     ) {
@@ -187,7 +219,7 @@ private fun PersonRow(
             }
 
             Text(
-                text = "${person.bookCount} кн.",
+                text = "${person.bookCount} ${ukPlural(person.bookCount, "книга", "книги", "книг")}",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

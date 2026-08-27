@@ -60,8 +60,8 @@ android {
     targetSdk = 36
     // spec-29 T1 (#210): first release under the permanent applicationId.
     // versionCode grows monotonically across the Слухайка line (v1.0 was 1).
-    versionCode = 4
-    versionName = "1.3"
+    versionCode = 5
+    versionName = "1.3.5"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -195,6 +195,11 @@ dependencies {
   implementation(libs.androidx.biometric)
   implementation(libs.androidx.media3.exoplayer)
   implementation(libs.androidx.media3.session)
+  // ADR-0024: CastPlayer swaps in behind the MediaSession player seam while
+  // casting; the receiver itself never touches the network (phone proxy).
+  implementation(libs.androidx.media3.cast)
+  implementation(libs.play.services.cast.framework)
+  implementation(libs.nanohttpd)
   // implementation(libs.androidx.datastore.preferences)
   implementation(libs.androidx.lifecycle.runtime.compose)
   implementation(libs.androidx.lifecycle.runtime.ktx)
@@ -230,6 +235,9 @@ dependencies {
   // spec-38 T4 (#256): the RFC-8484 DoH resolver behind the privacy door —
   // same OkHttp version, one small artifact.
   implementation(libs.okhttp.dnsoverhttps)
+  // Spec #361 («Проксі відтворення»): the embedded HTTP server inside the
+  // playback proxy — plain sockets on one jar, no other surface.
+  implementation(libs.nanohttpd)
   // implementation(libs.play.services.location)
   implementation(libs.retrofit)
   // spec-19 T3: on-device ONNX inference for the recommendation embedder
@@ -334,6 +342,7 @@ val runRecommendationEval by tasks.registering(JavaExec::class) {
   args("${projectDir}/src/main/assets/models/e5")
   isIgnoreExitValue = false
 }
+  testImplementation(platform(libs.androidx.compose.bom))
   testImplementation(libs.androidx.compose.ui.test.junit4)
   testImplementation(libs.androidx.core)
   testImplementation(libs.androidx.junit)
@@ -345,6 +354,7 @@ val runRecommendationEval by tasks.registering(JavaExec::class) {
   testImplementation(libs.roborazzi.junit.rule)
   androidTestImplementation(platform(libs.androidx.compose.bom))
   androidTestImplementation(libs.androidx.compose.ui.test.junit4)
+  androidTestImplementation(libs.androidx.compose.ui.test.junit4.accessibility)
   androidTestImplementation(libs.androidx.compose.ui.test.manifest)
   androidTestImplementation(libs.androidx.core)
   androidTestImplementation(libs.androidx.espresso.core)
@@ -356,4 +366,10 @@ val runRecommendationEval by tasks.registering(JavaExec::class) {
   debugImplementation(libs.androidx.compose.ui.tooling)
   "ksp"(libs.androidx.room.compiler)
   "ksp"(libs.moshi.kotlin.codegen)
+}
+
+// Compose/Robolectric accessibility suites retain large rendered graphs.
+// Keep the CI test worker from exhausting Gradle's default heap mid-suite.
+tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
+  maxHeapSize = "2g"
 }

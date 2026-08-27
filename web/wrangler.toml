@@ -1,0 +1,7 @@
+name = "slukhayka-transport"
+main = "src/worker/index.ts"
+compatibility_date = "2026-08-01"
+
+# spec-43/T3 — Web Transport (ADR-0024): єдині двері до джерел.
+# Локальний запуск:  npm run dev:worker   (http://127.0.0.1:8787)
+# Деплой:            npm run deploy:worker

@@ -53,7 +53,12 @@ class ReviewsBlockSnapshotTest {
         composeTestRule.setContent {
             AudiobookTheme(darkTheme = true) {
                 ReviewsSurface {
-                    ReviewCard(review = review, isOwn = false, isPending = false)
+                    ReviewCard(
+                        review = review,
+                        workTitle = "Собор Паризької Богоматері",
+                        isOwn = false,
+                        isPending = false
+                    )
                 }
             }
         }
@@ -69,6 +74,7 @@ class ReviewsBlockSnapshotTest {
                 ReviewsSurface {
                     ReviewCard(
                         review = review.copy(uid = "uid-2", body = null, editionTag = null),
+                        workTitle = "Собор Паризької Богоматері",
                         isOwn = false,
                         isPending = false
                     )
@@ -87,7 +93,12 @@ class ReviewsBlockSnapshotTest {
         composeTestRule.setContent {
             AudiobookTheme(darkTheme = true) {
                 ReviewsSurface {
-                    ReviewCard(review = review.copy(uid = "uid-3"), isOwn = false, isPending = true)
+                    ReviewCard(
+                        review = review.copy(uid = "uid-3"),
+                        workTitle = "Собор Паризької Богоматері",
+                        isOwn = false,
+                        isPending = true
+                    )
                 }
             }
         }

@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:worker": "wrangler dev --port 8787",
+    "deploy:worker": "wrangler deploy",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "test": "vitest run",
@@ -12,7 +14,12 @@
     "icons": "node scripts/make-icons.mjs"
   },
   "dependencies": {
+    "css-select": "^7.0.0",
+    "domhandler": "^6.0.1",
+    "domutils": "^4.0.2",
     "firebase": "^10.14.1",
+    "htmlparser2": "^12.0.0",
+    "js-sha256": "^1.0.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

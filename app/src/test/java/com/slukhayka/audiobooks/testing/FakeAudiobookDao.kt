@@ -192,6 +192,20 @@ class FakeAudiobookDao(
         }
     }
 
+    override suspend fun updateDownloadStateValue(bookId: String, state: String) {
+        booksState.update { current ->
+            current.map { book ->
+                if (book.id == bookId) {
+                    book.downloadState = state
+                    book
+                } else book
+            }
+        }
+        libraryEntriesState.update { current ->
+            current.map { if (it.id == bookId) it.copy(downloadState = state) else it }
+        }
+    }
+
     override suspend fun updateSeriesFields(bookId: String, seriesTitle: String?, seriesUrl: String?, seriesIndex: Int?) {
         // ADR-0009: series persists on the Work row; the book copy keeps the
         // projection in sync for in-memory reads.
@@ -568,7 +582,8 @@ class FakeAudiobookDao(
         workId: String,
         isFavorite: Boolean,
         createdAt: Long,
-        downloadProgress: Float
+        downloadProgress: Float,
+        downloadState: String
     ) {
         libraryEntriesState.update { current ->
             val existing = current.firstOrNull { it.id == id }
@@ -576,12 +591,12 @@ class FakeAudiobookDao(
                 // True upsert: only the link and progress update on an
                 // existing row (isFavorite/createdAt never reset on re-sync).
                 current.map {
-                    if (it.id == id) it.copy(workId = workId, downloadProgress = downloadProgress) else it
+                    if (it.id == id) it.copy(workId = workId, downloadProgress = downloadProgress, downloadState = downloadState) else it
                 }
             } else {
                 current + LibraryEntryEntity(
                     id = id, workId = workId, isFavorite = isFavorite,
-                    createdAt = createdAt, downloadProgress = downloadProgress
+                    createdAt = createdAt, downloadProgress = downloadProgress, downloadState = downloadState
                 )
             }
         }

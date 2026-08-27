@@ -42,7 +42,7 @@ import com.slukhayka.audiobooks.data.facets.GenreIdentity
         AuthorFacetEntity::class,
         AuthorAliasEntity::class
     ],
-    version = 22,
+    version = 23,
     exportSchema = true
 )
 abstract class AudiobookDatabase : RoomDatabase() {
@@ -66,7 +66,7 @@ abstract class AudiobookDatabase : RoomDatabase() {
                     // upgrades, so a schema change fails loudly at runtime
                     // instead of silently dropping the database.
                     .addMigrations(
-                        MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22
+                        MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23
                     )
                     .build()
                 INSTANCE = instance
@@ -1061,6 +1061,13 @@ abstract class AudiobookDatabase : RoomDatabase() {
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_author_aliases_normalizedAlias ON author_aliases(normalizedAlias)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_author_aliases_sourceId ON author_aliases(sourceId)")
                 backfillFacetProjections(db)
+            }
+        }
+
+        /** #392 — downloadState for Library Entry (IDLE default). */
+        internal val MIGRATION_22_23 = object : Migration(22, 23) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE library_entries ADD COLUMN downloadState TEXT NOT NULL DEFAULT 'IDLE'")
             }
         }
 

@@ -22,6 +22,7 @@ interface AudiobookDao {
                    w.seriesTitle AS seriesTitle, w.seriesUrl AS seriesUrl, w.seriesIndex AS seriesIndex,
                    w.id AS workId, w.mergeKey AS mergeKey,
                    le.isFavorite AS isFavorite, le.createdAt AS createdAt, le.downloadProgress AS downloadProgress,
+                   le.downloadState AS downloadState,
                    (SELECT pp.preferredSpeed FROM playback_progress pp
                       JOIN editions e ON e.id = pp.editionId
                      WHERE e.workId = a.id LIMIT 1) AS preferredSpeed
@@ -116,10 +117,25 @@ interface AudiobookDao {
     )
     suspend fun upsertEntryDownloadProgress(bookId: String, progress: Float)
 
+    @Query("UPDATE library_entries SET downloadState = :state WHERE id = :bookId")
+    suspend fun updateDownloadStateValue(bookId: String, state: String)
+
     @Transaction
     suspend fun updateDownloadState(bookId: String, isDownloaded: Boolean, progress: Float) {
         updateBookDownloadState(bookId, isDownloaded)
         upsertEntryDownloadProgress(bookId, progress)
+    }
+
+    @Transaction
+    suspend fun updateDownloadStateWithState(
+        bookId: String,
+        isDownloaded: Boolean,
+        progress: Float,
+        state: String
+    ) {
+        updateBookDownloadState(bookId, isDownloaded)
+        upsertEntryDownloadProgress(bookId, progress)
+        updateDownloadStateValue(bookId, state)
     }
 
     /**
@@ -535,16 +551,17 @@ interface AudiobookDao {
      * the original createdAt never reset on a re-sync.
      */
     @Query(
-        "INSERT INTO library_entries (id, workId, isFavorite, createdAt, downloadProgress) " +
-            "VALUES (:id, :workId, :isFavorite, :createdAt, :downloadProgress) " +
-            "ON CONFLICT(id) DO UPDATE SET workId = excluded.workId, downloadProgress = excluded.downloadProgress"
+        "INSERT INTO library_entries (id, workId, isFavorite, createdAt, downloadProgress, downloadState) " +
+            "VALUES (:id, :workId, :isFavorite, :createdAt, :downloadProgress, :downloadState) " +
+            "ON CONFLICT(id) DO UPDATE SET workId = excluded.workId, downloadProgress = excluded.downloadProgress, downloadState = excluded.downloadState"
     )
     suspend fun upsertLibraryEntry(
         id: String,
         workId: String,
         isFavorite: Boolean,
         createdAt: Long,
-        downloadProgress: Float
+        downloadProgress: Float,
+        downloadState: String = com.slukhayka.audiobooks.data.db.DownloadState.IDLE
     )
 
     @Query("DELETE FROM library_entries WHERE id = :bookId")

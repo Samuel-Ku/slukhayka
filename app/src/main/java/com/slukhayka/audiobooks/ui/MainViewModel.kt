@@ -155,6 +155,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // resolved-profile state; the reviews block unlocks for writing the
         // moment ensure() answers (or degrades to local-only, its contract).
         attachListenerIdentity(listenerIdentityModule)
+        // #393 — keep in-app downloadingBookId in sync with the foreground service
+        viewModelScope.launch {
+            com.slukhayka.audiobooks.data.downloads.DownloadService.downloadingBookId.collect { id ->
+                _downloadingBookId.value = id
+            }
+        }
+        viewModelScope.launch {
+            com.slukhayka.audiobooks.data.downloads.DownloadService.downloadResult.collect { pair ->
+                if (pair != null) {
+                    val (bookId, result) = pair
+                    if (_selectedBookId.value == bookId) {
+                        _downloadMessage.value = OutcomeMessages.downloadOutcome(result)
+                    }
+                    refreshCacheSize()
+                    com.slukhayka.audiobooks.data.downloads.DownloadService.clearResult()
+                    _downloadingBookId.value = null
+                }
+            }
+        }
     }
 
     fun refreshCacheSize() {
@@ -1774,7 +1793,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val source = result.sources.firstOrNull() ?: return
         val key = result.key
         if (_catalogDownloadingKeys.value.contains(key)) return
-        if (_downloadingBookId.value != null) return
+        if (com.slukhayka.audiobooks.data.downloads.DownloadService.downloadingBookId.value != null) {
+            _downloadMessage.value = "Вже завантажується інша книга"
+            return
+        }
         _catalogDownloadingKeys.update { it + key }
         viewModelScope.launch(Dispatchers.IO) {
             try {
@@ -1783,48 +1805,39 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     KnownBookIdentity(result.title, result.author, result.narrator, result.coverImageUrl)
                 )
                 if (book != null) {
-                    _downloadingBookId.value = book.id
                     probeDurationsAfterImport(book.id)
-                    offlineDownloads.downloadAudiobookOffline(book.id)
+                    com.slukhayka.audiobooks.data.downloads.DownloadService.setDownloading(book.id)
+                    _downloadingBookId.value = book.id
+                    val intent = com.slukhayka.audiobooks.data.downloads.DownloadService.startIntent(
+                        getApplication(), book.id, book.title, book.author
+                    )
+                    androidx.core.content.ContextCompat.startForegroundService(getApplication(), intent)
                 }
             } catch (e: Exception) {
                 android.util.Log.w("MainViewModel", "Catalog download failed", e)
-            } finally {
+                com.slukhayka.audiobooks.data.downloads.DownloadService.setDownloading(null)
                 _downloadingBookId.value = null
+            } finally {
                 _catalogDownloadingKeys.update { it - key }
-                // Spec-27 (#185) BUG-013: the storage row must reflect a
-                // finished download without a screen restart — the byte
-                // counter refreshes after every download attempt.
-                refreshCacheSize()
             }
         }
     }
 
     fun downloadBookOffline(bookId: String) {
-        if (_downloadingBookId.value != null) return
-        _downloadingBookId.value = bookId
+        if (com.slukhayka.audiobooks.data.downloads.DownloadService.downloadingBookId.value != null) {
+            _downloadMessage.value = "Вже завантажується інша книга"
+            return
+        }
         viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val result = offlineDownloads.downloadAudiobookOffline(bookId)
-                // Stale-result guard (same pattern as relatedBooks): only
-                // surface the outcome while the user is still on this book —
-                // otherwise the message would pop on whichever book screen is
-                // open next.
-                if (_selectedBookId.value == bookId) {
-                    _downloadMessage.value = OutcomeMessages.downloadOutcome(result)
-                }
-            } catch (e: Exception) {
-                android.util.Log.w("MainViewModel", "Offline download failed", e)
-                if (_selectedBookId.value == bookId) {
-                    _downloadMessage.value = OutcomeMessages.downloadFailure()
-                }
-            } finally {
-                _downloadingBookId.value = null
-                // Spec-27 (#185) BUG-013: the storage row must reflect a
-                // finished download without a screen restart — the byte
-                // counter refreshes after every download attempt.
-                refreshCacheSize()
-            }
+            val book = dao.getAudiobookById(bookId) ?: return@launch
+            val title = book.title
+            val author = book.author
+            com.slukhayka.audiobooks.data.downloads.DownloadService.setDownloading(bookId)
+            _downloadingBookId.value = bookId
+            val intent = com.slukhayka.audiobooks.data.downloads.DownloadService.startIntent(
+                getApplication(), bookId, title, author
+            )
+            androidx.core.content.ContextCompat.startForegroundService(getApplication(), intent)
         }
     }
 

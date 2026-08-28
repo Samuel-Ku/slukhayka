@@ -91,6 +91,7 @@ fun BookDetailScreen(
     // (the «Інші начитки» block) straight from the module.
     libraryEntries: LibraryEntries,
     onBackClick: () -> Unit,
+    playerModalVisible: Boolean = false,
     returnFocusOrigin: BookDetailLinkOrigin? = null,
     onChildRouteOpened: (BookDetailLinkOrigin) -> Unit = {},
     onReturnFocusRestored: (BookDetailLinkOrigin) -> Unit = {}
@@ -103,7 +104,6 @@ fun BookDetailScreen(
     // the series pill. Null until the lazy resolution cached it (silent).
     val bookUniverse by viewModel.selectedBookUniverse.collectAsState()
     val playerState by viewModel.playerState.collectAsState()
-    val showFullPlayer by viewModel.showFullPlayer.collectAsState()
     val downloadingBookId by viewModel.downloadingBookId.collectAsState()
     val downloadMessage by viewModel.downloadMessage.collectAsState()
     // Spec-15 T5: what every source carrying the Work says about it.
@@ -125,7 +125,7 @@ fun BookDetailScreen(
     val deleteTriggerFocusRequester = remember { FocusRequester() }
 
     RestoreFocusAfterModal(
-        modalVisible = showFullPlayer,
+        modalVisible = playerModalVisible,
         returnFocusRequester = playerReturnFocusRequester,
         onFocusRestored = { playerReturnFocusRequester = null }
     )

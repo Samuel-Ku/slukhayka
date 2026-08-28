@@ -42,7 +42,6 @@ import com.slukhayka.audiobooks.data.db.WorkEntity
 import com.slukhayka.audiobooks.data.merge.MergeKey
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.SelectedTab
-import com.google.android.apps.common.testing.accessibility.framework.integrations.espresso.AccessibilityValidator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -205,12 +204,7 @@ class MainActivityAccessibilityTest {
             timeoutMillis = NAV_TIMEOUT_MS
         )
 
-        // A ModalBottomSheet lives in a separate Compose owner. Checking from
-        // the activity root also evaluates the obscured player beneath it and
-        // reports the 24dp navigation-bar sliver as a false touch target.
-        composeTestRule.enableAccessibilityChecks(
-            AccessibilityValidator().setRunChecksFromRootView(false)
-        )
+        composeTestRule.enableAccessibilityChecks()
         composeTestRule.onRoot().tryPerformAccessibilityChecks()
 
         composeTestRule.onNodeWithTag("tab_library").performClick()
@@ -324,7 +318,7 @@ class MainActivityAccessibilityTest {
         composeTestRule.waitUntil(timeoutMillis = PLAYBACK_TIMEOUT_MS) {
             kotlin.math.abs(currentViewModel().playerState.value.playbackSpeed - 1.25f) < 0.01f
         }
-        composeTestRule.onNodeWithTag("speed_sheet").tryPerformAccessibilityChecks()
+        composeTestRule.onRoot().tryPerformAccessibilityChecks()
         composeTestRule.onNodeWithContentDescription("Закрити налаштування швидкості")
             .performClick()
         waitUntilGone("speed_sheet")
@@ -346,8 +340,7 @@ class MainActivityAccessibilityTest {
             )
         composeTestRule.onNodeWithTag("sleep_timer_option_0")
             .assertIsSelected()
-        composeTestRule.onNodeWithTag("sleep_timer_sheet")
-            .tryPerformAccessibilityChecks()
+        composeTestRule.onRoot().tryPerformAccessibilityChecks()
         composeTestRule.onNodeWithTag("sleep_timer_option_5")
             .assert(SemanticsMatcher.keyIsDefined(SemanticsActions.OnClick))
             .performClick()

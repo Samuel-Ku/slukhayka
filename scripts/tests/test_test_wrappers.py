@@ -73,7 +73,10 @@ class FullSuiteWrapperTest(unittest.TestCase):
         self.assertIn("slukhayka-tests.", temp_path)
         self.assertFalse(Path(temp_path).exists())
         self.assertIn(":app:testPureJvm", invocations)
-        self.assertIn(":app:testRoomRobolectric", invocations)
+        self.assertIn(":app:testRoomNativeSdk35", invocations)
+        self.assertIn(":app:testRoomNativeSdk36", invocations)
+        self.assertIn(":app:testRoomNativeDefault", invocations)
+        self.assertIn(":app:testRoomRobolectricOnly", invocations)
         self.assertIn(":app:testComposeRoborazzi", invocations)
 
     def test_propagates_gradle_failure_and_still_cleans_temp(self):

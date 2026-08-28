@@ -47,6 +47,7 @@ class TestClass:
     package: str
     partition: str
     room_native: bool
+    sdk: int | None
     path: Path
 
 
@@ -89,7 +90,14 @@ def discover(root: Path) -> list[TestClass]:
             )
         partition = matched_partitions[0]
         room_native = partition == "room-robolectric" and native_room_match
-        result.append(TestClass(fqcn, package, partition, room_native, path))
+        sdk_match = re.search(r"sdk\s*=\s*\[\s*(\d+)", text)
+        sdk = int(sdk_match.group(1)) if sdk_match else None
+        if room_native and sdk not in (None, 35, 36):
+            raise ValueError(
+                f"native Room test uses an unsupported SDK cohort: "
+                f"{path.relative_to(root)} sdk={sdk}"
+            )
+        result.append(TestClass(fqcn, package, partition, room_native, sdk, path))
     return result
 
 
@@ -135,6 +143,14 @@ def changed_test_fqcn(path: str) -> str | None:
     return ".".join((*relative.parts[:-1], relative.stem))
 
 
+def execution_partition(test_class: TestClass) -> str:
+    if test_class.partition == "room-robolectric" and test_class.room_native:
+        return f"room-native-sdk{test_class.sdk}" if test_class.sdk else "room-native-default"
+    if test_class.partition == "room-robolectric":
+        return "room-robolectric-only"
+    return test_class.partition
+
+
 def select(test_classes: list[TestClass], changed_files: list[str]) -> dict[str, object]:
     if not changed_files:
         return {"fullSuite": True, "partitions": {}, "reason": "no changed files"}
@@ -149,7 +165,7 @@ def select(test_classes: list[TestClass], changed_files: list[str]) -> dict[str,
             test_class = by_fqcn.get(exact_fqcn)
             if test_class is None:
                 return {"fullSuite": True, "partitions": {}, "reason": "unknown changed test"}
-            selected.setdefault(test_class.partition, set()).add(test_class.fqcn)
+            selected.setdefault(execution_partition(test_class), set()).add(test_class.fqcn)
             continue
 
         package = production_package(path)
@@ -170,13 +186,20 @@ def select(test_classes: list[TestClass], changed_files: list[str]) -> dict[str,
         if not matches:
             return {"fullSuite": True, "partitions": {}, "reason": "no tests for changed module"}
         for test_class in matches:
-            selected.setdefault(test_class.partition, set()).add(test_class.fqcn)
+            selected.setdefault(execution_partition(test_class), set()).add(test_class.fqcn)
 
     return {
         "fullSuite": False,
         "partitions": {
             partition: sorted(selected[partition])
-            for partition in PARTITIONS
+            for partition in (
+                "pure-jvm",
+                "room-native-sdk35",
+                "room-native-sdk36",
+                "room-native-default",
+                "room-robolectric-only",
+                "compose-roborazzi",
+            )
             if partition in selected
         },
         "reason": "matched changed logical modules",
@@ -190,6 +213,11 @@ def parser() -> argparse.ArgumentParser:
     subparsers.add_parser("validate")
     list_parser = subparsers.add_parser("list")
     list_parser.add_argument("--partition", choices=PARTITIONS, required=True)
+    list_parser.add_argument(
+        "--cohort",
+        choices=("all", "native-sdk35", "native-sdk36", "native-default", "non-native"),
+        default="all",
+    )
     select_parser = subparsers.add_parser("select")
     select_parser.add_argument("--changed-file", action="append", default=[])
     return result
@@ -204,7 +232,14 @@ def main() -> int:
             print(json.dumps(validate(test_classes), sort_keys=True))
         elif args.command == "list":
             for test_class in test_classes:
-                if test_class.partition == args.partition:
+                cohort_match = {
+                    "all": True,
+                    "native-sdk35": test_class.room_native and test_class.sdk == 35,
+                    "native-sdk36": test_class.room_native and test_class.sdk == 36,
+                    "native-default": test_class.room_native and test_class.sdk is None,
+                    "non-native": not test_class.room_native,
+                }[args.cohort]
+                if test_class.partition == args.partition and cohort_match:
                     print(test_class.fqcn)
         else:
             print(json.dumps(select(test_classes, args.changed_file), sort_keys=True))

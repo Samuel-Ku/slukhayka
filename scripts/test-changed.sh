@@ -66,7 +66,10 @@ for partition, classes in payload["partitions"].items():
 while IFS="$(printf '\t')" read -r partition classes; do
   case "$partition" in
     pure-jvm) task=:app:testPureJvm ;;
-    room-robolectric) task=:app:testRoomRobolectric ;;
+    room-native-sdk35) task=:app:testRoomNativeSdk35 ;;
+    room-native-sdk36) task=:app:testRoomNativeSdk36 ;;
+    room-native-default) task=:app:testRoomNativeDefault ;;
+    room-robolectric-only) task=:app:testRoomRobolectricOnly ;;
     compose-roborazzi) task=:app:testComposeRoborazzi ;;
     *) printf '%s\n' "Unknown test partition: $partition" >&2; exit 2 ;;
   esac

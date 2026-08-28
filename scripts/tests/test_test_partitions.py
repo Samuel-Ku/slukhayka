@@ -116,7 +116,7 @@ class TestPartitionsCliTest(unittest.TestCase):
         self.assertFalse(payload["fullSuite"])
         self.assertEqual(
             ["com.slukhayka.audiobooks.data.db.LibraryRoomTest"],
-            payload["partitions"]["room-robolectric"],
+            payload["partitions"]["room-native-sdk35"],
         )
 
     def test_changes_in_multiple_logical_modules_select_each_modules_tests(self):
@@ -133,8 +133,21 @@ class TestPartitionsCliTest(unittest.TestCase):
         payload = json.loads(result.stdout)
         self.assertFalse(payload["fullSuite"])
         self.assertEqual(
-            {"pure-jvm", "room-robolectric"}, set(payload["partitions"])
+            {"pure-jvm", "room-native-sdk35"}, set(payload["partitions"])
         )
+
+    def test_validate_rejects_an_unknown_native_room_sdk_cohort(self):
+        self.write_test(
+            "com.slukhayka.audiobooks.data.db",
+            "FutureRoomTest",
+            "import org.robolectric.RobolectricTestRunner\n"
+            "import androidx.room.Room\n"
+            "@org.robolectric.annotation.Config(sdk = [37])",
+        )
+
+        result = self.run_cli("validate", expected_status=2)
+
+        self.assertIn("unsupported SDK cohort", result.stderr)
 
     def test_shared_or_unknown_change_falls_back_to_full_suite(self):
         self.seed_three_partitions()

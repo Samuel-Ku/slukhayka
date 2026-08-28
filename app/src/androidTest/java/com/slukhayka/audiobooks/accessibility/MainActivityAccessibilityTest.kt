@@ -365,6 +365,12 @@ class MainActivityAccessibilityTest {
         composeTestRule.enableAccessibilityChecks()
         composeTestRule.onRoot().tryPerformAccessibilityChecks()
 
+        composeTestRule.activity.runOnUiThread {
+            currentViewModel().playerManager.pause()
+        }
+        composeTestRule.waitUntil(timeoutMillis = PLAYBACK_TIMEOUT_MS) {
+            !currentViewModel().playerState.value.isPlaying
+        }
         val bookmarkPositionSeconds =
             currentViewModel().playerState.value.currentPositionMs / 1_000L
         val bookmarkTrigger = composeTestRule.onNodeWithTag("add_bookmark_chip")

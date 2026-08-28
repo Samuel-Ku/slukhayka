@@ -5,6 +5,7 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.ui.res.stringResource
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.data.personbookmarks.PersonBookmarks
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.library.ukPlural
 
@@ -12,10 +13,15 @@ import com.slukhayka.audiobooks.ui.library.ukPlural
  * Full-screen list of every book narrated (or written) by one person —
  * `/xfsearch/chitaet|<avtor>/<name>/`. Opened from the Виконавці/Автори index;
  * the person's page is a poster grid, so it feeds the shared [BookListScreen].
+ *
+ * #400: receives [PersonBookmarks] for direct Flow collection (ADR-0008).
  */
 @Composable
 fun PersonBooksScreen(
     viewModel: MainViewModel,
+    // #400: person bookmarks module — Flows read directly, actions via
+    // composition scope (ADR-0008).
+    personBookmarks: PersonBookmarks,
     onBackClick: () -> Unit,
     onBookClick: (String) -> Unit,
     restoreFocusBookId: String? = null,
@@ -28,6 +34,16 @@ fun PersonBooksScreen(
     val loadFailed by viewModel.personLoadFailed.collectAsState()
 
     val currentPerson = person ?: return
+
+    // #400: bookmark Flows collected directly — no forwarding in MainViewModel.
+    val bookmarkedAuthors by personBookmarks.bookmarkedAuthors()
+        .collectAsState(initial = emptyList())
+    val bookmarkedNarrators by personBookmarks.bookmarkedNarrators()
+        .collectAsState(initial = emptyList())
+    val isBookmarked = remember(bookmarkedAuthors, bookmarkedNarrators, currentPerson) {
+        val all = bookmarkedAuthors + bookmarkedNarrators
+        all.any { it.displayName.equals(currentPerson.name, ignoreCase = true) }
+    }
 
     BookListScreen(
         title = currentPerson.name,

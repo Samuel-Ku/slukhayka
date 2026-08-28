@@ -3,6 +3,7 @@ package com.slukhayka.audiobooks.ui.screens
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
@@ -11,6 +12,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.*
@@ -23,12 +25,18 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.data.catalog.CatalogPerson
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.data.db.PersonBookmarkEntity
+import com.slukhayka.audiobooks.data.db.PersonBookmarkKey
+import com.slukhayka.audiobooks.data.db.PersonRole
+import com.slukhayka.audiobooks.data.personbookmarks.PersonBookmarks
 import com.slukhayka.audiobooks.ui.MainViewModel
+import kotlinx.coroutines.launch
 import com.slukhayka.audiobooks.ui.components.IndexScreenScaffold
 import com.slukhayka.audiobooks.ui.components.SecondaryLoadingState
 import com.slukhayka.audiobooks.ui.components.SecondaryMessageState
@@ -44,6 +52,9 @@ import com.slukhayka.audiobooks.ui.theme.*
 @Composable
 fun PeopleScreen(
     viewModel: MainViewModel,
+    // #400: person bookmarks — Flows read directly, actions via composition
+    // scope (ADR-0008). No forwarding StateFlow in MainViewModel.
+    personBookmarks: PersonBookmarks,
     onBackClick: () -> Unit,
     onBookClick: (String) -> Unit,
     onPersonClick: (CatalogPerson) -> Unit,
@@ -58,13 +69,37 @@ fun PeopleScreen(
 
     val currentKind = kind ?: return
 
+    // #400: person-bookmark Flows collected directly (ADR-0008).
+    val bookmarkedAuthors by personBookmarks.bookmarkedAuthors()
+        .collectAsState(initial = emptyList())
+    val bookmarkedNarrators by personBookmarks.bookmarkedNarrators()
+        .collectAsState(initial = emptyList())
+    val bookmarkedNames = remember(bookmarkedAuthors, bookmarkedNarrators) {
+        (bookmarkedAuthors + bookmarkedNarrators).map { it.displayName }.toSet()
+    }
+    val scope = rememberCoroutineScope()
+
     IndexScreenScaffold(title = currentKind.title, onBackClick = onBackClick) { padding ->
         PeopleContent(
             people = people,
             isLoading = isLoading,
             loadFailed = loadFailed,
             peopleCountLabel = "${people.size} ${if (currentKind.title == "Виконавці") "виконавців" else "авторів"}",
+            bookmarkedNames = bookmarkedNames,
             onPersonClick = onPersonClick,
+            onToggleBookmark = { person ->
+                val r = person.role
+                if (r != null) {
+                    scope.launch { personBookmarks.toggle(personBookmarks.identity(r, person.name)) }
+                }
+            },
+            onToggleNotify = { person, enabled ->
+                val r = person.role
+                if (r != null) {
+                    val key = PersonBookmarkKey(r, personBookmarks.identity(r, person.name).id)
+                    scope.launch { personBookmarks.setNotifyEnabled(key, enabled) }
+                }
+            },
             restoreFocusPersonPath = restoreFocusPersonPath,
             onPersonFocusRestored = onPersonFocusRestored,
             listState = listState,
@@ -81,7 +116,10 @@ fun PeopleContent(
     isLoading: Boolean,
     loadFailed: Boolean,
     peopleCountLabel: String,
+    bookmarkedNames: Set<String> = emptySet(),
     onPersonClick: (CatalogPerson) -> Unit,
+    onToggleBookmark: (CatalogPerson) -> Unit = {},
+    onToggleNotify: (CatalogPerson, Boolean) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier,
     restoreFocusPersonPath: String? = null,
     onPersonFocusRestored: (String) -> Unit = {},
@@ -153,7 +191,10 @@ fun PeopleContent(
                 items(people, key = { it.path }) { person ->
                     PersonRow(
                         person = person,
+                        isBookmarked = person.name in bookmarkedNames,
                         onClick = { onPersonClick(person) },
+                        onToggleBookmark = { onToggleBookmark(person) },
+                        onToggleNotify = { enabled -> onToggleNotify(person, enabled) },
                         modifier = if (person.path == restoreFocusPersonPath) {
                             Modifier.focusRequester(returnFocusRequester)
                         } else {
@@ -166,72 +207,131 @@ fun PeopleContent(
     }
 }
 
-/** One person: avatar-initial, name and book count. */
+/** One person: avatar-initial, name and book count.
+ *
+ * #400 — combinedClickable replaces pointerInput: accessible click
+ * opens the person's page, long-click opens a bookmark context menu
+ * with notifyEnabled toggle (the bookmark is never deleted from the
+ * long-press menu — only notifyEnabled changes).
+ */
 @Composable
 fun PersonRow(
     person: CatalogPerson,
+    isBookmarked: Boolean = false,
     onClick: () -> Unit,
+    onToggleBookmark: () -> Unit = {},
+    onToggleNotify: (Boolean) -> Unit = { _ -> },
     modifier: Modifier = Modifier
 ) {
-    Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp)
-            .defaultMinSize(minHeight = 48.dp)
-            .clip(RoundedCornerShape(AppDimens.RadiusCardLg))
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(AppDimens.RadiusCardLg))
-            .clickable { onClick() }
-            .semantics(mergeDescendants = true) { }
-            .testTag("person_${person.path.hashCode()}"),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
-    ) {
-        Row(
+    var showContextMenu by remember { mutableStateOf(false) }
+    // #400: the bookmark's current notify state; re-read from the entity
+    // whenever isBookmarked toggles (the first open fetches truth from DB).
+    var notifyEnabled by remember { mutableStateOf(true) }
+
+    Box(modifier = modifier) {
+        Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .padding(horizontal = 16.dp, vertical = 4.dp)
+                .defaultMinSize(minHeight = 48.dp)
+                .clip(RoundedCornerShape(AppDimens.RadiusCardLg))
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(AppDimens.RadiusCardLg))
+                // #400: combinedClickable with click/long-click semantics —
+                // accessible via TalkBack and replacement for pointerInput.
+                .combinedClickable(
+                    onClick = onClick,
+                    onLongClick = { showContextMenu = true }
+                )
+                .semantics(mergeDescendants = true) {
+                    if (isBookmarked) {
+                        stateDescription = if (notifyEnabled) "Закладка, повідомлення увімкнені" else "Закладка, повідомлення вимкнені"
+                    }
+                }
+                .testTag("person_${person.path.hashCode()}"),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
         ) {
-            Box(
+            Row(
                 modifier = Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
-                contentAlignment = Alignment.Center
+                    .fillMaxWidth()
+                    .padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Person,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(12.dp))
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = person.name,
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    if (isBookmarked) {
+                        Text(
+                            text = if (notifyEnabled) "Закладено · повідомлення" else "Закладено",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+
+                Text(
+                    text = "${person.bookCount} ${ukPlural(person.bookCount, "книга", "книги", "книг")}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Spacer(modifier = Modifier.width(4.dp))
+
                 Icon(
-                    imageVector = Icons.Default.Person,
+                    imageVector = if (isBookmarked) Icons.Default.Bookmark else Icons.Default.ChevronRight,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
+                    tint = if (isBookmarked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(20.dp)
                 )
             }
+        }
 
-            Spacer(modifier = Modifier.width(12.dp))
-
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = person.name,
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    color = MaterialTheme.colorScheme.onSurface
+        // #400: context menu opened by long-press — toggle notifyEnabled
+        // without deleting the bookmark.
+        DropdownMenu(
+            expanded = showContextMenu,
+            onDismissRequest = { showContextMenu = false }
+        ) {
+            if (isBookmarked) {
+                DropdownMenuItem(
+                    text = { Text(if (notifyEnabled) "Вимкнути повідомлення" else "Увімкнути повідомлення") },
+                    onClick = {
+                        notifyEnabled = !notifyEnabled
+                        onToggleNotify(notifyEnabled)
+                        showContextMenu = false
+                    }
+                )
+            } else {
+                DropdownMenuItem(
+                    text = { Text("Додати закладку") },
+                    onClick = {
+                        onToggleBookmark()
+                        notifyEnabled = true
+                        showContextMenu = false
+                    }
                 )
             }
-
-            Text(
-                text = "${person.bookCount} ${ukPlural(person.bookCount, "книга", "книги", "книг")}",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            Spacer(modifier = Modifier.width(4.dp))
-
-            Icon(
-                imageVector = Icons.Default.ChevronRight,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(20.dp)
-            )
         }
     }
 }

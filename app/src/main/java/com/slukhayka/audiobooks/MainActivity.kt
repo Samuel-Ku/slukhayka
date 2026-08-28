@@ -33,7 +33,11 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.slukhayka.audiobooks.data.catalog.CatalogPerson
+import com.slukhayka.audiobooks.data.diagnostics.AppVisibility
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.SelectedTab
 import com.slukhayka.audiobooks.ui.components.MiniPlayerBar
@@ -185,6 +189,32 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
         targetState = fullPlayerTransition.targetState
     )
     val playerState by viewModel.playerState.collectAsState()
+    val crashReporting = App.instance.crashReporting
+    val crashReportingState by crashReporting.state.collectAsState()
+    var appVisibility by remember { mutableStateOf(AppVisibility.FOREGROUND) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    DisposableEffect(lifecycleOwner) {
+        App.instance.crashContextTracker.updateAppVisibility(AppVisibility.FOREGROUND)
+        val observer = LifecycleEventObserver { _, event ->
+            appVisibility = when (event) {
+                Lifecycle.Event.ON_START,
+                Lifecycle.Event.ON_RESUME -> AppVisibility.FOREGROUND
+                Lifecycle.Event.ON_STOP -> AppVisibility.BACKGROUND
+                else -> appVisibility
+            }
+            App.instance.crashContextTracker.updateAppVisibility(appVisibility)
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    if (crashReportingState.shouldShowPrompt) {
+        CrashReportConsentPrompt(
+            onAllow = crashReporting::allowTriggeringReport,
+            onDeny = crashReporting::denyTriggeringReport
+        )
+    }
 
     // Android 13+ requires a runtime POST_NOTIFICATIONS grant for the media
     // playback notification to be visible (background audio itself still works
@@ -341,7 +371,9 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
         Scaffold(
             modifier = Modifier
                 .testTag("app_background")
-                .accessibilityModalBackground(fullPlayerModalActive),
+                .accessibilityModalBackground(
+                    fullPlayerModalActive || crashReportingState.shouldShowPrompt
+                ),
             bottomBar = {
                 Column {
                     // Floating Persistent Mini Player
@@ -567,7 +599,8 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                         },
                         hiddenAuthors = hiddenAuthors,
                         onUnhideAuthor = { viewModel.unhideAuthor(it) },
-                        progressSyncSettings = viewModel.progressSyncSettingsModule
+                        progressSyncSettings = viewModel.progressSyncSettingsModule,
+                        crashReporting = App.instance.crashReporting
                     )
 
                     // Genre (category) page ("Аудіокниги жанру:").
@@ -818,6 +851,28 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
         )
     }
     }
+}
+
+@Composable
+internal fun CrashReportConsentPrompt(
+    onAllow: () -> Unit,
+    onDeny: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = { },
+        title = { Text(stringResource(R.string.crash_reports_prompt_title)) },
+        text = { Text(stringResource(R.string.crash_reports_prompt_body)) },
+        confirmButton = {
+            TextButton(onClick = onAllow) {
+                Text(stringResource(R.string.crash_reports_allow))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDeny) {
+                Text(stringResource(R.string.crash_reports_deny))
+            }
+        }
+    )
 }
 
 internal fun shouldHideAppBackgroundForFullPlayerTransition(

@@ -21,6 +21,7 @@ plugins {
   alias(libs.plugins.roborazzi)
   alias(libs.plugins.secrets)
   alias(libs.plugins.google.services)
+  alias(libs.plugins.firebase.crashlytics)
   alias(libs.plugins.kover)
 }
 
@@ -60,8 +61,8 @@ android {
     targetSdk = 36
     // spec-29 T1 (#210): first release under the permanent applicationId.
     // versionCode grows monotonically across the Слухайка line (v1.0 was 1).
-    versionCode = 6
-    versionName = "1.3.6"
+    versionCode = 7
+    versionName = "1.3.7"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -240,6 +241,7 @@ dependencies {
   // immediately elevated with generated credentials. Without Firebase keys
   // the identity degrades to the local-only profile.
   implementation(libs.firebase.auth)
+  implementation(libs.firebase.crashlytics)
   implementation(libs.firebase.appcheck.recaptcha)
   implementation(libs.kotlinx.coroutines.android)
   implementation(libs.kotlinx.coroutines.core)

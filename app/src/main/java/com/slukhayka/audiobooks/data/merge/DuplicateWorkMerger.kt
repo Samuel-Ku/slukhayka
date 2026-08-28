@@ -2,6 +2,7 @@ package com.slukhayka.audiobooks.data.merge
 
 import com.slukhayka.audiobooks.data.db.AudiobookDao
 import com.slukhayka.audiobooks.data.db.BookRow
+import com.slukhayka.audiobooks.data.db.WorkEntity
 import com.slukhayka.audiobooks.data.metadata.MetadataAssertions
 import kotlinx.coroutines.flow.first
 
@@ -138,12 +139,23 @@ class DuplicateWorkMerger(private val dao: AudiobookDao) {
         val loserWork = loser.workId ?: loser.id
         val survivorWork = survivor.workId ?: survivor.id
         if (loserWork != survivorWork) {
+            val survivorWorkEntity = dao.getWorkById(survivorWork) ?: WorkEntity(
+                id = survivorWork,
+                mergeKey = survivor.mergeKey.orEmpty(),
+                title = MetadataAssertions.normalizeTitle(survivor.title),
+                author = survivor.author.trim(),
+                seriesTitle = survivor.seriesTitle,
+                seriesUrl = survivor.seriesUrl,
+                seriesIndex = survivor.seriesIndex,
+                coverImageUrl = survivor.coverImageUrl,
+                addedAt = survivor.createdAt
+            )
             val survivorWorkSources = dao.getWorkSourcesForWorkSync(survivorWork)
             dao.getWorkSourcesForWorkSync(loserWork).forEach { source ->
                 // Skip a carrier the survivor already has (same source + url) —
                 // the «N джерел» badge must not double-count one source.
                 if (survivorWorkSources.none { it.sourceId == source.sourceId && it.sourceUrl == source.sourceUrl }) {
-                    dao.upsertWorkSource(source.copy(workId = survivorWork))
+                    dao.upsertWorkWithSource(survivorWorkEntity, source.copy(workId = survivorWork))
                 }
             }
             val survivorSeries = dao.getSeriesMembersForWork(survivorWork).map { it.seriesId }.toSet()

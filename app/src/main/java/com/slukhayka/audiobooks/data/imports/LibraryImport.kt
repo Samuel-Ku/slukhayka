@@ -670,8 +670,8 @@ class LibraryImport(
      */
     private suspend fun ensureWorkAndEntry(book: com.slukhayka.audiobooks.data.catalog.CatalogBook, bookId: String) {
         val mergeKey = MergeKey.keyFor(book.title, book.author)
-        val workId = if (mergeKey.isNotBlank()) {
-            (dao.findWorkByMergeKey(mergeKey) ?: WorkEntity(
+        val work = if (mergeKey.isNotBlank()) {
+            dao.findWorkByMergeKey(mergeKey) ?: WorkEntity(
                 id = mergeKey,
                 mergeKey = mergeKey,
                 // Spec-24 T1: the Work row stores the scrubbed title too.
@@ -682,10 +682,11 @@ class LibraryImport(
                 seriesIndex = book.seriesIndex,
                 coverImageUrl = book.coverImageUrl,
                 addedAt = System.currentTimeMillis()
-            ).also { dao.upsertWork(it) }).id
+            ).also { dao.upsertWork(it) }
         } else {
-            bookId
+            null
         }
+        val workId = work?.id ?: bookId
         dao.upsertLibraryEntry(
             id = bookId,
             workId = workId,
@@ -693,9 +694,10 @@ class LibraryImport(
             createdAt = System.currentTimeMillis(),
             downloadProgress = 0f
         )
-        if (workId.isNotBlank() && book.url.isNotBlank()) {
+        if (work != null && book.url.isNotBlank()) {
             val sourceId = sourceIdForUrl(book.url)
-            dao.upsertWorkSource(
+            dao.upsertWorkWithSource(
+                work,
                 WorkSourceEntity(
                     id = "$workId|$sourceId|${Integer.toHexString(book.url.hashCode())}",
                     workId = workId,

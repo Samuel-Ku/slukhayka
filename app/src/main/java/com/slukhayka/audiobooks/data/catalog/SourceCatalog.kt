@@ -796,7 +796,8 @@ class SourceCatalog(
         }
         val workSourceId = "${work.id}|$sourceId|${stableIdOf(sourceUrl)}"
         val sourceAlreadyKnown = dao.getWorkSourcesForWorkSync(work.id).any { it.id == workSourceId }
-        dao.upsertWorkSource(
+        dao.upsertWorkWithSource(
+            work,
             WorkSourceEntity(
                 id = workSourceId,
                 workId = work.id,

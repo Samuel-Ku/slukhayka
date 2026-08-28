@@ -14,6 +14,16 @@ import com.slukhayka.audiobooks.data.collections.SoundBooksTopSource
 import com.slukhayka.audiobooks.data.db.AudiobookDao
 import com.slukhayka.audiobooks.data.db.AudiobookDatabase
 import com.slukhayka.audiobooks.data.downloads.OfflineDownloads
+import com.slukhayka.audiobooks.data.diagnostics.AndroidProcessExitHistory
+import com.slukhayka.audiobooks.data.diagnostics.CrashDiagnosticLedger
+import com.slukhayka.audiobooks.data.diagnostics.CrashContextTracker
+import com.slukhayka.audiobooks.data.diagnostics.CrashReporting
+import com.slukhayka.audiobooks.data.diagnostics.DiagnosticAudioOrigin
+import com.slukhayka.audiobooks.data.diagnostics.DiagnosticPlaybackState
+import com.slukhayka.audiobooks.data.diagnostics.FirebaseCrashReportSink
+import com.slukhayka.audiobooks.data.diagnostics.PlaybackDiagnosticSnapshot
+import com.slukhayka.audiobooks.data.diagnostics.SharedPreferencesCrashConsentStore
+import com.slukhayka.audiobooks.data.diagnostics.UnexpectedPlaybackExitDetector
 import com.slukhayka.audiobooks.data.duration.ChapterDurationProbe
 import com.slukhayka.audiobooks.data.duration.DurationEnrichment
 import com.slukhayka.audiobooks.data.duration.HttpStreamProber
@@ -70,6 +80,8 @@ import com.slukhayka.audiobooks.player.AudioPlayerManager
 import com.slukhayka.audiobooks.player.CastPlaybackController
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -97,6 +109,19 @@ import kotlinx.coroutines.launch
 class App : Application() {
 
     private val database by lazy { AudiobookDatabase.getDatabase(this) }
+
+    private val crashConsentStore by lazy { SharedPreferencesCrashConsentStore(this) }
+    private val crashReportSink by lazy { FirebaseCrashReportSink.create(this) }
+    val crashDiagnosticLedger by lazy { CrashDiagnosticLedger(this) }
+    val crashReporting by lazy {
+        CrashReporting(
+            consentStore = crashConsentStore,
+            sink = crashReportSink,
+            enabledForBuild = !BuildConfig.DEBUG
+        )
+    }
+    val crashContextTracker by lazy { CrashContextTracker(crashReporting, crashDiagnosticLedger) }
+    private val diagnosticScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     /** Spec-40 #281 — the local mute table's DAO, for the reviews' hide flow. */
     val audiobookDao: AudiobookDao get() = database.audiobookDao()
@@ -434,7 +459,28 @@ class App : Application() {
             progressSync = progressSync,
             // Spec 2026-08-26: YouTube watch URLs resolve per-use before setMediaItem.
             streamUrlResolver = { url -> youTubeStreamResolver.resolve(url) }
-        )
+        ).also { manager ->
+            diagnosticScope.launch {
+                manager.playerState.collect { state ->
+                    crashContextTracker.updatePlayback(
+                        PlaybackDiagnosticSnapshot(
+                            state = when {
+                                state.isBuffering -> DiagnosticPlaybackState.BUFFERING
+                                state.isPlaying -> DiagnosticPlaybackState.PLAYING
+                                state.currentBook != null -> DiagnosticPlaybackState.PAUSED
+                                else -> DiagnosticPlaybackState.IDLE
+                            },
+                            audioOrigin = when {
+                                state.isOfflineMode -> DiagnosticAudioOrigin.LOCAL
+                                state.currentStreamUrl.isNotBlank() -> DiagnosticAudioOrigin.REMOTE
+                                else -> DiagnosticAudioOrigin.NONE
+                            },
+                            castActive = manager.isCasting
+                        )
+                    )
+                }
+            }
+        }
     }
 
     /**
@@ -448,7 +494,8 @@ class App : Application() {
             managerProvider = { playerManager },
             streamUrlHealer = { bookId, chapterIndex, failedUrl ->
                 libraryImport.refreshStreamUrl(bookId, chapterIndex, failedUrl)
-            }
+            },
+            onActiveChanged = crashContextTracker::updateCastActive
         ).also { controller ->
             playerManager.attachCastHook(controller)
             controller.bind()
@@ -458,6 +505,11 @@ class App : Application() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        UnexpectedPlaybackExitDetector(
+            AndroidProcessExitHistory(this),
+            crashDiagnosticLedger
+        ).inspect(crashReporting)
+        crashReporting.start()
         // Spec-38 T1 (#253): install the persisted privacy route BEFORE any
         // module can touch the network, and warm the real system WebView
         // User-Agent off the main thread (it initialises the WebView engine;

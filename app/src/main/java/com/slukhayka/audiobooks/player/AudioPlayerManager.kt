@@ -345,6 +345,9 @@ class AudioPlayerManager(
 
     private var castEngineHook: CastEngineHook? = null
 
+    val isCasting: Boolean
+        get() = castEngineHook?.isActive == true
+
     /** Read-only snapshot the cast controller needs to build its playlist. */
     internal fun castSnapshot(): PlayerState = _playerState.value
 

@@ -63,6 +63,8 @@ import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.identity.ListenerIdentity
 import com.slukhayka.audiobooks.data.identity.ListenerProfile
+import com.slukhayka.audiobooks.data.diagnostics.CrashConsent
+import com.slukhayka.audiobooks.data.diagnostics.CrashReporting
 import com.slukhayka.audiobooks.data.listening.ProgressSyncSettingsStore
 import com.slukhayka.audiobooks.ui.components.accessibilityPane
 import com.slukhayka.audiobooks.ui.components.accessibilityModalBackground
@@ -89,7 +91,8 @@ fun ProfileScreen(
     // ADR-0023 (spec-43 T6): the visible Progress Sync switch — the screen
     // reads the settings store directly (ADR-0008); defaults keep existing
     // call sites and previews unchanged.
-    progressSyncSettings: ProgressSyncSettingsStore? = null
+    progressSyncSettings: ProgressSyncSettingsStore? = null,
+    crashReporting: CrashReporting? = null
 ) {
     // The module is read directly (ADR-0008); suspend calls ride the
     // composition scope like every other screen.
@@ -315,8 +318,25 @@ fun ProfileScreen(
                     }
                 }
             }
+
+            if (crashReporting != null) {
+                Spacer(modifier = Modifier.height(16.dp))
+                CrashReportsSettingsRow(crashReporting)
+            }
         }
     }
+}
+
+@Composable
+internal fun CrashReportsSettingsRow(crashReporting: CrashReporting) {
+    val crashState by crashReporting.state.collectAsState()
+    SettingsSwitchRow(
+        title = stringResource(R.string.crash_reports_setting_title),
+        description = stringResource(R.string.crash_reports_setting_description),
+        checked = crashState.consent == CrashConsent.ALLOWED,
+        onCheckedChange = crashReporting::setAllowedFromSettings,
+        testTag = "profile_crash_reports_switch"
+    )
 }
 
 @Composable

@@ -25,6 +25,10 @@
         android:supportsRtl="true"
         android:networkSecurityConfig="@xml/network_security_config"
         android:theme="@style/Theme.MyApplication">
+        <!-- ADR-0025: no report leaves the phone before explicit consent. -->
+        <meta-data
+            android:name="firebase_crashlytics_collection_enabled"
+            android:value="false" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

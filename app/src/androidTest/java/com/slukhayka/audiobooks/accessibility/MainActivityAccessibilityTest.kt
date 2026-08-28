@@ -42,6 +42,7 @@ import com.slukhayka.audiobooks.data.db.WorkEntity
 import com.slukhayka.audiobooks.data.merge.MergeKey
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.SelectedTab
+import com.google.android.apps.common.testing.accessibility.framework.integrations.espresso.AccessibilityValidator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -204,7 +205,12 @@ class MainActivityAccessibilityTest {
             timeoutMillis = NAV_TIMEOUT_MS
         )
 
-        composeTestRule.enableAccessibilityChecks()
+        // A ModalBottomSheet lives in a separate Compose owner. Checking from
+        // the activity root also evaluates the obscured player beneath it and
+        // reports the 24dp navigation-bar sliver as a false touch target.
+        composeTestRule.enableAccessibilityChecks(
+            AccessibilityValidator().setRunChecksFromRootView(false)
+        )
         composeTestRule.onRoot().tryPerformAccessibilityChecks()
 
         composeTestRule.onNodeWithTag("tab_library").performClick()

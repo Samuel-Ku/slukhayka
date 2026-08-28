@@ -846,6 +846,8 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                             // module fields — the playerManager precedent).
                             libraryEntries = viewModel.libraryEntries,
                             listeningState = viewModel.listeningState,
+                            // #401: person bookmarks module (ADR-0008).
+                            personBookmarks = App.instance.personBookmarks,
                             onBookClick = { id ->
                                 libraryBookFocusReturnId = id
                                 viewModel.selectBook(id)
@@ -855,6 +857,9 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                                 viewModel.setShowFullPlayer(true)
                             },
                             onBrowseClick = { viewModel.selectTab(SelectedTab.EXPLORE) },
+                            onPersonClick = { person ->
+                                viewModel.openPersonBooks(person)
+                            },
                             restoreFocusBookId = libraryBookFocusReturnId,
                             onBookFocusRestored = { restoredId ->
                                 if (libraryBookFocusReturnId == restoredId) {

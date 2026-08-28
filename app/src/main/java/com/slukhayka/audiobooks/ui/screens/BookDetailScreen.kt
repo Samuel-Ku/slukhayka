@@ -113,6 +113,12 @@ fun BookDetailScreen(
     // Spec-23 T5: every Edition carrying the Work — the «Джерела» section.
     val bookSources by viewModel.bookSources.collectAsState()
 
+    // #400 — Person bookmark state for author/narrator.
+    val isAuthorBookmarked by viewModel.isAuthorBookmarked.collectAsState()
+    val isNarratorBookmarked by viewModel.isNarratorBookmarked.collectAsState()
+    val authorNotifyEnabled by viewModel.authorNotifyEnabled.collectAsState()
+    val narratorNotifyEnabled by viewModel.narratorNotifyEnabled.collectAsState()
+
     // #40 decision 1: the favourite toggle lives on the book page itself.
     val favoriteBooks by viewModel.libraryEntries.getFavoriteAudiobooks()
         .collectAsState(initial = emptyList())
@@ -668,7 +674,16 @@ fun BookDetailScreen(
                             )
                         },
                         onSeriesClick = { title, url -> viewModel.openSeries(title, url) },
-                        onWrongUniverse = { viewModel.reportWrongUniverse(currentBook.id) }
+                        onWrongUniverse = { viewModel.reportWrongUniverse(currentBook.id) },
+                        // #400 — real person bookmark state
+                        isAuthorBookmarked = isAuthorBookmarked,
+                        isNarratorBookmarked = isNarratorBookmarked,
+                        authorNotifyEnabled = authorNotifyEnabled,
+                        narratorNotifyEnabled = narratorNotifyEnabled,
+                        onAuthorBookmarkToggle = viewModel::toggleAuthorBookmark,
+                        onNarratorBookmarkToggle = viewModel::toggleNarratorBookmark,
+                        onAuthorNotifyToggle = viewModel::setAuthorNotifyEnabled,
+                        onNarratorNotifyToggle = viewModel::setNarratorNotifyEnabled
                     )
 
                     Spacer(modifier = Modifier.height(16.dp))
@@ -2220,6 +2235,7 @@ fun BookDetailCanonicalSummary(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier
                     .testTag("book_detail_author_link")
+                    .defaultMinSize(minHeight = 48.dp)
                     .focusRequester(authorFocusRequester)
                     .clickable {
                         onChildRouteOpened(BookDetailLinkOrigin.AUTHOR)
@@ -2251,6 +2267,7 @@ fun BookDetailCanonicalSummary(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier
+                    .defaultMinSize(minHeight = 48.dp)
                     .focusRequester(narratorFocusRequester)
                     .clickable {
                         onChildRouteOpened(BookDetailLinkOrigin.NARRATOR)

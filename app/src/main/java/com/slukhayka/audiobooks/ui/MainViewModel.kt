@@ -16,6 +16,7 @@ import com.slukhayka.audiobooks.data.catalog.CatalogPerson
 import com.slukhayka.audiobooks.data.catalog.CatalogSeries
 import com.slukhayka.audiobooks.data.catalog.CatalogSeriesIndex
 import com.slukhayka.audiobooks.data.db.*
+import com.slukhayka.audiobooks.data.facets.FacetIdentity
 import com.slukhayka.audiobooks.data.duration.ChapterDurationProbe
 import com.slukhayka.audiobooks.data.duration.DurationEnrichment
 import com.slukhayka.audiobooks.data.imports.ImportGrantStore
@@ -32,6 +33,7 @@ import com.slukhayka.audiobooks.data.listening.ListeningStateStore
 import com.slukhayka.audiobooks.data.imports.ImportPlanner
 import com.slukhayka.audiobooks.data.identity.ListenerIdentity
 import com.slukhayka.audiobooks.data.facets.WorkFacetFilter
+import com.slukhayka.audiobooks.data.personbookmarks.PersonBookmarks
 import com.slukhayka.audiobooks.data.privacy.NetworkPrivacy
 import com.slukhayka.audiobooks.data.privacy.PrivacyPrefs
 import com.slukhayka.audiobooks.data.privacy.RouteResolution
@@ -217,6 +219,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val seriesUniverses: SeriesUniverses = App.instance.seriesUniverses
     val playerManager: AudioPlayerManager = App.instance.playerManager
     val recommendationPersonalization = App.instance.recommendationPreferences
+
+    // #399/#400 — person bookmarks module (ADR-0008: screens read Flows directly).
+    val personBookmarks: PersonBookmarks = App.instance.personBookmarks
 
     // Spec-36 T1 (#244): the app-release check — a pass-through module
     // reference like the fields above (the screen reads its flow directly,
@@ -835,6 +840,140 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun closePersonBooks() {
         _selectedPerson.value = null
         personLoader.close()
+    }
+
+    // --- #400: Person bookmarks for BookDetail, CanonicalAuthor, PersonBooks screens ---
+
+    // #400 — Observe whether the current book's author is bookmarked.
+    val isAuthorBookmarked: StateFlow<Boolean> = _selectedBookId
+        .flatMapLatest { bookId ->
+            if (bookId == null) flowOf(false)
+            else libraryEntries.observeBook(bookId).flatMapLatest { book ->
+                if (book == null || book.author.isBlank()) flowOf(false)
+                else personBookmarks.observePersonBookmark(
+                    PersonRole.AUTHOR.storageValue,
+                    personBookmarks.authorId(book.author)
+                ).map { it != null }
+            }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    // #400 — Observe whether the current book's narrator is bookmarked.
+    val isNarratorBookmarked: StateFlow<Boolean> = _selectedBookId
+        .flatMapLatest { bookId ->
+            if (bookId == null) flowOf(false)
+            else libraryEntries.observeBook(bookId).flatMapLatest { book ->
+                if (book == null || book.narrator.isBlank()) flowOf(false)
+                else personBookmarks.observePersonBookmark(
+                    PersonRole.NARRATOR.storageValue,
+                    personBookmarks.narratorId(book.narrator)
+                ).map { it != null }
+            }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    // #400 — Observe author notify setting.
+    val authorNotifyEnabled: StateFlow<Boolean> = _selectedBookId
+        .flatMapLatest { bookId ->
+            if (bookId == null) flowOf(true)
+            else libraryEntries.observeBook(bookId).flatMapLatest { book ->
+                if (book == null || book.author.isBlank()) flowOf(true)
+                else personBookmarks.observePersonBookmark(
+                    PersonRole.AUTHOR.storageValue,
+                    personBookmarks.authorId(book.author)
+                ).map { it?.notifyEnabled ?: true }
+            }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+
+    // #400 — Observe narrator notify setting.
+    val narratorNotifyEnabled: StateFlow<Boolean> = _selectedBookId
+        .flatMapLatest { bookId ->
+            if (bookId == null) flowOf(true)
+            else libraryEntries.observeBook(bookId).flatMapLatest { book ->
+                if (book == null || book.narrator.isBlank()) flowOf(true)
+                else personBookmarks.observePersonBookmark(
+                    PersonRole.NARRATOR.storageValue,
+                    personBookmarks.narratorId(book.narrator)
+                ).map { it?.notifyEnabled ?: true }
+            }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+
+    /** #400 — Toggle the author bookmark for the currently displayed book. */
+    fun toggleAuthorBookmark() {
+        val book = selectedBook.value ?: return
+        if (book.author.isBlank()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            personBookmarks.toggleAuthor(book.author)
+        }
+    }
+
+    /** #400 — Toggle the narrator bookmark for the currently displayed book. */
+    fun toggleNarratorBookmark() {
+        val book = selectedBook.value ?: return
+        if (book.narrator.isBlank()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            personBookmarks.toggleNarrator(book.narrator)
+        }
+    }
+
+    /** #400 — Set notify enabled for the current book's author. */
+    fun setAuthorNotifyEnabled(enabled: Boolean) {
+        val book = selectedBook.value ?: return
+        if (book.author.isBlank()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            personBookmarks.setNotifyEnabled(
+                com.slukhayka.audiobooks.data.db.PersonBookmarkKey(
+                    PersonRole.AUTHOR,
+                    personBookmarks.authorId(book.author)
+                ),
+                enabled
+            )
+        }
+    }
+
+    /** #400 — Set notify enabled for the current book's narrator. */
+    fun setNarratorNotifyEnabled(enabled: Boolean) {
+        val book = selectedBook.value ?: return
+        if (book.narrator.isBlank()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            personBookmarks.setNotifyEnabled(
+                com.slukhayka.audiobooks.data.db.PersonBookmarkKey(
+                    PersonRole.NARRATOR,
+                    personBookmarks.narratorId(book.narrator)
+                ),
+                enabled
+            )
+        }
+    }
+
+    // --- #400: Person bookmark helpers for CanonicalAuthor and PersonBooks screens ---
+
+    /** Observe a person bookmark by role and raw name. */
+    fun observePersonBookmark(role: PersonRole, rawName: String): Flow<PersonBookmarkEntity?> {
+        val id = when (role) {
+            PersonRole.AUTHOR -> personBookmarks.authorId(rawName)
+            PersonRole.NARRATOR -> personBookmarks.narratorId(rawName)
+        }
+        return personBookmarks.observePersonBookmark(role.storageValue, id)
+    }
+
+    /** Toggle a person bookmark by role and raw name. */
+    fun togglePersonBookmark(role: PersonRole, rawName: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            personBookmarks.toggle(personBookmarks.identity(role, rawName))
+        }
+    }
+
+    /** Set notify enabled for a person bookmark by role and raw name. */
+    fun setPersonNotifyEnabled(role: PersonRole, rawName: String, enabled: Boolean) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val id = when (role) {
+                PersonRole.AUTHOR -> personBookmarks.authorId(rawName)
+                PersonRole.NARRATOR -> personBookmarks.narratorId(rawName)
+            }
+            personBookmarks.setNotifyEnabled(
+                com.slukhayka.audiobooks.data.db.PersonBookmarkKey(role, id),
+                enabled
+            )
+        }
     }
 
     // Continue-the-series block (spec-9 T4): the next volume of the currently

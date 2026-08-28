@@ -1,7 +1,7 @@
 package com.slukhayka.audiobooks.ui.screens
 
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Star
@@ -9,7 +9,6 @@ import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -17,13 +16,15 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
@@ -34,10 +35,12 @@ import com.slukhayka.audiobooks.R
  * Tap toggles the bookmark; long-press on a bookmarked person opens a menu
  * to toggle [notifyEnabled] without removing the bookmark.
  *
+ * Single gesture handler via [detectTapGestures] — no nested
+ * IconButton + combinedClickable conflict.
  * Touch target is 48×48 dp (Material Design minimum).
- * Accessibility semantics follow the [FavoriteButton] pattern.
+ * Accessibility: [contentDescription] names the action, [stateDescription]
+ * announces the current bookmark state.
  */
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun PersonBookmarkButton(
     isBookmarked: Boolean,
@@ -57,18 +60,24 @@ fun PersonBookmarkButton(
         if (isBookmarked) R.string.person_bookmark_on else R.string.person_bookmark_off
     )
 
-    IconButton(
-        onClick = onToggle,
+    Box(
         modifier = modifier
             .size(48.dp)
             .testTag("person_bookmark_button")
-            .combinedClickable(
-                onClick = onToggle,
-                onLongClick = {
-                    if (isBookmarked) showMenu = true
-                },
+            .semantics {
                 role = Role.Button
-            )
+                contentDescription = actionDescription
+                stateDescription = currentState
+            }
+            .pointerInput(isBookmarked) {
+                detectTapGestures(
+                    onTap = { onToggle() },
+                    onLongPress = {
+                        if (isBookmarked) showMenu = true
+                    }
+                )
+            },
+        contentAlignment = Alignment.Center
     ) {
         Icon(
             imageVector = if (isBookmarked) Icons.Default.Star else Icons.Default.StarBorder,

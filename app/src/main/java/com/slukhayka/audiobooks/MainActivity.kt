@@ -247,6 +247,20 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     val canonicalAuthorWorks by viewModel.canonicalAuthorWorks.collectAsState()
     val isCanonicalAuthorLoading by viewModel.isCanonicalAuthorLoading.collectAsState()
     val canonicalAuthorLoadFailed by viewModel.canonicalAuthorLoadFailed.collectAsState()
+    // #400 — Canonical author bookmark state
+    val canonicalAuthorBookmark by selectedCanonicalAuthor?.let { author ->
+        viewModel.observePersonBookmark(
+            com.slukhayka.audiobooks.data.db.PersonRole.AUTHOR,
+            author.displayName
+        )
+    }?.collectAsState(initial = null) ?: remember { mutableStateOf(null) }
+    // #400 — Person books screen bookmark state
+    val personBookmark by selectedPerson?.let { person ->
+        val role = if (person.path.contains("avtor"))
+            com.slukhayka.audiobooks.data.db.PersonRole.AUTHOR
+        else com.slukhayka.audiobooks.data.db.PersonRole.NARRATOR
+        viewModel.observePersonBookmark(role, person.name)
+    }?.collectAsState(initial = null) ?: remember { mutableStateOf(null) }
     val secondaryBookParentActive = when (secondaryBookRoute.parent) {
         SecondaryBookParent.SERIES -> selectedSeries != null
         SecondaryBookParent.GENRE -> selectedGenre != null
@@ -474,6 +488,23 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                                 )
                             }
                             viewModel.selectBook(id)
+                        },
+                        // #400 — real person bookmark state
+                        isBookmarked = personBookmark != null,
+                        notifyEnabled = personBookmark?.notifyEnabled ?: true,
+                        onBookmarkToggle = {
+                            val person = selectedPerson ?: return@PersonBooksScreen
+                            val role = if (person.path.contains("avtor"))
+                                com.slukhayka.audiobooks.data.db.PersonRole.AUTHOR
+                            else com.slukhayka.audiobooks.data.db.PersonRole.NARRATOR
+                            viewModel.togglePersonBookmark(role, person.name)
+                        },
+                        onNotifyToggle = { enabled ->
+                            val person = selectedPerson ?: return@PersonBooksScreen
+                            val role = if (person.path.contains("avtor"))
+                                com.slukhayka.audiobooks.data.db.PersonRole.AUTHOR
+                            else com.slukhayka.audiobooks.data.db.PersonRole.NARRATOR
+                            viewModel.setPersonNotifyEnabled(role, person.name, enabled)
                         }
                     )
 
@@ -669,7 +700,23 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                         isLoading = isCanonicalAuthorLoading,
                         loadFailed = canonicalAuthorLoadFailed,
                         onBackClick = { viewModel.closeCanonicalAuthor() },
-                        onWorkClick = viewModel::openCanonicalAuthorWork
+                        onWorkClick = viewModel::openCanonicalAuthorWork,
+                        // #400 — real person bookmark state
+                        isBookmarked = canonicalAuthorBookmark != null,
+                        notifyEnabled = canonicalAuthorBookmark?.notifyEnabled ?: true,
+                        onBookmarkToggle = {
+                            viewModel.togglePersonBookmark(
+                                com.slukhayka.audiobooks.data.db.PersonRole.AUTHOR,
+                                selectedCanonicalAuthor!!.displayName
+                            )
+                        },
+                        onNotifyToggle = { enabled ->
+                            viewModel.setPersonNotifyEnabled(
+                                com.slukhayka.audiobooks.data.db.PersonRole.AUTHOR,
+                                selectedCanonicalAuthor!!.displayName,
+                                enabled
+                            )
+                        }
                     )
 
                     authorsIndexOpen -> {
@@ -710,7 +757,24 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                                 secondaryBookRoute = SecondaryBookRouteFrame()
                             }
                         },
-                        listState = personBookListState
+                        listState = personBookListState,
+                        // #400 — real person bookmark state
+                        isBookmarked = personBookmark != null,
+                        notifyEnabled = personBookmark?.notifyEnabled ?: true,
+                        onBookmarkToggle = {
+                            val person = selectedPerson ?: return@PersonBooksScreen
+                            val role = if (person.path.contains("avtor"))
+                                com.slukhayka.audiobooks.data.db.PersonRole.AUTHOR
+                            else com.slukhayka.audiobooks.data.db.PersonRole.NARRATOR
+                            viewModel.togglePersonBookmark(role, person.name)
+                        },
+                        onNotifyToggle = { enabled ->
+                            val person = selectedPerson ?: return@PersonBooksScreen
+                            val role = if (person.path.contains("avtor"))
+                                com.slukhayka.audiobooks.data.db.PersonRole.AUTHOR
+                            else com.slukhayka.audiobooks.data.db.PersonRole.NARRATOR
+                            viewModel.setPersonNotifyEnabled(role, person.name, enabled)
+                        }
                     )
 
                     // Виконавці or Автори index.

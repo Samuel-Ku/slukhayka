@@ -20,7 +20,12 @@ fun PersonBooksScreen(
     onBookClick: (String) -> Unit,
     restoreFocusBookId: String? = null,
     onBookFocusRestored: (String) -> Unit = {},
-    listState: LazyListState = rememberLazyListState()
+    listState: LazyListState = rememberLazyListState(),
+    // #400 — person bookmark state
+    isBookmarked: Boolean = false,
+    notifyEnabled: Boolean = true,
+    onBookmarkToggle: () -> Unit = {},
+    onNotifyToggle: (Boolean) -> Unit = {}
 ) {
     val person by viewModel.selectedPerson.collectAsState()
     val books by viewModel.personBooks.collectAsState()
@@ -31,6 +36,15 @@ fun PersonBooksScreen(
 
     BookListScreen(
         title = currentPerson.name,
+        headerAction = {
+            PersonBookmarkButton(
+                isBookmarked = isBookmarked,
+                notifyEnabled = notifyEnabled,
+                personName = currentPerson.name,
+                onToggle = onBookmarkToggle,
+                onToggleNotify = onNotifyToggle
+            )
+        },
         // Spec-27 (#204) BUG-006: правильна множина — «1 книга», «2 книги»,
         // «5 книг».
         countLabel = "${books.size} ${ukPlural(books.size, "книга", "книги", "книг")}",

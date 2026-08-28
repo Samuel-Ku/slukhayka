@@ -16,6 +16,7 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.ui.screens.PersonBookmarkButton
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -179,5 +180,101 @@ class PersonBookmarkButtonTest {
 
         composeTestRule.onNodeWithTag("person_bookmark_button").performClick()
         assertTrue(toggled)
+    }
+
+    @Test
+    fun talkBackContentDescription_addWhenNotBookmarked() {
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                Surface {
+                    PersonBookmarkButton(
+                        isBookmarked = false,
+                        notifyEnabled = true,
+                        personName = "Тестовий Автор",
+                        onToggle = {},
+                        onToggleNotify = {}
+                    )
+                }
+            }
+        }
+
+        composeTestRule.onNodeWithTag("person_bookmark_button").assert(
+            SemanticsMatcher.expectValue(
+                SemanticsProperties.ContentDescription,
+                listOf("Додати «Тестовий Автор» в закладки")
+            )
+        )
+    }
+
+    @Test
+    fun talkBackContentDescription_removeWhenBookmarked() {
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                Surface {
+                    PersonBookmarkButton(
+                        isBookmarked = true,
+                        notifyEnabled = true,
+                        personName = "Тестовий Автор",
+                        onToggle = {},
+                        onToggleNotify = {}
+                    )
+                }
+            }
+        }
+
+        composeTestRule.onNodeWithTag("person_bookmark_button").assert(
+            SemanticsMatcher.expectValue(
+                SemanticsProperties.ContentDescription,
+                listOf("Прибрати «Тестовий Автор» з закладок")
+            )
+        )
+    }
+
+    @Test
+    fun talkBackStateDescription_offWhenNotBookmarked() {
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                Surface {
+                    PersonBookmarkButton(
+                        isBookmarked = false,
+                        notifyEnabled = true,
+                        personName = "Тестовий Автор",
+                        onToggle = {},
+                        onToggleNotify = {}
+                    )
+                }
+            }
+        }
+
+        composeTestRule.onNodeWithTag("person_bookmark_button").assert(
+            SemanticsMatcher.expectValue(
+                SemanticsProperties.StateDescription,
+                "Не в закладках"
+            )
+        )
+    }
+
+    @Test
+    fun talkBackStateDescription_onWhenBookmarked() {
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                Surface {
+                    PersonBookmarkButton(
+                        isBookmarked = true,
+                        notifyEnabled = false,
+                        personName = "Тестовий Автор",
+                        onToggle = {},
+                        onToggleNotify = {}
+                    )
+                }
+            }
+        }
+
+        composeTestRule.onNodeWithTag("person_bookmark_button").assert(
+            SemanticsMatcher.expectValue(
+                SemanticsProperties.StateDescription,
+                "В закладках"
+            )
+        )
     }
 }

@@ -59,9 +59,26 @@ fun CanonicalAuthorScreen(
     isLoading: Boolean,
     loadFailed: Boolean,
     onBackClick: () -> Unit,
-    onWorkClick: (WorkEntity) -> Unit
+    onWorkClick: (WorkEntity) -> Unit,
+    // #400 — person bookmark state
+    isBookmarked: Boolean = false,
+    notifyEnabled: Boolean = true,
+    onBookmarkToggle: () -> Unit = {},
+    onNotifyToggle: (Boolean) -> Unit = {}
 ) {
-    AuthorDiscoveryScaffold(title = author.displayName, onBackClick = onBackClick) { modifier ->
+    AuthorDiscoveryScaffold(
+        title = author.displayName,
+        onBackClick = onBackClick,
+        actions = {
+            PersonBookmarkButton(
+                isBookmarked = isBookmarked,
+                notifyEnabled = notifyEnabled,
+                personName = author.displayName,
+                onToggle = onBookmarkToggle,
+                onToggleNotify = onNotifyToggle
+            )
+        }
+    ) { modifier ->
         CanonicalAuthorContent(
             author = author,
             works = works,
@@ -78,6 +95,7 @@ fun CanonicalAuthorScreen(
 private fun AuthorDiscoveryScaffold(
     title: String,
     onBackClick: () -> Unit,
+    actions: @Composable () -> Unit = {},
     content: @Composable (Modifier) -> Unit
 ) {
     Scaffold(
@@ -90,6 +108,7 @@ private fun AuthorDiscoveryScaffold(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
                     }
                 },
+                actions = { actions() },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
             )
         },

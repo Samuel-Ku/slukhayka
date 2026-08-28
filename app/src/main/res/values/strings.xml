@@ -24,4 +24,9 @@
     <string name="book_detail_size_approximate">~%1$d МБ</string>
     <string name="book_detail_size_unknown">невідомо</string>
     <string name="book_detail_download_progress">%1$d/%2$d • %3$d / %4$d МБ (%5$d%%)</string>
+    <!-- #394 — Download controls -->
+    <string name="download_notification_paused">Призупинено</string>
+    <string name="download_action_pause">Пауза</string>
+    <string name="download_action_continue">Продовжити</string>
+    <string name="download_action_cancel">Скасувати</string>
 </resources>

@@ -103,6 +103,7 @@ fun BookDetailScreen(
     // the series pill. Null until the lazy resolution cached it (silent).
     val bookUniverse by viewModel.selectedBookUniverse.collectAsState()
     val playerState by viewModel.playerState.collectAsState()
+    val showFullPlayer by viewModel.showFullPlayer.collectAsState()
     val downloadingBookId by viewModel.downloadingBookId.collectAsState()
     val downloadMessage by viewModel.downloadMessage.collectAsState()
     // Spec-15 T5: what every source carrying the Work says about it.
@@ -120,7 +121,14 @@ fun BookDetailScreen(
     var showDeleteDialog by remember { mutableStateOf(false) }
     var bookmarkToDelete by remember { mutableStateOf<BookmarkEntity?>(null) }
     var bookmarkDeleteOrigin by remember { mutableStateOf<FocusRequester?>(null) }
+    var playerReturnFocusRequester by remember { mutableStateOf<FocusRequester?>(null) }
     val deleteTriggerFocusRequester = remember { FocusRequester() }
+
+    RestoreFocusAfterModal(
+        modalVisible = showFullPlayer,
+        returnFocusRequester = playerReturnFocusRequester,
+        onFocusRestored = { playerReturnFocusRequester = null }
+    )
 
     // Spec-40 #277/#278/#280 — «Відгуки»: form open/edit state, delete
     // confirmation target. The store itself rides MainViewModel (null
@@ -696,6 +704,7 @@ fun BookDetailScreen(
             // Chapter list
             if (activeTab == 0) {
                 itemsIndexed(chapters) { index, chapter ->
+                    val chapterFocusRequester = remember(chapter.id) { FocusRequester() }
                     val isCurrentChapter = playerState.currentBook?.id == currentBook.id &&
                         playerState.currentChapterIndex == index
                     val isPlayingThis = isCurrentChapter && playerState.isPlaying
@@ -705,7 +714,9 @@ fun BookDetailScreen(
                         index = index,
                         isCurrent = isCurrentChapter,
                         isPlaying = isPlayingThis,
+                        focusRequester = chapterFocusRequester,
                         onPlayClick = {
+                            playerReturnFocusRequester = chapterFocusRequester
                             if (isCurrentChapter) {
                                 viewModel.playerManager.play()
                             } else {
@@ -1411,6 +1422,7 @@ fun ChapterRowItem(
     index: Int,
     isCurrent: Boolean,
     isPlaying: Boolean,
+    focusRequester: FocusRequester? = null,
     onPlayClick: () -> Unit,
     onPauseClick: () -> Unit
 ) {
@@ -1452,6 +1464,7 @@ fun ChapterRowItem(
             // specific chapter regardless of ordering. Pure UI annotation; does
             // not change runtime behaviour.
             .testTag("book_detail_chapter_${chapter.id}")
+            .then(focusRequester?.let { Modifier.focusRequester(it) } ?: Modifier)
             .clickable { onAction() }
             // A chapter is a destination in the reading flow. Make its focus target
             // explicit so TalkBack and physical-device semantics can move to it

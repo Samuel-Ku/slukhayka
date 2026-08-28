@@ -188,9 +188,7 @@ fun SleepTimerSheet(
                     Text(extendDescription, modifier = Modifier.clearAndSetSemantics { })
                 }
             }
-            // Keep the sheet's dismissible bottom edge large enough for the
-            // accessibility framework to treat it as a valid touch target.
-            Spacer(modifier = Modifier.height(48.dp))
+            Spacer(modifier = Modifier.height(24.dp))
         }
     }
 }

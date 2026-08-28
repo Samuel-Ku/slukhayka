@@ -26,6 +26,12 @@
         android:supportsRtl="true"
         android:networkSecurityConfig="@xml/network_security_config"
         android:theme="@style/Theme.MyApplication">
+        <!-- #411: reports stay only on-device until the listener explicitly
+             opts in after a crash. The runtime consent controller is the only
+             code allowed to override this default. -->
+        <meta-data
+            android:name="firebase_crashlytics_collection_enabled"
+            android:value="false" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

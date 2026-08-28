@@ -17,6 +17,11 @@ import com.slukhayka.audiobooks.data.downloads.DownloadNotificationActionCoordin
 import com.slukhayka.audiobooks.data.downloads.DownloadNotificationService
 import com.slukhayka.audiobooks.data.downloads.NotificationAction
 import com.slukhayka.audiobooks.data.downloads.OfflineDownloads
+import com.slukhayka.audiobooks.data.diagnostics.CrashReporting
+import com.slukhayka.audiobooks.data.diagnostics.DiagnosticAudioOrigin
+import com.slukhayka.audiobooks.data.diagnostics.DiagnosticPlaybackState
+import com.slukhayka.audiobooks.data.diagnostics.FirebaseCrashReportSink
+import com.slukhayka.audiobooks.data.diagnostics.SharedPreferencesCrashConsentStore
 import com.slukhayka.audiobooks.data.duration.ChapterDurationProbe
 import com.slukhayka.audiobooks.data.duration.DurationEnrichment
 import com.slukhayka.audiobooks.data.duration.HttpStreamProber
@@ -80,6 +85,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 
 /**
@@ -107,6 +113,15 @@ import kotlinx.coroutines.launch
 class App : Application() {
 
     private val database by lazy { AudiobookDatabase.getDatabase(this) }
+
+    /** #411 — the only process-wide door to anonymous crash reporting. */
+    val crashReporting: CrashReporting by lazy {
+        CrashReporting(
+            consentStore = SharedPreferencesCrashConsentStore(this),
+            sink = FirebaseCrashReportSink.createOrNoOp(),
+            enabledForBuild = BuildConfig.CRASH_REPORTING_ENABLED
+        )
+    }
 
     /** Spec-40 #281 — the local mute table's DAO, for the reviews' hide flow. */
     val audiobookDao: AudiobookDao get() = database.audiobookDao()
@@ -504,7 +519,25 @@ class App : Application() {
             progressSync = progressSync,
             // Spec 2026-08-26: YouTube watch URLs resolve per-use before setMediaItem.
             streamUrlResolver = { url -> youTubeStreamResolver.resolve(url) }
-        )
+        ).also { manager ->
+            CoroutineScope(Dispatchers.Default).launch {
+                manager.playerState.collect { state ->
+                    val playbackState = when {
+                        state.currentBook == null -> DiagnosticPlaybackState.IDLE
+                        state.isBuffering -> DiagnosticPlaybackState.BUFFERING
+                        state.isPlaying -> DiagnosticPlaybackState.PLAYING
+                        else -> DiagnosticPlaybackState.PAUSED
+                    }
+                    val audioOrigin = when {
+                        state.currentBook == null -> DiagnosticAudioOrigin.NONE
+                        state.isOfflineMode || state.currentBook.sourceUrl.isBlank() ->
+                            DiagnosticAudioOrigin.LOCAL
+                        else -> DiagnosticAudioOrigin.REMOTE
+                    }
+                    crashReporting.setPlayback(playbackState, audioOrigin)
+                }
+            }
+        }
     }
 
     /**
@@ -528,6 +561,7 @@ class App : Application() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        crashReporting.start()
         // Spec-38 T1 (#253): install the persisted privacy route BEFORE any
         // module can touch the network, and warm the real system WebView
         // User-Agent off the main thread (it initialises the WebView engine;

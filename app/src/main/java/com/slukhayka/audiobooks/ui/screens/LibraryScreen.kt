@@ -353,7 +353,7 @@ fun LibraryScreen(
                         // spec-38 T2 (#254): the network privacy route lives in
                         // the same overflow — a rare surface, off the main screen.
                         DropdownMenuItem(
-                            text = { Text("Приватність мережі") },
+                            text = { Text("Приватність") },
                             onClick = {
                                 showOverflowMenu = false
                                 viewModel.openPrivacySettings()

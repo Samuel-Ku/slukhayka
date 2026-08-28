@@ -21,6 +21,7 @@ plugins {
   alias(libs.plugins.roborazzi)
   alias(libs.plugins.secrets)
   alias(libs.plugins.google.services)
+  alias(libs.plugins.firebase.crashlytics)
   alias(libs.plugins.kover)
 }
 
@@ -93,8 +94,10 @@ android {
       // Install developer builds next to the signed release app so on-device
       // testing never requires uninstalling (and losing) the listener's data.
       applicationIdSuffix = ".debug"
+      buildConfigField("boolean", "CRASH_REPORTING_ENABLED", "false")
     }
     release {
+      buildConfigField("boolean", "CRASH_REPORTING_ENABLED", "true")
       isCrunchPngs = false
       isMinifyEnabled = false
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
@@ -233,6 +236,7 @@ dependencies {
   implementation(libs.coil.compose)
   implementation(libs.converter.moshi)
   implementation(libs.firebase.ai)
+  implementation(libs.firebase.crashlytics)
   // Spec-26 T5: the shared universe-knowledge base (Firestore free tier).
   // Requires a local (gitignored) google-services.json — without it the
   // shared layer is simply absent and the app works as before.

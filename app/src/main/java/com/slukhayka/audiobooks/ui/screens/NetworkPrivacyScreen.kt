@@ -44,12 +44,15 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.data.diagnostics.CrashConsent
+import com.slukhayka.audiobooks.data.diagnostics.CrashReporting
 import com.slukhayka.audiobooks.data.privacy.PrivacyPrefs
 import com.slukhayka.audiobooks.data.privacy.RouteMode
 import com.slukhayka.audiobooks.ui.MainViewModel
 
 /**
- * spec-38 T2 (#254) — the «Приватність мережі» destination: the route the
+ * The «Приватність» destination: network routing plus explicit diagnostic
+ * consent. The network controls originate in spec-38 T2 (#254): the route the
  * transport rides (direct / custom proxy / Tor / relay prototype, spec-38
  * T6), reached from the Медіатека ⋮
  * overflow menu like the storage destination beside it (ADR-0018: a rare
@@ -62,10 +65,12 @@ import com.slukhayka.audiobooks.ui.MainViewModel
 @Composable
 fun NetworkPrivacyScreen(
     viewModel: MainViewModel,
+    crashReporting: CrashReporting,
     onBackClick: () -> Unit
 ) {
     val savedPrefs by viewModel.privacyPrefs.collectAsState()
     val error by viewModel.privacyError.collectAsState()
+    val crashReportingState by crashReporting.state.collectAsState()
 
     // Local draft state: edits stay local until «Застосувати» validates them.
     var mode by remember { mutableStateOf(savedPrefs.routeMode) }
@@ -253,6 +258,14 @@ fun NetworkPrivacyScreen(
                 text = "Якщо обраний маршрут недоступний, запити завершуються помилкою — застосунок ніколи не повертається до прямого з'єднання мовчки.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Spacer(modifier = Modifier.height(24.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Spacer(modifier = Modifier.height(16.dp))
+            CrashReportingSettingsSection(
+                allowed = crashReportingState.consent == CrashConsent.ALLOWED,
+                onAllowedChange = crashReporting::setAllowedFromSettings
             )
         }
     }

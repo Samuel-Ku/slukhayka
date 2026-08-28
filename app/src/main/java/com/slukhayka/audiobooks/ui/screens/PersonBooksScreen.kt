@@ -5,8 +5,11 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.ui.res.stringResource
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.data.db.PersonBookmarkKey
+import com.slukhayka.audiobooks.data.personbookmarks.PersonBookmarks
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.library.ukPlural
+import kotlinx.coroutines.launch
 
 /**
  * Full-screen list of every book narrated (or written) by one person —
@@ -16,16 +19,12 @@ import com.slukhayka.audiobooks.ui.library.ukPlural
 @Composable
 fun PersonBooksScreen(
     viewModel: MainViewModel,
+    personBookmarks: PersonBookmarks,
     onBackClick: () -> Unit,
     onBookClick: (String) -> Unit,
     restoreFocusBookId: String? = null,
     onBookFocusRestored: (String) -> Unit = {},
-    listState: LazyListState = rememberLazyListState(),
-    // #400 — person bookmark state
-    isBookmarked: Boolean = false,
-    notifyEnabled: Boolean = true,
-    onBookmarkToggle: () -> Unit = {},
-    onNotifyToggle: (Boolean) -> Unit = {}
+    listState: LazyListState = rememberLazyListState()
 ) {
     val person by viewModel.selectedPerson.collectAsState()
     val books by viewModel.personBooks.collectAsState()
@@ -33,16 +32,33 @@ fun PersonBooksScreen(
     val loadFailed by viewModel.personLoadFailed.collectAsState()
 
     val currentPerson = person ?: return
+    val identity = remember(currentPerson) {
+        personBookmarks.identity(currentPerson.role, currentPerson.name)
+    }
+    val bookmarkFlow = remember(identity) {
+        personBookmarks.observePersonBookmark(identity.role.storageValue, identity.id)
+    }
+    val bookmark by bookmarkFlow.collectAsState(initial = null)
+    val scope = rememberCoroutineScope()
 
     BookListScreen(
         title = currentPerson.name,
         headerAction = {
             PersonBookmarkButton(
-                isBookmarked = isBookmarked,
-                notifyEnabled = notifyEnabled,
+                isBookmarked = bookmark != null,
+                notifyEnabled = bookmark?.notifyEnabled ?: true,
                 personName = currentPerson.name,
-                onToggle = onBookmarkToggle,
-                onToggleNotify = onNotifyToggle
+                onToggle = {
+                    scope.launch { personBookmarks.toggle(identity) }
+                },
+                onToggleNotify = { enabled ->
+                    scope.launch {
+                        personBookmarks.setNotifyEnabled(
+                            PersonBookmarkKey(identity.role, identity.id),
+                            enabled
+                        )
+                    }
+                }
             )
         },
         // Spec-27 (#204) BUG-006: правильна множина — «1 книга», «2 книги»,

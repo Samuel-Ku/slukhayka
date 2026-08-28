@@ -4,15 +4,14 @@ import androidx.compose.material3.Surface
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
-import com.slukhayka.audiobooks.data.db.PersonBookmarkEntity
 import com.slukhayka.audiobooks.data.db.PersonRole
 import com.slukhayka.audiobooks.data.personbookmarks.PersonBookmarks
 import com.slukhayka.audiobooks.testing.FakeAudiobookDao
 import com.slukhayka.audiobooks.ui.screens.CanonicalAuthorScreen
-import com.slukhayka.audiobooks.ui.screens.PersonBookmarkButton
 import com.slukhayka.audiobooks.ui.screens.PersonBooksScreen
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -29,12 +28,10 @@ import org.robolectric.annotation.Config
  * #400 — Production-surface tests for person bookmarks:
  *
  * 1. CanonicalAuthorScreen renders PersonBookmarkButton with correct state
- * 2. PersonBooksScreen renders PersonBookmarkButton with correct state
- * 3. PersonBookmarkButton long-press on bookmarked person opens notify menu
- * 4. PersonBookmarkButton notify toggle fires onToggleNotify
- * 5. PersonBookmarks Flows update reactively after toggle
- * 6. PersonBookmarks persistence survives DAO round-trip
- * 7. Correct kind/id separation for AUTHOR vs NARRATOR
+ * 2. The surface toggles the direct PersonBookmarks Flow
+ * 3. PersonBookmarks Flows update reactively after toggle
+ * 4. PersonBookmarks persistence survives DAO round-trip
+ * 5. Correct kind/id separation for AUTHOR vs NARRATOR
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
@@ -47,6 +44,7 @@ class PersonBookmarkProductionTest {
 
     @Test
     fun canonicalAuthorScreen_rendersBookmarkButton() {
+        val bookmarks = PersonBookmarks(FakeAudiobookDao())
         composeTestRule.setContent {
             AudiobookTheme(darkTheme = true) {
                 Surface {
@@ -62,10 +60,7 @@ class PersonBookmarkProductionTest {
                         loadFailed = false,
                         onBackClick = {},
                         onWorkClick = {},
-                        isBookmarked = false,
-                        notifyEnabled = true,
-                        onBookmarkToggle = {},
-                        onNotifyToggle = {}
+                        personBookmarks = bookmarks
                     )
                 }
             }
@@ -76,6 +71,8 @@ class PersonBookmarkProductionTest {
 
     @Test
     fun canonicalAuthorScreen_bookmarkedStateShowsFilledStar() {
+        val bookmarks = PersonBookmarks(FakeAudiobookDao())
+        runBlocking { bookmarks.toggleAuthor("Тестовий Автор") }
         composeTestRule.setContent {
             AudiobookTheme(darkTheme = true) {
                 Surface {
@@ -91,10 +88,7 @@ class PersonBookmarkProductionTest {
                         loadFailed = false,
                         onBackClick = {},
                         onWorkClick = {},
-                        isBookmarked = true,
-                        notifyEnabled = false,
-                        onBookmarkToggle = {},
-                        onNotifyToggle = {}
+                        personBookmarks = bookmarks
                     )
                 }
             }
@@ -105,7 +99,7 @@ class PersonBookmarkProductionTest {
 
     @Test
     fun canonicalAuthorScreen_toggleCallbackFires() {
-        var toggled = false
+        val bookmarks = PersonBookmarks(FakeAudiobookDao())
 
         composeTestRule.setContent {
             AudiobookTheme(darkTheme = true) {
@@ -122,65 +116,21 @@ class PersonBookmarkProductionTest {
                         loadFailed = false,
                         onBackClick = {},
                         onWorkClick = {},
-                        isBookmarked = false,
-                        notifyEnabled = true,
-                        onBookmarkToggle = { toggled = true },
-                        onNotifyToggle = {}
+                        personBookmarks = bookmarks
                     )
                 }
             }
         }
 
         composeTestRule.onNodeWithTag("person_bookmark_button").performClick()
-        assertTrue(toggled)
-    }
-
-    // --- PersonBookmarkButton long-press + notify toggle --------------------
-
-    @Test
-    fun longPress_onBookmarkedOpensMenu() {
-        var notifyToggledTo: Boolean? = null
-
-        composeTestRule.setContent {
-            AudiobookTheme(darkTheme = true) {
-                Surface {
-                    PersonBookmarkButton(
-                        isBookmarked = true,
-                        notifyEnabled = true,
-                        personName = "Тестовий Автор",
-                        onToggle = {},
-                        onToggleNotify = { notifyToggledTo = it }
-                    )
-                }
-            }
-        }
-
-        // Long press to open the menu
-        composeTestRule.onNodeWithTag("person_bookmark_button").performClick()
-        // The notify toggle item should be present when bookmarked
         composeTestRule.waitForIdle()
-    }
-
-    @Test
-    fun notifyToggle_firesOnToggleNotify() {
-        var notified: Boolean? = null
-
-        composeTestRule.setContent {
-            AudiobookTheme(darkTheme = true) {
-                Surface {
-                    PersonBookmarkButton(
-                        isBookmarked = true,
-                        notifyEnabled = true,
-                        personName = "Тестовий Автор",
-                        onToggle = {},
-                        onToggleNotify = { enabled -> notified = enabled }
-                    )
-                }
-            }
+        val stored = runBlocking {
+            bookmarks.observePersonBookmark(
+                PersonRole.AUTHOR.storageValue,
+                bookmarks.authorId("Тестовий Автор")
+            ).first()
         }
-
-        // Verify the button exists and is functional
-        composeTestRule.onNodeWithTag("person_bookmark_button").assertExists()
+        assertNotNull(stored)
     }
 
     // --- PersonBookmarks persistence and Flow tests -------------------------

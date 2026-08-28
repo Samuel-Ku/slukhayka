@@ -12,6 +12,8 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.longClick
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.ui.screens.PersonBookmarkButton
@@ -180,6 +182,35 @@ class PersonBookmarkButtonTest {
 
         composeTestRule.onNodeWithTag("person_bookmark_button").performClick()
         assertTrue(toggled)
+    }
+
+    @Test
+    fun longPressChangesNotificationWithoutRemovingBookmark() {
+        var bookmarkToggled = false
+        var notifyEnabled: Boolean? = null
+
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                Surface {
+                    PersonBookmarkButton(
+                        isBookmarked = true,
+                        notifyEnabled = true,
+                        personName = "Тестовий Автор",
+                        onToggle = { bookmarkToggled = true },
+                        onToggleNotify = { notifyEnabled = it }
+                    )
+                }
+            }
+        }
+
+        composeTestRule.onNodeWithTag("person_bookmark_button")
+            .performTouchInput { longClick() }
+        composeTestRule.onNodeWithTag("person_bookmark_notify_toggle")
+            .assertIsDisplayed()
+            .performClick()
+
+        assertFalse(bookmarkToggled)
+        assertFalse(notifyEnabled ?: true)
     }
 
     @Test

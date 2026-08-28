@@ -1,6 +1,7 @@
 package com.slukhayka.audiobooks.ui.screens
 
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
@@ -18,7 +19,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -35,12 +35,12 @@ import com.slukhayka.audiobooks.R
  * Tap toggles the bookmark; long-press on a bookmarked person opens a menu
  * to toggle [notifyEnabled] without removing the bookmark.
  *
- * Single gesture handler via [detectTapGestures] — no nested
- * IconButton + combinedClickable conflict.
+ * One combined-clickable target owns both gestures.
  * Touch target is 48×48 dp (Material Design minimum).
  * Accessibility: [contentDescription] names the action, [stateDescription]
  * announces the current bookmark state.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun PersonBookmarkButton(
     isBookmarked: Boolean,
@@ -69,14 +69,16 @@ fun PersonBookmarkButton(
                 contentDescription = actionDescription
                 stateDescription = currentState
             }
-            .pointerInput(isBookmarked) {
-                detectTapGestures(
-                    onTap = { onToggle() },
-                    onLongPress = {
-                        if (isBookmarked) showMenu = true
-                    }
-                )
-            },
+            .combinedClickable(
+                role = Role.Button,
+                onClickLabel = actionDescription,
+                onClick = onToggle,
+                onLongClick = if (isBookmarked) {
+                    { showMenu = true }
+                } else {
+                    null
+                }
+            ),
         contentAlignment = Alignment.Center
     ) {
         Icon(

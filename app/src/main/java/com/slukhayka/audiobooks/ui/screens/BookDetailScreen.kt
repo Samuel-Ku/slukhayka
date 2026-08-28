@@ -22,6 +22,7 @@ import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,9 +54,12 @@ import com.slukhayka.audiobooks.data.catalog.CatalogPerson
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.BookmarkEntity
 import com.slukhayka.audiobooks.data.db.ChapterEntity
+import com.slukhayka.audiobooks.data.db.PersonBookmarkKey
+import com.slukhayka.audiobooks.data.db.PersonRole
 import com.slukhayka.audiobooks.data.downloads.OfflineDownloads
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
 import com.slukhayka.audiobooks.data.listening.ListeningStateStore
+import com.slukhayka.audiobooks.data.personbookmarks.PersonBookmarks
 import com.slukhayka.audiobooks.data.source.sourceDisplayName
 import com.slukhayka.audiobooks.data.source.sourceIdForUrl
 import com.slukhayka.audiobooks.data.source.streamOnlyFor
@@ -93,6 +97,7 @@ fun BookDetailScreen(
     // ADR-0011: the screen reads the other rendition cards of the same Work
     // (the «Інші начитки» block) straight from the module.
     libraryEntries: LibraryEntries,
+    personBookmarks: PersonBookmarks,
     onBackClick: () -> Unit,
     returnFocusOrigin: BookDetailLinkOrigin? = null,
     onChildRouteOpened: (BookDetailLinkOrigin) -> Unit = {},
@@ -112,12 +117,6 @@ fun BookDetailScreen(
     val sourceProfiles by viewModel.sourceProfiles.collectAsState()
     // Spec-23 T5: every Edition carrying the Work — the «Джерела» section.
     val bookSources by viewModel.bookSources.collectAsState()
-
-    // #400 — Person bookmark state for author/narrator.
-    val isAuthorBookmarked by viewModel.isAuthorBookmarked.collectAsState()
-    val isNarratorBookmarked by viewModel.isNarratorBookmarked.collectAsState()
-    val authorNotifyEnabled by viewModel.authorNotifyEnabled.collectAsState()
-    val narratorNotifyEnabled by viewModel.narratorNotifyEnabled.collectAsState()
 
     // #40 decision 1: the favourite toggle lives on the book page itself.
     val favoriteBooks by viewModel.libraryEntries.getFavoriteAudiobooks()
@@ -181,6 +180,27 @@ fun BookDetailScreen(
     // ADR-0008: suspend module calls from user actions run on the composition
     // scope (same pattern as playerManager's call-through).
     val scope = rememberCoroutineScope()
+
+    val authorIdentity = remember(currentBook.author) {
+        currentBook.author.takeIf { it.isNotBlank() }
+            ?.let { personBookmarks.identity(PersonRole.AUTHOR, it) }
+    }
+    val narratorIdentity = remember(currentBook.narrator) {
+        currentBook.narrator.takeIf { it.isNotBlank() }
+            ?.let { personBookmarks.identity(PersonRole.NARRATOR, it) }
+    }
+    val authorBookmarkFlow = remember(authorIdentity) {
+        authorIdentity?.let {
+            personBookmarks.observePersonBookmark(it.role.storageValue, it.id)
+        } ?: flowOf(null)
+    }
+    val narratorBookmarkFlow = remember(narratorIdentity) {
+        narratorIdentity?.let {
+            personBookmarks.observePersonBookmark(it.role.storageValue, it.id)
+        } ?: flowOf(null)
+    }
+    val authorBookmark by authorBookmarkFlow.collectAsState(initial = null)
+    val narratorBookmark by narratorBookmarkFlow.collectAsState(initial = null)
 
     // Spec-40 #277 — reviews anchor to the WORK (shared across narrations);
     // a row without a Works identity anchors to itself.
@@ -665,25 +685,64 @@ fun BookDetailScreen(
                         narrationRatingDeleteFocusRequester = narrationRatingDeleteFocusRequester,
                         onAuthorClick = { author ->
                             viewModel.openPersonBooks(
-                                CatalogPerson(author, bookPersonPath("avtor", author), 0)
+                                CatalogPerson(
+                                    author,
+                                    bookPersonPath("avtor", author),
+                                    0,
+                                    PersonRole.AUTHOR
+                                )
                             )
                         },
                         onNarratorClick = { narrator ->
                             viewModel.openPersonBooks(
-                                CatalogPerson(narrator, bookPersonPath("chitaet", narrator), 0)
+                                CatalogPerson(
+                                    narrator,
+                                    bookPersonPath("chitaet", narrator),
+                                    0,
+                                    PersonRole.NARRATOR
+                                )
                             )
                         },
                         onSeriesClick = { title, url -> viewModel.openSeries(title, url) },
                         onWrongUniverse = { viewModel.reportWrongUniverse(currentBook.id) },
-                        // #400 — real person bookmark state
-                        isAuthorBookmarked = isAuthorBookmarked,
-                        isNarratorBookmarked = isNarratorBookmarked,
-                        authorNotifyEnabled = authorNotifyEnabled,
-                        narratorNotifyEnabled = narratorNotifyEnabled,
-                        onAuthorBookmarkToggle = viewModel::toggleAuthorBookmark,
-                        onNarratorBookmarkToggle = viewModel::toggleNarratorBookmark,
-                        onAuthorNotifyToggle = viewModel::setAuthorNotifyEnabled,
-                        onNarratorNotifyToggle = viewModel::setNarratorNotifyEnabled
+                        authorBookmark = PersonBookmarkControl(
+                            isBookmarked = authorBookmark != null,
+                            notifyEnabled = authorBookmark?.notifyEnabled ?: true,
+                            onToggle = {
+                                authorIdentity?.let { identity ->
+                                    scope.launch { personBookmarks.toggle(identity) }
+                                }
+                            },
+                            onToggleNotify = { enabled ->
+                                authorIdentity?.let { identity ->
+                                    scope.launch {
+                                        personBookmarks.setNotifyEnabled(
+                                            PersonBookmarkKey(identity.role, identity.id),
+                                            enabled
+                                        )
+                                    }
+                                }
+                            }
+                        ),
+                        narratorBookmark = PersonBookmarkControl(
+                            isBookmarked = narratorBookmark != null,
+                            notifyEnabled = narratorBookmark?.notifyEnabled ?: true,
+                            onToggle = {
+                                narratorIdentity?.let { identity ->
+                                    scope.launch { personBookmarks.toggle(identity) }
+                                }
+                            },
+                            onToggleNotify = { enabled ->
+                                narratorIdentity?.let { identity ->
+                                    scope.launch {
+                                        personBookmarks.setNotifyEnabled(
+                                            PersonBookmarkKey(identity.role, identity.id),
+                                            enabled
+                                        )
+                                    }
+                                }
+                            }
+                        )
                     )
 
                     Spacer(modifier = Modifier.height(16.dp))
@@ -2087,15 +2146,8 @@ fun BookDetailIdentityHeader(
     returnFocusOrigin: BookDetailLinkOrigin? = null,
     onChildRouteOpened: (BookDetailLinkOrigin) -> Unit = {},
     onReturnFocusRestored: (BookDetailLinkOrigin) -> Unit = {},
-    // #400 — person bookmark state
-    isAuthorBookmarked: Boolean = false,
-    isNarratorBookmarked: Boolean = false,
-    authorNotifyEnabled: Boolean = true,
-    narratorNotifyEnabled: Boolean = true,
-    onAuthorBookmarkToggle: () -> Unit = {},
-    onNarratorBookmarkToggle: () -> Unit = {},
-    onAuthorNotifyToggle: (Boolean) -> Unit = {},
-    onNarratorNotifyToggle: (Boolean) -> Unit = {}
+    authorBookmark: PersonBookmarkControl = PersonBookmarkControl(),
+    narratorBookmark: PersonBookmarkControl = PersonBookmarkControl()
 ) {
     Card(
         modifier = Modifier
@@ -2137,14 +2189,8 @@ fun BookDetailIdentityHeader(
         returnFocusOrigin = returnFocusOrigin,
         onChildRouteOpened = onChildRouteOpened,
         onReturnFocusRestored = onReturnFocusRestored,
-        isAuthorBookmarked = isAuthorBookmarked,
-        isNarratorBookmarked = isNarratorBookmarked,
-        authorNotifyEnabled = authorNotifyEnabled,
-        narratorNotifyEnabled = narratorNotifyEnabled,
-        onAuthorBookmarkToggle = onAuthorBookmarkToggle,
-        onNarratorBookmarkToggle = onNarratorBookmarkToggle,
-        onAuthorNotifyToggle = onAuthorNotifyToggle,
-        onNarratorNotifyToggle = onNarratorNotifyToggle
+        authorBookmark = authorBookmark,
+        narratorBookmark = narratorBookmark
     )
 }
 
@@ -2154,6 +2200,13 @@ enum class BookDetailLinkOrigin {
     NARRATOR,
     SERIES
 }
+
+data class PersonBookmarkControl(
+    val isBookmarked: Boolean = false,
+    val notifyEnabled: Boolean = true,
+    val onToggle: () -> Unit = {},
+    val onToggleNotify: (Boolean) -> Unit = {}
+)
 
 /** The production Work/Edition summary consumed by both the page and snapshots. */
 @OptIn(ExperimentalLayoutApi::class)
@@ -2176,15 +2229,8 @@ fun BookDetailCanonicalSummary(
     returnFocusOrigin: BookDetailLinkOrigin? = null,
     onChildRouteOpened: (BookDetailLinkOrigin) -> Unit = {},
     onReturnFocusRestored: (BookDetailLinkOrigin) -> Unit = {},
-    // #400 — person bookmark state
-    isAuthorBookmarked: Boolean = false,
-    isNarratorBookmarked: Boolean = false,
-    authorNotifyEnabled: Boolean = true,
-    narratorNotifyEnabled: Boolean = true,
-    onAuthorBookmarkToggle: () -> Unit = {},
-    onNarratorBookmarkToggle: () -> Unit = {},
-    onAuthorNotifyToggle: (Boolean) -> Unit = {},
-    onNarratorNotifyToggle: (Boolean) -> Unit = {}
+    authorBookmark: PersonBookmarkControl = PersonBookmarkControl(),
+    narratorBookmark: PersonBookmarkControl = PersonBookmarkControl()
 ) {
     val currentEditionState = stringResource(R.string.book_detail_current_edition)
     val titleFocusRequester = remember(entryFocusKey) { FocusRequester() }
@@ -2243,11 +2289,11 @@ fun BookDetailCanonicalSummary(
                     }
             )
             PersonBookmarkButton(
-                isBookmarked = isAuthorBookmarked,
-                notifyEnabled = authorNotifyEnabled,
+                isBookmarked = authorBookmark.isBookmarked,
+                notifyEnabled = authorBookmark.notifyEnabled,
                 personName = presentation.author,
-                onToggle = onAuthorBookmarkToggle,
-                onToggleNotify = onAuthorNotifyToggle,
+                onToggle = authorBookmark.onToggle,
+                onToggleNotify = authorBookmark.onToggleNotify,
                 modifier = Modifier.padding(start = 4.dp)
             )
         }
@@ -2277,11 +2323,11 @@ fun BookDetailCanonicalSummary(
                     .testTag("book_detail_narrator_link")
             )
             PersonBookmarkButton(
-                isBookmarked = isNarratorBookmarked,
-                notifyEnabled = narratorNotifyEnabled,
+                isBookmarked = narratorBookmark.isBookmarked,
+                notifyEnabled = narratorBookmark.notifyEnabled,
                 personName = presentation.narrator,
-                onToggle = onNarratorBookmarkToggle,
-                onToggleNotify = onNarratorNotifyToggle,
+                onToggle = narratorBookmark.onToggle,
+                onToggleNotify = narratorBookmark.onToggleNotify,
                 modifier = Modifier.padding(start = 4.dp)
             )
         }

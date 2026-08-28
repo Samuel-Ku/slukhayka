@@ -22,6 +22,7 @@ import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -95,6 +96,7 @@ fun BookDetailScreen(
     libraryEntries: LibraryEntries,
     onBackClick: () -> Unit,
     returnFocusOrigin: BookDetailLinkOrigin? = null,
+    fullPlayerModalActive: Boolean = false,
     onChildRouteOpened: (BookDetailLinkOrigin) -> Unit = {},
     onReturnFocusRestored: (BookDetailLinkOrigin) -> Unit = {}
 ) {
@@ -140,6 +142,15 @@ fun BookDetailScreen(
     val narrationRatingDeleteFocusRequester = remember { FocusRequester() }
 
     val currentBook = book ?: return
+    val chapterFocusRequesters = remember(chapters.map { it.id }) {
+        chapters.associate { it.id to FocusRequester() }
+    }
+    var fullPlayerReturnChapterId by rememberSaveable { mutableStateOf<String?>(null) }
+    RestoreFocusAfterModal(
+        modalVisible = fullPlayerModalActive,
+        returnFocusRequester = fullPlayerReturnChapterId?.let(chapterFocusRequesters::get),
+        onFocusRestored = { fullPlayerReturnChapterId = null }
+    )
     val isDownloadingThis = downloadingBookId == currentBook.id
     // #392 — estimated size and live download progress
     var estimatedSize by remember(currentBook.id) {
@@ -794,7 +805,9 @@ fun BookDetailScreen(
                         index = index,
                         isCurrent = isCurrentChapter,
                         isPlaying = isPlayingThis,
+                        focusRequester = chapterFocusRequesters[chapter.id],
                         onPlayClick = {
+                            fullPlayerReturnChapterId = chapter.id
                             if (isCurrentChapter) {
                                 viewModel.playerManager.play()
                             } else {
@@ -1516,6 +1529,7 @@ fun ChapterRowItem(
     index: Int,
     isCurrent: Boolean,
     isPlaying: Boolean,
+    focusRequester: FocusRequester? = null,
     onPlayClick: () -> Unit,
     onPauseClick: () -> Unit
 ) {
@@ -1558,6 +1572,7 @@ fun ChapterRowItem(
             // not change runtime behaviour.
             .testTag("book_detail_chapter_${chapter.id}")
             .clickable { onAction() }
+            .then(focusRequester?.let { Modifier.focusRequester(it) } ?: Modifier)
             // A chapter is a destination in the reading flow. Make its focus target
             // explicit so TalkBack and physical-device semantics can move to it
             // before activation (clickable alone was not reliable here).

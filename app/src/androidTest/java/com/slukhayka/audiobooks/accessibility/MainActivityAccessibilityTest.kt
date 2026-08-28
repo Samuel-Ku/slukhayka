@@ -23,6 +23,7 @@ import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.test.printToLog
 import androidx.compose.ui.test.tryPerformAccessibilityChecks
 import androidx.lifecycle.ViewModelProvider
 import androidx.test.core.app.ApplicationProvider
@@ -340,6 +341,8 @@ class MainActivityAccessibilityTest {
             )
         composeTestRule.onNodeWithTag("sleep_timer_option_0")
             .assertIsSelected()
+        composeTestRule.onRoot(useUnmergedTree = true)
+            .printToLog("[DEBUG-a11y-sheet]")
         composeTestRule.onRoot().tryPerformAccessibilityChecks()
         composeTestRule.onNodeWithTag("sleep_timer_option_5")
             .assert(SemanticsMatcher.keyIsDefined(SemanticsActions.OnClick))

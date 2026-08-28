@@ -56,6 +56,7 @@ fun SleepTimerSheet(
         90 to "90 хвилин"
     )
     val headingFocusRequester = remember { FocusRequester() }
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val paneTitle = stringResource(R.string.a11y_timer_pane)
     val closeDescription = stringResource(R.string.a11y_timer_close)
     val extendDescription = stringResource(R.string.a11y_timer_extend)
@@ -64,6 +65,7 @@ fun SleepTimerSheet(
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
+        sheetState = sheetState,
         // MD3: modal bottom sheet = surfaceContainerLow (tonal elevation).
         containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         dragHandle = { BottomSheetDefaults.DragHandle() },

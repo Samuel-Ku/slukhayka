@@ -87,10 +87,19 @@ jobs:
           mkdir -p app/build/kover/partition app/build/test-results/partition
           if [ "${{ matrix.id }}" = "room-robolectric" ]; then
             rm -f app/build/test-worker-identities.tsv
-            ./gradlew :app:validateTestPartitions :app:testRoomRobolectric --no-daemon --stacktrace
+            ./gradlew :app:validateTestPartitions :app:testRoomNativeSdk35 --no-daemon --stacktrace
+            cp app/build/kover/bin-reports/testDebugUnitTest.ic app/build/kover/partition/native-sdk35.ic
+            cp -R app/build/test-results/testDebugUnitTest app/build/test-results/partition/native-sdk35
+            ./gradlew :app:testRoomNativeSdk36 --no-daemon --stacktrace
+            cp app/build/kover/bin-reports/testDebugUnitTest.ic app/build/kover/partition/native-sdk36.ic
+            cp -R app/build/test-results/testDebugUnitTest app/build/test-results/partition/native-sdk36
+            ./gradlew :app:testRoomNativeDefault --no-daemon --stacktrace
+            cp app/build/kover/bin-reports/testDebugUnitTest.ic app/build/kover/partition/native-default.ic
+            cp -R app/build/test-results/testDebugUnitTest app/build/test-results/partition/native-default
+            ./gradlew :app:testRoomRobolectricOnly --no-daemon --stacktrace
+            cp app/build/kover/bin-reports/testDebugUnitTest.ic app/build/kover/partition/robolectric-only.ic
             test "$(cut -f1 app/build/test-worker-identities.tsv | sort -u | wc -l)" -eq 2
             test "$(cut -f2 app/build/test-worker-identities.tsv | sort -u | wc -l)" -eq 2
-            cp app/build/kover/bin-reports/testDebugUnitTest.ic app/build/kover/partition/room-robolectric.ic
           else
             ./gradlew :app:validateTestPartitions ${{ matrix.task }} --no-daemon --stacktrace
             cp app/build/kover/bin-reports/testDebugUnitTest.ic app/build/kover/partition/${{ matrix.id }}.ic
@@ -160,7 +169,7 @@ jobs:
           path: app/build/kover/ci
 
       - name: Require all partition reports
-        run: test "$(find app/build/kover/ci -name '*.ic' | wc -l)" -eq 3
+        run: test "$(find app/build/kover/ci -name '*.ic' | wc -l)" -eq 6
 
       - name: Generate merged reports and enforce thresholds
         run: |

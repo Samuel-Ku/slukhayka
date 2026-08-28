@@ -406,6 +406,7 @@ tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
 // consume this CLI, so a new test cannot silently disappear between them.
 fun partitionTestClasses(
   partition: String,
+  cohort: String = "all",
 ): List<String> {
   val arguments = mutableListOf(
     rootProject.file("scripts/test_partitions.py").absolutePath,
@@ -414,6 +415,8 @@ fun partitionTestClasses(
     "list",
     "--partition",
     partition,
+    "--cohort",
+    cohort,
   )
   return providers.exec {
     workingDir(rootProject.projectDir)
@@ -423,6 +426,10 @@ fun partitionTestClasses(
 
 val pureJvmClasses = partitionTestClasses("pure-jvm")
 val roomRobolectricClasses = partitionTestClasses("room-robolectric")
+val roomNativeSdk35Classes = partitionTestClasses("room-robolectric", "native-sdk35")
+val roomNativeSdk36Classes = partitionTestClasses("room-robolectric", "native-sdk36")
+val roomNativeDefaultClasses = partitionTestClasses("room-robolectric", "native-default")
+val roomRobolectricOnlyClasses = partitionTestClasses("room-robolectric", "non-native")
 val composeRoborazziClasses = partitionTestClasses("compose-roborazzi")
 
 // These aliases reuse AGP's standard Test task. Kover 0.9.9 instruments that
@@ -430,6 +437,10 @@ val composeRoborazziClasses = partitionTestClasses("compose-roborazzi")
 val partitionAliases = mapOf(
   "testPureJvm" to pureJvmClasses,
   "testRoomRobolectric" to roomRobolectricClasses,
+  "testRoomNativeSdk35" to roomNativeSdk35Classes,
+  "testRoomNativeSdk36" to roomNativeSdk36Classes,
+  "testRoomNativeDefault" to roomNativeDefaultClasses,
+  "testRoomRobolectricOnly" to roomRobolectricOnlyClasses,
   "testComposeRoborazzi" to composeRoborazziClasses,
 )
 val requestedPartitionAliases = gradle.startParameter.taskNames
@@ -448,6 +459,10 @@ afterEvaluate {
       description = when (alias) {
         "testPureJvm" -> "Runs pure JVM tests without Robolectric."
         "testRoomRobolectric" -> "Runs Room and other non-snapshot Robolectric tests."
+        "testRoomNativeSdk35" -> "Runs the isolated SDK 35 native Room cohort."
+        "testRoomNativeSdk36" -> "Runs the isolated SDK 36 native Room cohort."
+        "testRoomNativeDefault" -> "Runs the isolated default-SDK native Room cohort."
+        "testRoomRobolectricOnly" -> "Runs Robolectric tests that do not load native Room."
         else -> "Runs Compose and Roborazzi snapshot tests."
       }
       dependsOn(baseJvmTest)
@@ -466,6 +481,10 @@ afterEvaluate {
         // automatically, without another hard-coded cohort table.
         maxParallelForks = 1
         forkEvery = 1
+      } else {
+        maxParallelForks = 1
+      }
+      if (requestedAlias.startsWith("testRoomNative")) {
         systemProperty(
           "slukhayka.test.workerIdentityFile",
           layout.buildDirectory.file("test-worker-identities.tsv").get().asFile.absolutePath,

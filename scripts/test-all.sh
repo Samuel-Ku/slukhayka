@@ -81,5 +81,8 @@ fi
 # Separate Gradle invocations are intentional: all aliases filter AGP's one
 # testDebugUnitTest task, so each invocation gets exactly one partition.
 "$gradlew" :app:validateTestPartitions :app:testPureJvm --no-daemon --stacktrace || exit $?
-"$gradlew" :app:testRoomRobolectric --no-daemon --stacktrace || exit $?
+"$gradlew" :app:testRoomNativeSdk35 --no-daemon --stacktrace || exit $?
+"$gradlew" :app:testRoomNativeSdk36 --no-daemon --stacktrace || exit $?
+"$gradlew" :app:testRoomNativeDefault --no-daemon --stacktrace || exit $?
+"$gradlew" :app:testRoomRobolectricOnly --no-daemon --stacktrace || exit $?
 "$gradlew" :app:testComposeRoborazzi --no-daemon --stacktrace

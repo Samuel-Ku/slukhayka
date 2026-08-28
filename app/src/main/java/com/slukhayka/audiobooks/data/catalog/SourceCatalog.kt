@@ -846,8 +846,7 @@ class SourceCatalog(
         // cross-Source author index. This is idempotent and entirely local.
         authorIndex.indexWorks(listOf(work), sourceId)
         val sourceAlreadyKnown = dao.getWorkSourcesForWorkSync(work.id).any { it.id == workSourceId }
-        dao.upsertWorkWithSource(
-            work,
+        dao.upsertWorkSourceSafe(
             WorkSourceEntity(
                 id = workSourceId,
                 workId = work.id,

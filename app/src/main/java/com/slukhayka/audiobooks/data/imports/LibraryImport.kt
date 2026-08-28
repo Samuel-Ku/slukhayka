@@ -811,8 +811,7 @@ class LibraryImport(
         )
         if (work != null && book.url.isNotBlank()) {
             val sourceId = sourceIdForUrl(book.url)
-            dao.upsertWorkWithSource(
-                work,
+            dao.upsertWorkSourceSafe(
                 WorkSourceEntity(
                     id = "$workId|$sourceId|${Integer.toHexString(book.url.hashCode())}",
                     workId = workId,

@@ -350,7 +350,9 @@ val runRecommendationEval by tasks.registering(JavaExec::class) {
   // sources); its output dir carries the main class. The android onnxruntime
   // AAR is excluded from the runtime classpath so the desktop jar (with
   // host natives) resolves the ai.onnxruntime API.
-  dependsOn("compileDebugUnitTestKotlin", "processDebugUnitTestJavaRes")
+  dependsOn("compileDebugKotlin", "compileDebugUnitTestKotlin", "processDebugUnitTestJavaRes")
+  val mainCompileTask = project.tasks.named("compileDebugKotlin")
+  val mainOutput = (mainCompileTask.get() as org.jetbrains.kotlin.gradle.tasks.KotlinCompile).destinationDirectory
   val compileTask = project.tasks.named("compileDebugUnitTestKotlin")
   val testOutput = (compileTask.get() as org.jetbrains.kotlin.gradle.tasks.KotlinCompile).destinationDirectory
   val resourcesOutput = project.layout.buildDirectory.dir("intermediates/java_res/debugUnitTest/processDebugUnitTestJavaRes/out")
@@ -358,6 +360,7 @@ val runRecommendationEval by tasks.registering(JavaExec::class) {
     .files.filter { !it.name.contains("onnxruntime-android") }
   classpath = project.files(
     project.configurations.getByName("evalRuntime"),
+    mainOutput,
     testOutput,
     resourcesOutput
   ) + project.files(testCp)

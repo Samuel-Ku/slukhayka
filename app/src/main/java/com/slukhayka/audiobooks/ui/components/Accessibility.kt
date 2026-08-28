@@ -1,5 +1,6 @@
 package com.slukhayka.audiobooks.ui.components
 
+import android.util.Log
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -49,6 +50,7 @@ fun RestoreFocusAfterModal(
 ) {
     var modalWasVisible by remember { mutableStateOf(false) }
     LaunchedEffect(modalVisible, returnFocusRequester) {
+        Log.d("FocusRestoreProbe", "effect visible=$modalVisible requester=${returnFocusRequester != null} wasVisible=$modalWasVisible")
         if (modalVisible) {
             modalWasVisible = true
         } else if (modalWasVisible) {
@@ -69,6 +71,7 @@ fun RestoreFocusAfterModal(
                 val restored = restoredToOrigin || fallbackFocusRequester?.let { fallback ->
                     runCatching { fallback.requestFocus() }.getOrDefault(false)
                 } == true
+                Log.d("FocusRestoreProbe", "attempt origin=$restoredToOrigin restored=$restored")
                 if (restored) {
                     modalWasVisible = false
                     onFocusRestored()

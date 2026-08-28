@@ -14,11 +14,14 @@ import com.slukhayka.audiobooks.data.collections.SoundBooksTopSource
 import com.slukhayka.audiobooks.data.db.AudiobookDao
 import com.slukhayka.audiobooks.data.db.AudiobookDatabase
 import com.slukhayka.audiobooks.data.downloads.OfflineDownloads
+import com.slukhayka.audiobooks.data.diagnostics.AndroidHistoricalProcessExitSource
 import com.slukhayka.audiobooks.data.diagnostics.CrashReporting
 import com.slukhayka.audiobooks.data.diagnostics.DiagnosticAudioOrigin
 import com.slukhayka.audiobooks.data.diagnostics.DiagnosticPlaybackState
 import com.slukhayka.audiobooks.data.diagnostics.FirebaseCrashReportSink
 import com.slukhayka.audiobooks.data.diagnostics.SharedPreferencesCrashConsentStore
+import com.slukhayka.audiobooks.data.diagnostics.SharedPreferencesProcessExitCursorStore
+import com.slukhayka.audiobooks.data.diagnostics.UnexpectedExitReporter
 import com.slukhayka.audiobooks.data.duration.ChapterDurationProbe
 import com.slukhayka.audiobooks.data.duration.DurationEnrichment
 import com.slukhayka.audiobooks.data.duration.HttpStreamProber
@@ -105,12 +108,23 @@ import kotlinx.coroutines.launch
 class App : Application() {
 
     private val database by lazy { AudiobookDatabase.getDatabase(this) }
+    private val processExitHistory by lazy { AndroidHistoricalProcessExitSource(this) }
 
     /** #411 — the only process-wide door to anonymous crash reporting. */
     val crashReporting: CrashReporting by lazy {
         CrashReporting(
             consentStore = SharedPreferencesCrashConsentStore(this),
             sink = FirebaseCrashReportSink.createOrNoOp(),
+            enabledForBuild = BuildConfig.CRASH_REPORTING_ENABLED,
+            processStateSummarySink = processExitHistory
+        )
+    }
+
+    private val unexpectedExitReporter by lazy {
+        UnexpectedExitReporter(
+            source = processExitHistory,
+            cursorStore = SharedPreferencesProcessExitCursorStore(this),
+            crashReporting = crashReporting,
             enabledForBuild = BuildConfig.CRASH_REPORTING_ENABLED
         )
     }
@@ -497,6 +511,7 @@ class App : Application() {
         super.onCreate()
         instance = this
         crashReporting.start()
+        unexpectedExitReporter.inspectLatest()
         // Spec-38 T1 (#253): install the persisted privacy route BEFORE any
         // module can touch the network, and warm the real system WebView
         // User-Agent off the main thread (it initialises the WebView engine;

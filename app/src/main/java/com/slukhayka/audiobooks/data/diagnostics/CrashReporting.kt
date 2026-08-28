@@ -21,6 +21,7 @@ interface CrashReportSink {
     fun sendUnsentReports()
     fun deleteUnsentReports()
     fun setContext(context: CrashContext)
+    fun recordUnexpectedPlaybackExit(event: UnexpectedPlaybackExitEvent)
 }
 
 data class CrashReportingState(
@@ -77,7 +78,8 @@ data class CrashContext(
 class CrashReporting(
     private val consentStore: CrashConsentStore,
     private val sink: CrashReportSink,
-    private val enabledForBuild: Boolean
+    private val enabledForBuild: Boolean,
+    private val processStateSummarySink: ProcessStateSummarySink = ProcessStateSummarySink { }
 ) {
     private val contextLock = Any()
     private var currentContext = CrashContext()
@@ -90,6 +92,7 @@ class CrashReporting(
         val consent = consentStore.load()
         _state.value = CrashReportingState(consent)
         sink.setCollectionEnabled(enabledForBuild && consent == CrashConsent.ALLOWED)
+        if (enabledForBuild) processStateSummarySink.set(currentContext)
 
         if (!enabledForBuild) return
 
@@ -151,6 +154,21 @@ class CrashReporting(
         copy(castActive = active)
     }
 
+    fun reportUnexpectedPlaybackExit(event: UnexpectedPlaybackExitEvent) {
+        if (!enabledForBuild) return
+        when (_state.value.consent) {
+            CrashConsent.DENIED -> Unit
+            CrashConsent.ALLOWED -> sink.recordUnexpectedPlaybackExit(event)
+            CrashConsent.UNDECIDED -> {
+                sink.recordUnexpectedPlaybackExit(event)
+                _state.value = CrashReportingState(
+                    consent = CrashConsent.UNDECIDED,
+                    shouldShowPrompt = true
+                )
+            }
+        }
+    }
+
     private fun updateCurrentContext(transform: CrashContext.() -> CrashContext) {
         val updated = synchronized(contextLock) {
             currentContext.transform().also { currentContext = it }
@@ -159,7 +177,10 @@ class CrashReporting(
     }
 
     private fun publishContext(context: CrashContext) {
-        if (enabledForBuild) sink.setContext(context)
+        if (enabledForBuild) {
+            processStateSummarySink.set(context)
+            sink.setContext(context)
+        }
     }
 
     private fun disableAndDeleteReports() {

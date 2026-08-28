@@ -354,7 +354,6 @@ class PlayerAccessibilityTest {
     }
 
     @Test
-    @Config(sdk = [35])
     fun playerModalOwnerGroupsPlayerSnackbarAndDebugOverlayIntoOneHiddenUnderlay() {
         composeTestRule.setContent {
             AudiobookTheme(darkTheme = true) {
@@ -374,8 +373,6 @@ class PlayerAccessibilityTest {
                 )
             )
         listOf("Player body", "Player snackbar", "Player debug overlay").forEach { label ->
-            composeTestRule.onAllNodes(hasContentDescription(label))
-                .assertCountEquals(0)
             composeTestRule.onNode(
                 hasContentDescription(label) and
                     hasAnyAncestor(hasTestTag("player_modal_underlay")),

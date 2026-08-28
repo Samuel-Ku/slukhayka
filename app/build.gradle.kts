@@ -484,9 +484,9 @@ afterEvaluate {
       } else if (requestedAlias.startsWith("testRoomNative")) {
         // Native SQLite keeps process-wide state even inside one Robolectric
         // SDK cohort. Reuse can therefore contaminate the next Room class.
-        // Two fresh workers at a time retain isolation without serializing the
-        // entire SDK 36 cohort.
-        maxParallelForks = 2
+        // Four fresh workers at a time match GitHub's public Linux runner and
+        // retain isolation without serializing the entire SDK 36 cohort.
+        maxParallelForks = 4
         forkEvery = 1
       } else {
         maxParallelForks = 1

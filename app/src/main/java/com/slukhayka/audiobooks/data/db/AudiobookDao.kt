@@ -21,8 +21,10 @@ interface AudiobookDao {
             SELECT a.*,
                    w.seriesTitle AS seriesTitle, w.seriesUrl AS seriesUrl, w.seriesIndex AS seriesIndex,
                    w.id AS workId, w.mergeKey AS mergeKey,
-                   le.isFavorite AS isFavorite, le.createdAt AS createdAt, le.downloadProgress AS downloadProgress,
-                   le.downloadState AS downloadState,
+                   COALESCE(le.isFavorite, 0) AS isFavorite,
+                   COALESCE(le.createdAt, 0) AS createdAt,
+                   COALESCE(le.downloadProgress, 0) AS downloadProgress,
+                   COALESCE(le.downloadState, 'IDLE') AS downloadState,
                    (SELECT pp.preferredSpeed FROM playback_progress pp
                       JOIN editions e ON e.id = pp.editionId
                      WHERE e.workId = a.id LIMIT 1) AS preferredSpeed
@@ -582,7 +584,9 @@ interface AudiobookDao {
     @Query(
         "INSERT INTO library_entries (id, workId, isFavorite, createdAt, downloadProgress, downloadState) " +
             "VALUES (:id, :workId, :isFavorite, :createdAt, :downloadProgress, :downloadState) " +
-            "ON CONFLICT(id) DO UPDATE SET workId = excluded.workId, downloadProgress = excluded.downloadProgress, downloadState = excluded.downloadState"
+            "ON CONFLICT(id) DO UPDATE SET workId = excluded.workId, isFavorite = excluded.isFavorite, " +
+            "createdAt = excluded.createdAt, downloadProgress = excluded.downloadProgress, " +
+            "downloadState = excluded.downloadState"
     )
     suspend fun upsertLibraryEntry(
         id: String,

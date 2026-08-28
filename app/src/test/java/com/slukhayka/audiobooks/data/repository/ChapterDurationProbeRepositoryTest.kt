@@ -9,6 +9,7 @@ import com.slukhayka.audiobooks.data.db.AudiobookDatabase
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.ChapterEntity
 import com.slukhayka.audiobooks.data.db.SourceTrackEntity
+import com.slukhayka.audiobooks.data.db.WorkEntity
 import com.slukhayka.audiobooks.data.duration.ChapterDurationProbe
 import com.slukhayka.audiobooks.data.duration.MpegAudioFrame
 import com.slukhayka.audiobooks.data.duration.ProbeResult
@@ -137,6 +138,24 @@ class ChapterDurationProbeRepositoryTest {
 
     private fun seed(books: List<AudiobookEntity>, chapters: List<ChapterEntity>) = runBlocking {
         dao.insertAudiobooks(books)
+        books.forEach { book ->
+            val workId = "test-work-${book.id}"
+            dao.upsertWork(
+                WorkEntity(
+                    id = workId,
+                    mergeKey = workId,
+                    title = book.title,
+                    author = book.author
+                )
+            )
+            dao.upsertLibraryEntry(
+                id = book.id,
+                workId = workId,
+                isFavorite = false,
+                createdAt = book.createdAt,
+                downloadProgress = 0f
+            )
+        }
         dao.insertChapters(chapters)
     }
 

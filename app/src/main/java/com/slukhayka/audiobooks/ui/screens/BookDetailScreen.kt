@@ -1570,13 +1570,13 @@ fun ChapterRowItem(
             // Tags by chapter entity id so the emulator scenario can target a
             // specific chapter regardless of ordering. Pure UI annotation; does
             // not change runtime behaviour.
-            .testTag("book_detail_chapter_${chapter.id}")
             .clickable { onAction() }
             .then(focusRequester?.let { Modifier.focusRequester(it) } ?: Modifier)
             // A chapter is a destination in the reading flow. Make its focus target
             // explicit so TalkBack and physical-device semantics can move to it
             // before activation (clickable alone was not reliable here).
             .focusable()
+            .testTag("book_detail_chapter_${chapter.id}")
             .semantics(mergeDescendants = true) {
                 contentDescription = chapterSummary
                 stateDescription = chapterState

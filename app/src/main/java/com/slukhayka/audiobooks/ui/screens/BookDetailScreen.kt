@@ -1,5 +1,6 @@
 package com.slukhayka.audiobooks.ui.screens
 
+import android.util.Log
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -716,6 +717,7 @@ fun BookDetailScreen(
                             // recreated while the full player is open; always
                             // reconnect the stable chapter id to its live node.
                             playerReturnFocusRequester = chapterFocusRequester
+                            Log.d("FocusRestoreProbe", "connected chapter=${chapter.id}")
                         }
                     }
                     val isCurrentChapter = playerState.currentBook?.id == currentBook.id &&
@@ -729,6 +731,7 @@ fun BookDetailScreen(
                         isPlaying = isPlayingThis,
                         focusRequester = chapterFocusRequester,
                         onPlayClick = {
+                            Log.d("FocusRestoreProbe", "opened chapter=${chapter.id}")
                             playerReturnFocusChapterId = chapter.id
                             playerReturnFocusRequester = chapterFocusRequester
                             if (isCurrentChapter) {

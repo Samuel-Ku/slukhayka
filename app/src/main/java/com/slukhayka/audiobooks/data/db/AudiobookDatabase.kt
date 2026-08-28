@@ -40,9 +40,10 @@ import com.slukhayka.audiobooks.data.facets.GenreIdentity
         GenreAssertionEntity::class,
         EditionFacetEntity::class,
         AuthorFacetEntity::class,
-        AuthorAliasEntity::class
+        AuthorAliasEntity::class,
+        PersonBookmarkEntity::class
     ],
-    version = 23,
+    version = 24,
     exportSchema = true
 )
 abstract class AudiobookDatabase : RoomDatabase() {
@@ -66,7 +67,7 @@ abstract class AudiobookDatabase : RoomDatabase() {
                     // upgrades, so a schema change fails loudly at runtime
                     // instead of silently dropping the database.
                     .addMigrations(
-                        MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23
+                        MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24
                     )
                     .build()
                 INSTANCE = instance
@@ -1068,6 +1069,39 @@ abstract class AudiobookDatabase : RoomDatabase() {
         internal val MIGRATION_22_23 = object : Migration(22, 23) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE library_entries ADD COLUMN downloadState TEXT NOT NULL DEFAULT 'IDLE'")
+            }
+        }
+
+        /**
+         * #399 — person-bookmarks foundation: create the `person_bookmarks`
+         * table and add `editions.addedAt` (backfilling existing rows with the
+         * current timestamp so every known Edition starts as 'seen'). The new
+         * table is additive — no existing row is touched, so the migration is
+         * trivially safe on any v23 database.
+         */
+        internal val MIGRATION_23_24 = object : Migration(23, 24) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // New table: person bookmarks (kind + id composite PK).
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS person_bookmarks (
+                        kind TEXT NOT NULL,
+                        id TEXT NOT NULL,
+                        displayName TEXT NOT NULL,
+                        normalizedName TEXT NOT NULL,
+                        createdAt INTEGER NOT NULL,
+                        lastSeenAt INTEGER NOT NULL DEFAULT 0,
+                        lastNotifiedAt INTEGER NOT NULL DEFAULT 0,
+                        notifyEnabled INTEGER NOT NULL DEFAULT 1,
+                        updatedAt INTEGER NOT NULL,
+                        PRIMARY KEY(kind, id)
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_person_bookmarks_normalizedName ON person_bookmarks(normalizedName)")
+                // Add editions.addedAt (backfill existing rows with now).
+                db.execSQL("ALTER TABLE editions ADD COLUMN addedAt INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("UPDATE editions SET addedAt = (strftime('%s','now') * 1000) WHERE addedAt = 0")
             }
         }
 

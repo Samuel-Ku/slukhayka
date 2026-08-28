@@ -105,6 +105,10 @@ _Avoid_: mixing into the headline average, edition-scoped Listener Review (the o
 An explicit, local-only listener verdict that changes discovery ranking without changing a Work, Library Entry, Listening State or Listener Review. It is one of `HIDE_WORK`, `REDUCE_SIMILAR` or `HIDE_AUTHOR`, keyed by normalized Work/author identity and reversible from recommendation settings. It stores no embedding or listening history.
 _Avoid_: deletion, tombstone, implicit dislike, server-side listening profile
 
+**Person Bookmark**:
+A local listener relationship with one canonical Author or Narrator, keyed by `(role, deterministic id)`. Both roles use the Author Identity normalizer, while distinct `author` and `narrator` id prefixes prevent cross-role collisions. The bookmark owns notification preference and seen/notified timestamps; it remains useful without network or Firebase.
+_Avoid_: Work bookmark, raw display name as identity, mandatory cloud relationship
+
 **Recovery Code**:
 The encoded credential pair of the silent anonymous profile («Код відновлення профілю»), shown in ⚙️ Профіль only behind BiometricPrompt and accepted on a fresh install — or in the Web Client — to restore or link the same uid. Surviving reinstall also rides Android Auto Backup of the generated credentials and the Firestore `device_bindings/{ANDROID_ID} → uid` silent restore — the binding exists ONLY for recovery of one's own profile, written solely for the caller's own uid.
 _Avoid_: login screen, hardware identifiers (IMEI), password reset
@@ -122,7 +126,7 @@ _Avoid_: heal loops, retrying the same dead URL, index-based healing on reordere
 ## Architecture
 
 **Module reads**:
-Screens read the five deep modules' flows and suspend functions directly — `module.flow.collectAsState(...)` for flows, `rememberCoroutineScope().launch { module.suspendFun(...) }` for actions. MainViewModel keeps only composition, navigation and orchestration; the pure download/import outcome messages and the resume start-position decision live in `ui.library` (`OutcomeMessages`, `computeResumeStart`) with JVM tests (ADR-0008).
+Screens read the six deep modules' flows and suspend functions directly — `module.flow.collectAsState(...)` for flows, `rememberCoroutineScope().launch { module.suspendFun(...) }` for actions. MainViewModel keeps only composition, navigation and orchestration; the pure download/import outcome messages and the resume start-position decision live in `ui.library` (`OutcomeMessages`, `computeResumeStart`) with JVM tests (ADR-0008). Person Bookmarks is the sixth module and is composed once in `App`; it has no network dependency.
 _Avoid_: forwarding StateFlows, 1:1 ViewModel forwarders
 
 **Works and Library Entries**:

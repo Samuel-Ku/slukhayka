@@ -304,7 +304,19 @@ interface AudiobookDao {
     // --- Domain Editions (ADR-0007) ---
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertEdition(edition: EditionEntity)
+    suspend fun replaceEdition(edition: EditionEntity)
+
+    /**
+     * Records the first time an Edition is discovered and never moves that
+     * timestamp during later catalogue refreshes.
+     */
+    @Transaction
+    suspend fun insertEdition(edition: EditionEntity) {
+        val firstSeenAt = getEditionById(edition.id)?.addedAt?.takeIf { it > 0L }
+            ?: edition.addedAt.takeIf { it > 0L }
+            ?: System.currentTimeMillis()
+        replaceEdition(edition.copy(addedAt = firstSeenAt))
+    }
 
     @Query("SELECT * FROM editions WHERE id = :editionId")
     suspend fun getEditionById(editionId: String): EditionEntity?
@@ -992,4 +1004,50 @@ interface AudiobookDao {
 
     @Query("SELECT * FROM genre_assertions WHERE workId=:workId ORDER BY id ASC")
     suspend fun genreAssertionsForWork(workId: String): List<GenreAssertionEntity>
+
+    // --- Person Bookmarks (#399) ------------------------------------------
+
+    /** Every bookmark of a given kind, newest first. */
+    @Query("SELECT * FROM person_bookmarks WHERE kind = :kind ORDER BY createdAt DESC")
+    fun getPersonBookmarksByKind(kind: String): Flow<List<PersonBookmarkEntity>>
+
+    /** All bookmarked persons (both authors and narrators), newest first. */
+    @Query("SELECT * FROM person_bookmarks ORDER BY createdAt DESC")
+    fun getAllPersonBookmarks(): Flow<List<PersonBookmarkEntity>>
+
+    /** One specific bookmark — null when the person is not bookmarked. */
+    @Query("SELECT * FROM person_bookmarks WHERE kind = :kind AND id = :id LIMIT 1")
+    suspend fun getPersonBookmark(kind: String, id: String): PersonBookmarkEntity?
+
+    /** Observe one specific bookmark for real-time UI toggle. */
+    @Query("SELECT * FROM person_bookmarks WHERE kind = :kind AND id = :id LIMIT 1")
+    fun observePersonBookmark(kind: String, id: String): Flow<PersonBookmarkEntity?>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertPersonBookmark(bookmark: PersonBookmarkEntity)
+
+    /** Atomic read-modify-write door for a bookmark toggle. */
+    @Transaction
+    suspend fun togglePersonBookmark(bookmark: PersonBookmarkEntity): Boolean {
+        val existing = getPersonBookmark(bookmark.kind, bookmark.id)
+        return if (existing == null) {
+            upsertPersonBookmark(bookmark)
+            true
+        } else {
+            deletePersonBookmark(bookmark.kind, bookmark.id)
+            false
+        }
+    }
+
+    @Query("DELETE FROM person_bookmarks WHERE kind = :kind AND id = :id")
+    suspend fun deletePersonBookmark(kind: String, id: String)
+
+    @Query("UPDATE person_bookmarks SET notifyEnabled = :enabled, updatedAt = :updatedAt WHERE kind = :kind AND id = :id")
+    suspend fun updatePersonBookmarkNotifyEnabled(kind: String, id: String, enabled: Boolean, updatedAt: Long)
+
+    @Query("UPDATE person_bookmarks SET lastSeenAt = :lastSeenAt, updatedAt = :updatedAt WHERE kind = :kind AND id = :id")
+    suspend fun updatePersonBookmarkLastSeen(kind: String, id: String, lastSeenAt: Long, updatedAt: Long)
+
+    @Query("UPDATE person_bookmarks SET lastNotifiedAt = :lastNotifiedAt WHERE kind = :kind AND id = :id")
+    suspend fun updatePersonBookmarkLastNotified(kind: String, id: String, lastNotifiedAt: Long)
 }

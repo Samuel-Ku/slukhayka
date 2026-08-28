@@ -251,6 +251,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // resolved-profile state; the reviews block unlocks for writing the
         // moment ensure() answers (or degrades to local-only, its contract).
         attachListenerIdentity(listenerIdentityModule)
+        // #394 — observe notification button actions (pause / continue / cancel)
+        viewModelScope.launch {
+            com.slukhayka.audiobooks.data.downloads.DownloadNotificationService.notificationActions.collect { action ->
+                when (action) {
+                    is com.slukhayka.audiobooks.data.downloads.NotificationAction.Pause -> pauseDownload(action.bookId)
+                    is com.slukhayka.audiobooks.data.downloads.NotificationAction.Continue -> continueDownload(action.bookId)
+                    is com.slukhayka.audiobooks.data.downloads.NotificationAction.Cancel -> cancelDownload(action.bookId)
+                }
+            }
+        }
     }
 
     fun refreshCacheSize() {
@@ -1926,10 +1936,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
         _downloadingBookId.value = bookId
-        viewModelScope.launch(Dispatchers.IO) {
+        val job = viewModelScope.launch(Dispatchers.IO) {
             try {
                 val book = libraryEntries.getBookSync(bookId)
                 startDownloadNotification(bookId, book?.title ?: "", book?.author ?: "")
+                offlineDownloads.registerDownloadJob(bookId, kotlinx.coroutines.currentCoroutineContext()[kotlinx.coroutines.Job]!!)
                 val result = offlineDownloads.downloadAudiobookOffline(bookId)
                 if (_selectedBookId.value == bookId) {
                     _downloadMessage.value = OutcomeMessages.downloadOutcome(result)
@@ -1940,10 +1951,58 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     _downloadMessage.value = OutcomeMessages.downloadFailure()
                 }
             } finally {
+                offlineDownloads.unregisterDownloadJob(bookId)
                 _downloadingBookId.value = null
                 stopDownloadNotification()
                 refreshCacheSize()
             }
+        }
+        offlineDownloads.registerDownloadJob(bookId, job)
+    }
+
+    // #394 — Download controls: pause / continue / cancel
+    fun pauseDownload(bookId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            offlineDownloads.pauseDownload(bookId)
+            _downloadingBookId.value = null
+            com.slukhayka.audiobooks.data.downloads.DownloadNotificationService.notifyPaused(getApplication())
+            refreshCacheSize()
+        }
+    }
+
+    fun continueDownload(bookId: String) {
+        if (_downloadingBookId.value != null) {
+            android.widget.Toast.makeText(getApplication(), "Вже завантажується інша книга", android.widget.Toast.LENGTH_SHORT).show()
+            return
+        }
+        _downloadingBookId.value = bookId
+        val job = viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val book = libraryEntries.getBookSync(bookId)
+                startDownloadNotification(bookId, book?.title ?: "", book?.author ?: "")
+                offlineDownloads.registerDownloadJob(bookId, kotlinx.coroutines.currentCoroutineContext()[kotlinx.coroutines.Job]!!)
+                val result = offlineDownloads.continueDownload(bookId)
+                if (_selectedBookId.value == bookId) {
+                    _downloadMessage.value = OutcomeMessages.downloadOutcome(result)
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("MainViewModel", "Offline continue failed", e)
+            } finally {
+                offlineDownloads.unregisterDownloadJob(bookId)
+                _downloadingBookId.value = null
+                stopDownloadNotification()
+                refreshCacheSize()
+            }
+        }
+        offlineDownloads.registerDownloadJob(bookId, job)
+    }
+
+    fun cancelDownload(bookId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            offlineDownloads.cancelDownload(bookId)
+            _downloadingBookId.value = null
+            stopDownloadNotification()
+            refreshCacheSize()
         }
     }
 

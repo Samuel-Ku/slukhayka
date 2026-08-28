@@ -34,6 +34,7 @@ import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.slukhayka.audiobooks.data.catalog.CatalogPerson
+import com.slukhayka.audiobooks.data.diagnostics.AppVisibility
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.SelectedTab
 import com.slukhayka.audiobooks.ui.components.MiniPlayerBar
@@ -44,6 +45,7 @@ import com.slukhayka.audiobooks.ui.screens.AuthorsIndexScreen
 import com.slukhayka.audiobooks.ui.screens.CanonicalAuthorScreen
 import com.slukhayka.audiobooks.ui.screens.BookDetailLinkOrigin
 import com.slukhayka.audiobooks.ui.screens.CollectionsIndexScreen
+import com.slukhayka.audiobooks.ui.screens.CrashReportingConsentDialog
 import com.slukhayka.audiobooks.ui.screens.GenreScreen
 import com.slukhayka.audiobooks.ui.screens.HomeScreen
 import com.slukhayka.audiobooks.ui.screens.LibraryScreen
@@ -168,6 +170,16 @@ class MainActivity : FragmentActivity() {
             }
         }
     }
+
+    override fun onStart() {
+        super.onStart()
+        App.instance.crashReporting.setAppVisibility(AppVisibility.FOREGROUND)
+    }
+
+    override fun onStop() {
+        App.instance.crashReporting.setAppVisibility(AppVisibility.BACKGROUND)
+        super.onStop()
+    }
 }
 
 @Composable
@@ -201,6 +213,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
         targetState = fullPlayerTransition.targetState
     )
     val playerState by viewModel.playerState.collectAsState()
+    val crashReportingState by viewModel.crashReportingModule.state.collectAsState()
 
     // Android 13+ requires a runtime POST_NOTIFICATIONS grant for the media
     // playback notification to be visible (background audio itself still works
@@ -579,6 +592,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                     // the route choice, reached from the same ⋮ overflow menu.
                     privacySettingsOpen -> NetworkPrivacyScreen(
                         viewModel = viewModel,
+                        crashReporting = viewModel.crashReportingModule,
                         onBackClick = {
                             libraryOverflowFocusReturnPending = true
                             viewModel.closePrivacySettings()
@@ -872,6 +886,13 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
             // the composition root.
             libraryEntries = viewModel.libraryEntries,
             onDismiss = { viewModel.setShowFullPlayer(false) }
+        )
+    }
+
+    if (crashReportingState.shouldShowPrompt) {
+        CrashReportingConsentDialog(
+            onAllow = viewModel.crashReportingModule::allowTriggeringReport,
+            onDeny = viewModel.crashReportingModule::denyTriggeringReport
         )
     }
     }

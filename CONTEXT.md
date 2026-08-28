@@ -56,6 +56,10 @@ _Avoid_: per-source cover claims, rehosting covers, fabricated URLs
 A published build of the app itself, tagged `v<versionName>` on GitHub Releases — the single source of truth for the in-app update banner. Not a book concept: never use «version» for an Edition or narration (that word is reserved here).
 _Avoid_: version (for an Edition), update feed
 
+**Crash Reporting Consent**:
+The listener's durable choice for anonymous production crash reports: `UNDECIDED`, `ALLOWED` or `DENIED`. A report held after the first fatal crash or ANR stays on-device until that explicit choice. The diagnostic context is only five bounded facts (`app_visibility`, `playback_state`, `playback_service`, `audio_origin`, `cast_active`); it never carries listener identity, book/media identity, a Source URL, Listening State or arbitrary logs (ADR-0025).
+_Avoid_: analytics consent, implicit opt-in, user identity, listening history
+
 ## Listener relationship
 
 **Library Entry**:

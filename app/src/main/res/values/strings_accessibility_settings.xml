@@ -25,7 +25,7 @@
     <string name="recommendations_reset_done">Персоналізацію скинуто</string>
     <string name="recommendations_restore_description">Повернути: %1$s</string>
 
-    <string name="privacy_title">Приватність мережі</string>
+    <string name="privacy_title">Приватність</string>
     <string name="privacy_route_direct_title">Пряме з’єднання</string>
     <string name="privacy_route_direct_description">Без проксі. Запити виглядають як звичайний браузер на вашому телефоні.</string>
     <string name="privacy_route_proxy_title">Власний проксі</string>
@@ -38,6 +38,13 @@
     <string name="privacy_doh_description">Імена доменів ідуть зашифрованими до публічного DNS, тож провайдер не бачить, які сайти відкриває застосунок. Якщо DoH недоступний — автоматично працює системний резолвер.</string>
     <string name="privacy_error">Помилка: %1$s</string>
     <string name="privacy_saved">Налаштування приватності збережено</string>
+    <string name="crash_reporting_prompt_title">Допоможіть зробити Слухайку стабільнішою</string>
+    <string name="crash_reporting_prompt_body">Я роблю «Слухайку» сам. Якщо хочете допомогти мені зробити застосунок стабільнішим, дозвольте надсилати анонімні технічні звіти про збої. Вони не містять назв книжок, адрес джерел чи історії прослуховування. Рішення завжди можна змінити в налаштуваннях.</string>
+    <string name="crash_reporting_allow">Надсилати звіти</string>
+    <string name="crash_reporting_deny">Не надсилати</string>
+    <string name="crash_reporting_section_title">Звіти про збої</string>
+    <string name="crash_reporting_switch_title">Надсилати звіти про збої</string>
+    <string name="crash_reporting_switch_description">Анонімні технічні звіти без назв книжок, адрес джерел та історії прослуховування.</string>
 
     <string name="profile_title">Профіль</string>
     <string name="profile_loading">Профіль завантажується</string>

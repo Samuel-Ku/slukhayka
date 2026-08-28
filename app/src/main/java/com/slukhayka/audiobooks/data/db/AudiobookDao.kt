@@ -350,6 +350,32 @@ interface AudiobookDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertWorkSource(workSource: WorkSourceEntity)
 
+    /**
+     * #388 — safe version of upsertWorkSource that ensures the work row
+     * exists before inserting the source. The FK constraint on work_sources
+     * requires the work to be present; without this guard, a missing work
+     * row causes SQLiteConstraintException and crashes the app.
+     */
+    @Transaction
+    suspend fun upsertWorkSourceSafe(workSource: WorkSourceEntity) {
+        // Ensure the work row exists — insert a minimal placeholder if needed
+        val existingWork = findWorkById(workSource.workId)
+        if (existingWork == null) {
+            upsertWork(
+                WorkEntity(
+                    id = workSource.workId,
+                    title = "",
+                    author = "",
+                    mergeKey = ""
+                )
+            )
+        }
+        upsertWorkSource(workSource)
+    }
+
+    @Query("SELECT * FROM works WHERE id = :id")
+    suspend fun findWorkById(id: String): WorkEntity?
+
     // --- Spec-25: series universes (the lazy resolution cache) -------------
     // The universe rows, the series rows (with their universe anchor + order)
     // and the book→series memberships are the cache of the lazy resolution;

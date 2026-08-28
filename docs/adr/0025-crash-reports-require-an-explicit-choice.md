@@ -30,6 +30,26 @@ Debug and test builds keep reporting disabled regardless of the stored
 choice. The consent policy is tested through one fake reporting sink; Firebase
 itself stays behind a thin adapter.
 
+Android 11+ also stores the same five bounded facts plus the current app
+version code and Android API in its process-state summary (a versioned payload
+under Android's 128-byte limit). On the next
+launch, the app reads the newest historical exit through a typed adapter. A
+signal, low-memory, excessive-resource or dependency-death reason becomes the
+fixed nonfatal `UnexpectedPlaybackExit` only when that summary says playback
+was `PLAYING` or `BUFFERING`. Fatal crashes and ANRs already have their native
+Crashlytics path; self/normal exits, user stops, permission/package changes
+and all other reasons are ignored.
+
+The nonfatal payload is closed: reason enum, status, bounded process
+importance, RSS/PSS, app version code, Android API and the five summary facts.
+The adapter never reads the exit description, trace, process name or any
+listener/media data. A local-only timestamp plus SHA-256 of those bounded
+fields prevents replay on later launches. This cursor is transient and is
+therefore deliberately absent from Android backup allowlists. `UNDECIDED`
+holds the nonfatal locally and opens the existing post-failure prompt;
+`DENIED` remains silent. Android 10 and debug/test builds do not inspect exit
+history.
+
 ## Consequences
 
 - Background failures gain enough bounded context to separate lifecycle,
@@ -38,3 +58,5 @@ itself stays behind a thin adapter.
 - A restored backup carries the explicit choice instead of asking again.
 - Without Firebase configuration the adapter is a no-op and the app keeps
   working locally.
+- Unexpected background stops become queryable without broadening the privacy
+  boundary or introducing a second consent flow.

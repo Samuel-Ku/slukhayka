@@ -327,11 +327,20 @@ interface AudiobookDao {
     @Query("SELECT * FROM works WHERE mergeKey = :mergeKey AND mergeKey != '' LIMIT 1")
     suspend fun findWorkByMergeKey(mergeKey: String): WorkEntity?
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Upsert
     suspend fun upsertWork(work: WorkEntity)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertWorkSource(workSource: WorkSourceEntity)
+
+    /** #388: writes a real Work and its Source as one FK-safe operation. */
+    @Transaction
+    suspend fun upsertWorkWithSource(work: WorkEntity, workSource: WorkSourceEntity): Boolean {
+        if (work.id.isBlank() || work.title.isBlank() || work.id != workSource.workId) return false
+        upsertWork(work)
+        upsertWorkSource(workSource)
+        return true
+    }
 
     // --- Spec-25: series universes (the lazy resolution cache) -------------
     // The universe rows, the series rows (with their universe anchor + order)

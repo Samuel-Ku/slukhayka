@@ -41,7 +41,8 @@ class CastPlaybackController(
     private val context: Context,
     private val managerProvider: () -> AudioPlayerManager,
     private val streamUrlHealer: (suspend (String, Int, String) -> String?)? = null,
-    private val mainExecutor: Executor = ContextCompat.getMainExecutor(context)
+    private val mainExecutor: Executor = ContextCompat.getMainExecutor(context),
+    private val onActiveChanged: (Boolean) -> Unit = {}
 ) : CastEngineHook, SessionManagerListener<CastSession> {
 
     private val manager: AudioPlayerManager get() = managerProvider()
@@ -179,6 +180,7 @@ class CastPlaybackController(
         if (state.isPlaying) player.play()
         player.setPlaybackSpeed(state.playbackSpeed)
         castPlayer = player
+        onActiveChanged(true)
 
         sessionPlayerSwapper?.invoke(player)
 
@@ -193,6 +195,7 @@ class CastPlaybackController(
     private fun endCasting() {
         val player = castPlayer ?: return
         castPlayer = null
+        onActiveChanged(false)
 
         val positionMs = runCatching { player.currentPosition }.getOrDefault(0L).coerceAtLeast(0L)
         val chapterIndex = runCatching { player.currentMediaItemIndex }.getOrDefault(0)

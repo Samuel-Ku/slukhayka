@@ -30,9 +30,9 @@ name: CI
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, release/v1.3.7-stability]
   pull_request:
-    branches: [main]
+    branches: [main, release/v1.3.7-stability]
 
 # Cancel superseded runs on PRs to save CI minutes; keep main-branch runs
 # sequential so the latest green is always the latest.
@@ -45,8 +45,59 @@ permissions:
   contents: read
 
 jobs:
+  release-lineage:
+    name: Release branch lineage guard
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Keep v1.3.7 isolated from main
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          HEAD_REF: ${{ github.head_ref }}
+          EVENT_SHA: ${{ github.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -eu
+          target_sha="${PR_HEAD_SHA:-$EVENT_SHA}"
+
+          if [ "$EVENT_NAME" = "pull_request" ] && \
+             [ "$BASE_REF" = "main" ] && \
+             [ "$HEAD_REF" = "release/v1.3.7-stability" ]; then
+            echo "release/v1.3.7-stability is never merged wholesale into main."
+            echo "Forward-port individual fixes through a separate cherry-pick PR."
+            exit 1
+          fi
+
+          target_branch="${BASE_REF:-${GITHUB_REF_NAME:-}}"
+          if [ "$target_branch" != "release/v1.3.7-stability" ]; then
+            exit 0
+          fi
+
+          git fetch --no-tags origin main
+          tag_sha="$(git rev-parse 'v1.3.6^{commit}')"
+          shared_sha="$(git merge-base origin/main "$target_sha")"
+          if [ "$shared_sha" != "$tag_sha" ]; then
+            echo "The v1.3.7 branch no longer diverges from main at v1.3.6."
+            echo "Do not merge main into the release branch."
+            exit 1
+          fi
+
+          merge_commits="$(git rev-list --merges "$tag_sha..$target_sha")"
+          if [ -n "$merge_commits" ]; then
+            echo "Merge commits are forbidden after v1.3.6 on the release branch:"
+            echo "$merge_commits"
+            exit 1
+          fi
+
   test:
     name: JVM tests + Kover gate
+    needs: release-lineage
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
@@ -156,6 +207,7 @@ jobs:
 
   accessibility-api35:
     name: Accessibility journey (API 35)
+    needs: release-lineage
     runs-on: ubuntu-latest
     timeout-minutes: 50
 

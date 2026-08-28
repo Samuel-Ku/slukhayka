@@ -263,3 +263,59 @@ jobs:
             app/build/outputs/androidTest-results/connected/
           if-no-files-found: warn
           retention-days: 14
+
+  signed-smoke-apk:
+    name: Signed v1.3.7 smoke APK
+    needs: [test, accessibility-api35]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/release/v1.3.7-stability'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup JDK 21 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: wrapper
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install compile SDK 36.1
+        run: sdkmanager "platforms;android-36.1" "build-tools;36.0.0" "platform-tools"
+
+      - name: Restore release credentials
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.GOOGLE_SERVICES_RELEASE_JSON_BASE64 }}
+        run: |
+          set -eu
+          test -n "$KEYSTORE_BASE64"
+          test -n "$GOOGLE_SERVICES_JSON_BASE64"
+          printf '%s' "$KEYSTORE_BASE64" | base64 -d > "${{ runner.temp }}/upload.jks"
+          printf '%s' "$GOOGLE_SERVICES_JSON_BASE64" | base64 -d > app/google-services.json
+          chmod 600 "${{ runner.temp }}/upload.jks"
+          python3 -m json.tool app/google-services.json >/dev/null
+
+      - name: Build signed release APK
+        env:
+          KEYSTORE_PATH: "${{ runner.temp }}/upload.jks"
+          STORE_PASSWORD: "${{ secrets.STORE_PASSWORD }}"
+          KEY_PASSWORD: "${{ secrets.KEY_PASSWORD }}"
+        run: ./gradlew :app:assembleRelease --no-daemon
+
+      - name: Upload signed smoke APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: slukhayka-v1.3.7-signed-smoke
+          path: app/build/outputs/renamed_apks/release/slukhayka-v1.3.7.apk
+          if-no-files-found: error
+          retention-days: 3

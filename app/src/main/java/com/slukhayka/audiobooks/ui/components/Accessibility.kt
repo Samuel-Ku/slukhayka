@@ -11,7 +11,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRestorer
-import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.hideFromAccessibility
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
@@ -26,7 +25,7 @@ fun Modifier.accessibilityModalBackground(modalVisible: Boolean): Modifier =
         if (modalVisible) {
             Modifier
                 .focusProperties { canFocus = false }
-                .clearAndSetSemantics { hideFromAccessibility() }
+                .semantics { hideFromAccessibility() }
         } else {
             Modifier
         }

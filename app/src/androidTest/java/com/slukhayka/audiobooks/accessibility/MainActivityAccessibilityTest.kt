@@ -14,6 +14,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.junit4.accessibility.disableAccessibilityChecks
 import androidx.compose.ui.test.junit4.accessibility.enableAccessibilityChecks
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -348,8 +349,9 @@ class MainActivityAccessibilityTest {
         // Compose 1.8.3 checks every owner, not only the selected sheet. With
         // this tall modal, ATF sees the obscured player's 24dp navigation-bar
         // sliver and reports it as a touch target. The sheet contract is pinned
-        // explicitly above; the full ATF gate runs again immediately after
-        // dismissal below.
+        // explicitly above. Pause automatic checks only for the click that
+        // dismisses this owner; the full ATF gate resumes immediately below.
+        composeTestRule.disableAccessibilityChecks()
         composeTestRule.onNodeWithTag("sleep_timer_option_5")
             .assert(SemanticsMatcher.keyIsDefined(SemanticsActions.OnClick))
             .performClick()
@@ -360,6 +362,7 @@ class MainActivityAccessibilityTest {
         }
         waitUntilGone("sleep_timer_sheet")
         waitUntilFocused("sleep_timer_chip")
+        composeTestRule.enableAccessibilityChecks()
         composeTestRule.onRoot().tryPerformAccessibilityChecks()
 
         val bookmarkPositionSeconds =

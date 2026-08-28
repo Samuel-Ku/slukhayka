@@ -121,13 +121,17 @@ fun BookDetailScreen(
     var showDeleteDialog by remember { mutableStateOf(false) }
     var bookmarkToDelete by remember { mutableStateOf<BookmarkEntity?>(null) }
     var bookmarkDeleteOrigin by remember { mutableStateOf<FocusRequester?>(null) }
+    var playerReturnFocusChapterId by remember { mutableStateOf<String?>(null) }
     var playerReturnFocusRequester by remember { mutableStateOf<FocusRequester?>(null) }
     val deleteTriggerFocusRequester = remember { FocusRequester() }
 
     RestoreFocusAfterModal(
         modalVisible = playerModalVisible,
         returnFocusRequester = playerReturnFocusRequester,
-        onFocusRestored = { playerReturnFocusRequester = null }
+        onFocusRestored = {
+            playerReturnFocusChapterId = null
+            playerReturnFocusRequester = null
+        }
     )
 
     // Spec-40 #277/#278/#280 — «Відгуки»: form open/edit state, delete
@@ -705,6 +709,15 @@ fun BookDetailScreen(
             if (activeTab == 0) {
                 itemsIndexed(chapters) { index, chapter ->
                     val chapterFocusRequester = remember(chapter.id) { FocusRequester() }
+                    LaunchedEffect(playerReturnFocusChapterId, chapterFocusRequester) {
+                        if (playerReturnFocusChapterId == chapter.id) {
+                            // The mini-player changes the Scaffold viewport after
+                            // playback starts. A lazy row can therefore be
+                            // recreated while the full player is open; always
+                            // reconnect the stable chapter id to its live node.
+                            playerReturnFocusRequester = chapterFocusRequester
+                        }
+                    }
                     val isCurrentChapter = playerState.currentBook?.id == currentBook.id &&
                         playerState.currentChapterIndex == index
                     val isPlayingThis = isCurrentChapter && playerState.isPlaying
@@ -716,6 +729,7 @@ fun BookDetailScreen(
                         isPlaying = isPlayingThis,
                         focusRequester = chapterFocusRequester,
                         onPlayClick = {
+                            playerReturnFocusChapterId = chapter.id
                             playerReturnFocusRequester = chapterFocusRequester
                             if (isCurrentChapter) {
                                 viewModel.playerManager.play()

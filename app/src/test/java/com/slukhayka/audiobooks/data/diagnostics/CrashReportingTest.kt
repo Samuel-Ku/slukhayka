@@ -109,6 +109,23 @@ class CrashReportingTest {
         )
     }
 
+    @Test
+    fun `release context is also published as a bounded process state summary`() {
+        val summarySink = FakeProcessStateSummarySink()
+        val reporting = CrashReporting(
+            consentStore = FakeConsentStore(CrashConsent.DENIED),
+            sink = FakeCrashReportSink(hasUnsentReports = false),
+            enabledForBuild = true,
+            processStateSummarySink = summarySink
+        )
+
+        reporting.start()
+        reporting.setPlayback(DiagnosticPlaybackState.PLAYING, DiagnosticAudioOrigin.LOCAL)
+
+        assertEquals(DiagnosticPlaybackState.PLAYING, summarySink.context?.playbackState)
+        assertEquals(DiagnosticAudioOrigin.LOCAL, summarySink.context?.audioOrigin)
+    }
+
     private class FakeConsentStore(initial: CrashConsent) : CrashConsentStore {
         var consent = initial
             private set
@@ -146,6 +163,15 @@ class CrashReportingTest {
 
         override fun setContext(context: CrashContext) {
             reportedContext = context
+        }
+
+        override fun recordUnexpectedPlaybackExit(event: UnexpectedPlaybackExitEvent) = Unit
+    }
+
+    private class FakeProcessStateSummarySink : ProcessStateSummarySink {
+        var context: CrashContext? = null
+        override fun set(context: CrashContext) {
+            this.context = context
         }
     }
 }

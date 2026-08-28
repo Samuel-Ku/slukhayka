@@ -78,6 +78,10 @@ _Avoid_: version (for an Edition), update feed
 The listener's durable choice for anonymous production crash reports: `UNDECIDED`, `ALLOWED` or `DENIED`. A report held after the first fatal crash or ANR stays on-device until that explicit choice. The diagnostic context is only five bounded facts (`app_visibility`, `playback_state`, `playback_service`, `audio_origin`, `cast_active`); it never carries listener identity, book/media identity, a Source URL, Listening State or arbitrary logs (ADR-0025).
 _Avoid_: analytics consent, implicit opt-in, user identity, listening history
 
+**Unexpected Playback Exit**:
+A controlled nonfatal diagnostic created on the next launch when Android 11+ records an actionable OS/resource/signal process exit and the last bounded process summary says playback was `PLAYING` or `BUFFERING`. It follows Crash Reporting Consent and carries only the exit reason enum, status, process importance, RSS/PSS, app/Android versions and the same five bounded context facts. A timestamp plus a stable hash is a local deduplication watermark, not report content (ADR-0025).
+_Avoid_: fatal crash or ANR, user-requested stop, raw trace, exit description, media identity
+
 ## Listener relationship
 
 **Library Entry**:

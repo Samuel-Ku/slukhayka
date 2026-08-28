@@ -1097,4 +1097,19 @@ class FakeAudiobookDao(
 
     override suspend fun genreAssertionsForWork(workId: String): List<GenreAssertionEntity> =
         genreAssertionsState.value.filter { it.workId == workId }.sortedBy { it.id }
+
+    override suspend fun findWorkById(id: String): WorkEntity? =
+        worksState.value.find { it.id == id }
+
+    override suspend fun upsertWorkSourceSafe(workSource: WorkSourceEntity) {
+        if (worksState.value.none { it.id == workSource.workId }) {
+            worksState.value = worksState.value + WorkEntity(
+                id = workSource.workId,
+                title = "",
+                author = "",
+                mergeKey = ""
+            )
+        }
+        upsertWorkSource(workSource)
+    }
 }

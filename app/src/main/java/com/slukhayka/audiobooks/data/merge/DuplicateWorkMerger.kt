@@ -155,7 +155,7 @@ class DuplicateWorkMerger(private val dao: AudiobookDao) {
                 // Skip a carrier the survivor already has (same source + url) —
                 // the «N джерел» badge must not double-count one source.
                 if (survivorWorkSources.none { it.sourceId == source.sourceId && it.sourceUrl == source.sourceUrl }) {
-                    dao.upsertWorkWithSource(survivorWorkEntity, source.copy(workId = survivorWork))
+                    dao.upsertWorkSourceSafe(source.copy(workId = survivorWork))
                 }
             }
             val survivorSeries = dao.getSeriesMembersForWork(survivorWork).map { it.seriesId }.toSet()

@@ -397,3 +397,109 @@ val runRecommendationEval by tasks.registering(JavaExec::class) {
 tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
   maxHeapSize = "2g"
 }
+
+// #423: one source of truth classifies every JVM test into exactly one public
+// verification partition. Gradle and the local changed-test selector both
+// consume this CLI, so a new test cannot silently disappear between them.
+fun partitionTestClasses(
+  partition: String,
+): List<String> {
+  val arguments = mutableListOf(
+    rootProject.file("scripts/test_partitions.py").absolutePath,
+    "--root",
+    rootProject.projectDir.absolutePath,
+    "list",
+    "--partition",
+    partition,
+  )
+  return providers.exec {
+    workingDir(rootProject.projectDir)
+    commandLine("python3", *arguments.toTypedArray())
+  }.standardOutput.asText.get().lineSequence().filter(String::isNotBlank).toList()
+}
+
+val pureJvmClasses = partitionTestClasses("pure-jvm")
+val roomRobolectricClasses = partitionTestClasses("room-robolectric")
+val composeRoborazziClasses = partitionTestClasses("compose-roborazzi")
+
+// These aliases reuse AGP's standard Test task. Kover 0.9.9 instruments that
+// task and emits one portable testDebugUnitTest.ic report in each CI job.
+val partitionAliases = mapOf(
+  "testPureJvm" to pureJvmClasses,
+  "testRoomRobolectric" to roomRobolectricClasses,
+  "testComposeRoborazzi" to composeRoborazziClasses,
+)
+val requestedPartitionAliases = gradle.startParameter.taskNames
+  .map { it.substringAfterLast(':') }
+  .filter(partitionAliases::containsKey)
+  .distinct()
+if (requestedPartitionAliases.size > 1) {
+  throw GradleException("Run JVM test partitions separately, or use scripts/test-all.sh")
+}
+
+afterEvaluate {
+  val baseJvmTest = tasks.named<org.gradle.api.tasks.testing.Test>("testDebugUnitTest")
+  partitionAliases.forEach { (alias, _) ->
+    tasks.register(alias) {
+      group = "verification"
+      description = when (alias) {
+        "testPureJvm" -> "Runs pure JVM tests without Robolectric."
+        "testRoomRobolectric" -> "Runs Room and other non-snapshot Robolectric tests."
+        else -> "Runs Compose and Roborazzi snapshot tests."
+      }
+      dependsOn(baseJvmTest)
+    }
+  }
+  requestedPartitionAliases.singleOrNull()?.let { requestedAlias ->
+    val selectedClasses = providers.gradleProperty("test.selectedClasses").orNull
+      ?.split(',')
+      ?.filter(String::isNotBlank)
+      ?: partitionAliases.getValue(requestedAlias)
+    baseJvmTest.configure {
+      systemProperty("slukhayka.test.workerCohort", requestedAlias)
+      if (requestedAlias == "testRoomRobolectric") {
+        // A fresh fork per class is intentionally stronger than grouping by
+        // today's SDK list: future SDK/native SQLite combinations are isolated
+        // automatically, without another hard-coded cohort table.
+        maxParallelForks = 1
+        forkEvery = 1
+        systemProperty(
+          "slukhayka.test.workerIdentityFile",
+          layout.buildDirectory.file("test-worker-identities.tsv").get().asFile.absolutePath,
+        )
+      }
+      filter {
+        isFailOnNoMatchingTests = true
+        selectedClasses.forEach(::includeTestsMatching)
+      }
+    }
+  }
+}
+
+tasks.register<Exec>("validateTestPartitions") {
+  group = "verification"
+  description = "Checks that every JVM test belongs to exactly one test partition."
+  workingDir(rootProject.projectDir)
+  commandLine(
+    "python3",
+    rootProject.file("scripts/test_partitions.py").absolutePath,
+    "--root",
+    rootProject.projectDir.absolutePath,
+    "validate",
+  )
+}
+
+// A coverage aggregation job downloads the partition IC files here and
+// skips testDebugUnitTest while generating reports. Local Kover use continues
+// to run the standard full test task as before.
+kover {
+  reports {
+    total {
+      providers.gradleProperty("kover.additionalBinaryReportsDir").orNull?.let { reportsDir ->
+        additionalBinaryReports.addAll(
+          fileTree(reportsDir) { include("**/*.ic") },
+        )
+      }
+    }
+  }
+}

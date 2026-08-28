@@ -13,7 +13,6 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.hasTestTag
-import androidx.compose.ui.test.isRoot
 import androidx.compose.ui.test.junit4.accessibility.enableAccessibilityChecks
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -24,7 +23,6 @@ import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performSemanticsAction
-import androidx.compose.ui.test.printToLog
 import androidx.compose.ui.test.tryPerformAccessibilityChecks
 import androidx.lifecycle.ViewModelProvider
 import androidx.test.core.app.ApplicationProvider
@@ -320,7 +318,7 @@ class MainActivityAccessibilityTest {
         composeTestRule.waitUntil(timeoutMillis = PLAYBACK_TIMEOUT_MS) {
             kotlin.math.abs(currentViewModel().playerState.value.playbackSpeed - 1.25f) < 0.01f
         }
-        composeTestRule.onRoot().tryPerformAccessibilityChecks()
+        composeTestRule.onNodeWithTag("speed_sheet").tryPerformAccessibilityChecks()
         composeTestRule.onNodeWithContentDescription("Закрити налаштування швидкості")
             .performClick()
         waitUntilGone("speed_sheet")
@@ -342,11 +340,8 @@ class MainActivityAccessibilityTest {
             )
         composeTestRule.onNodeWithTag("sleep_timer_option_0")
             .assertIsSelected()
-        composeTestRule.onNodeWithTag("sleep_timer_sheet", useUnmergedTree = true)
-            .printToLog("[DEBUG-a11y-sheet]")
-        composeTestRule.onAllNodes(isRoot(), useUnmergedTree = true)[0]
-            .printToLog("[DEBUG-a11y-underlay]")
-        composeTestRule.onRoot().tryPerformAccessibilityChecks()
+        composeTestRule.onNodeWithTag("sleep_timer_sheet")
+            .tryPerformAccessibilityChecks()
         composeTestRule.onNodeWithTag("sleep_timer_option_5")
             .assert(SemanticsMatcher.keyIsDefined(SemanticsActions.OnClick))
             .performClick()

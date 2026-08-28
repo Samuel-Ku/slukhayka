@@ -208,9 +208,10 @@ jobs:
           # the test + log capture in one shell and return the Gradle status.
           script: >-
             bash -o pipefail -c 'mkdir -p app/build/reports/androidTests;
-            adb shell cmd overlay enable --user 0
+            adb shell cmd overlay enable-exclusive --category
             com.android.internal.systemui.navbar.threebutton;
-            adb shell settings put secure navigation_mode 0;
+            adb shell cmd overlay list |
+            grep -F "[x] com.android.internal.systemui.navbar.threebutton";
             adb logcat -c;
             ./gradlew :app:connectedDebugAndroidTest
             -Pandroid.testInstrumentationRunnerArguments.class=com.slukhayka.audiobooks.accessibility.MainActivityAccessibilityTest

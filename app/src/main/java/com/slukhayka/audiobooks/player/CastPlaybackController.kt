@@ -11,6 +11,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import com.google.android.gms.cast.framework.CastContext
+import com.slukhayka.audiobooks.App
 import com.google.android.gms.cast.framework.CastSession
 import com.google.android.gms.cast.framework.SessionManagerListener
 import com.google.android.gms.common.ConnectionResult
@@ -179,6 +180,7 @@ class CastPlaybackController(
         if (state.isPlaying) player.play()
         player.setPlaybackSpeed(state.playbackSpeed)
         castPlayer = player
+        App.instance.crashReporting.setCastActive(true)
 
         sessionPlayerSwapper?.invoke(player)
 
@@ -193,6 +195,7 @@ class CastPlaybackController(
     private fun endCasting() {
         val player = castPlayer ?: return
         castPlayer = null
+        App.instance.crashReporting.setCastActive(false)
 
         val positionMs = runCatching { player.currentPosition }.getOrDefault(0L).coerceAtLeast(0L)
         val chapterIndex = runCatching { player.currentMediaItemIndex }.getOrDefault(0)

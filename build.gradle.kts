@@ -6,5 +6,6 @@ plugins {
   alias(libs.plugins.roborazzi) apply false
   alias(libs.plugins.secrets) apply false
   alias(libs.plugins.google.services) apply false
+  alias(libs.plugins.firebase.crashlytics) apply false
   alias(libs.plugins.kover) apply false
 }

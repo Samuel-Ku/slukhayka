@@ -7,6 +7,7 @@ import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.slukhayka.audiobooks.App
 import com.slukhayka.audiobooks.MainActivity
+import com.slukhayka.audiobooks.data.diagnostics.DiagnosticPlaybackService
 
 /**
  * Background playback host (audit CRITICAL finding PERF-002 / PERF-021:
@@ -37,6 +38,7 @@ class PlaybackService : MediaSessionService() {
 
     override fun onCreate() {
         super.onCreate()
+        App.instance.crashReporting.setPlaybackService(DiagnosticPlaybackService.STARTED)
         val sessionActivity = PendingIntent.getActivity(
             this,
             /* requestCode = */ 0,
@@ -61,6 +63,7 @@ class PlaybackService : MediaSessionService() {
         mediaSession
 
     override fun onDestroy() {
+        App.instance.crashReporting.setPlaybackService(DiagnosticPlaybackService.STOPPED)
         // Release only the session; the shared player stays with App.playerManager.
         mediaSession?.run {
             release()

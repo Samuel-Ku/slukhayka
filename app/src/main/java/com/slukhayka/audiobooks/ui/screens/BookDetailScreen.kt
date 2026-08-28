@@ -2071,7 +2071,16 @@ fun BookDetailIdentityHeader(
     onWrongUniverse: () -> Unit = {},
     returnFocusOrigin: BookDetailLinkOrigin? = null,
     onChildRouteOpened: (BookDetailLinkOrigin) -> Unit = {},
-    onReturnFocusRestored: (BookDetailLinkOrigin) -> Unit = {}
+    onReturnFocusRestored: (BookDetailLinkOrigin) -> Unit = {},
+    // #400 — person bookmark state
+    isAuthorBookmarked: Boolean = false,
+    isNarratorBookmarked: Boolean = false,
+    authorNotifyEnabled: Boolean = true,
+    narratorNotifyEnabled: Boolean = true,
+    onAuthorBookmarkToggle: () -> Unit = {},
+    onNarratorBookmarkToggle: () -> Unit = {},
+    onAuthorNotifyToggle: (Boolean) -> Unit = {},
+    onNarratorNotifyToggle: (Boolean) -> Unit = {}
 ) {
     Card(
         modifier = Modifier
@@ -2112,7 +2121,15 @@ fun BookDetailIdentityHeader(
         onWrongUniverse = onWrongUniverse,
         returnFocusOrigin = returnFocusOrigin,
         onChildRouteOpened = onChildRouteOpened,
-        onReturnFocusRestored = onReturnFocusRestored
+        onReturnFocusRestored = onReturnFocusRestored,
+        isAuthorBookmarked = isAuthorBookmarked,
+        isNarratorBookmarked = isNarratorBookmarked,
+        authorNotifyEnabled = authorNotifyEnabled,
+        narratorNotifyEnabled = narratorNotifyEnabled,
+        onAuthorBookmarkToggle = onAuthorBookmarkToggle,
+        onNarratorBookmarkToggle = onNarratorBookmarkToggle,
+        onAuthorNotifyToggle = onAuthorNotifyToggle,
+        onNarratorNotifyToggle = onNarratorNotifyToggle
     )
 }
 
@@ -2143,7 +2160,16 @@ fun BookDetailCanonicalSummary(
     onWrongUniverse: () -> Unit = {},
     returnFocusOrigin: BookDetailLinkOrigin? = null,
     onChildRouteOpened: (BookDetailLinkOrigin) -> Unit = {},
-    onReturnFocusRestored: (BookDetailLinkOrigin) -> Unit = {}
+    onReturnFocusRestored: (BookDetailLinkOrigin) -> Unit = {},
+    // #400 — person bookmark state
+    isAuthorBookmarked: Boolean = false,
+    isNarratorBookmarked: Boolean = false,
+    authorNotifyEnabled: Boolean = true,
+    narratorNotifyEnabled: Boolean = true,
+    onAuthorBookmarkToggle: () -> Unit = {},
+    onNarratorBookmarkToggle: () -> Unit = {},
+    onAuthorNotifyToggle: (Boolean) -> Unit = {},
+    onNarratorNotifyToggle: (Boolean) -> Unit = {}
 ) {
     val currentEditionState = stringResource(R.string.book_detail_current_edition)
     val titleFocusRequester = remember(entryFocusKey) { FocusRequester() }
@@ -2179,43 +2205,69 @@ fun BookDetailCanonicalSummary(
     )
     Spacer(modifier = Modifier.height(4.dp))
     if (presentation.author.isNotBlank()) {
-        Text(
-            text = "Автор: ${presentation.author}",
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.primary,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .fillMaxWidth()
-                .testTag("book_detail_author_link")
-                .focusRequester(authorFocusRequester)
-                .defaultMinSize(minHeight = 48.dp)
-                .clickable {
-                    onChildRouteOpened(BookDetailLinkOrigin.AUTHOR)
-                    onAuthorClick(presentation.author)
-                },
-            textAlign = TextAlign.Center
-        )
+                .defaultMinSize(minHeight = 48.dp),
+            horizontalArrangement = Arrangement.Center
+        ) {
+            Text(
+                text = "Автор: ${presentation.author}",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.primary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .testTag("book_detail_author_link")
+                    .focusRequester(authorFocusRequester)
+                    .clickable {
+                        onChildRouteOpened(BookDetailLinkOrigin.AUTHOR)
+                        onAuthorClick(presentation.author)
+                    }
+            )
+            PersonBookmarkButton(
+                isBookmarked = isAuthorBookmarked,
+                notifyEnabled = authorNotifyEnabled,
+                personName = presentation.author,
+                onToggle = onAuthorBookmarkToggle,
+                onToggleNotify = onAuthorNotifyToggle,
+                modifier = Modifier.padding(start = 4.dp)
+            )
+        }
     }
     if (presentation.narrator.isNotBlank()) {
-        Text(
-            text = "Озвучує: ${presentation.narrator}",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .fillMaxWidth()
-                .focusRequester(narratorFocusRequester)
-                .defaultMinSize(minHeight = 48.dp)
-                .clickable {
-                    onChildRouteOpened(BookDetailLinkOrigin.NARRATOR)
-                    onNarratorClick(presentation.narrator)
-                }
-                .semantics { stateDescription = currentEditionState }
-                .testTag("book_detail_narrator_link"),
-            textAlign = TextAlign.Center
-        )
+                .defaultMinSize(minHeight = 48.dp),
+            horizontalArrangement = Arrangement.Center
+        ) {
+            Text(
+                text = "Озвучує: ${presentation.narrator}",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .focusRequester(narratorFocusRequester)
+                    .clickable {
+                        onChildRouteOpened(BookDetailLinkOrigin.NARRATOR)
+                        onNarratorClick(presentation.narrator)
+                    }
+                    .semantics { stateDescription = currentEditionState }
+                    .testTag("book_detail_narrator_link")
+            )
+            PersonBookmarkButton(
+                isBookmarked = isNarratorBookmarked,
+                notifyEnabled = narratorNotifyEnabled,
+                personName = presentation.narrator,
+                onToggle = onNarratorBookmarkToggle,
+                onToggleNotify = onNarratorNotifyToggle,
+                modifier = Modifier.padding(start = 4.dp)
+            )
+        }
     }
     // ADR-0023 (#348): the narration rating lives beside the narrator's name —
     // crowd average + this listener's stars, never in the book headline.

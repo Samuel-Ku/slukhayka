@@ -200,7 +200,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // Playback stack is application-scoped (see App.kt) so background playback
     // survives the Activity/ViewModel being destroyed by the system.
     // ADR-0002 (#140): the god repository is gone — the ViewModel composes the
-    // five deep modules directly.
+    // deep modules directly.
     val listeningState: ListeningStateStore = App.instance.listeningState
 
     /** ADR-0023 (spec-43 T6): pull-before-resume and push-after-save. */

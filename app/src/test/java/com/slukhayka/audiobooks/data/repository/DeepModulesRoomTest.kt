@@ -3034,4 +3034,107 @@ class DeepModulesRoomTest {
             file.delete()
         }
     }
+
+    // ---------------------------------------------------------------------
+    // #399: schema migration 23 -> 24 (person_bookmarks + editions.addedAt)
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `migration 23 to 24 creates person_bookmarks and adds editions addedAt`() {
+        val factory = FrameworkSQLiteOpenHelperFactory()
+        val config = SupportSQLiteOpenHelper.Configuration.builder(context)
+            .name("migration-23-test.db")
+            .callback(object : SupportSQLiteOpenHelper.Callback(23) {
+                override fun onCreate(db: SupportSQLiteDatabase) {
+                    // Minimal v23 schema: a book with an edition, chapters, and
+                    // the facet tables (the v22->v23 migration added
+                    // downloadState to library_entries).
+                    db.execSQL(
+                        "CREATE TABLE audiobooks (id TEXT NOT NULL PRIMARY KEY, title TEXT NOT NULL, " +
+                            "author TEXT NOT NULL, narrator TEXT NOT NULL, description TEXT NOT NULL, " +
+                            "coverDrawableRes INTEGER NOT NULL, coverImageUrl TEXT, genre TEXT NOT NULL, " +
+                            "sourceUrl TEXT NOT NULL, isDownloaded INTEGER NOT NULL DEFAULT 0, " +
+                            "totalDurationSeconds INTEGER NOT NULL DEFAULT 0, " +
+                            "totalChapters INTEGER NOT NULL DEFAULT 0, rating REAL NOT NULL DEFAULT 4.9, " +
+                            "sourceTreeUri TEXT, mergeKey TEXT NOT NULL DEFAULT '', workId TEXT)"
+                    )
+                    db.execSQL(
+                        "CREATE TABLE editions (id TEXT NOT NULL PRIMARY KEY, workId TEXT NOT NULL, " +
+                            "language TEXT NOT NULL DEFAULT '', narrator TEXT NOT NULL DEFAULT '', " +
+                            "totalChapters INTEGER NOT NULL DEFAULT 0, " +
+                            "totalDurationSeconds INTEGER NOT NULL DEFAULT 0)"
+                    )
+                    db.execSQL("CREATE INDEX IF NOT EXISTS index_editions_workId ON editions(workId)")
+                    db.execSQL(
+                        "CREATE TABLE works (id TEXT NOT NULL PRIMARY KEY, mergeKey TEXT NOT NULL, " +
+                            "title TEXT NOT NULL, author TEXT NOT NULL, seriesTitle TEXT, " +
+                            "seriesUrl TEXT, seriesIndex INTEGER, coverImageUrl TEXT, addedAt INTEGER NOT NULL)"
+                    )
+                    db.execSQL("CREATE INDEX IF NOT EXISTS index_works_mergeKey ON works(mergeKey)")
+                    db.execSQL(
+                        "CREATE TABLE library_entries (id TEXT NOT NULL PRIMARY KEY, workId TEXT NOT NULL, " +
+                            "isFavorite INTEGER NOT NULL DEFAULT 0, createdAt INTEGER NOT NULL DEFAULT 0, " +
+                            "downloadProgress REAL NOT NULL DEFAULT 0, downloadState TEXT NOT NULL DEFAULT 'IDLE')"
+                    )
+                    // Insert test data: an edition with totalChapters=5
+                    db.execSQL(
+                        "INSERT INTO editions (id, workId, language, narrator, totalChapters, totalDurationSeconds) " +
+                            "VALUES ('ed-1', 'b1', 'uk', 'Читець', 5, 3600)"
+                    )
+                }
+
+                override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) {}
+            })
+            .build()
+        val helper = factory.create(config)
+        val db = helper.writableDatabase
+
+        AudiobookDatabase.MIGRATION_23_24.migrate(db)
+
+        // person_bookmarks table exists with expected columns
+        assertTrue(
+            "person_bookmarks table must exist",
+            tableExists(db, "person_bookmarks")
+        )
+        assertEquals(
+            setOf("kind", "id", "displayName", "normalizedName", "createdAt",
+                "lastSeenAt", "lastNotifiedAt", "notifyEnabled", "updatedAt"),
+            tableColumns(db, "person_bookmarks").toSet()
+        )
+        // The table accepts a bookmark
+        db.execSQL(
+            "INSERT INTO person_bookmarks (kind, id, displayName, normalizedName, createdAt, " +
+                "lastSeenAt, lastNotifiedAt, notifyEnabled, updatedAt) " +
+                "VALUES ('AUTHOR', 'author-test', 'Test', 'test', 1000, 0, 0, 1, 1000)"
+        )
+        db.query("SELECT COUNT(*) FROM person_bookmarks").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals(1, cursor.getInt(0))
+        }
+        // editions.addedAt exists and was backfilled for existing rows
+        assertTrue("addedAt column must exist", tableColumns(db, "editions").contains("addedAt"))
+        db.query("SELECT addedAt FROM editions WHERE id = 'ed-1'").use { cursor ->
+            cursor.moveToFirst()
+            val addedAt = cursor.getLong(0)
+            assertTrue("addedAt must be backfilled with a non-zero stamp", addedAt > 0L)
+        }
+        db.close()
+    }
+
+    @Test
+    fun `person_bookmarks upsert is idempotent on same kind+id`() = runBlocking {
+        val mods = modules()
+        val bookmark1 = com.slukhayka.audiobooks.data.db.PersonBookmarkEntity(
+            kind = com.slukhayka.audiobooks.data.db.PersonBookmarkKind.AUTHOR,
+            id = "author-1", displayName = "Старе Ім'я",
+            normalizedName = "старе ім'я", createdAt = 1000L, updatedAt = 1000L
+        )
+        val bookmark2 = bookmark1.copy(displayName = "Нове Ім'я", updatedAt = 2000L)
+        dao.upsertPersonBookmark(bookmark1)
+        dao.upsertPersonBookmark(bookmark2)
+        val found = dao.getPersonBookmark(
+            com.slukhayka.audiobooks.data.db.PersonBookmarkKind.AUTHOR, "author-1"
+        )
+        assertEquals("Нове Ім'я", found!!.displayName)
+    }
 }

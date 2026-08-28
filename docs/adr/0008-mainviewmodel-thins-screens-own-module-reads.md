@@ -1,9 +1,9 @@
 status: accepted
 ---
 
-# MainViewModel thins: screens observe the five modules directly
+# MainViewModel thins: screens observe deep modules directly
 
-The five-module split (ADR-0002, #140) left MainViewModel re-exposing the
+The original five-module split (ADR-0002, #140) left MainViewModel re-exposing the
 modules through a forwarding layer: ~14 members were zero-depth
 `module.X.stateIn(...)` re-exposures and ~7 were pure 1:1 forwarders
 (`viewModelScope.launch { module.X() }`). A 1447-line ViewModel that merely
@@ -94,3 +94,6 @@ functions with JVM tests (prior art: LibraryModel, ListenComposer):
   scope is the main dispatcher, matching the former `viewModelScope.launch`
   on the UI-facing calls; module calls that used `Dispatchers.IO` were
   already launching their own IO context inside the module).
+- #399 adds Person Bookmarks as the sixth deep module. `App` owns its one
+  process-scoped instance; it follows the same direct-Flow/direct-suspend-call
+  boundary and stays fully local when Firebase or network access is absent.

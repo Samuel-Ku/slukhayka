@@ -522,7 +522,11 @@ data class EditionEntity(
     // Mirrored narrator of the rendition (the mergeKey already carries it).
     val narrator: String = "",
     val totalChapters: Int = 0,
-    val totalDurationSeconds: Long = 0L
+    val totalDurationSeconds: Long = 0L,
+    // #399: when this Edition was first seen — drives the new-count badge
+    // for bookmarked narrators (new Edition of known Work = new arrival).
+    @ColumnInfo(defaultValue = "0")
+    val addedAt: Long = 0L
 )
 
 /**

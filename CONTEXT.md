@@ -114,6 +114,10 @@ _Avoid_: version (for an Edition), update feed
 The language of the interface chrome — a dimension fully separate from the content Language that NEVER filters content (US12, ADR-0029). Android: `AppLocale` (Ukrainian default, `en` pins the context) with the full `values-en` resource set (381 keys of parity, incl. the hardcoded-literal migration). Web: the typed uk/en dictionary `i18n/strings.ts` (key parity at compile time) with `locale.ts` device resolution — English on English-speaking devices (US15) — and a persisted manual override in the header. EN/UA badges on cards show the rendition's Language, not the App Locale.
 _Avoid_: UI language filtering content, locale stored in sync, UI strings mixed with content metadata
 
+**Crash Reporting Consent**:
+The listener's durable choice for anonymous production crash reports: `UNDECIDED`, `ALLOWED` or `DENIED`. A report held after the first fatal crash or ANR stays on-device until that explicit choice. The diagnostic context is only five bounded facts (`app_visibility`, `playback_state`, `playback_service`, `audio_origin`, `cast_active`); it never carries listener identity, book/media identity, a Source URL, Listening State or arbitrary logs (ADR-0025).
+_Avoid_: analytics consent, implicit opt-in, user identity, listening history
+
 ## Listener relationship
 
 **Library Entry**:

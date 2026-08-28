@@ -341,7 +341,7 @@ class MainActivityAccessibilityTest {
             )
         composeTestRule.onNodeWithTag("sleep_timer_option_0")
             .assertIsSelected()
-        composeTestRule.onRoot(useUnmergedTree = true)
+        composeTestRule.onNodeWithTag("sleep_timer_sheet", useUnmergedTree = true)
             .printToLog("[DEBUG-a11y-sheet]")
         composeTestRule.onRoot().tryPerformAccessibilityChecks()
         composeTestRule.onNodeWithTag("sleep_timer_option_5")

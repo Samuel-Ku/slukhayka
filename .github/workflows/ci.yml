@@ -64,8 +64,10 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
         with:
-          android-version: api-36
-          build-tools-version: '36.0.0'
+          packages: |
+            platforms;android-36
+            build-tools;36.0.0
+            platform-tools
 
       - name: Make gradlew executable
         run: chmod +x ./gradlew
@@ -159,8 +161,10 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
         with:
-          android-version: api-36
-          build-tools-version: '36.0.0'
+          packages: |
+            platforms;android-36
+            build-tools;36.0.0
+            platform-tools
 
       - name: Download all partition coverage
         uses: actions/download-artifact@v4
@@ -222,8 +226,10 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
         with:
-          android-version: api-36
-          build-tools-version: '36.0.0'
+          packages: |
+            platforms;android-36
+            build-tools;36.0.0
+            platform-tools
 
       - name: Cache e5 model
         uses: actions/cache@v4

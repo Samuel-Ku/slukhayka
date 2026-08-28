@@ -1,12 +1,6 @@
 package com.slukhayka.audiobooks.accessibility
 
 import android.app.Application
-import android.graphics.Rect
-import android.util.Log
-import android.view.View
-import android.view.ViewGroup
-import android.view.accessibility.AccessibilityNodeInfo
-import android.view.inspector.WindowInspector
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
@@ -19,6 +13,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.isRoot
 import androidx.compose.ui.test.junit4.accessibility.enableAccessibilityChecks
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -349,7 +344,8 @@ class MainActivityAccessibilityTest {
             .assertIsSelected()
         composeTestRule.onNodeWithTag("sleep_timer_sheet", useUnmergedTree = true)
             .printToLog("[DEBUG-a11y-sheet]")
-        logGlobalWindowAccessibilityTrees()
+        composeTestRule.onAllNodes(isRoot(), useUnmergedTree = true)[0]
+            .printToLog("[DEBUG-a11y-underlay]")
         composeTestRule.onRoot().tryPerformAccessibilityChecks()
         composeTestRule.onNodeWithTag("sleep_timer_option_5")
             .assert(SemanticsMatcher.keyIsDefined(SemanticsActions.OnClick))
@@ -464,59 +460,6 @@ class MainActivityAccessibilityTest {
             .assertIsFocused()
         composeTestRule.onRoot().tryPerformAccessibilityChecks()
     }
-
-    private fun logGlobalWindowAccessibilityTrees() {
-        composeTestRule.activity.runOnUiThread {
-            WindowInspector.getGlobalWindowViews().forEachIndexed { rootIndex, root ->
-                logViewTree(rootIndex, root)
-                logAccessibilityTree(rootIndex, root.createAccessibilityNodeInfo())
-            }
-        }
-    }
-
-    private fun logViewTree(rootIndex: Int, view: View, depth: Int = 0) {
-        val location = IntArray(2)
-        view.getLocationOnScreen(location)
-        Log.d(
-            "[DEBUG-a11y-view]",
-            "root=$rootIndex depth=$depth class=${view.javaClass.name} " +
-                "id=${viewResourceName(view)} bounds=[${location[0]},${location[1]}]" +
-                "[${location[0] + view.width},${location[1] + view.height}] " +
-                "clickable=${view.isClickable} longClickable=${view.isLongClickable}"
-        )
-        if (view is ViewGroup) {
-            repeat(view.childCount) { childIndex ->
-                logViewTree(rootIndex, view.getChildAt(childIndex), depth + 1)
-            }
-        }
-    }
-
-    private fun logAccessibilityTree(
-        rootIndex: Int,
-        node: AccessibilityNodeInfo?,
-        depth: Int = 0
-    ) {
-        if (node == null || depth > 80) return
-        val bounds = Rect()
-        node.getBoundsInScreen(bounds)
-        Log.d(
-            "[DEBUG-a11y-node]",
-            "root=$rootIndex depth=$depth class=${node.className} " +
-                "viewId=${node.viewIdResourceName} bounds=$bounds clickable=${node.isClickable} " +
-                "longClickable=${node.isLongClickable} text=${node.text} description=${node.contentDescription} " +
-                "actions=${node.actionList.joinToString { it.label?.toString() ?: it.id.toString() }}"
-        )
-        repeat(node.childCount) { childIndex ->
-            logAccessibilityTree(rootIndex, node.getChild(childIndex), depth + 1)
-        }
-    }
-
-    private fun viewResourceName(view: View): String =
-        if (view.id == View.NO_ID) {
-            "none"
-        } else {
-            runCatching { view.resources.getResourceName(view.id) }.getOrDefault(view.id.toString())
-        }
 
     private fun currentViewModel(): MainViewModel =
         ViewModelProvider(composeTestRule.activity)[MainViewModel::class.java]

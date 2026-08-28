@@ -584,9 +584,7 @@ interface AudiobookDao {
     @Query(
         "INSERT INTO library_entries (id, workId, isFavorite, createdAt, downloadProgress, downloadState) " +
             "VALUES (:id, :workId, :isFavorite, :createdAt, :downloadProgress, :downloadState) " +
-            "ON CONFLICT(id) DO UPDATE SET workId = excluded.workId, isFavorite = excluded.isFavorite, " +
-            "createdAt = excluded.createdAt, downloadProgress = excluded.downloadProgress, " +
-            "downloadState = excluded.downloadState"
+            "ON CONFLICT(id) DO UPDATE SET workId = excluded.workId, downloadProgress = excluded.downloadProgress, downloadState = excluded.downloadState"
     )
     suspend fun upsertLibraryEntry(
         id: String,

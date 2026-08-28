@@ -402,6 +402,8 @@ class ChapterDurationProbeRepositoryTest {
         val prober = FakeProber(emptyMap()) // only the recorded urls matter here
         seed(listOf(book("old"), book("new")), listOf(chapter("old", 0, 0L), chapter("new", 0, 0L)))
         runBlocking {
+            dao.deleteLibraryEntry("old")
+            dao.deleteLibraryEntry("new")
             dao.upsertLibraryEntry("old", "old", false, START_EPOCH, 0f)
             dao.upsertLibraryEntry("new", "new", false, START_EPOCH + 60_000L, 0f)
         }

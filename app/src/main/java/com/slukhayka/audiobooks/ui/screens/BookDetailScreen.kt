@@ -54,6 +54,7 @@ import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.BookmarkEntity
 import com.slukhayka.audiobooks.data.db.ChapterEntity
 import com.slukhayka.audiobooks.data.downloads.OfflineDownloads
+import com.slukhayka.audiobooks.data.personbookmarks.PersonBookmarks
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
 import com.slukhayka.audiobooks.data.listening.ListeningStateStore
 import com.slukhayka.audiobooks.data.source.sourceDisplayName
@@ -63,6 +64,7 @@ import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.ui.library.siblingNarrations
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.ReviewSaveResult
+import com.slukhayka.audiobooks.data.db.PersonRole
 import com.slukhayka.audiobooks.ui.bookPersonPath
 import com.slukhayka.audiobooks.ui.reviewWorkIdFor
 import com.slukhayka.audiobooks.ui.components.BookmarkDialog
@@ -93,6 +95,9 @@ fun BookDetailScreen(
     // ADR-0011: the screen reads the other rendition cards of the same Work
     // (the «Інші начитки» block) straight from the module.
     libraryEntries: LibraryEntries,
+    // #400: person bookmarks module — Flows read directly, actions via
+    // composition scope (ADR-0008).
+    personBookmarks: PersonBookmarks,
     onBackClick: () -> Unit,
     returnFocusOrigin: BookDetailLinkOrigin? = null,
     onChildRouteOpened: (BookDetailLinkOrigin) -> Unit = {},
@@ -181,6 +186,20 @@ fun BookDetailScreen(
     // ADR-0008: suspend module calls from user actions run on the composition
     // scope (same pattern as playerManager's call-through).
     val scope = rememberCoroutineScope()
+
+    // #400: Person-bookmark Flows collected directly (ADR-0008) — no
+    // forwarding StateFlow in MainViewModel.  The per-person bookmark
+    // state drives the author/narrator link labels (bookmarked badge).
+    val bookmarkedAuthors by personBookmarks.bookmarkedAuthors()
+        .collectAsState(initial = emptyList())
+    val bookmarkedNarrators by personBookmarks.bookmarkedNarrators()
+        .collectAsState(initial = emptyList())
+    val authorIsBookmarked = remember(bookmarkedAuthors, currentBook.author) {
+        bookmarkedAuthors.any { it.displayName.equals(currentBook.author, ignoreCase = true) }
+    }
+    val narratorIsBookmarked = remember(bookmarkedNarrators, currentBook.narrator) {
+        bookmarkedNarrators.any { it.displayName.equals(currentBook.narrator, ignoreCase = true) }
+    }
 
     // Spec-40 #277 — reviews anchor to the WORK (shared across narrations);
     // a row without a Works identity anchors to itself.
@@ -665,12 +684,22 @@ fun BookDetailScreen(
                         narrationRatingDeleteFocusRequester = narrationRatingDeleteFocusRequester,
                         onAuthorClick = { author ->
                             viewModel.openPersonBooks(
-                                CatalogPerson(author, bookPersonPath("avtor", author), 0)
+                                CatalogPerson(
+                                    name = author,
+                                    path = bookPersonPath("avtor", author),
+                                    bookCount = 0,
+                                    role = PersonRole.AUTHOR
+                                )
                             )
                         },
                         onNarratorClick = { narrator ->
                             viewModel.openPersonBooks(
-                                CatalogPerson(narrator, bookPersonPath("chitaet", narrator), 0)
+                                CatalogPerson(
+                                    name = narrator,
+                                    path = bookPersonPath("chitaet", narrator),
+                                    bookCount = 0,
+                                    role = PersonRole.NARRATOR
+                                )
                             )
                         },
                         onSeriesClick = { title, url -> viewModel.openSeries(title, url) },

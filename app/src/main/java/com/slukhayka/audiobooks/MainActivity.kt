@@ -34,6 +34,7 @@ import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.slukhayka.audiobooks.data.catalog.CatalogPerson
+import com.slukhayka.audiobooks.data.personbookmarks.PersonBookmarks
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.SelectedTab
 import com.slukhayka.audiobooks.ui.components.MiniPlayerBar
@@ -318,9 +319,9 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                     ) {
                         viewModel.openPersonBooks(
                             CatalogPerson(
-                                secondaryBookRoute.parentName,
-                                secondaryBookRoute.parentPath,
-                                0
+                                name = secondaryBookRoute.parentName,
+                                path = secondaryBookRoute.parentPath,
+                                bookCount = 0
                             )
                         )
                     }
@@ -469,6 +470,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                             BookDetailLinkOrigin.NARRATOR
                         ) && selectedPerson != null -> PersonBooksScreen(
                         viewModel = viewModel,
+                        personBookmarks = App.instance.personBookmarks,
                         onBackClick = { closeBookDetailChildRoute() },
                         onBookClick = { id ->
                             val childPerson = selectedPerson
@@ -477,7 +479,11 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                             bookDetailChildEditionId = null
                             if (childPerson != null) {
                                 viewModel.openPersonBooks(
-                                    CatalogPerson(childPerson.name, childPerson.path, 0)
+                                    CatalogPerson(
+                                        name = childPerson.name,
+                                        path = childPerson.path,
+                                        bookCount = 0
+                                    )
                                 )
                                 secondaryBookRoute = SecondaryBookRouteFrame(
                                     parent = SecondaryBookParent.PERSON,
@@ -516,6 +522,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                         listeningState = viewModel.listeningState,
                         offlineDownloads = viewModel.offlineDownloads,
                         libraryEntries = viewModel.libraryEntries,
+                        personBookmarks = App.instance.personBookmarks,
                         onBackClick = {
                             bookDetailChildRouteOpen = false
                             bookDetailChildOrigin = null
@@ -733,6 +740,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                     // One person's books (opened from Виконавці/Автори index).
                     selectedPerson != null -> PersonBooksScreen(
                         viewModel = viewModel,
+                        personBookmarks = App.instance.personBookmarks,
                         onBackClick = {
                             secondaryBookRoute = SecondaryBookRouteFrame()
                             viewModel.closePersonBooks()
@@ -780,6 +788,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                     // Виконавці or Автори index.
                     selectedPeopleKind != null -> PeopleScreen(
                         viewModel = viewModel,
+                        personBookmarks = App.instance.personBookmarks,
                         onBackClick = { viewModel.closePeople() },
                         onBookClick = { id -> viewModel.selectBook(id) },
                         onPersonClick = { person ->
@@ -804,6 +813,8 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                         // ADR-0011: the «Інші начитки» block reads the Work's
                         // other rendition cards from the module.
                         libraryEntries = viewModel.libraryEntries,
+                        // #400: person bookmarks module (ADR-0008).
+                        personBookmarks = App.instance.personBookmarks,
                         onBackClick = {
                             bookDetailChildRouteOpen = false
                             bookDetailChildOrigin = null

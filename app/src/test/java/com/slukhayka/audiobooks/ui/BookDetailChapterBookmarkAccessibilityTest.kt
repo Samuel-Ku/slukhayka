@@ -144,6 +144,32 @@ class BookDetailChapterBookmarkAccessibilityTest {
     }
 
     @Test
+    fun suppliedChapterRequesterFocusesTheExposedAccessibilityNode() {
+        lateinit var chapterRequester: FocusRequester
+        composeTestRule.setContent {
+            val requester = remember { FocusRequester() }
+            chapterRequester = requester
+            AudiobookTheme(darkTheme = true) {
+                ChapterRowItem(
+                    chapter = chapter,
+                    index = 3,
+                    isCurrent = false,
+                    isPlaying = false,
+                    focusRequester = requester,
+                    onPlayClick = {},
+                    onPauseClick = {}
+                )
+            }
+        }
+
+        composeTestRule.runOnIdle {
+            assertTrue(chapterRequester.requestFocus())
+        }
+        composeTestRule.onNodeWithTag("book_detail_chapter_${chapter.id}")
+            .assertIsFocused()
+    }
+
+    @Test
     fun currentPausedChapterKeepsCurrentStateButOffersResume() {
         var played = false
         composeTestRule.setContent {

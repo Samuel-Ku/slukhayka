@@ -523,6 +523,9 @@ class FakeAudiobookDao(
             .filter { it.isNotBlank() }
             .distinct()
 
+    override suspend fun hasAudiobookRow(bookId: String): Boolean =
+        booksState.value.any { it.id == bookId }
+
     override suspend fun updateSourceFingerprint(sourceId: String, fingerprint: String?) {
         sourcesState.update { current ->
             current.map { source ->

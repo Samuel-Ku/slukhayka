@@ -6,7 +6,9 @@ import androidx.test.core.app.ApplicationProvider
 import com.slukhayka.audiobooks.data.db.AudiobookDao
 import com.slukhayka.audiobooks.data.db.AudiobookDatabase
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
+import com.slukhayka.audiobooks.data.db.WorkEntity
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
+import com.slukhayka.audiobooks.data.merge.MergeKey
 import com.slukhayka.audiobooks.data.source.SourceAdapter
 import com.slukhayka.audiobooks.data.source.SourceBook
 import com.slukhayka.audiobooks.data.source.SourceBookDetail
@@ -69,21 +71,25 @@ class LibraryEntriesCoverRefreshTest {
     private val soundBooksUrl = "https://sound-books.net/zarubizhna-literatura/2851-temna-materiia.html"
 
     private suspend fun seedBook(coverImageUrl: String?): String {
-        dao.insertAudiobooks(
-            listOf(
-                AudiobookEntity(
-                    id = "sb-book",
-                    title = "Темна матерія",
-                    author = "Блейк Крауч",
-                    narrator = "",
-                    description = "",
-                    coverDrawableRes = 0,
-                    coverImageUrl = coverImageUrl,
-                    genre = "",
-                    sourceUrl = soundBooksUrl,
-                    isDownloaded = false
-                )
-            )
+        val book = AudiobookEntity(
+            id = "sb-book",
+            title = "Темна матерія",
+            author = "Блейк Крауч",
+            narrator = "",
+            description = "",
+            coverDrawableRes = 0,
+            coverImageUrl = coverImageUrl,
+            genre = "",
+            sourceUrl = soundBooksUrl,
+            isDownloaded = false
+        )
+        val workId = MergeKey.keyFor(book.title, book.author)
+        dao.insertAudiobooks(listOf(book))
+        dao.upsertWork(
+            WorkEntity(id = workId, mergeKey = workId, title = book.title, author = book.author, addedAt = 0L)
+        )
+        dao.upsertLibraryEntry(
+            id = book.id, workId = workId, isFavorite = false, createdAt = 0L, downloadProgress = 0f
         )
         return "sb-book"
     }

@@ -228,6 +228,18 @@ class DuplicateWorkMergerRoomTest {
             rating = 0f
         )
         dao.insertAudiobooks(listOf(base, base.copy(id = "local-2", title = "Війна і мир - том 2")))
+        listOf("local-1", "local-2").forEachIndexed { index, id ->
+            val mergeKey = "local-work-${index + 1}"
+            dao.upsertWork(
+                WorkEntity(
+                    id = mergeKey,
+                    mergeKey = mergeKey,
+                    title = "Війна і мир - том ${index + 1}",
+                    author = "Локальні файли"
+                )
+            )
+            dao.upsertLibraryEntry(id, mergeKey, isFavorite = false, createdAt = 0L, downloadProgress = 0f)
+        }
 
         assertEquals(0, DuplicateWorkMerger(dao).mergeOnce())
         assertEquals(2, dao.getAllAudiobooksOnce().size)

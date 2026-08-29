@@ -7,8 +7,10 @@ import com.slukhayka.audiobooks.data.db.AudiobookDao
 import com.slukhayka.audiobooks.data.db.AudiobookDatabase
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.WorkEntity
+import com.slukhayka.audiobooks.data.db.NativeRoomWorkerIdentity
 import kotlinx.coroutines.runBlocking
 import org.junit.After
+import org.junit.AfterClass
 import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Test
@@ -26,6 +28,11 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
 class StoredMetadataScrubRoomTest {
+    companion object {
+        @JvmStatic
+        @AfterClass
+        fun recordNativeWorkerIdentity() = NativeRoomWorkerIdentity.record()
+    }
 
     private lateinit var context: Context
     private lateinit var db: AudiobookDatabase
@@ -107,8 +114,9 @@ class StoredMetadataScrubRoomTest {
 
         val scrub = StoredMetadataScrub(dao)
         assertEquals(2, scrub.scrubOnce())
-        assertEquals("Справжній текст.", dao.getAudiobookById("b1")!!.description)
-        assertEquals("", dao.getAudiobookById("b2")!!.description)
+        val descriptions = dao.getAllBookDescriptionRows().associate { it.id to it.description }
+        assertEquals("Справжній текст.", descriptions["b1"])
+        assertEquals("", descriptions["b2"])
         // The second pass matches nothing — the rules are stable on stored rows.
         assertEquals(0, scrub.scrubOnce())
     }
@@ -129,8 +137,9 @@ class StoredMetadataScrubRoomTest {
         assertEquals(1, changed)
         // A template scrubs to EMPTY — an unknown annotation renders as
         // absent, never a fabricated one.
-        assertEquals("", dao.getAudiobookById("b1")!!.description)
-        assertEquals("Честный текст аннотации.", dao.getAudiobookById("b2")!!.description)
+        val descriptions = dao.getAllBookDescriptionRows().associate { it.id to it.description }
+        assertEquals("", descriptions["b1"])
+        assertEquals("Честный текст аннотации.", descriptions["b2"])
     }
 
     @Test
@@ -147,6 +156,6 @@ class StoredMetadataScrubRoomTest {
         val changed = StoredMetadataScrub(dao).scrubOnce()
 
         assertEquals(1, changed)
-        assertEquals("Справжній текст анотації.", dao.getAudiobookById("b1")!!.description)
+        assertEquals("Справжній текст анотації.", dao.getAllBookDescriptionRows().single().description)
     }
 }

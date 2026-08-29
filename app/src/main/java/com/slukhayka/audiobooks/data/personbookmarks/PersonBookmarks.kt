@@ -67,6 +67,10 @@ class PersonBookmarks(
 
     // --- Flows (read directly by screens, ADR-0008) -----------------------
 
+    /** Observe a single person bookmark by kind + id. Null when not bookmarked. */
+    fun observePersonBookmark(kind: String, id: String): Flow<PersonBookmarkEntity?> =
+        dao.observePersonBookmark(kind, id)
+
     /** Every bookmarked author, newest first. */
     fun bookmarkedAuthors(): Flow<List<PersonBookmarkEntity>> =
         dao.getPersonBookmarksByKind(PersonRole.AUTHOR.storageValue)

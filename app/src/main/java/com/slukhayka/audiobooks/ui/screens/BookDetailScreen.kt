@@ -732,6 +732,11 @@ fun BookDetailScreen(
                         isPlaying = isPlayingThis,
                         focusRequester = chapterFocusRequester,
                         onPlayClick = {
+                            // Make the activated row the modal's real focus
+                            // origin before the background focusRestorer takes
+                            // its snapshot. Compose test clicks, unlike keyboard
+                            // activation, do not focus the node automatically.
+                            chapterFocusRequester.requestFocus()
                             playerReturnFocusChapterId = chapter.id
                             playerReturnFocusRequester = chapterFocusRequester
                             if (isCurrentChapter) {

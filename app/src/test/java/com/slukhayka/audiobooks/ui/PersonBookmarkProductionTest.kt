@@ -123,7 +123,14 @@ class PersonBookmarkProductionTest {
         }
 
         composeTestRule.onNodeWithTag("person_bookmark_button").performClick()
-        composeTestRule.waitForIdle()
+        composeTestRule.waitUntil(timeoutMillis = 5_000) {
+            runBlocking {
+                bookmarks.observePersonBookmark(
+                    PersonRole.AUTHOR.storageValue,
+                    bookmarks.authorId("Тестовий Автор")
+                ).first()
+            } != null
+        }
         val stored = runBlocking {
             bookmarks.observePersonBookmark(
                 PersonRole.AUTHOR.storageValue,

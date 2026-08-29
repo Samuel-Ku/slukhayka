@@ -110,6 +110,7 @@ class AndroidEmulatorReadinessTest(unittest.TestCase):
         self.assertLess(prebuild, emulator)
         self.assertIn(":app:assembleDebug :app:assembleDebugAndroidTest", workflow)
         self.assertIn("scripts/wait-for-android-package-service.sh", workflow)
+        self.assertIn("target: google_atd", workflow)
 
 
 if __name__ == "__main__":

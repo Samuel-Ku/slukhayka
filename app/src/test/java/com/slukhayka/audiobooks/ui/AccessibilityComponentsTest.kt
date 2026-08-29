@@ -274,6 +274,56 @@ class AccessibilityComponentsTest {
     }
 
     @Test
+    fun modalFocusReturnSurvivesALateLayoutFocusLoss() {
+        var setModalVisible: ((Boolean) -> Unit)? = null
+        var stealFocusAfterClose = false
+        composeTestRule.setContent {
+            var modalVisible by remember { mutableStateOf(true) }
+            val returnFocusRequester = remember { FocusRequester() }
+            val competingFocusRequester = remember { FocusRequester() }
+            setModalVisible = {
+                stealFocusAfterClose = true
+                modalVisible = it
+            }
+
+            RestoreFocusAfterModal(
+                modalVisible = modalVisible,
+                returnFocusRequester = returnFocusRequester,
+                settleFrames = 1,
+                stabilityFrames = 10
+            )
+            LaunchedEffect(modalVisible) {
+                if (!modalVisible && stealFocusAfterClose) {
+                    repeat(5) { androidx.compose.runtime.withFrameNanos { } }
+                    competingFocusRequester.requestFocus()
+                }
+            }
+            Column {
+                Box(
+                    Modifier
+                        .size(48.dp)
+                        .focusRequester(returnFocusRequester)
+                        .focusable()
+                        .testTag("stable_modal_return_target")
+                )
+                Box(
+                    Modifier
+                        .size(48.dp)
+                        .focusRequester(competingFocusRequester)
+                        .focusable()
+                        .testTag("late_layout_focus_target")
+                )
+            }
+        }
+
+        composeTestRule.runOnIdle { setModalVisible?.invoke(false) }
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("stable_modal_return_target").assertIsFocused()
+        composeTestRule.onNodeWithTag("late_layout_focus_target").assertIsNotFocused()
+    }
+
+    @Test
     fun modalFocusReturnUsesStableFallbackWhenDestructiveOriginIsDetached() {
         var closeAndDetach: (() -> Unit)? = null
         var restoreCount = 0

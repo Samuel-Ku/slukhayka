@@ -45,6 +45,8 @@ fun Modifier.accessibilityPane(title: String): Modifier =
  * moves after this owner has observed one visible-to-closed transition.
  * [settleFrames] lets animated owners finish removing their focused subtree
  * before the return request; non-animated owners keep the one-frame default.
+ * [stabilityFrames] optionally reasserts that focus after late layout changes;
+ * the restoration is consumed only when that final request succeeds.
  */
 @Composable
 fun RestoreFocusAfterModal(
@@ -52,6 +54,7 @@ fun RestoreFocusAfterModal(
     returnFocusRequester: FocusRequester?,
     fallbackFocusRequester: FocusRequester? = null,
     settleFrames: Int = 1,
+    stabilityFrames: Int = 0,
     onFocusRestored: () -> Unit = {}
 ) {
     var modalWasVisible by remember { mutableStateOf(false) }
@@ -63,7 +66,7 @@ fun RestoreFocusAfterModal(
                 modalWasVisible = false
             } else {
                 repeat(settleFrames.coerceAtLeast(1)) { withFrameNanos { } }
-                val restoredToOrigin = runCatching {
+                val initiallyRestoredToOrigin = runCatching {
                     returnFocusRequester.requestFocus()
                 }.getOrDefault(false) || run {
                     // A disappearing modal and its launcher can detach in the
@@ -72,6 +75,19 @@ fun RestoreFocusAfterModal(
                     withFrameNanos { }
                     runCatching { returnFocusRequester.requestFocus() }
                         .getOrDefault(false)
+                }
+                val restoredToOrigin = if (
+                    initiallyRestoredToOrigin && stabilityFrames > 0
+                ) {
+                    repeat(stabilityFrames) { withFrameNanos { } }
+                    // Animated and lazy layouts can still detach the focused
+                    // node shortly after the first successful request. A final
+                    // request keeps the restoration intent alive through that
+                    // bounded stabilization window.
+                    runCatching { returnFocusRequester.requestFocus() }
+                        .getOrDefault(false)
+                } else {
+                    initiallyRestoredToOrigin
                 }
                 val restored = restoredToOrigin || fallbackFocusRequester?.let { fallback ->
                     runCatching { fallback.requestFocus() }.getOrDefault(false)

@@ -18,10 +18,14 @@ import androidx.compose.ui.semantics.semantics
 /**
  * Keeps a composed background out of accessibility and keyboard traversal
  * while a sibling modal surface is visible. [focusRestorer] remembers the
- * previously focused descendant for the modal owner's close path.
+ * previously focused descendant for the modal owner's close path unless that
+ * owner supplies a more precise explicit restoration contract.
  */
-fun Modifier.accessibilityModalBackground(modalVisible: Boolean): Modifier =
-    focusRestorer().then(
+fun Modifier.accessibilityModalBackground(
+    modalVisible: Boolean,
+    automaticFocusRestoration: Boolean = true
+): Modifier =
+    then(if (automaticFocusRestoration) Modifier.focusRestorer() else Modifier).then(
         if (modalVisible) {
             Modifier
                 .focusProperties { canFocus = false }

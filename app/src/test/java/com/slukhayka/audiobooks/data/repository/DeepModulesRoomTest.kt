@@ -18,6 +18,7 @@ import com.slukhayka.audiobooks.data.db.AudiobookDatabase
 import com.slukhayka.audiobooks.data.db.BookmarkEntity
 import com.slukhayka.audiobooks.data.db.ChapterEntity
 import com.slukhayka.audiobooks.data.db.PlaybackProgressEntity
+import com.slukhayka.audiobooks.data.db.WorkEntity
 import com.slukhayka.audiobooks.data.imports.ImportPlan
 import com.slukhayka.audiobooks.data.imports.ImportPlanner
 import com.slukhayka.audiobooks.data.imports.LocalAudioEntry
@@ -94,6 +95,34 @@ class DeepModulesRoomTest {
             downloads = OfflineDownloads(dao, context, catalog),
             entries = LibraryEntries(dao, sourceAdapters)
         )
+    }
+
+    /** Seeds the complete post-ADR-0009 aggregate used by joined DAO reads. */
+    private suspend fun insertLibraryBooks(books: List<com.slukhayka.audiobooks.data.db.AudiobookEntity>) {
+        dao.insertAudiobooks(books)
+        books.forEach { book ->
+            val workId = MergeKey.keyFor(book.title, book.author).ifBlank { book.id }
+            dao.upsertWork(
+                WorkEntity(
+                    id = workId,
+                    mergeKey = workId,
+                    title = book.title,
+                    author = book.author,
+                    seriesTitle = book.seriesTitle,
+                    seriesUrl = book.seriesUrl,
+                    seriesIndex = book.seriesIndex,
+                    coverImageUrl = book.coverImageUrl,
+                    addedAt = TestDataFactory.FIXED_CLOCK_MS
+                )
+            )
+            dao.upsertLibraryEntry(
+                id = book.id,
+                workId = workId,
+                isFavorite = book.isFavorite,
+                createdAt = TestDataFactory.FIXED_CLOCK_MS,
+                downloadProgress = book.downloadProgress
+            )
+        }
     }
 
     // ---------------------------------------------------------------------
@@ -188,7 +217,7 @@ class DeepModulesRoomTest {
     fun `deleteBook leaves other books untouched`() = runBlocking {
         val mods = modules()
         val books = TestDataFactory.dataBooks()
-        dao.insertAudiobooks(books)
+        insertLibraryBooks(books)
         dao.insertChapters(TestDataFactory.dataChapters(books))
 
         mods.entries.deleteBook(books[0].id)
@@ -1346,7 +1375,7 @@ class DeepModulesRoomTest {
             id = "4read-7589-neostannij-bij",
             sourceUrl = "https://4read.org/7589-neostannij-bij.html"
         )
-        dao.insertAudiobooks(listOf(book))
+        insertLibraryBooks(listOf(book))
 
         val related = mods.catalog.fetchRelatedBooks(book.id)
 
@@ -1479,7 +1508,7 @@ class DeepModulesRoomTest {
             // must be observable as a book that stays un-downloaded.
             isDownloaded = false
         ).also { it.downloadProgress = 0f }
-        dao.insertAudiobooks(listOf(book))
+        insertLibraryBooks(listOf(book))
         dao.insertChapters(TestDataFactory.chaptersFor(book))
 
         val result = mods.downloads.downloadAudiobookOffline(book.id)
@@ -1501,7 +1530,7 @@ class DeepModulesRoomTest {
             sourceUrl = "https://4read.org/7589-neostannij-bij.html",
             isDownloaded = false
         ).also { it.downloadProgress = 0f }
-        dao.insertAudiobooks(listOf(book))
+        insertLibraryBooks(listOf(book))
         // Non-http stream urls: the loop executes, skips the network hop and
         // reports every chapter as failed — exercising the whole download path
         // with fakes (in-memory Room), no network. No source/track rows exist,
@@ -1561,7 +1590,7 @@ class DeepModulesRoomTest {
     fun `preferred speed round-trips through the repository`() = runBlocking {
         val mods = modules()
         val book = TestDataFactory.dataBooks()[0]
-        dao.insertAudiobooks(listOf(book))
+        insertLibraryBooks(listOf(book))
         // ADR-0009: the preference lives on the Listening State row — it needs
         // the Edition anchor + a progress row to land.
         val editionId = com.slukhayka.audiobooks.data.EditionId.forBook("", book.id, book.narrator)
@@ -3009,7 +3038,7 @@ class DeepModulesRoomTest {
 
         val book = TestDataFactory.dataBooks()[0]
         withTimeout(5_000) {
-            dao.insertAudiobooks(listOf(book))
+            insertLibraryBooks(listOf(book))
             // The Room invalidation tracker re-queries the observed tables:
             // the flow the «Книги (N)» counter collects emits the grown list
             // without any screen restart — the background-sync liveness the

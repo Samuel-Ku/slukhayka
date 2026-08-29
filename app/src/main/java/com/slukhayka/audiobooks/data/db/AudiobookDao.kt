@@ -96,6 +96,10 @@ interface AudiobookDao {
     @Query("SELECT DISTINCT sourceTreeUri FROM audiobooks WHERE sourceTreeUri IS NOT NULL AND sourceTreeUri != ''")
     suspend fun getImportedSourceTrees(): List<String>
 
+    /** Checks the storage row without requiring its Work/Library Entry join. */
+    @Query("SELECT EXISTS(SELECT 1 FROM audiobooks WHERE id = :bookId)")
+    suspend fun hasAudiobookRow(bookId: String): Boolean
+
     @Query("UPDATE sources SET lastScanFingerprint = :fingerprint WHERE id = :sourceId")
     suspend fun updateSourceFingerprint(sourceId: String, fingerprint: String?)
 

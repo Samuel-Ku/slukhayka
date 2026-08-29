@@ -352,7 +352,9 @@ val runRecommendationEval by tasks.registering(JavaExec::class) {
   // sources); its output dir carries the main class. The android onnxruntime
   // AAR is excluded from the runtime classpath so the desktop jar (with
   // host natives) resolves the ai.onnxruntime API.
-  dependsOn("compileDebugUnitTestKotlin", "processDebugUnitTestJavaRes")
+  dependsOn("compileDebugKotlin", "compileDebugUnitTestKotlin", "processDebugUnitTestJavaRes")
+  val mainCompileTask = project.tasks.named("compileDebugKotlin")
+  val mainOutput = (mainCompileTask.get() as org.jetbrains.kotlin.gradle.tasks.KotlinCompile).destinationDirectory
   val compileTask = project.tasks.named("compileDebugUnitTestKotlin")
   val testOutput = (compileTask.get() as org.jetbrains.kotlin.gradle.tasks.KotlinCompile).destinationDirectory
   val resourcesOutput = project.layout.buildDirectory.dir("intermediates/java_res/debugUnitTest/processDebugUnitTestJavaRes/out")
@@ -360,6 +362,7 @@ val runRecommendationEval by tasks.registering(JavaExec::class) {
     .files.filter { !it.name.contains("onnxruntime-android") }
   classpath = project.files(
     project.configurations.getByName("evalRuntime"),
+    mainOutput,
     testOutput,
     resourcesOutput
   ) + project.files(testCp)
@@ -398,4 +401,136 @@ val runRecommendationEval by tasks.registering(JavaExec::class) {
 // Keep the CI test worker from exhausting Gradle's default heap mid-suite.
 tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
   maxHeapSize = "2g"
+}
+
+// #423: one source of truth classifies every JVM test into exactly one public
+// verification partition. Gradle and the local changed-test selector both
+// consume this CLI, so a new test cannot silently disappear between them.
+fun partitionTestClasses(
+  partition: String,
+  cohort: String = "all",
+): List<String> {
+  val arguments = mutableListOf(
+    rootProject.file("scripts/test_partitions.py").absolutePath,
+    "--root",
+    rootProject.projectDir.absolutePath,
+    "list",
+    "--partition",
+    partition,
+    "--cohort",
+    cohort,
+  )
+  return providers.exec {
+    workingDir(rootProject.projectDir)
+    commandLine("python3", *arguments.toTypedArray())
+  }.standardOutput.asText.get().lineSequence().filter(String::isNotBlank).toList()
+}
+
+val pureJvmClasses = partitionTestClasses("pure-jvm")
+val roomRobolectricClasses = partitionTestClasses("room-robolectric")
+val roomNativeSdk35Classes = partitionTestClasses("room-robolectric", "native-sdk35")
+val roomNativeSdk36Classes = partitionTestClasses("room-robolectric", "native-sdk36")
+val roomNativeDefaultClasses = partitionTestClasses("room-robolectric", "native-default")
+val roomRobolectricOnlyClasses = partitionTestClasses("room-robolectric", "non-native")
+val composeRoborazziClasses = partitionTestClasses("compose-roborazzi")
+
+// These aliases reuse AGP's standard Test task. Kover 0.9.9 instruments that
+// task and emits one portable testDebugUnitTest.ic report in each CI job.
+val partitionAliases = mapOf(
+  "testPureJvm" to pureJvmClasses,
+  "testRoomRobolectric" to roomRobolectricClasses,
+  "testRoomNativeSdk35" to roomNativeSdk35Classes,
+  "testRoomNativeSdk36" to roomNativeSdk36Classes,
+  "testRoomNativeDefault" to roomNativeDefaultClasses,
+  "testRoomRobolectricOnly" to roomRobolectricOnlyClasses,
+  "testComposeRoborazzi" to composeRoborazziClasses,
+)
+val requestedPartitionAliases = gradle.startParameter.taskNames
+  .map { it.substringAfterLast(':') }
+  .filter(partitionAliases::containsKey)
+  .distinct()
+if (requestedPartitionAliases.size > 1) {
+  throw GradleException("Run JVM test partitions separately, or use scripts/test-all.sh")
+}
+
+afterEvaluate {
+  val baseJvmTest = tasks.named<org.gradle.api.tasks.testing.Test>("testDebugUnitTest")
+  partitionAliases.forEach { (alias, _) ->
+    tasks.register(alias) {
+      group = "verification"
+      description = when (alias) {
+        "testPureJvm" -> "Runs pure JVM tests without Robolectric."
+        "testRoomRobolectric" -> "Runs Room and other non-snapshot Robolectric tests."
+        "testRoomNativeSdk35" -> "Runs the isolated SDK 35 native Room cohort."
+        "testRoomNativeSdk36" -> "Runs the isolated SDK 36 native Room cohort."
+        "testRoomNativeDefault" -> "Runs the isolated default-SDK native Room cohort."
+        "testRoomRobolectricOnly" -> "Runs Robolectric tests that do not load native Room."
+        else -> "Runs Compose and Roborazzi snapshot tests."
+      }
+      dependsOn(baseJvmTest)
+    }
+  }
+  requestedPartitionAliases.singleOrNull()?.let { requestedAlias ->
+    val selectedClasses = providers.gradleProperty("test.selectedClasses").orNull
+      ?.split(',')
+      ?.filter(String::isNotBlank)
+      ?: partitionAliases.getValue(requestedAlias)
+    baseJvmTest.configure {
+      systemProperty("slukhayka.test.workerCohort", requestedAlias)
+      if (requestedAlias == "testRoomRobolectric") {
+        // A fresh fork per class is intentionally stronger than grouping by
+        // today's SDK list: future SDK/native SQLite combinations are isolated
+        // automatically, without another hard-coded cohort table.
+        maxParallelForks = 1
+        forkEvery = 1
+      } else if (requestedAlias.startsWith("testRoomNative")) {
+        // Native SQLite keeps process-wide state even inside one Robolectric
+        // SDK cohort. Reuse can therefore contaminate the next Room class.
+        // Two fresh workers at a time retain isolation without serializing the
+        // entire SDK 36 cohort.
+        maxParallelForks = 2
+        forkEvery = 1
+      } else {
+        maxParallelForks = 1
+      }
+      if (requestedAlias.startsWith("testRoomNative")) {
+        systemProperty(
+          "slukhayka.test.workerIdentityFile",
+          layout.buildDirectory.file("test-worker-identities.tsv").get().asFile.absolutePath,
+        )
+      }
+      filter {
+        isFailOnNoMatchingTests = true
+        selectedClasses.forEach(::includeTestsMatching)
+      }
+    }
+  }
+}
+
+tasks.register<Exec>("validateTestPartitions") {
+  group = "verification"
+  description = "Checks that every JVM test belongs to exactly one test partition."
+  workingDir(rootProject.projectDir)
+  commandLine(
+    "python3",
+    rootProject.file("scripts/test_partitions.py").absolutePath,
+    "--root",
+    rootProject.projectDir.absolutePath,
+    "validate",
+  )
+}
+
+// A coverage aggregation job downloads the partition IC files here and
+// skips testDebugUnitTest while generating reports. Local Kover use continues
+// to run the standard full test task as before.
+kover {
+  reports {
+    total {
+      providers.gradleProperty("kover.additionalBinaryReportsDir").orNull?.let { reportsDir ->
+        additionalBinaryReports.addAll(
+          fileTree(reportsDir) { include("**/*.ic") },
+        )
+      }
+    }
+  }
 }

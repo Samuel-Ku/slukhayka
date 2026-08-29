@@ -755,7 +755,7 @@ class LibraryImport(
         // Only when the guarded insert actually landed: the Works + Library
         // Entry rows are written alongside (ADR-0009), so a tombstoned Work
         // gains nothing — not even a browse-row that could resurrect it.
-        return if (dao.getAudiobookById(book.id) != null) {
+        return if (dao.hasAudiobookRow(book.id)) {
             ensureWorkAndEntry(book, book.id)
             // The JOINed projection carries the series the Works row now holds
             // (and the entry's createdAt/favorite), so callers get a fully

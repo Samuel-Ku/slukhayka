@@ -29,4 +29,6 @@
     <string name="download_action_pause">Пауза</string>
     <string name="download_action_continue">Продовжити</string>
     <string name="download_action_cancel">Скасувати</string>
+    <!-- #433 — the browser-required badge in the book page's «Джерела» block -->
+    <string name="book_detail_browser_needed">Потрібен браузер</string>
 </resources>

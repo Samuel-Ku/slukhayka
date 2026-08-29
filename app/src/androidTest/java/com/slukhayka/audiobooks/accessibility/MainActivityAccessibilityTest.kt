@@ -23,6 +23,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.printToLog
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.tryPerformAccessibilityChecks
@@ -416,6 +417,7 @@ class MainActivityAccessibilityTest {
                 .fetchSemanticsNodes()
                 .isEmpty()
         }
+        composeTestRule.onRoot(useUnmergedTree = true).printToLog("PlayerFocusAfterClose")
         composeTestRule.waitUntil(timeoutMillis = NAV_TIMEOUT_MS) {
             composeTestRule.onAllNodesWithTag("book_detail_chapter_$fixtureChapterId")
                 .fetchSemanticsNodes()

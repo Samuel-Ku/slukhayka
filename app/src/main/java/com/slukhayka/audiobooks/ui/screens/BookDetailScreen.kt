@@ -1,5 +1,6 @@
 package com.slukhayka.audiobooks.ui.screens
 
+import android.util.Log
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -129,6 +130,7 @@ fun BookDetailScreen(
         modalVisible = playerModalVisible,
         returnFocusRequester = playerReturnFocusRequester,
         onFocusRestored = {
+            Log.d("PlayerFocusTrace", "chapter restore callback id=$playerReturnFocusChapterId")
             playerReturnFocusChapterId = null
             playerReturnFocusRequester = null
         }
@@ -147,6 +149,10 @@ fun BookDetailScreen(
 
     val currentBook = book ?: return
     var initialTitleFocusPending by remember(currentBook.id) { mutableStateOf(true) }
+    DisposableEffect(currentBook.id) {
+        Log.d("PlayerFocusTrace", "book screen attached id=${currentBook.id}")
+        onDispose { Log.d("PlayerFocusTrace", "book screen disposed id=${currentBook.id}") }
+    }
     val isDownloadingThis = downloadingBookId == currentBook.id
     // ADR-0011: the other rendition cards of this Work — the «Інші начитки»
     // block. Cold flow collected once per composition; the pure filter is
@@ -736,7 +742,10 @@ fun BookDetailScreen(
                             // origin before the background focusRestorer takes
                             // its snapshot. Compose test clicks, unlike keyboard
                             // activation, do not focus the node automatically.
-                            chapterFocusRequester.requestFocus()
+                            Log.d(
+                                "PlayerFocusTrace",
+                                "chapter pre-focus id=${chapter.id} result=${chapterFocusRequester.requestFocus()}"
+                            )
                             playerReturnFocusChapterId = chapter.id
                             playerReturnFocusRequester = chapterFocusRequester
                             if (isCurrentChapter) {
@@ -2087,9 +2096,15 @@ fun BookDetailCanonicalSummary(
     val narratorFocusRequester = remember { FocusRequester() }
     val seriesFocusRequester = remember { FocusRequester() }
     LaunchedEffect(entryFocusKey, requestInitialFocus, returnFocusOrigin) {
+        Log.d(
+            "PlayerFocusTrace",
+            "title effect key=$entryFocusKey pending=$requestInitialFocus origin=$returnFocusOrigin"
+        )
         if (requestInitialFocus && returnFocusOrigin == null) {
             withFrameNanos { }
-            if (titleFocusRequester.requestFocus()) onInitialFocusHandled()
+            val focused = titleFocusRequester.requestFocus()
+            Log.d("PlayerFocusTrace", "title focus result=$focused")
+            if (focused) onInitialFocusHandled()
         }
     }
     LaunchedEffect(returnFocusOrigin) {

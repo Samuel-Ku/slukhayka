@@ -488,14 +488,24 @@ class LibraryImport(
      * nothing playable. No import door downcasts an adapter to a concrete
      * class — a future WebView-pattern source works through the same door.
      */
-    suspend fun importWebSourcePage(sourceId: String, url: String, html: String): AudiobookEntity? =
+    suspend fun importWebSourcePage(
+        sourceId: String,
+        url: String,
+        html: String,
+        capturedAudioUrls: List<String> = emptyList()
+    ): AudiobookEntity? =
         withContext(Dispatchers.IO) {
             val adapter = sourceAdapters.firstOrNull { it.sourceId == sourceId }
                 ?: return@withContext null
             try {
-                val detail = adapter.parseCapturedPage(html, url) ?: return@withContext null
+                val parsed = adapter.parseCapturedPage(html, url) ?: return@withContext null
+                val detail = parsed.withCapturedAudioUrls(capturedAudioUrls)
                 if (detail.chapters.isEmpty()) return@withContext null
-                importBookFromSource(sourceId, detail)
+                if (detail.chapters.any { !it.streamUrl.isPlayableSourceUrl() }) return@withContext null
+                // 4read captured pages stay local until Player verdict; avoid publishing challenge artefacts.
+                importBookFromSource(sourceId, detail, writeBackProfile = sourceId != "4read")
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 null
             }

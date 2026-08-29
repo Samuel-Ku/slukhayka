@@ -129,11 +129,12 @@ fun WebSourceBrowserScreen(
         }.onFailure { Log.w("WebSource", "WebView privacy-route override failed", it) }
     }
 
-    // Spec-13 T3: intercepted audio URLs of the session, in order. The adapter
-    // reads chapters from the inline playlist in the page HTML, so this is a
-    // secondary signal («Додати цю книгу» when the user already pressed the
-    // site's «Слухати») — the request-log parser collapses Range repeats.
-    var lastCapturedAudioCount by remember { mutableStateOf(0) }
+    // Spec-13 T3 / #430: ordered audio candidates observed in the session,
+    // deduplicated and tied to the current 4read page. The adapter's playlist
+    // remains primary; these are the secondary signal when the user pressed
+    // «Слухати» on the site. Range repeats are collapsed.
+    var observedAudioUrls by remember { mutableStateOf<List<String>>(emptyList()) }
+    val lastCapturedAudioCount = observedAudioUrls.size
 
     // Spec-42 #427 — source-scoped boundary: the user cannot leave the
     // source's allowlist, whether via link, address field or programmatic
@@ -161,7 +162,9 @@ fun WebSourceBrowserScreen(
      * SEC-003) and imports it. The origin check keeps the import scoped to the
      * source's own domain: a cross-origin page inside the WebView (a redirect
      * to a third-party login, an embedded player host) must never become a
-     * library card of this source.
+     * library card of this source. #430 — the whole flow is one operation:
+     * capture → parse → identity guard → Track update → Player verdict → UI
+     * outcome. `http(s)` prefix alone is never success.
      */
     fun importCurrentPage() {
         val instance = webViewInstance ?: return
@@ -173,8 +176,11 @@ fun WebSourceBrowserScreen(
             importResult = "Це не сторінка $displayName — додавання доступне лише з книг джерела"
             return
         }
+        // Snapshot the ordered audio candidates observed so far (deduplicated).
+        val audioCandidates = observedAudioUrls.toList()
         isImporting = true
         importResult = ""
+        blockedNavMessage = ""
         instance.evaluateJavascript(
             "(function(){return document.documentElement.outerHTML;})()"
         ) { raw ->
@@ -186,13 +192,47 @@ fun WebSourceBrowserScreen(
                 }
                 unescapeCapturedHtml(inner)
             } ?: ""
-            if (decoded.isNotBlank() && decoded.length > 200) {
-                viewModel.importWebSourcePage(sourceId, pageUrl, decoded)
-                importResult = "Книгу додано до медіатеки"
-            } else {
+            if (decoded.isBlank() || decoded.length < 200) {
                 importResult = "Сторінку не вдалося прочитати"
+                isImporting = false
+                return@evaluateJavascript
             }
-            isImporting = false
+            val recoveryId = viewModel.selectedWebSource.value?.recoveryBookId
+            if (recoveryId != null) {
+                // #430 — recovery: the coordinator verifies Player/media-open verdict.
+                val recoveryIdx = viewModel.selectedWebSource.value?.recoveryChapterIndex ?: 0
+                val recoveryPos = viewModel.selectedWebSource.value?.recoveryPositionMs ?: 0L
+                viewModel.recoverWebSourcePage(
+                    bookId = recoveryId,
+                    sourceId = sourceId,
+                    url = pageUrl,
+                    html = decoded,
+                    capturedAudioUrls = audioCandidates,
+                    chapterIndex = recoveryIdx,
+                    positionMs = recoveryPos
+                ) { success ->
+                    if (success) {
+                        importResult = "Книгу оновлено"
+                        // Success closes the browser and resumes the same Chapter/position; focus restores predictably.
+                        onClose()
+                    } else {
+                        // 403 / dead URL / missing audio → browser stays open with honest message.
+                        importResult = "Аудіо ще не знайдено. Відкрийте книгу та запустіть її на сайті, потім спробуйте ще раз."
+                    }
+                    isImporting = false
+                }
+            } else {
+                // New import: also through the coordinator's verified path (Chapter 0, Position 0).
+                viewModel.importWebSourcePage(sourceId, pageUrl, decoded, audioCandidates) { success ->
+                    if (success) {
+                        importResult = "Книгу додано до медіатеки"
+                        onClose()
+                    } else {
+                        importResult = "Аудіо ще не знайдено. Відкрийте книгу та запустіть її на сайті, потім спробуйте ще раз."
+                    }
+                    isImporting = false
+                }
+            }
         }
     }
 
@@ -602,6 +642,8 @@ fun WebSourceBrowserScreen(
                                 }
                                 isLoading = true
                                 hasWebError = false
+                                // #430 — new top-level page → fresh candidate set.
+                                observedAudioUrls = emptyList()
                                 url?.let {
                                     currentWebUrl = it
                                     urlInput = it
@@ -621,14 +663,14 @@ fun WebSourceBrowserScreen(
                                 if (AD_HOST_SUFFIXES.any { host == it || host.endsWith(".$it") }) {
                                     return emptyWebResponse()
                                 }
-                                // Spec-13 T3: observe audio requests for the
-                                // auto-capture hint. No state is shared with the
-                                // page (SEC-003: no JS bridge). The log line is
-                                // the session-side evidence for the S04 device
-                                // checkpoint: the player's TransferListener
-                                // then logs the response code + Referer.
+                                // Spec-13 T3 / #430: ordered audio candidates, deduplicated.
+                                // Only candidates observed while top-level origin is 4read are
+                                // eligible — range repeats are collapsed. The log line is the
+                                // session-side evidence for the S04 device checkpoint.
                                 if (looksLikeAudio(url)) {
-                                    lastCapturedAudioCount += 1
+                                    if (!observedAudioUrls.contains(url)) {
+                                        observedAudioUrls = observedAudioUrls + url
+                                    }
                                     Log.w("WebSource", "Audio request in session: $url")
                                 }
                                 return null

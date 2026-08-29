@@ -39,6 +39,8 @@ import com.slukhayka.audiobooks.data.privacy.TransportPrivacy
 import com.slukhayka.audiobooks.data.reviews.ReviewRemoteResult
 import com.slukhayka.audiobooks.data.reviews.ReviewWriteReceipt
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
+import com.slukhayka.audiobooks.data.source.HttpFetcher
+import com.slukhayka.audiobooks.data.source.headersFor
 import com.slukhayka.audiobooks.player.AudioPlayerManager
 import com.slukhayka.audiobooks.player.PlayerState
 import com.slukhayka.audiobooks.ui.library.OutcomeMessages
@@ -78,11 +80,14 @@ data class SelectedSeries(
     val url: String
 )
 
-/** A WebView-pattern source's browser surface (spec-13 T3). */
+/** A WebView-pattern source's browser surface (spec-13 T3 / spec-42 #425). */
 data class SelectedWebSource(
     val sourceId: String,
     val homeUrl: String,
-    val displayName: String
+    val displayName: String,
+    val recoveryBookId: String? = null,
+    val recoveryChapterIndex: Int? = null,
+    val recoveryPositionMs: Long = 0L
 )
 
 /** A genre (category) opened from the Explore "Жанри" chips row. */
@@ -449,17 +454,125 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * HTML captured in the session is imported through the adapter (metadata +
      * inline playlist) and plays through the app player.
      */
-    fun importWebSourcePage(sourceId: String, url: String, html: String) {
+    fun importWebSourcePage(
+        sourceId: String,
+        url: String,
+        html: String,
+        capturedAudioUrls: List<String> = emptyList(),
+        onComplete: (Boolean) -> Unit = {}
+    ) {
         viewModelScope.launch(Dispatchers.IO) {
             val book = try {
-                libraryImport.importWebSourcePage(sourceId, url, html)
+                libraryImport.importWebSourcePage(sourceId, url, html, capturedAudioUrls)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 null
             }
+            withContext(Dispatchers.Main) { onComplete(book != null) }
             if (book != null) {
                 probeDurationsAfterImport(book.id)
                 playAudiobook(book)
                 _showFullPlayer.value = true
+            }
+        }
+    }
+
+    /** Opens 4read's in-app browser as an explicit user action — “Відкрити браузер”. */
+    fun open4ReadBrowser() {
+        _selectedWebSource.value = SelectedWebSource(
+            sourceId = "4read",
+            homeUrl = "https://4read.org/",
+            displayName = "4read"
+        )
+    }
+
+    /** Opens 4read search with prefilled Work title — “Знайти на 4read”. */
+    fun open4ReadSearch(workTitle: String) {
+        val encoded = java.net.URLEncoder.encode(workTitle.trim(), "UTF-8")
+        val searchUrl = "https://4read.org/index.php?do=search&subaction=search&story=$encoded"
+        _selectedWebSource.value = SelectedWebSource(
+            sourceId = "4read",
+            homeUrl = searchUrl,
+            displayName = "4read"
+        )
+    }
+
+    /** Opens 4read's in-app browser as an explicit recovery action — “Оновити через браузер”. */
+    fun open4ReadRecovery(bookId: String, chapterIndex: Int, positionMs: Long) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val book = libraryEntries.getBookSync(bookId)
+            val sourceUrl = try {
+                com.slukhayka.audiobooks.data.imports.BrowserRecoveryCoordinator.recoveryEntryUrl(
+                    App.instance.audiobookDao,
+                    bookId
+                )
+            } catch (_: Exception) {
+                book?.sourceUrl?.takeIf { it.contains("4read.org") } ?: "https://4read.org/"
+            }
+            withContext(Dispatchers.Main) {
+                _selectedWebSource.value = SelectedWebSource(
+                    sourceId = "4read",
+                    homeUrl = sourceUrl,
+                    displayName = "4read",
+                    recoveryBookId = bookId,
+                    recoveryChapterIndex = chapterIndex,
+                    recoveryPositionMs = positionMs
+                )
+            }
+        }
+    }
+
+    fun recoverWebSourcePage(
+        bookId: String,
+        sourceId: String,
+        url: String,
+        html: String,
+        capturedAudioUrls: List<String> = emptyList(),
+        chapterIndex: Int,
+        positionMs: Long,
+        onComplete: (Boolean) -> Unit = {}
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val coordinator = com.slukhayka.audiobooks.data.imports.BrowserRecoveryCoordinator(
+                dao = App.instance.audiobookDao,
+                libraryImport = libraryImport,
+                profileStore = null,
+                playbackVerifier = com.slukhayka.audiobooks.data.imports.BrowserRecoveryCoordinator.PlaybackVerifier { _, trackUrl ->
+                    val fetcher = HttpFetcher()
+                    val len = try { fetcher.headContentLength(trackUrl, headersFor(sourceId, trackUrl)) } catch (_: Exception) { null }
+                    len != null
+                },
+                cleanProbe = com.slukhayka.audiobooks.data.imports.BrowserRecoveryCoordinator.CleanProbe { false }
+            )
+            val outcome = try {
+                coordinator.recover(bookId, sourceId, url, html, capturedAudioUrls, chapterIndex, positionMs)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                null
+            }
+            withContext(Dispatchers.Main) {
+                when (outcome) {
+                    is com.slukhayka.audiobooks.data.imports.BrowserRecoveryCoordinator.Outcome.Success -> {
+                        val playable = sourceCatalog.getPlayableChapters(outcome.book.id)
+                        val ch = playable.getOrNull(outcome.resumeChapterIndex)
+                        if (ch?.track?.url?.startsWith("http", ignoreCase = true) == true) {
+                            playerManager.loadAndPlayBook(
+                                book = outcome.book,
+                                chapters = playable.map { it.chapter },
+                                playable = playable,
+                                initialChapterIndex = outcome.resumeChapterIndex,
+                                initialPositionSeconds = outcome.resumePositionMs / 1000L,
+                                autoPlay = true
+                            )
+                            _showFullPlayer.value = true
+                        }
+                        onComplete(true)
+                    }
+                    is com.slukhayka.audiobooks.data.imports.BrowserRecoveryCoordinator.Outcome.Failure -> onComplete(false)
+                    null -> onComplete(false)
+                }
             }
         }
     }

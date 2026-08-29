@@ -345,6 +345,9 @@ fun PlayerScreen(
                     autoPlay = true
                 )
             },
+            onOpenBrowserRecovery = if (book.sourceUrl.contains("4read.org")) {
+                { viewModel.open4ReadRecovery(book.id, playerState.currentChapterIndex, playerState.currentPositionMs) }
+            } else null,
             activeTool = activeTool,
             castReady = castReady,
             lastBookmarkTarget = lastBookmarkTarget,
@@ -497,6 +500,7 @@ fun PlayerScreenContent(
     onBookmark: () -> Unit,
     onChapters: () -> Unit,
     onRetryPlayback: () -> Unit,
+    onOpenBrowserRecovery: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
     activeTool: PlayerQuickTool? = null,
     castReady: Boolean = false,
@@ -732,7 +736,8 @@ fun PlayerScreenContent(
                         // Issue #381: типізована категорія замість substring-
                         // матчу «недоступна» у тексті помилки.
                         kind = playerState.errorKind,
-                        onRetryPlayback = onRetryPlayback
+                        onRetryPlayback = onRetryPlayback,
+                        onOpenBrowserRecovery = onOpenBrowserRecovery
                     )
                 } else if (playerState.isBuffering) {
                     // Issue #381 (a11y/UX-аудит v1.3.6): під час резолюції
@@ -1380,7 +1385,8 @@ private fun PlayerPlaybackError(
     // Issue #381: типізована категорія помилки — замінює substring-матч
     // detail.contains(«недоступна»), який ламався від зміни формулювання.
     kind: PlaybackErrorKind,
-    onRetryPlayback: () -> Unit
+    onRetryPlayback: () -> Unit,
+    onOpenBrowserRecovery: (() -> Unit)? = null
 ) {
     val errorTitle = stringResource(R.string.a11y_player_error_title)
     val retryLabel = stringResource(R.string.a11y_player_retry, bookTitle)
@@ -1420,6 +1426,18 @@ private fun PlayerPlaybackError(
                     }
             ) {
                 Text(retryLabel, modifier = Modifier.clearAndSetSemantics { })
+            }
+            if (onOpenBrowserRecovery != null) {
+                OutlinedButton(
+                    onClick = onOpenBrowserRecovery,
+                    modifier = Modifier
+                        .heightIn(min = AppDimens.TouchTarget)
+                        .semantics {
+                            contentDescription = "Оновити 4read через браузер для $bookTitle"
+                        }
+                ) {
+                    Text("Оновити через браузер", modifier = Modifier.clearAndSetSemantics { })
+                }
             }
         }
     }

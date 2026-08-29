@@ -2,11 +2,16 @@ package com.slukhayka.audiobooks.data.metadata
 
 import android.content.Context
 import android.os.Looper
+import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.google.android.gms.tasks.Task
 import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseOptions
 import com.google.firebase.firestore.FirebaseFirestore
+import com.slukhayka.audiobooks.data.db.AudiobookDatabase
+import com.slukhayka.audiobooks.data.facets.FacetDeltaSync
+import com.slukhayka.audiobooks.data.facets.InMemoryFacetSyncCursorStore
+import com.slukhayka.audiobooks.data.facets.RoomLocalFacetWriter
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
@@ -150,6 +155,54 @@ class FirestoreBookMetaStoreEmulatorTest {
                     listOf(updatedWork, edition),
                     store.getFacetPage(FacetCursor(now - 1L, "a"), 10).assertions
                 )
+            }
+        }
+    }
+
+    @Test
+    fun `real ordered facet page commits through Room before advancing cursor`() {
+        runWithMainLooperDrain {
+            runBlocking {
+                val context = ApplicationProvider.getApplicationContext<Context>()
+                val db = Room.inMemoryDatabaseBuilder(context, AudiobookDatabase::class.java)
+                    .allowMainThreadQueries()
+                    .build()
+                try {
+                    val store = FirestoreBookMetaStore(firestore)
+                    val stamp = System.currentTimeMillis()
+                    val workId = "emulator-sync-work-$stamp"
+                    val genreId = "science-fiction"
+                    store.putFacet(
+                        FacetAssertion.Work(
+                            workId = workId,
+                            sourceId = "emulator-sync",
+                            genres = listOf(FacetGenre(genreId, "Наукова фантастика")),
+                            observedAt = stamp,
+                            updatedAt = stamp
+                        )
+                    )
+                    val cursorStore = InMemoryFacetSyncCursorStore(
+                        FacetCursor(stamp, "a")
+                    )
+
+                    val result = FacetDeltaSync(
+                        store,
+                        RoomLocalFacetWriter(db.audiobookDao()),
+                        cursorStore
+                    ) { stamp + 1 }.syncAvailablePages(pageSize = 10, maxPages = 2)
+
+                    assertEquals(1, result.assertionsApplied)
+                    db.openHelper.writableDatabase.query(
+                        "SELECT genreId, sourceId FROM work_genres WHERE workId='$workId'"
+                    ).use { row ->
+                        assertEquals(true, row.moveToFirst())
+                        assertEquals(genreId, row.getString(0))
+                        assertEquals("emulator-sync", row.getString(1))
+                    }
+                    assertEquals(stamp, cursorStore.load()?.updatedAt)
+                } finally {
+                    db.close()
+                }
             }
         }
     }

@@ -266,6 +266,11 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
+      - name: Enable KVM access
+        run: |
+          test -e /dev/kvm
+          sudo chmod 0666 /dev/kvm
+
       - name: Prebuild accessibility APKs
         run: ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon --max-workers=1 --stacktrace
 

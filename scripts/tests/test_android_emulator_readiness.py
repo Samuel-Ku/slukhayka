@@ -104,10 +104,13 @@ class AndroidEmulatorReadinessTest(unittest.TestCase):
 
     def test_workflow_builds_apks_before_starting_the_emulator(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
+        kvm = workflow.index("Enable KVM access")
         prebuild = workflow.index("Prebuild accessibility APKs")
         emulator = workflow.index("reactivecircus/android-emulator-runner@v2")
 
+        self.assertLess(kvm, emulator)
         self.assertLess(prebuild, emulator)
+        self.assertIn('sudo chmod 0666 /dev/kvm', workflow)
         self.assertIn(":app:assembleDebug :app:assembleDebugAndroidTest", workflow)
         self.assertIn("scripts/wait-for-android-package-service.sh", workflow)
         self.assertIn("target: google_atd", workflow)

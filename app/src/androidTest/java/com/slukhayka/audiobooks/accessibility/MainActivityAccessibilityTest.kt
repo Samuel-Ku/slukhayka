@@ -25,6 +25,7 @@ import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.test.printToLog
 import androidx.compose.ui.test.tryPerformAccessibilityChecks
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModelProvider
@@ -416,12 +417,18 @@ class MainActivityAccessibilityTest {
                 .fetchSemanticsNodes()
                 .isEmpty()
         }
-        composeTestRule.waitUntil(timeoutMillis = NAV_TIMEOUT_MS) {
-            composeTestRule.onAllNodesWithTag("book_detail_chapter_$fixtureChapterId")
-                .fetchSemanticsNodes()
-                .singleOrNull()
-                ?.config
-                ?.getOrNull(SemanticsProperties.Focused) == true
+        try {
+            composeTestRule.waitUntil(timeoutMillis = NAV_TIMEOUT_MS) {
+                composeTestRule.onAllNodesWithTag("book_detail_chapter_$fixtureChapterId")
+                    .fetchSemanticsNodes()
+                    .singleOrNull()
+                    ?.config
+                    ?.getOrNull(SemanticsProperties.Focused) == true
+            }
+        } catch (failure: Throwable) {
+            composeTestRule.onRoot(useUnmergedTree = true)
+                .printToLog("PlayerFocusAfterClose")
+            throw failure
         }
         composeTestRule.onNodeWithTag("book_detail_chapter_$fixtureChapterId")
             .assertIsFocused()

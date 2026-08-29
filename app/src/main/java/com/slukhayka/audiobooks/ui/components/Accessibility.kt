@@ -43,12 +43,15 @@ fun Modifier.accessibilityPane(title: String): Modifier =
  * Returns focus to the control that opened a modal after that modal has left
  * composition. An initially closed modal is deliberately a no-op: focus only
  * moves after this owner has observed one visible-to-closed transition.
+ * [settleFrames] lets animated owners finish removing their focused subtree
+ * before the return request; non-animated owners keep the one-frame default.
  */
 @Composable
 fun RestoreFocusAfterModal(
     modalVisible: Boolean,
     returnFocusRequester: FocusRequester?,
     fallbackFocusRequester: FocusRequester? = null,
+    settleFrames: Int = 1,
     onFocusRestored: () -> Unit = {}
 ) {
     var modalWasVisible by remember { mutableStateOf(false) }
@@ -59,7 +62,7 @@ fun RestoreFocusAfterModal(
             if (returnFocusRequester == null) {
                 modalWasVisible = false
             } else {
-                withFrameNanos { }
+                repeat(settleFrames.coerceAtLeast(1)) { withFrameNanos { } }
                 val restoredToOrigin = runCatching {
                     returnFocusRequester.requestFocus()
                 }.getOrDefault(false) || run {

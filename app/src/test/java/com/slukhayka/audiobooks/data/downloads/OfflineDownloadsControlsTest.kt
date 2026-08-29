@@ -302,4 +302,58 @@ class OfflineDownloadsControlsTest {
         val book = books.firstOrNull { it.id == h.bookId }
         assertEquals(DownloadState.PAUSED, book?.downloadState)
     }
+
+    // =====================================================================
+    // REGRESSION: removeOfflineDownload resets state and keeps the book
+    // =====================================================================
+
+    /**
+     * #394 regression — after a completed download, calling removeOfflineDownload
+     * must delete files, reset downloadState to IDLE, and keep the book in the library.
+     */
+    @Test
+    fun `removeOfflineDownload after completed download resets state to IDLE and keeps book`() = runBlocking {
+        val h = setupHarness(numChapters = 2)
+        val file0 = File(h.audioDir, "ch-0.mp3")
+        val file1 = File(h.audioDir, "ch-1.mp3")
+        file0.writeBytes(ByteArray(1024))
+        file1.writeBytes(ByteArray(2048))
+        dao.updateTrackDownloadState("tr-0", true, file0.absolutePath)
+        dao.updateTrackDownloadState("tr-1", true, file1.absolutePath)
+        dao.updateDownloadStateWithState(h.bookId, true, 1.0f, DownloadState.IDLE)
+
+        h.downloads.removeOfflineDownload(h.bookId)
+
+        assertFalse("File 0 should be deleted", file0.exists())
+        assertFalse("File 1 should be deleted", file1.exists())
+        val entry = dao.getAudiobookById(h.bookId)
+        assertEquals("downloadState must be IDLE", DownloadState.IDLE, entry?.downloadState)
+        assertEquals(0f, entry?.downloadProgress ?: -1f)
+        val book = dao.getAllAudiobooksOnce().firstOrNull { it.id == h.bookId }
+        assertTrue("Book must remain in the library", book != null)
+    }
+
+    /**
+     * #394 regression — after a PAUSED download, calling removeOfflineDownload
+     * must delete partial files, reset downloadState to IDLE, and keep the book.
+     * Before this fix, PAUSED stayed stuck even after files were deleted.
+     */
+    @Test
+    fun `removeOfflineDownload after paused download resets state to IDLE and keeps book`() = runBlocking {
+        val h = setupHarness(numChapters = 3)
+        // Chapter 0 was completed before pause; chapters 1-2 were not.
+        val file0 = File(h.audioDir, "ch-0.mp3")
+        file0.writeBytes(ByteArray(1024))
+        dao.updateTrackDownloadState("tr-0", true, file0.absolutePath)
+        dao.updateDownloadStateWithState(h.bookId, false, 0.33f, DownloadState.PAUSED)
+
+        h.downloads.removeOfflineDownload(h.bookId)
+
+        assertFalse("Partial file should be deleted", file0.exists())
+        val entry = dao.getAudiobookById(h.bookId)
+        assertEquals("downloadState must be IDLE after deleting PAUSED copy", DownloadState.IDLE, entry?.downloadState)
+        assertEquals(0f, entry?.downloadProgress ?: -1f)
+        val book = dao.getAllAudiobooksOnce().firstOrNull { it.id == h.bookId }
+        assertTrue("Book must remain in the library", book != null)
+    }
 }

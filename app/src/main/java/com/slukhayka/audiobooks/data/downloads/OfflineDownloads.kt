@@ -681,7 +681,10 @@ class OfflineDownloads(
         // otherwise a later re-import of the same files would be skipped as
         // "duplicate" and the book would stay unplayable (wayfinder #48+#50).
         dao.clearTrackContentHashesForBook(bookId)
-        dao.updateDownloadState(bookId, isDownloaded = false, progress = 0f)
+        // #394: use updateDownloadStateWithState to also reset downloadState
+        // to IDLE. Without this, a PAUSED download that gets its files
+        // removed would stay stuck in PAUSED state with no files on disk.
+        dao.updateDownloadStateWithState(bookId, isDownloaded = false, progress = 0f, state = DownloadState.IDLE)
     }
 
     fun getAudioCacheSizeBytes(): Long {

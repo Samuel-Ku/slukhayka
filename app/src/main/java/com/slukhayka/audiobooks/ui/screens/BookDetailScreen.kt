@@ -6,6 +6,9 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -19,6 +22,7 @@ import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -50,9 +54,13 @@ import com.slukhayka.audiobooks.data.catalog.CatalogPerson
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.BookmarkEntity
 import com.slukhayka.audiobooks.data.db.ChapterEntity
+import com.slukhayka.audiobooks.data.db.PersonBookmarkKey
+import com.slukhayka.audiobooks.data.db.DownloadState
+import com.slukhayka.audiobooks.data.db.PersonRole
 import com.slukhayka.audiobooks.data.downloads.OfflineDownloads
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
 import com.slukhayka.audiobooks.data.listening.ListeningStateStore
+import com.slukhayka.audiobooks.data.personbookmarks.PersonBookmarks
 import com.slukhayka.audiobooks.data.source.sourceDisplayName
 import com.slukhayka.audiobooks.data.source.sourceIdForUrl
 import com.slukhayka.audiobooks.data.source.streamOnlyFor
@@ -92,6 +100,7 @@ fun BookDetailScreen(
     // ADR-0011: the screen reads the other rendition cards of the same Work
     // (the «Інші начитки» block) straight from the module.
     libraryEntries: LibraryEntries,
+    personBookmarks: PersonBookmarks,
     onBackClick: () -> Unit,
     playerModalVisible: Boolean = false,
     returnFocusOrigin: BookDetailLinkOrigin? = null,
@@ -121,6 +130,9 @@ fun BookDetailScreen(
     var activeTab by remember { mutableStateOf(0) } // 0 = Chapters, 1 = Bookmarks
     var showAddBookmarkDialog by remember { mutableStateOf(false) }
     var showDeleteSheet by remember { mutableStateOf(false) }
+    // #382 (spec-27): видалення переїхало в ⋮ меню шапки — тригер сам по собі
+    // не запускає видалення, лише відкриває список рідкісних дій.
+    var showOverflowMenu by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
     var bookmarkToDelete by remember { mutableStateOf<BookmarkEntity?>(null) }
     var bookmarkDeleteOrigin by remember { mutableStateOf<FocusRequester?>(null) }
@@ -152,6 +164,17 @@ fun BookDetailScreen(
     val currentBook = book ?: return
     var initialTitleFocusPending by remember(currentBook.id) { mutableStateOf(true) }
     val isDownloadingThis = downloadingBookId == currentBook.id
+    // #392 — estimated size and live download progress
+    var estimatedSize by remember(currentBook.id) {
+        mutableStateOf<OfflineDownloads.EstimatedSize?>(null)
+    }
+    LaunchedEffect(currentBook.id) {
+        if (!currentBook.isDownloaded && !isDownloadingThis) {
+            estimatedSize = try { offlineDownloads.estimateOfflineSize(currentBook.id) } catch (_: Exception) { null }
+        }
+    }
+    val downloadBytesMap by offlineDownloads.downloadBytesProgress.collectAsState()
+    val bytesProgress = downloadBytesMap[currentBook.id]
     // ADR-0011: the other rendition cards of this Work — the «Інші начитки»
     // block. Cold flow collected once per composition; the pure filter is
     // JVM-tested (siblingNarrations).
@@ -175,6 +198,27 @@ fun BookDetailScreen(
     // ADR-0008: suspend module calls from user actions run on the composition
     // scope (same pattern as playerManager's call-through).
     val scope = rememberCoroutineScope()
+
+    val authorIdentity = remember(currentBook.author) {
+        currentBook.author.takeIf { it.isNotBlank() }
+            ?.let { personBookmarks.identity(PersonRole.AUTHOR, it) }
+    }
+    val narratorIdentity = remember(currentBook.narrator) {
+        currentBook.narrator.takeIf { it.isNotBlank() }
+            ?.let { personBookmarks.identity(PersonRole.NARRATOR, it) }
+    }
+    val authorBookmarkFlow = remember(authorIdentity) {
+        authorIdentity?.let {
+            personBookmarks.observePersonBookmark(it.role.storageValue, it.id)
+        } ?: flowOf(null)
+    }
+    val narratorBookmarkFlow = remember(narratorIdentity) {
+        narratorIdentity?.let {
+            personBookmarks.observePersonBookmark(it.role.storageValue, it.id)
+        } ?: flowOf(null)
+    }
+    val authorBookmark by authorBookmarkFlow.collectAsState(initial = null)
+    val narratorBookmark by narratorBookmarkFlow.collectAsState(initial = null)
 
     // Spec-40 #277 — reviews anchor to the WORK (shared across narrations);
     // a row without a Works identity anchors to itself.
@@ -519,24 +563,96 @@ fun BookDetailScreen(
                             }
                         }
                     }
-                    // Wayfinder #28: deletion is a choice — remove from library,
-                    // delete the downloaded copy, or delete everything.
-                    IconButton(
-                        onClick = {
-                            showDeleteSheet = true
-                        },
-                        modifier = Modifier
-                            .focusRequester(deleteTriggerFocusRequester)
-                            .testTag("book_detail_delete_trigger")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Delete,
-                            contentDescription = stringResource(
-                                R.string.a11y_book_detail_delete_work,
-                                currentBook.title
-                            ),
-                            tint = MaterialTheme.colorScheme.error
+                    // #392 — size display below download button
+                    if (!streamOnly && !currentBook.isDownloaded && !isDownloadingThis) {
+                        val sizeText = when {
+                            bytesProgress != null -> {
+                                val dl = bytesProgress!!.downloadedBytes / (1024 * 1024)
+                                val tot = bytesProgress!!.totalBytes?.let { it / (1024 * 1024) } ?: 0L
+                                val pct = if (tot > 0) (dl * 100 / tot).toInt() else 0
+                                stringResource(
+                                    R.string.book_detail_download_progress,
+                                    bytesProgress!!.completedChapters,
+                                    bytesProgress!!.totalChapters,
+                                    dl,
+                                    tot,
+                                    pct
+                                )
+                            }
+                            estimatedSize != null -> {
+                                val es = estimatedSize!!
+                                val mb = es.totalBytes?.let { it / (1024 * 1024) }
+                                if (mb != null && mb > 0) {
+                                    if (es.isApproximate) stringResource(R.string.book_detail_size_approximate, mb)
+                                    else stringResource(R.string.book_detail_size_format, mb)
+                                } else stringResource(R.string.book_detail_size_unknown)
+                            }
+                            else -> stringResource(R.string.book_detail_size_unknown)
+                        }
+                        Text(
+                            text = sizeText,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(start = 4.dp)
                         )
+                    } else if (!streamOnly && isDownloadingThis && bytesProgress != null) {
+                        val bp = bytesProgress!!
+                        val dl = bp.downloadedBytes / (1024 * 1024)
+                        val tot = bp.totalBytes?.let { it / (1024 * 1024) } ?: 0L
+                        val pct = if (tot > 0) (dl * 100 / tot).toInt() else 0
+                        Text(
+                            text = stringResource(
+                                R.string.book_detail_download_progress,
+                                bp.completedChapters,
+                                bp.totalChapters,
+                                dl,
+                                tot,
+                                pct
+                            ),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(start = 4.dp)
+                        )
+                    }
+                    // #382 (spec-27): deletion is a rare action — it lives in
+                    // the ⋮ overflow, not next to Favorite/Download. The
+                    // confirmation flow (Wayfinder #28 sheet) is untouched:
+                    // only the entry point moved.
+                    Box {
+                        IconButton(
+                            onClick = { showOverflowMenu = true },
+                            modifier = Modifier
+                                .size(AppDimens.TouchTarget)
+                                // Фокус повертається сюди ж: ⋮ — нова точка входу
+                                // видалення, контракт модалок не змінювався.
+                                .focusRequester(deleteTriggerFocusRequester)
+                                .testTag("book_detail_delete_trigger")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.MoreVert,
+                                contentDescription = "Інші дії",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = showOverflowMenu,
+                            onDismissRequest = { showOverflowMenu = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.a11y_book_detail_delete_work, currentBook.title)) },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Default.Delete,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.error
+                                    )
+                                },
+                                onClick = {
+                                    showOverflowMenu = false
+                                    showDeleteSheet = true
+                                }
+                            )
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
@@ -599,16 +715,64 @@ fun BookDetailScreen(
                         narrationRatingDeleteFocusRequester = narrationRatingDeleteFocusRequester,
                         onAuthorClick = { author ->
                             viewModel.openPersonBooks(
-                                CatalogPerson(author, bookPersonPath("avtor", author), 0)
+                                CatalogPerson(
+                                    author,
+                                    bookPersonPath("avtor", author),
+                                    0,
+                                    PersonRole.AUTHOR
+                                )
                             )
                         },
                         onNarratorClick = { narrator ->
                             viewModel.openPersonBooks(
-                                CatalogPerson(narrator, bookPersonPath("chitaet", narrator), 0)
+                                CatalogPerson(
+                                    narrator,
+                                    bookPersonPath("chitaet", narrator),
+                                    0,
+                                    PersonRole.NARRATOR
+                                )
                             )
                         },
                         onSeriesClick = { title, url -> viewModel.openSeries(title, url) },
-                        onWrongUniverse = { viewModel.reportWrongUniverse(currentBook.id) }
+                        onWrongUniverse = { viewModel.reportWrongUniverse(currentBook.id) },
+                        authorBookmark = PersonBookmarkControl(
+                            isBookmarked = authorBookmark != null,
+                            notifyEnabled = authorBookmark?.notifyEnabled ?: true,
+                            onToggle = {
+                                authorIdentity?.let { identity ->
+                                    scope.launch { personBookmarks.toggle(identity) }
+                                }
+                            },
+                            onToggleNotify = { enabled ->
+                                authorIdentity?.let { identity ->
+                                    scope.launch {
+                                        personBookmarks.setNotifyEnabled(
+                                            PersonBookmarkKey(identity.role, identity.id),
+                                            enabled
+                                        )
+                                    }
+                                }
+                            }
+                        ),
+                        narratorBookmark = PersonBookmarkControl(
+                            isBookmarked = narratorBookmark != null,
+                            notifyEnabled = narratorBookmark?.notifyEnabled ?: true,
+                            onToggle = {
+                                narratorIdentity?.let { identity ->
+                                    scope.launch { personBookmarks.toggle(identity) }
+                                }
+                            },
+                            onToggleNotify = { enabled ->
+                                narratorIdentity?.let { identity ->
+                                    scope.launch {
+                                        personBookmarks.setNotifyEnabled(
+                                            PersonBookmarkKey(identity.role, identity.id),
+                                            enabled
+                                        )
+                                    }
+                                }
+                            }
+                        )
                     )
 
                     Spacer(modifier = Modifier.height(16.dp))
@@ -1065,7 +1229,7 @@ fun BookDetailScreen(
     // focus on the exact launcher across sheet -> confirmation transitions.
     BookDeleteModalLifecycle(
         workTitle = currentBook.title,
-        isDownloaded = currentBook.isDownloaded,
+        isDownloaded = currentBook.isDownloaded || currentBook.downloadState == DownloadState.PAUSED,
         showOptions = showDeleteSheet,
         showConfirmation = showDeleteDialog,
         returnFocusRequester = deleteTriggerFocusRequester,
@@ -1121,9 +1285,14 @@ fun BookDetailScreen(
 
 internal fun reviewFailureNeedsSnackbar(formVisible: Boolean): Boolean = !formVisible
 
+// #382: найдовший реальний лейбл кнопки — «Продовжити з HH:MM:SS»; такі лейбли
+// не влазять в один рядок дій без розриву посередині слова («Продовж/ити»).
+private const val PLAY_LABEL_ROW_LIMIT = 12
+
 /**
  * Primary book actions reflow into a vertical stack at accessibility font
- * scale. The visible and semantic controls are the same in both layouts;
+ * scale or when the play label alone is too long for one row (#382). The
+ * visible and semantic controls are the same in both layouts;
  * nothing is hidden behind a TalkBack-only branch.
  */
 @Composable
@@ -1161,7 +1330,12 @@ fun BookDetailPrimaryActions(
     val bookmarkAction = stringResource(R.string.book_detail_add_bookmark, workTitle)
 
     BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
-        val stackActions = fontScale >= 1.5f || maxWidth < 340.dp
+        // #382: довгий лейбл сам по собі привід складати дії вертикально —
+        // у рядку «Продовжити з HH:MM:SS» слову бракує місця навіть із
+        // обтягнутим contentPadding. Короткі («Слухати», «Пауза») далі живуть
+        // в одному рядку.
+        val playLabelIsLong = playLabel.length > PLAY_LABEL_ROW_LIMIT
+        val stackActions = fontScale >= 1.5f || playLabelIsLong || maxWidth < 340.dp
         if (stackActions) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 BookDetailPlayButton(
@@ -1228,7 +1402,12 @@ private fun BookDetailPlayButton(
         onClick = onClick,
         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
         shape = RoundedCornerShape(AppDimens.RadiusPanel),
+        // #382: дефолтні 24dp по горизонталі плюс іконка з'їдали ширину слова
+        // «Продовжити»; паддінг однаковий з download-кнопкою, підлога ширини
+        // тримає найдовший лейбл на вузьких панелях.
+        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
         modifier = modifier
+            .widthIn(min = 150.dp)
             .heightIn(min = 50.dp)
             .testTag("play_book_button")
             .semantics { contentDescription = actionDescription }
@@ -1272,7 +1451,8 @@ private fun BookDetailDownloadButton(
             contentColor = if (isDownloaded) MaterialTheme.colorScheme.secondary
             else MaterialTheme.colorScheme.onSurface
         ),
-        contentPadding = PaddingValues(horizontal = 10.dp),
+        // #382: спільний паддінг із play-кнопкою — жодних per-button налаштувань.
+        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
         modifier = modifier
             .heightIn(min = 50.dp)
             .testTag("download_offline_button")
@@ -2007,7 +2187,9 @@ fun BookDetailIdentityHeader(
     onInitialFocusHandled: () -> Unit = {},
     returnFocusOrigin: BookDetailLinkOrigin? = null,
     onChildRouteOpened: (BookDetailLinkOrigin) -> Unit = {},
-    onReturnFocusRestored: (BookDetailLinkOrigin) -> Unit = {}
+    onReturnFocusRestored: (BookDetailLinkOrigin) -> Unit = {},
+    authorBookmark: PersonBookmarkControl = PersonBookmarkControl(),
+    narratorBookmark: PersonBookmarkControl = PersonBookmarkControl()
 ) {
     Card(
         modifier = Modifier
@@ -2050,7 +2232,9 @@ fun BookDetailIdentityHeader(
         onInitialFocusHandled = onInitialFocusHandled,
         returnFocusOrigin = returnFocusOrigin,
         onChildRouteOpened = onChildRouteOpened,
-        onReturnFocusRestored = onReturnFocusRestored
+        onReturnFocusRestored = onReturnFocusRestored,
+        authorBookmark = authorBookmark,
+        narratorBookmark = narratorBookmark
     )
 }
 
@@ -2060,6 +2244,13 @@ enum class BookDetailLinkOrigin {
     NARRATOR,
     SERIES
 }
+
+data class PersonBookmarkControl(
+    val isBookmarked: Boolean = false,
+    val notifyEnabled: Boolean = true,
+    val onToggle: () -> Unit = {},
+    val onToggleNotify: (Boolean) -> Unit = {}
+)
 
 /** The production Work/Edition summary consumed by both the page and snapshots. */
 @OptIn(ExperimentalLayoutApi::class)
@@ -2083,7 +2274,9 @@ fun BookDetailCanonicalSummary(
     onInitialFocusHandled: () -> Unit = {},
     returnFocusOrigin: BookDetailLinkOrigin? = null,
     onChildRouteOpened: (BookDetailLinkOrigin) -> Unit = {},
-    onReturnFocusRestored: (BookDetailLinkOrigin) -> Unit = {}
+    onReturnFocusRestored: (BookDetailLinkOrigin) -> Unit = {},
+    authorBookmark: PersonBookmarkControl = PersonBookmarkControl(),
+    narratorBookmark: PersonBookmarkControl = PersonBookmarkControl()
 ) {
     val currentEditionState = stringResource(R.string.book_detail_current_edition)
     val titleFocusRequester = remember(entryFocusKey) { FocusRequester() }
@@ -2122,39 +2315,71 @@ fun BookDetailCanonicalSummary(
     )
     Spacer(modifier = Modifier.height(4.dp))
     if (presentation.author.isNotBlank()) {
-        Text(
-            text = "Автор: ${presentation.author}",
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier
-                .testTag("book_detail_author_link")
-                .focusRequester(authorFocusRequester)
-                .defaultMinSize(minHeight = 48.dp)
-                .clickable {
-                    onChildRouteOpened(BookDetailLinkOrigin.AUTHOR)
-                    onAuthorClick(presentation.author)
-                }
-        )
-    }
-    if (presentation.narrator.isNotBlank()) {
-        Text(
-            text = "Озвучує: ${presentation.narrator}",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .fillMaxWidth()
-                .focusRequester(narratorFocusRequester)
-                .defaultMinSize(minHeight = 48.dp)
-                .clickable {
-                    onChildRouteOpened(BookDetailLinkOrigin.NARRATOR)
-                    onNarratorClick(presentation.narrator)
-                }
-                .semantics { stateDescription = currentEditionState }
-                .testTag("book_detail_narrator_link"),
-            textAlign = TextAlign.Center
-        )
+                .defaultMinSize(minHeight = 48.dp),
+            horizontalArrangement = Arrangement.Center
+        ) {
+            Text(
+                text = "Автор: ${presentation.author}",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.primary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .testTag("book_detail_author_link")
+                    .defaultMinSize(minHeight = 48.dp)
+                    .focusRequester(authorFocusRequester)
+                    .clickable {
+                        onChildRouteOpened(BookDetailLinkOrigin.AUTHOR)
+                        onAuthorClick(presentation.author)
+                    }
+            )
+            PersonBookmarkButton(
+                isBookmarked = authorBookmark.isBookmarked,
+                notifyEnabled = authorBookmark.notifyEnabled,
+                personName = presentation.author,
+                onToggle = authorBookmark.onToggle,
+                onToggleNotify = authorBookmark.onToggleNotify,
+                modifier = Modifier.padding(start = 4.dp)
+            )
+        }
+    }
+    if (presentation.narrator.isNotBlank()) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .defaultMinSize(minHeight = 48.dp),
+            horizontalArrangement = Arrangement.Center
+        ) {
+            Text(
+                text = "Озвучує: ${presentation.narrator}",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .defaultMinSize(minHeight = 48.dp)
+                    .focusRequester(narratorFocusRequester)
+                    .clickable {
+                        onChildRouteOpened(BookDetailLinkOrigin.NARRATOR)
+                        onNarratorClick(presentation.narrator)
+                    }
+                    .semantics { stateDescription = currentEditionState }
+                    .testTag("book_detail_narrator_link")
+            )
+            PersonBookmarkButton(
+                isBookmarked = narratorBookmark.isBookmarked,
+                notifyEnabled = narratorBookmark.notifyEnabled,
+                personName = presentation.narrator,
+                onToggle = narratorBookmark.onToggle,
+                onToggleNotify = narratorBookmark.onToggleNotify,
+                modifier = Modifier.padding(start = 4.dp)
+            )
+        }
     }
     // ADR-0023 (#348): the narration rating lives beside the narrator's name —
     // crowd average + this listener's stars, never in the book headline.

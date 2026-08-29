@@ -82,7 +82,7 @@ class SluhayAdapterTest {
     """.trimIndent()
 
     private fun adapterWithCookies(cookies: String, fetcher: FakeFetcher = FakeFetcher(emptyMap())) =
-        SluhayAdapter(fetcher, cookieProvider = { cookies })
+        SluhayAdapter(fetcher, cookieProvider = FakeSourceCookieProvider(mapOf("sluhay.com" to cookies)))
 
     private val homeUrl = "https://sluhay.com/"
 

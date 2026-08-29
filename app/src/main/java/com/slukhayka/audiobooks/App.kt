@@ -220,8 +220,11 @@ class App : Application() {
      * Every verified source behind the adapter seam (spec-10 T4 + spec-13 T2).
      * sluhay (WebView-pattern, spec-13) joins now that its adapter parses the
      * captured page + fetches the inline playlist with the source Referer.
-     * The cookie lambda only runs on fetchNew (Android-side), so JVM fixture
-     * tests stay free of WebView.
+     * Spec-42 #427 — one shared host-aware Cookie provider replaces repeated
+     * per-adapter lambdas: it reads the Cookie header just-in-time for the
+     * concrete request host (never copying a cookie from one host to another).
+     * The provider reads from the WebView's jar; JVM fixture tests wire a
+     * fake via the same interface so no WebView is needed there.
      */
     private val sourceAdapters: List<SourceAdapter> by lazy {
         listOf(
@@ -234,11 +237,7 @@ class App : Application() {
             AudiobookMp3Adapter(),
             LihtarAdapter(),
             SluhayuaAdapter(),
-            SluhayAdapter(cookieProvider = {
-                runCatching {
-                    android.webkit.CookieManager.getInstance().getCookie("https://sluhay.com/")
-                }.getOrNull().orEmpty()
-            })
+            SluhayAdapter(cookieProvider = com.slukhayka.audiobooks.data.source.AndroidSourceCookieProvider)
         )
     }
 

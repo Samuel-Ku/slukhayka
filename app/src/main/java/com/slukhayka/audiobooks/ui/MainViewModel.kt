@@ -44,6 +44,7 @@ import com.slukhayka.audiobooks.data.source.SourceAccessCandidate
 import com.slukhayka.audiobooks.data.source.SourceAccessPolicy
 import com.slukhayka.audiobooks.data.source.HttpFetcher
 import com.slukhayka.audiobooks.data.source.headersFor
+import com.slukhayka.audiobooks.data.metadata.FirestoreBookMetaStore
 import com.slukhayka.audiobooks.player.AudioPlayerManager
 import com.slukhayka.audiobooks.player.PlayerState
 import com.slukhayka.audiobooks.ui.library.OutcomeMessages
@@ -224,6 +225,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val chapterDurationProbe: ChapterDurationProbe = App.instance.chapterDurationProbe
     // Spec-25 (#171): the lazy series-universe resolution over the curated assets.
     val seriesUniverses: SeriesUniverses = App.instance.seriesUniverses
+    // Spec-42 #431: shared metadata store for verified profile publish
+    val sharedMetaStore: FirestoreBookMetaStore? = App.instance.sharedMetaStore
     val playerManager: AudioPlayerManager = App.instance.playerManager
     val recommendationPersonalization = App.instance.recommendationPreferences
 
@@ -556,13 +559,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val coordinator = com.slukhayka.audiobooks.data.imports.BrowserRecoveryCoordinator(
                 dao = App.instance.audiobookDao,
                 libraryImport = libraryImport,
-                profileStore = null,
+                profileStore = sharedMetaStore,
                 playbackVerifier = com.slukhayka.audiobooks.data.imports.BrowserRecoveryCoordinator.PlaybackVerifier { _, trackUrl ->
                     val fetcher = HttpFetcher()
                     val len = try { fetcher.headContentLength(trackUrl, headersFor(sourceId, trackUrl)) } catch (_: Exception) { null }
                     len != null
                 },
-                cleanProbe = com.slukhayka.audiobooks.data.imports.BrowserRecoveryCoordinator.CleanProbe { false }
+                cleanProbe = com.slukhayka.audiobooks.data.imports.BrowserRecoveryCoordinator.CleanProbe { trackUrl ->
+                    val fetcher = HttpFetcher()
+                    val len = try { fetcher.headContentLength(trackUrl) } catch (_: Exception) { null }
+                    len != null
+                }
             )
             val outcome = try {
                 coordinator.recover(bookId, sourceId, url, html, capturedAudioUrls, chapterIndex, positionMs)

@@ -39,14 +39,18 @@ jobs:
           echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > "${{ runner.temp }}/upload.jks"
           chmod 600 "${{ runner.temp }}/upload.jks"
 
-      - name: Restore Firebase configuration
+      # ADR-0021: a release without this client config silently falls back to
+      # LocalOnlyIdentity and can never create a portable recovery code.
+      - name: Restore Firebase release configuration
         env:
-          GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.GOOGLE_SERVICES_RELEASE_JSON_BASE64 }}
+          GOOGLE_SERVICES_RELEASE_JSON_BASE64: ${{ secrets.GOOGLE_SERVICES_RELEASE_JSON_BASE64 }}
         run: |
-          set -eu
-          test -n "$GOOGLE_SERVICES_JSON_BASE64"
-          printf '%s' "$GOOGLE_SERVICES_JSON_BASE64" | base64 -d > app/google-services.json
-          python3 -m json.tool app/google-services.json >/dev/null
+          if [ -z "$GOOGLE_SERVICES_RELEASE_JSON_BASE64" ]; then
+            echo "Missing GOOGLE_SERVICES_RELEASE_JSON_BASE64 repository secret" >&2
+            exit 1
+          fi
+          mkdir -p app/src/release
+          printf '%s' "$GOOGLE_SERVICES_RELEASE_JSON_BASE64" | base64 -d > app/src/release/google-services.json
 
       - name: Build release APK
         env:

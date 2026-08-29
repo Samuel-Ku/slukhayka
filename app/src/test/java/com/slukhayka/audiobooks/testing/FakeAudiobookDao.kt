@@ -805,6 +805,17 @@ class FakeAudiobookDao(
         workSourcesState.update { current -> current.filterNot { it.id == workSource.id } + workSource }
     }
 
+    override suspend fun upsertWorkWithSource(work: WorkEntity, workSource: WorkSourceEntity) {
+        upsertWork(work)
+        upsertWorkSource(workSource)
+    }
+
+    override suspend fun safeUpsertWorkSource(workSource: WorkSourceEntity): Boolean {
+        if (worksState.value.none { it.id == workSource.workId }) return false
+        upsertWorkSource(workSource)
+        return true
+    }
+
     // --- Spec-25 (#171): the universe resolution cache ---------------------
 
     override suspend fun upsertUniverse(universe: UniverseEntity) {
@@ -1102,21 +1113,6 @@ class FakeAudiobookDao(
 
     override suspend fun genreAssertionsForWork(workId: String): List<GenreAssertionEntity> =
         genreAssertionsState.value.filter { it.workId == workId }.sortedBy { it.id }
-
-    override suspend fun findWorkById(id: String): WorkEntity? =
-        worksState.value.find { it.id == id }
-
-    override suspend fun upsertWorkSourceSafe(workSource: WorkSourceEntity) {
-        if (worksState.value.none { it.id == workSource.workId }) {
-            worksState.value = worksState.value + WorkEntity(
-                id = workSource.workId,
-                title = "",
-                author = "",
-                mergeKey = ""
-            )
-        }
-        upsertWorkSource(workSource)
-    }
 
     // --- Person Bookmarks (#399) ------------------------------------------
 

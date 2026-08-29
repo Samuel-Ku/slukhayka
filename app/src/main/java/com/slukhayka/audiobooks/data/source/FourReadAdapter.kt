@@ -11,8 +11,16 @@ import com.slukhayka.audiobooks.data.catalog.CatalogParser
  */
 class FourReadAdapter(
     private val fetcher: HttpFetcher = HttpFetcher(referer = "https://4read.org/"),
-    /** Browser cookies stay local to the 4read/reasd hosts and are never persisted. */
-    private val cookieProvider: () -> String = { "" }
+    /**
+     * Spec-42 #427 — host-aware Cookie provider. FourRead's main host is
+     * `4read.org` and its allowed audio hosts are `reasd.org` subdomains;
+     * each host's cookie stays isolated (no copying `4read.org` cookie onto a
+     * `reasd.org` request). Default empty keeps the adapter pure-JVM; prod
+     * wires [AndroidSourceCookieProvider] once in the composition root.
+     */
+    private val cookieProvider: SourceCookieProvider = object : SourceCookieProvider {
+        override fun cookieFor(url: String): String = ""
+    }
 ) : SourceAdapter {
 
     override val sourceId: String = "4read"
@@ -27,7 +35,8 @@ class FourReadAdapter(
 
         val encodedQuery = java.net.URLEncoder.encode(cleanQuery, "UTF-8")
         val searchUrl = "https://4read.org/index.php?do=search&subaction=search&story=$encodedQuery"
-        val html = fetcher.getText(searchUrl)
+        val cookie = cookieProvider.cookieFor(searchUrl).trim()
+        val html = if (cookie.isBlank()) fetcher.getText(searchUrl) else fetcher.getText(searchUrl, mapOf("Cookie" to cookie))
         if (html.isEmpty()) return emptyList()
 
         // 4read renders each hit as a .poster block: the real Cyrillic title
@@ -74,10 +83,18 @@ class FourReadAdapter(
         // WebViewHtmlParser module, shared by every import door. The adapter
         // only owns transport (HttpFetcher, with the source Referer) — the
         // page profile, cover and playlist expansion are pure DOM work.
-        val html = fetcher.getText(url, headersFor("4read", url, cookieProvider()))
+        // Spec-42 #427 — host-aware cookie: read just-in-time for the concrete
+        // [url] host, never copied to another host (e.g. reasd.org audio).
+        val cookie = cookieProvider.cookieFor(url).trim()
+        val html = if (cookie.isBlank()) fetcher.getText(url) else fetcher.getText(url, mapOf("Cookie" to cookie))
         // Spec-40 #282 — visitors' comments ride the SAME response: parsed
         // once from the html this detail was built from, never a second fetch.
-        return WebViewHtmlParser().parse(html, url, resolveContent = { resolveCapturedContent(it) })
+        return WebViewHtmlParser().parse(html, url, resolveContent = { urlToResolve ->
+            // Playlist / iframe resolves also stay host-aware: only attach cookie
+            // when the resolved host is the same as the page host's allowlist.
+            val c = cookieProvider.cookieFor(urlToResolve).trim()
+            if (c.isBlank()) fetcher.getText(urlToResolve) else fetcher.getText(urlToResolve, mapOf("Cookie" to c))
+        })
             .copy(visitorComments = parseComments(html))
     }
 
@@ -86,22 +103,13 @@ class FourReadAdapter(
      * the same shared [WebViewHtmlParser] with this adapter's transport
      * resolving playlist/iframe content. The repository performs no 4read
      * parsing or transport — it hands the captured DOM straight to the seam.
+     * Spec-42 #427 — playlist resolves are host-aware (no cross-host cookie).
      */
     override suspend fun parseCapturedPage(html: String, url: String): SourceBookDetail =
-        WebViewHtmlParser().parse(html, url, resolveContent = { resolveCapturedContent(it) })
-
-    private fun resolveCapturedContent(url: String): String {
-        val isLocalHost = runCatching {
-            val host = java.net.URI(url).host?.lowercase().orEmpty()
-            host == "4read.org" || host.endsWith(".4read.org") ||
-                host == "reasd.org" || host.endsWith(".reasd.org")
-        }.getOrDefault(false)
-        return if (isLocalHost) {
-            fetcher.getText(url, headersFor("4read", url, cookieProvider()))
-        } else {
-            fetcher.getText(url)
-        }
-    }
+        WebViewHtmlParser().parse(html, url, resolveContent = { toResolve ->
+            val c = cookieProvider.cookieFor(toResolve).trim()
+            if (c.isBlank()) fetcher.getText(toResolve) else fetcher.getText(toResolve, mapOf("Cookie" to c))
+        })
 
     /**
      * Spec-40 #282 — коментарі відвідувачів 4read. The page's DLE comment

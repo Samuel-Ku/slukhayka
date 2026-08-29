@@ -11,12 +11,16 @@ import com.slukhayka.audiobooks.data.source.YouTubeTracks
 import com.slukhayka.audiobooks.data.source.headersFor
 import com.slukhayka.audiobooks.data.source.sourceIdForUrl
 import com.slukhayka.audiobooks.data.source.streamOnlyFor
+import com.slukhayka.audiobooks.data.db.DownloadState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
@@ -25,6 +29,7 @@ import java.io.BufferedOutputStream
 import java.io.File
 import java.io.FileInputStream
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * ADR-0002 — Offline Downloads: the deep module that owns downloading Works
@@ -107,6 +112,43 @@ class OfflineDownloads(
         val failedChapters: Int get() = totalChapters - downloadedChapters - sharedChapters - reusedChapters
     }
 
+    /** #392 — estimated total size for UI before download. */
+    data class EstimatedSize(
+        val totalBytes: Long?,
+        val isApproximate: Boolean,
+        val knownCount: Int,
+        val totalCount: Int
+    )
+
+    /** #392 — live bytes progress during download (chapters + MB). */
+    data class DownloadBytesProgress(
+        val completedChapters: Int,
+        val totalChapters: Int,
+        val downloadedBytes: Long,
+        val totalBytes: Long?,
+        val isApproximate: Boolean
+    )
+
+    private val _downloadBytesProgress = MutableStateFlow<Map<String, DownloadBytesProgress>>(emptyMap())
+    val downloadBytesProgress: StateFlow<Map<String, DownloadBytesProgress>> = _downloadBytesProgress
+
+    // #394 — active download jobs per bookId, for pause / cancel.
+    private val _activeDownloadJobs = MutableStateFlow<Map<String, Job>>(emptyMap())
+
+    /**
+     * #394 — Register an externally-launched download job. The ViewModel calls
+     * this after `viewModelScope.launch { downloadAudiobookOffline(...) }` so
+     * that [pauseDownload] and [cancelDownload] can cancel it.
+     */
+    fun registerDownloadJob(bookId: String, job: Job) {
+        _activeDownloadJobs.value = _activeDownloadJobs.value + (bookId to job)
+    }
+
+    /** #394 — Unregister a download job (called in the finally block). */
+    fun unregisterDownloadJob(bookId: String) {
+        _activeDownloadJobs.value = _activeDownloadJobs.value - bookId
+    }
+
     private suspend fun computeHash(file: File): String? = try {
         FileInputStream(file).use { contentHashOf(it) }
     } catch (e: Exception) {
@@ -120,6 +162,27 @@ class OfflineDownloads(
         java.net.URI(url).host ?: url
     } catch (_: Exception) {
         url
+    }
+
+    /** #392 — estimate total bytes via HEAD before download (for UI). */
+    suspend fun estimateOfflineSize(bookId: String): EstimatedSize {
+        val book = dao.getAudiobookById(bookId)
+        val sourceId = book?.let { sourceIdForUrl(it.sourceUrl) } ?: "unknown"
+        val playable = try { sourceCatalog.getPlayableChapters(bookId) } catch (_: Exception) { emptyList() }
+        if (playable.isEmpty()) return EstimatedSize(null, isApproximate = false, knownCount = 0, totalCount = 0)
+        var total: Long = 0
+        var known = 0
+        for (pc in playable) {
+            val url = pc.track?.url ?: continue
+            if (!url.startsWith("http")) continue
+            val len = try { fetcher.headContentLength(url, headersFor(sourceId, url)) } catch (_: Exception) { null }
+            if (len != null && len >= 0) {
+                total += len
+                known++
+            }
+        }
+        return if (known == 0) EstimatedSize(null, isApproximate = false, knownCount = 0, totalCount = playable.size)
+        else EstimatedSize(total, isApproximate = known < playable.size, knownCount = known, totalCount = playable.size)
     }
 
     suspend fun downloadAudiobookOffline(bookId: String): OfflineDownloadResult {
@@ -156,7 +219,7 @@ class OfflineDownloads(
         // Context, so fail loudly when it isn't there.
         val ctx = context ?: run {
             Log.e("OfflineDownloads", "downloadAudiobookOffline called without Context; aborting")
-            dao.updateDownloadState(bookId, isDownloaded = false, progress = 0f)
+            dao.updateDownloadStateWithState(bookId, isDownloaded = false, progress = 0f, state = DownloadState.IDLE)
             return OfflineDownloadResult(0, 0)
         }
         // Phase 2.5 hotfix (HI-002 / PERF-015): the cache size reader and
@@ -177,7 +240,15 @@ class OfflineDownloads(
         // retry. Direct sources keep the existing bounded parallelism.
         val semaphore = Semaphore(if (sourceId == "4read") 1 else 3)
 
-        dao.updateDownloadState(bookId, isDownloaded = false, progress = 0.05f)
+        // #392 — estimate total bytes via HEAD for MB display (uses same
+        // HttpFetcher + headers + privacy route as the download loop)
+        val estimated = try { estimateOfflineSize(bookId) } catch (_: Exception) { EstimatedSize(null, false, 0, total) }
+        val estimatedTotalBytes = estimated.totalBytes
+        val isApproximate = estimated.isApproximate
+        val downloadedBytes = AtomicLong(0)
+        _downloadBytesProgress.value = _downloadBytesProgress.value + (bookId to DownloadBytesProgress(0, total, 0, estimatedTotalBytes, isApproximate))
+
+        dao.updateDownloadStateWithState(bookId, isDownloaded = false, progress = 0.05f, state = DownloadState.DOWNLOADING)
 
         coroutineScope {
             playable.map { playableChapter ->
@@ -394,7 +465,37 @@ class OfflineDownloads(
 
                         val finished = completedCount.incrementAndGet()
                         val currentProgress = finished.toFloat() / total
-                        dao.updateDownloadState(bookId, isDownloaded = false, progress = currentProgress)
+                        // #392 — MB progress: sum actual file lengths for completed chapters
+                        if (chapterOk) {
+                            val bytesForChapter = try {
+                                when {
+                                    targetFile.exists() && targetFile.length() > 0 -> targetFile.length()
+                                    isReused || isShared -> {
+                                        val path = track?.let {
+                                            dao.getTracksForBookSync(bookId).firstOrNull { it.id == track.id }?.localFilePath
+                                        } ?: targetFile.absolutePath
+                                        try { File(path).length().takeIf { it > 0 } ?: 0L } catch (_: Exception) { 0L }
+                                    }
+                                    else -> 0L
+                                }
+                            } catch (_: Exception) { 0L }
+                            if (bytesForChapter > 0) downloadedBytes.addAndGet(bytesForChapter)
+                        }
+                        _downloadBytesProgress.value = _downloadBytesProgress.value + (
+                            bookId to DownloadBytesProgress(
+                                completedChapters = finished,
+                                totalChapters = total,
+                                downloadedBytes = downloadedBytes.get(),
+                                totalBytes = estimatedTotalBytes,
+                                isApproximate = isApproximate
+                            )
+                            )
+                        dao.updateDownloadStateWithState(
+                            bookId,
+                            isDownloaded = false,
+                            progress = currentProgress,
+                            state = DownloadState.DOWNLOADING
+                        )
                         // ADR-0007: download state lives on the TRACK rows — the
                         // chapter rows never change on download.
                         // For URL-reused chapters we already updated the track; for
@@ -492,11 +593,14 @@ class OfflineDownloads(
         // But also need to consider already-existing files that were not counted
         // as success in this run? Actually they were counted as success (chapterOk true and successCount incremented).
         // So totalSuccess includes them.
-        dao.updateDownloadState(
+        dao.updateDownloadStateWithState(
             bookId,
             isDownloaded = allOk,
-            progress = if (allOk) 1.0f else totalSuccess.toFloat() / total
+            progress = if (allOk) 1.0f else totalSuccess.toFloat() / total,
+            state = DownloadState.IDLE
         )
+        // #392 — clear bytes progress for this book after finish
+        _downloadBytesProgress.value = _downloadBytesProgress.value - bookId
         return OfflineDownloadResult(
             downloadedChapters = success,
             totalChapters = total,
@@ -504,6 +608,106 @@ class OfflineDownloads(
             reusedChapters = reused,
             requiresBrowserRefresh = needsBrowserRefresh
         )
+    }
+
+    // =====================================================================
+    // #394 — Pause / Continue / Cancel download controls
+    // =====================================================================
+
+    /**
+     * #394 — Pause an active download. Cancels the coroutine, keeps completed
+     * tracks' localFilePath + contentHash, deletes only `*.tmp` files of
+     * in-progress chapters, and sets downloadState = PAUSED.
+     *
+     * The PAUSED state is persisted in Room (`library_entries.downloadState`)
+     * so it survives process death and app restart.
+     */
+    suspend fun pauseDownload(bookId: String) {
+        val job = _activeDownloadJobs.value[bookId]
+        if (job != null && job.isActive) {
+            // Cancel the active download coroutine.
+            job.cancel()
+            // Wait briefly for the coroutine to reach its cancellation point.
+            try { job.join() } catch (_: Exception) {}
+            _activeDownloadJobs.value = _activeDownloadJobs.value - bookId
+        }
+
+        // Clean up temp files of in-progress chapters (always, even without
+        // an active job — a previous crash may have left tmp files behind).
+        val ctx = context
+        if (ctx != null) {
+            val audioDir = File(ctx.filesDir, OFFLINE_AUDIO_DIR)
+            if (audioDir.exists()) {
+                audioDir.listFiles()?.filter { it.name.endsWith(".tmp") }?.forEach { tmp ->
+                    try { tmp.delete() } catch (_: Exception) {}
+                }
+            }
+        }
+
+        // Set PAUSED state — completed tracks keep their localFilePath + contentHash.
+        val current = dao.getAudiobookById(bookId)
+        val progress = current?.downloadProgress ?: 0f
+        if (progress > 0f || current?.downloadState == DownloadState.DOWNLOADING) {
+            dao.updateDownloadStateWithState(bookId, false, progress, DownloadState.PAUSED)
+        }
+        _downloadBytesProgress.value = _downloadBytesProgress.value - bookId
+    }
+
+    /**
+     * #394 — Continue a paused download. Resumes only chapters that are not
+     * yet downloaded (localFilePath is null or isDownloaded is false), preserving
+     * URL/hash dedup for already-completed chapters.
+     *
+     * No-op if the download is not in PAUSED state.
+     */
+    suspend fun continueDownload(bookId: String): OfflineDownloadResult {
+        val entry = dao.getAudiobookById(bookId) ?: return OfflineDownloadResult(0, 0)
+        if (entry.downloadState != DownloadState.PAUSED) return OfflineDownloadResult(0, 0)
+        // Resume the download — downloadAudiobookOffline already skips chapters
+        // whose targetFile exists and is valid (>100 bytes), so calling it again
+        // effectively downloads only the missing chapters.
+        return downloadAudiobookOffline(bookId)
+    }
+
+    /**
+     * #394 — Cancel a download and remove all downloaded files for the edition.
+     * Clears localFilePath on all tracks, resets downloadProgress to 0, removes
+     * the notification, and sets downloadState = IDLE.
+     *
+     * Also cancels any active download coroutine.
+     */
+    suspend fun cancelDownload(bookId: String) {
+        // Cancel active download if any.
+        val job = _activeDownloadJobs.value[bookId]
+        if (job != null && job.isActive) {
+            job.cancel()
+            try { job.join() } catch (_: Exception) {}
+        }
+        _activeDownloadJobs.value = _activeDownloadJobs.value - bookId
+
+        // Delete all downloaded files for this book's tracks.
+        removeOfflineDownload(bookId)
+        // Ensure downloadState is reset to IDLE (removeOfflineDownload only
+        // resets isDownloaded and downloadProgress, not the state enum).
+        dao.updateDownloadStateWithState(bookId, isDownloaded = false, progress = 0f, state = DownloadState.IDLE)
+    }
+
+    /**
+     * Whether a download is currently active (not paused, not idle) for the
+     * given bookId. The notification service uses this to decide which
+     * buttons to show.
+     */
+    fun isDownloading(bookId: String): Boolean {
+        val job = _activeDownloadJobs.value[bookId]
+        return job != null && job.isActive
+    }
+
+    /**
+     * Whether a download is paused for the given bookId.
+     */
+    suspend fun isPaused(bookId: String): Boolean {
+        val entry = dao.getAudiobookById(bookId)
+        return entry?.downloadState == DownloadState.PAUSED
     }
 
     suspend fun removeOfflineDownload(bookId: String) {
@@ -529,7 +733,10 @@ class OfflineDownloads(
         // otherwise a later re-import of the same files would be skipped as
         // "duplicate" and the book would stay unplayable (wayfinder #48+#50).
         dao.clearTrackContentHashesForBook(bookId)
-        dao.updateDownloadState(bookId, isDownloaded = false, progress = 0f)
+        // #394: use updateDownloadStateWithState to also reset downloadState
+        // to IDLE. Without this, a PAUSED download that gets its files
+        // removed would stay stuck in PAUSED state with no files on disk.
+        dao.updateDownloadStateWithState(bookId, isDownloaded = false, progress = 0f, state = DownloadState.IDLE)
     }
 
     fun getAudioCacheSizeBytes(): Long {

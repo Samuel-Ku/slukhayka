@@ -5,7 +5,14 @@
 ## Код і збірка
 
 - Kotlin + Jetpack Compose, єдиний модуль `app`, Gradle 9.3.1, AGP 9.1.1, Java 21
-- `./gradlew test` — JVM-тести (Robolectric, Roborazzi-снапшоти); CI-гейт з Kover
+- `scripts/test-changed.sh` — тести логічних модулів, змінених відносно `origin/main`;
+  іншу базу можна передати через `--base`
+- `scripts/test-all.sh` — повний локальний набір JVM-тестів на JDK 21 і в чистому
+  тимчасовому каталозі
+- якщо JDK 21 не знаходиться автоматично, задай стабільний шлях через
+  `SLUKHAYKA_JAVA_HOME`; сам шлях у репозиторії не зберігається
+- CI запускає паралельно чисті JVM-тести, Room/Robolectric і Compose/Roborazzi;
+  Kover збирає один звіт із трьох частин
 - Коміти українською, стиль: `feat(scope): опис`, `fix(scope): опис`, `docs: …`
   (історично також `spec-N TX` для спек-тікетів)
 

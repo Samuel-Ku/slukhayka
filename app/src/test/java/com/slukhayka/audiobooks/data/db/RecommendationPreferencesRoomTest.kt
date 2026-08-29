@@ -6,10 +6,12 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.sqlite.db.SupportSQLiteDatabase
 import androidx.sqlite.db.SupportSQLiteOpenHelper
 import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
+import com.slukhayka.audiobooks.testing.PartitionCoverageProbe
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.AfterClass
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -18,7 +20,17 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
 class RecommendationPreferencesRoomTest {
+    companion object {
+        @JvmStatic
+        @AfterClass
+        fun recordNativeWorkerIdentity() = NativeRoomWorkerIdentity.record()
+    }
     private val context: Context = ApplicationProvider.getApplicationContext()
+
+    @Test
+    fun `Room Robolectric partition contributes to merged coverage`() {
+        assertEquals("room-robolectric", PartitionCoverageProbe.roomRobolectric())
+    }
 
     @Test
     fun `migration 20 to 21 adds preferences without touching existing data`() {

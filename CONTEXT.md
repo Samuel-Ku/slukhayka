@@ -47,6 +47,24 @@ _Avoid_: Collection, shelf
 A Work's place in a Series, including its position when known. One Work may have more than one Series Membership.
 _Avoid_: Series, volume file
 
+## Source access (spec #425/#426, v1.3.7)
+
+**Direct Source**:
+A Source whose Adapter declares direct access — its pages and audio come through the plain transport with no browser session. The preferred class everywhere one Edition is opened; a temporary outage never reclassifies it.
+_Avoid_: trusted source, fast source, unauthenticated source
+
+**Browser Source**:
+A Source whose Adapter declares browser access — reachable only through the listener's in-app WebView session (4read after its August 2026 change). A declared fallback, never a default: the browser opens only after a listener action and only after direct options fail.
+_Avoid_: broken source, legacy source, system browser
+
+**4read Recovery**:
+The listener-initiated refresh of one existing Edition's Source tracks: the exact 4read book page opens in the in-app browser (a missing page falls back to pre-filled 4read search), the listener passes the site's check, and the app captures the real audio. It succeeds only on an actual playback verdict and never forks a duplicate Work, Edition, or Source.
+_Avoid_: automatic WebView, re-import as a new book, URL-prefix success
+
+**Verified Source×Edition Profile**:
+An anonymously shared, provenance-bearing claim that one Source URL actually started playback and passed a clean cookie-free probe. Read before recovery so the next listener may skip the browser; it never carries cookies, audio files, browser history, or listener identity, and unavailable shared storage removes only the shortcut, never the local flow.
+_Avoid_: session sharing, publishing cookie-bound URLs
+
 ## Metadata
 
 **Metadata Assertion**:
@@ -105,6 +123,10 @@ _Avoid_: mixing into the headline average, edition-scoped Listener Review (the o
 An explicit, local-only listener verdict that changes discovery ranking without changing a Work, Library Entry, Listening State or Listener Review. It is one of `HIDE_WORK`, `REDUCE_SIMILAR` or `HIDE_AUTHOR`, keyed by normalized Work/author identity and reversible from recommendation settings. It stores no embedding or listening history.
 _Avoid_: deletion, tombstone, implicit dislike, server-side listening profile
 
+**Person Bookmark**:
+A local listener relationship with one canonical Author or Narrator, keyed by `(role, deterministic id)`. Both roles use the Author Identity normalizer, while distinct `author` and `narrator` id prefixes prevent cross-role collisions. The bookmark owns notification preference and seen/notified timestamps; it remains useful without network or Firebase.
+_Avoid_: Work bookmark, raw display name as identity, mandatory cloud relationship
+
 **Recovery Code**:
 The encoded credential pair of the silent anonymous profile («Код відновлення профілю»), shown in ⚙️ Профіль only behind BiometricPrompt and accepted on a fresh install — or in the Web Client — to restore or link the same uid. Surviving reinstall also rides Android Auto Backup of the generated credentials and the Firestore `device_bindings/{ANDROID_ID} → uid` silent restore — the binding exists ONLY for recovery of one's own profile, written solely for the caller's own uid.
 _Avoid_: login screen, hardware identifiers (IMEI), password reset
@@ -122,7 +144,7 @@ _Avoid_: heal loops, retrying the same dead URL, index-based healing on reordere
 ## Architecture
 
 **Module reads**:
-Screens read the five deep modules' flows and suspend functions directly — `module.flow.collectAsState(...)` for flows, `rememberCoroutineScope().launch { module.suspendFun(...) }` for actions. MainViewModel keeps only composition, navigation and orchestration; the pure download/import outcome messages and the resume start-position decision live in `ui.library` (`OutcomeMessages`, `computeResumeStart`) with JVM tests (ADR-0008).
+Screens read the six deep modules' flows and suspend functions directly — `module.flow.collectAsState(...)` for flows, `rememberCoroutineScope().launch { module.suspendFun(...) }` for actions. MainViewModel keeps only composition, navigation and orchestration; the pure download/import outcome messages and the resume start-position decision live in `ui.library` (`OutcomeMessages`, `computeResumeStart`) with JVM tests (ADR-0008). Person Bookmarks is the sixth module and is composed once in `App`; it has no network dependency.
 _Avoid_: forwarding StateFlows, 1:1 ViewModel forwarders
 
 **Works and Library Entries**:

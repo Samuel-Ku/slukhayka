@@ -63,7 +63,10 @@ fun bookDetailPresentation(
             streamOnly = source.streamOnly,
             rating = profile?.rating ?: book.rating.takeIf { isCurrent && it > 0f }?.toDouble(),
             isCurrent = isCurrent,
-            selectable = playableSources.size > 1,
+            // The source block is informational. Playback chooses the best
+            // source through the shared coordinator; a detail-page tap must
+            // never become an implicit source switch.
+            selectable = false,
             differingDescription = profileDescription.takeIf {
                 it.isNotBlank() && !it.equals(description, ignoreCase = true)
             },

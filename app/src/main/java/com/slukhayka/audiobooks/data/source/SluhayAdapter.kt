@@ -63,6 +63,7 @@ class SluhayAdapter(
 ) : SourceAdapter {
 
     override val sourceId: String = "sluhay"
+    override val accessMode: SourceAccessMode = SourceAccessMode.BROWSER
 
     /** Spec-13 T4: discovery is session-bound — the feed pipeline shows a CTA, never dead data. */
     override val sessionBound: Boolean = true

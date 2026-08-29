@@ -59,6 +59,17 @@ fun headersFor(sourceId: String, streamUrl: String): Map<String, String> = when 
     else -> emptyMap()
 }
 
+/**
+ * Adds a locally held browser cookie only to 4read/reasd requests. Cookies
+ * never enter Room, logs, shared profiles or requests to another host.
+ */
+fun headersFor(sourceId: String, streamUrl: String, cookieHeader: String?): Map<String, String> =
+    headersFor(sourceId, streamUrl).toMutableMap().apply {
+        if (sourceId == "4read" && isFourReadAudioHost(streamUrl) && !cookieHeader.isNullOrBlank()) {
+            put("Cookie", cookieHeader)
+        }
+    }
+
 private fun isFourReadAudioHost(streamUrl: String): Boolean {
     val host = try {
         java.net.URI(streamUrl).host?.lowercase()

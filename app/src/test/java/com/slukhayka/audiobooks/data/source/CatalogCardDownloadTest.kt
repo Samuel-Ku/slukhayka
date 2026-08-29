@@ -6,9 +6,8 @@ import org.junit.Test
 
 /**
  * Pure JVM seam (spec-15 T4): the one-tap download gate of a «Увесь каталог»
- * card. The card's primary (first) source decides: a stream-only source
- * (lihtar — ToS forbids reproduction) hides the affordance, exactly as the
- * detail screen hides it for the same book.
+ * card. Any attached non-stream-only source keeps the affordance visible; the
+ * download coordinator chooses the first eligible source in capability order.
  */
 class CatalogCardDownloadTest {
 
@@ -33,11 +32,9 @@ class CatalogCardDownloadTest {
     }
 
     @Test
-    fun `a non-stream-only primary source wins over a stream-only secondary`() {
-        // The card plays from (and downloads through) its FIRST source — a
-        // lihtar row alongside a download-allowed source must not block it.
+    fun `a download-allowed secondary source keeps the affordance visible`() {
         assertTrue(catalogCardDownloadAllowed(result("soundbooks", "lihtar")))
-        assertFalse(catalogCardDownloadAllowed(result("lihtar", "soundbooks")))
+        assertTrue(catalogCardDownloadAllowed(result("lihtar", "soundbooks")))
     }
 
     @Test

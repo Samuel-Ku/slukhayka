@@ -31,6 +31,8 @@ import com.slukhayka.audiobooks.data.source.HttpFetcher
 import com.slukhayka.audiobooks.data.source.SourceAdapter
 import com.slukhayka.audiobooks.data.source.SourceBook
 import com.slukhayka.audiobooks.data.source.SourceIds
+import com.slukhayka.audiobooks.data.source.SourceAccessCandidate
+import com.slukhayka.audiobooks.data.source.SourceAccessPolicy
 import com.slukhayka.audiobooks.data.source.mergeGlobalSearchResults
 import com.slukhayka.audiobooks.data.source.sourceDisplayName
 import com.slukhayka.audiobooks.data.source.sourceIdForUrl
@@ -41,6 +43,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
+import java.io.File
 
 /**
  * ADR-0002 — Source Catalog: the deep module that owns browse and sync —
@@ -553,22 +556,24 @@ class SourceCatalog(
 
     /**
      * One logical chapter paired with the physical track of the book's
-     * PRIMARY source (ADR-0007). Chapter → track is 1:1 by index; a null
+     * selected Source (ADR-0007). Chapter → track is 1:1 by index; a null
      * track means this source cannot play that chapter (a topology mismatch)
      * — the player surfaces the absence instead of fabricating audio.
      */
     data class PlayableChapter(
         val chapter: ChapterEntity,
-        val track: SourceTrackEntity?
+        val track: SourceTrackEntity?,
+        /** Source identity used for Referer/cookie policy at playback time. */
+        val sourceId: String? = null,
+        val sourceUrl: String? = null
     )
 
     /**
-     * Returns a book's chapters PAIRED with the tracks of its primary source,
-     * fetching the live 4read page when Room holds none (catalogue Works seed
-     * chapter-less). The fallback materializes the Edition's logical chapters
-     * AND the primary source's physical tracks (ADR-0007). This is the seam
-     * Offline Downloads and the playback stack route through — never a raw
-     * Room read alone.
+     * Returns a book's chapters PAIRED with the best available Source. A
+     * chapter-less 4read catalogue row does not trigger an implicit browser or
+     * direct fetch; the listener must explicitly refresh the page in WebView.
+     * This is the seam Offline Downloads and the playback stack route through
+     * — never a raw Room read alone.
      */
     suspend fun getPlayableChapters(bookId: String): List<PlayableChapter> {
         var chapters = dao.getChaptersListForBook(bookId)
@@ -582,7 +587,9 @@ class SourceCatalog(
         // live page's chapters on EVERY play/refresh -- observed on-device as
         // 54 chapter rows for one 6-chapter seed book, scrambled order, and
         // the player picking up reasd.org streams instead of the seeded ones.
-        if (chapters.isEmpty() && sourceUrl.isNotBlank() && sourceUrl.contains("4read.org")) {
+        if (chapters.isEmpty() && sourceUrl.isNotBlank() && sourceUrl.contains("4read.org") &&
+            SourceAccessPolicy.modeFor(sourceIdForUrl(sourceUrl)) != com.slukhayka.audiobooks.data.source.SourceAccessMode.BROWSER
+        ) {
             // Spec-14 T5: the adapter owns the page parse; the catalog only
             // persists what the seam's SourceBookDetail carries.
             val detail = fourReadAdapter.fetchBookPage(sourceUrl)
@@ -681,15 +688,54 @@ class SourceCatalog(
             )
         }
 
-        // Pair each logical chapter with the primary source's track (1:1 by
-        // index). The primary source is the one matching the book's sourceUrl
-        // (a local source when the URL is blank); missing tracks stay absent.
-        val primarySource = primarySourceOf(bookId, book)
-        val tracks = primarySource?.let { dao.getTracksForSourceSync(it.id) }.orEmpty()
+        // Pair each logical chapter with the best available Source according to
+        // the static capability order. A local file wins when it really exists;
+        // otherwise direct HTTP sources win, then legacy/unknown, and browser
+        // sources are last. Browser-backed tracks are still usable after the
+        // listener explicitly imported the page in WebView; the browser is not
+        // opened as a side effect here.
+        val editionId = dao.getEditionForWork(bookId)?.id
+        val sources = dao.getSourcesForBookSync(bookId).filter { source ->
+            editionId == null || source.editionId == null || source.editionId == editionId
+        }
+        val tracksBySource = sources.associateWith { dao.getTracksForSourceSync(it.id) }
+        val orderedSources = SourceAccessPolicy.order(
+            sources.map { source ->
+                val tracks = tracksBySource[source].orEmpty()
+                SourceAccessCandidate(
+                    sourceId = source.type,
+                    sourceName = sourceDisplayName(source.type),
+                    url = source.url,
+                    localAvailable = tracks.any { track ->
+                        track.isDownloaded && track.localFilePath?.let { path ->
+                            val file = File(path)
+                            file.exists() && file.length() > 100
+                        } == true
+                    }
+                )
+            }
+        )
+        val selectedSource = orderedSources
+            .mapNotNull { candidate ->
+                sources.firstOrNull { it.type == candidate.sourceId && it.url == candidate.url }
+            }
+            .firstOrNull { source ->
+                val tracks = tracksBySource[source].orEmpty()
+                tracks.count { it.trackIndex in chapters.indices } == chapters.size
+            }
+            ?: orderedSources
+                .mapNotNull { candidate ->
+                    sources.firstOrNull { it.type == candidate.sourceId && it.url == candidate.url }
+                }
+                .firstOrNull { tracksBySource[it].orEmpty().isNotEmpty() }
+            ?: sources.firstOrNull()
+        val tracks = selectedSource?.let { tracksBySource[it].orEmpty() }.orEmpty()
         return chapters.mapIndexed { index, chapter ->
             PlayableChapter(
                 chapter = chapter,
-                track = tracks.firstOrNull { it.trackIndex == index }
+                track = tracks.firstOrNull { it.trackIndex == index },
+                sourceId = selectedSource?.type,
+                sourceUrl = selectedSource?.url
             )
         }
     }
@@ -700,19 +746,6 @@ class SourceCatalog(
      */
     suspend fun getChaptersList(bookId: String): List<ChapterEntity> =
         getPlayableChapters(bookId).map { it.chapter }
-
-    /**
-     * The book's PRIMARY source row: the one matching its sourceUrl (a
-     * "local" source when the URL is blank — local imports), falling back to
-     * the first source when no type matches.
-     */
-    private suspend fun primarySourceOf(bookId: String, book: com.slukhayka.audiobooks.data.db.BookRow?): SourceEntity? {
-        val sources = dao.getSourcesForBookSync(bookId)
-        if (sources.isEmpty()) return null
-        val sourceUrl = book?.sourceUrl.orEmpty()
-        val sourceId = if (sourceUrl.isBlank()) "local" else sourceIdForUrl(sourceUrl)
-        return sources.firstOrNull { it.type == sourceId } ?: sources.first()
-    }
 
     // ---------------------------------------------------------------------
     // Persisted catalogue: Works + Editions, merge-on-write (spec-23 T1).
@@ -975,10 +1008,15 @@ class SourceCatalog(
             filter.authorIds.toList(), if (filter.authorIds.isEmpty()) 0 else 1
         )
 
-    /** The Sources carrying one Work — the feed card resolves its first
-     *  source through these (spec-23 T4 open action; ADR-0007 renamed the
-     *  spec-23 `editions` table to `work_sources`). */
-    suspend fun workSourcesForWork(workId: String): List<WorkSourceEntity> = dao.getWorkSourcesForWorkSync(workId)
+    /** The Sources carrying one Work, in the shared capability order. */
+    suspend fun workSourcesForWork(workId: String): List<WorkSourceEntity> {
+        val sources = dao.getWorkSourcesForWorkSync(workId)
+        return SourceAccessPolicy.order(
+            sources.map { SourceAccessCandidate(it.sourceId, sourceDisplayName(it.sourceId), it.sourceUrl) }
+        ).mapNotNull { candidate ->
+            sources.firstOrNull { it.sourceId == candidate.sourceId && it.sourceUrl == candidate.url }
+        }
+    }
 
     /**
      * Spec-23 T5 — one source carrying a Work, for the book page's
@@ -1024,7 +1062,13 @@ class SourceCatalog(
                 )
             )
         }
-        return rows.distinctBy { it.sourceId to it.url }
+        return SourceAccessPolicy.order(
+            rows.distinctBy { it.sourceId to it.url }.map {
+                SourceAccessCandidate(it.sourceId, it.sourceName, it.url, localAvailable = it.sourceId == "local")
+            }
+        ).map { candidate ->
+            rows.first { it.sourceId == candidate.sourceId && it.url == candidate.url }
+        }
     }
 
     // ---------------------------------------------------------------------

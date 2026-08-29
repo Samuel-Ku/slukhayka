@@ -344,6 +344,9 @@ fun PlayerScreen(
                     autoPlay = true
                 )
             },
+            onOpenBrowserRecovery = if (playerState.currentSourceId == "4read" || book.sourceUrl.contains("4read.org")) {
+                { viewModel.open4ReadRecovery(book.id, playerState.currentChapterIndex, playerState.currentPositionMs) }
+            } else null,
             activeTool = activeTool,
             castReady = castReady,
             lastBookmarkTarget = lastBookmarkTarget,
@@ -496,6 +499,7 @@ fun PlayerScreenContent(
     onBookmark: () -> Unit,
     onChapters: () -> Unit,
     onRetryPlayback: () -> Unit,
+    onOpenBrowserRecovery: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
     activeTool: PlayerQuickTool? = null,
     castReady: Boolean = false,
@@ -720,7 +724,8 @@ fun PlayerScreenContent(
                     PlayerPlaybackError(
                         bookTitle = book.title,
                         detail = playerState.lastErrorMsg,
-                        onRetryPlayback = onRetryPlayback
+                        onRetryPlayback = onRetryPlayback,
+                        onOpenBrowserRecovery = onOpenBrowserRecovery
                     )
                 }
 
@@ -1313,7 +1318,8 @@ private fun RowScope.QuickTool(
 private fun PlayerPlaybackError(
     bookTitle: String,
     detail: String,
-    onRetryPlayback: () -> Unit
+    onRetryPlayback: () -> Unit,
+    onOpenBrowserRecovery: (() -> Unit)? = null
 ) {
     val errorTitle = stringResource(R.string.a11y_player_error_title)
     val retryLabel = stringResource(R.string.a11y_player_retry, bookTitle)
@@ -1346,6 +1352,18 @@ private fun PlayerPlaybackError(
                     }
             ) {
                 Text(retryLabel, modifier = Modifier.clearAndSetSemantics { })
+            }
+            if (onOpenBrowserRecovery != null) {
+                OutlinedButton(
+                    onClick = onOpenBrowserRecovery,
+                    modifier = Modifier
+                        .heightIn(min = AppDimens.TouchTarget)
+                        .semantics {
+                            contentDescription = "Оновити 4read через браузер для $bookTitle"
+                        }
+                ) {
+                    Text("Оновити через браузер", modifier = Modifier.clearAndSetSemantics { })
+                }
             }
         }
     }

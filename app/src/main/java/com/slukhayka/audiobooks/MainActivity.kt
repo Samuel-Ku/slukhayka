@@ -414,15 +414,16 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
             ) {
                 when {
                     // Spec-13 T3: a WebView-pattern source's browser surface
-                    // (sluhay.com first). Fullscreen pushed destination,
-                    // debug-only (spec-15 T2): a release build routes the same
-                    // action to the system browser in the ViewModel, so this
-                    // surface is never reachable there.
-                    BuildConfig.DEBUG && selectedWebSource != null -> WebSourceBrowserScreen(
+                    // (4read + sluhay). Fullscreen pushed destination; 4read
+                    // remains available in release for session recovery.
+                    selectedWebSource != null -> WebSourceBrowserScreen(
                         viewModel = viewModel,
                         sourceId = selectedWebSource!!.sourceId,
                         homeUrl = selectedWebSource!!.homeUrl,
                         displayName = selectedWebSource!!.displayName,
+                        recoveryBookId = selectedWebSource!!.recoveryBookId,
+                        recoveryChapterIndex = selectedWebSource!!.recoveryChapterIndex,
+                        recoveryPositionMs = selectedWebSource!!.recoveryPositionMs,
                         onClose = { viewModel.closeWebSource() }
                     )
 

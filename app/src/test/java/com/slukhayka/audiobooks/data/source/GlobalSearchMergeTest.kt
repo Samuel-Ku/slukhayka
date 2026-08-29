@@ -30,8 +30,8 @@ class GlobalSearchMergeTest {
         assertEquals(1, merged.size)
         val card = merged.single()
         assertEquals("Кобзар", card.title)
-        assertEquals(listOf("4read", "soundbooks"), card.sources.map { it.sourceId })
-        assertEquals(listOf("4read", "Sound-Books"), card.sources.map { it.sourceName })
+        assertEquals(listOf("soundbooks", "4read"), card.sources.map { it.sourceId })
+        assertEquals(listOf("Sound-Books", "4read"), card.sources.map { it.sourceName })
     }
 
     @Test
@@ -45,8 +45,8 @@ class GlobalSearchMergeTest {
 
         assertEquals(1, merged.size)
         val card = merged.single()
-        assertEquals(listOf("4read", "sluhayua"), card.sources.map { it.sourceId })
-        assertEquals(listOf("4read", "Sluhay"), card.sources.map { it.sourceName })
+        assertEquals(listOf("sluhayua", "4read"), card.sources.map { it.sourceId })
+        assertEquals(listOf("Sluhay", "4read"), card.sources.map { it.sourceName })
     }
 
     @Test
@@ -62,7 +62,7 @@ class GlobalSearchMergeTest {
         // carrying both sources (the narrator differentiates Editions, not
         // cards).
         assertEquals(1, merged.size)
-        assertEquals(listOf("4read", "soundbooks"), merged.single().sources.map { it.sourceId })
+        assertEquals(listOf("soundbooks", "4read"), merged.single().sources.map { it.sourceId })
     }
 
     @Test

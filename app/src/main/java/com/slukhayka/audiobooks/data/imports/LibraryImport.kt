@@ -32,6 +32,7 @@ import com.slukhayka.audiobooks.data.source.SeriesRef
 import com.slukhayka.audiobooks.data.source.sourceIdForUrl
 import com.slukhayka.audiobooks.data.source.streamOnlyFor
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -418,8 +419,13 @@ class LibraryImport(
                 ?: return@withContext null
             // Fail-open: a dead page contributes nothing — the player keeps
             // the honest failure instead of a fabricated retry.
-            val detail = runCatching { adapter.fetchBookPage(sourceUrl) }.getOrNull()
-                ?: return@withContext null
+            val detail = try {
+                adapter.fetchBookPage(sourceUrl)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                null
+            } ?: return@withContext null
             if (detail.chapters.isEmpty()) return@withContext null
             // The physical track of the failed chapter, on the book's primary
             // source — the same pairing the player resolves chapter → track
@@ -427,6 +433,10 @@ class LibraryImport(
             val sources = dao.getSourcesForBookSync(bookId)
             val primary = sources.firstOrNull { it.type == sourceId } ?: sources.firstOrNull()
                 ?: return@withContext null
+            val edition = dao.getEditionForWork(bookId)
+            if (edition != null && primary.editionId != null && primary.editionId != edition.id) {
+                return@withContext null
+            }
             val tracks = dao.getTracksForSourceSync(primary.id)
             // Order-stability guard (spec-32 T4): the index pairing is only
             // sound while the page still serves the OTHER chapters at their
@@ -457,7 +467,7 @@ class LibraryImport(
             // the STORED source id (the same key the import doors use), so an
             // aliased URL never forks a second document per Source×Edition.
             runCatching {
-                val editionId = dao.getEditionForWork(bookId)?.id
+                val editionId = edition?.id
                 if (editionId != null) {
                     profileStore?.putProfile(
                         sourceId = primary.type,
@@ -484,18 +494,113 @@ class LibraryImport(
      * nothing playable. No import door downcasts an adapter to a concrete
      * class — a future WebView-pattern source works through the same door.
      */
-    suspend fun importWebSourcePage(sourceId: String, url: String, html: String): AudiobookEntity? =
+    suspend fun importWebSourcePage(
+        sourceId: String,
+        url: String,
+        html: String,
+        capturedAudioUrls: List<String> = emptyList()
+    ): AudiobookEntity? =
         withContext(Dispatchers.IO) {
             val adapter = sourceAdapters.firstOrNull { it.sourceId == sourceId }
                 ?: return@withContext null
             try {
-                val detail = adapter.parseCapturedPage(html, url) ?: return@withContext null
+                val parsed = adapter.parseCapturedPage(html, url) ?: return@withContext null
+                val detail = parsed.withCapturedAudioUrls(capturedAudioUrls)
                 if (detail.chapters.isEmpty()) return@withContext null
-                importBookFromSource(sourceId, detail)
+                if (detail.chapters.any { !it.streamUrl.isPlayableSourceUrl() }) return@withContext null
+                // A captured 4read page is session material. Keep its profile
+                // local until playback has actually succeeded; this avoids
+                // publishing a Cloudflare/challenge artefact to the shared
+                // metadata base.
+                importBookFromSource(sourceId, detail, writeBackProfile = sourceId != "4read")
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 null
             }
         }
+
+    /**
+     * Applies a freshly captured browser page to an existing Edition. This is
+     * the recovery door used after a 4read stream expires: logical chapters,
+     * listening state and downloaded files stay put; only the physical URLs
+     * owned by the matching Source are refreshed. A chapter-count mismatch is
+     * rejected so a reordered page can never silently corrupt progress.
+     */
+    suspend fun recoverWebSourcePage(
+        bookId: String,
+        sourceId: String,
+        url: String,
+        html: String,
+        capturedAudioUrls: List<String> = emptyList()
+    ): AudiobookEntity? = withContext(Dispatchers.IO) {
+        val adapter = sourceAdapters.firstOrNull { it.sourceId == sourceId }
+            ?: return@withContext null
+        val parsed = try {
+            adapter.parseCapturedPage(html, url)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            null
+        } ?: return@withContext null
+        val detail = parsed.withCapturedAudioUrls(capturedAudioUrls)
+        if (detail.chapters.isEmpty()) return@withContext null
+        if (detail.chapters.any { !it.streamUrl.isPlayableSourceUrl() }) return@withContext null
+        val source = dao.getSourcesForBookSync(bookId).firstOrNull { it.type == sourceId && it.url == url }
+            ?: dao.getSourcesForBookSync(bookId).firstOrNull { it.type == sourceId }
+            ?: return@withContext null
+        val edition = dao.getEditionForWork(bookId)
+        if (edition != null && source.editionId != null && source.editionId != edition.id) {
+            return@withContext null
+        }
+        if (edition != null && edition.narrator.isNotBlank() && detail.narrator.isNotBlank() &&
+            !edition.narrator.equals(detail.narrator, ignoreCase = true)
+        ) {
+            return@withContext null
+        }
+        val logicalChapters = dao.getChaptersListForBook(bookId).sortedBy { it.chapterIndex }
+        if (logicalChapters.size != detail.chapters.size || logicalChapters.indices.any { index ->
+                val storedTitle = logicalChapters[index].title.trim()
+                val capturedTitle = detail.chapters[index].title.trim()
+                storedTitle.isNotBlank() && capturedTitle.isNotBlank() &&
+                    !storedTitle.equals(capturedTitle, ignoreCase = true)
+            }) {
+            // Same-count pages can still be reordered. Refuse the update rather
+            // than attaching a new URL to the wrong logical chapter.
+            return@withContext null
+        }
+        val tracks = dao.getTracksForSourceSync(source.id).sortedBy { it.trackIndex }
+        if (tracks.size != detail.chapters.size || tracks.map { it.trackIndex } != detail.chapters.indices.toList()) {
+            return@withContext null
+        }
+        val refreshed = detail.chapters.mapIndexed { index, chapter ->
+            tracks[index].copy(url = chapter.streamUrl)
+        }
+        dao.insertTracks(refreshed)
+        dao.getAudiobookById(bookId)?.toAudiobookEntity()
+    }
+
+    /**
+     * Uses observed browser requests only when the page parser did not expose
+     * any playable URLs. WebView request order includes prefetches and range
+     * retries, so it is never safe to replace a parsed chapter list by arrival
+     * order. The parser remains the source of chapter-to-track identity.
+     */
+    private fun SourceBookDetail.withCapturedAudioUrls(urls: List<String>): SourceBookDetail {
+        val captured = urls.asSequence()
+            .map(String::trim)
+            .filter { it.startsWith("http://") || it.startsWith("https://") }
+            .distinct()
+            .toList()
+        if (captured.size != chapters.size || captured.isEmpty()) return this
+        if (chapters.any { it.streamUrl.isPlayableSourceUrl() }) return this
+        return copy(chapters = chapters.mapIndexed { index, chapter -> chapter.copy(streamUrl = captured[index]) })
+    }
+
+    private fun String.isPlayableSourceUrl(): Boolean {
+        val normalized = trim().lowercase()
+        return normalized.startsWith("http://") || normalized.startsWith("https://")
+    }
 
     /**
      * Spec-14 T4/T5 / ADR-0006 — the 4read WebView door is the same door:

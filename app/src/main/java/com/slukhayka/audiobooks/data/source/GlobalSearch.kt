@@ -46,14 +46,13 @@ data class GlobalSearchResult(
 }
 
 /**
- * Spec-15 T4 — whether a catalogue card may offer one-tap download: its
- * primary (first) source is not stream-only. The card plays from that same
- * first source, so the download gate and the play source always agree (a
- * card whose first source is lihtar — ToS forbids reproduction — hides the
- * affordance, exactly as the detail screen does for the same book).
+ * Spec-15 T4/#426 — whether a catalogue card may offer one-tap download: any
+ * source in the capability order may satisfy it, except a stream-only source.
+ * This lets a Lihtar-first Work still download from its attached 4read or
+ * Sound-Books edition.
  */
 fun catalogCardDownloadAllowed(result: GlobalSearchResult): Boolean =
-    result.sources.firstOrNull()?.let { !streamOnlyFor(it.sourceId) } ?: false
+    result.sources.any { !streamOnlyFor(it.sourceId) }
 
 /**
  * Spec-15 T6 — the stable source id of a book URL, as a pure function (the
@@ -90,7 +89,8 @@ fun sourceDisplayName(sourceId: String): String = when (sourceId) {
 
 /**
  * Merges raw per-source matches into one card per Work. Deterministic: cards
- * are ordered by title (case-insensitive), sources within a card by sourceId.
+ * are ordered by title (case-insensitive), sources within a card by the shared
+ * capability policy and stable name/id/url ties.
  * Junk rows (blank title or url) are dropped.
  */
 fun mergeGlobalSearchResults(results: List<SourceBook>): List<GlobalSearchResult> {
@@ -110,12 +110,14 @@ fun mergeGlobalSearchResults(results: List<SourceBook>): List<GlobalSearchResult
                 narrator = first.narrator,
                 mergeKey = MergeKey.keyFor(first.title, first.author),
                 coverImageUrl = first.coverImageUrl,
-                // One badge per source, whatever urls it returned; the first
-                // url is the one the card plays from.
-                sources = books
-                    .map { GlobalSearchSource(it.sourceId, sourceDisplayName(it.sourceId), it.url) }
-                    .distinctBy { it.sourceId }
-                    .sortedBy { it.sourceId }
+                // One badge per source, whatever urls it returned. The first
+                // source is the default playback/download choice and follows
+                // the shared capability policy (direct before browser).
+                sources = SourceAccessPolicy.order(
+                    books
+                        .map { SourceAccessCandidate(it.sourceId, sourceDisplayName(it.sourceId), it.url) }
+                        .distinctBy { it.sourceId }
+                ).map { GlobalSearchSource(it.sourceId, it.sourceName, it.url) }
             )
         }
         .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.title })

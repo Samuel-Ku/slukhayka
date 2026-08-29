@@ -28,13 +28,18 @@ object OutcomeMessages {
             result.totalChapters == 0 ->
                 "Не вдалося знайти аудіо для завантаження. Перевірте з'єднання."
             totalOk == 0 ->
-                "Не вдалося завантажити книгу. Спробуйте пізніше."
+                if (result.requiresBrowserRefresh) {
+                    "Не вдалося завантажити книгу. Оновіть 4read через браузер."
+                } else {
+                    "Не вдалося завантажити книгу. Спробуйте пізніше."
+                }
             totalOk < result.totalChapters -> {
                 val base = "Завантажено $totalOk з ${result.totalChapters} глав"
                 val extras = mutableListOf<String>()
                 if (result.sharedChapters > 0) extras.add("${result.sharedChapters} спільно")
                 if (result.reusedChapters > 0) extras.add("${result.reusedChapters} повторно")
-                if (extras.isEmpty()) base else "$base · ${extras.joinToString(" · ")}"
+                val suffix = if (result.requiresBrowserRefresh) " · Оновіть 4read через браузер" else ""
+                if (extras.isEmpty()) base + suffix else "$base · ${extras.joinToString(" · ")}$suffix"
             }
             else -> {
                 val base = "Книгу завантажено для офлайн-прослуховування"

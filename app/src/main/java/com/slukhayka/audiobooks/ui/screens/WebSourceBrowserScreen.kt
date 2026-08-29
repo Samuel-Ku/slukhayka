@@ -74,9 +74,26 @@ fun WebSourceBrowserScreen(
     sourceId: String,
     homeUrl: String,
     displayName: String,
+    recoveryBookId: String? = null,
+    recoveryChapterIndex: Int? = null,
+    recoveryPositionMs: Long = 0L,
     onClose: () -> Unit
 ) {
     val context = LocalContext.current
+    val sessionPrefs = remember {
+        context.getSharedPreferences("source_browser_session", Context.MODE_PRIVATE)
+    }
+    var showMethodNotice by remember(sourceId) {
+        mutableStateOf(
+            sourceId == "4read" &&
+                !sessionPrefs.getBoolean("4read_method_notice_seen", false)
+        )
+    }
+    LaunchedEffect(sourceId) {
+        if (sourceId == "4read") {
+            sessionPrefs.edit().putBoolean("4read_method_notice_seen", true).apply()
+        }
+    }
     var urlInput by remember { mutableStateOf(homeUrl) }
     var currentWebUrl by remember { mutableStateOf(homeUrl) }
     var isLoading by remember { mutableStateOf(false) }
@@ -133,6 +150,9 @@ fun WebSourceBrowserScreen(
     // secondary signal («Додати цю книгу» when the user already pressed the
     // site's «Слухати») — the request-log parser collapses Range repeats.
     var lastCapturedAudioCount by remember { mutableStateOf(0) }
+    val capturedAudioUrls = remember {
+        java.util.Collections.synchronizedList(mutableListOf<String>())
+    }
 
     /**
      * Captures the current page's DOM via evaluateJavascript (no JS bridge —
@@ -166,12 +186,39 @@ fun WebSourceBrowserScreen(
                 unescapeCapturedHtml(inner)
             } ?: ""
             if (decoded.isNotBlank() && decoded.length > 200) {
-                viewModel.importWebSourcePage(sourceId, pageUrl, decoded)
-                importResult = "Книгу додано до медіатеки"
+                if (recoveryBookId != null && recoveryChapterIndex != null) {
+                    viewModel.recoverWebSourcePage(
+                        bookId = recoveryBookId,
+                        sourceId = sourceId,
+                        url = pageUrl,
+                        html = decoded,
+                        capturedAudioUrls = synchronized(capturedAudioUrls) { capturedAudioUrls.toList() },
+                        chapterIndex = recoveryChapterIndex,
+                        positionMs = recoveryPositionMs
+                    ) { success ->
+                        importResult = if (success) {
+                            "Потік оновлено, продовжую прослуховування"
+                        } else {
+                            "Не вдалося оновити потік з цієї сторінки"
+                        }
+                        isImporting = false
+                        if (success) onClose()
+                    }
+                } else {
+                    viewModel.importWebSourcePage(
+                        sourceId,
+                        pageUrl,
+                        decoded,
+                        capturedAudioUrls = synchronized(capturedAudioUrls) { capturedAudioUrls.toList() }
+                    ) { success ->
+                        importResult = if (success) "Книгу додано до медіатеки" else "Сторінку не вдалося прочитати"
+                        isImporting = false
+                    }
+                }
             } else {
                 importResult = "Сторінку не вдалося прочитати"
+                isImporting = false
             }
-            isImporting = false
         }
     }
 
@@ -405,6 +452,32 @@ fun WebSourceBrowserScreen(
             }
         }
 
+        if (showMethodNotice) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(start = 12.dp, end = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Метод 4read змінився: для прослуховування потрібен браузер.",
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.weight(1f)
+                    )
+                    TextButton(onClick = {
+                        showMethodNotice = false
+                        sessionPrefs.edit().putBoolean("4read_method_notice_seen", true).apply()
+                    }) {
+                        Text("Зрозуміло")
+                    }
+                }
+            }
+        }
+
         if (isLoading) {
             LinearProgressIndicator(
                 modifier = Modifier.fillMaxWidth(),
@@ -463,20 +536,23 @@ fun WebSourceBrowserScreen(
                 else -> Box(modifier = Modifier.fillMaxSize()) {
             AndroidView(
                 factory = { ctx ->
-                    // Spec-38 T3 per-source cookie isolation: entering a
-                    // source purges every stored cookie, so two sources'
-                    // sessions can never coexist in the single WebView jar
-                    // (third-party cookies stay rejected below). The current
-                    // source re-earns its own clearance during this session;
-                    // cookies survive the close so the adapter's server-side
-                    // playlist fetches keep riding them until the next entry.
-                    runCatching {
-                        android.webkit.CookieManager.getInstance().apply {
-                            removeAllCookies(null)
-                            flush()
-                        }
-                    }
                     WebView(ctx).apply {
+                        // Keep first-party cookies per source across closing
+                        // and reopening the browser, while purging the global
+                        // jar before restoring this source's own snapshot.
+                        // No third-party cookie is persisted or restored.
+                        val cookieManager = android.webkit.CookieManager.getInstance()
+                        val savedCookies = sessionPrefs.getString("cookies_$sourceId", null)
+                        cookieManager.removeAllCookies {
+                            if (!savedCookies.isNullOrBlank()) {
+                                savedCookies.split(';')
+                                    .map(String::trim)
+                                    .filter(String::isNotBlank)
+                                    .forEach { cookie -> cookieManager.setCookie(homeUrl, cookie) }
+                            }
+                            cookieManager.flush()
+                            post { loadUrl(homeUrl) }
+                        }
                         android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(this@apply, false)
                         settings.apply {
                             javaScriptEnabled = true
@@ -531,8 +607,14 @@ fun WebSourceBrowserScreen(
                             override fun shouldOverrideUrlLoading(view: WebView?, request: android.webkit.WebResourceRequest?): Boolean {
                                 val url = request?.url?.toString() ?: return false
                                 val scheme = request?.url?.scheme?.lowercase() ?: ""
-                                // SEC-011: whitelist http(s) only.
-                                return if (scheme == "http" || scheme == "https") {
+                                // SEC-011: whitelist http(s) and the selected
+                                // source's own page hosts only. Audio CDN
+                                // hosts are observed as subresources, never
+                                // as top-level navigation.
+                                val host = request.url?.host?.lowercase().orEmpty()
+                                return if ((scheme == "http" || scheme == "https") &&
+                                    isAllowedPageNavigationHost(sourceId, host)
+                                ) {
                                     false
                                 } else {
                                     Log.w("WebSource", "Blocked non-http navigation: $url")
@@ -574,8 +656,12 @@ fun WebSourceBrowserScreen(
                                 // the session-side evidence for the S04 device
                                 // checkpoint: the player's TransferListener
                                 // then logs the response code + Referer.
-                                if (looksLikeAudio(url)) {
-                                    lastCapturedAudioCount += 1
+                                val pageHost = runCatching {
+                                    homeUrl.toUri().host?.lowercase()?.removePrefix("www.")
+                                }.getOrNull()
+                                if (looksLikeAudio(url) && isAllowedAudioCaptureHost(sourceId, host, pageHost)) {
+                                    val isNew = synchronized(capturedAudioUrls) { capturedAudioUrls.add(url) }
+                                    if (isNew) lastCapturedAudioCount = capturedAudioUrls.size
                                     Log.w("WebSource", "Audio request in session: $url")
                                 }
                                 return null
@@ -626,7 +712,6 @@ fun WebSourceBrowserScreen(
                                 }
                             }
                         }
-                        loadUrl(homeUrl)
                         webViewInstance = this
                     }
                 },
@@ -719,10 +804,17 @@ fun WebSourceBrowserScreen(
                 } catch (_: Exception) {}
             }
             webViewInstance = null
-            // Spec-38 T3 session hygiene: persist the jar state cleanly; the
-            // current source's cookies stay until the next source entry
-            // purges them (per-source isolation happens at entry).
-            runCatching { android.webkit.CookieManager.getInstance().flush() }
+            // Spec-38 T3 session hygiene: persist only this source's
+            // first-party cookie header. The next source entry purges the
+            // global jar before restoring its own snapshot.
+            runCatching {
+                val cookieManager = android.webkit.CookieManager.getInstance()
+                cookieManager.getCookie(homeUrl)?.takeIf { it.isNotBlank() }?.let { cookies ->
+                    sessionPrefs.edit().putString("cookies_$sourceId", cookies).apply()
+                }
+                cookieManager.flush()
+                sessionPrefs.edit().putBoolean("4read_method_notice_seen", true).apply()
+            }
         }
     }
 }
@@ -772,6 +864,28 @@ private fun looksLikeAudio(url: String): Boolean {
     return lower.contains(".mp3") || lower.contains(".m4a") || lower.contains(".m4b") ||
         lower.contains(".aac") || lower.contains(".ogg") || lower.contains(".opus") ||
         lower.contains(".m3u8") || lower.contains(".pl.txt")
+}
+
+private fun isAllowedAudioCaptureHost(sourceId: String, host: String, pageHost: String?): Boolean {
+    if (host.isBlank()) return false
+    val normalizedPageHost = pageHost?.lowercase()?.removePrefix("www.")
+    return when (sourceId) {
+        "4read" -> host == "4read.org" || host.endsWith(".4read.org") ||
+            host == "reasd.org" || host.endsWith(".reasd.org")
+        "sluhay", "sluhayknigi" ->
+            host == "redirectto.cc" || host.endsWith(".redirectto.cc") ||
+                (normalizedPageHost != null &&
+                    (host == normalizedPageHost || host.endsWith(".$normalizedPageHost")))
+        else -> normalizedPageHost != null &&
+            (host == normalizedPageHost || host.endsWith(".$normalizedPageHost"))
+    }
+}
+
+private fun isAllowedPageNavigationHost(sourceId: String, host: String): Boolean = when (sourceId) {
+    "4read" -> host == "4read.org" || host.endsWith(".4read.org")
+    "sluhay" -> host == "sluhay.com" || host.endsWith(".sluhay.com")
+    "sluhayknigi" -> host == "sluhayknigi.com" || host.endsWith(".sluhayknigi.com")
+    else -> host.isNotBlank()
 }
 
 /** Empty 200 response for blocked hosts. */

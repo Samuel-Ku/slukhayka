@@ -142,12 +142,12 @@ class App : Application() {
 
     /**
      * The ONE shared metadata store behind every consumer (imports, search
-     * durations, search covers, the library cover pass) — a single Firestore
-     * client wrapping the default app, or null without Firebase keys
+     * durations, search covers, the library cover pass, 4read recovery publish)
+     * — a single Firestore client wrapping the default app, or null without Firebase keys
      * (no google-services.json): every shared-cache consumer then degrades
      * to today's behaviour by contract.
      */
-    private val sharedMetaStore: FirestoreBookMetaStore? by lazy {
+    val sharedMetaStore: FirestoreBookMetaStore? by lazy {
         FirestoreBookMetaStore.create(this)
     }
 

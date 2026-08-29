@@ -152,4 +152,32 @@ class OfflineDownloadsFoundationTest {
         assertEquals(DownloadState.DOWNLOADING, bookRow!!.downloadState)
         assertEquals(0.5f, bookRow.downloadProgress, 0.001f)
     }
+
+    @Test
+    fun `book projection uses library defaults while entry is not inserted yet`() = runBlocking {
+        val dao = db.audiobookDao()
+        val bookId = "book-before-entry"
+        dao.insertAudiobooks(
+            listOf(
+                com.slukhayka.audiobooks.data.db.AudiobookEntity(
+                    id = bookId,
+                    title = "T",
+                    author = "A",
+                    narrator = "",
+                    description = "",
+                    coverDrawableRes = 0,
+                    genre = "",
+                    sourceUrl = "",
+                )
+            )
+        )
+
+        val row = dao.getAudiobookById(bookId)
+
+        assertNotNull(row)
+        assertEquals(DownloadState.IDLE, row!!.downloadState)
+        assertEquals(0f, row.downloadProgress, 0.001f)
+        assertEquals(0L, row.createdAt)
+        assertEquals(false, row.isFavorite)
+    }
 }

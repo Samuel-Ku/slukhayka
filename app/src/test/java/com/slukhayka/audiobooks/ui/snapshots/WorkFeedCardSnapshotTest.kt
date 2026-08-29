@@ -117,6 +117,22 @@ class WorkFeedCardSnapshotTest {
     }
 
     @Test
+    fun feed_card_materially_different_Editions_render_an_honest_range() {
+        setContent {
+            WorkFeedCard(
+                row = row("Книга з начитками", "Автор", editionCount = 2)
+                    .copy(durationSeconds = 10_800L, durationMaxSeconds = 43_200L),
+                onClick = {}
+            )
+        }
+        composeTestRule.onNodeWithText("3:00:00–12:00:00").assertExists()
+        composeTestRule.onNodeWithText("2 джерела").assertDoesNotExist()
+        composeTestRule.onRoot().captureRoboImage(
+            filePath = "src/test/snapshots/work_feed_duration_range.png"
+        )
+    }
+
+    @Test
     fun feed_card_unknown_duration_renders_nothing() {
         setContent {
             WorkFeedCard(

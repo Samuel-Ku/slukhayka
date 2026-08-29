@@ -5,12 +5,15 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.unit.Density
 import com.slukhayka.audiobooks.testing.TestDataFactory
 import com.slukhayka.audiobooks.ui.components.CompactBookCard
 import com.slukhayka.audiobooks.ui.library.ListenComposer
@@ -47,6 +50,15 @@ class ListenScreenBlocksSnapshotTest {
 
     private val book = TestDataFactory.dataBooks()[0]
     private val progress = TestDataFactory.seedPlaybackProgress(listOf(book), chapterIndex = 2, positionSeconds = 420L)[0]
+
+    @Composable
+    private fun AtFontScale(fontScale: Float, content: @Composable () -> Unit) {
+        val density = LocalDensity.current
+        CompositionLocalProvider(
+            LocalDensity provides Density(density.density, fontScale = fontScale),
+            content = content
+        )
+    }
     // Spec-24 T1: the hero card shows the BOOK-level position — the chapters
     // before the current one (600 + 660 for fixture book 0) plus the in-
     // chapter offset (420) — the same cumulative value LibraryBook computes.
@@ -270,6 +282,64 @@ class ListenScreenBlocksSnapshotTest {
         composeTestRule.onNodeWithTag("not_interested_${book.id}").assertExists()
         composeTestRule.onRoot().captureRoboImage(
             filePath = "src/test/snapshots/compact_book_card_dismiss.png"
+        )
+    }
+
+    // #372: pin the compact «Не цікаво» indicator at the reporter's font scale.
+    @Test
+    fun compact_book_card_dismiss_font_scale_1_15() {
+        composeTestRule.setContent {
+            AtFontScale(1.15f) {
+                AudiobookTheme(darkTheme = true) {
+                    ListenSurface {
+                        CompactBookCard(book = book, onClick = {}, onNotInterested = {})
+                    }
+                }
+            }
+        }
+        composeTestRule.onNodeWithTag("not_interested_${book.id}").assertExists()
+        composeTestRule.onNodeWithTag("not_interested_visual_${book.id}", useUnmergedTree = true)
+            .assertExists()
+        composeTestRule.onRoot().captureRoboImage(
+            filePath = "src/test/snapshots/compact_book_card_dismiss_font_scale_1_15.png"
+        )
+    }
+
+    // #372: pin a full shelf with compact «Не цікаво» indicators.
+    @Test
+    fun listen_block_shelf_font_scale_1_15() {
+        val books = TestDataFactory.dataBooks()
+        val shelfBooks = buildLibraryBooks(
+            books = books,
+            progressList = emptyList(),
+            chaptersByBook = emptyMap()
+        )
+        composeTestRule.setContent {
+            AtFontScale(1.15f) {
+                AudiobookTheme(darkTheme = true) {
+                    ListenSurface {
+                        Column {
+                            ListenBlockHeader(
+                                title = "Щось коротке",
+                                reason = "~1 год прослуховування",
+                                blockId = ListenComposer.BlockId.SHORT,
+                                onMoveUp = {},
+                                onMoveDown = {},
+                                onHide = {}
+                            )
+                            ListenBlockShelf(
+                                books = shelfBooks,
+                                onBookClick = {},
+                                onNotInterested = {}
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        composeTestRule.onNodeWithText("Нейромант").assertExists()
+        composeTestRule.onRoot().captureRoboImage(
+            filePath = "src/test/snapshots/listen_block_shelf_font_scale_1_15.png"
         )
     }
 

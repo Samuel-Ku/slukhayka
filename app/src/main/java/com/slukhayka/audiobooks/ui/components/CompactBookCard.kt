@@ -30,6 +30,10 @@ import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.ui.displayAuthor
 import com.slukhayka.audiobooks.ui.theme.AppDimens
 
+internal val CompactBookDismissVisualSize = 18.dp
+private val CompactBookDismissIconSize = 12.dp
+private val CompactBookDismissInset = 2.dp
+
 /**
  * ADR-0018 — CompactBookCard: the horizontal-shelf poster (portrait cover,
  * title and author, no default play triangle). Tapping opens the book page.
@@ -147,16 +151,19 @@ fun CompactBookCard(
         }
 
         if (onNotInterested != null) {
+            // #372: the 48 dp touch target stays at the top-right corner, while
+            // the compact «Не цікаво» indicator does not dominate the cover.
             IconButton(
                 onClick = onNotInterested,
                 modifier = Modifier
                     .align(Alignment.TopEnd)
+                    .padding(end = CompactBookDismissInset, top = CompactBookDismissInset)
                     .size(AppDimens.TouchTarget)
                     .testTag("not_interested_${book.id}")
             ) {
                 Box(
                     modifier = Modifier
-                        .size(28.dp)
+                        .size(CompactBookDismissVisualSize)
                         .clip(CircleShape)
                         .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.88f))
                         .testTag("not_interested_visual_${book.id}"),
@@ -166,7 +173,7 @@ fun CompactBookCard(
                         imageVector = Icons.Default.Close,
                         contentDescription = stringResource(R.string.a11y_not_interested_work, book.title),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(16.dp)
+                        modifier = Modifier.size(CompactBookDismissIconSize)
                     )
                 }
             }

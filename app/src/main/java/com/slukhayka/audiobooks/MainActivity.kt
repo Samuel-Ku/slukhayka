@@ -188,6 +188,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
         currentState = fullPlayerTransition.currentState,
         targetState = fullPlayerTransition.targetState
     )
+    var fullPlayerContentPresent by remember { mutableStateOf(false) }
     val playerState by viewModel.playerState.collectAsState()
     val crashReporting = App.instance.crashReporting
     val crashReportingState by crashReporting.state.collectAsState()
@@ -484,7 +485,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                         listeningState = viewModel.listeningState,
                         offlineDownloads = viewModel.offlineDownloads,
                         libraryEntries = viewModel.libraryEntries,
-                        playerModalVisible = fullPlayerModalActive,
+                        playerModalVisible = fullPlayerContentPresent,
                         onBackClick = {
                             bookDetailChildRouteOpen = false
                             bookDetailChildOrigin = null
@@ -721,7 +722,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                         // ADR-0011: the «Інші начитки» block reads the Work's
                         // other rendition cards from the module.
                         libraryEntries = viewModel.libraryEntries,
-                        playerModalVisible = fullPlayerModalActive,
+                        playerModalVisible = fullPlayerContentPresent,
                         onBackClick = {
                             bookDetailChildRouteOpen = false
                             bookDetailChildOrigin = null
@@ -848,6 +849,10 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
         exit = slideOutVertically(targetOffsetY = { it }),
         modifier = Modifier.accessibilityPane(stringResource(R.string.pane_player))
     ) {
+        DisposableEffect(Unit) {
+            fullPlayerContentPresent = true
+            onDispose { fullPlayerContentPresent = false }
+        }
         PlayerScreen(
             viewModel = viewModel,
             // ADR-0008 batch 4 (#159): the module comes in as a parameter from

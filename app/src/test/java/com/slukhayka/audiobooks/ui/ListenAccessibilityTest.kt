@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.player.PlayerState
 import com.slukhayka.audiobooks.testing.TestDataFactory
 import com.slukhayka.audiobooks.ui.components.CompactBookCard
+import com.slukhayka.audiobooks.ui.components.CompactBookDismissVisualSize
 import com.slukhayka.audiobooks.ui.components.MiniPlayerBar
 import com.slukhayka.audiobooks.ui.library.ListenComposer
 import com.slukhayka.audiobooks.ui.screens.ListenBlockHeader
@@ -73,8 +74,11 @@ class ListenAccessibilityTest {
         compose.onNodeWithContentDescription("Не цікаво: ${book.title}")
             .assertIsDisplayed()
             .assertHeightIsAtLeast(48.dp)
+        // #372: the visible indicator shrank so it
+        // no longer dominates the cover; the invisible touch target stays
+        // at >= 48 dp.
         compose.onNodeWithTag("not_interested_visual_${book.id}", useUnmergedTree = true)
-            .assertWidthIsEqualTo(28.dp)
+            .assertWidthIsEqualTo(CompactBookDismissVisualSize)
         compose.onNodeWithContentDescription(book.title, useUnmergedTree = true)
             .assertDoesNotExist()
     }

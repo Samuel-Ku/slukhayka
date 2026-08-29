@@ -485,7 +485,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                         listeningState = viewModel.listeningState,
                         offlineDownloads = viewModel.offlineDownloads,
                         libraryEntries = viewModel.libraryEntries,
-                        playerModalVisible = fullPlayerContentPresent,
+                        playerModalVisible = fullPlayerContentPresent || fullPlayerModalActive,
                         onBackClick = {
                             bookDetailChildRouteOpen = false
                             bookDetailChildOrigin = null
@@ -722,7 +722,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                         // ADR-0011: the «Інші начитки» block reads the Work's
                         // other rendition cards from the module.
                         libraryEntries = viewModel.libraryEntries,
-                        playerModalVisible = fullPlayerContentPresent,
+                        playerModalVisible = fullPlayerContentPresent || fullPlayerModalActive,
                         onBackClick = {
                             bookDetailChildRouteOpen = false
                             bookDetailChildOrigin = null

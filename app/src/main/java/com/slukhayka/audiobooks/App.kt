@@ -17,6 +17,7 @@ import com.slukhayka.audiobooks.data.downloads.OfflineDownloads
 import com.slukhayka.audiobooks.data.duration.ChapterDurationProbe
 import com.slukhayka.audiobooks.data.duration.DurationEnrichment
 import com.slukhayka.audiobooks.data.duration.HttpStreamProber
+import com.slukhayka.audiobooks.data.facets.SharedPreferencesFacetSyncCursorStore
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
 import com.slukhayka.audiobooks.data.imports.LibraryImport
 import com.slukhayka.audiobooks.data.identity.FirebaseListenerIdentity
@@ -277,7 +278,9 @@ class App : Application() {
             // which read as «фільтри не працюють» while the catalogue synced).
             writeBatchRunner = { block ->
                 database.withTransaction { block() }
-            }
+            },
+            sharedFacetStore = sharedMetaStore,
+            facetSyncCursorStore = SharedPreferencesFacetSyncCursorStore(this)
         )
     }
 

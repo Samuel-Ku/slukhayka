@@ -509,6 +509,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                         },
                         returnFocusOrigin = bookDetailChildFocusOrigin
                             ?.takeIf { bookDetailChildEditionId == selectedBookId },
+                        fullPlayerModalActive = fullPlayerModalActive,
                         onChildRouteOpened = { origin ->
                             bookDetailChildRouteOpen = true
                             bookDetailChildOrigin = origin.name
@@ -693,10 +694,16 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                         // The full 10k-capable alphabetical projection is cold:
                         // collect it only while its destination is visible.
                         val canonicalAuthors by viewModel.sourceCatalog.authors.collectAsState(initial = emptyList())
+                        val authorList = authorsIndexResults ?: canonicalAuthors
                         AuthorsIndexScreen(
-                            authors = authorsIndexResults ?: canonicalAuthors,
+                            authors = authorList,
                             onBackClick = { viewModel.closeAuthorsIndex() },
-                            onAuthorClick = viewModel::openCanonicalAuthor
+                            onAuthorClick = { author ->
+                                val idx = authorList.indexOfFirst { it.id == author.id }
+                                    .coerceAtLeast(0)
+                                viewModel.openCanonicalAuthor(author, idx)
+                            },
+                            initialScrollIndex = viewModel.authorsIndexScrollIndex.collectAsState().value
                         )
                     }
 
@@ -768,6 +775,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                         },
                         returnFocusOrigin = bookDetailChildFocusOrigin
                             ?.takeIf { bookDetailChildEditionId == selectedBookId },
+                        fullPlayerModalActive = fullPlayerModalActive,
                         onChildRouteOpened = { origin ->
                             bookDetailChildRouteOpen = true
                             bookDetailChildOrigin = origin.name

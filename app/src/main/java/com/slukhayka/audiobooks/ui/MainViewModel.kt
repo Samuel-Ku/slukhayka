@@ -256,6 +256,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // resolved-profile state; the reviews block unlocks for writing the
         // moment ensure() answers (or degrades to local-only, its contract).
         attachListenerIdentity(listenerIdentityModule)
+        // #394 — observe notification button actions (pause / continue / cancel)
+        viewModelScope.launch {
+            com.slukhayka.audiobooks.data.downloads.DownloadNotificationService.notificationActions.collect { action ->
+                when (action) {
+                    is com.slukhayka.audiobooks.data.downloads.NotificationAction.Pause -> pauseDownload(action.bookId)
+                    is com.slukhayka.audiobooks.data.downloads.NotificationAction.Continue -> continueDownload(action.bookId)
+                    is com.slukhayka.audiobooks.data.downloads.NotificationAction.Cancel -> cancelDownload(action.bookId)
+                }
+            }
+        }
     }
 
     fun refreshCacheSize() {
@@ -741,6 +751,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _canonicalAuthorLoadFailed = MutableStateFlow(false)
     val canonicalAuthorLoadFailed: StateFlow<Boolean> = _canonicalAuthorLoadFailed.asStateFlow()
 
+    // #307: scroll-position restoration — the index of the selected author in
+    // the alphabetical list so Back from the canonical page restores the viewport.
+    private val _authorsIndexScrollIndex = MutableStateFlow(0)
+    val authorsIndexScrollIndex: StateFlow<Int> = _authorsIndexScrollIndex.asStateFlow()
+
     fun openAuthorsIndex() {
         _authorsIndexResults.value = null
         _authorsIndexOpen.value = true
@@ -765,7 +780,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _authorsIndexResults.value = null
     }
 
-    fun openCanonicalAuthor(author: AuthorSummary) {
+    fun openCanonicalAuthor(author: AuthorSummary, authorIndex: Int = 0) {
+        _authorsIndexScrollIndex.value = authorIndex
         _selectedCanonicalAuthor.value = author
         _canonicalAuthorWorks.value = emptyList()
         _canonicalAuthorLoadFailed.value = false
@@ -993,14 +1009,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _feedGenreFilters = MutableStateFlow<Set<String>>(emptySet())
     val feedGenreFilters: StateFlow<Set<String>> = _feedGenreFilters.asStateFlow()
 
+    private val _feedDurationFilters = MutableStateFlow<Set<String>>(emptySet())
+    val feedDurationFilters: StateFlow<Set<String>> = _feedDurationFilters.asStateFlow()
+
     private val _feedSortByTitle = MutableStateFlow(false)
     val feedSortByTitle: StateFlow<Boolean> = _feedSortByTitle.asStateFlow()
 
     val workFeed: Flow<PagingData<WorkFeedRow>> =
-        combine(_feedGenreFilters, _feedSortByTitle) { genres, byTitle -> genres to byTitle }
+        combine(_feedGenreFilters, _feedDurationFilters, _feedSortByTitle) { genres, durations, byTitle ->
+            Triple(genres, durations, byTitle)
+        }
         .distinctUntilChanged()
-        .flatMapLatest { (genres, byTitle) ->
-            val filter = WorkFacetFilter(genreIds = genres)
+        .flatMapLatest { (genres, durations, byTitle) ->
+            val filter = WorkFacetFilter(genreIds = genres, durationBucketIds = durations)
             Pager(
                 config = PagingConfig(pageSize = 30, prefetchDistance = 15, enablePlaceholders = false)
             ) {
@@ -1016,6 +1037,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _feedGenreFilters.value = genres
     }
 
+    fun setFeedDurationFilters(durationBucketIds: Set<String>) {
+        _feedDurationFilters.value = durationBucketIds
+    }
+
     fun setFeedSortByTitle(byTitle: Boolean) {
         _feedSortByTitle.value = byTitle
     }
@@ -1027,7 +1052,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun openWorkFeedRow(row: WorkFeedRow) {
         viewModelScope.launch(Dispatchers.IO) {
-            val source = sourceCatalog.workSourcesForWork(row.workId).firstOrNull() ?: return@launch
+            // A duration-filtered row carries the matching Edition id. When
+            // that rendition is already in the library, open it first; the
+            // other rendition cards stay linked to the same Work and remain
+            // reachable through the existing «Інші начитки» block.
+            val matchingBook = sourceCatalog.libraryBookForEdition(row.matchingEditionId)
+            if (matchingBook != null) {
+                playAudiobook(matchingBook)
+                return@launch
+            }
+            val source = sourceCatalog.workSourcesForWork(
+                workId = row.workId,
+                preferredDurationBucketIds = _feedDurationFilters.value
+            ).firstOrNull() ?: return@launch
             playFromSource(source.sourceId, source.sourceUrl, KnownBookIdentity(row.title, row.author, coverImageUrl = row.coverImageUrl))
         }
     }
@@ -1942,10 +1979,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
         _downloadingBookId.value = bookId
-        viewModelScope.launch(Dispatchers.IO) {
+        val job = viewModelScope.launch(Dispatchers.IO) {
             try {
                 val book = libraryEntries.getBookSync(bookId)
                 startDownloadNotification(bookId, book?.title ?: "", book?.author ?: "")
+                offlineDownloads.registerDownloadJob(bookId, kotlinx.coroutines.currentCoroutineContext()[kotlinx.coroutines.Job]!!)
                 val result = offlineDownloads.downloadAudiobookOffline(bookId)
                 if (_selectedBookId.value == bookId) {
                     _downloadMessage.value = OutcomeMessages.downloadOutcome(result)
@@ -1956,10 +1994,58 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     _downloadMessage.value = OutcomeMessages.downloadFailure()
                 }
             } finally {
+                offlineDownloads.unregisterDownloadJob(bookId)
                 _downloadingBookId.value = null
                 stopDownloadNotification()
                 refreshCacheSize()
             }
+        }
+        offlineDownloads.registerDownloadJob(bookId, job)
+    }
+
+    // #394 — Download controls: pause / continue / cancel
+    fun pauseDownload(bookId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            offlineDownloads.pauseDownload(bookId)
+            _downloadingBookId.value = null
+            com.slukhayka.audiobooks.data.downloads.DownloadNotificationService.notifyPaused(getApplication())
+            refreshCacheSize()
+        }
+    }
+
+    fun continueDownload(bookId: String) {
+        if (_downloadingBookId.value != null) {
+            android.widget.Toast.makeText(getApplication(), "Вже завантажується інша книга", android.widget.Toast.LENGTH_SHORT).show()
+            return
+        }
+        _downloadingBookId.value = bookId
+        val job = viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val book = libraryEntries.getBookSync(bookId)
+                startDownloadNotification(bookId, book?.title ?: "", book?.author ?: "")
+                offlineDownloads.registerDownloadJob(bookId, kotlinx.coroutines.currentCoroutineContext()[kotlinx.coroutines.Job]!!)
+                val result = offlineDownloads.continueDownload(bookId)
+                if (_selectedBookId.value == bookId) {
+                    _downloadMessage.value = OutcomeMessages.downloadOutcome(result)
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("MainViewModel", "Offline continue failed", e)
+            } finally {
+                offlineDownloads.unregisterDownloadJob(bookId)
+                _downloadingBookId.value = null
+                stopDownloadNotification()
+                refreshCacheSize()
+            }
+        }
+        offlineDownloads.registerDownloadJob(bookId, job)
+    }
+
+    fun cancelDownload(bookId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            offlineDownloads.cancelDownload(bookId)
+            _downloadingBookId.value = null
+            stopDownloadNotification()
+            refreshCacheSize()
         }
     }
 

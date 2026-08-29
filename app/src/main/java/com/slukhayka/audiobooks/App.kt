@@ -227,17 +227,15 @@ class App : Application() {
      * fake via the same interface so no WebView is needed there.
      */
     private val sourceAdapters: List<SourceAdapter> by lazy {
+        // Spec-42 #427 — single shared host-aware cookie provider (no per-adapter lambdas).
+        val sharedCookies = com.slukhayka.audiobooks.data.source.AndroidSourceCookieProvider
         listOf(
-            FourReadAdapter(cookieProvider = {
-                runCatching {
-                    android.webkit.CookieManager.getInstance().getCookie("https://4read.org/")
-                }.getOrNull().orEmpty()
-            }),
+            FourReadAdapter(cookieProvider = sharedCookies),
             SoundBooksAdapter(),
             AudiobookMp3Adapter(),
             LihtarAdapter(),
             SluhayuaAdapter(),
-            SluhayAdapter(cookieProvider = com.slukhayka.audiobooks.data.source.AndroidSourceCookieProvider)
+            SluhayAdapter(cookieProvider = sharedCookies)
         )
     }
 

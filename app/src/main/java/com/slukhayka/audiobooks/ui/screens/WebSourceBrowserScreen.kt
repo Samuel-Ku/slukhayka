@@ -312,7 +312,14 @@ fun WebSourceBrowserScreen(
                             )
                         }
                         IconButton(
-                            onClick = { webViewInstance?.loadUrl(homeUrl) },
+                            onClick = {
+                                if (!SourceBrowserPolicy.isUrlAllowed(homeUrl, sourceId)) {
+                                    blockedNavMessage = "Перехід за межі $displayName заблоковано"
+                                } else {
+                                    blockedNavMessage = ""
+                                    webViewInstance?.loadUrl(homeUrl)
+                                }
+                            },
                             modifier = Modifier
                                 .size(AppDimens.TouchTarget)
                                 .semantics { contentDescription = actionLabels.home }
@@ -755,6 +762,12 @@ fun WebSourceBrowserScreen(
                                 }
                             }
                         }
+                        // Spec-42 #427 — programmatic open also through the same allowlist.
+                        if (SourceBrowserPolicy.isUrlAllowed(homeUrl, sourceId)) {
+                            loadUrl(homeUrl)
+                        } else {
+                            Log.w("WebSource", "Blocked initial load outside allowlist for $sourceId: $homeUrl")
+                        }
                         webViewInstance = this
                     }
                 },
@@ -821,6 +834,11 @@ fun WebSourceBrowserScreen(
                             }
                             OutlinedButton(
                                 onClick = {
+                                    // Spec-42 #427 — retry also through allowlist.
+                                    if (!SourceBrowserPolicy.isUrlAllowed(currentWebUrl, sourceId)) {
+                                        blockedNavMessage = "Перехід за межі $displayName заблоковано"
+                                        return@OutlinedButton
+                                    }
                                     hasWebError = false
                                     isLoading = true
                                     webViewInstance?.loadUrl(currentWebUrl)

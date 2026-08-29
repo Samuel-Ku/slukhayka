@@ -1,6 +1,5 @@
 package com.slukhayka.audiobooks.ui.screens
 
-import android.util.Log
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -77,7 +76,6 @@ import com.slukhayka.audiobooks.ui.library.bookPlayState
 import com.slukhayka.audiobooks.ui.library.bookPositionAndTotal
 import com.slukhayka.audiobooks.ui.library.ukPlural
 import com.slukhayka.audiobooks.ui.theme.*
-import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -124,20 +122,18 @@ fun BookDetailScreen(
     var bookmarkToDelete by remember { mutableStateOf<BookmarkEntity?>(null) }
     var bookmarkDeleteOrigin by remember { mutableStateOf<FocusRequester?>(null) }
     var playerReturnFocusChapterId by remember { mutableStateOf<String?>(null) }
-    var playerFocusRestoreArmed by remember { mutableStateOf(false) }
+    var playerReturnFocusRequester by remember { mutableStateOf<FocusRequester?>(null) }
     val deleteTriggerFocusRequester = remember { FocusRequester() }
 
-    LaunchedEffect(playerModalVisible, playerReturnFocusChapterId) {
-        Log.d(
-            "ChapterFocusState",
-            "owner modal=$playerModalVisible id=$playerReturnFocusChapterId armed=$playerFocusRestoreArmed"
-        )
-        if (playerModalVisible && playerReturnFocusChapterId != null) {
-            // Arm only after the player has actually become modal. This keeps
-            // the pre-open focus request from being mistaken for restoration.
-            playerFocusRestoreArmed = true
+    RestoreFocusAfterModal(
+        modalVisible = playerModalVisible,
+        returnFocusRequester = playerReturnFocusRequester,
+        settleFrames = 3,
+        onFocusRestored = {
+            playerReturnFocusChapterId = null
+            playerReturnFocusRequester = null
         }
-    }
+    )
 
     // Spec-40 #277/#278/#280 — «Відгуки»: form open/edit state, delete
     // confirmation target. The store itself rides MainViewModel (null
@@ -718,45 +714,14 @@ fun BookDetailScreen(
                 itemsIndexed(chapters) { index, chapter ->
                     val chapterFocusRequester = remember(chapter.id) { FocusRequester() }
                     LaunchedEffect(
-                        playerModalVisible,
-                        playerFocusRestoreArmed,
                         playerReturnFocusChapterId,
                         chapterFocusRequester
                     ) {
-                        Log.d(
-                            "ChapterFocusState",
-                            "row=${chapter.id} modal=$playerModalVisible id=$playerReturnFocusChapterId " +
-                                "armed=$playerFocusRestoreArmed requester=${chapterFocusRequester.hashCode()}"
-                        )
-                        if (
-                            playerFocusRestoreArmed &&
-                            playerReturnFocusChapterId == chapter.id &&
-                            !playerModalVisible
-                        ) {
-                            // Ancestor focus suppression can leave a row's local
-                            // FocusState stale while semantics correctly reports
-                            // no focused node. Reassert against the live row over
-                            // one bounded second instead of consuming the intent
-                            // from that unreliable signal. If LazyColumn replaces
-                            // the row, disposal cancels this effect and the new
-                            // row resumes the same stable-id intent.
-                            repeat(4) {
-                                delay(250L)
-                                if (
-                                    !playerFocusRestoreArmed ||
-                                    playerReturnFocusChapterId != chapter.id ||
-                                    playerModalVisible
-                                ) {
-                                    return@LaunchedEffect
-                                }
-                                val requested = chapterFocusRequester.requestFocus()
-                                Log.d(
-                                    "ChapterFocusState",
-                                    "request row=${chapter.id} result=$requested"
-                                )
-                            }
-                            playerReturnFocusChapterId = null
-                            playerFocusRestoreArmed = false
+                        if (playerReturnFocusChapterId == chapter.id) {
+                            // Playback inserts the mini-player and can recreate
+                            // this lazy row. Reconnect the stable chapter id to
+                            // the requester attached to the current live node.
+                            playerReturnFocusRequester = chapterFocusRequester
                         }
                     }
                     val isCurrentChapter = playerState.currentBook?.id == currentBook.id &&
@@ -775,9 +740,8 @@ fun BookDetailScreen(
                             // its snapshot. Compose test clicks, unlike keyboard
                             // activation, do not focus the node automatically.
                             chapterFocusRequester.requestFocus()
-                            Log.d("ChapterFocusState", "open row=${chapter.id}")
                             playerReturnFocusChapterId = chapter.id
-                            playerFocusRestoreArmed = false
+                            playerReturnFocusRequester = chapterFocusRequester
                             if (isCurrentChapter) {
                                 viewModel.playerManager.play()
                             } else {
@@ -1525,8 +1489,11 @@ fun ChapterRowItem(
             // specific chapter regardless of ordering. Pure UI annotation; does
             // not change runtime behaviour.
             .testTag("book_detail_chapter_${chapter.id}")
-            .then(focusRequester?.let { Modifier.focusRequester(it) } ?: Modifier)
             .clickable { onAction() }
+            // clickable contributes its own focus target. Place the requester
+            // after it so restoration addresses the explicit accessibility
+            // target below, whose Focused state belongs to this semantics node.
+            .then(focusRequester?.let { Modifier.focusRequester(it) } ?: Modifier)
             // A chapter is a destination in the reading flow. Make its focus target
             // explicit so TalkBack and physical-device semantics can move to it
             // before activation (clickable alone was not reliable here).

@@ -188,6 +188,9 @@ fun HomeScreen(
     val scope = rememberCoroutineScope()
     val recommendationSnackbar = remember { SnackbarHostState() }
     LaunchedEffect(Unit) {
+        // One cancellable delta chain for this active Огляд session. Filters,
+        // cards and recompositions only read Room; none of them touch Firestore.
+        launch { sourceCatalog.syncSharedFacets() }
         sourceCatalog.refreshUnifiedCatalog()
         sourceCatalog.refreshSourceFeeds()
         viewModel.refreshEmbeddingVectors()

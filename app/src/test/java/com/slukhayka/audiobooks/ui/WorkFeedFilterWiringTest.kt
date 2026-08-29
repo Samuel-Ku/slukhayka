@@ -21,7 +21,11 @@ import com.slukhayka.audiobooks.data.db.AudiobookDatabase
 import com.slukhayka.audiobooks.data.db.GenreFacetOption
 import com.slukhayka.audiobooks.data.db.WorkFeedRow
 import com.slukhayka.audiobooks.data.facets.WorkFacetFilter
+import com.slukhayka.audiobooks.data.facets.InMemoryFacetSyncCursorStore
 import com.slukhayka.audiobooks.data.imports.LibraryImport
+import com.slukhayka.audiobooks.data.metadata.FacetAssertion
+import com.slukhayka.audiobooks.data.metadata.FacetGenre
+import com.slukhayka.audiobooks.testing.FakeSharedBookMetaStore
 import com.slukhayka.audiobooks.ui.screens.homeFeedContent
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
 import kotlinx.coroutines.CoroutineScope
@@ -30,6 +34,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertTrue
@@ -300,5 +305,86 @@ class WorkFeedFilterWiringTest {
         } finally {
             writer.interrupt()
         }
+    }
+
+    @Test
+    fun landing_delta_keeps_the_selected_filter_and_refreshes_the_paged_feed() = runBlocking {
+        catalog.writeWorkEdition("4read", "Дюна", "Френк Герберт", "", "https://4read.org/dune")
+        catalog.writeWorkEdition("4read", "Відьмак", "Анджей Сапковський", "", "https://4read.org/witcher")
+        val works = dao.observeWorks().first().associateBy { it.title }
+        val shared = FakeSharedBookMetaStore()
+        shared.putFacet(
+            FacetAssertion.Work(
+                workId = works.getValue("Дюна").id,
+                sourceId = "community",
+                genres = listOf(FacetGenre("science-fiction", "Фантастика")),
+                observedAt = 10,
+                updatedAt = 10
+            )
+        )
+        catalog = SourceCatalog(
+            dao,
+            emptyList(),
+            LibraryImport(dao, context, emptyList()),
+            sharedFacetStore = shared,
+            facetSyncCursorStore = InMemoryFacetSyncCursorStore(),
+            facetSyncNowMillis = { 11 }
+        )
+        val genreFilters = MutableStateFlow(setOf("science-fiction"))
+        val sortByTitle = MutableStateFlow(false)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        lateinit var feed: LazyPagingItems<WorkFeedRow>
+
+        compose.setContent {
+            AudiobookTheme(darkTheme = true) {
+                feed = feedChain(genreFilters, sortByTitle, scope).collectAsLazyPagingItems()
+                val fg by genreFilters.collectAsState()
+                val st by sortByTitle.collectAsState()
+                LazyColumn {
+                    homeFeedContent(
+                        isCatalogLoading = false,
+                        hasLibraryBooks = false,
+                        sections = emptyList(),
+                        genreFacetOptions = listOf(
+                            GenreFacetOption("science-fiction", "Фантастика", 1)
+                        ),
+                        collections = emptyList(),
+                        newArrivals = emptyList(),
+                        recommendedBooks = emptyList(),
+                        personalCycles = emptyList(),
+                        shortBooks = emptyList(),
+                        longBooks = emptyList(),
+                        workFeedItems = feed,
+                        feedGenreFilters = fg,
+                        feedSortByTitle = st,
+                        onRefreshCatalog = {},
+                        onGoToLibrary = {},
+                        onOpenTop100 = {},
+                        onOpenPeople = {},
+                        onOpenSeriesIndex = {},
+                        onOpenCollectionsIndex = {},
+                        onOpenSeries = { _, _ -> },
+                        onPlayGlobalSearchResult = {},
+                        onOpenRecommendedBook = {},
+                        onOpenWorkFeedRow = {},
+                        onBookClick = {},
+                        onSetFeedGenreFilters = { genreFilters.value = it },
+                        onSetFeedSortByTitle = { sortByTitle.value = it }
+                    )
+                }
+            }
+        }
+
+        compose.waitUntil(20_000) {
+            feed.loadState.refresh !is androidx.paging.LoadState.Loading && feed.itemCount == 0
+        }
+        catalog.syncSharedFacets(pageSize = 10, maxPages = 2)
+        compose.waitUntil(20_000) {
+            compose.onAllNodesWithText("Дюна").fetchSemanticsNodes().size == 1
+        }
+
+        assertTrue(genreFilters.value == setOf("science-fiction"))
+        assertTrue(compose.onAllNodesWithText("Дюна").fetchSemanticsNodes().size == 1)
+        assertTrue(compose.onAllNodesWithText("Відьмак").fetchSemanticsNodes().isEmpty())
     }
 }

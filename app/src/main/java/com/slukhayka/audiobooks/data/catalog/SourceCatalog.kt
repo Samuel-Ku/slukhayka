@@ -15,6 +15,10 @@ import com.slukhayka.audiobooks.data.db.SourceTrackEntity
 import com.slukhayka.audiobooks.data.db.WorkEntity
 import com.slukhayka.audiobooks.data.db.WorkFeedRow
 import com.slukhayka.audiobooks.data.db.WorkSourceEntity
+import com.slukhayka.audiobooks.data.metadata.FacetPageLimits
+import com.slukhayka.audiobooks.data.metadata.SharedBookMetaStore
+import com.slukhayka.audiobooks.data.facets.FacetDeltaSync
+import com.slukhayka.audiobooks.data.facets.FacetSyncCursorStore
 import com.slukhayka.audiobooks.data.facets.GenreFacetAssertion
 import com.slukhayka.audiobooks.data.facets.GenreSourceFacetReplacement
 import com.slukhayka.audiobooks.data.facets.LocalFacetDelta
@@ -102,10 +106,27 @@ class SourceCatalog(
     // generation, which is exactly why the feed's filters looked dead while
     // the catalogue kept syncing. Identity by default; the composition root
     // supplies the real Room withTransaction.
-    private val writeBatchRunner: suspend (suspend () -> Unit) -> Unit = { it() }
+    private val writeBatchRunner: suspend (suspend () -> Unit) -> Unit = { it() },
+    private val sharedFacetStore: SharedBookMetaStore? = null,
+    private val facetSyncCursorStore: FacetSyncCursorStore? = null,
+    private val facetSyncNowMillis: () -> Long = System::currentTimeMillis
 ) {
     /** Frozen local-write seam consumed by the later shared delta lane. */
     val facetWriter: LocalFacetWriter = RoomLocalFacetWriter(dao)
+
+    private val facetDeltaSync: FacetDeltaSync? =
+        if (sharedFacetStore != null && facetSyncCursorStore != null) {
+            FacetDeltaSync(sharedFacetStore, facetWriter, facetSyncCursorStore, facetSyncNowMillis)
+        } else {
+            null
+        }
+
+    /** One bounded chain per active Огляд composition; all interactions remain local. */
+    suspend fun syncSharedFacets(
+        pageSize: Int = FacetPageLimits.MAX_PAGE_SIZE,
+        maxPages: Int = 20
+    ): FacetDeltaSync.ChainResult =
+        facetDeltaSync?.syncAvailablePages(pageSize, maxPages) ?: FacetDeltaSync.ChainResult(0, 0)
 
     /** Bounded local options for the filter sheet; never a Work materialization. */
     val genreFacetOptions = dao.observeGenreFacetOptions()

@@ -27,7 +27,10 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -36,8 +39,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.data.authors.AuthorSummary
 import com.slukhayka.audiobooks.data.db.WorkEntity
+import com.slukhayka.audiobooks.data.db.PersonBookmarkKey
+import com.slukhayka.audiobooks.data.db.PersonRole
+import com.slukhayka.audiobooks.data.personbookmarks.PersonBookmarks
 import com.slukhayka.audiobooks.ui.components.IndexEmptyState
 import com.slukhayka.audiobooks.ui.library.ukPlural
+import kotlinx.coroutines.launch
 
 private const val INLINE_AUTHOR_LIMIT = 5
 
@@ -62,9 +69,40 @@ fun CanonicalAuthorScreen(
     isLoading: Boolean,
     loadFailed: Boolean,
     onBackClick: () -> Unit,
-    onWorkClick: (WorkEntity) -> Unit
+    onWorkClick: (WorkEntity) -> Unit,
+    personBookmarks: PersonBookmarks
 ) {
-    AuthorDiscoveryScaffold(title = author.displayName, onBackClick = onBackClick) { modifier ->
+    val identity = remember(author.displayName) {
+        personBookmarks.identity(PersonRole.AUTHOR, author.displayName)
+    }
+    val bookmarkFlow = remember(identity) {
+        personBookmarks.observePersonBookmark(identity.role.storageValue, identity.id)
+    }
+    val bookmark by bookmarkFlow.collectAsState(initial = null)
+    val scope = rememberCoroutineScope()
+
+    AuthorDiscoveryScaffold(
+        title = author.displayName,
+        onBackClick = onBackClick,
+        actions = {
+            PersonBookmarkButton(
+                isBookmarked = bookmark != null,
+                notifyEnabled = bookmark?.notifyEnabled ?: true,
+                personName = author.displayName,
+                onToggle = {
+                    scope.launch { personBookmarks.toggle(identity) }
+                },
+                onToggleNotify = { enabled ->
+                    scope.launch {
+                        personBookmarks.setNotifyEnabled(
+                            PersonBookmarkKey(identity.role, identity.id),
+                            enabled
+                        )
+                    }
+                }
+            )
+        }
+    ) { modifier ->
         CanonicalAuthorContent(
             author = author,
             works = works,
@@ -81,6 +119,7 @@ fun CanonicalAuthorScreen(
 private fun AuthorDiscoveryScaffold(
     title: String,
     onBackClick: () -> Unit,
+    actions: @Composable () -> Unit = {},
     content: @Composable (Modifier) -> Unit
 ) {
     Scaffold(
@@ -93,6 +132,7 @@ private fun AuthorDiscoveryScaffold(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
                     }
                 },
+                actions = { actions() },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
             )
         },

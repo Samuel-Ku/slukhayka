@@ -35,6 +35,7 @@ import com.slukhayka.audiobooks.data.metadata.LibraryCoverResolver
 import com.slukhayka.audiobooks.data.metadata.SearchCoverResolver
 import com.slukhayka.audiobooks.data.metadata.SearchDurationResolver
 import com.slukhayka.audiobooks.data.metadata.StoredMetadataScrub
+import com.slukhayka.audiobooks.data.personbookmarks.PersonBookmarks
 import com.slukhayka.audiobooks.data.reviews.FirestoreListenerReviewsStore
 import com.slukhayka.audiobooks.data.reviews.FirestoreNarrationRatingsStore
 import com.slukhayka.audiobooks.data.recommend.RecommendationSettingsStore
@@ -76,8 +77,9 @@ import kotlinx.coroutines.launch
 /**
  * Application-scoped dependency graph.
  *
- * ADR-0002 (#140): the five deep modules compose here — Listening State,
- * Library Import, Source Catalog, Offline Downloads, Library Entries — and
+ * ADR-0002 (#140), ADR-0008 and #399: the six deep modules compose here —
+ * Listening State, Library Import, Source Catalog, Offline Downloads,
+ * Library Entries and Person Bookmarks — and
  * are shared by MainViewModel, PlaybackService and the widgets. The god
  * repository is gone; every caller composes these modules directly.
  *
@@ -100,6 +102,9 @@ class App : Application() {
 
     /** Spec-40 #281 — the local mute table's DAO, for the reviews' hide flow. */
     val audiobookDao: AudiobookDao get() = database.audiobookDao()
+
+    /** #399 — process-scoped local person-bookmark module. */
+    val personBookmarks: PersonBookmarks by lazy { PersonBookmarks(audiobookDao) }
 
     /** #290 — local personalization controls; shared upload is not part of this graph. */
     val recommendationSettings: RecommendationSettingsStore by lazy {

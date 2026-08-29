@@ -20,7 +20,7 @@ class AndroidEmulatorReadinessTest(unittest.TestCase):
         self.fake_adb.write_text(
             "#!/usr/bin/env bash\n"
             "set -u\n"
-            "if [[ $* == 'wait-for-device' ]]; then exit 0; fi\n"
+            "if [[ $* == 'wait-for-device' ]]; then sleep \"${FAKE_ADB_WAIT_SECONDS:-0}\"; exit 0; fi\n"
             "if [[ $* == 'shell getprop sys.boot_completed' ]]; then echo 1; exit 0; fi\n"
             "if [[ $* == 'shell service check package' ]]; then\n"
             "  count=0\n"
@@ -48,13 +48,22 @@ class AndroidEmulatorReadinessTest(unittest.TestCase):
     def tearDown(self):
         self.temp_dir.cleanup()
 
-    def run_readiness(self, *, ready_after: int, attempts: int):
+    def run_readiness(
+        self,
+        *,
+        ready_after: int,
+        attempts: int,
+        wait_seconds: str = "0",
+        device_timeout_seconds: str = "2",
+    ):
         environment = os.environ.copy()
         environment.update(
             {
                 "PATH": f"{self.root}:/usr/bin:/bin",
                 "FAKE_ADB_STATE": str(self.state),
                 "FAKE_ADB_READY_AFTER": str(ready_after),
+                "FAKE_ADB_WAIT_SECONDS": wait_seconds,
+                "ANDROID_DEVICE_READY_TIMEOUT_SECONDS": device_timeout_seconds,
                 "ANDROID_PACKAGE_READY_ATTEMPTS": str(attempts),
                 "ANDROID_PACKAGE_READY_SLEEP_SECONDS": "0",
             }
@@ -79,6 +88,18 @@ class AndroidEmulatorReadinessTest(unittest.TestCase):
 
         self.assertNotEqual(0, result.returncode)
         self.assertIn("Android package service did not become ready", result.stderr)
+        self.assertIn("emulator-5554 device", result.stderr)
+
+    def test_fails_with_diagnostics_when_device_never_becomes_available(self):
+        result = self.run_readiness(
+            ready_after=1,
+            attempts=1,
+            wait_seconds="2",
+            device_timeout_seconds="1",
+        )
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("Android device did not become available within 1s", result.stderr)
         self.assertIn("emulator-5554 device", result.stderr)
 
     def test_workflow_builds_apks_before_starting_the_emulator(self):

@@ -1,5 +1,7 @@
 package com.slukhayka.audiobooks.data.catalog
 
+import com.slukhayka.audiobooks.data.db.PersonRole
+
 /**
  * Pure-JVM parser for the 4read.org catalogue (no Android dependencies, so it
  * is unit-testable with plain JUnit on HTML fixtures — see
@@ -54,7 +56,8 @@ data class CatalogPerson(
     val name: String,
     /** Raw site path, e.g. `/xfsearch/chitaet/Ім'я/` (encoded on fetch). */
     val path: String,
-    val bookCount: Int
+    val bookCount: Int,
+    val role: PersonRole
 )
 
 /** One series (cycle) chip shown in the "Цикли" row. */
@@ -386,7 +389,16 @@ object CatalogParser {
                 val name = label.substringBefore(" - ").trim()
                 if (name.length < 2) return@mapNotNull null
                 val count = Regex(""" - (\d+) книг""").find(label)?.groupValues?.get(1)?.toIntOrNull() ?: 0
-                CatalogPerson(name = name, path = m.groupValues[1], bookCount = count)
+                CatalogPerson(
+                    name = name,
+                    path = m.groupValues[1],
+                    bookCount = count,
+                    role = if (m.groupValues[1].contains("chitaet")) {
+                        PersonRole.NARRATOR
+                    } else {
+                        PersonRole.AUTHOR
+                    }
+                )
             }
             .toList()
     }

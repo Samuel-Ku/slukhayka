@@ -139,23 +139,26 @@ class DuplicateWorkMerger(private val dao: AudiobookDao) {
         val loserWork = loser.workId ?: loser.id
         val survivorWork = survivor.workId ?: survivor.id
         if (loserWork != survivorWork) {
-            val survivorWorkEntity = dao.getWorkById(survivorWork) ?: WorkEntity(
-                id = survivorWork,
-                mergeKey = survivor.mergeKey.orEmpty(),
-                title = MetadataAssertions.normalizeTitle(survivor.title),
-                author = survivor.author.trim(),
-                seriesTitle = survivor.seriesTitle,
-                seriesUrl = survivor.seriesUrl,
-                seriesIndex = survivor.seriesIndex,
-                coverImageUrl = survivor.coverImageUrl,
-                addedAt = survivor.createdAt
-            )
-            val survivorWorkSources = dao.getWorkSourcesForWorkSync(survivorWork)
-            dao.getWorkSourcesForWorkSync(loserWork).forEach { source ->
-                // Skip a carrier the survivor already has (same source + url) —
-                // the «N джерел» badge must not double-count one source.
-                if (survivorWorkSources.none { it.sourceId == source.sourceId && it.sourceUrl == source.sourceUrl }) {
-                    dao.upsertWorkSourceSafe(source.copy(workId = survivorWork))
+            // #388 — ensure survivor Work exists before re-pointing carriers;
+            // a blank-key survivor (no Works row) cannot be a FK parent.
+            val survivorWorkExists = if (survivorWork == survivor.id) {
+                dao.getWorkById(survivorWork) != null
+            } else {
+                true
+            }
+            if (!survivorWorkExists) {
+                android.util.Log.w(
+                    "DuplicateWorkMerger",
+                    "skip re-pointing work_sources: survivor work $survivorWork not found"
+                )
+            } else {
+                val survivorWorkSources = dao.getWorkSourcesForWorkSync(survivorWork)
+                dao.getWorkSourcesForWorkSync(loserWork).forEach { source ->
+                    // Skip a carrier the survivor already has (same source + url) —
+                    // the «N джерел» badge must not double-count one source.
+                    if (survivorWorkSources.none { it.sourceId == source.sourceId && it.sourceUrl == source.sourceUrl }) {
+                        dao.safeUpsertWorkSource(source.copy(workId = survivorWork))
+                    }
                 }
             }
             val survivorSeries = dao.getSeriesMembersForWork(survivorWork).map { it.seriesId }.toSet()

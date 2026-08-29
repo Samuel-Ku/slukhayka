@@ -55,6 +55,7 @@ import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.BookmarkEntity
 import com.slukhayka.audiobooks.data.db.ChapterEntity
 import com.slukhayka.audiobooks.data.db.PersonBookmarkKey
+import com.slukhayka.audiobooks.data.db.DownloadState
 import com.slukhayka.audiobooks.data.db.PersonRole
 import com.slukhayka.audiobooks.data.downloads.OfflineDownloads
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
@@ -1181,7 +1182,7 @@ fun BookDetailScreen(
     // focus on the exact launcher across sheet -> confirmation transitions.
     BookDeleteModalLifecycle(
         workTitle = currentBook.title,
-        isDownloaded = currentBook.isDownloaded,
+        isDownloaded = currentBook.isDownloaded || currentBook.downloadState == DownloadState.PAUSED,
         showOptions = showDeleteSheet,
         showConfirmation = showDeleteDialog,
         returnFocusRequester = deleteTriggerFocusRequester,

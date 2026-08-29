@@ -47,6 +47,24 @@ _Avoid_: Collection, shelf
 A Work's place in a Series, including its position when known. One Work may have more than one Series Membership.
 _Avoid_: Series, volume file
 
+## Source access (spec #425/#426, v1.3.7)
+
+**Direct Source**:
+A Source whose Adapter declares direct access — its pages and audio come through the plain transport with no browser session. The preferred class everywhere one Edition is opened; a temporary outage never reclassifies it.
+_Avoid_: trusted source, fast source, unauthenticated source
+
+**Browser Source**:
+A Source whose Adapter declares browser access — reachable only through the listener's in-app WebView session (4read after its August 2026 change). A declared fallback, never a default: the browser opens only after a listener action and only after direct options fail.
+_Avoid_: broken source, legacy source, system browser
+
+**4read Recovery**:
+The listener-initiated refresh of one existing Edition's Source tracks: the exact 4read book page opens in the in-app browser (a missing page falls back to pre-filled 4read search), the listener passes the site's check, and the app captures the real audio. It succeeds only on an actual playback verdict and never forks a duplicate Work, Edition, or Source.
+_Avoid_: automatic WebView, re-import as a new book, URL-prefix success
+
+**Verified Source×Edition Profile**:
+An anonymously shared, provenance-bearing claim that one Source URL actually started playback and passed a clean cookie-free probe. Read before recovery so the next listener may skip the browser; it never carries cookies, audio files, browser history, or listener identity, and unavailable shared storage removes only the shortcut, never the local flow.
+_Avoid_: session sharing, publishing cookie-bound URLs
+
 ## Metadata
 
 **Metadata Assertion**:

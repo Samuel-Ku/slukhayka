@@ -200,6 +200,10 @@ class RoomLocalFacetWriter(private val dao: AudiobookDao) : LocalFacetWriter {
                 require(edition.narratorId == null || edition.narratorId.length <= 80)
                 require(edition.language == null || edition.language.length <= 24)
                 require(edition.durationBucketId == null || edition.durationBucketId.length <= 40)
+                require(
+                    edition.durationBucketId == null ||
+                        FacetDurationBucket.fromWireName(edition.durationBucketId) != null
+                ) { "Unknown Edition duration bucket" }
                 require(edition.updatedAt >= 0)
                 val availabilityParts = listOf(
                     edition.availabilityAvailable,
@@ -218,6 +222,8 @@ class RoomLocalFacetWriter(private val dao: AudiobookDao) : LocalFacetWriter {
                 val durationBucketId = if (edition.durationSeconds != null) {
                     plausibleDuration?.let(EditionDurationPolicy::bucketFor)?.wireName
                 } else {
+                    // Canonical shared facet documents carry a validated
+                    // precomputed bucket plus durationRef, not the seconds.
                     edition.durationBucketId
                 }
                 EditionFacetEntity(

@@ -15,9 +15,6 @@ import com.slukhayka.audiobooks.data.db.SourceTrackEntity
 import com.slukhayka.audiobooks.data.db.WorkEntity
 import com.slukhayka.audiobooks.data.db.WorkFeedRow
 import com.slukhayka.audiobooks.data.db.WorkSourceEntity
-import com.slukhayka.audiobooks.data.imports.LibraryImport
-import com.slukhayka.audiobooks.data.merge.MergeKey
-import com.slukhayka.audiobooks.data.metadata.MetadataAssertions
 import com.slukhayka.audiobooks.data.facets.GenreFacetAssertion
 import com.slukhayka.audiobooks.data.facets.GenreSourceFacetReplacement
 import com.slukhayka.audiobooks.data.facets.LocalFacetDelta
@@ -25,6 +22,10 @@ import com.slukhayka.audiobooks.data.facets.LocalFacetWriter
 import com.slukhayka.audiobooks.data.facets.RoomLocalFacetWriter
 import com.slukhayka.audiobooks.data.facets.WorkFacetDelta
 import com.slukhayka.audiobooks.data.facets.WorkFacetFilter
+import com.slukhayka.audiobooks.data.imports.LibraryImport
+import com.slukhayka.audiobooks.data.merge.MergeKey
+import com.slukhayka.audiobooks.data.metadata.EditionDurationPolicy
+import com.slukhayka.audiobooks.data.metadata.MetadataAssertions
 import com.slukhayka.audiobooks.data.metadata.SearchCoverResolver
 import com.slukhayka.audiobooks.data.metadata.SearchDurationResolver
 import com.slukhayka.audiobooks.data.search.SearchCache
@@ -1015,19 +1016,27 @@ class SourceCatalog(
     // ---------------------------------------------------------------------
 
     /** Endless feed, newest Works first. */
-    fun pagedWorkFeedRecent(filter: WorkFacetFilter = WorkFacetFilter()): PagingSource<Int, WorkFeedRow> =
+    fun pagedWorkFeedRecent(
+        filter: WorkFacetFilter = WorkFacetFilter(),
+        availabilityAtMillis: Long = System.currentTimeMillis()
+    ): PagingSource<Int, WorkFeedRow> =
         dao.pagedWorksFeedRecent(
             filter.genreIds.toList(), if (filter.genreIds.isEmpty()) 0 else 1,
             filter.durationBucketIds.toList(), if (filter.durationBucketIds.isEmpty()) 0 else 1,
-            filter.authorIds.toList(), if (filter.authorIds.isEmpty()) 0 else 1
+            filter.authorIds.toList(), if (filter.authorIds.isEmpty()) 0 else 1,
+            availabilityAtMillis
         )
 
     /** Endless feed, sorted by title (stable tiebreak: newest first). */
-    fun pagedWorkFeedByTitle(filter: WorkFacetFilter = WorkFacetFilter()): PagingSource<Int, WorkFeedRow> =
+    fun pagedWorkFeedByTitle(
+        filter: WorkFacetFilter = WorkFacetFilter(),
+        availabilityAtMillis: Long = System.currentTimeMillis()
+    ): PagingSource<Int, WorkFeedRow> =
         dao.pagedWorksFeedByTitle(
             filter.genreIds.toList(), if (filter.genreIds.isEmpty()) 0 else 1,
             filter.durationBucketIds.toList(), if (filter.durationBucketIds.isEmpty()) 0 else 1,
-            filter.authorIds.toList(), if (filter.authorIds.isEmpty()) 0 else 1
+            filter.authorIds.toList(), if (filter.authorIds.isEmpty()) 0 else 1,
+            availabilityAtMillis
         )
 
     /** The Sources carrying one Work, in the shared capability order. */
@@ -1038,6 +1047,12 @@ class SourceCatalog(
         ).mapNotNull { candidate ->
             sources.firstOrNull { it.sourceId == candidate.sourceId && it.sourceUrl == candidate.url }
         }
+    }
+
+    /** Resolves an already imported rendition without collapsing its sibling Editions. */
+    suspend fun libraryBookForEdition(editionId: String?): AudiobookEntity? {
+        val edition = editionId?.let { dao.getEditionById(it) } ?: return null
+        return dao.getAudiobookById(edition.workId)?.toAudiobookEntity()
     }
 
     /**

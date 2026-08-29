@@ -1,6 +1,5 @@
 package com.slukhayka.audiobooks.ui.screens
 
-import android.util.Log
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -147,6 +146,7 @@ fun BookDetailScreen(
     val narrationRatingDeleteFocusRequester = remember { FocusRequester() }
 
     val currentBook = book ?: return
+    var initialTitleFocusPending by remember(currentBook.id) { mutableStateOf(true) }
     val isDownloadingThis = downloadingBookId == currentBook.id
     // ADR-0011: the other rendition cards of this Work — the «Інші начитки»
     // block. Cold flow collected once per composition; the pure filter is
@@ -556,6 +556,8 @@ fun BookDetailScreen(
                         book = currentBook,
                         presentation = detailPresentation,
                         universeName = bookUniverse?.universeName,
+                        requestInitialFocus = initialTitleFocusPending,
+                        onInitialFocusHandled = { initialTitleFocusPending = false },
                         returnFocusOrigin = returnFocusOrigin,
                         onChildRouteOpened = onChildRouteOpened,
                         onReturnFocusRestored = onReturnFocusRestored,
@@ -717,7 +719,6 @@ fun BookDetailScreen(
                             // recreated while the full player is open; always
                             // reconnect the stable chapter id to its live node.
                             playerReturnFocusRequester = chapterFocusRequester
-                            Log.d("FocusRestoreProbe", "connected chapter=${chapter.id}")
                         }
                     }
                     val isCurrentChapter = playerState.currentBook?.id == currentBook.id &&
@@ -731,7 +732,6 @@ fun BookDetailScreen(
                         isPlaying = isPlayingThis,
                         focusRequester = chapterFocusRequester,
                         onPlayClick = {
-                            Log.d("FocusRestoreProbe", "opened chapter=${chapter.id}")
                             playerReturnFocusChapterId = chapter.id
                             playerReturnFocusRequester = chapterFocusRequester
                             if (isCurrentChapter) {
@@ -1994,6 +1994,8 @@ fun BookDetailIdentityHeader(
     onNarratorClick: (String) -> Unit = {},
     onSeriesClick: (String, String) -> Unit = { _, _ -> },
     onWrongUniverse: () -> Unit = {},
+    requestInitialFocus: Boolean = true,
+    onInitialFocusHandled: () -> Unit = {},
     returnFocusOrigin: BookDetailLinkOrigin? = null,
     onChildRouteOpened: (BookDetailLinkOrigin) -> Unit = {},
     onReturnFocusRestored: (BookDetailLinkOrigin) -> Unit = {}
@@ -2035,6 +2037,8 @@ fun BookDetailIdentityHeader(
         onNarratorClick = onNarratorClick,
         onSeriesClick = onSeriesClick,
         onWrongUniverse = onWrongUniverse,
+        requestInitialFocus = requestInitialFocus,
+        onInitialFocusHandled = onInitialFocusHandled,
         returnFocusOrigin = returnFocusOrigin,
         onChildRouteOpened = onChildRouteOpened,
         onReturnFocusRestored = onReturnFocusRestored
@@ -2066,6 +2070,8 @@ fun BookDetailCanonicalSummary(
     onNarratorClick: (String) -> Unit = {},
     onSeriesClick: (String, String) -> Unit = { _, _ -> },
     onWrongUniverse: () -> Unit = {},
+    requestInitialFocus: Boolean = true,
+    onInitialFocusHandled: () -> Unit = {},
     returnFocusOrigin: BookDetailLinkOrigin? = null,
     onChildRouteOpened: (BookDetailLinkOrigin) -> Unit = {},
     onReturnFocusRestored: (BookDetailLinkOrigin) -> Unit = {}
@@ -2075,9 +2081,11 @@ fun BookDetailCanonicalSummary(
     val authorFocusRequester = remember { FocusRequester() }
     val narratorFocusRequester = remember { FocusRequester() }
     val seriesFocusRequester = remember { FocusRequester() }
-    LaunchedEffect(entryFocusKey) {
-        withFrameNanos { }
-        if (returnFocusOrigin == null) titleFocusRequester.requestFocus()
+    LaunchedEffect(entryFocusKey, requestInitialFocus, returnFocusOrigin) {
+        if (requestInitialFocus && returnFocusOrigin == null) {
+            withFrameNanos { }
+            if (titleFocusRequester.requestFocus()) onInitialFocusHandled()
+        }
     }
     LaunchedEffect(returnFocusOrigin) {
         val origin = returnFocusOrigin ?: return@LaunchedEffect

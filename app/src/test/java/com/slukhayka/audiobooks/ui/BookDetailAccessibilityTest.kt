@@ -121,6 +121,43 @@ class BookDetailAccessibilityTest {
     }
 
     @Test
+    fun recomposingIdentityHeaderDoesNotRepeatItsInitialFocus() {
+        val presentation = bookDetailPresentation(book, emptyList(), emptyList())
+        var showHeader by mutableStateOf(true)
+        var initialFocusPending by mutableStateOf(true)
+
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                Column {
+                    if (showHeader) {
+                        BookDetailCanonicalSummary(
+                            presentation = presentation,
+                            requestInitialFocus = initialFocusPending,
+                            onInitialFocusHandled = { initialFocusPending = false }
+                        )
+                    }
+                    Button(
+                        onClick = {},
+                        modifier = Modifier.testTag("outside_recomposed_heading")
+                    ) {
+                        Text("Інша дія")
+                    }
+                }
+            }
+        }
+
+        composeTestRule.onNodeWithTag("book_detail_title").assertIsFocused()
+        composeTestRule.onNodeWithTag("outside_recomposed_heading")
+            .performSemanticsAction(SemanticsActions.RequestFocus)
+            .assertIsFocused()
+
+        composeTestRule.runOnUiThread { showHeader = false }
+        composeTestRule.runOnUiThread { showHeader = true }
+
+        composeTestRule.onNodeWithTag("outside_recomposed_heading").assertIsFocused()
+    }
+
+    @Test
     fun childRoutesReturnFocusToTheExactLaunchingBookLink() {
         val seriesBook = book.copy().also {
             it.seriesTitle = "Перший закон"

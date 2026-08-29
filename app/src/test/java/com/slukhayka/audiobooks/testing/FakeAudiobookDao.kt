@@ -36,6 +36,7 @@ import com.slukhayka.audiobooks.data.db.GenreFacetOption
 import com.slukhayka.audiobooks.data.db.EditionFacetEntity
 import com.slukhayka.audiobooks.data.db.AuthorFacetEntity
 import com.slukhayka.audiobooks.data.db.AuthorAliasEntity
+import com.slukhayka.audiobooks.data.db.PersonBookmarkEntity
 import com.slukhayka.audiobooks.data.authors.AuthorSummary
 import androidx.paging.PagingSource
 import androidx.paging.PagingState
@@ -97,6 +98,7 @@ class FakeAudiobookDao(
     private val editionFacetsState = MutableStateFlow(emptyList<EditionFacetEntity>())
     private val authorFacetsState = MutableStateFlow(emptyList<AuthorFacetEntity>())
     private val authorAliasesState = MutableStateFlow(emptyList<AuthorAliasEntity>())
+    private val personBookmarksState = MutableStateFlow(emptyList<PersonBookmarkEntity>())
 
     /** Snapshot of the recorded playback failures, for assertions. */
     val savedFailures: List<PlaybackFailureEntity> get() = failuresState.value
@@ -127,6 +129,9 @@ class FakeAudiobookDao(
 
     /** Snapshot of the persisted correction memory, for assertions. */
     val savedCorrections: List<CorrectionEntity> get() = correctionsState.value
+
+    /** Snapshot of the persisted person bookmarks, for assertions. */
+    val savedPersonBookmarks: List<PersonBookmarkEntity> get() = personBookmarksState.value
 
     /** Snapshot of the persisted library-entry rows (ADR-0009), for assertions. */
     val savedLibraryEntries: List<LibraryEntryEntity> get() = libraryEntriesState.value
@@ -450,7 +455,7 @@ class FakeAudiobookDao(
 
     // --- Domain Editions (ADR-0007) ---------------------------------------
 
-    override suspend fun insertEdition(edition: EditionEntity) {
+    override suspend fun replaceEdition(edition: EditionEntity) {
         editionsState.update { current -> current.filterNot { it.id == edition.id } + edition }
     }
 
@@ -517,6 +522,9 @@ class FakeAudiobookDao(
         booksState.value.mapNotNull { it.sourceTreeUri }
             .filter { it.isNotBlank() }
             .distinct()
+
+    override suspend fun hasAudiobookRow(bookId: String): Boolean =
+        booksState.value.any { it.id == bookId }
 
     override suspend fun updateSourceFingerprint(sourceId: String, fingerprint: String?) {
         sourcesState.update { current ->
@@ -800,6 +808,17 @@ class FakeAudiobookDao(
         workSourcesState.update { current -> current.filterNot { it.id == workSource.id } + workSource }
     }
 
+    override suspend fun upsertWorkWithSource(work: WorkEntity, workSource: WorkSourceEntity) {
+        upsertWork(work)
+        upsertWorkSource(workSource)
+    }
+
+    override suspend fun safeUpsertWorkSource(workSource: WorkSourceEntity): Boolean {
+        if (worksState.value.none { it.id == workSource.workId }) return false
+        upsertWorkSource(workSource)
+        return true
+    }
+
     // --- Spec-25 (#171): the universe resolution cache ---------------------
 
     override suspend fun upsertUniverse(universe: UniverseEntity) {
@@ -877,10 +896,20 @@ class FakeAudiobookDao(
 
     override suspend fun countWorkSources(): Int = workSourcesState.value.size
 
-    override fun pagedWorksFeedRecent(genreIds: List<String>, genreActive: Int, durationBucketIds: List<String>, durationActive: Int, authorIds: List<String>, authorActive: Int): PagingSource<Int, WorkFeedRow> =
+    override fun pagedWorksFeedRecent(
+        genreIds: List<String>, genreActive: Int,
+        durationBucketIds: List<String>, durationActive: Int,
+        authorIds: List<String>, authorActive: Int,
+        availabilityAtMillis: Long
+    ): PagingSource<Int, WorkFeedRow> =
         fakeFeed(genreIds, genreActive, durationBucketIds, durationActive, authorIds, authorActive, sortByTitle = false)
 
-    override fun pagedWorksFeedByTitle(genreIds: List<String>, genreActive: Int, durationBucketIds: List<String>, durationActive: Int, authorIds: List<String>, authorActive: Int): PagingSource<Int, WorkFeedRow> =
+    override fun pagedWorksFeedByTitle(
+        genreIds: List<String>, genreActive: Int,
+        durationBucketIds: List<String>, durationActive: Int,
+        authorIds: List<String>, authorActive: Int,
+        availabilityAtMillis: Long
+    ): PagingSource<Int, WorkFeedRow> =
         fakeFeed(genreIds, genreActive, durationBucketIds, durationActive, authorIds, authorActive, sortByTitle = true)
 
     /** In-memory PagingSource over the same state the fake DAO owns. */
@@ -1098,18 +1127,47 @@ class FakeAudiobookDao(
     override suspend fun genreAssertionsForWork(workId: String): List<GenreAssertionEntity> =
         genreAssertionsState.value.filter { it.workId == workId }.sortedBy { it.id }
 
-    override suspend fun findWorkById(id: String): WorkEntity? =
-        worksState.value.find { it.id == id }
+    // --- Person Bookmarks (#399) ------------------------------------------
 
-    override suspend fun upsertWorkSourceSafe(workSource: WorkSourceEntity) {
-        if (worksState.value.none { it.id == workSource.workId }) {
-            worksState.value = worksState.value + WorkEntity(
-                id = workSource.workId,
-                title = "",
-                author = "",
-                mergeKey = ""
-            )
+    override fun getPersonBookmarksByKind(kind: String): Flow<List<PersonBookmarkEntity>> =
+        personBookmarksState.map { bookmarks ->
+            bookmarks.filter { it.kind == kind }.sortedByDescending { it.createdAt }
         }
-        upsertWorkSource(workSource)
+
+    override fun getAllPersonBookmarks(): Flow<List<PersonBookmarkEntity>> =
+        personBookmarksState.map { bookmarks -> bookmarks.sortedByDescending { it.createdAt } }
+
+    override suspend fun getPersonBookmark(kind: String, id: String): PersonBookmarkEntity? =
+        personBookmarksState.value.firstOrNull { it.kind == kind && it.id == id }
+
+    override fun observePersonBookmark(kind: String, id: String): Flow<PersonBookmarkEntity?> =
+        personBookmarksState.map { bookmarks -> bookmarks.firstOrNull { it.kind == kind && it.id == id } }
+
+    override suspend fun upsertPersonBookmark(bookmark: PersonBookmarkEntity) {
+        personBookmarksState.update { current ->
+            current.filterNot { it.kind == bookmark.kind && it.id == bookmark.id } + bookmark
+        }
+    }
+
+    override suspend fun deletePersonBookmark(kind: String, id: String) {
+        personBookmarksState.update { current -> current.filterNot { it.kind == kind && it.id == id } }
+    }
+
+    override suspend fun updatePersonBookmarkNotifyEnabled(kind: String, id: String, enabled: Boolean, updatedAt: Long) {
+        personBookmarksState.update { current ->
+            current.map { if (it.kind == kind && it.id == id) it.copy(notifyEnabled = enabled, updatedAt = updatedAt) else it }
+        }
+    }
+
+    override suspend fun updatePersonBookmarkLastSeen(kind: String, id: String, lastSeenAt: Long, updatedAt: Long) {
+        personBookmarksState.update { current ->
+            current.map { if (it.kind == kind && it.id == id) it.copy(lastSeenAt = lastSeenAt, updatedAt = updatedAt) else it }
+        }
+    }
+
+    override suspend fun updatePersonBookmarkLastNotified(kind: String, id: String, lastNotifiedAt: Long) {
+        personBookmarksState.update { current ->
+            current.map { if (it.kind == kind && it.id == id) it.copy(lastNotifiedAt = lastNotifiedAt) else it }
+        }
     }
 }

@@ -15,9 +15,10 @@ import com.slukhayka.audiobooks.data.db.SourceTrackEntity
 import com.slukhayka.audiobooks.data.db.WorkEntity
 import com.slukhayka.audiobooks.data.db.WorkFeedRow
 import com.slukhayka.audiobooks.data.db.WorkSourceEntity
-import com.slukhayka.audiobooks.data.imports.LibraryImport
-import com.slukhayka.audiobooks.data.merge.MergeKey
-import com.slukhayka.audiobooks.data.metadata.MetadataAssertions
+import com.slukhayka.audiobooks.data.metadata.FacetPageLimits
+import com.slukhayka.audiobooks.data.metadata.SharedBookMetaStore
+import com.slukhayka.audiobooks.data.facets.FacetDeltaSync
+import com.slukhayka.audiobooks.data.facets.FacetSyncCursorStore
 import com.slukhayka.audiobooks.data.facets.GenreFacetAssertion
 import com.slukhayka.audiobooks.data.facets.GenreSourceFacetReplacement
 import com.slukhayka.audiobooks.data.facets.LocalFacetDelta
@@ -25,6 +26,10 @@ import com.slukhayka.audiobooks.data.facets.LocalFacetWriter
 import com.slukhayka.audiobooks.data.facets.RoomLocalFacetWriter
 import com.slukhayka.audiobooks.data.facets.WorkFacetDelta
 import com.slukhayka.audiobooks.data.facets.WorkFacetFilter
+import com.slukhayka.audiobooks.data.imports.LibraryImport
+import com.slukhayka.audiobooks.data.merge.MergeKey
+import com.slukhayka.audiobooks.data.metadata.EditionDurationPolicy
+import com.slukhayka.audiobooks.data.metadata.MetadataAssertions
 import com.slukhayka.audiobooks.data.metadata.SearchCoverResolver
 import com.slukhayka.audiobooks.data.metadata.SearchDurationResolver
 import com.slukhayka.audiobooks.data.search.SearchCache
@@ -101,10 +106,27 @@ class SourceCatalog(
     // generation, which is exactly why the feed's filters looked dead while
     // the catalogue kept syncing. Identity by default; the composition root
     // supplies the real Room withTransaction.
-    private val writeBatchRunner: suspend (suspend () -> Unit) -> Unit = { it() }
+    private val writeBatchRunner: suspend (suspend () -> Unit) -> Unit = { it() },
+    private val sharedFacetStore: SharedBookMetaStore? = null,
+    private val facetSyncCursorStore: FacetSyncCursorStore? = null,
+    private val facetSyncNowMillis: () -> Long = System::currentTimeMillis
 ) {
     /** Frozen local-write seam consumed by the later shared delta lane. */
     val facetWriter: LocalFacetWriter = RoomLocalFacetWriter(dao)
+
+    private val facetDeltaSync: FacetDeltaSync? =
+        if (sharedFacetStore != null && facetSyncCursorStore != null) {
+            FacetDeltaSync(sharedFacetStore, facetWriter, facetSyncCursorStore, facetSyncNowMillis)
+        } else {
+            null
+        }
+
+    /** One bounded chain per active Огляд composition; all interactions remain local. */
+    suspend fun syncSharedFacets(
+        pageSize: Int = FacetPageLimits.MAX_PAGE_SIZE,
+        maxPages: Int = 20
+    ): FacetDeltaSync.ChainResult =
+        facetDeltaSync?.syncAvailablePages(pageSize, maxPages) ?: FacetDeltaSync.ChainResult(0, 0)
 
     /** Bounded local options for the filter sheet; never a Work materialization. */
     val genreFacetOptions = dao.observeGenreFacetOptions()
@@ -794,7 +816,7 @@ class SourceCatalog(
                 seriesIndex = seriesIndex,
                 coverImageUrl = coverImageUrl,
                 addedAt = System.currentTimeMillis()
-            ).also { dao.upsertWork(it) }
+            )
         } else {
             val id = "w-$sourceId-${stableIdOf(sourceUrl)}"
             WorkEntity(
@@ -806,25 +828,31 @@ class SourceCatalog(
                 seriesIndex = seriesIndex,
                 coverImageUrl = coverImageUrl,
                 addedAt = System.currentTimeMillis()
-            ).also { dao.upsertWork(it) }
+            )
         }
         val workSourceId = "${work.id}|$sourceId|${stableIdOf(sourceUrl)}"
         // Every persisted Work immediately participates in the canonical
         // cross-Source author index. This is idempotent and entirely local.
         authorIndex.indexWorks(listOf(work), sourceId)
         val sourceAlreadyKnown = dao.getWorkSourcesForWorkSync(work.id).any { it.id == workSourceId }
-        dao.upsertWorkSourceSafe(
-            WorkSourceEntity(
-                id = workSourceId,
-                workId = work.id,
-                sourceId = sourceId,
-                sourceUrl = sourceUrl,
-                streamOnly = streamOnly,
-                coverImageUrl = coverImageUrl,
-                durationSeconds = durationSeconds,
-                addedAt = System.currentTimeMillis()
-            )
+        val workSource = WorkSourceEntity(
+            id = workSourceId,
+            workId = work.id,
+            sourceId = sourceId,
+            sourceUrl = sourceUrl,
+            streamOnly = streamOnly,
+            coverImageUrl = coverImageUrl,
+            durationSeconds = durationSeconds,
+            addedAt = System.currentTimeMillis()
         )
+        // #388 — use safe/transactional upsert. If the Work was just
+        // created, both rows are written atomically; if it already
+        // existed, a missing parent (race/tombstone) degrades gracefully.
+        if (existing == null) {
+            dao.upsertWorkWithSource(work, workSource)
+        } else {
+            dao.safeUpsertWorkSource(workSource)
+        }
         if (genreTexts != null) {
             val facetObservedAt = System.currentTimeMillis()
             facetWriter.apply(
@@ -976,25 +1004,55 @@ class SourceCatalog(
     // ---------------------------------------------------------------------
 
     /** Endless feed, newest Works first. */
-    fun pagedWorkFeedRecent(filter: WorkFacetFilter = WorkFacetFilter()): PagingSource<Int, WorkFeedRow> =
+    fun pagedWorkFeedRecent(
+        filter: WorkFacetFilter = WorkFacetFilter(),
+        availabilityAtMillis: Long = System.currentTimeMillis()
+    ): PagingSource<Int, WorkFeedRow> =
         dao.pagedWorksFeedRecent(
             filter.genreIds.toList(), if (filter.genreIds.isEmpty()) 0 else 1,
             filter.durationBucketIds.toList(), if (filter.durationBucketIds.isEmpty()) 0 else 1,
-            filter.authorIds.toList(), if (filter.authorIds.isEmpty()) 0 else 1
+            filter.authorIds.toList(), if (filter.authorIds.isEmpty()) 0 else 1,
+            availabilityAtMillis
         )
 
     /** Endless feed, sorted by title (stable tiebreak: newest first). */
-    fun pagedWorkFeedByTitle(filter: WorkFacetFilter = WorkFacetFilter()): PagingSource<Int, WorkFeedRow> =
+    fun pagedWorkFeedByTitle(
+        filter: WorkFacetFilter = WorkFacetFilter(),
+        availabilityAtMillis: Long = System.currentTimeMillis()
+    ): PagingSource<Int, WorkFeedRow> =
         dao.pagedWorksFeedByTitle(
             filter.genreIds.toList(), if (filter.genreIds.isEmpty()) 0 else 1,
             filter.durationBucketIds.toList(), if (filter.durationBucketIds.isEmpty()) 0 else 1,
-            filter.authorIds.toList(), if (filter.authorIds.isEmpty()) 0 else 1
+            filter.authorIds.toList(), if (filter.authorIds.isEmpty()) 0 else 1,
+            availabilityAtMillis
         )
 
-    /** The Sources carrying one Work — the feed card resolves its first
-     *  source through these (spec-23 T4 open action; ADR-0007 renamed the
-     *  spec-23 `editions` table to `work_sources`). */
-    suspend fun workSourcesForWork(workId: String): List<WorkSourceEntity> = dao.getWorkSourcesForWorkSync(workId)
+    /**
+     * The Sources carrying one Work. An active duration context stably moves
+     * a matching known Source first; otherwise the persisted order is kept.
+     */
+    suspend fun workSourcesForWork(
+        workId: String,
+        preferredDurationBucketIds: Set<String> = emptySet()
+    ): List<WorkSourceEntity> {
+        val sources = dao.getWorkSourcesForWorkSync(workId)
+        if (preferredDurationBucketIds.isEmpty()) return sources
+        return sources.withIndex()
+            .sortedWith(
+                compareByDescending<IndexedValue<WorkSourceEntity>> { indexed ->
+                    indexed.value.durationSeconds
+                        ?.let(EditionDurationPolicy::bucketFor)
+                        ?.wireName in preferredDurationBucketIds
+                }.thenBy { it.index }
+            )
+            .map { it.value }
+    }
+
+    /** Resolves an already imported rendition without collapsing its sibling Editions. */
+    suspend fun libraryBookForEdition(editionId: String?): AudiobookEntity? {
+        val edition = editionId?.let { dao.getEditionById(it) } ?: return null
+        return dao.getAudiobookById(edition.workId)?.toAudiobookEntity()
+    }
 
     /**
      * Spec-23 T5 — one source carrying a Work, for the book page's

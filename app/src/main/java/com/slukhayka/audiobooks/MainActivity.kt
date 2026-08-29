@@ -34,6 +34,7 @@ import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.slukhayka.audiobooks.data.catalog.CatalogPerson
+import com.slukhayka.audiobooks.data.db.PersonRole
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.SelectedTab
 import com.slukhayka.audiobooks.ui.components.MiniPlayerBar
@@ -75,7 +76,8 @@ internal data class SecondaryBookRouteFrame(
     val parentTitle: String = "",
     val parentUrl: String = "",
     val parentName: String = "",
-    val parentPath: String = ""
+    val parentPath: String = "",
+    val parentRole: PersonRole? = null
 ) {
     fun withSelectedDetail(selectedBookId: String?, parentActive: Boolean): SecondaryBookRouteFrame =
         if (parent != null && parentActive && selectedBookId != null) {
@@ -104,7 +106,8 @@ private val SecondaryBookRouteFrameSaver = listSaver<SecondaryBookRouteFrame, St
             frame.parentTitle,
             frame.parentUrl,
             frame.parentName,
-            frame.parentPath
+            frame.parentPath,
+            frame.parentRole?.name.orEmpty()
         )
     },
     restore = { values ->
@@ -115,7 +118,10 @@ private val SecondaryBookRouteFrameSaver = listSaver<SecondaryBookRouteFrame, St
             parentTitle = values[3],
             parentUrl = values[4],
             parentName = values[5],
-            parentPath = values[6]
+            parentPath = values[6],
+            parentRole = values.getOrNull(7)
+                ?.takeIf(String::isNotEmpty)
+                ?.let(PersonRole::valueOf)
         )
     }
 )
@@ -300,13 +306,15 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                 viewModel.closePersonBooks()
                 if (secondaryBookRoute.parent == SecondaryBookParent.PERSON) {
                     if (secondaryBookRoute.parentName.isNotEmpty() &&
-                        secondaryBookRoute.parentPath.isNotEmpty()
+                        secondaryBookRoute.parentPath.isNotEmpty() &&
+                        secondaryBookRoute.parentRole != null
                     ) {
                         viewModel.openPersonBooks(
                             CatalogPerson(
                                 secondaryBookRoute.parentName,
                                 secondaryBookRoute.parentPath,
-                                0
+                                0,
+                                requireNotNull(secondaryBookRoute.parentRole)
                             )
                         )
                     }
@@ -455,6 +463,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                             BookDetailLinkOrigin.NARRATOR
                         ) && selectedPerson != null -> PersonBooksScreen(
                         viewModel = viewModel,
+                        personBookmarks = viewModel.personBookmarks,
                         onBackClick = { closeBookDetailChildRoute() },
                         onBookClick = { id ->
                             val childPerson = selectedPerson
@@ -463,14 +472,20 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                             bookDetailChildEditionId = null
                             if (childPerson != null) {
                                 viewModel.openPersonBooks(
-                                    CatalogPerson(childPerson.name, childPerson.path, 0)
+                                    CatalogPerson(
+                                        childPerson.name,
+                                        childPerson.path,
+                                        0,
+                                        childPerson.role
+                                    )
                                 )
                                 secondaryBookRoute = SecondaryBookRouteFrame(
                                     parent = SecondaryBookParent.PERSON,
                                     originBookId = id,
                                     detailBookId = id,
                                     parentName = childPerson.name,
-                                    parentPath = childPerson.path
+                                    parentPath = childPerson.path,
+                                    parentRole = childPerson.role
                                 )
                             }
                             viewModel.selectBook(id)
@@ -485,6 +500,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                         listeningState = viewModel.listeningState,
                         offlineDownloads = viewModel.offlineDownloads,
                         libraryEntries = viewModel.libraryEntries,
+                        personBookmarks = viewModel.personBookmarks,
                         onBackClick = {
                             bookDetailChildRouteOpen = false
                             bookDetailChildOrigin = null
@@ -670,23 +686,31 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                         isLoading = isCanonicalAuthorLoading,
                         loadFailed = canonicalAuthorLoadFailed,
                         onBackClick = { viewModel.closeCanonicalAuthor() },
-                        onWorkClick = viewModel::openCanonicalAuthorWork
+                        onWorkClick = viewModel::openCanonicalAuthorWork,
+                        personBookmarks = viewModel.personBookmarks
                     )
 
                     authorsIndexOpen -> {
                         // The full 10k-capable alphabetical projection is cold:
                         // collect it only while its destination is visible.
                         val canonicalAuthors by viewModel.sourceCatalog.authors.collectAsState(initial = emptyList())
+                        val authorList = authorsIndexResults ?: canonicalAuthors
                         AuthorsIndexScreen(
-                            authors = authorsIndexResults ?: canonicalAuthors,
+                            authors = authorList,
                             onBackClick = { viewModel.closeAuthorsIndex() },
-                            onAuthorClick = viewModel::openCanonicalAuthor
+                            onAuthorClick = { author ->
+                                val idx = authorList.indexOfFirst { it.id == author.id }
+                                    .coerceAtLeast(0)
+                                viewModel.openCanonicalAuthor(author, idx)
+                            },
+                            initialScrollIndex = viewModel.authorsIndexScrollIndex.collectAsState().value
                         )
                     }
 
                     // One person's books (opened from Виконавці/Автори index).
                     selectedPerson != null -> PersonBooksScreen(
                         viewModel = viewModel,
+                        personBookmarks = viewModel.personBookmarks,
                         onBackClick = {
                             secondaryBookRoute = SecondaryBookRouteFrame()
                             viewModel.closePersonBooks()
@@ -697,7 +721,8 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                                 originBookId = id,
                                 detailBookId = id,
                                 parentName = selectedPerson?.name.orEmpty(),
-                                parentPath = selectedPerson?.path.orEmpty()
+                                parentPath = selectedPerson?.path.orEmpty(),
+                                parentRole = selectedPerson?.role
                             )
                             viewModel.selectBook(id)
                         },
@@ -741,6 +766,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                         // ADR-0011: the «Інші начитки» block reads the Work's
                         // other rendition cards from the module.
                         libraryEntries = viewModel.libraryEntries,
+                        personBookmarks = viewModel.personBookmarks,
                         onBackClick = {
                             bookDetailChildRouteOpen = false
                             bookDetailChildOrigin = null

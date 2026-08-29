@@ -54,6 +54,7 @@ import com.slukhayka.audiobooks.R
 fun IndexScreenScaffold(
     title: String,
     onBackClick: () -> Unit,
+    actions: @Composable () -> Unit = {},
     content: @Composable (PaddingValues) -> Unit
 ) {
     val headingFocusRequester = remember { FocusRequester() }
@@ -95,6 +96,7 @@ fun IndexScreenScaffold(
                         )
                     }
                 },
+                actions = { actions() },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
             )
         },

@@ -1,30 +1,3 @@
-# GitHub Actions CI for the 4read audiobook player Android app.
-#
-# Implements destination #1 of wayfinder map issue #2
-# (https://github.com/Samuel-Ku/4read-audiobooks-player/issues/2):
-# the Kover-verified gate fails a PR that drops test coverage.
-#
-# Scope:
-#   - JVM unit tests (Robolectric, JUnit4, Roborazzi snapshot)
-#   - API 35 accessibility journey through the real MainActivity
-#   - Kover HTML + XML coverage reports
-#   - Kover threshold verification at a relaxed baseline (15/9) — see
-#     "Threshold strategy" below; bump up as A-wave iterations land coverage.
-#
-# Out of scope (separate tickets):
-#   - Lint-as-gate step (lint not currently configured to fail build)
-#   - Codecov/Coveralls upload
-#   - Multi-OS matrix
-#
-# Threshold strategy
-# -----------------
-# Destination is 80% instructions / 70% branches (see app/build.gradle.kts).
-# Current baseline (post-wave-1, 2026-07-30): 16.0% / 10.1%. The gate here
-# runs at 15/9 so it catches regressions without blocking the current state.
-# Each A-wave iteration that pushes coverage higher should bump this number
-# in lockstep — delete the override once 80/70 is reached and the build.gradle.kts
-# default takes over.
-
 name: CI
 
 on:
@@ -34,101 +7,179 @@ on:
   pull_request:
     branches: [main]
 
-# Cancel superseded runs on PRs to save CI minutes; keep main-branch runs
-# sequential so the latest green is always the latest.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-# Read-only repo access is sufficient for running tests.
 permissions:
   contents: read
 
 jobs:
-  test:
-    name: JVM tests + Kover gate
+  timing-start:
+    name: Start workflow timer
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    outputs:
+      epoch: ${{ steps.timer.outputs.epoch }}
+    steps:
+      - id: timer
+        run: echo "epoch=$(date +%s)" >> "$GITHUB_OUTPUT"
+
+  jvm-partitions:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    needs: timing-start
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: pure-jvm
+            name: Pure JVM
+            task: :app:testPureJvm
+            needs-model: true
+          - id: room-robolectric
+            name: Room + Robolectric
+            task: :app:testRoomRobolectric
+            needs-model: false
+          - id: compose-roborazzi
+            name: Compose + Roborazzi
+            task: :app:testComposeRoborazzi
+            needs-model: false
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # JDK 21 matches the local toolchain pinned in docs/phone-test/PLAN.md
-      # (gradle.properties and AGP 9.1.1 require JDK 17+; JDK 21 is what we
-      # build with locally).
       - name: Setup JDK 21 (Temurin)
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '21'
 
-      # Auto-caches the Gradle wrapper distribution and ~/.gradle/caches
-      # so warm runs are ~30s faster on the dependency step alone.
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          # Pin to the wrapper version in gradle/wrapper/gradle-wrapper.properties
-          # to avoid surprise upgrades mid-PR.
           gradle-version: wrapper
 
-      # compileSdk = release(36) { minorApiLevel = 1 } (Android 16 / Baklava).
-      # The `android-actions/setup-android` action installs cmdline-tools,
-      # platform-android-36, build-tools 36.0.0, and platform-tools in one step.
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
         with:
-          android-version: api-36
-          build-tools-version: '36.0.0'
+          packages: 'platforms;android-36 build-tools;36.0.0 platform-tools'
 
-      # Make the wrapper executable on fresh checkouts (no-op on Linux runners
-      # but defensive; we run this on macOS hosts in some downstream pipelines).
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
-      # spec-19 T3: the ONNX embedder (multilingual-e5-small int8, ~118 MB) is
-      # a build-time asset — over GitHub's file limit, never committed — fetched
-      # by the downloadE5Model task into app/src/main/assets/models/e5. Restore
-      # it from the cache when present; the Gradle task is a no-op then. On a
-      # miss the task downloads, and the cache action saves it at job end so
-      # warm runs skip the ~118 MB fetch.
-      - name: Cache e5 model (restore; save on miss)
+      - name: Cache e5 model
+        if: matrix.needs-model
         uses: actions/cache@v4
         with:
           path: app/src/main/assets/models/e5
           key: e5-model-v1
 
-      # The model must be present BEFORE the tests: assembleDebug bundles it
-      # into the APK (the production embedder path) and runRecommendationEval
-      # below gates against it instead of the keyword baseline.
-      - name: Download e5 model (production embedder + eval gate)
+      - name: Download e5 model for production embedder tests
+        if: matrix.needs-model
         run: ./gradlew :app:downloadE5Model --no-daemon
 
-      # assembleDebug pulls in the Hilt/KSP/Room codegen pipeline; without it
-      # we get false negatives on tests that depend on generated code.
-      # testDebugUnitTest runs JVM-side Robolectric + JUnit4 + Roborazzi tests.
-      # koverXmlReport + koverHtmlReport emit coverage in both formats.
-      - name: Assemble + JVM tests + Kover reports
-        run: ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:koverXmlReport :app:koverHtmlReport --no-daemon --stacktrace
+      - name: Validate classification and run ${{ matrix.name }}
+        run: |
+          started_at=$(date +%s)
+          mkdir -p app/build/kover/partition app/build/test-results/partition
+          if [ "${{ matrix.id }}" = "room-robolectric" ]; then
+            rm -f app/build/test-worker-identities.tsv
+            ./gradlew :app:validateTestPartitions :app:testRoomNativeSdk35 --no-daemon --stacktrace
+            cp app/build/kover/bin-reports/testDebugUnitTest.ic app/build/kover/partition/native-sdk35.ic
+            cp -R app/build/test-results/testDebugUnitTest app/build/test-results/partition/native-sdk35
+            ./gradlew :app:testRoomNativeSdk36 --no-daemon --stacktrace
+            cp app/build/kover/bin-reports/testDebugUnitTest.ic app/build/kover/partition/native-sdk36.ic
+            cp -R app/build/test-results/testDebugUnitTest app/build/test-results/partition/native-sdk36
+            ./gradlew :app:testRoomNativeDefault --no-daemon --stacktrace
+            cp app/build/kover/bin-reports/testDebugUnitTest.ic app/build/kover/partition/native-default.ic
+            cp -R app/build/test-results/testDebugUnitTest app/build/test-results/partition/native-default
+            ./gradlew :app:testRoomRobolectricOnly --no-daemon --stacktrace
+            cp app/build/kover/bin-reports/testDebugUnitTest.ic app/build/kover/partition/robolectric-only.ic
+            test "$(cut -f1 app/build/test-worker-identities.tsv | sort -u | wc -l)" -eq 2
+            test "$(cut -f2 app/build/test-worker-identities.tsv | sort -u | wc -l)" -eq 2
+          else
+            ./gradlew :app:validateTestPartitions ${{ matrix.task }} --no-daemon --stacktrace
+            cp app/build/kover/bin-reports/testDebugUnitTest.ic app/build/kover/partition/${{ matrix.id }}.ic
+          fi
+          elapsed=$(( $(date +%s) - started_at ))
+          echo "${{ matrix.name }}: ${elapsed}s" >> "$GITHUB_STEP_SUMMARY"
 
-      # Threshold gate. Current baseline 16.0% / 10.1%; gate at 15/9 to catch
-      # regressions with ~1pp headroom. Bump as coverage grows.
-      - name: Kover threshold gate
-        run: ./gradlew :app:koverVerify --no-daemon -Pkover.instructionThreshold=15 -Pkover.branchThreshold=9
+      - name: Upload partition coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: kover-${{ matrix.id }}
+          path: app/build/kover/partition/
+          if-no-files-found: error
+          retention-days: 2
 
-      # spec-19 T3 eval gate with the REAL ONNX model: leave-one-out
-      # recall@20/NDCG@20, semantic vs the genre+author baseline. Exercises the
-      # production OnnxEmbedder end-to-end (tokenize → ONNX → mean-pool → rank)
-      # plus an embedder sanity probe. FAIL_ON_NO_GO=true turns a regression
-      # into a failed step, so the gate is enforced in CI.
-      - name: Recommendation eval gate (real ONNX model)
-        run: ./gradlew :app:runRecommendationEval --no-daemon
-        env:
-          FAIL_ON_NO_GO: "true"
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.id }}
+          path: app/build/test-results/
+          if-no-files-found: warn
+          retention-days: 14
 
-      # Upload HTML report so reviewers can drill into per-class coverage from
-      # the PR page. XML goes to artifact for any downstream tool that wants
-      # the raw data (e.g. future Codecov integration).
+      - name: Upload Roborazzi failure artifacts
+        if: always() && matrix.id == 'compose-roborazzi'
+        uses: actions/upload-artifact@v4
+        with:
+          name: roborazzi-results
+          path: |
+            app/build/outputs/roborazzi/
+            app/build/reports/roborazzi/
+          if-no-files-found: warn
+          retention-days: 14
+
+  coverage:
+    name: Kover aggregate gate
+    needs: [timing-start, jvm-partitions]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup JDK 21 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: wrapper
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platforms;android-36 build-tools;36.0.0 platform-tools'
+
+      - name: Download all partition coverage
+        uses: actions/download-artifact@v4
+        with:
+          pattern: kover-*
+          path: app/build/kover/ci
+
+      - name: Require all partition reports
+        run: test "$(find app/build/kover/ci -name '*.ic' | wc -l)" -eq 6
+
+      - name: Generate merged reports and enforce thresholds
+        run: |
+          chmod +x ./gradlew
+          ./gradlew :app:koverXmlReport :app:koverHtmlReport :app:koverVerify \
+            -x :app:testDebugUnitTest \
+            -Pkover.additionalBinaryReportsDir=build/kover/ci \
+            -Pkover.instructionThreshold=15 \
+            -Pkover.branchThreshold=9 \
+            --no-daemon --stacktrace
+          python3 scripts/verify_partition_coverage.py app/build/reports/kover/report.xml
+
       - name: Upload Kover HTML report
         if: always()
         uses: actions/upload-artifact@v4
@@ -145,19 +196,51 @@ jobs:
           path: app/build/reports/kover/report.xml
           retention-days: 14
 
-      # Also keep the test result XML so failures are browsable from PR.
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@v4
+  recommendation-eval:
+    name: Recommendation eval
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: timing-start
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup JDK 21 (Temurin)
+        uses: actions/setup-java@v4
         with:
-          name: test-results
-          path: app/build/test-results/testDebugUnitTest/
-          retention-days: 14
+          distribution: temurin
+          java-version: '21'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: wrapper
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platforms;android-36 build-tools;36.0.0 platform-tools'
+
+      - name: Cache e5 model
+        uses: actions/cache@v4
+        with:
+          path: app/src/main/assets/models/e5
+          key: e5-model-v1
+
+      - name: Download e5 model
+        run: ./gradlew :app:downloadE5Model --no-daemon
+
+      - name: Recommendation eval gate (real ONNX model)
+        run: ./gradlew :app:runRecommendationEval --no-daemon
+        env:
+          FAIL_ON_NO_GO: "true"
 
   accessibility-api35:
     name: Accessibility journey (API 35)
     runs-on: ubuntu-latest
     timeout-minutes: 50
+    needs: timing-start
 
     steps:
       - name: Checkout
@@ -193,6 +276,9 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
+      - name: Prebuild accessibility APKs
+        run: ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon --max-workers=1 --stacktrace
+
       - name: Run the seeded MainActivity accessibility journey
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -203,22 +289,16 @@ jobs:
           disable-animations: true
           emulator-boot-timeout: 900
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -no-metrics -camera-back none
-          # The action executes newline-separated script entries in separate
-          # shells, so a status variable cannot be shared between lines. Keep
-          # the test + log capture in one shell and return the Gradle status.
-          script: >-
-            bash -o pipefail -c 'mkdir -p app/build/reports/androidTests;
-            adb shell cmd overlay enable-exclusive --category
-            com.android.internal.systemui.navbar.threebutton;
-            adb shell cmd overlay list |
-            grep -F "[x] com.android.internal.systemui.navbar.threebutton";
-            adb logcat -c;
-            ./gradlew :app:connectedDebugAndroidTest
-            -Pandroid.testInstrumentationRunnerArguments.class=com.slukhayka.audiobooks.accessibility.MainActivityAccessibilityTest
-            --no-daemon --max-workers=1 --stacktrace;
-            test_status=$?;
-            adb logcat -d > app/build/reports/androidTests/accessibility-api35-logcat.txt;
-            exit "$test_status"'
+          script: |
+            mkdir -p app/build/reports/androidTests
+            scripts/wait-for-android-package-service.sh
+            adb shell cmd overlay enable-exclusive --category com.android.internal.systemui.navbar.threebutton
+            adb shell cmd overlay list | grep -F "[x] com.android.internal.systemui.navbar.threebutton"
+            adb logcat -c
+            test_status=0
+            ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.slukhayka.audiobooks.accessibility.MainActivityAccessibilityTest --no-daemon --max-workers=1 --stacktrace || test_status=$?
+            adb logcat -d > app/build/reports/androidTests/accessibility-api35-logcat.txt
+            exit "$test_status"
 
       - name: Upload API 35 accessibility results
         if: always()
@@ -230,3 +310,16 @@ jobs:
             app/build/outputs/androidTest-results/connected/
           if-no-files-found: warn
           retention-days: 14
+
+  timing-summary:
+    name: Workflow timing
+    if: always()
+    needs: [timing-start, coverage, recommendation-eval, accessibility-api35]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Record end-to-end elapsed time
+        env:
+          STARTED_AT: ${{ needs.timing-start.outputs.epoch }}
+        run: |
+          elapsed=$(( $(date +%s) - STARTED_AT ))
+          echo "End to end: ${elapsed}s" >> "$GITHUB_STEP_SUMMARY"

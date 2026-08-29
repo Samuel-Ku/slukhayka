@@ -96,6 +96,10 @@ interface AudiobookDao {
     @Query("SELECT DISTINCT sourceTreeUri FROM audiobooks WHERE sourceTreeUri IS NOT NULL AND sourceTreeUri != ''")
     suspend fun getImportedSourceTrees(): List<String>
 
+    /** Checks the storage row without requiring its Work/Library Entry join. */
+    @Query("SELECT EXISTS(SELECT 1 FROM audiobooks WHERE id = :bookId)")
+    suspend fun hasAudiobookRow(bookId: String): Boolean
+
     @Query("UPDATE sources SET lastScanFingerprint = :fingerprint WHERE id = :sourceId")
     suspend fun updateSourceFingerprint(sourceId: String, fingerprint: String?)
 
@@ -304,7 +308,19 @@ interface AudiobookDao {
     // --- Domain Editions (ADR-0007) ---
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertEdition(edition: EditionEntity)
+    suspend fun replaceEdition(edition: EditionEntity)
+
+    /**
+     * Records the first time an Edition is discovered and never moves that
+     * timestamp during later catalogue refreshes.
+     */
+    @Transaction
+    suspend fun insertEdition(edition: EditionEntity) {
+        val firstSeenAt = getEditionById(edition.id)?.addedAt?.takeIf { it > 0L }
+            ?: edition.addedAt.takeIf { it > 0L }
+            ?: System.currentTimeMillis()
+        replaceEdition(edition.copy(addedAt = firstSeenAt))
+    }
 
     @Query("SELECT * FROM editions WHERE id = :editionId")
     suspend fun getEditionById(editionId: String): EditionEntity?
@@ -351,30 +367,42 @@ interface AudiobookDao {
     suspend fun upsertWorkSource(workSource: WorkSourceEntity)
 
     /**
-     * #388 — safe version of upsertWorkSource that ensures the work row
-     * exists before inserting the source. The FK constraint on work_sources
-     * requires the work to be present; without this guard, a missing work
-     * row causes SQLiteConstraintException and crashes the app.
+     * #388 — transactional work+source pair. The `work_sources` FK requires
+     * the parent `works` row to exist; a bare `upsertWorkSource` with a
+     * missing `workId` throws `SQLITE_CONSTRAINT_FOREIGNKEY` and crashes the
+     * process (observed on «Сни» by Лесь Курбас). Wrapping both upserts in
+     * one Room transaction makes the pair atomic and prevents interleaving
+     * deletes from creating a dangling child.
      */
     @Transaction
-    suspend fun upsertWorkSourceSafe(workSource: WorkSourceEntity) {
-        // Ensure the work row exists — insert a minimal placeholder if needed
-        val existingWork = findWorkById(workSource.workId)
-        if (existingWork == null) {
-            upsertWork(
-                WorkEntity(
-                    id = workSource.workId,
-                    title = "",
-                    author = "",
-                    mergeKey = ""
-                )
-            )
-        }
+    suspend fun upsertWorkWithSource(work: WorkEntity, workSource: WorkSourceEntity) {
+        upsertWork(work)
         upsertWorkSource(workSource)
     }
 
-    @Query("SELECT * FROM works WHERE id = :id")
-    suspend fun findWorkById(id: String): WorkEntity?
+    /**
+     * #388 — safe work_source upsert. If the parent Work does not exist
+     * (blank-key book, tombstoned Work, or race), the FK would fail. We check
+     * existence first and skip gracefully instead of crashing; callers that
+     * need the source must ensure the Work exists.
+     */
+    @Transaction
+    suspend fun safeUpsertWorkSource(workSource: WorkSourceEntity): Boolean {
+        return try {
+            if (getWorkById(workSource.workId) == null) {
+                android.util.Log.w(
+                    "AudiobookDao",
+                    "safeUpsertWorkSource skipped: work ${workSource.workId} not found for source ${workSource.id}"
+                )
+                return false
+            }
+            upsertWorkSource(workSource)
+            true
+        } catch (e: Exception) {
+            android.util.Log.w("AudiobookDao", "safeUpsertWorkSource failed for ${workSource.id}: ${e.message}")
+            false
+        }
+    }
 
     // --- Spec-25: series universes (the lazy resolution cache) -------------
     // The universe rows, the series rows (with their universe anchor + order)
@@ -454,10 +482,25 @@ interface AudiobookDao {
                w.coverImageUrl, w.addedAt,
                (SELECT COUNT(*) FROM work_sources ws WHERE ws.workId = w.id) AS sourceCount,
                (SELECT gf.displayName FROM work_genres wg JOIN genre_facets gf ON gf.id=wg.genreId WHERE wg.workId=w.id ORDER BY gf.displayName ASC LIMIT 1) AS genre,
-               (SELECT e.totalDurationSeconds FROM editions e JOIN library_entries le2 ON le2.id=e.workId WHERE le2.workId=w.id LIMIT 1) AS durationSeconds
+               COALESCE(
+                   (SELECT MIN(ef.durationSeconds) FROM edition_facets ef WHERE ef.workId=w.id AND ef.durationSeconds IS NOT NULL
+                     AND (ef.availabilityAvailable IS NULL OR (ef.availabilityAvailable=1 AND ef.availabilityObservedAtMillis IS NOT NULL AND ef.availabilityTtlSeconds IS NOT NULL AND ef.availabilityObservedAtMillis + ef.availabilityTtlSeconds * 1000 > :availabilityAtMillis))),
+                   (SELECT MIN(e.totalDurationSeconds) FROM editions e JOIN library_entries le2 ON le2.id=e.workId WHERE le2.workId=w.id AND e.totalDurationSeconds > 0)
+               ) AS durationSeconds,
+               COALESCE(
+                   (SELECT MAX(ef.durationSeconds) FROM edition_facets ef WHERE ef.workId=w.id AND ef.durationSeconds IS NOT NULL
+                     AND (ef.availabilityAvailable IS NULL OR (ef.availabilityAvailable=1 AND ef.availabilityObservedAtMillis IS NOT NULL AND ef.availabilityTtlSeconds IS NOT NULL AND ef.availabilityObservedAtMillis + ef.availabilityTtlSeconds * 1000 > :availabilityAtMillis))),
+                   (SELECT MAX(e.totalDurationSeconds) FROM editions e JOIN library_entries le2 ON le2.id=e.workId WHERE le2.workId=w.id AND e.totalDurationSeconds > 0)
+               ) AS durationMaxSeconds,
+               CASE WHEN :durationActive=1 THEN (
+                   SELECT ef.editionId FROM edition_facets ef
+                   WHERE ef.workId=w.id AND ef.durationBucketId IN (:durationBucketIds)
+                     AND (ef.availabilityAvailable IS NULL OR (ef.availabilityAvailable=1 AND ef.availabilityObservedAtMillis IS NOT NULL AND ef.availabilityTtlSeconds IS NOT NULL AND ef.availabilityObservedAtMillis + ef.availabilityTtlSeconds * 1000 > :availabilityAtMillis))
+                   ORDER BY ef.updatedAt DESC, ef.editionId ASC LIMIT 1
+               ) ELSE NULL END AS matchingEditionId
         FROM works w
         WHERE (:genreActive = 0 OR EXISTS (SELECT 1 FROM work_genres wg WHERE wg.workId=w.id AND wg.genreId IN (:genreIds)))
-          AND (:durationActive = 0 OR EXISTS (SELECT 1 FROM edition_facets ef WHERE ef.workId=w.id AND ef.durationBucketId IN (:durationBucketIds)))
+          AND (:durationActive = 0 OR EXISTS (SELECT 1 FROM edition_facets ef WHERE ef.workId=w.id AND ef.durationBucketId IN (:durationBucketIds) AND (ef.availabilityAvailable IS NULL OR (ef.availabilityAvailable=1 AND ef.availabilityObservedAtMillis IS NOT NULL AND ef.availabilityTtlSeconds IS NOT NULL AND ef.availabilityObservedAtMillis + ef.availabilityTtlSeconds * 1000 > :availabilityAtMillis))))
           AND (:authorActive = 0 OR EXISTS (SELECT 1 FROM work_facets wf WHERE wf.workId=w.id AND wf.canonicalAuthorId IN (:authorIds)))
         ORDER BY w.addedAt DESC, w.id ASC
         """
@@ -465,7 +508,8 @@ interface AudiobookDao {
     fun pagedWorksFeedRecent(
         genreIds: List<String>, genreActive: Int,
         durationBucketIds: List<String>, durationActive: Int,
-        authorIds: List<String>, authorActive: Int
+        authorIds: List<String>, authorActive: Int,
+        availabilityAtMillis: Long
     ): PagingSource<Int, WorkFeedRow>
 
     /** Same feed, sorted by title (stable tiebreak: addedAt DESC). */
@@ -475,10 +519,25 @@ interface AudiobookDao {
                w.coverImageUrl, w.addedAt,
                (SELECT COUNT(*) FROM work_sources ws WHERE ws.workId = w.id) AS sourceCount,
                (SELECT gf.displayName FROM work_genres wg JOIN genre_facets gf ON gf.id=wg.genreId WHERE wg.workId=w.id ORDER BY gf.displayName ASC LIMIT 1) AS genre,
-               (SELECT e.totalDurationSeconds FROM editions e JOIN library_entries le2 ON le2.id=e.workId WHERE le2.workId=w.id LIMIT 1) AS durationSeconds
+               COALESCE(
+                   (SELECT MIN(ef.durationSeconds) FROM edition_facets ef WHERE ef.workId=w.id AND ef.durationSeconds IS NOT NULL
+                     AND (ef.availabilityAvailable IS NULL OR (ef.availabilityAvailable=1 AND ef.availabilityObservedAtMillis IS NOT NULL AND ef.availabilityTtlSeconds IS NOT NULL AND ef.availabilityObservedAtMillis + ef.availabilityTtlSeconds * 1000 > :availabilityAtMillis))),
+                   (SELECT MIN(e.totalDurationSeconds) FROM editions e JOIN library_entries le2 ON le2.id=e.workId WHERE le2.workId=w.id AND e.totalDurationSeconds > 0)
+               ) AS durationSeconds,
+               COALESCE(
+                   (SELECT MAX(ef.durationSeconds) FROM edition_facets ef WHERE ef.workId=w.id AND ef.durationSeconds IS NOT NULL
+                     AND (ef.availabilityAvailable IS NULL OR (ef.availabilityAvailable=1 AND ef.availabilityObservedAtMillis IS NOT NULL AND ef.availabilityTtlSeconds IS NOT NULL AND ef.availabilityObservedAtMillis + ef.availabilityTtlSeconds * 1000 > :availabilityAtMillis))),
+                   (SELECT MAX(e.totalDurationSeconds) FROM editions e JOIN library_entries le2 ON le2.id=e.workId WHERE le2.workId=w.id AND e.totalDurationSeconds > 0)
+               ) AS durationMaxSeconds,
+               CASE WHEN :durationActive=1 THEN (
+                   SELECT ef.editionId FROM edition_facets ef
+                   WHERE ef.workId=w.id AND ef.durationBucketId IN (:durationBucketIds)
+                     AND (ef.availabilityAvailable IS NULL OR (ef.availabilityAvailable=1 AND ef.availabilityObservedAtMillis IS NOT NULL AND ef.availabilityTtlSeconds IS NOT NULL AND ef.availabilityObservedAtMillis + ef.availabilityTtlSeconds * 1000 > :availabilityAtMillis))
+                   ORDER BY ef.updatedAt DESC, ef.editionId ASC LIMIT 1
+               ) ELSE NULL END AS matchingEditionId
         FROM works w
         WHERE (:genreActive = 0 OR EXISTS (SELECT 1 FROM work_genres wg WHERE wg.workId=w.id AND wg.genreId IN (:genreIds)))
-          AND (:durationActive = 0 OR EXISTS (SELECT 1 FROM edition_facets ef WHERE ef.workId=w.id AND ef.durationBucketId IN (:durationBucketIds)))
+          AND (:durationActive = 0 OR EXISTS (SELECT 1 FROM edition_facets ef WHERE ef.workId=w.id AND ef.durationBucketId IN (:durationBucketIds) AND (ef.availabilityAvailable IS NULL OR (ef.availabilityAvailable=1 AND ef.availabilityObservedAtMillis IS NOT NULL AND ef.availabilityTtlSeconds IS NOT NULL AND ef.availabilityObservedAtMillis + ef.availabilityTtlSeconds * 1000 > :availabilityAtMillis))))
           AND (:authorActive = 0 OR EXISTS (SELECT 1 FROM work_facets wf WHERE wf.workId=w.id AND wf.canonicalAuthorId IN (:authorIds)))
         ORDER BY w.title COLLATE NOCASE ASC, w.addedAt DESC, w.id ASC
         """
@@ -486,7 +545,8 @@ interface AudiobookDao {
     fun pagedWorksFeedByTitle(
         genreIds: List<String>, genreActive: Int,
         durationBucketIds: List<String>, durationActive: Int,
-        authorIds: List<String>, authorActive: Int
+        authorIds: List<String>, authorActive: Int,
+        availabilityAtMillis: Long
     ): PagingSource<Int, WorkFeedRow>
 
     // Bookmarks (ADR-0007: anchored to the Edition)
@@ -992,4 +1052,50 @@ interface AudiobookDao {
 
     @Query("SELECT * FROM genre_assertions WHERE workId=:workId ORDER BY id ASC")
     suspend fun genreAssertionsForWork(workId: String): List<GenreAssertionEntity>
+
+    // --- Person Bookmarks (#399) ------------------------------------------
+
+    /** Every bookmark of a given kind, newest first. */
+    @Query("SELECT * FROM person_bookmarks WHERE kind = :kind ORDER BY createdAt DESC")
+    fun getPersonBookmarksByKind(kind: String): Flow<List<PersonBookmarkEntity>>
+
+    /** All bookmarked persons (both authors and narrators), newest first. */
+    @Query("SELECT * FROM person_bookmarks ORDER BY createdAt DESC")
+    fun getAllPersonBookmarks(): Flow<List<PersonBookmarkEntity>>
+
+    /** One specific bookmark — null when the person is not bookmarked. */
+    @Query("SELECT * FROM person_bookmarks WHERE kind = :kind AND id = :id LIMIT 1")
+    suspend fun getPersonBookmark(kind: String, id: String): PersonBookmarkEntity?
+
+    /** Observe one specific bookmark for real-time UI toggle. */
+    @Query("SELECT * FROM person_bookmarks WHERE kind = :kind AND id = :id LIMIT 1")
+    fun observePersonBookmark(kind: String, id: String): Flow<PersonBookmarkEntity?>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertPersonBookmark(bookmark: PersonBookmarkEntity)
+
+    /** Atomic read-modify-write door for a bookmark toggle. */
+    @Transaction
+    suspend fun togglePersonBookmark(bookmark: PersonBookmarkEntity): Boolean {
+        val existing = getPersonBookmark(bookmark.kind, bookmark.id)
+        return if (existing == null) {
+            upsertPersonBookmark(bookmark)
+            true
+        } else {
+            deletePersonBookmark(bookmark.kind, bookmark.id)
+            false
+        }
+    }
+
+    @Query("DELETE FROM person_bookmarks WHERE kind = :kind AND id = :id")
+    suspend fun deletePersonBookmark(kind: String, id: String)
+
+    @Query("UPDATE person_bookmarks SET notifyEnabled = :enabled, updatedAt = :updatedAt WHERE kind = :kind AND id = :id")
+    suspend fun updatePersonBookmarkNotifyEnabled(kind: String, id: String, enabled: Boolean, updatedAt: Long)
+
+    @Query("UPDATE person_bookmarks SET lastSeenAt = :lastSeenAt, updatedAt = :updatedAt WHERE kind = :kind AND id = :id")
+    suspend fun updatePersonBookmarkLastSeen(kind: String, id: String, lastSeenAt: Long, updatedAt: Long)
+
+    @Query("UPDATE person_bookmarks SET lastNotifiedAt = :lastNotifiedAt WHERE kind = :kind AND id = :id")
+    suspend fun updatePersonBookmarkLastNotified(kind: String, id: String, lastNotifiedAt: Long)
 }

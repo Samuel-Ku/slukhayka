@@ -7,7 +7,9 @@ import com.slukhayka.audiobooks.data.db.AudiobookDao
 import com.slukhayka.audiobooks.data.db.AudiobookDatabase
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.SourceEntity
+import com.slukhayka.audiobooks.data.db.WorkEntity
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
+import com.slukhayka.audiobooks.data.merge.MergeKey
 import com.slukhayka.audiobooks.data.source.SourceAdapter
 import com.slukhayka.audiobooks.data.source.SourceBookDetail
 import com.slukhayka.audiobooks.data.source.SourceChapter
@@ -78,7 +80,14 @@ class SourceProfileRepositoryTest {
             sourceUrl = sources.firstOrNull()?.url ?: "",
             isDownloaded = false
         )
+        val workId = MergeKey.keyFor(book.title, book.author)
         dao.insertAudiobooks(listOf(book))
+        dao.upsertWork(
+            WorkEntity(id = workId, mergeKey = workId, title = book.title, author = book.author, addedAt = 0L)
+        )
+        dao.upsertLibraryEntry(
+            id = book.id, workId = workId, isFavorite = false, createdAt = 0L, downloadProgress = 0f
+        )
         dao.insertSources(sources.toList())
         return book.id
     }

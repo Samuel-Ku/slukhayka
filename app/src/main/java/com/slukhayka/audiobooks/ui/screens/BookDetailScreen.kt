@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -54,9 +55,13 @@ import com.slukhayka.audiobooks.data.catalog.CatalogPerson
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.BookmarkEntity
 import com.slukhayka.audiobooks.data.db.ChapterEntity
+import com.slukhayka.audiobooks.data.db.PersonBookmarkKey
+import com.slukhayka.audiobooks.data.db.DownloadState
+import com.slukhayka.audiobooks.data.db.PersonRole
 import com.slukhayka.audiobooks.data.downloads.OfflineDownloads
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
 import com.slukhayka.audiobooks.data.listening.ListeningStateStore
+import com.slukhayka.audiobooks.data.personbookmarks.PersonBookmarks
 import com.slukhayka.audiobooks.data.source.sourceDisplayName
 import com.slukhayka.audiobooks.data.source.sourceIdForUrl
 import com.slukhayka.audiobooks.data.source.streamOnlyFor
@@ -94,6 +99,7 @@ fun BookDetailScreen(
     // ADR-0011: the screen reads the other rendition cards of the same Work
     // (the «Інші начитки» block) straight from the module.
     libraryEntries: LibraryEntries,
+    personBookmarks: PersonBookmarks,
     onBackClick: () -> Unit,
     returnFocusOrigin: BookDetailLinkOrigin? = null,
     fullPlayerModalActive: Boolean = false,
@@ -186,6 +192,27 @@ fun BookDetailScreen(
     // ADR-0008: suspend module calls from user actions run on the composition
     // scope (same pattern as playerManager's call-through).
     val scope = rememberCoroutineScope()
+
+    val authorIdentity = remember(currentBook.author) {
+        currentBook.author.takeIf { it.isNotBlank() }
+            ?.let { personBookmarks.identity(PersonRole.AUTHOR, it) }
+    }
+    val narratorIdentity = remember(currentBook.narrator) {
+        currentBook.narrator.takeIf { it.isNotBlank() }
+            ?.let { personBookmarks.identity(PersonRole.NARRATOR, it) }
+    }
+    val authorBookmarkFlow = remember(authorIdentity) {
+        authorIdentity?.let {
+            personBookmarks.observePersonBookmark(it.role.storageValue, it.id)
+        } ?: flowOf(null)
+    }
+    val narratorBookmarkFlow = remember(narratorIdentity) {
+        narratorIdentity?.let {
+            personBookmarks.observePersonBookmark(it.role.storageValue, it.id)
+        } ?: flowOf(null)
+    }
+    val authorBookmark by authorBookmarkFlow.collectAsState(initial = null)
+    val narratorBookmark by narratorBookmarkFlow.collectAsState(initial = null)
 
     // Spec-40 #277 — reviews anchor to the WORK (shared across narrations);
     // a row without a Works identity anchors to itself.
@@ -670,16 +697,64 @@ fun BookDetailScreen(
                         narrationRatingDeleteFocusRequester = narrationRatingDeleteFocusRequester,
                         onAuthorClick = { author ->
                             viewModel.openPersonBooks(
-                                CatalogPerson(author, bookPersonPath("avtor", author), 0)
+                                CatalogPerson(
+                                    author,
+                                    bookPersonPath("avtor", author),
+                                    0,
+                                    PersonRole.AUTHOR
+                                )
                             )
                         },
                         onNarratorClick = { narrator ->
                             viewModel.openPersonBooks(
-                                CatalogPerson(narrator, bookPersonPath("chitaet", narrator), 0)
+                                CatalogPerson(
+                                    narrator,
+                                    bookPersonPath("chitaet", narrator),
+                                    0,
+                                    PersonRole.NARRATOR
+                                )
                             )
                         },
                         onSeriesClick = { title, url -> viewModel.openSeries(title, url) },
-                        onWrongUniverse = { viewModel.reportWrongUniverse(currentBook.id) }
+                        onWrongUniverse = { viewModel.reportWrongUniverse(currentBook.id) },
+                        authorBookmark = PersonBookmarkControl(
+                            isBookmarked = authorBookmark != null,
+                            notifyEnabled = authorBookmark?.notifyEnabled ?: true,
+                            onToggle = {
+                                authorIdentity?.let { identity ->
+                                    scope.launch { personBookmarks.toggle(identity) }
+                                }
+                            },
+                            onToggleNotify = { enabled ->
+                                authorIdentity?.let { identity ->
+                                    scope.launch {
+                                        personBookmarks.setNotifyEnabled(
+                                            PersonBookmarkKey(identity.role, identity.id),
+                                            enabled
+                                        )
+                                    }
+                                }
+                            }
+                        ),
+                        narratorBookmark = PersonBookmarkControl(
+                            isBookmarked = narratorBookmark != null,
+                            notifyEnabled = narratorBookmark?.notifyEnabled ?: true,
+                            onToggle = {
+                                narratorIdentity?.let { identity ->
+                                    scope.launch { personBookmarks.toggle(identity) }
+                                }
+                            },
+                            onToggleNotify = { enabled ->
+                                narratorIdentity?.let { identity ->
+                                    scope.launch {
+                                        personBookmarks.setNotifyEnabled(
+                                            PersonBookmarkKey(identity.role, identity.id),
+                                            enabled
+                                        )
+                                    }
+                                }
+                            }
+                        )
                     )
 
                     Spacer(modifier = Modifier.height(16.dp))
@@ -1120,7 +1195,7 @@ fun BookDetailScreen(
     // focus on the exact launcher across sheet -> confirmation transitions.
     BookDeleteModalLifecycle(
         workTitle = currentBook.title,
-        isDownloaded = currentBook.isDownloaded,
+        isDownloaded = currentBook.isDownloaded || currentBook.downloadState == DownloadState.PAUSED,
         showOptions = showDeleteSheet,
         showConfirmation = showDeleteDialog,
         returnFocusRequester = deleteTriggerFocusRequester,
@@ -2085,7 +2160,9 @@ fun BookDetailIdentityHeader(
     onWrongUniverse: () -> Unit = {},
     returnFocusOrigin: BookDetailLinkOrigin? = null,
     onChildRouteOpened: (BookDetailLinkOrigin) -> Unit = {},
-    onReturnFocusRestored: (BookDetailLinkOrigin) -> Unit = {}
+    onReturnFocusRestored: (BookDetailLinkOrigin) -> Unit = {},
+    authorBookmark: PersonBookmarkControl = PersonBookmarkControl(),
+    narratorBookmark: PersonBookmarkControl = PersonBookmarkControl()
 ) {
     Card(
         modifier = Modifier
@@ -2126,7 +2203,9 @@ fun BookDetailIdentityHeader(
         onWrongUniverse = onWrongUniverse,
         returnFocusOrigin = returnFocusOrigin,
         onChildRouteOpened = onChildRouteOpened,
-        onReturnFocusRestored = onReturnFocusRestored
+        onReturnFocusRestored = onReturnFocusRestored,
+        authorBookmark = authorBookmark,
+        narratorBookmark = narratorBookmark
     )
 }
 
@@ -2136,6 +2215,13 @@ enum class BookDetailLinkOrigin {
     NARRATOR,
     SERIES
 }
+
+data class PersonBookmarkControl(
+    val isBookmarked: Boolean = false,
+    val notifyEnabled: Boolean = true,
+    val onToggle: () -> Unit = {},
+    val onToggleNotify: (Boolean) -> Unit = {}
+)
 
 /** The production Work/Edition summary consumed by both the page and snapshots. */
 @OptIn(ExperimentalLayoutApi::class)
@@ -2157,7 +2243,9 @@ fun BookDetailCanonicalSummary(
     onWrongUniverse: () -> Unit = {},
     returnFocusOrigin: BookDetailLinkOrigin? = null,
     onChildRouteOpened: (BookDetailLinkOrigin) -> Unit = {},
-    onReturnFocusRestored: (BookDetailLinkOrigin) -> Unit = {}
+    onReturnFocusRestored: (BookDetailLinkOrigin) -> Unit = {},
+    authorBookmark: PersonBookmarkControl = PersonBookmarkControl(),
+    narratorBookmark: PersonBookmarkControl = PersonBookmarkControl()
 ) {
     val currentEditionState = stringResource(R.string.book_detail_current_edition)
     val titleFocusRequester = remember(entryFocusKey) { FocusRequester() }
@@ -2193,43 +2281,71 @@ fun BookDetailCanonicalSummary(
     )
     Spacer(modifier = Modifier.height(4.dp))
     if (presentation.author.isNotBlank()) {
-        Text(
-            text = "Автор: ${presentation.author}",
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.primary,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .fillMaxWidth()
-                .testTag("book_detail_author_link")
-                .focusRequester(authorFocusRequester)
-                .defaultMinSize(minHeight = 48.dp)
-                .clickable {
-                    onChildRouteOpened(BookDetailLinkOrigin.AUTHOR)
-                    onAuthorClick(presentation.author)
-                },
-            textAlign = TextAlign.Center
-        )
+                .defaultMinSize(minHeight = 48.dp),
+            horizontalArrangement = Arrangement.Center
+        ) {
+            Text(
+                text = "Автор: ${presentation.author}",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.primary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .testTag("book_detail_author_link")
+                    .defaultMinSize(minHeight = 48.dp)
+                    .focusRequester(authorFocusRequester)
+                    .clickable {
+                        onChildRouteOpened(BookDetailLinkOrigin.AUTHOR)
+                        onAuthorClick(presentation.author)
+                    }
+            )
+            PersonBookmarkButton(
+                isBookmarked = authorBookmark.isBookmarked,
+                notifyEnabled = authorBookmark.notifyEnabled,
+                personName = presentation.author,
+                onToggle = authorBookmark.onToggle,
+                onToggleNotify = authorBookmark.onToggleNotify,
+                modifier = Modifier.padding(start = 4.dp)
+            )
+        }
     }
     if (presentation.narrator.isNotBlank()) {
-        Text(
-            text = "Озвучує: ${presentation.narrator}",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .fillMaxWidth()
-                .focusRequester(narratorFocusRequester)
-                .defaultMinSize(minHeight = 48.dp)
-                .clickable {
-                    onChildRouteOpened(BookDetailLinkOrigin.NARRATOR)
-                    onNarratorClick(presentation.narrator)
-                }
-                .semantics { stateDescription = currentEditionState }
-                .testTag("book_detail_narrator_link"),
-            textAlign = TextAlign.Center
-        )
+                .defaultMinSize(minHeight = 48.dp),
+            horizontalArrangement = Arrangement.Center
+        ) {
+            Text(
+                text = "Озвучує: ${presentation.narrator}",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .defaultMinSize(minHeight = 48.dp)
+                    .focusRequester(narratorFocusRequester)
+                    .clickable {
+                        onChildRouteOpened(BookDetailLinkOrigin.NARRATOR)
+                        onNarratorClick(presentation.narrator)
+                    }
+                    .semantics { stateDescription = currentEditionState }
+                    .testTag("book_detail_narrator_link")
+            )
+            PersonBookmarkButton(
+                isBookmarked = narratorBookmark.isBookmarked,
+                notifyEnabled = narratorBookmark.notifyEnabled,
+                personName = presentation.narrator,
+                onToggle = narratorBookmark.onToggle,
+                onToggleNotify = narratorBookmark.onToggleNotify,
+                modifier = Modifier.padding(start = 4.dp)
+            )
+        }
     }
     // ADR-0023 (#348): the narration rating lives beside the narrator's name —
     // crowd average + this listener's stars, never in the book headline.

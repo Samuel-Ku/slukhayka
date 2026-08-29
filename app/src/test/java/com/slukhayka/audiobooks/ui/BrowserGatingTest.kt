@@ -4,18 +4,18 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 /**
- * Spec-15 T2 — the debug-gating rules of the in-app browser surfaces, pinned
+ * Spec-15 T2 / Spec-42 #425 — the debug-gating rules of the in-app browser surfaces, pinned
  * on the pure seam (no Android build variant needed):
  *
- * - 4read uses the in-app browser in every build because its session is part
- *   of the supported playback/recovery path;
+ * - 4read is a WebView-pattern source in release builds (spec-42 #425) — its
+ *   "open on site" / recovery action is ALWAYS the in-app browser;
  * - a WebView-source surface (sluhay first) is an in-app destination only in
  *   debug builds; release builds open the system browser.
  */
 class BrowserGatingTest {
 
     @Test
-    fun `4read uses the in-app browser in every build`() {
+    fun `4read open-on-site is always the in-app browser - release-accessible recovery`() {
         assertEquals(BrowserDestination.IN_APP_BROWSER, browserDestinationFor(isDebug = true, sourceId = "4read"))
         assertEquals(BrowserDestination.IN_APP_BROWSER, browserDestinationFor(isDebug = false, sourceId = "4read"))
     }

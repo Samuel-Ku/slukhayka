@@ -42,6 +42,8 @@ import com.slukhayka.audiobooks.data.reviews.ReviewWriteReceipt
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.data.source.SourceAccessCandidate
 import com.slukhayka.audiobooks.data.source.SourceAccessPolicy
+import com.slukhayka.audiobooks.data.source.HttpFetcher
+import com.slukhayka.audiobooks.data.source.headersFor
 import com.slukhayka.audiobooks.player.AudioPlayerManager
 import com.slukhayka.audiobooks.player.PlayerState
 import com.slukhayka.audiobooks.ui.library.OutcomeMessages
@@ -81,7 +83,7 @@ data class SelectedSeries(
     val url: String
 )
 
-/** A WebView-pattern source's browser surface (spec-13 T3). */
+/** A WebView-pattern source's browser surface (spec-13 T3 / spec-42 #425). */
 data class SelectedWebSource(
     val sourceId: String,
     val homeUrl: String,
@@ -481,7 +483,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) {
             val book = try {
                 libraryImport.importWebSourcePage(sourceId, url, html, capturedAudioUrls)
-            } catch (e: CancellationException) {
+            } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
                 null
@@ -495,21 +497,38 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /** Opens 4read's in-app browser as an explicit recovery action. */
+    /** Opens 4read's in-app browser as an explicit user action — “Відкрити браузер”. */
+    fun open4ReadBrowser() {
+        _selectedWebSource.value = SelectedWebSource(
+            sourceId = "4read",
+            homeUrl = "https://4read.org/",
+            displayName = "4read"
+        )
+    }
+
+    /** Opens 4read search with prefilled Work title — “Знайти на 4read”. */
+    fun open4ReadSearch(workTitle: String) {
+        val encoded = java.net.URLEncoder.encode(workTitle.trim(), "UTF-8")
+        val searchUrl = "https://4read.org/index.php?do=search&subaction=search&story=$encoded"
+        _selectedWebSource.value = SelectedWebSource(
+            sourceId = "4read",
+            homeUrl = searchUrl,
+            displayName = "4read"
+        )
+    }
+
+    /** Opens 4read's in-app browser as an explicit recovery action — “Оновити через браузер”. */
     fun open4ReadRecovery(bookId: String, chapterIndex: Int, positionMs: Long) {
-        // A failed offline download is often not the currently playing book;
-        // resolve its exact persisted 4read Source URL instead of opening the
-        // generic homepage and losing the recovery target.
         viewModelScope.launch(Dispatchers.IO) {
-            val playing = playerState.value.currentBook?.takeIf { it.id == bookId }
-            val stored = libraryEntries.getBookSync(bookId)
-            val sourceUrl = libraryEntries.getSourcesForBook(bookId)
-                .firstOrNull { it.type == "4read" }
-                ?.url
-                ?.takeIf { it.isNotBlank() }
-                ?: stored?.sourceUrl?.takeIf { it.contains("4read.org") }
-                ?: playing?.sourceUrl?.takeIf { it.contains("4read.org") }
-                ?: "https://4read.org/"
+            val book = libraryEntries.getBookSync(bookId)
+            val sourceUrl = try {
+                com.slukhayka.audiobooks.data.imports.BrowserRecoveryCoordinator.recoveryEntryUrl(
+                    App.instance.audiobookDao,
+                    bookId
+                )
+            } catch (_: Exception) {
+                book?.sourceUrl?.takeIf { it.contains("4read.org") } ?: "https://4read.org/"
+            }
             withContext(Dispatchers.Main) {
                 _selectedWebSource.value = SelectedWebSource(
                     sourceId = "4read",
@@ -534,42 +553,58 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         onComplete: (Boolean) -> Unit = {}
     ) {
         viewModelScope.launch(Dispatchers.IO) {
-            val recovered = try {
-                libraryImport.recoverWebSourcePage(bookId, sourceId, url, html, capturedAudioUrls)
-            } catch (e: CancellationException) {
+            val coordinator = com.slukhayka.audiobooks.data.imports.BrowserRecoveryCoordinator(
+                dao = App.instance.audiobookDao,
+                libraryImport = libraryImport,
+                profileStore = null,
+                playbackVerifier = com.slukhayka.audiobooks.data.imports.BrowserRecoveryCoordinator.PlaybackVerifier { _, trackUrl ->
+                    val fetcher = HttpFetcher()
+                    val len = try { fetcher.headContentLength(trackUrl, headersFor(sourceId, trackUrl)) } catch (_: Exception) { null }
+                    len != null
+                },
+                cleanProbe = com.slukhayka.audiobooks.data.imports.BrowserRecoveryCoordinator.CleanProbe { false }
+            )
+            val outcome = try {
+                coordinator.recover(bookId, sourceId, url, html, capturedAudioUrls, chapterIndex, positionMs)
+            } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (_: Exception) {
                 null
             }
-            if (recovered != null) {
-                val playable = sourceCatalog.getPlayableChapters(bookId)
-                val requested = playable.getOrNull(chapterIndex)
-                val canStart = requested?.track?.url?.startsWith("http", ignoreCase = true) == true
-                if (!canStart) {
-                    withContext(Dispatchers.Main) { onComplete(false) }
-                    return@launch
+            withContext(Dispatchers.Main) {
+                when (outcome) {
+                    is com.slukhayka.audiobooks.data.imports.BrowserRecoveryCoordinator.Outcome.Success -> {
+                        val playable = sourceCatalog.getPlayableChapters(outcome.book.id)
+                        val ch = playable.getOrNull(outcome.resumeChapterIndex)
+                        if (ch?.track?.url?.startsWith("http", ignoreCase = true) == true) {
+                            playerManager.loadAndPlayBook(
+                                book = outcome.book,
+                                chapters = playable.map { it.chapter },
+                                playable = playable,
+                                initialChapterIndex = outcome.resumeChapterIndex,
+                                initialPositionSeconds = outcome.resumePositionMs / 1000L,
+                                autoPlay = true
+                            )
+                            _showFullPlayer.value = true
+                        }
+                        onComplete(true)
+                    }
+                    is com.slukhayka.audiobooks.data.imports.BrowserRecoveryCoordinator.Outcome.Failure -> onComplete(false)
+                    null -> onComplete(false)
                 }
-                withContext(Dispatchers.Main) {
-                    playerManager.loadAndPlayBook(
-                        book = recovered,
-                        chapters = playable.map { it.chapter },
-                        playable = playable,
-                        initialChapterIndex = chapterIndex,
-                        initialPositionSeconds = positionMs / 1000L,
-                        autoPlay = true
-                    )
-                    _showFullPlayer.value = true
-                }
+            }
                 // A paused offline queue is resumed only after the explicit
                 // browser recovery completed. Existing local files are reused
                 // and only the failed tracks are fetched again.
-                if (offlineDownloads.hasPendingBrowserRefresh(bookId)) {
-                    offlineDownloads.clearPendingBrowserRefresh(bookId)
+                if (outcome is com.slukhayka.audiobooks.data.imports.BrowserRecoveryCoordinator.Outcome.Success &&
+                offlineDownloads.hasPendingBrowserRefresh(outcome.book.id)
+            ) {
+                    offlineDownloads.clearPendingBrowserRefresh(outcome.book.id)
                     try {
-                        val result = offlineDownloads.downloadAudiobookOffline(bookId)
-                        if (_selectedBookId.value == bookId) {
+                        val result = offlineDownloads.downloadAudiobookOffline(outcome.book.id)
+                        if (_selectedBookId.value == outcome.book.id) {
                             _downloadMessage.value = OutcomeMessages.downloadOutcome(result)
-                            _downloadRecoveryBookId.value = bookId.takeIf { result.requiresBrowserRefresh }
+                            _downloadRecoveryBookId.value = outcome.book.id.takeIf { result.requiresBrowserRefresh }
                         }
                     } catch (e: CancellationException) {
                         throw e

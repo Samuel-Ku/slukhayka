@@ -512,12 +512,9 @@ class LibraryImport(
                 val detail = parsed.withCapturedAudioUrls(capturedAudioUrls)
                 if (detail.chapters.isEmpty()) return@withContext null
                 if (detail.chapters.any { !it.streamUrl.isPlayableSourceUrl() }) return@withContext null
-                // A captured 4read page is session material. Keep its profile
-                // local until playback has actually succeeded; this avoids
-                // publishing a Cloudflare/challenge artefact to the shared
-                // metadata base.
+                // 4read captured pages stay local until Player verdict; avoid publishing challenge artefacts.
                 importBookFromSource(sourceId, detail, writeBackProfile = sourceId != "4read")
-            } catch (e: CancellationException) {
+            } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
                 null

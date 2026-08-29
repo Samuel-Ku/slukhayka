@@ -40,6 +40,7 @@ import androidx.webkit.WebViewFeature
 import com.slukhayka.audiobooks.BuildConfig
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.privacy.WebViewSessionPrivacy
+import com.slukhayka.audiobooks.data.source.SourceBrowserPolicy
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.theme.*
 
@@ -134,6 +135,27 @@ fun WebSourceBrowserScreen(
     // site's «Слухати») — the request-log parser collapses Range repeats.
     var lastCapturedAudioCount by remember { mutableStateOf(0) }
 
+    // Spec-42 #427 — source-scoped boundary: the user cannot leave the
+    // source's allowlist, whether via link, address field or programmatic
+    // loadUrl. This message surfaces a blocked external navigation.
+    var blockedNavMessage by remember { mutableStateOf("") }
+
+    /**
+     * Spec-42 #427 — central allowlist gate used for every navigation entry
+     * point: in-page links (`shouldOverrideUrlLoading`), the address field's
+     * Go action and programmatic `loadUrl`. Only `http`/`https` with a host in
+     * [SourceBrowserPolicy] for [sourceId] is allowed; everything else is
+     * blocked and honestly surfaced — the browser never silently leaves the
+     * source.
+     */
+    fun isNavigationAllowed(url: String): Boolean {
+        if (!SourceBrowserPolicy.isUrlAllowed(url, sourceId)) {
+            Log.w("WebSource", "Blocked navigation outside allowlist for $sourceId: $url")
+            return false
+        }
+        return true
+    }
+
     /**
      * Captures the current page's DOM via evaluateJavascript (no JS bridge —
      * SEC-003) and imports it. The origin check keeps the import scoped to the
@@ -144,11 +166,10 @@ fun WebSourceBrowserScreen(
     fun importCurrentPage() {
         val instance = webViewInstance ?: return
         val pageUrl = currentWebUrl
-        val allowedHost = runCatching {
-            homeUrl.toUri().host?.lowercase()?.removePrefix("www.")
-        }.getOrNull() ?: return
-        val actualHost = runCatching { pageUrl.toUri().host?.lowercase()?.removePrefix("www.") }.getOrNull() ?: ""
-        if (actualHost != allowedHost) {
+        // Import remains scoped to the source's own allowlist (same gate as
+        // navigation): an off-source page can never become a card of this
+        // source.
+        if (!SourceBrowserPolicy.isUrlAllowed(pageUrl, sourceId)) {
             importResult = "Це не сторінка $displayName — додавання доступне лише з книг джерела"
             return
         }
@@ -338,6 +359,14 @@ fun WebSourceBrowserScreen(
                         }
                     )
                 }
+                if (blockedNavMessage.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = blockedNavMessage,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
                 if (lastCapturedAudioCount > 0) {
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
@@ -380,8 +409,16 @@ fun WebSourceBrowserScreen(
                                     onClick = {
                                         val input = urlInput.trim()
                                         val target = if (input.startsWith("http")) input else "https://$input"
-                                        currentWebUrl = target
-                                        webViewInstance?.loadUrl(target)
+                                        // Spec-42 #427 — address field cannot bypass allowlist:
+                                        // same gate as shouldOverrideUrlLoading.
+                                        if (!SourceBrowserPolicy.isUrlAllowed(target, sourceId)) {
+                                            blockedNavMessage = "Перехід за межі $displayName заблоковано"
+                                            Log.w("WebSource", "Blocked address-bar navigation outside allowlist for $sourceId: $target")
+                                        } else {
+                                            blockedNavMessage = ""
+                                            currentWebUrl = target
+                                            webViewInstance?.loadUrl(target)
+                                        }
                                     },
                                     modifier = Modifier
                                         .size(AppDimens.TouchTarget)
@@ -531,13 +568,22 @@ fun WebSourceBrowserScreen(
                             override fun shouldOverrideUrlLoading(view: WebView?, request: android.webkit.WebResourceRequest?): Boolean {
                                 val url = request?.url?.toString() ?: return false
                                 val scheme = request?.url?.scheme?.lowercase() ?: ""
-                                // SEC-011: whitelist http(s) only.
-                                return if (scheme == "http" || scheme == "https") {
-                                    false
-                                } else {
+                                // SEC-011: whitelist http(s) only + spec-42 #427 source allowlist.
+                                if (scheme != "http" && scheme != "https") {
                                     Log.w("WebSource", "Blocked non-http navigation: $url")
-                                    true
+                                    return true
                                 }
+                                // Spec-42 #427 — top navigation (and every programmatic
+                                // loadUrl path) accepts only the current source's
+                                // allowlisted http(s) hosts. The address field
+                                // uses the SAME gate — no bypass.
+                                if (!SourceBrowserPolicy.isUrlAllowed(url, sourceId)) {
+                                    Log.w("WebSource", "Blocked navigation outside allowlist for $sourceId: $url")
+                                    blockedNavMessage = "Перехід за межі $displayName заблоковано"
+                                    return true
+                                }
+                                blockedNavMessage = ""
+                                return false
                             }
 
                             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {

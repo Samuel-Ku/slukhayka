@@ -55,11 +55,16 @@ package com.slukhayka.audiobooks.data.source
 class SluhayAdapter(
     private val fetcher: HttpFetcher = HttpFetcher(referer = "https://sluhay.com/"),
     /**
-     * The live WebView session's cookies for the source domain (`cf_clearance`
-     * etc. from the WebView jar). Default empty keeps the adapter pure-JVM;
-     * production wires the [android.webkit.CookieManager].
+     * Spec-42 #427 — the shared host-aware Cookie provider. It reads just-in-time
+     * for the concrete request host (never copying a cookie from one host to
+     * another), so `sluhay.com` cookies stay on `sluhay.com` and are never sent
+     * to the `redirectto.cc` CDN. Default empty keeps the adapter pure-JVM;
+     * production wires [AndroidSourceCookieProvider] once in the composition
+     * root.
      */
-    private val cookieProvider: () -> String = { "" }
+    private val cookieProvider: SourceCookieProvider = object : SourceCookieProvider {
+        override fun cookieFor(url: String): String = ""
+    }
 ) : SourceAdapter {
 
     override val sourceId: String = "sluhay"
@@ -76,7 +81,9 @@ class SluhayAdapter(
      * blocked/stale fetch — the repository surfaces the CTA row then.
      */
     override suspend fun fetchNew(limit: Int): List<SourceBook> {
-        val cookies = cookieProvider().trim()
+        // Spec-42 #427 — host-aware: read the Cookie header just-in-time for
+        // HOME_URL's host, never reusing another host's cookie.
+        val cookies = cookieProvider.cookieFor(HOME_URL).trim()
         // No live session: Cloudflare would 403, so there is nothing to parse.
         if (cookies.isBlank()) return emptyList()
         val html = fetcher.getText(HOME_URL, mapOf("Cookie" to cookies))
@@ -128,12 +135,13 @@ class SluhayAdapter(
 
     override suspend fun fetchBookPage(url: String): SourceBookDetail {
         // The book page HTML sits behind Cloudflare like the homepage — send
-        // the live session cookies when present (server-fetch 200 with the
-        // session, per the T1 verdict); without a session the fetch 403s and
-        // the parse stays absent (empty detail), which the import doors treat
-        // as "nothing playable". The playlist fetch inside [detailFromCapturedHtml]
-        // only needs the source Referer (the fetcher always sends it).
-        val cookies = cookieProvider().trim()
+        // the live session cookies just-in-time for the concrete [url] host
+        // (spec-42 #427, never copying a cookie from one host to another);
+        // without a session the fetch 403s and the parse stays absent (empty
+        // detail), which the import doors treat as "nothing playable". The
+        // playlist fetch inside [detailFromCapturedHtml] only needs the source
+        // Referer (the fetcher always sends it) — no Cookie header.
+        val cookies = cookieProvider.cookieFor(url).trim()
         val html = if (cookies.isBlank()) {
             fetcher.getText(url)
         } else {
@@ -152,9 +160,11 @@ class SluhayAdapter(
      * (Cloudflare 403) there is nothing to crawl — empty, as [fetchNew].
      */
     override suspend fun fetchCatalog(limit: Int): List<SourceBook> {
-        val cookies = cookieProvider().trim()
-        if (cookies.isBlank()) return emptyList()
-        val home = fetcher.getText(HOME_URL, mapOf("Cookie" to cookies))
+        // Spec-42 #427 — host-aware cookies: each request reads its own host's
+        // cookie just-in-time, never copying one host's cookie onto another.
+        val homeCookies = cookieProvider.cookieFor(HOME_URL).trim()
+        if (homeCookies.isBlank()) return emptyList()
+        val home = fetcher.getText(HOME_URL, mapOf("Cookie" to homeCookies))
         if (home.isEmpty()) return emptyList()
         val seen = mutableSetOf<String>()
         val books = mutableListOf<SourceBook>()
@@ -176,7 +186,10 @@ class SluhayAdapter(
             .take(MAX_CATEGORIES)
         for (category in categories) {
             if (books.size >= limit) break
-            val html = fetcher.getText("https://sluhay.com/$category/", mapOf("Cookie" to cookies))
+            val categoryUrl = "https://sluhay.com/$category/"
+            val catCookies = cookieProvider.cookieFor(categoryUrl).trim()
+            val headers = if (catCookies.isBlank()) emptyMap() else mapOf("Cookie" to catCookies)
+            val html = fetcher.getText(categoryUrl, headers)
             if (html.isEmpty()) continue
             for (book in parsePosterRows(html, limit - books.size)) {
                 if (seen.add(book.url)) books += book

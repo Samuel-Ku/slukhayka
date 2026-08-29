@@ -181,7 +181,9 @@ fun WebSourceBrowserScreen(
      * SEC-003) and imports it. The origin check keeps the import scoped to the
      * source's own domain: a cross-origin page inside the WebView (a redirect
      * to a third-party login, an embedded player host) must never become a
-     * library card of this source.
+     * library card of this source. #430 — the whole flow is one operation:
+     * capture → parse → identity guard → Track update → Player verdict → UI
+     * outcome. `http(s)` prefix alone is never success.
      */
     fun importCurrentPage() {
         val instance = webViewInstance ?: return
@@ -193,8 +195,11 @@ fun WebSourceBrowserScreen(
             importResult = "Це не сторінка $displayName — додавання доступне лише з книг джерела"
             return
         }
+        // Snapshot the ordered audio candidates observed so far (deduplicated).
+        val audioCandidates = observedAudioUrls.toList()
         isImporting = true
         importResult = ""
+        blockedNavMessage = ""
         instance.evaluateJavascript(
             "(function(){return document.documentElement.outerHTML;})()"
         ) { raw ->
@@ -206,39 +211,48 @@ fun WebSourceBrowserScreen(
                 }
                 unescapeCapturedHtml(inner)
             } ?: ""
-            if (decoded.isNotBlank() && decoded.length > 200) {
-                if (recoveryBookId != null && recoveryChapterIndex != null) {
-                    viewModel.recoverWebSourcePage(
-                        bookId = recoveryBookId,
-                        sourceId = sourceId,
-                        url = pageUrl,
-                        html = decoded,
-                        capturedAudioUrls = synchronized(capturedAudioUrls) { capturedAudioUrls.toList() },
-                        chapterIndex = recoveryChapterIndex,
-                        positionMs = recoveryPositionMs
-                    ) { success ->
-                        importResult = if (success) {
-                            "Потік оновлено, продовжую прослуховування"
-                        } else {
-                            "Не вдалося оновити потік з цієї сторінки"
-                        }
-                        isImporting = false
-                        if (success) onClose()
-                    }
-                } else {
-                    viewModel.importWebSourcePage(
-                        sourceId,
-                        pageUrl,
-                        decoded,
-                        capturedAudioUrls = synchronized(capturedAudioUrls) { capturedAudioUrls.toList() }
-                    ) { success ->
-                        importResult = if (success) "Книгу додано до медіатеки" else "Сторінку не вдалося прочитати"
-                        isImporting = false
-                    }
-                }
-            } else {
+            if (decoded.isBlank() || decoded.length < 200) {
                 importResult = "Сторінку не вдалося прочитати"
                 isImporting = false
+                return@evaluateJavascript
+            }
+            if (recoveryBookId != null && recoveryChapterIndex != null) {
+                // #430 — recovery: the coordinator verifies the real media-open
+                // verdict; failure keeps the browser open with an honest message.
+                viewModel.recoverWebSourcePage(
+                    bookId = recoveryBookId,
+                    sourceId = sourceId,
+                    url = pageUrl,
+                    html = decoded,
+                    capturedAudioUrls = synchronized(capturedAudioUrls) { capturedAudioUrls.toList() },
+                    chapterIndex = recoveryChapterIndex,
+                    positionMs = recoveryPositionMs
+                ) { success ->
+                    if (success) {
+                        importResult = "Книгу оновлено"
+                        // Success closes the browser and resumes the same
+                        // Chapter/position.
+                        onClose()
+                    } else {
+                        importResult = "Аудіо ще не знайдено. Відкрийте книгу та запустіть її на сайті, потім спробуйте ще раз."
+                    }
+                    isImporting = false
+                }
+            } else {
+                viewModel.importWebSourcePage(
+                    sourceId,
+                    pageUrl,
+                    decoded,
+                    capturedAudioUrls = synchronized(capturedAudioUrls) { capturedAudioUrls.toList() }
+                ) { success ->
+                    if (success) {
+                        importResult = "Книгу додано до медіатеки"
+                        onClose()
+                    } else {
+                        importResult = "Аудіо ще не знайдено. Відкрийте книгу та запустіть її на сайті, потім спробуйте ще раз."
+                    }
+                    isImporting = false
+                }
             }
         }
     }
@@ -681,6 +695,8 @@ fun WebSourceBrowserScreen(
                                 }
                                 isLoading = true
                                 hasWebError = false
+                                // #430 — new top-level page → fresh candidate set.
+                                observedAudioUrls = emptyList()
                                 url?.let {
                                     currentWebUrl = it
                                     urlInput = it

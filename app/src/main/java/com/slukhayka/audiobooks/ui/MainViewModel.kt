@@ -844,6 +844,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _canonicalAuthorLoadFailed = MutableStateFlow(false)
     val canonicalAuthorLoadFailed: StateFlow<Boolean> = _canonicalAuthorLoadFailed.asStateFlow()
 
+    // #307: scroll-position restoration — the index of the selected author in
+    // the alphabetical list so Back from the canonical page restores the viewport.
+    private val _authorsIndexScrollIndex = MutableStateFlow(0)
+    val authorsIndexScrollIndex: StateFlow<Int> = _authorsIndexScrollIndex.asStateFlow()
+
     fun openAuthorsIndex() {
         _authorsIndexResults.value = null
         _authorsIndexOpen.value = true
@@ -868,7 +873,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _authorsIndexResults.value = null
     }
 
-    fun openCanonicalAuthor(author: AuthorSummary) {
+    fun openCanonicalAuthor(author: AuthorSummary, authorIndex: Int = 0) {
+        _authorsIndexScrollIndex.value = authorIndex
         _selectedCanonicalAuthor.value = author
         _canonicalAuthorWorks.value = emptyList()
         _canonicalAuthorLoadFailed.value = false

@@ -266,6 +266,16 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
+      # reactivecircus/android-emulator-runner requires explicit KVM
+      # permissions on Linux runners. Without this the emulator falls back to
+      # software acceleration, becomes unresponsive during APK installation,
+      # and the accessibility journey starts zero tests.
+      - name: Enable KVM group permissions
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
       - name: Prebuild accessibility APKs
         run: ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon --max-workers=1 --stacktrace
 
@@ -282,6 +292,8 @@ jobs:
           script: |
             mkdir -p app/build/reports/androidTests
             scripts/wait-for-android-package-service.sh
+            adb shell cmd overlay enable-exclusive --category com.android.internal.systemui.navbar.threebutton
+            adb shell cmd overlay list | grep -F "[x] com.android.internal.systemui.navbar.threebutton"
             adb logcat -c
             test_status=0
             ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.slukhayka.audiobooks.accessibility.MainActivityAccessibilityTest --no-daemon --max-workers=1 --stacktrace || test_status=$?

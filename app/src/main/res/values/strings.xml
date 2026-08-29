@@ -24,4 +24,5 @@
     <string name="book_detail_size_approximate">~%1$d МБ</string>
     <string name="book_detail_size_unknown">невідомо</string>
     <string name="book_detail_download_progress">%1$d/%2$d • %3$d / %4$d МБ (%5$d%%)</string>
+<string name="book_detail_browser_needed">Потрібен браузер</string>
 </resources>

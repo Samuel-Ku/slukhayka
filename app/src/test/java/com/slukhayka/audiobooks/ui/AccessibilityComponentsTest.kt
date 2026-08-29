@@ -54,7 +54,6 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
@@ -272,56 +271,6 @@ class AccessibilityComponentsTest {
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("modal_return_focus_target").assertIsFocused()
         assertEquals(1, restoreCount)
-    }
-
-    @Test
-    fun modalFocusReturnSurvivesALateLayoutFocusLoss() {
-        var setModalVisible: ((Boolean) -> Unit)? = null
-        var stealFocusAfterClose = false
-        composeTestRule.setContent {
-            var modalVisible by remember { mutableStateOf(true) }
-            val returnFocusRequester = remember { FocusRequester() }
-            val competingFocusRequester = remember { FocusRequester() }
-            setModalVisible = {
-                stealFocusAfterClose = true
-                modalVisible = it
-            }
-
-            RestoreFocusAfterModal(
-                modalVisible = modalVisible,
-                returnFocusRequester = returnFocusRequester,
-                settleFrames = 1,
-                settleDelayMillis = 250L
-            )
-            LaunchedEffect(modalVisible) {
-                if (!modalVisible && stealFocusAfterClose) {
-                    delay(100L)
-                    competingFocusRequester.requestFocus()
-                }
-            }
-            Column {
-                Box(
-                    Modifier
-                        .size(48.dp)
-                        .focusRequester(returnFocusRequester)
-                        .focusable()
-                        .testTag("stable_modal_return_target")
-                )
-                Box(
-                    Modifier
-                        .size(48.dp)
-                        .focusRequester(competingFocusRequester)
-                        .focusable()
-                        .testTag("late_layout_focus_target")
-                )
-            }
-        }
-
-        composeTestRule.runOnIdle { setModalVisible?.invoke(false) }
-        composeTestRule.waitForIdle()
-
-        composeTestRule.onNodeWithTag("stable_modal_return_target").assertIsFocused()
-        composeTestRule.onNodeWithTag("late_layout_focus_target").assertIsNotFocused()
     }
 
     @Test

@@ -1482,27 +1482,7 @@ fun ChapterRowItem(
                 1.dp,
                 if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
                 RoundedCornerShape(AppDimens.RadiusCard)
-            )
-            // Test seam (GitHub issue #7 — emulator audio scenario): deterministic
-            // compose-test selector for the chapter row in BookDetailScreen.
-            // Tags by chapter entity id so the emulator scenario can target a
-            // specific chapter regardless of ordering. Pure UI annotation; does
-            // not change runtime behaviour.
-            .testTag("book_detail_chapter_${chapter.id}")
-            .then(focusRequester?.let { Modifier.focusRequester(it) } ?: Modifier)
-            // Keep the accessibility target on the stable Card. The touch
-            // target lives on the inner full-width Row so playback-driven
-            // clickable updates cannot replace the requester's focus node.
-            .focusable()
-            .semantics(mergeDescendants = true) {
-                contentDescription = chapterSummary
-                stateDescription = chapterState
-                selected = isCurrent
-                onClick(label = actionLabel) {
-                    onAction()
-                    true
-                }
-            },
+            ),
         colors = CardDefaults.cardColors(
             containerColor = if (isCurrent) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
             else MaterialTheme.colorScheme.surfaceContainer
@@ -1511,7 +1491,17 @@ fun ChapterRowItem(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable { onAction() }
+                // One stable node owns touch, semantics and focus. Splitting
+                // these responsibilities between Card and Row exposes two
+                // clickable accessibility nodes with identical bounds.
+                .testTag("book_detail_chapter_${chapter.id}")
+                .then(focusRequester?.let { Modifier.focusRequester(it) } ?: Modifier)
+                .clickable(onClickLabel = actionLabel, onClick = onAction)
+                .semantics(mergeDescendants = true) {
+                    contentDescription = chapterSummary
+                    stateDescription = chapterState
+                    selected = isCurrent
+                }
                 .padding(14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {

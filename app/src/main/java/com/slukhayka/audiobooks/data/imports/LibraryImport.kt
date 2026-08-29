@@ -525,11 +525,27 @@ class LibraryImport(
         }
 
     /**
-     * Applies a freshly captured browser page to an existing Edition. This is
-     * the recovery door used after a 4read stream expires: logical chapters,
-     * listening state and downloaded files stay put; only the physical URLs
-     * owned by the matching Source are refreshed. A chapter-count mismatch is
-     * rejected so a reordered page can never silently corrupt progress.
+     * #428 — 4read recovery: updates the exact 4read [Source] of the same
+     * [Work] and [Edition] with fresh physical URLs, never creating a duplicate.
+     *
+     * The captured page is parsed through the [SourceAdapter] seam; the detail's
+     * chapter list may be supplemented by [capturedAudioUrls] observed in the
+     * WebView session (range-repeat deduplicated) when the parser yields no
+     * playable URLs. The parser remains the source of chapter-to-track identity.
+     *
+     * Strict identity guards, in order, before any Room write:
+     * 1. Stable Source identity: exact [url] of the same [sourceId] for this
+     *    [bookId]. No fallback to the first Source of the same type.
+     * 2. Work identity: [MergeKey] of the captured title/author must equal the
+     *    stored Work's mergeKey.
+     * 3. Edition identity: narrator (and language) must match the stored Edition;
+     *    the derived [EditionId] must be identical.
+     * 4. Chapter structure: count, titles (case-insensitive when both non-blank),
+     *    and indices must match exactly before any [SourceTrack] is touched.
+     *
+     * Any mismatch returns null and leaves Room, Listening State, bookmarks and
+     * download state untouched. A second recovery with the same detail is
+     * idempotent.
      */
     suspend fun recoverWebSourcePage(
         bookId: String,
@@ -542,7 +558,7 @@ class LibraryImport(
             ?: return@withContext null
         val parsed = try {
             adapter.parseCapturedPage(html, url)
-        } catch (e: CancellationException) {
+        } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (_: Exception) {
             null
@@ -550,33 +566,44 @@ class LibraryImport(
         val detail = parsed.withCapturedAudioUrls(capturedAudioUrls)
         if (detail.chapters.isEmpty()) return@withContext null
         if (detail.chapters.any { !it.streamUrl.isPlayableSourceUrl() }) return@withContext null
+
+        // 1. Stable Source identity — exact URL, no fallback.
         val source = dao.getSourcesForBookSync(bookId).firstOrNull { it.type == sourceId && it.url == url }
-            ?: dao.getSourcesForBookSync(bookId).firstOrNull { it.type == sourceId }
             ?: return@withContext null
+
+        // 2. Work identity.
+        val existingBook = dao.getAudiobookById(bookId) ?: return@withContext null
+        val capturedMergeKey = MergeKey.keyFor(detail.title, detail.author)
+        val storedMergeKey = existingBook.mergeKey ?: ""
+        // Both blank is permitted only for legacy local rows — for 4read both are non-blank; any mismatch is refusal.
+        if (capturedMergeKey != storedMergeKey) return@withContext null
+
+        // 3. Edition identity: narrator + derived EditionId.
         val edition = dao.getEditionForWork(bookId)
-        if (edition != null && source.editionId != null && source.editionId != edition.id) {
-            return@withContext null
-        }
+        if (edition != null && source.editionId != null && source.editionId != edition.id) return@withContext null
         if (edition != null && edition.narrator.isNotBlank() && detail.narrator.isNotBlank() &&
             !edition.narrator.equals(detail.narrator, ignoreCase = true)
-        ) {
-            return@withContext null
-        }
+        ) return@withContext null
+        val capturedNarrator = MetadataAssertions.normalizeClaimedText(detail.narrator) ?: "$sourceId narrator"
+        val capturedEditionId = EditionId.forBook(capturedMergeKey, existingBook.id, capturedNarrator)
+        if (edition != null && capturedEditionId != edition.id) return@withContext null
+
+        // 4. Chapter structure: count, names, indices verified before any track write.
         val logicalChapters = dao.getChaptersListForBook(bookId).sortedBy { it.chapterIndex }
-        if (logicalChapters.size != detail.chapters.size || logicalChapters.indices.any { index ->
+        if (logicalChapters.size != detail.chapters.size) return@withContext null
+        if (logicalChapters.indices.any { index ->
                 val storedTitle = logicalChapters[index].title.trim()
                 val capturedTitle = detail.chapters[index].title.trim()
                 storedTitle.isNotBlank() && capturedTitle.isNotBlank() &&
                     !storedTitle.equals(capturedTitle, ignoreCase = true)
-            }) {
-            // Same-count pages can still be reordered. Refuse the update rather
-            // than attaching a new URL to the wrong logical chapter.
-            return@withContext null
-        }
+            }
+        ) return@withContext null
+
         val tracks = dao.getTracksForSourceSync(source.id).sortedBy { it.trackIndex }
-        if (tracks.size != detail.chapters.size || tracks.map { it.trackIndex } != detail.chapters.indices.toList()) {
-            return@withContext null
-        }
+        if (tracks.size != detail.chapters.size) return@withContext null
+        if (tracks.map { it.trackIndex } != detail.chapters.indices.toList()) return@withContext null
+
+        // All guards passed — refresh the physical URLs in place.
         val refreshed = detail.chapters.mapIndexed { index, chapter ->
             tracks[index].copy(url = chapter.streamUrl)
         }

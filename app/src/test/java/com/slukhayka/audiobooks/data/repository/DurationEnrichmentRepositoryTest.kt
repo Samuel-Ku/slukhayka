@@ -7,9 +7,11 @@ import com.slukhayka.audiobooks.data.EditionId
 import com.slukhayka.audiobooks.data.db.AudiobookDao
 import com.slukhayka.audiobooks.data.db.AudiobookDatabase
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
+import com.slukhayka.audiobooks.data.db.WorkEntity
 import com.slukhayka.audiobooks.data.duration.DurationBuckets
 import com.slukhayka.audiobooks.data.duration.DurationEnrichment
 import com.slukhayka.audiobooks.data.metadata.DurationProvenance
+import com.slukhayka.audiobooks.data.merge.MergeKey
 import com.slukhayka.audiobooks.data.source.SourceAdapter
 import com.slukhayka.audiobooks.data.source.SourceBook
 import com.slukhayka.audiobooks.data.source.SourceBookDetail
@@ -96,6 +98,29 @@ class DurationEnrichmentRepositoryTest {
             totalDurationSeconds = durationSeconds
         )
 
+    private suspend fun insertLibraryBooks(books: List<AudiobookEntity>) {
+        dao.insertAudiobooks(books)
+        books.forEach { book ->
+            val workId = MergeKey.keyFor(book.title, book.author)
+            dao.upsertWork(
+                WorkEntity(
+                    id = workId,
+                    mergeKey = workId,
+                    title = book.title,
+                    author = book.author,
+                    addedAt = START_EPOCH
+                )
+            )
+            dao.upsertLibraryEntry(
+                id = book.id,
+                workId = workId,
+                isFavorite = false,
+                createdAt = START_EPOCH,
+                downloadProgress = 0f
+            )
+        }
+    }
+
     private fun repo(adapter: FakeBookAdapter, store: FakeSharedBookMetaStore? = null) =
         DurationEnrichment(dao, adapter::fetchBookPage, sharedStore = store)
 
@@ -111,7 +136,7 @@ class DurationEnrichmentRepositoryTest {
     @Test
     fun `unknown-duration books receive their real durations from the seam`() {
         runBlocking {
-            dao.insertAudiobooks(
+            insertLibraryBooks(
                 listOf(
                     book("a", 0L),
                     book("b", 0L),
@@ -137,7 +162,7 @@ class DurationEnrichmentRepositoryTest {
 
     @Test
     fun `the fabricated legacy 4-hour placeholder counts as unknown and is enriched`() {
-        runBlocking { dao.insertAudiobooks(listOf(book("legacy", DurationBuckets.FABRICATED_LEGACY_SECONDS))) }
+        runBlocking { insertLibraryBooks(listOf(book("legacy", DurationBuckets.FABRICATED_LEGACY_SECONDS))) }
         val adapter = FakeBookAdapter(mapOf("https://4read.org/legacy.html" to 9000L))
 
         assertEquals(1, runEnrich(repo(adapter)))
@@ -151,7 +176,7 @@ class DurationEnrichmentRepositoryTest {
     @Test
     fun `a failing fetch leaves the row untouched and does not abort the batch`() {
         runBlocking {
-            dao.insertAudiobooks(listOf(book("fail", 0L), book("ok", 0L)))
+            insertLibraryBooks(listOf(book("fail", 0L), book("ok", 0L)))
         }
         val adapter = FakeBookAdapter(mapOf("https://4read.org/ok.html" to 5400L))
         val repo = repo(adapter)
@@ -163,7 +188,7 @@ class DurationEnrichmentRepositoryTest {
 
     @Test
     fun `a page without a duration never writes zero over the row`() {
-        runBlocking { dao.insertAudiobooks(listOf(book("noduration", 0L))) }
+        runBlocking { insertLibraryBooks(listOf(book("noduration", 0L))) }
         val adapter = FakeBookAdapter(mapOf("https://4read.org/noduration.html" to null))
         val repo = repo(adapter)
 
@@ -173,7 +198,7 @@ class DurationEnrichmentRepositoryTest {
 
     @Test
     fun `local imports with a blank source url are skipped, never fetched`() {
-        runBlocking { dao.insertAudiobooks(listOf(book("local", 0L, url = ""))) }
+        runBlocking { insertLibraryBooks(listOf(book("local", 0L, url = ""))) }
         val adapter = FakeBookAdapter(emptyMap())
         val repo = repo(adapter)
 
@@ -189,7 +214,7 @@ class DurationEnrichmentRepositoryTest {
     @Test
     fun `the pass respects its batch limit`() {
         runBlocking {
-            dao.insertAudiobooks((1..5).map { book("b$it", 0L) })
+            insertLibraryBooks((1..5).map { book("b$it", 0L) })
         }
         val adapter = FakeBookAdapter(
             (1..5).associate { "https://4read.org/b$it.html" to 3600L }
@@ -207,7 +232,7 @@ class DurationEnrichmentRepositoryTest {
     @Test
     fun `the pass throttles itself between runs`() {
         runBlocking {
-            dao.insertAudiobooks((1..4).map { book("c$it", 0L) })
+            insertLibraryBooks((1..4).map { book("c$it", 0L) })
         }
         val adapter = FakeBookAdapter((1..4).associate { "https://4read.org/c$it.html" to 3600L })
         val repo = repo(adapter)
@@ -229,7 +254,7 @@ class DurationEnrichmentRepositoryTest {
 
     @Test
     fun `no unknown-duration books means nothing is fetched`() {
-        runBlocking { dao.insertAudiobooks(listOf(book("known", 3600L), book("also", 86_400L))) }
+        runBlocking { insertLibraryBooks(listOf(book("known", 3600L), book("also", 86_400L))) }
         val adapter = FakeBookAdapter(emptyMap())
         val repo = repo(adapter)
 
@@ -244,7 +269,7 @@ class DurationEnrichmentRepositoryTest {
     fun `a derived duration is written back to the shared store`() = runBlocking {
         val store = FakeSharedBookMetaStore()
         val adapter = FakeBookAdapter(durationFor = mapOf("https://4read.org/b1.html" to 3_600L))
-        dao.insertAudiobooks(listOf(book("b1", durationSeconds = 0L)))
+        insertLibraryBooks(listOf(book("b1", durationSeconds = 0L)))
 
         runEnrich(repo(adapter, store))
 
@@ -254,14 +279,14 @@ class DurationEnrichmentRepositoryTest {
         assertEquals("4read", provenance.source)
         assertEquals(DurationProvenance.METHOD_SOURCE_METADATA, provenance.method)
         // The Edition id matches the book's rendition identity.
-        assertEquals(EditionId.forBook("", "b1", ""), editionId)
+        assertEquals(EditionId.forBook(MergeKey.keyFor("Книга b1", "Автор"), "b1", ""), editionId)
     }
 
     @Test
     fun `a failing shared write never breaks the enrichment pass`() = runBlocking {
         val store = FakeSharedBookMetaStore(throwOnPut = true)
         val adapter = FakeBookAdapter(durationFor = mapOf("https://4read.org/b1.html" to 3_600L))
-        dao.insertAudiobooks(listOf(book("b1", durationSeconds = 0L)))
+        insertLibraryBooks(listOf(book("b1", durationSeconds = 0L)))
 
         val enriched = runEnrich(repo(adapter, store))
 

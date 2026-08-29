@@ -44,6 +44,7 @@ import com.slukhayka.audiobooks.data.source.SourceAccessPolicy
 import com.slukhayka.audiobooks.data.source.mergeGlobalSearchResults
 import com.slukhayka.audiobooks.data.source.sourceDisplayName
 import com.slukhayka.audiobooks.data.source.sourceIdForUrl
+import com.slukhayka.audiobooks.data.source.SourceSelectionCoordinator
 import com.slukhayka.audiobooks.data.source.streamOnlyFor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
@@ -782,6 +783,65 @@ class SourceCatalog(
      */
     suspend fun getChaptersList(bookId: String): List<ChapterEntity> =
         getPlayableChapters(bookId).map { it.chapter }
+
+    /**
+     * The book's PRIMARY source row: the one matching its sourceUrl (a
+     * "local" source when the URL is blank — local imports), falling back to
+     * the first source when no type matches.
+     *
+     * #429: uses [SourceSelectionCoordinator] to pick the best available
+     * source with proper priority (LOCAL → DIRECT → UNKNOWN → BROWSER).
+     */
+    private suspend fun primarySourceOf(bookId: String, book: com.slukhayka.audiobooks.data.db.BookRow?): SourceEntity? {
+        val sources = dao.getSourcesForBookSync(bookId)
+        if (sources.isEmpty()) return null
+
+        val candidates = sources.map { source ->
+            val adapter = sourceAdapters.firstOrNull { it.sourceId == source.type }
+            val category = SourceSelectionCoordinator.SourceCategory.of(
+                source,
+                sessionBound = adapter?.sessionBound ?: false
+            )
+            SourceSelectionCoordinator.SourceCandidate(source, category)
+        }
+
+        val result = SourceSelectionCoordinator.select(
+            operation = SourceSelectionCoordinator.OperationKind.PLAYBACK,
+            candidates = candidates,
+            probe = SourceSelectionCoordinator.SourceProbe { source, _ ->
+                if (source.type == "local") {
+                    SourceSelectionCoordinator.ProbeResult.Success
+                } else {
+                    try {
+                        val conn = java.net.URL(source.url).openConnection() as java.net.HttpURLConnection
+                        conn.requestMethod = "HEAD"
+                        conn.connectTimeout = 3_000
+                        conn.readTimeout = 3_000
+                        conn.instanceFollowRedirects = true
+                        try {
+                            val code = conn.responseCode
+                            if (code in 200..399) SourceSelectionCoordinator.ProbeResult.Success
+                            else SourceSelectionCoordinator.ProbeResult.Failure
+                        } finally {
+                            conn.disconnect()
+                        }
+                    } catch (_: Exception) {
+                        SourceSelectionCoordinator.ProbeResult.Failure
+                    }
+                }
+            }
+        )
+
+        return when (result) {
+            is SourceSelectionCoordinator.SelectionResult.Selected -> result.candidate.source
+            is SourceSelectionCoordinator.SelectionResult.BrowserRequired,
+            is SourceSelectionCoordinator.SelectionResult.Unavailable -> {
+                val sourceUrl = book?.sourceUrl.orEmpty()
+                val sourceId = if (sourceUrl.isBlank()) "local" else sourceIdForUrl(sourceUrl)
+                sources.firstOrNull { it.type == sourceId } ?: sources.first()
+            }
+        }
+    }
 
     // ---------------------------------------------------------------------
     // Persisted catalogue: Works + Editions, merge-on-write (spec-23 T1).

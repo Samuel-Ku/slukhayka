@@ -372,7 +372,11 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
             modifier = Modifier
                 .testTag("app_background")
                 .accessibilityModalBackground(
-                    fullPlayerModalActive || crashReportingState.shouldShowPrompt
+                    modalVisible = fullPlayerModalActive || crashReportingState.shouldShowPrompt,
+                    // BookDetailScreen restores the exact chapter by stable id.
+                    // A second root-level snapshot can race it and return the
+                    // older book heading after the player's exit transition.
+                    automaticFocusRestoration = !fullPlayerModalActive
                 ),
             bottomBar = {
                 Column {

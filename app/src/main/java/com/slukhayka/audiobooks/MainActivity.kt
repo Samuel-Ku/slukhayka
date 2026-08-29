@@ -374,12 +374,11 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                 .testTag("app_background")
                 .accessibilityModalBackground(
                     modalVisible = fullPlayerModalActive || crashReportingState.shouldShowPrompt,
-                    // Modal owners restore their exact launch controls. Keeping
-                    // a root focusRestorer in this dynamic chain lets it re-enter
-                    // during the player's exit and immediately override the
-                    // chapter owner's request. The startup consent prompt has no
-                    // pre-existing control to restore.
-                    automaticFocusRestoration = false
+                    // BookDetailScreen restores the exact chapter after the
+                    // player closes, so keep the root restorer out of that modal
+                    // handoff. Outside the player it remains responsible for
+                    // route-level return focus (for example, detail → library).
+                    automaticFocusRestoration = !fullPlayerModalActive
                 ),
             bottomBar = {
                 Column {

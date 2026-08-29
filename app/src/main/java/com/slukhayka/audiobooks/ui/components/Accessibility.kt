@@ -1,6 +1,5 @@
 package com.slukhayka.audiobooks.ui.components
 
-import android.util.Log
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -15,6 +14,7 @@ import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.semantics.hideFromAccessibility
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
+import kotlinx.coroutines.delay
 
 /**
  * Keeps a composed background out of accessibility and keyboard traversal
@@ -46,8 +46,8 @@ fun Modifier.accessibilityPane(title: String): Modifier =
  * moves after this owner has observed one visible-to-closed transition.
  * [settleFrames] lets animated owners finish removing their focused subtree
  * before the return request; non-animated owners keep the one-frame default.
- * [stabilityFrames] optionally reasserts that focus after late layout changes;
- * the restoration is consumed only when that final request succeeds.
+ * [settleDelayMillis] covers window and lazy-layout work that can complete
+ * after the Compose frame clock when system animations are disabled.
  */
 @Composable
 fun RestoreFocusAfterModal(
@@ -55,21 +55,23 @@ fun RestoreFocusAfterModal(
     returnFocusRequester: FocusRequester?,
     fallbackFocusRequester: FocusRequester? = null,
     settleFrames: Int = 1,
-    stabilityFrames: Int = 0,
+    settleDelayMillis: Long = 0L,
     onFocusRestored: () -> Unit = {}
 ) {
     var modalWasVisible by remember { mutableStateOf(false) }
     LaunchedEffect(modalVisible, returnFocusRequester) {
         if (modalVisible) {
-            Log.d("FocusRestoreProbe", "visible requester=${returnFocusRequester?.hashCode()}")
             modalWasVisible = true
         } else if (modalWasVisible) {
-            Log.d("FocusRestoreProbe", "closed requester=${returnFocusRequester?.hashCode()}")
             if (returnFocusRequester == null) {
                 modalWasVisible = false
             } else {
                 repeat(settleFrames.coerceAtLeast(1)) { withFrameNanos { } }
-                val initiallyRestoredToOrigin = runCatching {
+                if (settleDelayMillis > 0L) {
+                    delay(settleDelayMillis)
+                    withFrameNanos { }
+                }
+                val restoredToOrigin = runCatching {
                     returnFocusRequester.requestFocus()
                 }.getOrDefault(false) || run {
                     // A disappearing modal and its launcher can detach in the
@@ -79,27 +81,6 @@ fun RestoreFocusAfterModal(
                     runCatching { returnFocusRequester.requestFocus() }
                         .getOrDefault(false)
                 }
-                Log.d(
-                    "FocusRestoreProbe",
-                    "initial=$initiallyRestoredToOrigin requester=${returnFocusRequester.hashCode()}"
-                )
-                val restoredToOrigin = if (
-                    initiallyRestoredToOrigin && stabilityFrames > 0
-                ) {
-                    repeat(stabilityFrames) { withFrameNanos { } }
-                    // Animated and lazy layouts can still detach the focused
-                    // node shortly after the first successful request. A final
-                    // request keeps the restoration intent alive through that
-                    // bounded stabilization window.
-                    runCatching { returnFocusRequester.requestFocus() }
-                        .getOrDefault(false)
-                } else {
-                    initiallyRestoredToOrigin
-                }
-                Log.d(
-                    "FocusRestoreProbe",
-                    "stable=$restoredToOrigin requester=${returnFocusRequester.hashCode()}"
-                )
                 val restored = restoredToOrigin || fallbackFocusRequester?.let { fallback ->
                     runCatching { fallback.requestFocus() }.getOrDefault(false)
                 } == true

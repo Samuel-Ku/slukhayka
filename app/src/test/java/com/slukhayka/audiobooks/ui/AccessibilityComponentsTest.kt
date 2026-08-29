@@ -54,6 +54,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
@@ -290,11 +291,11 @@ class AccessibilityComponentsTest {
                 modalVisible = modalVisible,
                 returnFocusRequester = returnFocusRequester,
                 settleFrames = 1,
-                stabilityFrames = 10
+                settleDelayMillis = 250L
             )
             LaunchedEffect(modalVisible) {
                 if (!modalVisible && stealFocusAfterClose) {
-                    repeat(5) { androidx.compose.runtime.withFrameNanos { } }
+                    delay(100L)
                     competingFocusRequester.requestFocus()
                 }
             }

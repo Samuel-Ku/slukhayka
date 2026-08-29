@@ -266,6 +266,9 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
+      - name: Prebuild accessibility APKs
+        run: ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon --max-workers=1 --stacktrace
+
       - name: Run the seeded MainActivity accessibility journey
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -278,6 +281,7 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -no-metrics -camera-back none
           script: |
             mkdir -p app/build/reports/androidTests
+            scripts/wait-for-android-package-service.sh
             adb logcat -c
             test_status=0
             ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.slukhayka.audiobooks.accessibility.MainActivityAccessibilityTest --no-daemon --max-workers=1 --stacktrace || test_status=$?

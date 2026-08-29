@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.slukhayka.audiobooks.data.db.AudiobookDatabase
+import com.slukhayka.audiobooks.data.metadata.FacetDurationBucket
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -76,12 +77,42 @@ class LocalFacetWriterTest {
             assertions.map { it.rawText }.toSet()
         )
         db.openHelper.writableDatabase.query(
-            "SELECT availabilityAvailable, availabilityObservedAtMillis, availabilityTtlSeconds FROM edition_facets WHERE editionId='edition-1'"
+            "SELECT availabilityAvailable, availabilityObservedAtMillis, availabilityTtlSeconds, durationSeconds, durationBucketId " +
+                "FROM edition_facets WHERE editionId='edition-1'"
         ).use { cursor ->
             assertTrue(cursor.moveToFirst())
             assertEquals(1, cursor.getInt(0))
             assertEquals(1_000L, cursor.getLong(1))
             assertEquals(3_600L, cursor.getLong(2))
+            assertEquals(3_600L, cursor.getLong(3))
+            assertEquals(FacetDurationBucket.UNDER_FIVE_HOURS.wireName, cursor.getString(4))
+        }
+    }
+
+    @Test
+    fun `canonical remote bucket without seconds survives the frozen writer seam`() = runBlocking {
+        writer.apply(
+            listOf(
+                LocalFacetDelta(
+                    work = WorkFacetDelta("work-remote-duration"),
+                    editions = listOf(
+                        EditionFacetDelta(
+                            editionId = "edition-remote-duration",
+                            workId = "work-remote-duration",
+                            durationBucketId = FacetDurationBucket.TEN_TO_TWENTY_HOURS.wireName,
+                            updatedAt = 10
+                        )
+                    )
+                )
+            )
+        )
+
+        db.openHelper.writableDatabase.query(
+            "SELECT durationSeconds, durationBucketId FROM edition_facets WHERE editionId='edition-remote-duration'"
+        ).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertTrue(cursor.isNull(0))
+            assertEquals(FacetDurationBucket.TEN_TO_TWENTY_HOURS.wireName, cursor.getString(1))
         }
     }
 

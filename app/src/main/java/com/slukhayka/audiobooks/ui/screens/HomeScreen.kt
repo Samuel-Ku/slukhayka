@@ -69,6 +69,8 @@ import com.slukhayka.audiobooks.data.db.GenreFacetOption
 import com.slukhayka.audiobooks.data.duration.ChapterDurationProbe
 import com.slukhayka.audiobooks.data.duration.DurationEnrichment
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
+import com.slukhayka.audiobooks.data.metadata.EditionDurationPolicy
+import com.slukhayka.audiobooks.data.metadata.EditionDurationSummary
 import com.slukhayka.audiobooks.data.db.WorkFeedRow
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.data.update.UpdateChecker
@@ -136,6 +138,7 @@ fun HomeScreen(
     // in the ViewModel (they rebuild the Pager); the feed is collected here.
     val workFeedItems = viewModel.workFeed.collectAsLazyPagingItems()
     val feedGenreFilters by viewModel.feedGenreFilters.collectAsState()
+    val feedDurationFilters by viewModel.feedDurationFilters.collectAsState()
     val feedSortByTitle by viewModel.feedSortByTitle.collectAsState()
     // Spec-19 Track A: the on-device «Рекомендовано для вас» row — semantic
     // similarity of catalogue descriptions to favourite/completed/recent
@@ -394,6 +397,7 @@ fun HomeScreen(
                 longBooks = durationBooks.long.map { it.asCatalogBook() },
                 workFeedItems = workFeedItems,
                 feedGenreFilters = feedGenreFilters,
+                feedDurationFilters = feedDurationFilters,
                 feedSortByTitle = feedSortByTitle,
                 onRefreshCatalog = { scope.launch { sourceCatalog.fetchCatalogSections() } },
                 onGoToLibrary = { viewModel.selectTab(com.slukhayka.audiobooks.ui.SelectedTab.LIBRARY) },
@@ -410,6 +414,7 @@ fun HomeScreen(
                 onOpenWorkFeedRow = { viewModel.openWorkFeedRow(it) },
                 onBookClick = onBookClick,
                 onSetFeedGenreFilters = { viewModel.setFeedGenreFilters(it) },
+                onSetFeedDurationFilters = { viewModel.setFeedDurationFilters(it) },
                 onSetFeedSortByTitle = { viewModel.setFeedSortByTitle(it) },
                 onOpenFeedFilters = { showWorkFeedFilters = true },
                 feedFilterTriggerModifier = Modifier.focusRequester(workFeedFilterTriggerFocusRequester),
@@ -457,7 +462,9 @@ fun HomeScreen(
             selectedGenreIds = feedGenreFilters,
             genres = genreFacetOptions,
             onGenresChange = { viewModel.setFeedGenreFilters(it) },
-            onDismiss = { showWorkFeedFilters = false }
+            onDismiss = { showWorkFeedFilters = false },
+            selectedDurationBucketIds = feedDurationFilters,
+            onDurationBucketsChange = { viewModel.setFeedDurationFilters(it) }
         )
     }
     RecommendationDisclosureDialog(
@@ -1620,10 +1627,18 @@ fun WorkFeedCard(
             // Spec-24 T1: the full book duration under the author — always
             // with seconds (Ч:ММ:СС), and only when the Edition's total is
             // really known (never a fabricated «0:00»).
-            val feedDuration = row.durationSeconds?.takeIf { it > 0L }
+            val feedDuration = EditionDurationPolicy.summarize(
+                listOfNotNull(row.durationSeconds, row.durationMaxSeconds)
+            )
             if (feedDuration != null) {
                 Text(
-                    text = MainViewModel.formatTime(feedDuration),
+                    text = when (feedDuration) {
+                        is EditionDurationSummary.Single ->
+                            MainViewModel.formatTime(feedDuration.seconds)
+                        is EditionDurationSummary.Range ->
+                            "${MainViewModel.formatTime(feedDuration.shortestSeconds)}–" +
+                                MainViewModel.formatTime(feedDuration.longestSeconds)
+                    },
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
@@ -1655,6 +1670,8 @@ fun WorkFeedFilters(
     genres: List<GenreFacetOption>,
     onGenresChange: (Set<String>) -> Unit,
     onSortChange: (Boolean) -> Unit,
+    selectedDurationBucketIds: Set<String> = emptySet(),
+    onDurationBucketsChange: (Set<String>) -> Unit = {},
     onOpenFilters: (() -> Unit)? = null,
     filterTriggerModifier: Modifier = Modifier
 ) {
@@ -1705,7 +1722,7 @@ fun WorkFeedFilters(
                 }
             }
             FilterChip(
-                selected = selectedGenreIds.isNotEmpty(),
+                selected = selectedGenreIds.isNotEmpty() || selectedDurationBucketIds.isNotEmpty(),
                 onClick = {
                     if (onOpenFilters != null) onOpenFilters() else showFilterSheet = true
                 },
@@ -1729,7 +1746,9 @@ fun WorkFeedFilters(
             selectedGenreIds = selectedGenreIds,
             genres = genres,
             onGenresChange = onGenresChange,
-            onDismiss = { showFilterSheet = false }
+            onDismiss = { showFilterSheet = false },
+            selectedDurationBucketIds = selectedDurationBucketIds,
+            onDurationBucketsChange = onDurationBucketsChange
         )
     }
 }
@@ -1741,7 +1760,9 @@ fun WorkFeedFilterSheet(
     selectedGenreIds: Set<String>,
     genres: List<GenreFacetOption>,
     onGenresChange: (Set<String>) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    selectedDurationBucketIds: Set<String> = emptySet(),
+    onDurationBucketsChange: (Set<String>) -> Unit = {}
 ) {
     val paneTitle = stringResource(R.string.a11y_work_feed_filter_pane)
     val headingFocusRequester = remember { FocusRequester() }
@@ -1813,6 +1834,32 @@ fun WorkFeedFilterSheet(
                         )
                     }
                 }
+                Spacer(modifier = Modifier.height(20.dp))
+                Text(text = "Тривалість", style = MaterialTheme.typography.titleMedium)
+                Spacer(modifier = Modifier.height(12.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    EditionDurationPolicy.buckets.forEach { bucket ->
+                        FilterChip(
+                            selected = bucket.wireName in selectedDurationBucketIds,
+                            onClick = {
+                                onDurationBucketsChange(
+                                    if (bucket.wireName in selectedDurationBucketIds) {
+                                        selectedDurationBucketIds - bucket.wireName
+                                    } else {
+                                        selectedDurationBucketIds + bucket.wireName
+                                    }
+                                )
+                            },
+                            label = { Text(EditionDurationPolicy.labelFor(bucket)) },
+                            modifier = Modifier
+                                .heightIn(min = 48.dp)
+                                .testTag("feed_duration_${bucket.wireName}")
+                        )
+                    }
+                }
                 Spacer(modifier = Modifier.height(24.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -1820,7 +1867,10 @@ fun WorkFeedFilterSheet(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     TextButton(
-                        onClick = { onGenresChange(emptySet()) },
+                        onClick = {
+                            onGenresChange(emptySet())
+                            onDurationBucketsChange(emptySet())
+                        },
                         modifier = Modifier
                             .heightIn(min = 48.dp)
                             .testTag("feed_filter_reset")

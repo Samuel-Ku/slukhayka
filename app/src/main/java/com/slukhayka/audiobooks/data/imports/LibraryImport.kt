@@ -502,6 +502,115 @@ class LibraryImport(
         }
 
     /**
+     * #428 — 4read recovery: updates the exact 4read [Source] of the same
+     * [Work] and [Edition] with fresh physical URLs, never creating a duplicate.
+     *
+     * The captured page is parsed through the [SourceAdapter] seam; the detail's
+     * chapter list may be supplemented by [capturedAudioUrls] observed in the
+     * WebView session (range-repeat deduplicated) when the parser yields no
+     * playable URLs. The parser remains the source of chapter-to-track identity.
+     *
+     * Strict identity guards, in order, before any Room write:
+     * 1. Stable Source identity: exact [url] of the same [sourceId] for this
+     *    [bookId]. No fallback to the first Source of the same type.
+     * 2. Work identity: [MergeKey] of the captured title/author must equal the
+     *    stored Work's mergeKey.
+     * 3. Edition identity: narrator (and language) must match the stored Edition;
+     *    the derived [EditionId] must be identical.
+     * 4. Chapter structure: count, titles (case-insensitive when both non-blank),
+     *    and indices must match exactly before any [SourceTrack] is touched.
+     *
+     * Any mismatch returns null and leaves Room, Listening State, bookmarks and
+     * download state untouched. A second recovery with the same detail is
+     * idempotent.
+     */
+    suspend fun recoverWebSourcePage(
+        bookId: String,
+        sourceId: String,
+        url: String,
+        html: String,
+        capturedAudioUrls: List<String> = emptyList()
+    ): AudiobookEntity? = withContext(Dispatchers.IO) {
+        val adapter = sourceAdapters.firstOrNull { it.sourceId == sourceId }
+            ?: return@withContext null
+        val parsed = try {
+            adapter.parseCapturedPage(html, url)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            null
+        } ?: return@withContext null
+        val detail = parsed.withCapturedAudioUrls(capturedAudioUrls)
+        if (detail.chapters.isEmpty()) return@withContext null
+        if (detail.chapters.any { !it.streamUrl.isPlayableSourceUrl() }) return@withContext null
+
+        // 1. Stable Source identity — exact URL, no fallback.
+        val source = dao.getSourcesForBookSync(bookId).firstOrNull { it.type == sourceId && it.url == url }
+            ?: return@withContext null
+
+        // 2. Work identity.
+        val existingBook = dao.getAudiobookById(bookId) ?: return@withContext null
+        val capturedMergeKey = MergeKey.keyFor(detail.title, detail.author)
+        val storedMergeKey = existingBook.mergeKey ?: ""
+        // Both blank is permitted only for legacy local rows — for 4read both are non-blank; any mismatch is refusal.
+        if (capturedMergeKey != storedMergeKey) return@withContext null
+
+        // 3. Edition identity: narrator + derived EditionId.
+        val edition = dao.getEditionForWork(bookId)
+        if (edition != null && source.editionId != null && source.editionId != edition.id) return@withContext null
+        if (edition != null && edition.narrator.isNotBlank() && detail.narrator.isNotBlank() &&
+            !edition.narrator.equals(detail.narrator, ignoreCase = true)
+        ) return@withContext null
+        val capturedNarrator = MetadataAssertions.normalizeClaimedText(detail.narrator) ?: "$sourceId narrator"
+        val capturedEditionId = EditionId.forBook(capturedMergeKey, existingBook.id, capturedNarrator)
+        if (edition != null && capturedEditionId != edition.id) return@withContext null
+
+        // 4. Chapter structure: count, names, indices verified before any track write.
+        val logicalChapters = dao.getChaptersListForBook(bookId).sortedBy { it.chapterIndex }
+        if (logicalChapters.size != detail.chapters.size) return@withContext null
+        if (logicalChapters.indices.any { index ->
+                val storedTitle = logicalChapters[index].title.trim()
+                val capturedTitle = detail.chapters[index].title.trim()
+                storedTitle.isNotBlank() && capturedTitle.isNotBlank() &&
+                    !storedTitle.equals(capturedTitle, ignoreCase = true)
+            }
+        ) return@withContext null
+
+        val tracks = dao.getTracksForSourceSync(source.id).sortedBy { it.trackIndex }
+        if (tracks.size != detail.chapters.size) return@withContext null
+        if (tracks.map { it.trackIndex } != detail.chapters.indices.toList()) return@withContext null
+
+        // All guards passed — refresh the physical URLs in place.
+        val refreshed = detail.chapters.mapIndexed { index, chapter ->
+            tracks[index].copy(url = chapter.streamUrl)
+        }
+        dao.insertTracks(refreshed)
+        dao.getAudiobookById(bookId)?.toAudiobookEntity()
+    }
+
+    /**
+     * Uses observed browser requests only when the page parser did not expose
+     * any playable URLs. WebView request order includes prefetches and range
+     * retries, so it is never safe to replace a parsed chapter list by arrival
+     * order. The parser remains the source of chapter-to-track identity.
+     */
+    private fun SourceBookDetail.withCapturedAudioUrls(urls: List<String>): SourceBookDetail {
+        val captured = urls.asSequence()
+            .map(String::trim)
+            .filter { it.startsWith("http://") || it.startsWith("https://") }
+            .distinct()
+            .toList()
+        if (captured.size != chapters.size || captured.isEmpty()) return this
+        if (chapters.any { it.streamUrl.isPlayableSourceUrl() }) return this
+        return copy(chapters = chapters.mapIndexed { index, chapter -> chapter.copy(streamUrl = captured[index]) })
+    }
+
+    private fun String.isPlayableSourceUrl(): Boolean {
+        val normalized = trim().lowercase()
+        return normalized.startsWith("http://") || normalized.startsWith("https://")
+    }
+
+    /**
      * Spec-14 T4/T5 / ADR-0006 — the 4read WebView door is the same door:
      * it rides the [SourceAdapter.parseCapturedPage] seam (playlist content
      * resolved through the adapter's own transport), and the shared import

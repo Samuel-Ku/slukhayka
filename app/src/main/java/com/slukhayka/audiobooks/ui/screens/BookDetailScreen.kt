@@ -726,6 +726,7 @@ fun BookDetailScreen(
                             // the now-single accessibility focus target over one
                             // bounded second. Lazy row replacement cancels this
                             // effect; its replacement resumes the stable-id intent.
+                            var focusCaptured = false
                             repeat(4) {
                                 delay(250L)
                                 if (
@@ -735,7 +736,13 @@ fun BookDetailScreen(
                                 ) {
                                     return@LaunchedEffect
                                 }
-                                chapterFocusRequester.requestFocus()
+                                if (chapterFocusRequester.requestFocus()) {
+                                    focusCaptured = chapterFocusRequester.captureFocus() ||
+                                        focusCaptured
+                                }
+                            }
+                            if (focusCaptured) {
+                                chapterFocusRequester.freeFocus()
                             }
                             playerReturnFocusChapterId = null
                             playerFocusRestoreArmed = false

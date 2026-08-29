@@ -44,7 +44,8 @@
     <string name="profile_nickname_saved">Нік збережено</string>
     <string name="profile_unhide_author_description">Показувати відгуки автора %1$s</string>
     <string name="profile_biometric_unavailable">Біометричне підтвердження недоступне на цьому пристрої.</string>
-    <string name="profile_recovery_unavailable">Для цього профілю ще немає коду — він з’явиться після першого підключення до мережі.</string>
+    <string name="profile_recovery_unavailable">Не вдалося створити код. Перевірте інтернет і натисніть «Показати код» ще раз. Якщо помилка повторюється, повідомте розробника.</string>
+    <string name="profile_recovery_firebase_not_configured">Ця збірка не підключена до Firebase. Оновіть застосунок до офіційного релізу. Якщо версія вже остання, повідомте розробника.</string>
     <string name="profile_biometric_title">Підтвердіть, що це ви</string>
     <string name="profile_biometric_subtitle">Щоб показати код відновлення профілю</string>
     <string name="profile_recovery_heading">Код відновлення профілю</string>

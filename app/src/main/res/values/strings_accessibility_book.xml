@@ -79,4 +79,11 @@
     <string name="book_detail_review_delete_consequence_without_text">Буде видалено ваш відгук про «%1$s»: оцінка %2$d із 5. Дію не можна скасувати.</string>
     <string name="book_detail_review_delete_confirm">Видалити</string>
     <string name="book_detail_review_combined_summary">%1$.1f із 5, %2$d оцінок, джерела і слухачі</string>
+    <!-- #400 — Person bookmark (author/narrator) -->
+    <string name="person_bookmark_add">Додати «%1$s» в закладки</string>
+    <string name="person_bookmark_remove">Прибрати «%1$s» з закладок</string>
+    <string name="person_bookmark_on">В закладках</string>
+    <string name="person_bookmark_off">Не в закладках</string>
+    <string name="person_bookmark_notify_enable">Увімкнути сповіщення</string>
+    <string name="person_bookmark_notify_disable">Вимкнути сповіщення</string>
 </resources>

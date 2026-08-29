@@ -26,7 +26,9 @@ import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsFocused
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.assertWidthIsAtLeast
@@ -48,6 +50,12 @@ import com.slukhayka.audiobooks.ui.screens.SettingsDestinationScaffold
 import com.slukhayka.audiobooks.ui.screens.SettingsDestination
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
 import com.slukhayka.audiobooks.data.identity.FakeListenerIdentity
+import com.slukhayka.audiobooks.data.identity.FakeLocalCredentialStore
+import com.slukhayka.audiobooks.data.identity.ListenerIdentity
+import com.slukhayka.audiobooks.data.identity.ListenerProfile
+import com.slukhayka.audiobooks.data.identity.LocalOnlyIdentity
+import com.slukhayka.audiobooks.data.identity.RecoveryCodeAvailability
+import kotlinx.coroutines.CompletableDeferred
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -102,6 +110,70 @@ class SettingsAccessibilityTest {
             .assertIsDisplayed()
             .assertHeightIsAtLeast(48.dp)
         assertEquals(1, backClicks)
+    }
+
+    @Test
+    fun localOnlyProfileExplainsWhyRecoveryCannotRun() {
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                ProfileScreen(
+                    identity = LocalOnlyIdentity(FakeLocalCredentialStore(), Random(45)),
+                    onBackClick = {}
+                )
+            }
+        }
+
+        composeTestRule.onNodeWithTag("profile_restore_unavailable")
+            .performScrollTo()
+            .assertTextContains("Ця збірка не підключена до Firebase", substring = true)
+        composeTestRule.onNodeWithTag("profile_restore_button")
+            .performScrollTo()
+            .assertIsNotEnabled()
+    }
+
+    @Test
+    fun recoveryActionsStayDisabledWhileAvailabilityIsUnknown() {
+        val availability = CompletableDeferred<RecoveryCodeAvailability>()
+        val identity = object : ListenerIdentity {
+            private val profile = ListenerProfile("test-uid", "Слухач")
+
+            override suspend fun ensure(): ListenerProfile = profile
+            override suspend fun current(): ListenerProfile = profile
+            override suspend fun setNickname(nickname: String) = Unit
+            override suspend fun recoveryCode(): String? = null
+            override suspend fun recoveryCodeAvailability(): RecoveryCodeAvailability =
+                availability.await()
+            override suspend fun restoreFromCode(code: String): ListenerProfile? = null
+        }
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                ProfileScreen(identity = identity, onBackClick = {})
+            }
+        }
+
+        composeTestRule.onNodeWithTag("profile_recovery_reveal")
+            .performScrollTo()
+            .assertIsNotEnabled()
+        composeTestRule.onNodeWithTag("profile_restore_field")
+            .performScrollTo()
+            .assertIsNotEnabled()
+        composeTestRule.onNodeWithTag("profile_restore_button")
+            .performScrollTo()
+            .assertIsNotEnabled()
+
+        availability.complete(RecoveryCodeAvailability.AccountNotLinked)
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("profile_recovery_reveal")
+            .performScrollTo()
+            .assertIsEnabled()
+        composeTestRule.onNodeWithTag("profile_restore_field")
+            .performScrollTo()
+            .assertIsEnabled()
+            .performTextInput("SLK1.code")
+        composeTestRule.onNodeWithTag("profile_restore_button")
+            .performScrollTo()
+            .assertIsEnabled()
     }
 
     @Test

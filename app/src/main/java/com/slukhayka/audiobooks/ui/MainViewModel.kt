@@ -32,6 +32,7 @@ import com.slukhayka.audiobooks.data.listening.ListeningStateStore
 import com.slukhayka.audiobooks.data.imports.ImportPlanner
 import com.slukhayka.audiobooks.data.identity.ListenerIdentity
 import com.slukhayka.audiobooks.data.facets.WorkFacetFilter
+import com.slukhayka.audiobooks.data.personbookmarks.PersonBookmarks
 import com.slukhayka.audiobooks.data.privacy.NetworkPrivacy
 import com.slukhayka.audiobooks.data.privacy.PrivacyPrefs
 import com.slukhayka.audiobooks.data.privacy.RouteResolution
@@ -105,7 +106,8 @@ data class PeopleKind(
 /** One person (narrator/author) whose books list was opened. */
 data class SelectedPerson(
     val name: String,
-    val path: String
+    val path: String,
+    val role: PersonRole
 )
 
 /** One-shot visible outcome of submitting a listener review. */
@@ -222,6 +224,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val seriesUniverses: SeriesUniverses = App.instance.seriesUniverses
     val playerManager: AudioPlayerManager = App.instance.playerManager
     val recommendationPersonalization = App.instance.recommendationPreferences
+
+    // #399/#400 — person bookmarks module (ADR-0008: screens read Flows directly).
+    val personBookmarks: PersonBookmarks = App.instance.personBookmarks
 
     // Spec-36 T1 (#244): the app-release check — a pass-through module
     // reference like the fields above (the screen reads its flow directly,
@@ -930,7 +935,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val personLoadFailed: StateFlow<Boolean> = personLoader.failed
 
     fun openPersonBooks(person: CatalogPerson) {
-        val selected = SelectedPerson(person.name, person.path)
+        val selected = SelectedPerson(person.name, person.path, person.role)
         _selectedPerson.value = selected
         personLoader.open(selected)
     }

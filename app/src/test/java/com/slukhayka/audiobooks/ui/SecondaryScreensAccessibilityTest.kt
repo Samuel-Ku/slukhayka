@@ -38,6 +38,7 @@ import com.slukhayka.audiobooks.data.catalog.CatalogPerson
 import com.slukhayka.audiobooks.data.catalog.CatalogSeries
 import com.slukhayka.audiobooks.data.collections.CollectionMatcher
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
+import com.slukhayka.audiobooks.data.db.PersonRole
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.data.source.GlobalSearchSource
 import com.slukhayka.audiobooks.data.universe.SeriesRef
@@ -232,7 +233,8 @@ class SecondaryScreensAccessibilityTest {
         val person = CatalogPerson(
             name = "Олександр Довженко",
             path = "/xfsearch/avtor/dovzhenko/",
-            bookCount = 12
+            bookCount = 12,
+            role = PersonRole.AUTHOR
         )
         composeTestRule.setContent {
             val density = LocalDensity.current
@@ -261,7 +263,8 @@ class SecondaryScreensAccessibilityTest {
             CatalogPerson(
                 name = "Людина $index",
                 path = "/xfsearch/avtor/person-$index/",
-                bookCount = index
+                bookCount = index,
+                role = PersonRole.AUTHOR
             )
         }
         val origin = people.last()

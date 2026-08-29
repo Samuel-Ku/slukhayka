@@ -109,6 +109,29 @@ class OfflineDownloadsFoundationTest {
     }
 
     @Test
+    fun `book observed before its Library Entry has an idle download state`() = runBlocking {
+        val dao = db.audiobookDao()
+        val bookId = "book-before-library-entry"
+        dao.insertAudiobooks(
+            listOf(
+                com.slukhayka.audiobooks.data.db.AudiobookEntity(
+                    id = bookId,
+                    title = "T",
+                    author = "A",
+                    narrator = "",
+                    description = "",
+                    coverDrawableRes = 0,
+                    genre = "",
+                    sourceUrl = "",
+                    isDownloaded = false
+                )
+            )
+        )
+
+        assertEquals(DownloadState.IDLE, dao.getAudiobookById(bookId)?.downloadState)
+    }
+
+    @Test
     fun `downloadState survives process death — read back via BookRow`() = runBlocking {
         val dao = db.audiobookDao()
         val bookId = "book-persist-1"

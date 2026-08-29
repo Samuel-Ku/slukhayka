@@ -14,6 +14,7 @@ import com.slukhayka.audiobooks.data.source.streamOnlyFor
 import com.slukhayka.audiobooks.data.db.DownloadState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -110,6 +111,23 @@ class OfflineDownloads(
 
     private val _downloadBytesProgress = MutableStateFlow<Map<String, DownloadBytesProgress>>(emptyMap())
     val downloadBytesProgress: StateFlow<Map<String, DownloadBytesProgress>> = _downloadBytesProgress
+
+    // #394 — active download jobs per bookId, for pause / cancel.
+    private val _activeDownloadJobs = MutableStateFlow<Map<String, Job>>(emptyMap())
+
+    /**
+     * #394 — Register an externally-launched download job. The ViewModel calls
+     * this after `viewModelScope.launch { downloadAudiobookOffline(...) }` so
+     * that [pauseDownload] and [cancelDownload] can cancel it.
+     */
+    fun registerDownloadJob(bookId: String, job: Job) {
+        _activeDownloadJobs.value = _activeDownloadJobs.value + (bookId to job)
+    }
+
+    /** #394 — Unregister a download job (called in the finally block). */
+    fun unregisterDownloadJob(bookId: String) {
+        _activeDownloadJobs.value = _activeDownloadJobs.value - bookId
+    }
 
     private suspend fun computeHash(file: File): String? = try {
         FileInputStream(file).use { contentHashOf(it) }
@@ -540,6 +558,106 @@ class OfflineDownloads(
         )
     }
 
+    // =====================================================================
+    // #394 — Pause / Continue / Cancel download controls
+    // =====================================================================
+
+    /**
+     * #394 — Pause an active download. Cancels the coroutine, keeps completed
+     * tracks' localFilePath + contentHash, deletes only `*.tmp` files of
+     * in-progress chapters, and sets downloadState = PAUSED.
+     *
+     * The PAUSED state is persisted in Room (`library_entries.downloadState`)
+     * so it survives process death and app restart.
+     */
+    suspend fun pauseDownload(bookId: String) {
+        val job = _activeDownloadJobs.value[bookId]
+        if (job != null && job.isActive) {
+            // Cancel the active download coroutine.
+            job.cancel()
+            // Wait briefly for the coroutine to reach its cancellation point.
+            try { job.join() } catch (_: Exception) {}
+            _activeDownloadJobs.value = _activeDownloadJobs.value - bookId
+        }
+
+        // Clean up temp files of in-progress chapters (always, even without
+        // an active job — a previous crash may have left tmp files behind).
+        val ctx = context
+        if (ctx != null) {
+            val audioDir = File(ctx.filesDir, OFFLINE_AUDIO_DIR)
+            if (audioDir.exists()) {
+                audioDir.listFiles()?.filter { it.name.endsWith(".tmp") }?.forEach { tmp ->
+                    try { tmp.delete() } catch (_: Exception) {}
+                }
+            }
+        }
+
+        // Set PAUSED state — completed tracks keep their localFilePath + contentHash.
+        val current = dao.getAudiobookById(bookId)
+        val progress = current?.downloadProgress ?: 0f
+        if (progress > 0f || current?.downloadState == DownloadState.DOWNLOADING) {
+            dao.updateDownloadStateWithState(bookId, false, progress, DownloadState.PAUSED)
+        }
+        _downloadBytesProgress.value = _downloadBytesProgress.value - bookId
+    }
+
+    /**
+     * #394 — Continue a paused download. Resumes only chapters that are not
+     * yet downloaded (localFilePath is null or isDownloaded is false), preserving
+     * URL/hash dedup for already-completed chapters.
+     *
+     * No-op if the download is not in PAUSED state.
+     */
+    suspend fun continueDownload(bookId: String): OfflineDownloadResult {
+        val entry = dao.getAudiobookById(bookId) ?: return OfflineDownloadResult(0, 0)
+        if (entry.downloadState != DownloadState.PAUSED) return OfflineDownloadResult(0, 0)
+        // Resume the download — downloadAudiobookOffline already skips chapters
+        // whose targetFile exists and is valid (>100 bytes), so calling it again
+        // effectively downloads only the missing chapters.
+        return downloadAudiobookOffline(bookId)
+    }
+
+    /**
+     * #394 — Cancel a download and remove all downloaded files for the edition.
+     * Clears localFilePath on all tracks, resets downloadProgress to 0, removes
+     * the notification, and sets downloadState = IDLE.
+     *
+     * Also cancels any active download coroutine.
+     */
+    suspend fun cancelDownload(bookId: String) {
+        // Cancel active download if any.
+        val job = _activeDownloadJobs.value[bookId]
+        if (job != null && job.isActive) {
+            job.cancel()
+            try { job.join() } catch (_: Exception) {}
+        }
+        _activeDownloadJobs.value = _activeDownloadJobs.value - bookId
+
+        // Delete all downloaded files for this book's tracks.
+        removeOfflineDownload(bookId)
+        // Ensure downloadState is reset to IDLE (removeOfflineDownload only
+        // resets isDownloaded and downloadProgress, not the state enum).
+        dao.updateDownloadStateWithState(bookId, isDownloaded = false, progress = 0f, state = DownloadState.IDLE)
+    }
+
+    /**
+     * Whether a download is currently active (not paused, not idle) for the
+     * given bookId. The notification service uses this to decide which
+     * buttons to show.
+     */
+    fun isDownloading(bookId: String): Boolean {
+        val job = _activeDownloadJobs.value[bookId]
+        return job != null && job.isActive
+    }
+
+    /**
+     * Whether a download is paused for the given bookId.
+     */
+    suspend fun isPaused(bookId: String): Boolean {
+        val entry = dao.getAudiobookById(bookId)
+        return entry?.downloadState == DownloadState.PAUSED
+    }
+
     suspend fun removeOfflineDownload(bookId: String) {
         // ADR-0007: the physical copies live on the TRACK rows.
         val tracks = dao.getTracksForBookSync(bookId)
@@ -563,7 +681,10 @@ class OfflineDownloads(
         // otherwise a later re-import of the same files would be skipped as
         // "duplicate" and the book would stay unplayable (wayfinder #48+#50).
         dao.clearTrackContentHashesForBook(bookId)
-        dao.updateDownloadState(bookId, isDownloaded = false, progress = 0f)
+        // #394: use updateDownloadStateWithState to also reset downloadState
+        // to IDLE. Without this, a PAUSED download that gets its files
+        // removed would stay stuck in PAUSED state with no files on disk.
+        dao.updateDownloadStateWithState(bookId, isDownloaded = false, progress = 0f, state = DownloadState.IDLE)
     }
 
     fun getAudioCacheSizeBytes(): Long {

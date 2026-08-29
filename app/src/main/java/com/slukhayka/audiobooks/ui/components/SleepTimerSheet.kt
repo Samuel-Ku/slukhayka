@@ -61,9 +61,11 @@ fun SleepTimerSheet(
     val extendDescription = stringResource(R.string.a11y_timer_extend)
     val currentMode = options.firstOrNull { it.first == currentTimerMinutes }?.second
         ?: if (remainingSeconds > 0) "Таймер активний" else options.first().second
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
+        sheetState = sheetState,
         // MD3: modal bottom sheet = surfaceContainerLow (tonal elevation).
         containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         dragHandle = { BottomSheetDefaults.DragHandle() },

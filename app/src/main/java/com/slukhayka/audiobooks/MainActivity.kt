@@ -509,6 +509,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                         },
                         returnFocusOrigin = bookDetailChildFocusOrigin
                             ?.takeIf { bookDetailChildEditionId == selectedBookId },
+                        fullPlayerModalActive = fullPlayerModalActive,
                         onChildRouteOpened = { origin ->
                             bookDetailChildRouteOpen = true
                             bookDetailChildOrigin = origin.name
@@ -774,6 +775,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                         },
                         returnFocusOrigin = bookDetailChildFocusOrigin
                             ?.takeIf { bookDetailChildEditionId == selectedBookId },
+                        fullPlayerModalActive = fullPlayerModalActive,
                         onChildRouteOpened = { origin ->
                             bookDetailChildRouteOpen = true
                             bookDetailChildOrigin = origin.name

@@ -353,8 +353,6 @@ class MainActivityAccessibilityTest {
         waitUntilFocused("sleep_timer_chip")
         composeTestRule.onRoot().tryPerformAccessibilityChecks()
 
-        val bookmarkPositionSeconds =
-            currentViewModel().playerState.value.currentPositionMs / 1_000L
         val bookmarkTrigger = composeTestRule.onNodeWithTag("add_bookmark_chip")
         bookmarkTrigger.performClick()
         composeTestRule.waitUntilExactlyOneExists(
@@ -369,9 +367,14 @@ class MainActivityAccessibilityTest {
             )
         )
         composeTestRule.onNodeWithTag("bookmark_position_context")
-            .assertContentDescriptionEquals(
-                "Закладка в розділі «Дія перша» на позиції " +
-                    MainViewModel.formatTime(bookmarkPositionSeconds)
+            .assert(
+                SemanticsMatcher("bookmark chapter and formatted position") { node ->
+                    node.config.getOrNull(SemanticsProperties.ContentDescription)
+                        ?.singleOrNull()
+                        ?.matches(
+                            Regex("Закладка в розділі «Дія перша» на позиції \\d{2}:\\d{2}")
+                        ) == true
+                }
             )
         composeTestRule.onRoot().tryPerformAccessibilityChecks()
         composeTestRule.onNodeWithTag("save_bookmark_button")

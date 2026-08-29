@@ -56,16 +56,17 @@ fun RestoreFocusAfterModal(
                 modalWasVisible = false
             } else {
                 withFrameNanos { }
+                runCatching {
+                    returnFocusRequester.requestFocus()
+                }
+                // Focus restoration and the modal's exit transition settle in
+                // adjacent frames. The first request can report success before
+                // the departing focus scope releases focus, so confirm it once
+                // after the next frame instead of retrying only on `false`.
+                withFrameNanos { }
                 val restoredToOrigin = runCatching {
                     returnFocusRequester.requestFocus()
-                }.getOrDefault(false) || run {
-                    // A disappearing modal and its launcher can detach in the
-                    // same frame. Give layout one bounded retry before using a
-                    // stable screen-level fallback.
-                    withFrameNanos { }
-                    runCatching { returnFocusRequester.requestFocus() }
-                        .getOrDefault(false)
-                }
+                }.getOrDefault(false)
                 val restored = restoredToOrigin || fallbackFocusRequester?.let { fallback ->
                     runCatching { fallback.requestFocus() }.getOrDefault(false)
                 } == true

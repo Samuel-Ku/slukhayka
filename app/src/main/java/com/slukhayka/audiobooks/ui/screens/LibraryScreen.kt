@@ -206,9 +206,15 @@ fun LibraryScreen(
                 // detaches the active focus target on API 35.
                 bookFocusRequesterTargetId = bookId
                 libraryGridState.scrollToItem(visibleIndex)
-                withFrameNanos { }
-                bookReturnFocusRequester.requestFocus()
-                onBookFocusRestored(bookId)
+                var restored = false
+                repeat(3) {
+                    withFrameNanos { }
+                    if (!restored) {
+                        restored = runCatching { bookReturnFocusRequester.requestFocus() }
+                            .getOrDefault(false)
+                    }
+                }
+                if (restored) onBookFocusRestored(bookId)
             }
             libraryBooks.isNotEmpty() -> {
                 bookFocusRequesterTargetId = null

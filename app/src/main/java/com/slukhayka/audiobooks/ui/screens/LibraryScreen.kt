@@ -167,7 +167,6 @@ fun LibraryScreen(
     val importFocusRequester = remember { FocusRequester() }
     val libraryHeadingFocusRequester = remember { FocusRequester() }
     val bookReturnFocusRequester = remember { FocusRequester() }
-    var bookFocusRequesterTargetId by remember { mutableStateOf<String?>(null) }
     val overflowFocusRequester = remember { FocusRequester() }
     val libraryGridState = rememberLazyGridState()
     val modalVisible = showFilterSheet || showImportSheet || importPreview != null
@@ -201,23 +200,12 @@ fun LibraryScreen(
         val visibleIndex = visibleBooks.indexOfFirst { it.book.id == bookId }
         when {
             visibleIndex >= 0 -> {
-                // Keep the requester attached after the one-shot return token is
-                // consumed. Removing it in the callback recomposition also
-                // detaches the active focus target on API 35.
-                bookFocusRequesterTargetId = bookId
                 libraryGridState.scrollToItem(visibleIndex)
-                var restored = false
-                repeat(3) {
-                    withFrameNanos { }
-                    if (!restored) {
-                        restored = runCatching { bookReturnFocusRequester.requestFocus() }
-                            .getOrDefault(false)
-                    }
-                }
-                if (restored) onBookFocusRestored(bookId)
+                withFrameNanos { }
+                bookReturnFocusRequester.requestFocus()
+                onBookFocusRestored(bookId)
             }
             libraryBooks.isNotEmpty() -> {
-                bookFocusRequesterTargetId = null
                 withFrameNanos { }
                 libraryHeadingFocusRequester.requestFocus()
                 onBookFocusRestored(bookId)
@@ -491,7 +479,7 @@ fun LibraryScreen(
                                     book = entry,
                                     grid = gridMode,
                                     onClick = { onBookClick(entry.book.id) },
-                                    modifier = if (entry.book.id == bookFocusRequesterTargetId) {
+                                    modifier = if (entry.book.id == restoreFocusBookId) {
                                         Modifier.focusRequester(bookReturnFocusRequester)
                                     } else {
                                         Modifier

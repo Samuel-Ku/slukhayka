@@ -92,4 +92,12 @@ class DownloadPolicyTest {
             headersFor("sluhay", "")
         )
     }
+
+    @Test
+    fun `4read cookie is scoped to its own audio hosts`() {
+        val headers = headersFor("4read", "https://s1.reasd.org/5370/01-bunker.mp3", "cf_clearance=local")
+        assertEquals("cf_clearance=local", headers["Cookie"])
+        assertFalse(headersFor("4read", "https://archive.org/book.mp3", "cf_clearance=local").containsKey("Cookie"))
+        assertFalse(headersFor("soundbooks", "https://s1.reasd.org/book.mp3", "cf_clearance=local").containsKey("Cookie"))
+    }
 }

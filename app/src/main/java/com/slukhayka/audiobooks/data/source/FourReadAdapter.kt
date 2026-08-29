@@ -10,10 +10,13 @@ import com.slukhayka.audiobooks.data.catalog.CatalogParser
  * (same regexes as before); fixture/Room tests pin the behavior.
  */
 class FourReadAdapter(
-    private val fetcher: HttpFetcher = HttpFetcher(referer = "https://4read.org/")
+    private val fetcher: HttpFetcher = HttpFetcher(referer = "https://4read.org/"),
+    /** Browser cookies stay local to the 4read/reasd hosts and are never persisted. */
+    private val cookieProvider: () -> String = { "" }
 ) : SourceAdapter {
 
     override val sourceId: String = "4read"
+    override val accessMode: SourceAccessMode = SourceAccessMode.BROWSER
 
     /** The "4read-slug" id scheme — in exactly this one place (spec-14 T5). */
     override fun bookId(url: String): String = CatalogParser.bookId(url)
@@ -71,10 +74,10 @@ class FourReadAdapter(
         // WebViewHtmlParser module, shared by every import door. The adapter
         // only owns transport (HttpFetcher, with the source Referer) — the
         // page profile, cover and playlist expansion are pure DOM work.
-        val html = fetcher.getText(url)
+        val html = fetcher.getText(url, headersFor("4read", url, cookieProvider()))
         // Spec-40 #282 — visitors' comments ride the SAME response: parsed
         // once from the html this detail was built from, never a second fetch.
-        return WebViewHtmlParser().parse(html, url, resolveContent = { fetcher.getText(it) })
+        return WebViewHtmlParser().parse(html, url, resolveContent = { resolveCapturedContent(it) })
             .copy(visitorComments = parseComments(html))
     }
 
@@ -85,7 +88,20 @@ class FourReadAdapter(
      * parsing or transport — it hands the captured DOM straight to the seam.
      */
     override suspend fun parseCapturedPage(html: String, url: String): SourceBookDetail =
-        WebViewHtmlParser().parse(html, url, resolveContent = { fetcher.getText(it) })
+        WebViewHtmlParser().parse(html, url, resolveContent = { resolveCapturedContent(it) })
+
+    private fun resolveCapturedContent(url: String): String {
+        val isLocalHost = runCatching {
+            val host = java.net.URI(url).host?.lowercase().orEmpty()
+            host == "4read.org" || host.endsWith(".4read.org") ||
+                host == "reasd.org" || host.endsWith(".reasd.org")
+        }.getOrDefault(false)
+        return if (isLocalHost) {
+            fetcher.getText(url, headersFor("4read", url, cookieProvider()))
+        } else {
+            fetcher.getText(url)
+        }
+    }
 
     /**
      * Spec-40 #282 — коментарі відвідувачів 4read. The page's DLE comment

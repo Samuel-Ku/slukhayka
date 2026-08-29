@@ -94,7 +94,7 @@ class BookDetailPresentationTest {
         assertEquals("Джерела", presentation.sourceHeading)
         assertEquals(listOf("4read", "Sluhay"), presentation.sources.map { it.name })
         assertEquals(listOf(true, false), presentation.sources.map { it.isCurrent })
-        assertEquals(listOf(true, true), presentation.sources.map { it.selectable })
+        assertEquals(listOf(false, false), presentation.sources.map { it.selectable })
         assertEquals(3, presentation.combinedAverage?.count)
         assertEquals((4.6 + 4.8 + 5.0) / 3.0, presentation.combinedAverage!!.value, 0.001)
     }

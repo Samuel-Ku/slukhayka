@@ -129,7 +129,7 @@ class GlobalSearchRepositoryTest {
         assertEquals(1, results.size)
         val card = results.single()
         assertEquals("Кобзар", card.title)
-        assertEquals(listOf("4read", "soundbooks"), card.sources.map { it.sourceId })
+        assertEquals(listOf("soundbooks", "4read"), card.sources.map { it.sourceId })
     }
 
     @Test

@@ -258,7 +258,7 @@ class SourceFeedsRepositoryTest {
         val merged = rail.first { it.title == "Вкради мене... Зараз!" }
         assertEquals("Сергій Оріанець", merged.author)
         // One badge per source, sorted by sourceId.
-        assertEquals(listOf("4read", "soundbooks"), merged.sources.map { it.sourceId })
+        assertEquals(listOf("soundbooks", "4read"), merged.sources.map { it.sourceId })
         assertEquals(1, rail.first { it.title == "Неостанній бій" }.sources.size)
         assertEquals("4read", rail.first { it.title == "Неостанній бій" }.sources.single().sourceId)
         assertEquals("soundbooks", rail.first { it.title == "Темна матерія" }.sources.single().sourceId)

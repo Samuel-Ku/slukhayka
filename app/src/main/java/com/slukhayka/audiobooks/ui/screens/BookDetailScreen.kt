@@ -56,6 +56,8 @@ import com.slukhayka.audiobooks.data.listening.ListeningStateStore
 import com.slukhayka.audiobooks.data.source.sourceDisplayName
 import com.slukhayka.audiobooks.data.source.sourceIdForUrl
 import com.slukhayka.audiobooks.data.source.streamOnlyFor
+import com.slukhayka.audiobooks.data.source.SourceAccessMode
+import com.slukhayka.audiobooks.data.source.SourceAccessPolicy
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.ui.library.siblingNarrations
 import com.slukhayka.audiobooks.ui.MainViewModel
@@ -106,6 +108,7 @@ fun BookDetailScreen(
     val playerState by viewModel.playerState.collectAsState()
     val downloadingBookId by viewModel.downloadingBookId.collectAsState()
     val downloadMessage by viewModel.downloadMessage.collectAsState()
+    val downloadRecoveryBookId by viewModel.downloadRecoveryBookId.collectAsState()
     // Spec-15 T5: what every source carrying the Work says about it.
     val sourceProfiles by viewModel.sourceProfiles.collectAsState()
     // Spec-23 T5: every Edition carrying the Work — the «Джерела» section.
@@ -285,10 +288,18 @@ fun BookDetailScreen(
     // a catalogue book whose page could not be fetched — surface that instead
     // of the button silently doing nothing.
     val snackbarHostState = remember { SnackbarHostState() }
-    LaunchedEffect(downloadMessage) {
+    LaunchedEffect(downloadMessage, downloadRecoveryBookId) {
         downloadMessage?.let { message ->
-            snackbarHostState.showSnackbar(message)
+            val recoveryBookId = downloadRecoveryBookId
+            val result = snackbarHostState.showSnackbar(
+                message = message,
+                actionLabel = recoveryBookId?.let { "Відкрити браузер" }
+            )
+            if (result == SnackbarResult.ActionPerformed && recoveryBookId != null) {
+                viewModel.open4ReadRecovery(recoveryBookId, chapterIndex = 0, positionMs = 0L)
+            }
             viewModel.consumeDownloadMessage()
+            viewModel.consumeDownloadRecovery()
         }
     }
     val reviewQueuedMessage = stringResource(R.string.book_detail_review_save_queued)
@@ -437,10 +448,12 @@ fun BookDetailScreen(
                             }
                         }
                     )
-                    // Spec #8 ticket T4: the WebView is no longer a tab — a
-                    // book page keeps an "open on site" escape hatch instead.
+                    // 4read's browser session is the supported way to refresh
+                    // Cloudflare-gated playlists, so keep this action in-app.
                     if (currentBook.sourceUrl.contains("4read.org")) {
-                        IconButton(onClick = { viewModel.openWebFallback(currentBook.sourceUrl) }) {
+                        IconButton(onClick = {
+                            viewModel.openWebSource("4read", currentBook.sourceUrl, "4read")
+                        }) {
                             Icon(
                                 imageVector = Icons.AutoMirrored.Filled.OpenInNew,
                                 contentDescription = stringResource(
@@ -634,11 +647,9 @@ fun BookDetailScreen(
                         }
                     }
 
-                    // Spec-23 T5: «Джерела» — every Edition carrying the Work
-                    // (source name + stream-only marker), from the persisted
-                    // `editions` rows. Tapping one plays that variant through
-                    // the existing per-source policy (incl. Referer/UA). The
-                    // current book's own source is marked.
+                    // Spec-23 T5/#426: «Джерела» is informational — it shows
+                    // which sources carry the Work and whether a browser is
+                    // required. Playback chooses the shared source order.
                     BookDetailSourceSection(detailPresentation) { source ->
                         viewModel.playFromSource(source.sourceId, source.url)
                     }
@@ -2257,9 +2268,9 @@ fun BookDetailSourceSection(
 }
 
 /**
- * Spec-23 T5 — one row of the book page's «Джерела» section: a source that
- * carries the Work, with its stream-only marker («Тільки стрімінг»). Tapping
- * plays that source's variant through the existing per-source policy.
+ * Spec-23 T5/#426 — one informational row of the book page's «Джерела»
+ * section: a source that carries the Work, with its stream-only marker
+ * («Тільки стрімінг») and browser requirement.
  * [isCurrent] marks the source the library row itself came from. Pure
  * `@Composable` — pinned by the snapshot seam from fixture rows.
  */
@@ -2279,10 +2290,11 @@ fun WorkSourceRowCard(
         if (source.isCurrent) R.string.book_detail_current_source
         else R.string.book_detail_other_source
     ).let { base ->
-        if (source.streamOnly) {
-            stringResource(R.string.book_detail_source_stream_only, base)
-        } else {
-            base
+        buildString {
+            append(if (source.streamOnly) stringResource(R.string.book_detail_source_stream_only, base) else base)
+            if (SourceAccessPolicy.modeFor(source.sourceId) == SourceAccessMode.BROWSER) {
+                append(" · Потрібен браузер")
+            }
         }
     }
     Surface(

@@ -67,8 +67,26 @@ class OfflineDownloads(
     // (~6h) and is never stored. Identity for plain URLs; null (extraction
     // failed) fails the chapter honestly. Injectable so tests pin the seam.
     // LAST: keeps every pre-existing positional call site valid.
-    private val streamUrlResolver: suspend (String) -> String? = { url -> url }
+    private val streamUrlResolver: suspend (String) -> String? = { url -> url },
+    /** Local WebView cookies, scoped by [headersFor] to 4read audio hosts. */
+    private val cookieProvider: () -> String = { "" }
 ) {
+
+    private val recoveryPrefs by lazy {
+        context?.getSharedPreferences("offline_download_recovery", Context.MODE_PRIVATE)
+    }
+
+    /** A 4read queue survives Activity/process recreation without a schema change. */
+    fun hasPendingBrowserRefresh(bookId: String): Boolean =
+        recoveryPrefs?.getBoolean("4read_$bookId", false) == true
+
+    fun clearPendingBrowserRefresh(bookId: String) {
+        recoveryPrefs?.edit()?.remove("4read_$bookId")?.apply()
+    }
+
+    private fun markPendingBrowserRefresh(bookId: String) {
+        recoveryPrefs?.edit()?.putBoolean("4read_$bookId", true)?.apply()
+    }
 
     /**
      * Outcome of an offline download attempt. `totalChapters == 0` means no
@@ -82,7 +100,9 @@ class OfflineDownloads(
         val downloadedChapters: Int,
         val totalChapters: Int,
         val sharedChapters: Int = 0,
-        val reusedChapters: Int = 0
+        val reusedChapters: Int = 0,
+        /** 4read returned no usable stream; the user must refresh in WebView. */
+        val requiresBrowserRefresh: Boolean = false
     ) {
         val failedChapters: Int get() = totalChapters - downloadedChapters - sharedChapters - reusedChapters
     }
@@ -103,17 +123,7 @@ class OfflineDownloads(
     }
 
     suspend fun downloadAudiobookOffline(bookId: String): OfflineDownloadResult {
-        // Spec-10 T6: a stream-only source must never download — refuse before
-        // any state change or network I/O. The UI hides the action too; this
-        // guard is defence in depth.
         val streamOnlyBook = dao.getAudiobookById(bookId)
-        if (streamOnlyBook != null && streamOnlyFor(sourceIdForUrl(streamOnlyBook.sourceUrl))) {
-            Log.w("OfflineDownloads", "downloadAudiobookOffline refused: book $bookId is stream-only")
-            return OfflineDownloadResult(0, 0)
-        }
-        // Spec-13 T2: the track CDNs (shared `redirectto.cc`) 403 without the
-        // owning source's Referer — derive it from the book, not the URL host.
-        val sourceId = streamOnlyBook?.let { sourceIdForUrl(it.sourceUrl) } ?: "unknown"
 
         // Use the fallback-fetching catalog chapter fetch (chapters + their
         // tracks), NOT a raw Room read: a catalogue book's chapters live on
@@ -127,6 +137,16 @@ class OfflineDownloads(
         val total = playable.size
         if (total == 0) {
             Log.w("OfflineDownloads", "downloadAudiobookOffline: no chapters found for bookId=$bookId")
+            return OfflineDownloadResult(0, 0)
+        }
+        // The selected PlayableChapter carries the physical Source identity,
+        // so a direct secondary Source cannot accidentally inherit the
+        // primary book row's Referer or stream-only policy.
+        val sourceId = playable.firstOrNull()?.sourceId
+            ?: streamOnlyBook?.let { sourceIdForUrl(it.sourceUrl) }
+            ?: "unknown"
+        if (streamOnlyFor(sourceId)) {
+            Log.w("OfflineDownloads", "downloadAudiobookOffline refused: book $bookId is stream-only")
             return OfflineDownloadResult(0, 0)
         }
 
@@ -150,7 +170,12 @@ class OfflineDownloads(
         val successCount = AtomicInteger(0)
         val sharedCount = AtomicInteger(0)
         val reusedCount = AtomicInteger(0)
-        val semaphore = Semaphore(3)
+        val browserRefreshRequired = AtomicInteger(0)
+        // A browser-backed 4read refresh is a user-visible recovery step. Run
+        // its queue serially and stop scheduling new chapters after the first
+        // failed request, leaving the completed tracks intact for a later
+        // retry. Direct sources keep the existing bounded parallelism.
+        val semaphore = Semaphore(if (sourceId == "4read") 1 else 3)
 
         dao.updateDownloadState(bookId, isDownloaded = false, progress = 0.05f)
 
@@ -167,11 +192,26 @@ class OfflineDownloads(
                         var isShared = false
                         var computedHash: String? = null
 
+                        // Once 4read tells us that the browser session is
+                        // stale, pause the remaining queue. Already completed
+                        // tracks remain valid and the next explicit attempt
+                        // resumes from the first failed chapter.
+                        if (sourceId == "4read" && browserRefreshRequired.get() == 1) {
+                            val finished = completedCount.incrementAndGet()
+                            dao.updateDownloadState(
+                                bookId,
+                                isDownloaded = false,
+                                progress = finished.toFloat() / total
+                            )
+                            return@withPermit
+                        }
+
                         try {
                             // A chapter without a track (per-source topology
                             // mismatch) has nothing to download — stays failed.
                             if (track == null) {
                                 // No playable stream for this chapter.
+                                if (sourceId == "4read") browserRefreshRequired.set(1)
                             } else if (targetFile.exists() && targetFile.length() > 100) {
                                 // Already downloaded and verified (minimal-size check).
                                 chapterOk = true
@@ -240,7 +280,10 @@ class OfflineDownloads(
                                         }
                                         // Spec-37 T1: use the sized transport so the
                                         // declared Content-Length can be verified.
-                                        val sized = fetcher.getSizedStream(streamUrl, headersFor(sourceId, streamUrl))
+                                        val sized = fetcher.getSizedStream(
+                                            streamUrl,
+                                            headersFor(sourceId, streamUrl, cookieProvider())
+                                        )
                                         if (sized != null) {
                                             var streamClosed = false
                                             try {
@@ -326,12 +369,14 @@ class OfflineDownloads(
                                                 try { tempFile.delete() } catch (_: Exception) {}
                                             }
                                             chapterOk = false
+                                            if (sourceId == "4read") browserRefreshRequired.set(1)
                                         }
                                     } else {
                                         if (tempFile.exists()) {
                                             try { tempFile.delete() } catch (_: Exception) {}
                                         }
                                         chapterOk = false
+                                        if (sourceId == "4read") browserRefreshRequired.set(1)
                                     }
                                 }
                             }
@@ -438,6 +483,12 @@ class OfflineDownloads(
         // Those are part of `success` as well. For honest reporting, we consider
         // the book fully downloaded if totalSuccess == total.
         val allOk = totalSuccess == total
+        val needsBrowserRefresh = browserRefreshRequired.get() == 1
+        if (needsBrowserRefresh) {
+            markPendingBrowserRefresh(bookId)
+        } else if (allOk) {
+            clearPendingBrowserRefresh(bookId)
+        }
         // But also need to consider already-existing files that were not counted
         // as success in this run? Actually they were counted as success (chapterOk true and successCount incremented).
         // So totalSuccess includes them.
@@ -450,7 +501,8 @@ class OfflineDownloads(
             downloadedChapters = success,
             totalChapters = total,
             sharedChapters = shared,
-            reusedChapters = reused
+            reusedChapters = reused,
+            requiresBrowserRefresh = needsBrowserRefresh
         )
     }
 

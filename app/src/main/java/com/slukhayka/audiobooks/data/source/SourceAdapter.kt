@@ -90,6 +90,9 @@ data class SourceBookDetail(
 interface SourceAdapter {
     val sourceId: String
 
+    /** Static transport capability used for source recommendation order. */
+    val accessMode: SourceAccessMode get() = SourceAccessPolicy.modeFor(sourceId)
+
     /**
      * Best-effort site search. Sources without a usable search endpoint (or
      * whose search is robots-discouraged) return an empty list; discovery then

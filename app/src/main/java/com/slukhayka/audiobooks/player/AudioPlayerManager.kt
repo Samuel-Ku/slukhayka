@@ -78,6 +78,8 @@ data class PlayerState(
     val isOfflineMode: Boolean = false,
     val audioEngineMode: String = "4read Audio Engine",
     val currentStreamUrl: String = "",
+    /** Physical Source used for the current chapter's headers/recovery. */
+    val currentSourceId: String = "",
     val lastErrorMsg: String = "",
     // Position-history undo (wayfinder #25): true while a big accidental seek
     // can be undone back to [undoFromPositionMs].
@@ -191,7 +193,9 @@ class AudioPlayerManager(
      * right before setMediaItem. Identity for plain URLs; null = honest
      * failure, no fabricated audio (ADR-0019).
      */
-    private val streamUrlResolver: suspend (String) -> String? = { url -> url }
+    private val streamUrlResolver: suspend (String) -> String? = { url -> url },
+    /** Local WebView cookies, scoped by the source header policy. */
+    private val cookieProvider: () -> String = { "" }
 ) {
 
     private val _playerState = MutableStateFlow(PlayerState())
@@ -866,6 +870,8 @@ class AudioPlayerManager(
             durationMs = durationMs,
             isBuffering = true,
             currentStreamUrl = track?.url.orEmpty(),
+            currentSourceId = playableChapters.getOrNull(chapterIndex)?.sourceId
+                ?: sourceIdForUrl(_playerState.value.currentBook?.sourceUrl.orEmpty()),
             lastErrorMsg = "",
             // A chapter switch is deliberate — the seek history is cleared.
             canUndoSeek = false,
@@ -918,7 +924,14 @@ class AudioPlayerManager(
             // covers every request of this chapter; the next chapter re-sets
             // them (empty for sources that serve plain GETs).
             val headers = _playerState.value.currentBook
-                ?.let { headersFor(sourceIdForUrl(it.sourceUrl), track?.url.orEmpty()) }
+                ?.let {
+                    headersFor(
+                        playableChapters.getOrNull(chapterIndex)?.sourceId
+                            ?: sourceIdForUrl(it.sourceUrl),
+                        track?.url.orEmpty(),
+                        cookieProvider()
+                    )
+                }
                 ?: emptyMap()
             httpDataSourceFactory.setDefaultRequestProperties(headers)
             lastAppliedStreamHeaders = headers

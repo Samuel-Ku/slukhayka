@@ -35,6 +35,8 @@ import com.slukhayka.audiobooks.data.privacy.TransportPrivacy
 import com.slukhayka.audiobooks.data.reviews.ReviewRemoteResult
 import com.slukhayka.audiobooks.data.reviews.ReviewWriteReceipt
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
+import com.slukhayka.audiobooks.data.source.SourceAccessCandidate
+import com.slukhayka.audiobooks.data.source.SourceAccessPolicy
 import com.slukhayka.audiobooks.player.AudioPlayerManager
 import com.slukhayka.audiobooks.player.PlayerState
 import com.slukhayka.audiobooks.ui.library.OutcomeMessages
@@ -78,7 +80,10 @@ data class SelectedSeries(
 data class SelectedWebSource(
     val sourceId: String,
     val homeUrl: String,
-    val displayName: String
+    val displayName: String,
+    val recoveryBookId: String? = null,
+    val recoveryChapterIndex: Int? = null,
+    val recoveryPositionMs: Long = 0L
 )
 
 /** A genre (category) opened from the Explore "Жанри" chips row. */
@@ -376,10 +381,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    // Spec-15 T2: «Відкрити на сайті» leaves the app. The 4read legacy
-    // browser is removed from the UI entirely, so the book page's open-on-site
-    // action always launches the system browser (ACTION_VIEW) — never an
-    // in-app WebView.
+    // Spec-15 T2: direct sources may still leave the app through ACTION_VIEW.
     fun openWebFallback(url: String) {
         openInSystemBrowser(url)
     }
@@ -406,16 +408,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _selectedWebSource = MutableStateFlow<SelectedWebSource?>(null)
     val selectedWebSource: StateFlow<SelectedWebSource?> = _selectedWebSource.asStateFlow()
 
-    /**
-     * Spec-15 T2 — a WebView-source browser surface is debug-only: a debug
-     * build pushes the in-app surface ([selectedWebSource]); a release build
-     * opens the source in the system browser instead. The same decision
-     * function gates the UI entry points (see [browserDestinationFor]).
-     */
-    fun openWebSource(sourceId: String, homeUrl: String, displayName: String) {
+    /** Opens a source's browser session when the source contract requires it. */
+    fun openWebSource(
+        sourceId: String,
+        homeUrl: String,
+        displayName: String,
+        recoveryBookId: String? = null,
+        recoveryChapterIndex: Int? = null,
+        recoveryPositionMs: Long = 0L
+    ) {
         when (browserDestinationFor(com.slukhayka.audiobooks.BuildConfig.DEBUG, sourceId)) {
             BrowserDestination.IN_APP_BROWSER ->
-                _selectedWebSource.value = SelectedWebSource(sourceId, homeUrl, displayName)
+                _selectedWebSource.value = SelectedWebSource(
+                    sourceId, homeUrl, displayName,
+                    recoveryBookId, recoveryChapterIndex, recoveryPositionMs
+                )
             BrowserDestination.SYSTEM_BROWSER -> openInSystemBrowser(homeUrl)
         }
     }
@@ -442,18 +449,114 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * HTML captured in the session is imported through the adapter (metadata +
      * inline playlist) and plays through the app player.
      */
-    fun importWebSourcePage(sourceId: String, url: String, html: String) {
+    fun importWebSourcePage(
+        sourceId: String,
+        url: String,
+        html: String,
+        capturedAudioUrls: List<String> = emptyList(),
+        onComplete: (Boolean) -> Unit = {}
+    ) {
         viewModelScope.launch(Dispatchers.IO) {
             val book = try {
-                libraryImport.importWebSourcePage(sourceId, url, html)
+                libraryImport.importWebSourcePage(sourceId, url, html, capturedAudioUrls)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 null
             }
+            withContext(Dispatchers.Main) { onComplete(book != null) }
             if (book != null) {
                 probeDurationsAfterImport(book.id)
                 playAudiobook(book)
                 _showFullPlayer.value = true
             }
+        }
+    }
+
+    /** Opens 4read's in-app browser as an explicit recovery action. */
+    fun open4ReadRecovery(bookId: String, chapterIndex: Int, positionMs: Long) {
+        // A failed offline download is often not the currently playing book;
+        // resolve its exact persisted 4read Source URL instead of opening the
+        // generic homepage and losing the recovery target.
+        viewModelScope.launch(Dispatchers.IO) {
+            val playing = playerState.value.currentBook?.takeIf { it.id == bookId }
+            val stored = libraryEntries.getBookSync(bookId)
+            val sourceUrl = libraryEntries.getSourcesForBook(bookId)
+                .firstOrNull { it.type == "4read" }
+                ?.url
+                ?.takeIf { it.isNotBlank() }
+                ?: stored?.sourceUrl?.takeIf { it.contains("4read.org") }
+                ?: playing?.sourceUrl?.takeIf { it.contains("4read.org") }
+                ?: "https://4read.org/"
+            withContext(Dispatchers.Main) {
+                _selectedWebSource.value = SelectedWebSource(
+                    sourceId = "4read",
+                    homeUrl = sourceUrl,
+                    displayName = "4read",
+                    recoveryBookId = bookId,
+                    recoveryChapterIndex = chapterIndex,
+                    recoveryPositionMs = positionMs
+                )
+            }
+        }
+    }
+
+    fun recoverWebSourcePage(
+        bookId: String,
+        sourceId: String,
+        url: String,
+        html: String,
+        capturedAudioUrls: List<String> = emptyList(),
+        chapterIndex: Int,
+        positionMs: Long,
+        onComplete: (Boolean) -> Unit = {}
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val recovered = try {
+                libraryImport.recoverWebSourcePage(bookId, sourceId, url, html, capturedAudioUrls)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                null
+            }
+            if (recovered != null) {
+                val playable = sourceCatalog.getPlayableChapters(bookId)
+                val requested = playable.getOrNull(chapterIndex)
+                val canStart = requested?.track?.url?.startsWith("http", ignoreCase = true) == true
+                if (!canStart) {
+                    withContext(Dispatchers.Main) { onComplete(false) }
+                    return@launch
+                }
+                withContext(Dispatchers.Main) {
+                    playerManager.loadAndPlayBook(
+                        book = recovered,
+                        chapters = playable.map { it.chapter },
+                        playable = playable,
+                        initialChapterIndex = chapterIndex,
+                        initialPositionSeconds = positionMs / 1000L,
+                        autoPlay = true
+                    )
+                    _showFullPlayer.value = true
+                }
+                // A paused offline queue is resumed only after the explicit
+                // browser recovery completed. Existing local files are reused
+                // and only the failed tracks are fetched again.
+                if (offlineDownloads.hasPendingBrowserRefresh(bookId)) {
+                    offlineDownloads.clearPendingBrowserRefresh(bookId)
+                    try {
+                        val result = offlineDownloads.downloadAudiobookOffline(bookId)
+                        if (_selectedBookId.value == bookId) {
+                            _downloadMessage.value = OutcomeMessages.downloadOutcome(result)
+                            _downloadRecoveryBookId.value = bookId.takeIf { result.requiresBrowserRefresh }
+                        }
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        android.util.Log.w("MainViewModel", "4read download resume failed", e)
+                    }
+                }
+            }
+            withContext(Dispatchers.Main) { onComplete(recovered != null) }
         }
     }
 
@@ -826,21 +929,65 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * chapters before deciding to listen (same as a recommended card).
      */
     fun openGlobalSearchResult(result: GlobalSearchResult) {
-        val source = result.sources.firstOrNull() ?: return
         viewModelScope.launch(Dispatchers.IO) {
-            val book = try {
-                libraryImport.importFromSourceUrl(
-                    source.sourceId, source.url,
-                    KnownBookIdentity(result.title, result.author, result.narrator, result.coverImageUrl)
-                )
-            } catch (e: Exception) {
-                null
-            }
+            val book = importPreferredSource(result)
             if (book != null) {
                 probeDurationsAfterImport(book.id)
                 selectBook(book.id)
             }
         }
+    }
+
+    /**
+     * Tries only direct/unknown sources in the shared 10-second budget. A
+     * browser-only source is never opened as a side effect of a card tap; the
+     * browser remains an explicit user action.
+     */
+    private suspend fun importPreferredSource(
+        result: GlobalSearchResult,
+        forDownload: Boolean = false
+    ): AudiobookEntity? = importPreferredSource(
+        candidates = result.sources,
+        identity = KnownBookIdentity(result.title, result.author, result.narrator, result.coverImageUrl),
+        forDownload = forDownload
+    )
+
+    /** Same coordinator for persisted Work-feed rows and search cards. */
+    private suspend fun importPreferredSource(
+        candidates: List<com.slukhayka.audiobooks.data.source.GlobalSearchSource>,
+        identity: KnownBookIdentity,
+        forDownload: Boolean = false
+    ): AudiobookEntity? {
+        val ordered = SourceAccessPolicy.order(
+            candidates.map { SourceAccessCandidate(it.sourceId, it.sourceName, it.url) }
+        )
+        val deadline = System.nanoTime() + 10_000_000_000L
+        val directCandidates = ordered.filter {
+            it.accessMode != com.slukhayka.audiobooks.data.source.SourceAccessMode.BROWSER &&
+                (!forDownload || !com.slukhayka.audiobooks.data.source.streamOnlyFor(it.sourceId))
+        }
+        // A browser Source is intentionally excluded here. The caller must
+        // first perform the explicit browser import/recovery action; a
+        // download tap must never launch WebView or perform a direct 4read
+        // request behind the listener's back.
+        for (candidate in directCandidates) {
+            val remainingMs = ((deadline - System.nanoTime()) / 1_000_000L).coerceAtLeast(1L)
+            val book = kotlinx.coroutines.withTimeoutOrNull(remainingMs) {
+                try {
+                    libraryImport.importFromSourceUrl(
+                        candidate.sourceId,
+                        candidate.url,
+                        identity
+                    )
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    null
+                }
+            }
+            if (book != null) return book
+        }
+        return null
     }
 
     /**
@@ -907,8 +1054,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun openWorkFeedRow(row: WorkFeedRow) {
         viewModelScope.launch(Dispatchers.IO) {
-            val source = sourceCatalog.workSourcesForWork(row.workId).firstOrNull() ?: return@launch
-            playFromSource(source.sourceId, source.sourceUrl, KnownBookIdentity(row.title, row.author, coverImageUrl = row.coverImageUrl))
+            val sources = sourceCatalog.workSourcesForWork(row.workId)
+                .map { source ->
+                    com.slukhayka.audiobooks.data.source.GlobalSearchSource(
+                        sourceId = source.sourceId,
+                        sourceName = com.slukhayka.audiobooks.data.source.sourceDisplayName(source.sourceId),
+                        url = source.sourceUrl
+                    )
+                }
+            val book = importPreferredSource(
+                candidates = sources,
+                identity = KnownBookIdentity(row.title, row.author, coverImageUrl = row.coverImageUrl)
+            ) ?: return@launch
+            probeDurationsAfterImport(book.id)
+            playAudiobook(book)
         }
     }
 
@@ -1182,16 +1341,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun openRecommendedBook(candidateId: String) {
         val result = sourceCatalog.unifiedCatalog.value.firstOrNull { it.key == candidateId } ?: return
-        val source = result.sources.firstOrNull() ?: return
         viewModelScope.launch(Dispatchers.IO) {
-            val book = try {
-                libraryImport.importFromSourceUrl(
-                        source.sourceId, source.url,
-                        KnownBookIdentity(result.title, result.author, result.narrator, result.coverImageUrl)
-                    )
-            } catch (e: Exception) {
-                null
-            }
+            val book = importPreferredSource(result)
             if (book != null) {
                 pendingRecommendationBookId.set(book.id)
                 recommendationPersonalization.recordDetailOpen()
@@ -1725,6 +1876,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _downloadMessage = MutableStateFlow<String?>(null)
     val downloadMessage: StateFlow<String?> = _downloadMessage.asStateFlow()
 
+    /** Book whose failed 4read download is waiting for a browser refresh. */
+    private val _downloadRecoveryBookId = MutableStateFlow<String?>(null)
+    val downloadRecoveryBookId: StateFlow<String?> = _downloadRecoveryBookId.asStateFlow()
+
     // Spec-15 T4: one-tap download from a catalogue card. The card is
     // ephemeral — nothing is in Room until the user acts — so the flow imports
     // the book transparently from its primary source, then runs the shared
@@ -1774,22 +1929,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * refuses in depth.
      */
     fun downloadCatalogBook(result: GlobalSearchResult) {
-        val source = result.sources.firstOrNull() ?: return
         val key = result.key
         if (_catalogDownloadingKeys.value.contains(key)) return
         if (_downloadingBookId.value != null) return
         _catalogDownloadingKeys.update { it + key }
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val book = libraryImport.importFromSourceUrl(
-                    source.sourceId, source.url,
-                    KnownBookIdentity(result.title, result.author, result.narrator, result.coverImageUrl)
-                )
+                val book = importPreferredSource(result, forDownload = true)
                 if (book != null) {
                     _downloadingBookId.value = book.id
                     probeDurationsAfterImport(book.id)
                     offlineDownloads.downloadAudiobookOffline(book.id)
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 android.util.Log.w("MainViewModel", "Catalog download failed", e)
             } finally {
@@ -1815,11 +1968,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 // open next.
                 if (_selectedBookId.value == bookId) {
                     _downloadMessage.value = OutcomeMessages.downloadOutcome(result)
+                    _downloadRecoveryBookId.value = bookId.takeIf { result.requiresBrowserRefresh }
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 android.util.Log.w("MainViewModel", "Offline download failed", e)
                 if (_selectedBookId.value == bookId) {
                     _downloadMessage.value = OutcomeMessages.downloadFailure()
+                    _downloadRecoveryBookId.value = null
                 }
             } finally {
                 _downloadingBookId.value = null
@@ -1833,6 +1990,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun consumeDownloadMessage() {
         _downloadMessage.value = null
+    }
+
+    fun consumeDownloadRecovery() {
+        _downloadRecoveryBookId.value = null
     }
 
     /**
@@ -1985,10 +2146,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _importMessage.value = null
     }
 
-    // Spec-15 T2: the 4read legacy browser (the only caller of the two
-    // import-and-play doors below) is removed from the UI. The seam-tested
-    // import doors themselves stay behind the repository seam (spec-14 T2–T4:
-    // importAudiobookFromHtml / importAudiobookFrom4ReadUrl) for fixtures.
+    // The captured-page import doors remain repository seams; 4read's release
+    // browser now reaches them through WebSourceBrowserScreen as well.
 
     // NOTE: we intentionally do NOT release the player in onCleared(). The
     // AudioPlayerManager is application-scoped (App.kt) and must keep playing

@@ -219,7 +219,11 @@ class App : Application() {
      */
     private val sourceAdapters: List<SourceAdapter> by lazy {
         listOf(
-            FourReadAdapter(),
+            FourReadAdapter(cookieProvider = {
+                runCatching {
+                    android.webkit.CookieManager.getInstance().getCookie("https://4read.org/")
+                }.getOrNull().orEmpty()
+            }),
             SoundBooksAdapter(),
             AudiobookMp3Adapter(),
             LihtarAdapter(),
@@ -308,7 +312,12 @@ class App : Application() {
             this,
             sourceCatalog,
             // Spec 2026-08-26: YouTube watch URLs resolve per-use before the fetch.
-            streamUrlResolver = { url -> youTubeStreamResolver.resolve(url) }
+            streamUrlResolver = { url -> youTubeStreamResolver.resolve(url) },
+            cookieProvider = {
+                runCatching {
+                    android.webkit.CookieManager.getInstance().getCookie("https://4read.org/")
+                }.getOrNull().orEmpty()
+            }
         )
     }
 
@@ -458,7 +467,12 @@ class App : Application() {
             },
             progressSync = progressSync,
             // Spec 2026-08-26: YouTube watch URLs resolve per-use before setMediaItem.
-            streamUrlResolver = { url -> youTubeStreamResolver.resolve(url) }
+            streamUrlResolver = { url -> youTubeStreamResolver.resolve(url) },
+            cookieProvider = {
+                runCatching {
+                    android.webkit.CookieManager.getInstance().getCookie("https://4read.org/")
+                }.getOrNull().orEmpty()
+            }
         ).also { manager ->
             diagnosticScope.launch {
                 manager.playerState.collect { state ->

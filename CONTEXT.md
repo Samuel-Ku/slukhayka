@@ -16,6 +16,17 @@ _Avoid_: Version, copy, source
 A provenance-bearing origin or copy through which one Edition may be played, such as a local folder, an M4B file, a 4read stream, or a downloaded copy. A Source can exist in the library even when it is not currently available on a device. A Source owns the physical tracks of its Edition — stream URLs, local file copies, content hashes, download state — aligned with logical Chapters one-to-one by index.
 _Avoid_: Edition, book
 
+**Source Access Mode**:
+The static capability of a Source: `DIRECT` for a native HTTP path, `UNKNOWN`
+for a legacy/unclassified path, or `BROWSER` when a live in-app browser
+session is required (4read and the Cloudflare-backed sources). Recommendations
+and automatic playback try local files first, then direct, unknown and browser
+in that order. A browser Source is never opened as an implicit side effect of
+a card tap; it is an explicit recovery/import action. This is a capability
+order, not a health score, so a transient HTTP failure does not permanently
+demote a Source.
+_Avoid_: health-ranked Source order, silent browser launch
+
 **Source Binding**:
 A device's locator, permission, and availability relationship to a Source. Bindings are device-specific even when the Source identity is shared. No Binding rows exist yet — with a single device, locator and permission stay on the Source row; the Binding table arrives with device sync, not before. NOTE (spec-40): the Firestore collection `device_bindings` is NOT this domain concept — it is the reinstall-recovery anchor mapping a device id to the listener's own uid.
 _Avoid_: Source, download
@@ -123,8 +134,21 @@ The indexed Room read model used by «Огляд» filters. Work facets carry ca
 _Avoid_: free-form `LIKE` filters, genre text as identity, duration on Work, direct facet-table writes from sync
 
 **One Source seam, one HTTP transport**:
-Captured-page import is a [SourceAdapter] capability — `parseCapturedPage(html, url)` with a "not mine" default; the WebView-pattern adapters (4read, sluhay) override it under one name and no import door downcasts to a concrete adapter. All HTTP goes through the shared [HttpFetcher] on the ONE shared OkHttp client (pool, identity, route, DoH): it serves text (`getText`) and binary streams (`getStream`), and the offline download loop consumes the stream method — every request carries the device's browser identity (the real system WebView User-Agent, static fallback on JVM; superseding ADR-0006's dedicated download agent) and rides the listener's network privacy route (spec-38), never silently falling back to direct. Domain names resolve through encrypted DoH with a transparent system-resolver fallback (spec-38 T4) — one decision independent of the chosen route, on by default. Offline downloads ride the human-rhythm pacing from the privacy door (`PacingPolicy`: random pause + per-domain burst budget; the loop owns no thresholds) so bulk fetching never looks like scraping (spec-38 T5). The relay prototype (spec-38 T6) is just another resolved route: requests are rewritten `<base>?url=<target>` at the transport's single request-shaping seam, never a default; a route WebView cannot carry refuses the browser instead of going direct. The source-browser WebView sessions ride the SAME route through the official webkit proxy controller and keep the same session hygiene (third-party cookies rejected, geolocation/sensors denied, cookies isolated per source by purge-on-entry). Per-source header rules (Referer) stay beside the transport in the source package.
+Captured-page import is a [SourceAdapter] capability — `parseCapturedPage(html, url)` with a "not mine" default; the WebView-pattern adapters (4read, sluhay) override it under one name and no import door downcasts to a concrete adapter. All HTTP goes through the shared [HttpFetcher] on the ONE shared OkHttp client (pool, identity, route, DoH): it serves text (`getText`) and binary streams (`getStream`), and the offline download loop consumes the stream method — every request carries the device's browser identity (the real system WebView User-Agent, static fallback on JVM; superseding ADR-0006's dedicated download agent) and rides the listener's network privacy route (spec-38), never silently falling back to direct. Domain names resolve through encrypted DoH with a transparent system-resolver fallback (spec-38 T4) — one decision independent of the chosen route, on by default. Offline downloads ride the human-rhythm pacing from the privacy door (`PacingPolicy`: random pause + per-domain burst budget; the loop owns no thresholds) so bulk fetching never looks like scraping (spec-38 T5). The relay prototype (spec-38 T6) is just another resolved route: requests are rewritten `<base>?url=<target>` at the transport's single request-shaping seam, never a default; a route WebView cannot carry refuses the browser instead of going direct. The source-browser WebView sessions ride the SAME route through the official webkit proxy controller and keep the same session hygiene (third-party cookies rejected, geolocation/sensors denied, cookies isolated per source by purge-on-entry with a source-scoped first-party snapshot restored on re-entry). Per-source header rules (Referer) stay beside the transport in the source package.
 _Avoid_: per-adapter captured-page methods, raw HttpURLConnection in modules, app-named User-Agents, system-DNS lookups for transport hosts, special-cased relay branches outside the door, WebView sessions off-route
+
+**4read browser recovery**:
+When a 4read stream or offline chapter fails, the listener explicitly opens the
+4read in-app browser and imports the current page. Parsed chapter identity and
+order must match the stored Edition before Source tracks are updated; valid
+downloaded files and Listening State are retained. The failed download queue is
+paused and resumes on the next explicit download attempt. First-party browser
+cookies are kept only in a source-scoped local session; they are never written
+to Room, shared profile metadata, logs or requests to another host. A short
+first-entry notice explains that 4read now needs the browser and is not shown
+again after the listener has opened that session.
+_Avoid_: browser auto-launch, track replacement by request-arrival order,
+cross-source cookies, resetting progress during recovery
 
 **Web Transport**:
 The web-side transport door for the Web Client: it resolves Source pages into structured catalog and book data server-side, and relays an audio stream only when the Source refuses direct playback. Direct-to-source audio is the default path; relaying everything is not this concept.

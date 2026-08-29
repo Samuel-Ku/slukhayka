@@ -7,20 +7,17 @@ import org.junit.Test
  * Spec-15 T2 — the debug-gating rules of the in-app browser surfaces, pinned
  * on the pure seam (no Android build variant needed):
  *
- * - the 4read legacy browser is removed from the UI entirely — its "open on
- *   site" action is ALWAYS the system browser, debug included;
+ * - 4read uses the in-app browser in every build because its session is part
+ *   of the supported playback/recovery path;
  * - a WebView-source surface (sluhay first) is an in-app destination only in
  *   debug builds; release builds open the system browser.
  */
 class BrowserGatingTest {
 
     @Test
-    fun `4read open-on-site is always the system browser - legacy browser removed from UI`() {
-        // Even a debug build never opens the 4read legacy browser: it is gone
-        // from the UI entirely (its seam-tested import doors stay behind the
-        // repository for fixtures).
-        assertEquals(BrowserDestination.SYSTEM_BROWSER, browserDestinationFor(isDebug = true, sourceId = "4read"))
-        assertEquals(BrowserDestination.SYSTEM_BROWSER, browserDestinationFor(isDebug = false, sourceId = "4read"))
+    fun `4read uses the in-app browser in every build`() {
+        assertEquals(BrowserDestination.IN_APP_BROWSER, browserDestinationFor(isDebug = true, sourceId = "4read"))
+        assertEquals(BrowserDestination.IN_APP_BROWSER, browserDestinationFor(isDebug = false, sourceId = "4read"))
     }
 
     @Test

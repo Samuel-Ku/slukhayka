@@ -1,5 +1,6 @@
 package com.slukhayka.audiobooks.ui.screens
 
+import android.util.Log
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -127,6 +128,10 @@ fun BookDetailScreen(
     val deleteTriggerFocusRequester = remember { FocusRequester() }
 
     LaunchedEffect(playerModalVisible, playerReturnFocusChapterId) {
+        Log.d(
+            "ChapterFocusState",
+            "owner modal=$playerModalVisible id=$playerReturnFocusChapterId armed=$playerFocusRestoreArmed"
+        )
         if (playerModalVisible && playerReturnFocusChapterId != null) {
             // Arm only after the player has actually become modal. This keeps
             // the pre-open focus request from being mistaken for restoration.
@@ -718,6 +723,11 @@ fun BookDetailScreen(
                         playerReturnFocusChapterId,
                         chapterFocusRequester
                     ) {
+                        Log.d(
+                            "ChapterFocusState",
+                            "row=${chapter.id} modal=$playerModalVisible id=$playerReturnFocusChapterId " +
+                                "armed=$playerFocusRestoreArmed requester=${chapterFocusRequester.hashCode()}"
+                        )
                         if (
                             playerFocusRestoreArmed &&
                             playerReturnFocusChapterId == chapter.id &&
@@ -739,7 +749,11 @@ fun BookDetailScreen(
                                 ) {
                                     return@LaunchedEffect
                                 }
-                                chapterFocusRequester.requestFocus()
+                                val requested = chapterFocusRequester.requestFocus()
+                                Log.d(
+                                    "ChapterFocusState",
+                                    "request row=${chapter.id} result=$requested"
+                                )
                             }
                             playerReturnFocusChapterId = null
                             playerFocusRestoreArmed = false
@@ -761,6 +775,7 @@ fun BookDetailScreen(
                             // its snapshot. Compose test clicks, unlike keyboard
                             // activation, do not focus the node automatically.
                             chapterFocusRequester.requestFocus()
+                            Log.d("ChapterFocusState", "open row=${chapter.id}")
                             playerReturnFocusChapterId = chapter.id
                             playerFocusRestoreArmed = false
                             if (isCurrentChapter) {

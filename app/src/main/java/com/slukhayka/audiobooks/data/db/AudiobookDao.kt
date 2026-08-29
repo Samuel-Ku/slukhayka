@@ -96,6 +96,10 @@ interface AudiobookDao {
     @Query("SELECT DISTINCT sourceTreeUri FROM audiobooks WHERE sourceTreeUri IS NOT NULL AND sourceTreeUri != ''")
     suspend fun getImportedSourceTrees(): List<String>
 
+    /** Checks the storage row without requiring its Work/Library Entry join. */
+    @Query("SELECT EXISTS(SELECT 1 FROM audiobooks WHERE id = :bookId)")
+    suspend fun hasAudiobookRow(bookId: String): Boolean
+
     @Query("UPDATE sources SET lastScanFingerprint = :fingerprint WHERE id = :sourceId")
     suspend fun updateSourceFingerprint(sourceId: String, fingerprint: String?)
 
@@ -478,10 +482,25 @@ interface AudiobookDao {
                w.coverImageUrl, w.addedAt,
                (SELECT COUNT(*) FROM work_sources ws WHERE ws.workId = w.id) AS sourceCount,
                (SELECT gf.displayName FROM work_genres wg JOIN genre_facets gf ON gf.id=wg.genreId WHERE wg.workId=w.id ORDER BY gf.displayName ASC LIMIT 1) AS genre,
-               (SELECT e.totalDurationSeconds FROM editions e JOIN library_entries le2 ON le2.id=e.workId WHERE le2.workId=w.id LIMIT 1) AS durationSeconds
+               COALESCE(
+                   (SELECT MIN(ef.durationSeconds) FROM edition_facets ef WHERE ef.workId=w.id AND ef.durationSeconds IS NOT NULL
+                     AND (ef.availabilityAvailable IS NULL OR (ef.availabilityAvailable=1 AND ef.availabilityObservedAtMillis IS NOT NULL AND ef.availabilityTtlSeconds IS NOT NULL AND ef.availabilityObservedAtMillis + ef.availabilityTtlSeconds * 1000 > :availabilityAtMillis))),
+                   (SELECT MIN(e.totalDurationSeconds) FROM editions e JOIN library_entries le2 ON le2.id=e.workId WHERE le2.workId=w.id AND e.totalDurationSeconds > 0)
+               ) AS durationSeconds,
+               COALESCE(
+                   (SELECT MAX(ef.durationSeconds) FROM edition_facets ef WHERE ef.workId=w.id AND ef.durationSeconds IS NOT NULL
+                     AND (ef.availabilityAvailable IS NULL OR (ef.availabilityAvailable=1 AND ef.availabilityObservedAtMillis IS NOT NULL AND ef.availabilityTtlSeconds IS NOT NULL AND ef.availabilityObservedAtMillis + ef.availabilityTtlSeconds * 1000 > :availabilityAtMillis))),
+                   (SELECT MAX(e.totalDurationSeconds) FROM editions e JOIN library_entries le2 ON le2.id=e.workId WHERE le2.workId=w.id AND e.totalDurationSeconds > 0)
+               ) AS durationMaxSeconds,
+               CASE WHEN :durationActive=1 THEN (
+                   SELECT ef.editionId FROM edition_facets ef
+                   WHERE ef.workId=w.id AND ef.durationBucketId IN (:durationBucketIds)
+                     AND (ef.availabilityAvailable IS NULL OR (ef.availabilityAvailable=1 AND ef.availabilityObservedAtMillis IS NOT NULL AND ef.availabilityTtlSeconds IS NOT NULL AND ef.availabilityObservedAtMillis + ef.availabilityTtlSeconds * 1000 > :availabilityAtMillis))
+                   ORDER BY ef.updatedAt DESC, ef.editionId ASC LIMIT 1
+               ) ELSE NULL END AS matchingEditionId
         FROM works w
         WHERE (:genreActive = 0 OR EXISTS (SELECT 1 FROM work_genres wg WHERE wg.workId=w.id AND wg.genreId IN (:genreIds)))
-          AND (:durationActive = 0 OR EXISTS (SELECT 1 FROM edition_facets ef WHERE ef.workId=w.id AND ef.durationBucketId IN (:durationBucketIds)))
+          AND (:durationActive = 0 OR EXISTS (SELECT 1 FROM edition_facets ef WHERE ef.workId=w.id AND ef.durationBucketId IN (:durationBucketIds) AND (ef.availabilityAvailable IS NULL OR (ef.availabilityAvailable=1 AND ef.availabilityObservedAtMillis IS NOT NULL AND ef.availabilityTtlSeconds IS NOT NULL AND ef.availabilityObservedAtMillis + ef.availabilityTtlSeconds * 1000 > :availabilityAtMillis))))
           AND (:authorActive = 0 OR EXISTS (SELECT 1 FROM work_facets wf WHERE wf.workId=w.id AND wf.canonicalAuthorId IN (:authorIds)))
         ORDER BY w.addedAt DESC, w.id ASC
         """
@@ -489,7 +508,8 @@ interface AudiobookDao {
     fun pagedWorksFeedRecent(
         genreIds: List<String>, genreActive: Int,
         durationBucketIds: List<String>, durationActive: Int,
-        authorIds: List<String>, authorActive: Int
+        authorIds: List<String>, authorActive: Int,
+        availabilityAtMillis: Long
     ): PagingSource<Int, WorkFeedRow>
 
     /** Same feed, sorted by title (stable tiebreak: addedAt DESC). */
@@ -499,10 +519,25 @@ interface AudiobookDao {
                w.coverImageUrl, w.addedAt,
                (SELECT COUNT(*) FROM work_sources ws WHERE ws.workId = w.id) AS sourceCount,
                (SELECT gf.displayName FROM work_genres wg JOIN genre_facets gf ON gf.id=wg.genreId WHERE wg.workId=w.id ORDER BY gf.displayName ASC LIMIT 1) AS genre,
-               (SELECT e.totalDurationSeconds FROM editions e JOIN library_entries le2 ON le2.id=e.workId WHERE le2.workId=w.id LIMIT 1) AS durationSeconds
+               COALESCE(
+                   (SELECT MIN(ef.durationSeconds) FROM edition_facets ef WHERE ef.workId=w.id AND ef.durationSeconds IS NOT NULL
+                     AND (ef.availabilityAvailable IS NULL OR (ef.availabilityAvailable=1 AND ef.availabilityObservedAtMillis IS NOT NULL AND ef.availabilityTtlSeconds IS NOT NULL AND ef.availabilityObservedAtMillis + ef.availabilityTtlSeconds * 1000 > :availabilityAtMillis))),
+                   (SELECT MIN(e.totalDurationSeconds) FROM editions e JOIN library_entries le2 ON le2.id=e.workId WHERE le2.workId=w.id AND e.totalDurationSeconds > 0)
+               ) AS durationSeconds,
+               COALESCE(
+                   (SELECT MAX(ef.durationSeconds) FROM edition_facets ef WHERE ef.workId=w.id AND ef.durationSeconds IS NOT NULL
+                     AND (ef.availabilityAvailable IS NULL OR (ef.availabilityAvailable=1 AND ef.availabilityObservedAtMillis IS NOT NULL AND ef.availabilityTtlSeconds IS NOT NULL AND ef.availabilityObservedAtMillis + ef.availabilityTtlSeconds * 1000 > :availabilityAtMillis))),
+                   (SELECT MAX(e.totalDurationSeconds) FROM editions e JOIN library_entries le2 ON le2.id=e.workId WHERE le2.workId=w.id AND e.totalDurationSeconds > 0)
+               ) AS durationMaxSeconds,
+               CASE WHEN :durationActive=1 THEN (
+                   SELECT ef.editionId FROM edition_facets ef
+                   WHERE ef.workId=w.id AND ef.durationBucketId IN (:durationBucketIds)
+                     AND (ef.availabilityAvailable IS NULL OR (ef.availabilityAvailable=1 AND ef.availabilityObservedAtMillis IS NOT NULL AND ef.availabilityTtlSeconds IS NOT NULL AND ef.availabilityObservedAtMillis + ef.availabilityTtlSeconds * 1000 > :availabilityAtMillis))
+                   ORDER BY ef.updatedAt DESC, ef.editionId ASC LIMIT 1
+               ) ELSE NULL END AS matchingEditionId
         FROM works w
         WHERE (:genreActive = 0 OR EXISTS (SELECT 1 FROM work_genres wg WHERE wg.workId=w.id AND wg.genreId IN (:genreIds)))
-          AND (:durationActive = 0 OR EXISTS (SELECT 1 FROM edition_facets ef WHERE ef.workId=w.id AND ef.durationBucketId IN (:durationBucketIds)))
+          AND (:durationActive = 0 OR EXISTS (SELECT 1 FROM edition_facets ef WHERE ef.workId=w.id AND ef.durationBucketId IN (:durationBucketIds) AND (ef.availabilityAvailable IS NULL OR (ef.availabilityAvailable=1 AND ef.availabilityObservedAtMillis IS NOT NULL AND ef.availabilityTtlSeconds IS NOT NULL AND ef.availabilityObservedAtMillis + ef.availabilityTtlSeconds * 1000 > :availabilityAtMillis))))
           AND (:authorActive = 0 OR EXISTS (SELECT 1 FROM work_facets wf WHERE wf.workId=w.id AND wf.canonicalAuthorId IN (:authorIds)))
         ORDER BY w.title COLLATE NOCASE ASC, w.addedAt DESC, w.id ASC
         """
@@ -510,7 +545,8 @@ interface AudiobookDao {
     fun pagedWorksFeedByTitle(
         genreIds: List<String>, genreActive: Int,
         durationBucketIds: List<String>, durationActive: Int,
-        authorIds: List<String>, authorActive: Int
+        authorIds: List<String>, authorActive: Int,
+        availabilityAtMillis: Long
     ): PagingSource<Int, WorkFeedRow>
 
     // Bookmarks (ADR-0007: anchored to the Edition)

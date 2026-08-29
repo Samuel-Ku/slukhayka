@@ -290,10 +290,10 @@ jobs:
             adb shell cmd overlay enable-exclusive --category com.android.internal.systemui.navbar.threebutton
             adb shell cmd overlay list | grep -F "[x] com.android.internal.systemui.navbar.threebutton"
             adb logcat -c
-            test_status=0
-            ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.slukhayka.audiobooks.accessibility.MainActivityAccessibilityTest --no-daemon --max-workers=1 --stacktrace || test_status=$?
+            rm -f app/build/reports/androidTests/accessibility-test-exit-status
+            ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.slukhayka.audiobooks.accessibility.MainActivityAccessibilityTest --no-daemon --max-workers=1 --stacktrace || echo $? > app/build/reports/androidTests/accessibility-test-exit-status
             adb logcat -d > app/build/reports/androidTests/accessibility-api35-logcat.txt
-            exit "$test_status"
+            test ! -f app/build/reports/androidTests/accessibility-test-exit-status || exit "$(cat app/build/reports/androidTests/accessibility-test-exit-status)"
 
       - name: Upload API 35 accessibility results
         if: always()

@@ -115,6 +115,16 @@ class AndroidEmulatorReadinessTest(unittest.TestCase):
         self.assertIn("scripts/wait-for-android-package-service.sh", workflow)
         self.assertIn("target: google_atd", workflow)
 
+    def test_workflow_persists_test_status_between_runner_shells(self):
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+
+        self.assertNotIn("test_status=", workflow)
+        self.assertIn("accessibility-test-exit-status", workflow)
+        self.assertIn(
+            'test ! -f app/build/reports/androidTests/accessibility-test-exit-status || exit "$(cat app/build/reports/androidTests/accessibility-test-exit-status)"',
+            workflow,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

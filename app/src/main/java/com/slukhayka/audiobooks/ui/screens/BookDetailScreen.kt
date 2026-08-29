@@ -25,6 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -76,6 +77,7 @@ import com.slukhayka.audiobooks.ui.library.bookPlayState
 import com.slukhayka.audiobooks.ui.library.bookPositionAndTotal
 import com.slukhayka.audiobooks.ui.library.ukPlural
 import com.slukhayka.audiobooks.ui.theme.*
+import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -122,26 +124,16 @@ fun BookDetailScreen(
     var bookmarkToDelete by remember { mutableStateOf<BookmarkEntity?>(null) }
     var bookmarkDeleteOrigin by remember { mutableStateOf<FocusRequester?>(null) }
     var playerReturnFocusChapterId by remember { mutableStateOf<String?>(null) }
-    var playerReturnFocusRequester by remember { mutableStateOf<FocusRequester?>(null) }
+    var playerFocusRestoreArmed by remember { mutableStateOf(false) }
     val deleteTriggerFocusRequester = remember { FocusRequester() }
 
-    RestoreFocusAfterModal(
-        modalVisible = playerModalVisible,
-        returnFocusRequester = playerReturnFocusRequester,
-        // AnimatedVisibility disposes the player's focused subtree just after
-        // its transition settles. Let that commit finish before restoring the
-        // chapter, otherwise disposal clears a successful early request.
-        settleFrames = 3,
-        // With system animations disabled, Compose frames can collapse into
-        // one clock tick while Android's window focus and the mini-player's
-        // Scaffold relayout still finish asynchronously. Wait for that bounded
-        // platform work before making the single authoritative request.
-        settleDelayMillis = 250L,
-        onFocusRestored = {
-            playerReturnFocusChapterId = null
-            playerReturnFocusRequester = null
+    LaunchedEffect(playerModalVisible, playerReturnFocusChapterId) {
+        if (playerModalVisible && playerReturnFocusChapterId != null) {
+            // Arm only after the player has actually become modal. This keeps
+            // the pre-open focus request from being mistaken for restoration.
+            playerFocusRestoreArmed = true
         }
-    )
+    }
 
     // Spec-40 #277/#278/#280 — «Відгуки»: form open/edit state, delete
     // confirmation target. The store itself rides MainViewModel (null
@@ -721,13 +713,40 @@ fun BookDetailScreen(
             if (activeTab == 0) {
                 itemsIndexed(chapters) { index, chapter ->
                     val chapterFocusRequester = remember(chapter.id) { FocusRequester() }
-                    LaunchedEffect(playerReturnFocusChapterId, chapterFocusRequester) {
-                        if (playerReturnFocusChapterId == chapter.id) {
-                            // The mini-player changes the Scaffold viewport after
-                            // playback starts. A lazy row can therefore be
-                            // recreated while the full player is open; always
-                            // reconnect the stable chapter id to its live node.
-                            playerReturnFocusRequester = chapterFocusRequester
+                    var chapterIsFocused by remember(chapter.id) { mutableStateOf(false) }
+                    LaunchedEffect(
+                        playerModalVisible,
+                        playerFocusRestoreArmed,
+                        playerReturnFocusChapterId,
+                        chapterIsFocused,
+                        chapterFocusRequester
+                    ) {
+                        if (
+                            playerFocusRestoreArmed &&
+                            playerReturnFocusChapterId == chapter.id &&
+                            !playerModalVisible
+                        ) {
+                            if (chapterIsFocused) {
+                                // Consume the intent only after the live lazy
+                                // row has retained focus through late window and
+                                // Scaffold relayout work. Losing focus restarts
+                                // this effect and keeps the intent alive.
+                                delay(500L)
+                                if (chapterIsFocused && !playerModalVisible) {
+                                    playerReturnFocusChapterId = null
+                                    playerFocusRestoreArmed = false
+                                }
+                            } else {
+                                while (
+                                    playerFocusRestoreArmed &&
+                                    playerReturnFocusChapterId == chapter.id &&
+                                    !playerModalVisible &&
+                                    !chapterIsFocused
+                                ) {
+                                    delay(250L)
+                                    chapterFocusRequester.requestFocus()
+                                }
+                            }
                         }
                     }
                     val isCurrentChapter = playerState.currentBook?.id == currentBook.id &&
@@ -740,6 +759,7 @@ fun BookDetailScreen(
                         isCurrent = isCurrentChapter,
                         isPlaying = isPlayingThis,
                         focusRequester = chapterFocusRequester,
+                        onFocusChanged = { chapterIsFocused = it },
                         onPlayClick = {
                             // Make the activated row the modal's real focus
                             // origin before the background focusRestorer takes
@@ -747,7 +767,7 @@ fun BookDetailScreen(
                             // activation, do not focus the node automatically.
                             chapterFocusRequester.requestFocus()
                             playerReturnFocusChapterId = chapter.id
-                            playerReturnFocusRequester = chapterFocusRequester
+                            playerFocusRestoreArmed = false
                             if (isCurrentChapter) {
                                 viewModel.playerManager.play()
                             } else {
@@ -1454,6 +1474,7 @@ fun ChapterRowItem(
     isCurrent: Boolean,
     isPlaying: Boolean,
     focusRequester: FocusRequester? = null,
+    onFocusChanged: (Boolean) -> Unit = {},
     onPlayClick: () -> Unit,
     onPauseClick: () -> Unit
 ) {
@@ -1496,6 +1517,7 @@ fun ChapterRowItem(
             // not change runtime behaviour.
             .testTag("book_detail_chapter_${chapter.id}")
             .then(focusRequester?.let { Modifier.focusRequester(it) } ?: Modifier)
+            .onFocusChanged { onFocusChanged(it.isFocused) }
             .clickable { onAction() }
             // A chapter is a destination in the reading flow. Make its focus target
             // explicit so TalkBack and physical-device semantics can move to it

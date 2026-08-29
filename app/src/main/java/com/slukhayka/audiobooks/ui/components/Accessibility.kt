@@ -14,7 +14,6 @@ import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.semantics.hideFromAccessibility
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
-import kotlinx.coroutines.delay
 
 /**
  * Keeps a composed background out of accessibility and keyboard traversal
@@ -46,8 +45,6 @@ fun Modifier.accessibilityPane(title: String): Modifier =
  * moves after this owner has observed one visible-to-closed transition.
  * [settleFrames] lets animated owners finish removing their focused subtree
  * before the return request; non-animated owners keep the one-frame default.
- * [settleDelayMillis] covers window and lazy-layout work that can complete
- * after the Compose frame clock when system animations are disabled.
  */
 @Composable
 fun RestoreFocusAfterModal(
@@ -55,7 +52,6 @@ fun RestoreFocusAfterModal(
     returnFocusRequester: FocusRequester?,
     fallbackFocusRequester: FocusRequester? = null,
     settleFrames: Int = 1,
-    settleDelayMillis: Long = 0L,
     onFocusRestored: () -> Unit = {}
 ) {
     var modalWasVisible by remember { mutableStateOf(false) }
@@ -67,10 +63,6 @@ fun RestoreFocusAfterModal(
                 modalWasVisible = false
             } else {
                 repeat(settleFrames.coerceAtLeast(1)) { withFrameNanos { } }
-                if (settleDelayMillis > 0L) {
-                    delay(settleDelayMillis)
-                    withFrameNanos { }
-                }
                 val restoredToOrigin = runCatching {
                     returnFocusRequester.requestFocus()
                 }.getOrDefault(false) || run {

@@ -76,7 +76,6 @@ import com.slukhayka.audiobooks.ui.library.bookPlayState
 import com.slukhayka.audiobooks.ui.library.bookPositionAndTotal
 import com.slukhayka.audiobooks.ui.library.ukPlural
 import com.slukhayka.audiobooks.ui.theme.*
-import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -123,14 +122,18 @@ fun BookDetailScreen(
     var bookmarkToDelete by remember { mutableStateOf<BookmarkEntity?>(null) }
     var bookmarkDeleteOrigin by remember { mutableStateOf<FocusRequester?>(null) }
     var playerReturnFocusChapterId by remember { mutableStateOf<String?>(null) }
-    var playerFocusRestoreArmed by remember { mutableStateOf(false) }
+    var playerReturnFocusRequester by remember { mutableStateOf<FocusRequester?>(null) }
     val deleteTriggerFocusRequester = remember { FocusRequester() }
 
-    LaunchedEffect(playerModalVisible, playerReturnFocusChapterId) {
-        if (playerModalVisible && playerReturnFocusChapterId != null) {
-            playerFocusRestoreArmed = true
+    RestoreFocusAfterModal(
+        modalVisible = playerModalVisible,
+        returnFocusRequester = playerReturnFocusRequester,
+        settleFrames = 3,
+        onFocusRestored = {
+            playerReturnFocusChapterId = null
+            playerReturnFocusRequester = null
         }
-    }
+    )
 
     // Spec-40 #277/#278/#280 — «Відгуки»: form open/edit state, delete
     // confirmation target. The store itself rides MainViewModel (null
@@ -711,41 +714,14 @@ fun BookDetailScreen(
                 itemsIndexed(chapters) { index, chapter ->
                     val chapterFocusRequester = remember(chapter.id) { FocusRequester() }
                     LaunchedEffect(
-                        playerModalVisible,
-                        playerFocusRestoreArmed,
                         playerReturnFocusChapterId,
                         chapterFocusRequester
                     ) {
-                        if (
-                            playerFocusRestoreArmed &&
-                            playerReturnFocusChapterId == chapter.id &&
-                            !playerModalVisible
-                        ) {
-                            // Android window focus and the mini-player viewport
-                            // can settle after the Compose transition. Reassert
-                            // the now-single accessibility focus target over one
-                            // bounded second. Lazy row replacement cancels this
-                            // effect; its replacement resumes the stable-id intent.
-                            var focusCaptured = false
-                            repeat(4) {
-                                delay(250L)
-                                if (
-                                    !playerFocusRestoreArmed ||
-                                    playerReturnFocusChapterId != chapter.id ||
-                                    playerModalVisible
-                                ) {
-                                    return@LaunchedEffect
-                                }
-                                if (chapterFocusRequester.requestFocus()) {
-                                    focusCaptured = chapterFocusRequester.captureFocus() ||
-                                        focusCaptured
-                                }
-                            }
-                            if (focusCaptured) {
-                                chapterFocusRequester.freeFocus()
-                            }
-                            playerReturnFocusChapterId = null
-                            playerFocusRestoreArmed = false
+                        if (playerReturnFocusChapterId == chapter.id) {
+                            // Playback inserts the mini-player and can recreate
+                            // this lazy row. Reconnect the stable chapter id to
+                            // the requester attached to the current live Card.
+                            playerReturnFocusRequester = chapterFocusRequester
                         }
                     }
                     val isCurrentChapter = playerState.currentBook?.id == currentBook.id &&
@@ -765,7 +741,7 @@ fun BookDetailScreen(
                             // activation, do not focus the node automatically.
                             chapterFocusRequester.requestFocus()
                             playerReturnFocusChapterId = chapter.id
-                            playerFocusRestoreArmed = false
+                            playerReturnFocusRequester = chapterFocusRequester
                             if (isCurrentChapter) {
                                 viewModel.playerManager.play()
                             } else {

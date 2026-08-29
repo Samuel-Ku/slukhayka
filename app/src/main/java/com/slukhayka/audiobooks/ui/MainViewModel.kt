@@ -1140,14 +1140,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _feedGenreFilters = MutableStateFlow<Set<String>>(emptySet())
     val feedGenreFilters: StateFlow<Set<String>> = _feedGenreFilters.asStateFlow()
 
+    private val _feedDurationFilters = MutableStateFlow<Set<String>>(emptySet())
+    val feedDurationFilters: StateFlow<Set<String>> = _feedDurationFilters.asStateFlow()
+
     private val _feedSortByTitle = MutableStateFlow(false)
     val feedSortByTitle: StateFlow<Boolean> = _feedSortByTitle.asStateFlow()
 
     val workFeed: Flow<PagingData<WorkFeedRow>> =
-        combine(_feedGenreFilters, _feedSortByTitle) { genres, byTitle -> genres to byTitle }
+        combine(_feedGenreFilters, _feedDurationFilters, _feedSortByTitle) { genres, durations, byTitle ->
+            Triple(genres, durations, byTitle)
+        }
         .distinctUntilChanged()
-        .flatMapLatest { (genres, byTitle) ->
-            val filter = WorkFacetFilter(genreIds = genres)
+        .flatMapLatest { (genres, durations, byTitle) ->
+            val filter = WorkFacetFilter(genreIds = genres, durationBucketIds = durations)
             Pager(
                 config = PagingConfig(pageSize = 30, prefetchDistance = 15, enablePlaceholders = false)
             ) {
@@ -1163,6 +1168,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _feedGenreFilters.value = genres
     }
 
+    fun setFeedDurationFilters(durationBucketIds: Set<String>) {
+        _feedDurationFilters.value = durationBucketIds
+    }
+
     fun setFeedSortByTitle(byTitle: Boolean) {
         _feedSortByTitle.value = byTitle
     }
@@ -1174,6 +1183,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun openWorkFeedRow(row: WorkFeedRow) {
         viewModelScope.launch(Dispatchers.IO) {
+            // A duration-filtered row carries the matching Edition id. When
+            // that rendition is already in the library, open it first; the
+            // other rendition cards stay linked to the same Work and remain
+            // reachable through the existing «Інші начитки» block.
+            val matchingBook = sourceCatalog.libraryBookForEdition(row.matchingEditionId)
+            if (matchingBook != null) {
+                playAudiobook(matchingBook)
+                return@launch
+            }
             val sources = sourceCatalog.workSourcesForWork(row.workId)
                 .map { source ->
                     com.slukhayka.audiobooks.data.source.GlobalSearchSource(

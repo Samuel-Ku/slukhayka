@@ -1507,10 +1507,10 @@ fun ChapterRowItem(
             // not change runtime behaviour.
             .testTag("book_detail_chapter_${chapter.id}")
             .then(focusRequester?.let { Modifier.focusRequester(it) } ?: Modifier)
-            // clickable already contributes the accessible focus target. A
-            // second focusable() creates a sibling target: requestFocus() can
-            // then succeed while this merged semantics node remains unfocused.
-            .clickable { onAction() }
+            // Keep the accessibility target on the stable Card. The touch
+            // target lives on the inner full-width Row so playback-driven
+            // clickable updates cannot replace the requester's focus node.
+            .focusable()
             .semantics(mergeDescendants = true) {
                 contentDescription = chapterSummary
                 stateDescription = chapterState
@@ -1528,6 +1528,7 @@ fun ChapterRowItem(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .clickable { onAction() }
                 .padding(14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {

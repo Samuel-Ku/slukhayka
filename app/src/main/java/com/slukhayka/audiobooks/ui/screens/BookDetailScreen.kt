@@ -132,10 +132,11 @@ fun BookDetailScreen(
         // its transition settles. Let that commit finish before restoring the
         // chapter, otherwise disposal clears a successful early request.
         settleFrames = 3,
-        // Starting playback also inserts the mini-player into Scaffold. Its
-        // late viewport relayout can recreate the lazy chapter row after the
-        // first request, so reassert focus once that bounded change has settled.
-        stabilityFrames = 10,
+        // With system animations disabled, Compose frames can collapse into
+        // one clock tick while Android's window focus and the mini-player's
+        // Scaffold relayout still finish asynchronously. Wait for that bounded
+        // platform work before making the single authoritative request.
+        settleDelayMillis = 250L,
         onFocusRestored = {
             playerReturnFocusChapterId = null
             playerReturnFocusRequester = null

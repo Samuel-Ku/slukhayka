@@ -1489,15 +1489,11 @@ fun ChapterRowItem(
             // specific chapter regardless of ordering. Pure UI annotation; does
             // not change runtime behaviour.
             .testTag("book_detail_chapter_${chapter.id}")
-            .clickable { onAction() }
-            // clickable contributes its own focus target. Place the requester
-            // after it so restoration addresses the explicit accessibility
-            // target below, whose Focused state belongs to this semantics node.
             .then(focusRequester?.let { Modifier.focusRequester(it) } ?: Modifier)
-            // A chapter is a destination in the reading flow. Make its focus target
-            // explicit so TalkBack and physical-device semantics can move to it
-            // before activation (clickable alone was not reliable here).
-            .focusable()
+            // clickable already contributes the accessible focus target. A
+            // second focusable() creates a sibling target: requestFocus() can
+            // then succeed while this merged semantics node remains unfocused.
+            .clickable { onAction() }
             .semantics(mergeDescendants = true) {
                 contentDescription = chapterSummary
                 stateDescription = chapterState

@@ -794,7 +794,7 @@ class SourceCatalog(
                 seriesIndex = seriesIndex,
                 coverImageUrl = coverImageUrl,
                 addedAt = System.currentTimeMillis()
-            ).also { dao.upsertWork(it) }
+            )
         } else {
             val id = "w-$sourceId-${stableIdOf(sourceUrl)}"
             WorkEntity(
@@ -806,25 +806,31 @@ class SourceCatalog(
                 seriesIndex = seriesIndex,
                 coverImageUrl = coverImageUrl,
                 addedAt = System.currentTimeMillis()
-            ).also { dao.upsertWork(it) }
+            )
         }
         val workSourceId = "${work.id}|$sourceId|${stableIdOf(sourceUrl)}"
         // Every persisted Work immediately participates in the canonical
         // cross-Source author index. This is idempotent and entirely local.
         authorIndex.indexWorks(listOf(work), sourceId)
         val sourceAlreadyKnown = dao.getWorkSourcesForWorkSync(work.id).any { it.id == workSourceId }
-        dao.upsertWorkSourceSafe(
-            WorkSourceEntity(
-                id = workSourceId,
-                workId = work.id,
-                sourceId = sourceId,
-                sourceUrl = sourceUrl,
-                streamOnly = streamOnly,
-                coverImageUrl = coverImageUrl,
-                durationSeconds = durationSeconds,
-                addedAt = System.currentTimeMillis()
-            )
+        val workSource = WorkSourceEntity(
+            id = workSourceId,
+            workId = work.id,
+            sourceId = sourceId,
+            sourceUrl = sourceUrl,
+            streamOnly = streamOnly,
+            coverImageUrl = coverImageUrl,
+            durationSeconds = durationSeconds,
+            addedAt = System.currentTimeMillis()
         )
+        // #388 — use safe/transactional upsert. If the Work was just
+        // created, both rows are written atomically; if it already
+        // existed, a missing parent (race/tombstone) degrades gracefully.
+        if (existing == null) {
+            dao.upsertWorkWithSource(work, workSource)
+        } else {
+            dao.safeUpsertWorkSource(workSource)
+        }
         if (genreTexts != null) {
             val facetObservedAt = System.currentTimeMillis()
             facetWriter.apply(

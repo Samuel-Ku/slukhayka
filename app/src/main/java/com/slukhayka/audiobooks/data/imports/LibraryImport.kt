@@ -809,9 +809,11 @@ class LibraryImport(
             createdAt = System.currentTimeMillis(),
             downloadProgress = 0f
         )
-        if (work != null && book.url.isNotBlank()) {
+        // #388 — blank-key books have no Works row (workId == bookId), so
+        // a work_source would violate the FK (workId → works.id). Skip it.
+        if (mergeKey.isNotBlank() && workId.isNotBlank() && book.url.isNotBlank()) {
             val sourceId = sourceIdForUrl(book.url)
-            dao.upsertWorkSourceSafe(
+            dao.safeUpsertWorkSource(
                 WorkSourceEntity(
                     id = "$workId|$sourceId|${Integer.toHexString(book.url.hashCode())}",
                     workId = workId,

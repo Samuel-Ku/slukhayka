@@ -52,6 +52,7 @@ import com.slukhayka.audiobooks.data.personbookmarks.PersonBookmarkSyncMutation
 import com.slukhayka.audiobooks.data.personbookmarks.PeopleNewArrivalWorker
 import com.slukhayka.audiobooks.data.personbookmarks.FirestorePersonBookmarksSyncStore
 import com.slukhayka.audiobooks.data.personbookmarks.PersonBookmarksSyncController
+import com.slukhayka.audiobooks.data.personbookmarks.SharedPreferencesPendingPersonBookmarkDeletes
 import com.slukhayka.audiobooks.data.reviews.FirestoreListenerReviewsStore
 import com.slukhayka.audiobooks.data.reviews.FirestoreNarrationRatingsStore
 import com.slukhayka.audiobooks.data.recommend.RecommendationSettingsStore
@@ -156,7 +157,12 @@ class App : Application() {
     }
 
     private val personBookmarksSync by lazy {
-        PersonBookmarksSyncController(personBookmarks, listenerIdentity, FirestorePersonBookmarksSyncStore.create(this))
+        PersonBookmarksSyncController(
+            personBookmarks,
+            listenerIdentity,
+            FirestorePersonBookmarksSyncStore.create(this),
+            SharedPreferencesPendingPersonBookmarkDeletes(this)
+        )
     }
 
     /** #290 — local personalization controls; shared upload is not part of this graph. */

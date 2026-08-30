@@ -1121,13 +1121,30 @@ class SourceCatalog(
         )
 
     /** The Sources carrying one Work, in the shared capability order. */
-    suspend fun workSourcesForWork(workId: String): List<WorkSourceEntity> {
+    suspend fun workSourcesForWork(
+        workId: String,
+        preferredDurationBucketIds: Set<String> = emptySet()
+    ): List<WorkSourceEntity> {
         val sources = dao.getWorkSourcesForWorkSync(workId)
-        return SourceAccessPolicy.order(
+        val capabilityOrdered = SourceAccessPolicy.order(
             sources.map { SourceAccessCandidate(it.sourceId, sourceDisplayName(it.sourceId), it.sourceUrl) }
         ).mapNotNull { candidate ->
             sources.firstOrNull { it.sourceId == candidate.sourceId && it.sourceUrl == candidate.url }
         }
+        if (preferredDurationBucketIds.isEmpty()) return capabilityOrdered
+        // #376 — within the same capability rank a duration-matching Source
+        // moves first (stable). Capability always wins across different ranks:
+        // a browser Source never outranks a direct one for implicit playback.
+        return capabilityOrdered
+            .withIndex()
+            .sortedWith(
+                compareByDescending<IndexedValue<WorkSourceEntity>> { indexed ->
+                    indexed.value.durationSeconds
+                        ?.let(EditionDurationPolicy::bucketFor)
+                        ?.wireName in preferredDurationBucketIds
+                }.thenBy { it.index }
+            )
+            .map { it.value }
     }
 
     /** Resolves an already imported rendition without collapsing its sibling Editions. */

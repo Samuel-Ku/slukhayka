@@ -48,6 +48,7 @@ import com.slukhayka.audiobooks.data.metadata.SearchCoverResolver
 import com.slukhayka.audiobooks.data.metadata.SearchDurationResolver
 import com.slukhayka.audiobooks.data.metadata.StoredMetadataScrub
 import com.slukhayka.audiobooks.data.personbookmarks.PersonBookmarks
+import com.slukhayka.audiobooks.data.personbookmarks.PersonBookmarkSyncMutation
 import com.slukhayka.audiobooks.data.personbookmarks.PeopleNewArrivalWorker
 import com.slukhayka.audiobooks.data.personbookmarks.FirestorePersonBookmarksSyncStore
 import com.slukhayka.audiobooks.data.personbookmarks.PersonBookmarksSyncController
@@ -144,7 +145,15 @@ class App : Application() {
     val audiobookDao: AudiobookDao get() = database.audiobookDao()
 
     /** #399 — process-scoped local person-bookmark module. */
-    val personBookmarks: PersonBookmarks by lazy { PersonBookmarks(audiobookDao) }
+    val personBookmarks: PersonBookmarks by lazy {
+        PersonBookmarks(audiobookDao) { mutation ->
+            when (mutation) {
+                PersonBookmarkSyncMutation.Sync -> personBookmarksSync.sync()
+                is PersonBookmarkSyncMutation.Remove ->
+                    personBookmarksSync.remove(mutation.kind, mutation.personId)
+            }
+        }
+    }
 
     private val personBookmarksSync by lazy {
         PersonBookmarksSyncController(personBookmarks, listenerIdentity, FirestorePersonBookmarksSyncStore.create(this))
@@ -585,6 +594,9 @@ class App : Application() {
         crashReporting.start()
         unexpectedExitReporter.inspectLatest()
         PeopleNewArrivalWorker.schedule(this)
+        // Install the attestation provider before any background module may
+        // open Firestore; bookmark sync starts immediately below.
+        installAppCheckIfConfigured()
         CoroutineScope(Dispatchers.IO).launch { personBookmarksSync.sync() }
         // Spec-38 T1 (#253): install the persisted privacy route BEFORE any
         // module can touch the network, and warm the real system WebView
@@ -596,10 +608,6 @@ class App : Application() {
                 android.webkit.WebSettings.getDefaultUserAgent(this@App)
             }.onSuccess { BrowserIdentity.reportSystemUserAgent(it) }
         }
-        // Spec-30 T1 (#216): attach the App Check attestation provider BEFORE
-        // any Firestore use, so every request to the shared metadata base
-        // carries a token and the security rules accept the app's writes.
-        installAppCheckIfConfigured()
         // ADR-0002 (#138): cold start performs no network I/O during module
         // construction — the catalogue sync is an explicit composition-root
         // call, kicked off here (best-effort, never blocks startup).

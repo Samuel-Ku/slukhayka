@@ -27,10 +27,11 @@ class UnexpectedExitReporterTest {
     }
 
     @Test
-    fun `undecided actionable exit enters the same prompt flow while denial stays silent`() {
+    fun `undecided actionable exit schedules the same prompt for next launch while denial stays silent`() {
         val undecidedSink = FakeCrashReportSink()
+        val undecidedStore = FakeConsentStore(CrashConsent.UNDECIDED)
         val undecidedReporting = CrashReporting(
-            FakeConsentStore(CrashConsent.UNDECIDED),
+            undecidedStore,
             undecidedSink,
             true
         )
@@ -42,7 +43,10 @@ class UnexpectedExitReporterTest {
         ).inspectLatest()
 
         assertEquals(1, undecidedSink.unexpectedExits.size)
-        assertTrue(undecidedReporting.state.value.shouldShowPrompt)
+        assertFalse(undecidedReporting.state.value.shouldShowPrompt)
+        val nextLaunch = CrashReporting(undecidedStore, FakeCrashReportSink(), true)
+        nextLaunch.start()
+        assertTrue(nextLaunch.state.value.shouldShowPrompt)
 
         val deniedSink = FakeCrashReportSink()
         val deniedReporting = CrashReporting(FakeConsentStore(CrashConsent.DENIED), deniedSink, true)
@@ -132,10 +136,15 @@ class UnexpectedExitReporterTest {
 
     private class FakeConsentStore(initial: CrashConsent) : CrashConsentStore {
         private var consent = initial
+        private var failurePromptPending = false
         override fun load(): CrashConsent = consent
         override fun save(consent: CrashConsent) {
             this.consent = consent
         }
+        override fun markFailurePromptPending() {
+            failurePromptPending = true
+        }
+        override fun consumeFailurePromptPending(): Boolean = failurePromptPending.also { failurePromptPending = false }
     }
 
     private class FakeCrashReportSink : CrashReportSink {

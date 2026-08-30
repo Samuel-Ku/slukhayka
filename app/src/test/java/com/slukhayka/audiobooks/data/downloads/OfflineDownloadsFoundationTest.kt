@@ -60,6 +60,8 @@ class OfflineDownloadsFoundationTest {
         val fetcher = object : HttpFetcher() {
             override fun headContentLength(url: String, extraHeaders: Map<String, String>): Long? = headMap[url]
             override fun getSizedStream(url: String, extraHeaders: Map<String, String>): SizedStream? = null
+            override fun getSizedStreamResult(url: String, extraHeaders: Map<String, String>): SizedStreamResult =
+                SizedStreamResult(0, null)
         }
         // Create a fake SourceCatalog that returns 2 playable chapters with those URLs
         // Instead of mocking the whole catalog, we directly test the fetcher HEAD sum:

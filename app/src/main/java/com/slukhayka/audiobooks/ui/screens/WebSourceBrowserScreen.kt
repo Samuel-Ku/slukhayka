@@ -725,7 +725,7 @@ fun WebSourceBrowserScreen(
                                 val pageHost = runCatching {
                                     homeUrl.toUri().host?.lowercase()?.removePrefix("www.")
                                 }.getOrNull()
-                                if (looksLikeAudio(url) && isAllowedAudioCaptureHost(sourceId, host, pageHost)) {
+                                if (looksLikeAudio(url) && SourceBrowserPolicy.allowsAudioHost(sourceId, host, pageHost)) {
                                     val isNew = synchronized(capturedAudioUrls) { capturedAudioUrls.add(url) }
                                     if (isNew) lastCapturedAudioCount = capturedAudioUrls.size
                                     Log.w("WebSource", "Audio request in session: $url")
@@ -942,22 +942,6 @@ private fun looksLikeAudio(url: String): Boolean {
         lower.contains(".aac") || lower.contains(".ogg") || lower.contains(".opus") ||
         lower.contains(".m3u8") || lower.contains(".pl.txt")
 }
-
-private fun isAllowedAudioCaptureHost(sourceId: String, host: String, pageHost: String?): Boolean {
-    if (host.isBlank()) return false
-    val normalizedPageHost = pageHost?.lowercase()?.removePrefix("www.")
-    return when (sourceId) {
-        "4read" -> host == "4read.org" || host.endsWith(".4read.org") ||
-            host == "reasd.org" || host.endsWith(".reasd.org")
-        "sluhay", "sluhayknigi" ->
-            host == "redirectto.cc" || host.endsWith(".redirectto.cc") ||
-                (normalizedPageHost != null &&
-                    (host == normalizedPageHost || host.endsWith(".$normalizedPageHost")))
-        else -> normalizedPageHost != null &&
-            (host == normalizedPageHost || host.endsWith(".$normalizedPageHost"))
-    }
-}
-
 
 /** Empty 200 response for blocked hosts. */
 private fun emptyWebResponse(): android.webkit.WebResourceResponse =

@@ -27,6 +27,8 @@ import com.slukhayka.audiobooks.data.metadata.MetadataAssertions
 import com.slukhayka.audiobooks.data.metadata.ProfileFreshness
 import com.slukhayka.audiobooks.data.metadata.ProfileProvenance
 import com.slukhayka.audiobooks.data.metadata.SharedBookMetaStore
+import com.slukhayka.audiobooks.data.metadata.VerifiedProfileReadOutcome
+import com.slukhayka.audiobooks.data.metadata.VerifiedSourceProfileReader
 import com.slukhayka.audiobooks.data.source.SourceAdapter
 import com.slukhayka.audiobooks.data.source.SourceBookDetail
 import com.slukhayka.audiobooks.data.source.SourceChapter
@@ -73,7 +75,11 @@ class LibraryImport(
     // resolved page writes its full profile back so the next listener skips
     // the page fetch. Null without Firebase keys: imports behave exactly as
     // before. Best-effort by contract — a failing write never breaks import.
-    private val profileStore: SharedBookMetaStore? = null
+    private val profileStore: SharedBookMetaStore? = null,
+    // #431 — 4read cache entries may shortcut browser recovery only after a
+    // fresh cookie-free probe. Generic source profiles retain their existing
+    // best-effort read-skip contract.
+    private val verifiedProfileReader: VerifiedSourceProfileReader? = null
 ) {
     private val authorIndex: AuthorIndex = RoomAuthorIndex(dao)
 
@@ -331,9 +337,22 @@ class LibraryImport(
             // title|author|narrator — so only a caller that knows the Work
             // identity can ask the shared base at all. The entry is fetched
             // ONCE and serves both the fresh check and the stale fail-open.
-            val entry = if (known != null && store != null) {
-                runCatching { store.getProfileEntry(sourceId, editionIdOf(sourceId, known)) }.getOrNull()
-            } else null
+            val editionId = known?.let { editionIdOf(sourceId, it) }
+            val entry = when {
+                sourceId == "4read" && known != null && verifiedProfileReader != null -> when (
+                    val verified = verifiedProfileReader.read(sourceId, editionId!!)
+                ) {
+                    is VerifiedProfileReadOutcome.Ready -> verified.entry
+                    // A stale, blocked or missing profile must lead to the
+                    // listener-controlled browser path, not a hidden 4read
+                    // transport attempt from this import door.
+                    VerifiedProfileReadOutcome.BrowserRequired,
+                    VerifiedProfileReadOutcome.Missing -> return@withContext null
+                }
+                known != null && store != null ->
+                    runCatching { store.getProfileEntry(sourceId, editionId!!) }.getOrNull()
+                else -> null
+            }
             if (entry != null && ProfileFreshness.isFresh(entry.resolvedAt, System.currentTimeMillis()) &&
                 entry.profile.chapters.isNotEmpty()
             ) {
@@ -563,9 +582,11 @@ class LibraryImport(
         val detail = parsed.withCapturedAudioUrls(capturedAudioUrls)
         if (detail.chapters.isEmpty()) return@withContext null
         if (detail.chapters.any { !it.streamUrl.isPlayableSourceUrl() }) return@withContext null
-
-        // 1. Stable Source identity — exact URL, no fallback.
-        val source = dao.getSourcesForBookSync(bookId).firstOrNull { it.type == sourceId && it.url == url }
+        // Recovery is never a fuzzy source lookup. A same-type 4read page can
+        // be a different narration (or entirely different Work), and replacing
+        // its tracks would corrupt this Edition's progress and downloads.
+        val source = dao.getSourcesForBookSync(bookId)
+            .firstOrNull { it.type == sourceId && it.url == url }
             ?: return@withContext null
 
         // 2. Work identity.
@@ -577,25 +598,23 @@ class LibraryImport(
 
         // 3. Edition identity: narrator + derived EditionId.
         val edition = dao.getEditionForWork(bookId)
-        if (edition != null && source.editionId != null && source.editionId != edition.id) return@withContext null
-        if (edition != null && edition.narrator.isNotBlank() && detail.narrator.isNotBlank() &&
-            !edition.narrator.equals(detail.narrator, ignoreCase = true)
-        ) return@withContext null
-        val capturedNarrator = MetadataAssertions.normalizeClaimedText(detail.narrator) ?: "$sourceId narrator"
-        val capturedEditionId = EditionId.forBook(capturedMergeKey, existingBook.id, capturedNarrator)
-        if (edition != null && capturedEditionId != edition.id) return@withContext null
-
-        // 4. Chapter structure: count, names, indices verified before any track write.
+        val storedBook = dao.getAudiobookById(bookId)?.toAudiobookEntity() ?: return@withContext null
+        if (edition != null && source.editionId != null && source.editionId != edition.id) {
+            return@withContext null
+        }
         val logicalChapters = dao.getChaptersListForBook(bookId).sortedBy { it.chapterIndex }
-        if (logicalChapters.size != detail.chapters.size) return@withContext null
-        if (logicalChapters.indices.any { index ->
-                val storedTitle = logicalChapters[index].title.trim()
-                val capturedTitle = detail.chapters[index].title.trim()
-                storedTitle.isNotBlank() && capturedTitle.isNotBlank() &&
-                    !storedTitle.equals(capturedTitle, ignoreCase = true)
-            }
-        ) return@withContext null
-
+        if (!RecoveryIdentityGuard.matches(
+                storedTitle = storedBook.title,
+                storedAuthor = storedBook.author,
+                storedNarrator = edition?.narrator.orEmpty(),
+                storedLanguage = edition?.language.orEmpty(),
+                storedChapterTitles = logicalChapters.map { it.title },
+                captured = detail
+            )) {
+            // Same-count pages can still be reordered. Refuse the update rather
+            // than attaching a new URL to the wrong Work, Edition or chapter.
+            return@withContext null
+        }
         val tracks = dao.getTracksForSourceSync(source.id).sortedBy { it.trackIndex }
         if (tracks.size != detail.chapters.size) return@withContext null
         if (tracks.map { it.trackIndex } != detail.chapters.indices.toList()) return@withContext null

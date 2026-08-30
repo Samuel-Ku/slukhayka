@@ -79,6 +79,9 @@ class PersonBookmarks(
     fun bookmarkedNarrators(): Flow<List<PersonBookmarkEntity>> =
         dao.getPersonBookmarksByKind(PersonRole.NARRATOR.storageValue)
 
+    /** Every bookmarked person; consumers keep the role boundary in [PersonIdentity]. */
+    fun allBookmarks(): Flow<List<PersonBookmarkEntity>> = dao.getAllPersonBookmarks()
+
     /** Total bookmark count per kind: {AUTHOR → N, NARRATOR → M}. */
     fun counts(): Flow<Map<PersonRole, Int>> =
         dao.getAllPersonBookmarks().map { bookmarks ->

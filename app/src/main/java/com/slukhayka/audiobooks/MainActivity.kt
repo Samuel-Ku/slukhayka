@@ -816,6 +816,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                             // composition root.
                             libraryEntries = viewModel.libraryEntries,
                             sourceCatalog = viewModel.sourceCatalog,
+                            personBookmarks = App.instance.personBookmarks,
                             onBookClick = { id -> viewModel.selectBook(id) },
                             onPlayClick = { book ->
                                 viewModel.playAudiobook(book)
@@ -881,6 +882,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                             // composition root.
                             libraryEntries = viewModel.libraryEntries,
                             sourceCatalog = viewModel.sourceCatalog,
+                            personBookmarks = App.instance.personBookmarks,
                             onBookClick = { id -> viewModel.selectBook(id) },
                             onPlayClick = { book ->
                                 viewModel.playAudiobook(book)

@@ -212,6 +212,7 @@ dependencies {
   // Spec-38 T3 (#255): the official webkit controller rides the privacy route
   // (ProxyController) and the document-start sensor lockdown (WebViewCompat).
   implementation(libs.androidx.webkit)
+  implementation(libs.androidx.work.runtime)
   // Spec-40 #276 (t2): the BiometricPrompt gate for «Код відновлення профілю».
   implementation(libs.androidx.biometric)
   implementation(libs.androidx.media3.exoplayer)

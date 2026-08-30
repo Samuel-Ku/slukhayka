@@ -132,7 +132,9 @@ private val SecondaryBookRouteFrameSaver = listSaver<SecondaryBookRouteFrame, St
 // androidx.biometric's BiometricPrompt attaches to a FragmentActivity, and
 // the recovery-code gate in ⚙️ Профіль needs it. Compose is unaffected.
 class MainActivity : FragmentActivity() {
+    companion object { const val EXTRA_OPEN_PEOPLE_NEW = "openPeopleNew" }
     internal var pendingBookId: String? = null
+    internal var pendingPeopleNew: Boolean = false
 
     override fun onNewIntent(intent: android.content.Intent) {
         super.onNewIntent(intent)
@@ -140,6 +142,7 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun handleDownloadIntent(intent: android.content.Intent) {
+        if (intent.getBooleanExtra(EXTRA_OPEN_PEOPLE_NEW, false)) pendingPeopleNew = true
         if (intent.getBooleanExtra("openBookDetail", false)) {
             intent.getStringExtra("bookId")?.let { pendingBookId = it }
         }
@@ -244,6 +247,13 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
         if (bookId != null) {
             activity.pendingBookId = null
             viewModel.selectBook(bookId)
+        }
+    }
+    LaunchedEffect(Unit) {
+        val activity = context as? MainActivity
+        if (activity?.pendingPeopleNew == true) {
+            activity.pendingPeopleNew = false
+            viewModel.selectTab(SelectedTab.EXPLORE)
         }
     }
 

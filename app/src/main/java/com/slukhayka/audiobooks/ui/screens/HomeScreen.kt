@@ -61,6 +61,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.App
 import com.slukhayka.audiobooks.data.catalog.CatalogBook
 import com.slukhayka.audiobooks.data.catalog.CatalogSeries
 import com.slukhayka.audiobooks.data.catalog.SourceCatalog
@@ -206,6 +207,7 @@ fun HomeScreen(
         // cards and recompositions only read Room; none of them touch Firestore.
         launch { sourceCatalog.syncSharedFacets() }
         sourceCatalog.refreshUnifiedCatalog()
+        com.slukhayka.audiobooks.data.personbookmarks.PeopleNewArrivalWorker.notifyIfNeeded(App.instance)
         sourceCatalog.refreshSourceFeeds()
         viewModel.refreshEmbeddingVectors()
         // spec-18 T2: one throttled, bounded duration-enrichment pass is

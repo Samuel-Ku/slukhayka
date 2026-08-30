@@ -99,12 +99,17 @@ class PublishedIssue:
     title: str
     body: str
     labels: list[str]
+    state: str = "OPEN"
+    prior_pr_url: str | None = None
+    fixed_version: str | None = None
+    fix_was_merged: bool = False
 
 
 class IssuePublisher(Protocol):
     def find_by_marker(self, marker: str) -> PublishedIssue | None: ...
     def create(self, title: str, body: str, labels: list[str]) -> PublishedIssue: ...
     def update(self, number: int, body: str, labels: list[str]) -> PublishedIssue: ...
+    def reopen(self, number: int) -> None: ...
 
 
 @dataclasses.dataclass(frozen=True)
@@ -131,6 +136,9 @@ class FakeIssuePublisher:
         issue.body, issue.labels = body, labels
         return issue
 
+    def reopen(self, number: int) -> None:
+        self.issues[number - 1].state = "OPEN"
+
 
 class GitHubCliIssuePublisher:
     """Narrow GitHub write adapter; receives only [SanitizedGroup.issue_body]."""
@@ -145,12 +153,33 @@ class GitHubCliIssuePublisher:
         return result.stdout
 
     def find_by_marker(self, marker: str) -> PublishedIssue | None:
-        output = self._run("issue", "list", "--repo", self.repo, "--state", "all", "--search", marker, "--json", "number,title,body,labels", "--limit", "10")
+        output = self._run("issue", "list", "--repo", self.repo, "--state", "all", "--search", marker, "--json", "number,title,body,labels,state", "--limit", "10")
         matches = json.loads(output)
         for issue in matches:
             if marker in issue.get("body", ""):
-                return PublishedIssue(issue["number"], issue["title"], issue["body"], [label["name"] for label in issue["labels"]])
+                published = PublishedIssue(
+                    issue["number"], issue["title"], issue["body"],
+                    [label["name"] for label in issue["labels"]], issue["state"],
+                )
+                return self._with_merged_fix(published) if published.state == "CLOSED" else published
         return None
+
+    def _with_merged_fix(self, issue: PublishedIssue) -> PublishedIssue:
+        """Attach only a verified bot PR marker; never inspect crash evidence."""
+        output = self._run(
+            "pr", "list", "--repo", self.repo, "--state", "merged",
+            "--search", f"Fixes #{issue.number}", "--json", "url,body", "--limit", "10",
+        )
+        for pull_request in json.loads(output):
+            body, url = pull_request.get("body"), pull_request.get("url")
+            if not isinstance(body, str) or not isinstance(url, str):
+                continue
+            match = re.search(r"<!-- crash-fix-version:([0-9]+(?:\.[0-9]+){1,3}) -->", body)
+            if match and re.fullmatch(r"https://github\.com/[^/]+/[^/]+/pull/[1-9][0-9]*", url):
+                return dataclasses.replace(
+                    issue, prior_pr_url=url, fixed_version=match.group(1), fix_was_merged=True,
+                )
+        return issue
 
     def create(self, title: str, body: str, labels: list[str]) -> PublishedIssue:
         output = self._run("issue", "create", "--repo", self.repo, "--title", title, "--body", body, "--label", ",".join(labels))
@@ -158,8 +187,19 @@ class GitHubCliIssuePublisher:
         return PublishedIssue(number, title, body, labels)
 
     def update(self, number: int, body: str, labels: list[str]) -> PublishedIssue:
-        self._run("issue", "edit", str(number), "--repo", self.repo, "--body", body, "--add-label", ",".join(labels))
+        current = self._run("issue", "view", str(number), "--repo", self.repo, "--json", "labels")
+        existing_labels = [item["name"] for item in json.loads(current).get("labels", []) if isinstance(item.get("name"), str)]
+        args = ["issue", "edit", str(number), "--repo", self.repo, "--body", body]
+        if labels:
+            args += ["--add-label", ",".join(labels)]
+        remove = [label for label in existing_labels if label not in labels]
+        if remove:
+            args += ["--remove-label", ",".join(remove)]
+        self._run(*args)
         return PublishedIssue(number, "", body, labels)
+
+    def reopen(self, number: int) -> None:
+        self._run("issue", "reopen", str(number), "--repo", self.repo)
 
 def _exact_mapping(value: Any, expected: set[str], name: str) -> dict[str, Any]:
     if not isinstance(value, dict) or set(value) != expected:
@@ -258,6 +298,19 @@ def publish_group(group: SanitizedGroup, publisher: IssuePublisher, diagnosis_st
     if existing is None:
         created = publisher.create(f"[Crash] {group.event_type}: {group.fingerprint}", group.render_issue_body(diagnosis_status), labels)
         return PublishResult("created", created.number)
+    if existing.state == "CLOSED":
+        from scripts.crash_regression import decide
+
+        decision = decide(group.app_version, existing.fixed_version, existing.fix_was_merged)
+        if decision.reopen:
+            publisher.reopen(existing.number)
+            prior_fix = f"\n\n## Регресія\nПопередній PR: {existing.prior_pr_url}"
+            publisher.update(existing.number, group.render_issue_body(decision.label or "needs-triage") + prior_fix, [decision.label or "needs-triage"])
+            return PublishResult("reopened", existing.number)
+        # The fix cannot be disproved by a same/older build. Preserve the
+        # closed issue state and labels while refreshing aggregates only.
+        publisher.update(existing.number, group.render_issue_body(diagnosis_status), existing.labels)
+        return PublishResult("updated", existing.number)
     publisher.update(existing.number, group.render_issue_body(diagnosis_status), labels)
     return PublishResult("updated", existing.number)
 

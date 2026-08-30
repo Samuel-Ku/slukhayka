@@ -222,26 +222,30 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: crash-priority-queue
+          path: ${{ runner.temp }}
       - uses: actions/download-artifact@v4
         with:
           name: crash-diagnoses
+          path: ${{ runner.temp }}
       - uses: actions/download-artifact@v4
         with:
           name: crash-public-issues
+          path: ${{ runner.temp }}
       - name: Select one verified implementation contract
         run: |
           python3 scripts/crash_implementation.py \
-            --queue crash-queue.json --diagnoses crash-diagnoses.json \
-            --issues crash-issues.json --issue "${{ inputs.issue_number }}" \
-            --output implementation-plan.json
+            --queue "$RUNNER_TEMP/crash-queue.json" --diagnoses "$RUNNER_TEMP/crash-diagnoses.json" \
+            --issues "$RUNNER_TEMP/crash-issues.json" --issue "${{ inputs.issue_number }}" \
+            --output "$RUNNER_TEMP/implementation-plan.json"
       - name: Require that the recorded red loop still fails
         run: |
-          python3 - <<'PY'
+          PLAN="$RUNNER_TEMP/implementation-plan.json" python3 - <<'PY'
           import json
+          import os
           import subprocess
           from scripts.crash_implementation import gate_contract
 
-          plan = json.load(open("implementation-plan.json", encoding="utf-8"))
+          plan = json.load(open(os.environ["PLAN"], encoding="utf-8"))
           verdict = gate_contract(plan["issue_number"], plan["contract"], False, subprocess.run)
           if not verdict.allowed:
               raise SystemExit("needs-triage: " + verdict.reason)
@@ -257,6 +261,8 @@ jobs:
         env:
           PROXY_URL: ${{ vars.CRASH_DIAGNOSIS_PROXY_URL }}
         run: test -n "$PROXY_URL"
+      - name: Freeze the verified implementation contract
+        run: sha256sum "$RUNNER_TEMP/implementation-plan.json" > "$RUNNER_TEMP/implementation-plan.sha256"
       - name: Mint an implementation-only OIDC token
         env:
           AUDIENCE: crash-implementation-proxy
@@ -272,15 +278,17 @@ jobs:
         run: |
           opencode run --agent crash-implementation \
             --model crash-diagnosis-proxy/glm-5.3-flash --format default \
-            --file implementation-plan.json \
-            "Implement only the verified crash contract in implementation-plan.json. Make the smallest fix and regression test. Do not modify workflow, OpenCode configuration, GitHub metadata, or scripts/crash*. Do not commit, push, create branches, or create a PR."
+            --file "$RUNNER_TEMP/implementation-plan.json" \
+            "Implement only the verified crash contract supplied in the attached file. Make the smallest fix and regression test. Do not modify workflow, OpenCode configuration, GitHub metadata, or scripts/crash*. Do not commit, push, create branches, or create a PR."
       - name: Reject automation edits and unremoved diagnostic instrumentation
         run: |
-          if git diff --quiet; then
+          sha256sum --check "$RUNNER_TEMP/implementation-plan.sha256"
+          changed="$( { git diff --name-only; git ls-files --others --exclude-standard; } | sort -u)"
+          if test -z "$changed"; then
             echo "needs-triage: implementation agent produced no fix" >&2
             exit 2
           fi
-          forbidden="$(git diff --name-only | grep -E '^(\.github/|opencode\.json$|scripts/crash)' || true)"
+          forbidden="$(printf '%s\n' "$changed" | grep -E '^(\.github/|opencode\.json$|scripts/crash)' || true)"
           test -z "$forbidden" || {
             echo "needs-triage: implementation agent modified protected automation" >&2
             exit 2
@@ -295,12 +303,13 @@ jobs:
           }
       - name: Require the recorded regression and relevant changed-code tests
         run: |
-          python3 - <<'PY'
+          PLAN="$RUNNER_TEMP/implementation-plan.json" python3 - <<'PY'
           import json
+          import os
           import shlex
           import subprocess
 
-          plan = json.load(open("implementation-plan.json", encoding="utf-8"))
+          plan = json.load(open(os.environ["PLAN"], encoding="utf-8"))
           result = subprocess.run(shlex.split(plan["contract"]["red_command"]), shell=False, check=False)
           if result.returncode != 0:
               raise SystemExit("needs-triage: regression test is not green after the fix")
@@ -312,6 +321,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           BRANCH: codex/crash-${{ inputs.issue_number }}
+          ISSUE_NUMBER: ${{ inputs.issue_number }}
         run: |
           fixed_version="$(sed -nE 's/^[[:space:]]*versionName = "([0-9]+(\.[0-9]+){1,3})"/\1/p' app/build.gradle.kts)"
           test -n "$fixed_version" || exit 2
@@ -321,6 +331,24 @@ jobs:
           git add -A
           git commit -m "fix(crash): #${{ inputs.issue_number }} proven regression"
           git push origin "HEAD:$BRANCH"
+          FIXED_VERSION="$fixed_version" PLAN="$RUNNER_TEMP/implementation-plan.json" PR_BODY="$RUNNER_TEMP/crash-pr-body.md" python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          plan = json.loads(Path(os.environ["PLAN"]).read_text(encoding="utf-8"))
+          contract = plan["contract"]
+          Path(os.environ["PR_BODY"]).write_text(
+              f"Fixes #{os.environ['ISSUE_NUMBER']}\n\n"
+              f"<!-- crash-fix-version:{os.environ['FIXED_VERSION']} -->\n\n"
+              "## Evidence-backed postmortem\n"
+              f"- Recorded regression: `{contract['regression_test']}`.\n"
+              "- The exact recorded command failed before editing and is green after the fix.\n"
+              f"- Verified evidence: {contract['evidence'][0]}\n\n"
+              "No auto-merge, release, or deployment is requested.",
+              encoding="utf-8",
+          )
+          PY
           gh pr create --repo "${{ github.repository }}" --base main --head "$BRANCH" \
             --title "fix(crash): #${{ inputs.issue_number }} proven regression" \
-            --body "Fixes #${{ inputs.issue_number }}\n\n<!-- crash-fix-version:$fixed_version -->\n\nThe implementation job independently replayed the recorded red loop before editing and confirmed the same regression test is green afterward. No auto-merge, release, or deployment is requested."
+            --body-file "$RUNNER_TEMP/crash-pr-body.md"

@@ -18,6 +18,7 @@ class CrashQueueItem:
     event_type: str
     affected_installs: int
     is_new_or_regressed: bool = False
+    is_background_playback: bool = False
 
 
 def prioritize(items: list[CrashQueueItem], cap: int = 3) -> tuple[list[CrashQueueItem], list[CrashQueueItem]]:
@@ -25,7 +26,7 @@ def prioritize(items: list[CrashQueueItem], cap: int = 3) -> tuple[list[CrashQue
     ordered = sorted(
         items,
         key=lambda item: (
-            0 if item.event_type == "unexpected_playback_exit" else 1,
+            0 if item.is_background_playback else 1,
             -item.affected_installs,
             0 if item.is_new_or_regressed else 1,
             item.key,
@@ -52,6 +53,11 @@ def select_groups(value: object, cap: int = 3) -> tuple[list[SanitizedGroup], li
             key=group.fingerprint,
             event_type=group.event_type,
             affected_installs=group.affected_install_count,
+            is_background_playback=(
+                group.event_type == "unexpected_playback_exit"
+                and group.context["app_visibility"] == "background"
+                and group.context["playback_state"] == "playing"
+            ),
             is_new_or_regressed=group.is_new_or_regressed,
         ) for group in groups
     ], cap=cap)

@@ -8,12 +8,23 @@ class CrashQueueTest(unittest.TestCase):
     def test_priority_and_cap_keep_remaining_groups_visible(self):
         selected, queued = prioritize([
             CrashQueueItem("fatal-high", "fatal", 100),
-            CrashQueueItem("playback", "unexpected_playback_exit", 1),
+            CrashQueueItem("playback", "unexpected_playback_exit", 1, is_background_playback=True),
             CrashQueueItem("anr-new", "anr", 8, True),
             CrashQueueItem("fatal-low", "fatal", 1),
         ])
         self.assertEqual(["playback", "fatal-high", "anr-new"], [item.key for item in selected])
         self.assertEqual(["fatal-low"], [item.key for item in queued])
+
+    def test_foreground_exit_does_not_outrank_a_background_playback_exit(self):
+        selected, queued = prioritize([
+            CrashQueueItem("foreground-exit", "unexpected_playback_exit", 100),
+            CrashQueueItem("background-exit", "unexpected_playback_exit", 1, is_background_playback=True),
+            CrashQueueItem("fatal", "fatal", 10),
+            CrashQueueItem("anr", "anr", 9),
+        ])
+
+        self.assertEqual("background-exit", selected[0].key)
+        self.assertEqual(["anr"], [item.key for item in queued])
 
     def test_selects_at_most_three_and_keeps_validated_remainder_visible(self):
         def group(event_type, installs, fresh=False):

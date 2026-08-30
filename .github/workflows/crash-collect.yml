@@ -274,12 +274,27 @@ jobs:
             --model crash-diagnosis-proxy/glm-5.3-flash --format default \
             --file implementation-plan.json \
             "Implement only the verified crash contract in implementation-plan.json. Make the smallest fix and regression test. Do not modify workflow, OpenCode configuration, GitHub metadata, or scripts/crash*. Do not commit, push, create branches, or create a PR."
-      - name: Require a minimal diff and a green recorded regression test
+      - name: Reject automation edits and unremoved diagnostic instrumentation
         run: |
           if git diff --quiet; then
             echo "needs-triage: implementation agent produced no fix" >&2
             exit 2
           fi
+          forbidden="$(git diff --name-only | grep -E '^(\.github/|opencode\.json$|scripts/crash)' || true)"
+          test -z "$forbidden" || {
+            echo "needs-triage: implementation agent modified protected automation" >&2
+            exit 2
+          }
+          # The agent may use temporary local instrumentation while proving a
+          # hypothesis, but it may not leave an explicit removal marker or a
+          # noisy debug print in the submitted source diff.
+          lingering="$(git diff -- . ':!app/src/test/**' | grep -Ei '^[+].*(TODO.*(remove|instrument)|Log\.(d|v)\(|println\()' || true)"
+          test -z "$lingering" || {
+            echo "needs-triage: temporary diagnostic instrumentation remains" >&2
+            exit 2
+          }
+      - name: Require the recorded regression and relevant changed-code tests
+        run: |
           python3 - <<'PY'
           import json
           import shlex
@@ -290,6 +305,9 @@ jobs:
           if result.returncode != 0:
               raise SystemExit("needs-triage: regression test is not green after the fix")
           PY
+          # This selector maps the actual uncommitted diff to the repository's
+          # isolated Android cohorts, including an added regression test.
+          scripts/test-changed.sh --base HEAD
       - name: Create exactly one reviewable pull request
         env:
           GH_TOKEN: ${{ github.token }}

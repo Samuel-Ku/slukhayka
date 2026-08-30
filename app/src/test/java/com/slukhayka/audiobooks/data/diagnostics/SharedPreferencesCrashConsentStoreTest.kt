@@ -2,6 +2,8 @@ package com.slukhayka.audiobooks.data.diagnostics
 
 import androidx.test.core.app.ApplicationProvider
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -32,5 +34,13 @@ class SharedPreferencesCrashConsentStoreTest {
 
         first.save(CrashConsent.ALLOWED)
         assertEquals(CrashConsent.ALLOWED, SharedPreferencesCrashConsentStore(context).load())
+    }
+
+    @Test
+    fun `pending failure prompt survives restart and is consumed once`() {
+        SharedPreferencesCrashConsentStore(context).markFailurePromptPending()
+
+        assertTrue(SharedPreferencesCrashConsentStore(context).consumeFailurePromptPending())
+        assertFalse(SharedPreferencesCrashConsentStore(context).consumeFailurePromptPending())
     }
 }

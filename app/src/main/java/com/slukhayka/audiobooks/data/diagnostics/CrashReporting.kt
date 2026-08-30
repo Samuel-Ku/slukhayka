@@ -13,6 +13,10 @@ enum class CrashConsent {
 interface CrashConsentStore {
     fun load(): CrashConsent
     fun save(consent: CrashConsent)
+
+    /** Durable next-launch handoff for a bounded non-fatal process exit. */
+    fun markFailurePromptPending() = Unit
+    fun consumeFailurePromptPending(): Boolean = false
 }
 
 interface CrashReportSink {
@@ -99,7 +103,12 @@ class CrashReporting(
         when (consent) {
             CrashConsent.ALLOWED -> Unit
             CrashConsent.DENIED -> sink.deleteUnsentReports()
-            CrashConsent.UNDECIDED -> sink.checkForUnsentReports { hasReports ->
+            CrashConsent.UNDECIDED -> if (consentStore.consumeFailurePromptPending()) {
+                _state.value = CrashReportingState(
+                    consent = CrashConsent.UNDECIDED,
+                    shouldShowPrompt = true
+                )
+            } else sink.checkForUnsentReports { hasReports ->
                 if (hasReports && _state.value.consent == CrashConsent.UNDECIDED) {
                     _state.value = CrashReportingState(
                         consent = CrashConsent.UNDECIDED,
@@ -161,10 +170,10 @@ class CrashReporting(
             CrashConsent.ALLOWED -> sink.recordUnexpectedPlaybackExit(event)
             CrashConsent.UNDECIDED -> {
                 sink.recordUnexpectedPlaybackExit(event)
-                _state.value = CrashReportingState(
-                    consent = CrashConsent.UNDECIDED,
-                    shouldShowPrompt = true
-                )
+                // This event is discovered after startup. Persist the exact
+                // same voluntary prompt for the next launch rather than
+                // interrupting the listener in the current session.
+                consentStore.markFailurePromptPending()
             }
         }
     }

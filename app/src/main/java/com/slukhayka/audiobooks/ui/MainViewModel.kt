@@ -550,6 +550,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     )
                     _showFullPlayer.value = true
                 }
+                // A parseable URL is not proof that 4read accepted playback.
+                // Keep the browser open on a 403/dead stream; only a genuine
+                // playing state completes recovery and resumes downloads.
+                if (!awaitRecoveryPlaybackVerdict(playerState, bookId, chapterIndex)) {
+                    withContext(Dispatchers.Main) { onComplete(false) }
+                    return@launch
+                }
                 // A paused offline queue is resumed only after the explicit
                 // browser recovery completed. Existing local files are reused
                 // and only the failed tracks are fetched again.

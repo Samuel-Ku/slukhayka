@@ -41,6 +41,7 @@ import com.slukhayka.audiobooks.BuildConfig
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.privacy.WebViewSessionPrivacy
 import com.slukhayka.audiobooks.ui.MainViewModel
+import com.slukhayka.audiobooks.ui.SourceBrowserPolicy
 import com.slukhayka.audiobooks.ui.theme.*
 
 /**
@@ -427,8 +428,12 @@ fun WebSourceBrowserScreen(
                                     onClick = {
                                         val input = urlInput.trim()
                                         val target = if (input.startsWith("http")) input else "https://$input"
-                                        currentWebUrl = target
-                                        webViewInstance?.loadUrl(target)
+                                        if (SourceBrowserPolicy.allowsPageNavigation(sourceId, target)) {
+                                            currentWebUrl = target
+                                            webViewInstance?.loadUrl(target)
+                                        } else {
+                                            importResult = "Браузер $displayName відкриває лише сторінки цього джерела"
+                                        }
                                     },
                                     modifier = Modifier
                                         .size(AppDimens.TouchTarget)
@@ -606,15 +611,11 @@ fun WebSourceBrowserScreen(
                         webViewClient = object : WebViewClient() {
                             override fun shouldOverrideUrlLoading(view: WebView?, request: android.webkit.WebResourceRequest?): Boolean {
                                 val url = request?.url?.toString() ?: return false
-                                val scheme = request?.url?.scheme?.lowercase() ?: ""
                                 // SEC-011: whitelist http(s) and the selected
                                 // source's own page hosts only. Audio CDN
                                 // hosts are observed as subresources, never
                                 // as top-level navigation.
-                                val host = request.url?.host?.lowercase().orEmpty()
-                                return if ((scheme == "http" || scheme == "https") &&
-                                    isAllowedPageNavigationHost(sourceId, host)
-                                ) {
+                                return if (SourceBrowserPolicy.allowsPageNavigation(sourceId, url)) {
                                     false
                                 } else {
                                     Log.w("WebSource", "Blocked non-http navigation: $url")
@@ -659,7 +660,7 @@ fun WebSourceBrowserScreen(
                                 val pageHost = runCatching {
                                     homeUrl.toUri().host?.lowercase()?.removePrefix("www.")
                                 }.getOrNull()
-                                if (looksLikeAudio(url) && isAllowedAudioCaptureHost(sourceId, host, pageHost)) {
+                                if (looksLikeAudio(url) && SourceBrowserPolicy.allowsAudioHost(sourceId, host, pageHost)) {
                                     val isNew = synchronized(capturedAudioUrls) { capturedAudioUrls.add(url) }
                                     if (isNew) lastCapturedAudioCount = capturedAudioUrls.size
                                     Log.w("WebSource", "Audio request in session: $url")
@@ -864,28 +865,6 @@ private fun looksLikeAudio(url: String): Boolean {
     return lower.contains(".mp3") || lower.contains(".m4a") || lower.contains(".m4b") ||
         lower.contains(".aac") || lower.contains(".ogg") || lower.contains(".opus") ||
         lower.contains(".m3u8") || lower.contains(".pl.txt")
-}
-
-private fun isAllowedAudioCaptureHost(sourceId: String, host: String, pageHost: String?): Boolean {
-    if (host.isBlank()) return false
-    val normalizedPageHost = pageHost?.lowercase()?.removePrefix("www.")
-    return when (sourceId) {
-        "4read" -> host == "4read.org" || host.endsWith(".4read.org") ||
-            host == "reasd.org" || host.endsWith(".reasd.org")
-        "sluhay", "sluhayknigi" ->
-            host == "redirectto.cc" || host.endsWith(".redirectto.cc") ||
-                (normalizedPageHost != null &&
-                    (host == normalizedPageHost || host.endsWith(".$normalizedPageHost")))
-        else -> normalizedPageHost != null &&
-            (host == normalizedPageHost || host.endsWith(".$normalizedPageHost"))
-    }
-}
-
-private fun isAllowedPageNavigationHost(sourceId: String, host: String): Boolean = when (sourceId) {
-    "4read" -> host == "4read.org" || host.endsWith(".4read.org")
-    "sluhay" -> host == "sluhay.com" || host.endsWith(".sluhay.com")
-    "sluhayknigi" -> host == "sluhayknigi.com" || host.endsWith(".sluhayknigi.com")
-    else -> host.isNotBlank()
 }
 
 /** Empty 200 response for blocked hosts. */

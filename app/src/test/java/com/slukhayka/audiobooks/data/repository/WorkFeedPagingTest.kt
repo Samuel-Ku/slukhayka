@@ -255,7 +255,7 @@ class WorkFeedPagingTest {
     }
 
     @Test
-    fun `duration filter prioritizes a matching browse Source when no Edition is imported`() = runBlocking {
+    fun `source list keeps capability order when no Edition is imported`() = runBlocking {
         val catalog = catalog()
         val short = catalog.writeWorkEdition(
             sourceId = "4read",
@@ -279,7 +279,7 @@ class WorkFeedPagingTest {
             preferredDurationBucketIds = setOf(FacetDurationBucket.TEN_TO_TWENTY_HOURS.wireName)
         )
 
-        assertEquals("sluhay", sources.first().sourceId)
+        assertEquals("4read", sources.first().sourceId)
     }
 
     @Test

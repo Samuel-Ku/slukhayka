@@ -261,21 +261,17 @@ class BookDetailAccessibilityTest {
                 )
             )
         )
-        var selected = false
-
         composeTestRule.setContent {
             AudiobookTheme(darkTheme = true) {
                 Surface {
                     Column {
                         WorkSourceRowCard(
                             source = presentation.sources[0],
-                            workTitle = book.title,
-                            onClick = {}
+                            workTitle = book.title
                         )
                         WorkSourceRowCard(
                             source = presentation.sources[1],
-                            workTitle = book.title,
-                            onClick = { selected = true }
+                            workTitle = book.title
                         )
                     }
                 }
@@ -290,16 +286,15 @@ class BookDetailAccessibilityTest {
                 )
             )
         composeTestRule.onNodeWithTag("work_source_sluhay")
-            .assertContentDescriptionEquals("Відтворити «${book.title}» із джерела Sluhay")
+            .assertContentDescriptionEquals("Джерело Sluhay для «${book.title}»")
             .assert(
                 SemanticsMatcher.expectValue(
                     SemanticsProperties.StateDescription,
-                    "Інше джерело, тільки стрімінг"
+                    "Інше джерело, тільки стрімінг · Потрібен браузер"
                 )
             )
             .assertHeightIsAtLeast(48.dp)
-            .performClick()
-        assertTrue(selected)
+            .assert(SemanticsMatcher.keyNotDefined(SemanticsActions.OnClick))
     }
 
     @Test

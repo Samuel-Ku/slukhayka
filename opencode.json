@@ -1,0 +1,35 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "crash-diagnosis-proxy": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Crash diagnosis proxy",
+      "options": {
+        "baseURL": "{env:CRASH_DIAGNOSIS_PROXY_URL}",
+        "apiKey": "{env:CRASH_DIAGNOSIS_OIDC_TOKEN}"
+      },
+      "models": {
+        "glm-5.3-flash": {
+          "name": "GLM-5.3-Flash",
+          "limit": { "context": 65536, "output": 8192 }
+        }
+      }
+    }
+  },
+  "permission": {
+    "edit": "deny",
+    "webfetch": "deny",
+    "external_directory": "deny",
+    "task": "deny",
+    "bash": {
+      "*": "deny",
+      "git status*": "allow",
+      "git diff*": "allow",
+      "rg *": "allow",
+      "sed *": "allow",
+      "find *": "allow",
+      "./gradlew :app:test*": "allow",
+      "python3 -m unittest *": "allow"
+    }
+  }
+}

@@ -16,13 +16,13 @@ from scripts.crash_tracer import SanitizationError, group_from_projection
 def diagnose(
     group: Any,
     run: Any = subprocess.run,
-) -> tuple[dict[str, Any], DiagnosisVerdict]:
+) -> tuple[dict[str, Any], DiagnosisVerdict, dict[str, Any] | None]:
     """Invoke OpenCode without a shell, then independently replay its red loop."""
     try:
         projection = dataclasses.asdict(group_from_projection(group))
         prompt = diagnosis_prompt(projection)
     except (SanitizationError, TypeError, ValueError):
-        return {}, DiagnosisVerdict("needs-triage", "invalid sanitized group")
+        return {}, DiagnosisVerdict("needs-triage", "invalid sanitized group"), None
     try:
         response = run(
             [
@@ -36,14 +36,17 @@ def diagnose(
             timeout=20 * 60,
         )
     except (OSError, subprocess.TimeoutExpired):
-        return projection, DiagnosisVerdict("needs-triage", "OpenCode diagnosis could not run")
+        return projection, DiagnosisVerdict("needs-triage", "OpenCode diagnosis could not run"), None
     if response.returncode != 0:
-        return projection, DiagnosisVerdict("needs-triage", "OpenCode diagnosis failed")
+        return projection, DiagnosisVerdict("needs-triage", "OpenCode diagnosis failed"), None
     try:
         diagnosis = parse_model_diagnosis(response.stdout)
     except ValueError:
-        return projection, DiagnosisVerdict("needs-triage", "OpenCode returned malformed diagnosis")
-    return projection, verify_diagnosis_red_loop(diagnosis)
+        return projection, DiagnosisVerdict("needs-triage", "OpenCode returned malformed diagnosis"), None
+    verdict = verify_diagnosis_red_loop(diagnosis)
+    # A contract crosses to #416 only after both schema validation and an
+    # independent red replay. The full OpenCode transcript never crosses.
+    return projection, verdict, diagnosis if verdict.status == "ready-for-agent" else None
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -55,7 +58,7 @@ def main(argv: list[str] | None = None) -> int:
         group = json.loads(args.group.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         group = None
-    projection, verdict = diagnose(group)
+    projection, verdict, _ = diagnose(group)
     # This artifact is deliberately bounded: no model transcript or raw group
     # input survives the diagnosis process.
     result = {

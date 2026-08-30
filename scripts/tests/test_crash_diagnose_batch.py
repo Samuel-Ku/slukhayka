@@ -19,7 +19,7 @@ class CrashDiagnoseBatchTest(unittest.TestCase):
 
         def worker(value):
             seen.append(value["fingerprint"])
-            return value, type("Verdict", (), {"status": "needs-triage", "reason": "test"})()
+            return value, type("Verdict", (), {"status": "needs-triage", "reason": "test"})(), None
 
         items = [group(1), group(2), group(3)]
         result = diagnose_batch({"diagnose": items, "retained": [group(4)]}, worker)
@@ -32,7 +32,7 @@ class CrashDiagnoseBatchTest(unittest.TestCase):
             diagnose_batch({"diagnose": [group(1), group(2), group(3), group(4)], "retained": []})
 
         def wrong_worker(value):
-            return {"fingerprint": "wrong"}, type("Verdict", (), {"status": "needs-triage", "reason": "test"})()
+            return {"fingerprint": "wrong"}, type("Verdict", (), {"status": "needs-triage", "reason": "test"})(), None
 
         with self.assertRaises(SanitizationError):
             diagnose_batch({"diagnose": [group(1)], "retained": []}, wrong_worker)

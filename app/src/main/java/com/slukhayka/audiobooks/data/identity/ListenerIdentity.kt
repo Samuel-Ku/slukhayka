@@ -14,6 +14,16 @@ data class ListenerProfile(
     val nickname: String
 )
 
+sealed interface RecoveryCodeAvailability {
+    data class Available(val code: String) : RecoveryCodeAvailability
+
+    /** This APK has no Firebase Android client configuration. */
+    data object FirebaseNotConfigured : RecoveryCodeAvailability
+
+    /** Firebase exists, but the anonymous account has not been linked yet. */
+    data object AccountNotLinked : RecoveryCodeAvailability
+}
+
 interface ListenerIdentity {
     /**
      * Silent bootstrap, idempotent, never throws outward. On a fresh install
@@ -36,6 +46,14 @@ interface ListenerIdentity {
      * unavailable).
      */
     suspend fun recoveryCode(): String?
+
+    /**
+     * Explains why [recoveryCode] is absent so the UI never turns a build or
+     * account configuration problem into a misleading connectivity promise.
+     */
+    suspend fun recoveryCodeAvailability(): RecoveryCodeAvailability =
+        recoveryCode()?.let(RecoveryCodeAvailability::Available)
+            ?: RecoveryCodeAvailability.AccountNotLinked
 
     /**
      * Spec-40 #276 (t2): signs in from a recovery code and adopts that

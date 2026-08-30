@@ -13,6 +13,9 @@ import com.slukhayka.audiobooks.data.collections.SluhayuaPopularSource
 import com.slukhayka.audiobooks.data.collections.SoundBooksTopSource
 import com.slukhayka.audiobooks.data.db.AudiobookDao
 import com.slukhayka.audiobooks.data.db.AudiobookDatabase
+import com.slukhayka.audiobooks.data.downloads.DownloadNotificationActionCoordinator
+import com.slukhayka.audiobooks.data.downloads.DownloadNotificationService
+import com.slukhayka.audiobooks.data.downloads.NotificationAction
 import com.slukhayka.audiobooks.data.downloads.OfflineDownloads
 import com.slukhayka.audiobooks.data.diagnostics.AndroidProcessExitHistory
 import com.slukhayka.audiobooks.data.diagnostics.CrashDiagnosticLedger
@@ -27,6 +30,7 @@ import com.slukhayka.audiobooks.data.diagnostics.UnexpectedPlaybackExitDetector
 import com.slukhayka.audiobooks.data.duration.ChapterDurationProbe
 import com.slukhayka.audiobooks.data.duration.DurationEnrichment
 import com.slukhayka.audiobooks.data.duration.HttpStreamProber
+import com.slukhayka.audiobooks.data.facets.SharedPreferencesFacetSyncCursorStore
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
 import com.slukhayka.audiobooks.data.imports.LibraryImport
 import com.slukhayka.audiobooks.data.identity.FirebaseListenerIdentity
@@ -45,6 +49,7 @@ import com.slukhayka.audiobooks.data.metadata.LibraryCoverResolver
 import com.slukhayka.audiobooks.data.metadata.SearchCoverResolver
 import com.slukhayka.audiobooks.data.metadata.SearchDurationResolver
 import com.slukhayka.audiobooks.data.metadata.StoredMetadataScrub
+import com.slukhayka.audiobooks.data.personbookmarks.PersonBookmarks
 import com.slukhayka.audiobooks.data.reviews.FirestoreListenerReviewsStore
 import com.slukhayka.audiobooks.data.reviews.FirestoreNarrationRatingsStore
 import com.slukhayka.audiobooks.data.recommend.RecommendationSettingsStore
@@ -82,14 +87,18 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
  * Application-scoped dependency graph.
  *
- * ADR-0002 (#140): the five deep modules compose here — Listening State,
- * Library Import, Source Catalog, Offline Downloads, Library Entries — and
+ * ADR-0002 (#140), ADR-0008 and #399: the six deep modules compose here —
+ * Listening State, Library Import, Source Catalog, Offline Downloads,
+ * Library Entries and Person Bookmarks — and
  * are shared by MainViewModel, PlaybackService and the widgets. The god
  * repository is gone; every caller composes these modules directly.
  *
@@ -125,6 +134,9 @@ class App : Application() {
 
     /** Spec-40 #281 — the local mute table's DAO, for the reviews' hide flow. */
     val audiobookDao: AudiobookDao get() = database.audiobookDao()
+
+    /** #399 — process-scoped local person-bookmark module. */
+    val personBookmarks: PersonBookmarks by lazy { PersonBookmarks(audiobookDao) }
 
     /** #290 — local personalization controls; shared upload is not part of this graph. */
     val recommendationSettings: RecommendationSettingsStore by lazy {
@@ -301,7 +313,9 @@ class App : Application() {
             // which read as «фільтри не працюють» while the catalogue synced).
             writeBatchRunner = { block ->
                 database.withTransaction { block() }
-            }
+            },
+            sharedFacetStore = sharedMetaStore,
+            facetSyncCursorStore = SharedPreferencesFacetSyncCursorStore(this)
         )
     }
 
@@ -319,6 +333,61 @@ class App : Application() {
                 }.getOrNull().orEmpty()
             }
         )
+    }
+
+    /**
+     * #394 — a PendingIntent may start only [DownloadNotificationService],
+     * with no Activity or MainViewModel in this process. Keep the command
+     * bridge at the application composition root for that lifecycle.
+     */
+    private val downloadNotificationActionScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    internal val downloadNotificationActions: DownloadNotificationActionCoordinator by lazy {
+        DownloadNotificationActionCoordinator(downloadNotificationActionScope, ::executeDownloadNotificationAction)
+    }
+
+    private suspend fun executeDownloadNotificationAction(action: NotificationAction) {
+        when (action) {
+            is NotificationAction.Pause -> {
+                offlineDownloads.pauseDownload(action.bookId)
+                DownloadNotificationService.notifyPaused(this, action.bookId)
+            }
+            is NotificationAction.Continue -> continueDownloadFromNotification(action.bookId)
+            is NotificationAction.Cancel -> {
+                offlineDownloads.cancelDownload(action.bookId)
+                DownloadNotificationService.stop(this)
+            }
+        }
+    }
+
+    private suspend fun continueDownloadFromNotification(bookId: String) = coroutineScope {
+        // The app supports one active download. A notification action cannot
+        // surface the UI toast, so it safely leaves the existing job alone.
+        if (offlineDownloads.hasActiveDownload()) return@coroutineScope
+
+        val book = audiobookDao.getAudiobookById(bookId) ?: return@coroutineScope
+        DownloadNotificationService.start(this@App, bookId, book.title, book.author)
+        val downloadJob = currentCoroutineContext()[Job] ?: return@coroutineScope
+        offlineDownloads.registerDownloadJob(bookId, downloadJob)
+        val progressJob = launch {
+            offlineDownloads.downloadBytesProgress.collect { progressByBook ->
+                val progress = progressByBook[bookId] ?: return@collect
+                DownloadNotificationService.updateProgress(
+                    this@App,
+                    bookId,
+                    progress.completedChapters,
+                    progress.totalChapters,
+                    progress.totalBytes,
+                    progress.isApproximate
+                )
+            }
+        }
+        try {
+            offlineDownloads.continueDownload(bookId)
+        } finally {
+            progressJob.cancel()
+            offlineDownloads.unregisterDownloadJob(bookId)
+            DownloadNotificationService.stop(this@App)
+        }
     }
 
     /** Library Entries: delete/remove/favourite/metadata + library reads. */

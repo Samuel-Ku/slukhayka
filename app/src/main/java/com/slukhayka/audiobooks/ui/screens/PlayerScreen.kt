@@ -65,6 +65,7 @@ import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.BookmarkEntity
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
 import com.slukhayka.audiobooks.data.db.ChapterEntity
+import com.slukhayka.audiobooks.player.PlaybackErrorKind
 import com.slukhayka.audiobooks.player.PlayerState
 import com.slukhayka.audiobooks.player.SleepTimerNotice
 import com.slukhayka.audiobooks.ui.MainViewModel
@@ -601,11 +602,19 @@ fun PlayerScreenContent(
                     .padding(horizontal = AppDimens.PageSides),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // The cover absorbs the leftover vertical space: when it is
-                // tight the cover shrinks (the aspect-ratio sizing honours the
-                // bounded height), never pushing the transport row off-screen.
-                val coverMaxHeight = if (lastBookmarkTarget != null) 288.dp else 336.dp
-                Box(
+                // The cover absorbs the leftover vertical space (weight slot).
+                // Issue #385: розмір обкладинки рахується напряму від живої
+                // висоти слота (BoxWithConstraints дає її в dp), а не через
+                // .aspectRatio() після fillMaxWidth — той вимірюється від
+                // ШИРИНИ і, коли жоден candidate не вміщується в обмеження,
+                // падає в fallback, який ігнорує і heightIn, і weight-частку:
+                // з'являється рядок «Завантаження» (#381) чи картка помилки →
+                // слот стискається, а обкладинка лишається w/ratio заввишки й
+                // «випадає» за нижню межу слота поверх заголовка (Compose не
+                // кліпує сусідів). У спокійному стані виходить той самий
+                // w/ratio, що й раніше; у стиснутому — висота слота зі
+                // збереженням пропорцій.
+                BoxWithConstraints(
                     modifier = (if (largeFont) {
                         Modifier.height(208.dp)
                     } else {
@@ -621,16 +630,11 @@ fun PlayerScreenContent(
                     val glowRadiusPx = with(androidx.compose.ui.platform.LocalDensity.current) { 300.dp.toPx() }
                     // The glow mirrors the cover's (real) aspect ratio instead
                     // of a hard-coded square, so the halo hugs the artwork.
-                    // aspectRatio honours the heightIn cap (so the cover can
-                    // never blow up on tablets) and shrinks the WIDTH to match
-                    // when vertical space is tight — a tall cover is scaled
-                    // (never cropped), and the whole column always fits.
                     val coverAspect = artworkAspect.coerceIn(0.6f, 1.6f)
+                    val glowWidth = maxWidth * 0.9f
                     Box(
                         modifier = Modifier
-                            .fillMaxWidth(0.9f)
-                            .heightIn(max = coverMaxHeight)
-                            .aspectRatio(coverAspect)
+                            .size(width = glowWidth, height = glowWidth / coverAspect)
                             .background(
                                 Brush.radialGradient(
                                     colors = listOf(
@@ -642,18 +646,23 @@ fun PlayerScreenContent(
                                 )
                             )
                     )
+                    // Cover width keeps the old widthIn(272.dp) + fillMaxWidth(0.76f)
+                    // result; the height is w/ratio while it fits the slot and
+                    // clamps to the slot (ratio kept) when a status row or the
+                    // error card squeezes the column — so the artwork can never
+                    // outgrow its slot into the title.
+                    val coverWidth = (272.dp).coerceAtMost(maxWidth) * 0.76f
+                    val coverHeight = (coverWidth / coverAspect).coerceAtMost(maxHeight)
                     Surface(
                         shape = RoundedCornerShape(AppDimens.RadiusHero),
                         tonalElevation = 1.dp,
                         shadowElevation = 6.dp,
                         // Test seam: the tight-viewport snapshot measures the
                         // cover to pin that it shrinks while keeping its aspect
-                        // ratio (spec-24 T6).
+                        // ratio (spec-24 T6) — and, since #385, that it stays
+                        // inside its slot.
                         modifier = Modifier
-                            .widthIn(max = 272.dp)
-                            .heightIn(max = coverMaxHeight)
-                            .fillMaxWidth(0.76f)
-                            .aspectRatio(coverAspect)
+                            .size(width = coverHeight * coverAspect, height = coverHeight)
                             .testTag("player_cover")
                     ) {
                         BookCoverImage(
@@ -724,9 +733,34 @@ fun PlayerScreenContent(
                     PlayerPlaybackError(
                         bookTitle = book.title,
                         detail = playerState.lastErrorMsg,
+                        kind = playerState.errorKind,
                         onRetryPlayback = onRetryPlayback,
                         onOpenBrowserRecovery = onOpenBrowserRecovery
                     )
+                } else if (playerState.isBuffering) {
+                    // Issue #381 (a11y/UX-аудит v1.3.6): під час резолюції
+                    // YouTube-стріму TalkBack промовляв застаріле «Призупинено»
+                    // — polite liveRegion оголошує «Завантаження» поки стрім
+                    // готується і немає помилки (зразок HomeFeedContent).
+                    val loadingLabel = stringResource(R.string.a11y_player_state_loading)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("player_loading_status")
+                            .semantics(mergeDescendants = true) {
+                                liveRegion = LiveRegionMode.Polite
+                            },
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(AppDimens.TouchTarget / 2))
+                        Spacer(Modifier.width(AppDimens.SpaceXs))
+                        Text(
+                            text = loadingLabel,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
 
                 Spacer(Modifier.height(AppDimens.SpaceLg))
@@ -747,6 +781,9 @@ fun PlayerScreenContent(
                     bookTitle = book.title,
                     currentChapterTitle = currentChapterTitle,
                     isPlaying = playerState.isPlaying,
+                    // Issue #381: під час резолюції стріму кнопка не має
+                    // промовляти застаріле «Призупинено».
+                    isBuffering = playerState.isBuffering,
                     onPreviousChapter = onPreviousChapter,
                     onBack = onBack,
                     onPlayPause = onPlayPause,
@@ -859,7 +896,7 @@ private fun PlayerTopBar(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 private fun DualProgress(
     progress: PlayerProgressUi,
@@ -893,42 +930,8 @@ private fun DualProgress(
         stringResource(R.string.a11y_player_duration_unknown)
     }
     Column(modifier = Modifier.fillMaxWidth()) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .testTag("chapter_progress_visual_row")
-                .semantics { hideFromAccessibility() },
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text("Розділ", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            // Spec-22 T2: tabular (monospace) digits — the timer ticks without
-            // shifting its advance width, so the layout never jitters.
-            Text(
-                if (chapterDurationSeconds > 0L) {
-                    "${MainViewModel.formatTime(chapterPositionSeconds)}  /  ${MainViewModel.formatTime(chapterDurationSeconds)}"
-                } else {
-                    stringResource(R.string.a11y_player_duration_unknown)
-                },
-                style = TabularTimerStyle,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-        Slider(
-            value = progress.chapterFraction,
-            onValueChange = onSeek,
-            modifier = Modifier
-                .fillMaxWidth()
-                .semantics {
-                    contentDescription = chapterPositionLabel
-                    stateDescription = chapterTimeDescription
-                }
-                .testTag("player_progress_slider"),
-            colors = SliderDefaults.colors(
-                thumbColor = MaterialTheme.colorScheme.primary,
-                activeTrackColor = MaterialTheme.colorScheme.primary,
-                inactiveTrackColor = MaterialTheme.colorScheme.outlineVariant
-            )
-        )
+        // #293: «Книга» зверху, «Розділ» знизу — спочатку загальний прогрес
+        // книги (де мітки глав і закладок), під ним поточна глава.
         Row(
             Modifier
                 .fillMaxWidth()
@@ -957,10 +960,54 @@ private fun DualProgress(
             onJumpToBookmark = onJumpToBookmark,
             onShowAllBookmarks = onShowAllBookmarks
         )
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .testTag("chapter_progress_visual_row")
+                .semantics { hideFromAccessibility() },
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text("Розділ", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            // Spec-22 T2: tabular (monospace) digits — the timer ticks without
+            // shifting its advance width, so the layout never jitters.
+            Text(
+                if (chapterDurationSeconds > 0L) {
+                    "${MainViewModel.formatTime(chapterPositionSeconds)}  /  ${MainViewModel.formatTime(chapterDurationSeconds)}"
+                } else {
+                    stringResource(R.string.a11y_player_duration_unknown)
+                },
+                style = TabularTimerStyle,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        // #292: drawStopIndicator = {} removes the M3 stop dot that users
+        // confused with a bookmark marker.
+        Slider(
+            value = progress.chapterFraction,
+            onValueChange = onSeek,
+            modifier = Modifier
+                .fillMaxWidth()
+                .semantics {
+                    contentDescription = chapterPositionLabel
+                    stateDescription = chapterTimeDescription
+                }
+                .testTag("player_progress_slider"),
+            colors = SliderDefaults.colors(
+                thumbColor = MaterialTheme.colorScheme.primary,
+                activeTrackColor = MaterialTheme.colorScheme.primary,
+                inactiveTrackColor = MaterialTheme.colorScheme.outlineVariant
+            ),
+            track = { sliderState ->
+                SliderDefaults.Track(
+                    sliderState = sliderState,
+                    drawStopIndicator = {}
+                )
+            }
+        )
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 private fun BookProgressTrack(
     progress: PlayerProgressUi,
@@ -977,6 +1024,8 @@ private fun BookProgressTrack(
     val inactiveMarker = MaterialTheme.colorScheme.onSurfaceVariant
     val bookmarkColor = MaterialTheme.colorScheme.tertiary
     Box(modifier = Modifier.fillMaxWidth().testTag("book_progress_track")) {
+        // #292: drawStopIndicator = {} removes the M3 stop dot that users
+        // confused with a bookmark marker.
         Slider(
             value = progress.bookFraction,
             onValueChange = onSeek,
@@ -993,7 +1042,13 @@ private fun BookProgressTrack(
                 thumbColor = active,
                 activeTrackColor = active,
                 inactiveTrackColor = MaterialTheme.colorScheme.outlineVariant
-            )
+            ),
+            track = { sliderState ->
+                SliderDefaults.Track(
+                    sliderState = sliderState,
+                    drawStopIndicator = {}
+                )
+            }
         )
         Canvas(
             modifier = Modifier
@@ -1065,6 +1120,7 @@ private fun TransportControls(
     bookTitle: String,
     currentChapterTitle: String,
     isPlaying: Boolean,
+    isBuffering: Boolean,
     onPreviousChapter: () -> Unit,
     onBack: () -> Unit,
     onPlayPause: () -> Unit,
@@ -1082,8 +1138,14 @@ private fun TransportControls(
         bookTitle,
         currentChapterTitle
     )
+    // Issue #381: третій стан «Завантаження» поки стрім резолвиться/буфериться —
+    // інакше TalkBack озвучує минулий стан («Призупинено») кілька секунд.
     val playbackStateDescription = stringResource(
-        if (isPlaying) R.string.a11y_player_state_playing else R.string.a11y_player_state_paused
+        when {
+            isBuffering -> R.string.a11y_player_state_loading
+            isPlaying -> R.string.a11y_player_state_playing
+            else -> R.string.a11y_player_state_paused
+        }
     )
     val forwardDescription = stringResource(R.string.a11y_player_seek_forward, bookTitle, currentChapterTitle)
     val nextDescription = stringResource(
@@ -1318,6 +1380,9 @@ private fun RowScope.QuickTool(
 private fun PlayerPlaybackError(
     bookTitle: String,
     detail: String,
+    // Issue #381: типізована категорія помилки — замінює substring-матч
+    // detail.contains(«недоступна»), який ламався від зміни формулювання.
+    kind: PlaybackErrorKind,
     onRetryPlayback: () -> Unit,
     onOpenBrowserRecovery: (() -> Unit)? = null
 ) {
@@ -1334,13 +1399,20 @@ private fun PlayerPlaybackError(
                 color = MaterialTheme.colorScheme.onErrorContainer,
                 modifier = Modifier
                     .testTag("player_playback_error")
-                    .semantics { liveRegion = LiveRegionMode.Polite }
+                    .semantics {
+                        liveRegion = LiveRegionMode.Polite
+                        heading()
+                    }
             )
-            if (!detail.contains("недоступна", ignoreCase = true)) {
+            // TRANSIENT показує деталь (потік/таймаут/виняток підготовки);
+            // UNAVAILABLE — тільки заголовок карти, постійний стан.
+            if (kind == PlaybackErrorKind.TRANSIENT) {
                 Text(
                     text = detail,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onErrorContainer
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
             OutlinedButton(

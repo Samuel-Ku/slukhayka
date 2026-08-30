@@ -18,14 +18,10 @@ import androidx.compose.ui.semantics.semantics
 /**
  * Keeps a composed background out of accessibility and keyboard traversal
  * while a sibling modal surface is visible. [focusRestorer] remembers the
- * previously focused descendant for the modal owner's close path unless that
- * owner supplies a more precise explicit restoration contract.
+ * previously focused descendant for the modal owner's close path.
  */
-fun Modifier.accessibilityModalBackground(
-    modalVisible: Boolean,
-    automaticFocusRestoration: Boolean = true
-): Modifier =
-    then(if (automaticFocusRestoration) Modifier.focusRestorer() else Modifier).then(
+fun Modifier.accessibilityModalBackground(modalVisible: Boolean): Modifier =
+    focusRestorer().then(
         if (modalVisible) {
             Modifier
                 .focusProperties { canFocus = false }
@@ -43,15 +39,12 @@ fun Modifier.accessibilityPane(title: String): Modifier =
  * Returns focus to the control that opened a modal after that modal has left
  * composition. An initially closed modal is deliberately a no-op: focus only
  * moves after this owner has observed one visible-to-closed transition.
- * [settleFrames] lets animated owners finish removing their focused subtree
- * before the return request; non-animated owners keep the one-frame default.
  */
 @Composable
 fun RestoreFocusAfterModal(
     modalVisible: Boolean,
     returnFocusRequester: FocusRequester?,
     fallbackFocusRequester: FocusRequester? = null,
-    settleFrames: Int = 1,
     onFocusRestored: () -> Unit = {}
 ) {
     var modalWasVisible by remember { mutableStateOf(false) }
@@ -62,17 +55,18 @@ fun RestoreFocusAfterModal(
             if (returnFocusRequester == null) {
                 modalWasVisible = false
             } else {
-                repeat(settleFrames.coerceAtLeast(1)) { withFrameNanos { } }
+                withFrameNanos { }
+                runCatching {
+                    returnFocusRequester.requestFocus()
+                }
+                // Focus restoration and the modal's exit transition settle in
+                // adjacent frames. The first request can report success before
+                // the departing focus scope releases focus, so confirm it once
+                // after the next frame instead of retrying only on `false`.
+                withFrameNanos { }
                 val restoredToOrigin = runCatching {
                     returnFocusRequester.requestFocus()
-                }.getOrDefault(false) || run {
-                    // A disappearing modal and its launcher can detach in the
-                    // same frame. Give layout one bounded retry before using a
-                    // stable screen-level fallback.
-                    withFrameNanos { }
-                    runCatching { returnFocusRequester.requestFocus() }
-                        .getOrDefault(false)
-                }
+                }.getOrDefault(false)
                 val restored = restoredToOrigin || fallbackFocusRequester?.let { fallback ->
                     runCatching { fallback.requestFocus() }.getOrDefault(false)
                 } == true

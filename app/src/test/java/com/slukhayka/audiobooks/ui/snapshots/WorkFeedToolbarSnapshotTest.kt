@@ -21,6 +21,7 @@ import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
 import com.github.takahirom.roborazzi.captureRoboImage
 import com.slukhayka.audiobooks.ui.screens.WorkFeedFilters
 import com.slukhayka.audiobooks.data.db.GenreFacetOption
+import com.slukhayka.audiobooks.data.metadata.FacetDurationBucket
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
 import org.junit.Assert.assertEquals
 import org.junit.Rule
@@ -104,14 +105,47 @@ class WorkFeedToolbarSnapshotTest {
         composeTestRule.onNodeWithText("Готово").assertIsDisplayed()
     }
 
+    @Test
+    fun duration_toggles_apply_immediately_without_resetting_genres_and_reset_clears_both() {
+        var selectedGenres by mutableStateOf(setOf("fantasy"))
+        var selectedDurations by mutableStateOf<Set<String>>(emptySet())
+        setToolbar(
+            sortByTitle = false,
+            selectedGenres = { selectedGenres },
+            selectedDurations = { selectedDurations },
+            onGenresChange = { selectedGenres = it },
+            onDurationsChange = { selectedDurations = it }
+        )
+
+        composeTestRule.onNodeWithText("Фільтри").performClick()
+        composeTestRule.onNodeWithText("Тривалість").assertExists()
+        composeTestRule.onNodeWithText("До 5 год").assertIsNotSelected().performClick().assertIsSelected()
+        composeTestRule.onNodeWithText("10–20 год").assertIsNotSelected().performClick().assertIsSelected()
+        assertEquals(
+            setOf(
+                FacetDurationBucket.UNDER_FIVE_HOURS.wireName,
+                FacetDurationBucket.TEN_TO_TWENTY_HOURS.wireName
+            ),
+            selectedDurations
+        )
+        assertEquals(setOf("fantasy"), selectedGenres)
+        composeTestRule.onNodeWithText("Фентезі").assertIsSelected()
+
+        composeTestRule.onNodeWithText("Скинути все").performClick()
+        assertEquals(emptySet<String>(), selectedGenres)
+        assertEquals(emptySet<String>(), selectedDurations)
+    }
+
     private fun setToolbar(
         sortByTitle: Boolean,
         selectedGenres: () -> Set<String>,
+        selectedDurations: () -> Set<String> = { emptySet() },
         genres: List<GenreFacetOption> = listOf(
             GenreFacetOption("fantasy", "Фентезі", 1),
             GenreFacetOption("detective", "Детективи", 1)
         ),
         onGenresChange: (Set<String>) -> Unit = {},
+        onDurationsChange: (Set<String>) -> Unit = {},
         onSortChange: (Boolean) -> Unit = {}
     ) {
         composeTestRule.setContent {
@@ -119,9 +153,11 @@ class WorkFeedToolbarSnapshotTest {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     WorkFeedFilters(
                         selectedGenreIds = selectedGenres(),
+                        selectedDurationBucketIds = selectedDurations(),
                         sortByTitle = sortByTitle,
                         genres = genres,
                         onGenresChange = onGenresChange,
+                        onDurationBucketsChange = onDurationsChange,
                         onSortChange = onSortChange
                     )
                 }

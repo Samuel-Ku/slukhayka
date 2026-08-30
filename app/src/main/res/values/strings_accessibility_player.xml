@@ -13,6 +13,9 @@
     <string name="a11y_player_play">Відтворити. %1$s, %2$s</string>
     <string name="a11y_player_state_playing">Відтворюється</string>
     <string name="a11y_player_state_paused">Призупинено</string>
+    <!-- Issue #381: третій стан кнопки play/pause — резолюція стріму
+         (isBuffering) більше не промовляється застарілим «Призупинено». -->
+    <string name="a11y_player_state_loading">Завантаження</string>
 
     <string name="a11y_player_tool_speed">Швидкість відтворення</string>
     <string name="a11y_player_tool_timer">Таймер сну</string>
@@ -42,6 +45,18 @@
 
     <string name="a11y_player_error_title">Книга недоступна</string>
     <string name="a11y_player_retry">Повторити відтворення %1$s</string>
+
+    <!-- Issue #381: тексти помилок плеєра українською (раніше були hardcoded в
+         AudioPlayerManager, зокрема англійські, які TTS читав англійською).
+         Категорія UNAVAILABLE тримає слово «недоступна» у тексті — назву карти
+         показують без деталі; TRANSIENT (потік/таймаут/виняток підготовки)
+         показує деталь із технічним кодом у дужках. -->
+    <string name="a11y_player_error_stream">Помилка відтворення потоку (%1$s)</string>
+    <string name="a11y_player_error_timeout">Перевищено час очікування потоку (%1$d с)</string>
+    <string name="a11y_player_error_prepare_exception">Не вдалося підготувати розділ (%1$s)</string>
+    <string name="a11y_player_error_heal_failed">Книга зараз недоступна: файл джерела переїхав або заблокований, і оновити його не вдалося.</string>
+    <string name="a11y_player_error_book_unavailable">Книга зараз недоступна: аудіо цієї книги на джерелі не знайдено.</string>
+    <string name="a11y_player_error_resolve_failed">Книга зараз недоступна: не вдалося отримати аудіо з YouTube.</string>
 
     <string name="a11y_speed_pane">Швидкість відтворення</string>
     <string name="a11y_speed_close">Закрити налаштування швидкості</string>

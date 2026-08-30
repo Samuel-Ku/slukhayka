@@ -70,6 +70,7 @@ data class AudiobookEntity(
     /** The Library Entry concerns — read from `library_entries`. */
     @Ignore var isFavorite: Boolean = false
     @Ignore var downloadProgress: Float = 0f
+    @Ignore var downloadState: String = DownloadState.IDLE
     /** The Work identity (mergeKey, workId) — read from `works` via
      *  `library_entries.workId`. */
     @Ignore var mergeKey: String = ""
@@ -96,8 +97,20 @@ data class LibraryEntryEntity(
     // the audiobooks.createdAt they carried.
     @ColumnInfo(defaultValue = "0")
     val createdAt: Long = System.currentTimeMillis(),
-    val downloadProgress: Float = 0f
+    val downloadProgress: Float = 0f,
+    // #392 — download state for Edition: the listener's download progress
+    // state that survives process death. Stored alongside downloadProgress
+    // in the same Library Entry row so one transaction updates both.
+    @ColumnInfo(defaultValue = "IDLE")
+    val downloadState: String = DownloadState.IDLE
 )
+
+/** #392 — download state of an Edition's offline copy (Library Entry scope). */
+object DownloadState {
+    const val IDLE = "IDLE"
+    const val DOWNLOADING = "DOWNLOADING"
+    const val PAUSED = "PAUSED"
+}
 
 @Entity(tableName = "listening_stats")
 data class ListeningStatEntity(
@@ -509,7 +522,11 @@ data class EditionEntity(
     // Mirrored narrator of the rendition (the mergeKey already carries it).
     val narrator: String = "",
     val totalChapters: Int = 0,
-    val totalDurationSeconds: Long = 0L
+    val totalDurationSeconds: Long = 0L,
+    // #399: when this Edition was first seen — drives the new-count badge
+    // for bookmarked narrators (new Edition of known Work = new arrival).
+    @ColumnInfo(defaultValue = "0")
+    val addedAt: Long = 0L
 )
 
 /**
@@ -605,10 +622,14 @@ data class WorkFeedRow(
     val sourceCount: Int,
     // One display genre from the local facet dictionary; null when unknown.
     val genre: String? = null,
-    // Spec-24 T1: the Work's listening total (the Edition owns it, ADR-0010)
-    // — joined from the domain `editions` row of the linked library copy;
-    // null/zero renders nothing on the card (unknown until known).
-    val durationSeconds: Long? = null
+    // Spec-24 T1 / spec-42: the shortest eligible Edition duration. Local
+    // facet projections lead; a linked library Edition is the fallback.
+    // Null renders nothing on the card (unknown until known).
+    val durationSeconds: Long? = null,
+    /** Longest known eligible Edition duration; equals [durationSeconds] for one value. */
+    val durationMaxSeconds: Long? = null,
+    /** Matching Edition chosen by the active duration context, null when unfiltered. */
+    val matchingEditionId: String? = null
 )
 
 /**

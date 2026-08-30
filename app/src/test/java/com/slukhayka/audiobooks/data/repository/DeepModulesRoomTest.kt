@@ -18,6 +18,7 @@ import com.slukhayka.audiobooks.data.db.AudiobookDatabase
 import com.slukhayka.audiobooks.data.db.BookmarkEntity
 import com.slukhayka.audiobooks.data.db.ChapterEntity
 import com.slukhayka.audiobooks.data.db.PlaybackProgressEntity
+import com.slukhayka.audiobooks.data.db.WorkEntity
 import com.slukhayka.audiobooks.data.imports.ImportPlan
 import com.slukhayka.audiobooks.data.imports.ImportPlanner
 import com.slukhayka.audiobooks.data.imports.LocalAudioEntry
@@ -94,6 +95,34 @@ class DeepModulesRoomTest {
             downloads = OfflineDownloads(dao, context, catalog),
             entries = LibraryEntries(dao, sourceAdapters)
         )
+    }
+
+    /** Seeds the complete post-ADR-0009 aggregate used by joined DAO reads. */
+    private suspend fun insertLibraryBooks(books: List<com.slukhayka.audiobooks.data.db.AudiobookEntity>) {
+        dao.insertAudiobooks(books)
+        books.forEach { book ->
+            val workId = MergeKey.keyFor(book.title, book.author).ifBlank { book.id }
+            dao.upsertWork(
+                WorkEntity(
+                    id = workId,
+                    mergeKey = workId,
+                    title = book.title,
+                    author = book.author,
+                    seriesTitle = book.seriesTitle,
+                    seriesUrl = book.seriesUrl,
+                    seriesIndex = book.seriesIndex,
+                    coverImageUrl = book.coverImageUrl,
+                    addedAt = TestDataFactory.FIXED_CLOCK_MS
+                )
+            )
+            dao.upsertLibraryEntry(
+                id = book.id,
+                workId = workId,
+                isFavorite = book.isFavorite,
+                createdAt = TestDataFactory.FIXED_CLOCK_MS,
+                downloadProgress = book.downloadProgress
+            )
+        }
     }
 
     // ---------------------------------------------------------------------
@@ -188,7 +217,7 @@ class DeepModulesRoomTest {
     fun `deleteBook leaves other books untouched`() = runBlocking {
         val mods = modules()
         val books = TestDataFactory.dataBooks()
-        dao.insertAudiobooks(books)
+        insertLibraryBooks(books)
         dao.insertChapters(TestDataFactory.dataChapters(books))
 
         mods.entries.deleteBook(books[0].id)
@@ -1346,7 +1375,7 @@ class DeepModulesRoomTest {
             id = "4read-7589-neostannij-bij",
             sourceUrl = "https://4read.org/7589-neostannij-bij.html"
         )
-        dao.insertAudiobooks(listOf(book))
+        insertLibraryBooks(listOf(book))
 
         val related = mods.catalog.fetchRelatedBooks(book.id)
 
@@ -1479,7 +1508,7 @@ class DeepModulesRoomTest {
             // must be observable as a book that stays un-downloaded.
             isDownloaded = false
         ).also { it.downloadProgress = 0f }
-        dao.insertAudiobooks(listOf(book))
+        insertLibraryBooks(listOf(book))
         dao.insertChapters(TestDataFactory.chaptersFor(book))
 
         val result = mods.downloads.downloadAudiobookOffline(book.id)
@@ -1501,7 +1530,7 @@ class DeepModulesRoomTest {
             sourceUrl = "https://4read.org/7589-neostannij-bij.html",
             isDownloaded = false
         ).also { it.downloadProgress = 0f }
-        dao.insertAudiobooks(listOf(book))
+        insertLibraryBooks(listOf(book))
         // Non-http stream urls: the loop executes, skips the network hop and
         // reports every chapter as failed — exercising the whole download path
         // with fakes (in-memory Room), no network. No source/track rows exist,
@@ -1561,7 +1590,7 @@ class DeepModulesRoomTest {
     fun `preferred speed round-trips through the repository`() = runBlocking {
         val mods = modules()
         val book = TestDataFactory.dataBooks()[0]
-        dao.insertAudiobooks(listOf(book))
+        insertLibraryBooks(listOf(book))
         // ADR-0009: the preference lives on the Listening State row — it needs
         // the Edition anchor + a progress row to land.
         val editionId = com.slukhayka.audiobooks.data.EditionId.forBook("", book.id, book.narrator)
@@ -3009,7 +3038,7 @@ class DeepModulesRoomTest {
 
         val book = TestDataFactory.dataBooks()[0]
         withTimeout(5_000) {
-            dao.insertAudiobooks(listOf(book))
+            insertLibraryBooks(listOf(book))
             // The Room invalidation tracker re-queries the observed tables:
             // the flow the «Книги (N)» counter collects emits the grown list
             // without any screen restart — the background-sync liveness the
@@ -3033,5 +3062,108 @@ class DeepModulesRoomTest {
         } finally {
             file.delete()
         }
+    }
+
+    // ---------------------------------------------------------------------
+    // #399: schema migration 23 -> 24 (person_bookmarks + editions.addedAt)
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `migration 23 to 24 creates person_bookmarks and adds editions addedAt`() {
+        val factory = FrameworkSQLiteOpenHelperFactory()
+        val config = SupportSQLiteOpenHelper.Configuration.builder(context)
+            .name("migration-23-test.db")
+            .callback(object : SupportSQLiteOpenHelper.Callback(23) {
+                override fun onCreate(db: SupportSQLiteDatabase) {
+                    // Minimal v23 schema: a book with an edition, chapters, and
+                    // the facet tables (the v22->v23 migration added
+                    // downloadState to library_entries).
+                    db.execSQL(
+                        "CREATE TABLE audiobooks (id TEXT NOT NULL PRIMARY KEY, title TEXT NOT NULL, " +
+                            "author TEXT NOT NULL, narrator TEXT NOT NULL, description TEXT NOT NULL, " +
+                            "coverDrawableRes INTEGER NOT NULL, coverImageUrl TEXT, genre TEXT NOT NULL, " +
+                            "sourceUrl TEXT NOT NULL, isDownloaded INTEGER NOT NULL DEFAULT 0, " +
+                            "totalDurationSeconds INTEGER NOT NULL DEFAULT 0, " +
+                            "totalChapters INTEGER NOT NULL DEFAULT 0, rating REAL NOT NULL DEFAULT 4.9, " +
+                            "sourceTreeUri TEXT, mergeKey TEXT NOT NULL DEFAULT '', workId TEXT)"
+                    )
+                    db.execSQL(
+                        "CREATE TABLE editions (id TEXT NOT NULL PRIMARY KEY, workId TEXT NOT NULL, " +
+                            "language TEXT NOT NULL DEFAULT '', narrator TEXT NOT NULL DEFAULT '', " +
+                            "totalChapters INTEGER NOT NULL DEFAULT 0, " +
+                            "totalDurationSeconds INTEGER NOT NULL DEFAULT 0)"
+                    )
+                    db.execSQL("CREATE INDEX IF NOT EXISTS index_editions_workId ON editions(workId)")
+                    db.execSQL(
+                        "CREATE TABLE works (id TEXT NOT NULL PRIMARY KEY, mergeKey TEXT NOT NULL, " +
+                            "title TEXT NOT NULL, author TEXT NOT NULL, seriesTitle TEXT, " +
+                            "seriesUrl TEXT, seriesIndex INTEGER, coverImageUrl TEXT, addedAt INTEGER NOT NULL)"
+                    )
+                    db.execSQL("CREATE INDEX IF NOT EXISTS index_works_mergeKey ON works(mergeKey)")
+                    db.execSQL(
+                        "CREATE TABLE library_entries (id TEXT NOT NULL PRIMARY KEY, workId TEXT NOT NULL, " +
+                            "isFavorite INTEGER NOT NULL DEFAULT 0, createdAt INTEGER NOT NULL DEFAULT 0, " +
+                            "downloadProgress REAL NOT NULL DEFAULT 0, downloadState TEXT NOT NULL DEFAULT 'IDLE')"
+                    )
+                    // Insert test data: an edition with totalChapters=5
+                    db.execSQL(
+                        "INSERT INTO editions (id, workId, language, narrator, totalChapters, totalDurationSeconds) " +
+                            "VALUES ('ed-1', 'b1', 'uk', 'Читець', 5, 3600)"
+                    )
+                }
+
+                override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) {}
+            })
+            .build()
+        val helper = factory.create(config)
+        val db = helper.writableDatabase
+
+        AudiobookDatabase.MIGRATION_23_24.migrate(db)
+
+        // person_bookmarks table exists with expected columns
+        assertTrue(
+            "person_bookmarks table must exist",
+            tableExists(db, "person_bookmarks")
+        )
+        assertEquals(
+            setOf("kind", "id", "displayName", "normalizedName", "createdAt",
+                "lastSeenAt", "lastNotifiedAt", "notifyEnabled", "updatedAt"),
+            tableColumns(db, "person_bookmarks").toSet()
+        )
+        // The table accepts a bookmark
+        db.execSQL(
+            "INSERT INTO person_bookmarks (kind, id, displayName, normalizedName, createdAt, " +
+                "lastSeenAt, lastNotifiedAt, notifyEnabled, updatedAt) " +
+                "VALUES ('AUTHOR', 'author-test', 'Test', 'test', 1000, 0, 0, 1, 1000)"
+        )
+        db.query("SELECT COUNT(*) FROM person_bookmarks").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals(1, cursor.getInt(0))
+        }
+        // editions.addedAt exists and was backfilled for existing rows
+        assertTrue("addedAt column must exist", tableColumns(db, "editions").contains("addedAt"))
+        db.query("SELECT addedAt FROM editions WHERE id = 'ed-1'").use { cursor ->
+            cursor.moveToFirst()
+            val addedAt = cursor.getLong(0)
+            assertTrue("addedAt must be backfilled with a non-zero stamp", addedAt > 0L)
+        }
+        db.close()
+    }
+
+    @Test
+    fun `person_bookmarks upsert is idempotent on same kind+id`() = runBlocking {
+        val mods = modules()
+        val bookmark1 = com.slukhayka.audiobooks.data.db.PersonBookmarkEntity(
+            kind = com.slukhayka.audiobooks.data.db.PersonBookmarkKind.AUTHOR,
+            id = "author-1", displayName = "Старе Ім'я",
+            normalizedName = "старе ім'я", createdAt = 1000L, updatedAt = 1000L
+        )
+        val bookmark2 = bookmark1.copy(displayName = "Нове Ім'я", updatedAt = 2000L)
+        dao.upsertPersonBookmark(bookmark1)
+        dao.upsertPersonBookmark(bookmark2)
+        val found = dao.getPersonBookmark(
+            com.slukhayka.audiobooks.data.db.PersonBookmarkKind.AUTHOR, "author-1"
+        )
+        assertEquals("Нове Ім'я", found!!.displayName)
     }
 }

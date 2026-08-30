@@ -3,32 +3,38 @@ package com.slukhayka.audiobooks.data.repository
 import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
+import com.slukhayka.audiobooks.data.catalog.SourceCatalog
 import com.slukhayka.audiobooks.data.db.AudiobookDao
 import com.slukhayka.audiobooks.data.db.AudiobookDatabase
 import com.slukhayka.audiobooks.data.db.WorkEntity
 import com.slukhayka.audiobooks.data.db.WorkSourceEntity
+import com.slukhayka.audiobooks.data.imports.LibraryImport
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
-/** Regression for #388: a missing Work must not turn a Source write into a process crash. */
+/**
+ * Regression coverage for #388: a WorkSource must never crash the process or
+ * fabricate a blank Work when its FK parent is absent.
+ */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
 class WorkSourceFkRegressionTest {
+
+    private lateinit var context: Context
     private lateinit var db: AudiobookDatabase
     private lateinit var dao: AudiobookDao
 
     @Before
     fun setUp() {
-        val context = ApplicationProvider.getApplicationContext<Context>()
+        context = ApplicationProvider.getApplicationContext()
         db = Room.inMemoryDatabaseBuilder(context, AudiobookDatabase::class.java)
             .allowMainThreadQueries()
             .build()
@@ -36,44 +42,65 @@ class WorkSourceFkRegressionTest {
     }
 
     @After
-    fun tearDown() = db.close()
-
-    @Test
-    fun `valid Work and Source are written together and survive a Work update`() = runBlocking {
-        val work = WorkEntity(
-            id = "missing-work",
-            mergeKey = "сни|лесь курбас",
-            title = "Сни",
-            author = "Лесь Курбас"
-        )
-        val source = WorkSourceEntity(
-            id = "test-source",
-            workId = "missing-work",
-            sourceId = "4read",
-            sourceUrl = "https://4read.org/book/test",
-            streamOnly = false
-        )
-
-        assertTrue(dao.upsertWorkWithSource(work, source))
-        dao.upsertWork(work.copy(title = "Сни (оновлено)"))
-
-        assertEquals("Сни (оновлено)", dao.getWorkById("missing-work")?.title)
-        assertEquals(listOf(source), dao.getWorkSourcesForWorkSync("missing-work"))
+    fun tearDown() {
+        db.close()
     }
 
     @Test
-    fun `invalid Work Source pair returns a controlled failure without partial rows`() = runBlocking {
-        val invalidWork = WorkEntity(id = "missing-work", mergeKey = "", title = "", author = "")
+    fun `safe upsert skips a source whose Work is missing without fabricating metadata`() = runBlocking {
+        val inserted = dao.safeUpsertWorkSource(
+            WorkSourceEntity(
+                id = "missing-work|4read|abc",
+                workId = "missing-work",
+                sourceId = "4read",
+                sourceUrl = "https://4read.org/missing.html",
+                streamOnly = false
+            )
+        )
+
+        assertFalse(inserted)
+        assertNull(dao.getWorkById("missing-work"))
+        assertEquals(emptyList<WorkSourceEntity>(), dao.getWorkSourcesForWorkSync("missing-work"))
+    }
+
+    @Test
+    fun `transactional upsert stores the real Work before its Source`() = runBlocking {
+        val work = WorkEntity(
+            id = "сни|лесь курбас",
+            title = "Сни",
+            author = "Лесь Курбас",
+            mergeKey = "сни|лесь курбас"
+        )
         val source = WorkSourceEntity(
-            id = "test-source",
-            workId = "different-work",
+            id = "сни|лесь курбас|4read|abc",
+            workId = work.id,
             sourceId = "4read",
-            sourceUrl = "https://4read.org/book/test",
+            sourceUrl = "https://4read.org/sny.html",
             streamOnly = false
         )
 
-        assertFalse(dao.upsertWorkWithSource(invalidWork, source))
-        assertNull(dao.getWorkById("missing-work"))
-        assertEquals(emptyList<WorkSourceEntity>(), dao.getWorkSourcesForWorkSync("different-work"))
+        dao.upsertWorkWithSource(work, source)
+
+        assertEquals(work, dao.getWorkById(work.id))
+        assertEquals(listOf(source), dao.getWorkSourcesForWorkSync(work.id))
+    }
+
+    @Test
+    fun `catalog write for Sny persists one honest Work and Source without crashing`() = runBlocking {
+        val libraryImport = LibraryImport(dao, context, emptyList())
+        val catalog = SourceCatalog(dao, emptyList(), libraryImport)
+        val sourceUrl = "https://4read.org/sny-les-kurbas.html"
+
+        val result = catalog.writeWorkEdition(
+            sourceId = "4read",
+            title = "Сни",
+            author = "Лесь Курбас",
+            narrator = "",
+            sourceUrl = sourceUrl,
+            streamOnly = false
+        )
+
+        assertEquals("Сни", dao.getWorkById(result.work.id)?.title)
+        assertEquals(sourceUrl, dao.getWorkSourcesForWorkSync(result.work.id).single().sourceUrl)
     }
 }

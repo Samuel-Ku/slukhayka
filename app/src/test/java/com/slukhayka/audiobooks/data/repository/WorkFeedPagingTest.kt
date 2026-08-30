@@ -13,9 +13,11 @@ import com.slukhayka.audiobooks.data.db.WorkFeedRow
 import com.slukhayka.audiobooks.data.imports.LibraryImport
 import com.slukhayka.audiobooks.data.facets.GenreFacetAssertion
 import com.slukhayka.audiobooks.data.facets.GenreSourceFacetReplacement
+import com.slukhayka.audiobooks.data.facets.EditionFacetDelta
 import com.slukhayka.audiobooks.data.facets.LocalFacetDelta
 import com.slukhayka.audiobooks.data.facets.WorkFacetDelta
 import com.slukhayka.audiobooks.data.facets.WorkFacetFilter
+import com.slukhayka.audiobooks.data.metadata.FacetDurationBucket
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -148,6 +150,180 @@ class WorkFeedPagingTest {
         )
         assertEquals(4, collectAll(catalog.pagedWorkFeedRecent()).size)
         assertTrue(collectAll(catalog.pagedWorkFeedRecent(WorkFacetFilter(setOf("poetry")))).isEmpty())
+    }
+
+    @Test
+    fun `duration OR composes with genre AND while one Work carries an honest Edition range`() = runBlocking {
+        val catalog = catalog()
+        catalog.writeWorkEdition("4read", "Коротке фентезі", "Автор А", "", "https://4read/short-fantasy", genreTexts = listOf("Фентезі"))
+        catalog.writeWorkEdition("4read", "Середнє фентезі", "Автор Б", "", "https://4read/medium-fantasy", genreTexts = listOf("Фентезі"))
+        catalog.writeWorkEdition("4read", "Невідоме фентезі", "Автор В", "", "https://4read/unknown-fantasy", genreTexts = listOf("Фентезі"))
+        catalog.writeWorkEdition("4read", "Короткий детектив", "Автор Г", "", "https://4read/short-detective", genreTexts = listOf("Детектив"))
+        val works = dao.observeWorks().first().associateBy { it.title }
+
+        suspend fun durations(title: String, vararg values: Pair<String, Long>) {
+            val workId = works.getValue(title).id
+            catalog.facetWriter.apply(
+                listOf(
+                    LocalFacetDelta(
+                        work = WorkFacetDelta(workId),
+                        editions = values.map { (editionId, seconds) ->
+                            EditionFacetDelta(
+                                editionId = editionId,
+                                workId = workId,
+                                durationSeconds = seconds,
+                                updatedAt = seconds
+                            )
+                        }
+                    )
+                )
+            )
+        }
+        durations("Коротке фентезі", "short-edition" to 10_800L, "long-edition" to 43_200L)
+        durations("Середнє фентезі", "medium-edition" to 21_600L)
+        durations("Короткий детектив", "detective-edition" to 14_399L)
+
+        val durationOr = WorkFacetFilter(
+            durationBucketIds = setOf(
+                FacetDurationBucket.UNDER_FIVE_HOURS.wireName,
+                FacetDurationBucket.FIVE_TO_TEN_HOURS.wireName
+            )
+        )
+        assertEquals(
+            setOf("Коротке фентезі", "Середнє фентезі", "Короткий детектив"),
+            collectAll(catalog.pagedWorkFeedRecent(durationOr)).map { it.title }.toSet()
+        )
+
+        val fantasyAndShort = WorkFacetFilter(
+            genreIds = setOf("fantasy"),
+            durationBucketIds = setOf(FacetDurationBucket.UNDER_FIVE_HOURS.wireName)
+        )
+        val rows = collectAll(catalog.pagedWorkFeedRecent(fantasyAndShort))
+        assertEquals(1, rows.size)
+        assertEquals("Коротке фентезі", rows.single().title)
+        assertEquals(10_800L, rows.single().durationSeconds)
+        assertEquals(43_200L, rows.single().durationMaxSeconds)
+        assertEquals("short-edition", rows.single().matchingEditionId)
+
+        assertTrue(collectAll(catalog.pagedWorkFeedRecent(durationOr)).none { it.title == "Невідоме фентезі" })
+        assertTrue(collectAll(catalog.pagedWorkFeedRecent()).any { it.title == "Невідоме фентезі" })
+    }
+
+    @Test
+    fun `duration-filtered Work resolves an already imported matching Edition first`() = runBlocking {
+        val catalog = catalog()
+        catalog.writeWorkEdition("4read", "Дві начитки", "Автор", "", "https://4read/two-editions")
+        val work = dao.observeWorks().first().single()
+
+        suspend fun insertLibraryEdition(bookId: String, editionId: String, narrator: String, seconds: Long) {
+            dao.insertAudiobooks(
+                listOf(
+                    AudiobookEntity(
+                        id = bookId, title = work.title, author = work.author, narrator = narrator,
+                        description = "", coverDrawableRes = 0, genre = "", sourceUrl = "https://example/$bookId",
+                        totalDurationSeconds = seconds
+                    )
+                )
+            )
+            dao.upsertLibraryEntry(bookId, work.id, false, 0L, 0f)
+            dao.insertEdition(EditionEntity(editionId, bookId, narrator = narrator, totalDurationSeconds = seconds))
+        }
+        insertLibraryEdition("book-short", "edition-short", "Коротка начитка", 10_800L)
+        insertLibraryEdition("book-long", "edition-long", "Довга начитка", 43_200L)
+        catalog.facetWriter.apply(
+            listOf(
+                LocalFacetDelta(
+                    work = WorkFacetDelta(work.id),
+                    editions = listOf(
+                        EditionFacetDelta("edition-short", work.id, durationSeconds = 10_800L, updatedAt = 1),
+                        EditionFacetDelta("edition-long", work.id, durationSeconds = 43_200L, updatedAt = 2)
+                    )
+                )
+            )
+        )
+
+        val row = collectAll(
+            catalog.pagedWorkFeedRecent(
+                WorkFacetFilter(
+                    durationBucketIds = setOf(FacetDurationBucket.TEN_TO_TWENTY_HOURS.wireName)
+                )
+            )
+        ).single()
+
+        assertEquals("edition-long", row.matchingEditionId)
+        assertEquals("book-long", catalog.libraryBookForEdition(row.matchingEditionId)?.id)
+    }
+
+    @Test
+    fun `duration filter prioritizes a matching browse Source when no Edition is imported`() = runBlocking {
+        val catalog = catalog()
+        val short = catalog.writeWorkEdition(
+            sourceId = "4read",
+            title = "Дюна",
+            author = "Френк Герберт",
+            narrator = "Коротка начитка",
+            sourceUrl = "https://4read/dune-short",
+            durationSeconds = 10_800L
+        )
+        catalog.writeWorkEdition(
+            sourceId = "sluhay",
+            title = "Дюна",
+            author = "Френк Герберт",
+            narrator = "Довга начитка",
+            sourceUrl = "https://sluhay/dune-long",
+            durationSeconds = 43_200L
+        )
+
+        val sources = catalog.workSourcesForWork(
+            workId = short.work.id,
+            preferredDurationBucketIds = setOf(FacetDurationBucket.TEN_TO_TWENTY_HOURS.wireName)
+        )
+
+        assertEquals("sluhay", sources.first().sourceId)
+    }
+
+    @Test
+    fun `duration filter accepts fresh or unknown availability and rejects stale at exact expiry`() = runBlocking {
+        val catalog = catalog()
+        listOf("Свіжа", "Протермінована", "Без спостереження").forEachIndexed { index, title ->
+            catalog.writeWorkEdition("4read", title, "Автор", "", "https://4read/availability-$index")
+        }
+        val works = dao.observeWorks().first().associateBy { it.title }
+        suspend fun facet(title: String, observedAt: Long?, ttlSeconds: Long?) {
+            val workId = works.getValue(title).id
+            catalog.facetWriter.apply(
+                listOf(
+                    LocalFacetDelta(
+                        work = WorkFacetDelta(workId),
+                        editions = listOf(
+                            EditionFacetDelta(
+                                editionId = "edition-$title",
+                                workId = workId,
+                                durationSeconds = 3_600L,
+                                availabilityAvailable = observedAt?.let { true },
+                                availabilityObservedAtMillis = observedAt,
+                                availabilityTtlSeconds = ttlSeconds,
+                                updatedAt = 1
+                            )
+                        )
+                    )
+                )
+            )
+        }
+        facet("Свіжа", observedAt = 1_001L, ttlSeconds = 9L)
+        facet("Протермінована", observedAt = 1_000L, ttlSeconds = 9L)
+        facet("Без спостереження", observedAt = null, ttlSeconds = null)
+
+        val rows = collectAll(
+            catalog.pagedWorkFeedRecent(
+                filter = WorkFacetFilter(
+                    durationBucketIds = setOf(FacetDurationBucket.UNDER_FIVE_HOURS.wireName)
+                ),
+                availabilityAtMillis = 10_000L
+            )
+        )
+
+        assertEquals(setOf("Свіжа", "Без спостереження"), rows.map { it.title }.toSet())
     }
 
     @Test

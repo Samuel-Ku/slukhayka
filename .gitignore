@@ -9,6 +9,8 @@
 /.idea/navEditor.xml
 /.idea/assetWizardSettings.xml
 .DS_Store
+__pycache__/
+*.pyc
 /build
 /captures
 .externalNativeBuild

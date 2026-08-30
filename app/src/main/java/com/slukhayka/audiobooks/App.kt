@@ -13,6 +13,9 @@ import com.slukhayka.audiobooks.data.collections.SluhayuaPopularSource
 import com.slukhayka.audiobooks.data.collections.SoundBooksTopSource
 import com.slukhayka.audiobooks.data.db.AudiobookDao
 import com.slukhayka.audiobooks.data.db.AudiobookDatabase
+import com.slukhayka.audiobooks.data.downloads.DownloadNotificationActionCoordinator
+import com.slukhayka.audiobooks.data.downloads.DownloadNotificationService
+import com.slukhayka.audiobooks.data.downloads.NotificationAction
 import com.slukhayka.audiobooks.data.downloads.OfflineDownloads
 import com.slukhayka.audiobooks.data.diagnostics.AndroidProcessExitHistory
 import com.slukhayka.audiobooks.data.diagnostics.CrashDiagnosticLedger
@@ -46,6 +49,10 @@ import com.slukhayka.audiobooks.data.metadata.LibraryCoverResolver
 import com.slukhayka.audiobooks.data.metadata.SearchCoverResolver
 import com.slukhayka.audiobooks.data.metadata.SearchDurationResolver
 import com.slukhayka.audiobooks.data.metadata.StoredMetadataScrub
+import com.slukhayka.audiobooks.data.metadata.CleanProfileProbeVerdict
+import com.slukhayka.audiobooks.data.metadata.CleanProfileProber
+import com.slukhayka.audiobooks.data.metadata.VerifiedSourceProfilePublisher
+import com.slukhayka.audiobooks.data.metadata.VerifiedSourceProfileReader
 import com.slukhayka.audiobooks.data.personbookmarks.PersonBookmarks
 import com.slukhayka.audiobooks.data.reviews.FirestoreListenerReviewsStore
 import com.slukhayka.audiobooks.data.reviews.FirestoreNarrationRatingsStore
@@ -84,6 +91,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -149,6 +159,32 @@ class App : Application() {
      */
     val sharedMetaStore: FirestoreBookMetaStore? by lazy {
         FirestoreBookMetaStore.create(this)
+    }
+
+    /**
+     * #431 — one clean, cookie-free transport check shared by every recovered
+     * 4read profile. A successful local WebView session is never itself a
+     * reason to publish its URLs to another listener.
+     */
+    private val cleanProfileProber: CleanProfileProber by lazy {
+        val fetcher = HttpFetcher()
+        CleanProfileProber { url, headers ->
+                val result = fetcher.getSizedStreamResult(url, headers)
+                result.sizedStream?.stream?.use { CleanProfileProbeVerdict.PLAYABLE }
+                    ?: if (result.status == 403 || result.status == 404) {
+                        CleanProfileProbeVerdict.BLOCKED
+                    } else {
+                        CleanProfileProbeVerdict.UNAVAILABLE
+                    }
+        }
+    }
+
+    internal val verifiedSourceProfilePublisher: VerifiedSourceProfilePublisher by lazy {
+        VerifiedSourceProfilePublisher(sharedMetaStore, cleanProfileProber)
+    }
+
+    internal val verifiedSourceProfileReader: VerifiedSourceProfileReader by lazy {
+        VerifiedSourceProfileReader(sharedMetaStore, cleanProfileProber)
     }
 
     /**
@@ -255,7 +291,8 @@ class App : Application() {
             // profile to the shared base (the next listener skips the page
             // fetch), and a card import reads a fresh profile back instead of
             // fetching. Null without Firebase keys: imports behave as before.
-            profileStore = sharedMetaStore
+            profileStore = sharedMetaStore,
+            verifiedProfileReader = verifiedSourceProfileReader
         )
     }
 
@@ -324,6 +361,61 @@ class App : Application() {
                 }.getOrNull().orEmpty()
             }
         )
+    }
+
+    /**
+     * #394 — a PendingIntent may start only [DownloadNotificationService],
+     * with no Activity or MainViewModel in this process. Keep the command
+     * bridge at the application composition root for that lifecycle.
+     */
+    private val downloadNotificationActionScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    internal val downloadNotificationActions: DownloadNotificationActionCoordinator by lazy {
+        DownloadNotificationActionCoordinator(downloadNotificationActionScope, ::executeDownloadNotificationAction)
+    }
+
+    private suspend fun executeDownloadNotificationAction(action: NotificationAction) {
+        when (action) {
+            is NotificationAction.Pause -> {
+                offlineDownloads.pauseDownload(action.bookId)
+                DownloadNotificationService.notifyPaused(this, action.bookId)
+            }
+            is NotificationAction.Continue -> continueDownloadFromNotification(action.bookId)
+            is NotificationAction.Cancel -> {
+                offlineDownloads.cancelDownload(action.bookId)
+                DownloadNotificationService.stop(this)
+            }
+        }
+    }
+
+    private suspend fun continueDownloadFromNotification(bookId: String) = coroutineScope {
+        // The app supports one active download. A notification action cannot
+        // surface the UI toast, so it safely leaves the existing job alone.
+        if (offlineDownloads.hasActiveDownload()) return@coroutineScope
+
+        val book = audiobookDao.getAudiobookById(bookId) ?: return@coroutineScope
+        DownloadNotificationService.start(this@App, bookId, book.title, book.author)
+        val downloadJob = currentCoroutineContext()[Job] ?: return@coroutineScope
+        offlineDownloads.registerDownloadJob(bookId, downloadJob)
+        val progressJob = launch {
+            offlineDownloads.downloadBytesProgress.collect { progressByBook ->
+                val progress = progressByBook[bookId] ?: return@collect
+                DownloadNotificationService.updateProgress(
+                    this@App,
+                    bookId,
+                    progress.completedChapters,
+                    progress.totalChapters,
+                    progress.totalBytes,
+                    progress.isApproximate
+                )
+            }
+        }
+        try {
+            offlineDownloads.continueDownload(bookId)
+        } finally {
+            progressJob.cancel()
+            offlineDownloads.unregisterDownloadJob(bookId)
+            DownloadNotificationService.stop(this@App)
+        }
     }
 
     /** Library Entries: delete/remove/favourite/metadata + library reads. */

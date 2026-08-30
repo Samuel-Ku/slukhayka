@@ -168,7 +168,7 @@ class GlobalSearchRepositoryTest {
         assertEquals(1, results.size)
         assertEquals("Кобзар", results.single().title)
         assertEquals("Тарас Шевченко", results.single().author)
-        assertEquals(listOf("4read", "audiobookmp3"), results.single().sources.map { it.sourceId })
+        assertEquals(listOf("audiobookmp3", "4read"), results.single().sources.map { it.sourceId })
     }
 
     @Test

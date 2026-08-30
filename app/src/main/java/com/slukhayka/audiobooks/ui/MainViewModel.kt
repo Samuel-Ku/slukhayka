@@ -45,6 +45,9 @@ import com.slukhayka.audiobooks.data.source.SourceAccessPolicy
 import com.slukhayka.audiobooks.data.source.HttpFetcher
 import com.slukhayka.audiobooks.data.source.headersFor
 import com.slukhayka.audiobooks.data.metadata.FirestoreBookMetaStore
+import com.slukhayka.audiobooks.data.metadata.BookProfile
+import com.slukhayka.audiobooks.data.metadata.ProfileChapter
+import com.slukhayka.audiobooks.data.metadata.VerifiedSourceProfile
 import com.slukhayka.audiobooks.player.AudioPlayerManager
 import com.slukhayka.audiobooks.player.PlayerState
 import com.slukhayka.audiobooks.ui.library.OutcomeMessages
@@ -266,16 +269,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // resolved-profile state; the reviews block unlocks for writing the
         // moment ensure() answers (or degrades to local-only, its contract).
         attachListenerIdentity(listenerIdentityModule)
-        // #394 — observe notification button actions (pause / continue / cancel)
-        viewModelScope.launch {
-            com.slukhayka.audiobooks.data.downloads.DownloadNotificationService.notificationActions.collect { action ->
-                when (action) {
-                    is com.slukhayka.audiobooks.data.downloads.NotificationAction.Pause -> pauseDownload(action.bookId)
-                    is com.slukhayka.audiobooks.data.downloads.NotificationAction.Continue -> continueDownload(action.bookId)
-                    is com.slukhayka.audiobooks.data.downloads.NotificationAction.Cancel -> cancelDownload(action.bookId)
-                }
-            }
-        }
+        // #394 — notification button actions are handled by the App-scoped
+        // DownloadNotificationActionCoordinator (works with no Activity);
+        // the VM-side collect was removed with that change.
     }
 
     fun refreshCacheSize() {
@@ -593,6 +589,40 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 autoPlay = true
                             )
                             _showFullPlayer.value = true
+                        }
+                        // #431 — publishing is strictly post-verdict and
+                        // best-effort. The publisher repeats a clean,
+                        // cookie-free transport probe, so the private WebView
+                        // session never becomes shared metadata.
+                        val editionId = editionIdForBook(outcome.book.id)
+                        val recoveredSource = App.instance.audiobookDao.getSourcesForBookSync(outcome.book.id)
+                            .firstOrNull { it.type == sourceId && it.url == url }
+                        if (editionId != null && recoveredSource != null) {
+                            val profile = BookProfile(
+                                title = outcome.book.title,
+                                author = outcome.book.author,
+                                narrator = outcome.book.narrator,
+                                description = outcome.book.description,
+                                chapters = playable.mapNotNull { chapter ->
+                                    chapter.track?.url
+                                        ?.takeIf { it.startsWith("http", ignoreCase = true) }
+                                        ?.let { trackUrl ->
+                                            ProfileChapter(chapter.chapter.title, trackUrl, chapter.chapter.durationSeconds)
+                                        }
+                                },
+                                totalDurationSeconds = outcome.book.totalDurationSeconds.takeIf { it > 0L }
+                            )
+                            runCatching {
+                                App.instance.verifiedSourceProfilePublisher.publish(
+                                    VerifiedSourceProfile(
+                                        sourceId = sourceId,
+                                        editionId = editionId,
+                                        playerOpened = true,
+                                        source = SourceAccessCandidate(sourceId, url = url),
+                                        profile = profile
+                                    )
+                                )
+                            }
                         }
                         onComplete(true)
                     }
@@ -1253,7 +1283,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 playAudiobook(matchingBook)
                 return@launch
             }
-            val sources = sourceCatalog.workSourcesForWork(row.workId)
+            val sources = sourceCatalog.workSourcesForWork(
+                workId = row.workId,
+                preferredDurationBucketIds = _feedDurationFilters.value
+            )
                 .map { source ->
                     com.slukhayka.audiobooks.data.source.GlobalSearchSource(
                         sourceId = source.sourceId,
@@ -2207,7 +2240,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) {
             offlineDownloads.pauseDownload(bookId)
             _downloadingBookId.value = null
-            com.slukhayka.audiobooks.data.downloads.DownloadNotificationService.notifyPaused(getApplication())
+            com.slukhayka.audiobooks.data.downloads.DownloadNotificationService.notifyPaused(getApplication(), bookId)
             refreshCacheSize()
         }
     }
@@ -2258,7 +2291,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             offlineDownloads.downloadBytesProgress.collect { map ->
                 val p = map[bookId] ?: return@collect
                 com.slukhayka.audiobooks.data.downloads.DownloadNotificationService.updateProgress(
-                    ctx, p.completedChapters, p.totalChapters, p.totalBytes, p.isApproximate
+                    ctx, bookId, p.completedChapters, p.totalChapters, p.totalBytes, p.isApproximate
                 )
             }
         }

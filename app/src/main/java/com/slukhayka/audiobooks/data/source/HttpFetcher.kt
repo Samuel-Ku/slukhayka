@@ -129,21 +129,36 @@ open class HttpFetcher(
      */
     data class SizedStream(val stream: InputStream, val contentLength: Long?)
 
+    /** Status-preserving counterpart of [getSizedStream] for recovery policy. */
+    data class SizedStreamResult(val status: Int, val sizedStream: SizedStream?)
+
     open fun getSizedStream(url: String, extraHeaders: Map<String, String> = emptyMap()): SizedStream? {
-        val response = execute(url, extraHeaders) ?: return null
+        return getSizedStreamResult(url, extraHeaders).sizedStream
+    }
+
+    /**
+     * Keeps a 403/404 distinct from transport failures. Offline recovery may
+     * ask for a browser only when the source explicitly refused the stream.
+     */
+    open fun getSizedStreamResult(
+        url: String,
+        extraHeaders: Map<String, String> = emptyMap()
+    ): SizedStreamResult {
+        val response = execute(url, extraHeaders) ?: return SizedStreamResult(0, null)
         return try {
             if (response.code == HTTP_OK) {
                 val length = response.header("Content-Length")
                     ?.substringBefore(';')?.trim()?.toLongOrNull()
                     ?.takeIf { it >= 0 }
-                SizedStream(ownedStream(response), length)
+                SizedStreamResult(HTTP_OK, SizedStream(ownedStream(response), length))
             } else {
+                val status = response.code
                 response.close()
-                null
+                SizedStreamResult(status, null)
             }
         } catch (e: Exception) {
             response.close()
-            null
+            SizedStreamResult(0, null)
         }
     }
 

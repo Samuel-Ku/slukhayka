@@ -69,6 +69,34 @@ object SourceBrowserPolicy {
      */
     fun isCookieHostAllowed(requestUrl: String, sourceId: String): Boolean = isUrlAllowed(requestUrl, sourceId)
 
+    /**
+     * Page-navigation variant of [isUrlAllowed] used by programmatic
+     * `loadUrl` gates; same boundary, named for the call-site's intent.
+     */
+    fun allowsPageNavigation(sourceId: String, url: String): Boolean = isUrlAllowed(url, sourceId)
+
+    /**
+     * Audio hosts are observed as subresources, never opened as pages. A
+     * source's stream CDN lives outside its page allowlist (4read's player
+     * hosts; sluhay/sluhayknigi streams on redirectto.cc or the page's own
+     * host), so capture is judged against this separate, narrower rule.
+     */
+    fun allowsAudioHost(sourceId: String, host: String?, pageHost: String?): Boolean {
+        if (host.isNullOrBlank()) return false
+        val normalized = host.lowercase().removePrefix("www.")
+        val page = pageHost?.lowercase()?.removePrefix("www.")?.takeIf { it.isNotBlank() }
+        val allowed = when (sourceId) {
+            "4read" -> allowedHostsFor(sourceId)
+            "sluhay", "sluhayknigi" -> allowedHostsFor(sourceId) + "redirectto.cc"
+            else -> emptySet()
+        }
+        val matched = allowed.any { base ->
+            normalized == base || normalized.endsWith(".$base")
+        }
+        if (matched) return true
+        return page != null && (normalized == page || normalized.endsWith(".$page"))
+    }
+
     /** Normalised host extraction for diagnostics / tests; null when unparseable. */
     fun extractHost(url: String): String? = runCatching {
         java.net.URI(url.trim()).host?.lowercase()?.removePrefix("www.")

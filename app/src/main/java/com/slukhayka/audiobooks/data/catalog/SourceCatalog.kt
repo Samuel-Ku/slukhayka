@@ -1200,9 +1200,22 @@ class SourceCatalog(
                 )
             )
         }
+        val downloadedBySource = dao.getSourcesForBookSync(bookId)
+            .associate { source ->
+                (source.type to source.url) to dao.getTracksForSourceSync(source.id).any { it.isDownloaded }
+            }
         return SourceAccessPolicy.order(
             rows.distinctBy { it.sourceId to it.url }.map {
-                SourceAccessCandidate(it.sourceId, it.sourceName, it.url, localAvailable = it.sourceId == "local")
+                SourceAccessCandidate(
+                    it.sourceId,
+                    it.sourceName,
+                    it.url,
+                    // A downloaded physical track is local regardless of the
+                    // remote source's name: an offline 4read copy must outrank
+                    // a fresh DIRECT source just like any other valid file.
+                    localAvailable = it.sourceId == "local" ||
+                        downloadedBySource[it.sourceId to it.url] == true
+                )
             }
         ).map { candidate ->
             rows.first { it.sourceId == candidate.sourceId && it.url == candidate.url }

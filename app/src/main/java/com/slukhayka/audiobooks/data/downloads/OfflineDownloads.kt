@@ -281,8 +281,8 @@ class OfflineDownloads(
                             // A chapter without a track (per-source topology
                             // mismatch) has nothing to download — stays failed.
                             if (track == null) {
-                                // No playable stream for this chapter.
-                                if (sourceId == "4read") browserRefreshRequired.set(1)
+                                // A topology failure is not proof that a browser
+                                // session is stale, so it stays an honest failure.
                             } else if (targetFile.exists() && targetFile.length() > 100) {
                                 // Already downloaded and verified (minimal-size check).
                                 chapterOk = true
@@ -351,10 +351,11 @@ class OfflineDownloads(
                                         }
                                         // Spec-37 T1: use the sized transport so the
                                         // declared Content-Length can be verified.
-                                        val sized = fetcher.getSizedStream(
+                                        val response = fetcher.getSizedStreamResult(
                                             streamUrl,
                                             headersFor(sourceId, streamUrl, cookieProvider())
                                         )
+                                        val sized = response.sizedStream
                                         if (sized != null) {
                                             var streamClosed = false
                                             try {
@@ -440,14 +441,15 @@ class OfflineDownloads(
                                                 try { tempFile.delete() } catch (_: Exception) {}
                                             }
                                             chapterOk = false
-                                            if (sourceId == "4read") browserRefreshRequired.set(1)
+                                            if (sourceId == "4read" && response.status in setOf(403, 404)) {
+                                                browserRefreshRequired.set(1)
+                                            }
                                         }
                                     } else {
                                         if (tempFile.exists()) {
                                             try { tempFile.delete() } catch (_: Exception) {}
                                         }
                                         chapterOk = false
-                                        if (sourceId == "4read") browserRefreshRequired.set(1)
                                     }
                                 }
                             }
@@ -597,7 +599,7 @@ class OfflineDownloads(
             bookId,
             isDownloaded = allOk,
             progress = if (allOk) 1.0f else totalSuccess.toFloat() / total,
-            state = DownloadState.IDLE
+            state = if (needsBrowserRefresh) DownloadState.PAUSED else DownloadState.IDLE
         )
         // #392 — clear bytes progress for this book after finish
         _downloadBytesProgress.value = _downloadBytesProgress.value - bookId
@@ -701,6 +703,9 @@ class OfflineDownloads(
         val job = _activeDownloadJobs.value[bookId]
         return job != null && job.isActive
     }
+
+    /** One download at a time is the UI contract; notification actions honour it too. */
+    fun hasActiveDownload(): Boolean = _activeDownloadJobs.value.values.any { it.isActive }
 
     /**
      * Whether a download is paused for the given bookId.

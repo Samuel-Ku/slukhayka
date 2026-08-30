@@ -360,7 +360,7 @@ interface AudiobookDao {
     @Query("SELECT * FROM works WHERE mergeKey = :mergeKey AND mergeKey != '' LIMIT 1")
     suspend fun findWorkByMergeKey(mergeKey: String): WorkEntity?
 
-    @Upsert
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertWork(work: WorkEntity)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)

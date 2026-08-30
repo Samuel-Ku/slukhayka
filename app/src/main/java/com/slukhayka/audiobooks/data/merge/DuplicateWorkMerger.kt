@@ -2,7 +2,6 @@ package com.slukhayka.audiobooks.data.merge
 
 import com.slukhayka.audiobooks.data.db.AudiobookDao
 import com.slukhayka.audiobooks.data.db.BookRow
-import com.slukhayka.audiobooks.data.db.WorkEntity
 import com.slukhayka.audiobooks.data.metadata.MetadataAssertions
 import kotlinx.coroutines.flow.first
 

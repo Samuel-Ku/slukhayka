@@ -97,4 +97,9 @@ class FakeFetcher(
         }
         return null
     }
+
+    override fun getSizedStreamResult(url: String, extraHeaders: Map<String, String>): SizedStreamResult {
+        val stream = getSizedStream(url, extraHeaders)
+        return SizedStreamResult(if (stream != null) 200 else 0, stream)
+    }
 }

@@ -11,10 +11,15 @@ class PersonBookmarksSyncController(
     private val identity: ListenerIdentity,
     private val store: PersonBookmarksSyncStore?
 ) {
+    suspend fun remove(kind: String, personId: String) {
+        val remote = store ?: return
+        val uid = cloudUid() ?: return
+        remote.remove(uid, kind, personId)
+    }
+
     suspend fun sync() {
         val remote = store ?: return
-        val uid = runCatching { identity.ensure().uid }.getOrNull()
-            ?.takeUnless { it.startsWith(LocalOnlyIdentity.LOCAL_UID_PREFIX) } ?: return
+        val uid = cloudUid() ?: return
         val local = bookmarks.allBookmarks().first()
         val remoteRows = remote.pull(uid)
         val remoteByKey = remoteRows.associateBy { it.kind to it.personId }
@@ -32,9 +37,12 @@ class PersonBookmarksSyncController(
         // Explicit local rows are queued by Firestore even while offline. A
         // remote row with a newer server stamp wins on the next pass.
         bookmarks.allBookmarks().first().forEach { bookmark ->
-            if (remoteByKey[bookmark.kind to bookmark.id]?.updatedAtServerMs ?: Long.MIN_VALUE <= bookmark.updatedAt) {
+            if (remoteByKey[bookmark.kind to bookmark.id]?.updatedAtServerMs ?: Long.MIN_VALUE < bookmark.updatedAt) {
                 remote.push(uid, bookmark)
             }
         }
     }
+
+    private suspend fun cloudUid(): String? = runCatching { identity.ensure().uid }.getOrNull()
+        ?.takeUnless { it.startsWith(LocalOnlyIdentity.LOCAL_UID_PREFIX) }
 }

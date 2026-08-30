@@ -15,6 +15,7 @@ data class RemotePersonBookmark(
 interface PersonBookmarksSyncStore {
     suspend fun fetch(uid: String): List<Map<String, Any>>
     suspend fun write(documentId: String, fields: Map<String, Any>): Boolean
+    suspend fun delete(documentId: String): Boolean
 
     suspend fun pull(uid: String): List<RemotePersonBookmark> = runCatching { fetch(uid) }
         .getOrDefault(emptyList()).mapNotNull(PersonBookmarksSyncCodec::fromDocument)
@@ -22,6 +23,10 @@ interface PersonBookmarksSyncStore {
     suspend fun push(uid: String, bookmark: PersonBookmarkEntity): Boolean = runCatching {
         write(PersonBookmarksSyncCodec.documentId(uid, bookmark.kind, bookmark.id),
             PersonBookmarksSyncCodec.toDocument(uid, bookmark))
+    }.getOrDefault(false)
+
+    suspend fun remove(uid: String, kind: String, personId: String): Boolean = runCatching {
+        delete(PersonBookmarksSyncCodec.documentId(uid, kind, personId))
     }.getOrDefault(false)
 }
 

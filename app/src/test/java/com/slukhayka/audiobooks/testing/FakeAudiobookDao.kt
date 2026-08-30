@@ -1167,9 +1167,9 @@ class FakeAudiobookDao(
         }
     }
 
-    override suspend fun updatePersonBookmarkLastNotified(kind: String, id: String, lastNotifiedAt: Long) {
+    override suspend fun updatePersonBookmarkLastNotified(kind: String, id: String, lastNotifiedAt: Long, lastNotifiedCount: Int) {
         personBookmarksState.update { current ->
-            current.map { if (it.kind == kind && it.id == id) it.copy(lastNotifiedAt = lastNotifiedAt) else it }
+            current.map { if (it.kind == kind && it.id == id) it.copy(lastNotifiedAt = lastNotifiedAt, lastNotifiedCount = lastNotifiedCount, updatedAt = lastNotifiedAt) else it }
         }
     }
 }

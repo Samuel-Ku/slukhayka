@@ -52,4 +52,19 @@ class PersonNewArrivalsTest {
         assertEquals(setOf(author.id, narrator.id), projection.bookmarkKeys.map { it.id }.toSet())
         assertEquals(1, projection.count)
     }
+
+    @Test
+    fun `notification gate respects per-person opt out and last notified count`() {
+        val author = PersonIdentity.from(PersonRole.AUTHOR, "Леся Українка")
+        val work = WorkEntity("work", "key", "Лісова пісня", "леся українка", addedAt = 11)
+        val bookmark = PersonBookmarkEntity(
+            kind = author.role.storageValue, id = author.id,
+            displayName = author.displayName, normalizedName = author.normalizedName,
+            lastSeenAt = 10, lastNotifiedCount = 0
+        )
+
+        assertEquals(1, PeopleNewArrivalNotification.decide(listOf(bookmark), listOf(work), emptyList())!!.count)
+        assertEquals(null, PeopleNewArrivalNotification.decide(listOf(bookmark.copy(lastNotifiedCount = 1)), listOf(work), emptyList()))
+        assertEquals(null, PeopleNewArrivalNotification.decide(listOf(bookmark.copy(notifyEnabled = false)), listOf(work), emptyList()))
+    }
 }

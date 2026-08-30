@@ -231,6 +231,42 @@ class BrowserRecoveryCoordinatorTest {
     }
 
     @Test
+    fun `new import survives recovery verdict failure and stays persisted in Room`() = runBlocking {
+        // Regression (#430, hypothesis 3): a book imported via "Додати цю книгу"
+        // (new import, bookId == null) must NOT be deleted from the DB when the
+        // Player verdict fails. The import already committed a row; deletion here
+        // is unrecoverable data loss after force-stop.
+        val newDetail = detail(
+            title = "Сни",
+            chapters = listOf(
+                "Глава 1" to "https://s1.reasd.org/sni/new1.mp3",
+                "Глава 2" to "https://s1.reasd.org/sni/new2.mp3"
+            )
+        )
+        val imports = LibraryImport(dao, context, listOf(fakeAdapter(mapOf("html" to newDetail))))
+        val coordinator = BrowserRecoveryCoordinator(
+            dao = dao,
+            libraryImport = imports,
+            playbackVerifier = BrowserRecoveryCoordinator.PlaybackVerifier { _, _ -> false } // dead link / 403
+        )
+
+        val outcome = coordinator.recover(
+            bookId = null,
+            sourceId = "4read",
+            url = "https://4read.org/sni.html",
+            html = "html",
+            capturedAudioUrls = emptyList()
+        )
+
+        // Verdict failed — visible outcome is a failure, browser stays open.
+        assertTrue(outcome is BrowserRecoveryCoordinator.Outcome.Failure)
+        // But the just-imported book must remain persisted in Room.
+        val persisted = dao.getAllAudiobooksOnce()
+        assertEquals(1, persisted.size)
+        assertEquals("Сни", persisted.first().title)
+    }
+
+    @Test
     fun `search fallback url is generated when exact source url missing`() = runBlocking {
         val original = detail(title = "Кобзар", author = "Тарас Шевченко", chapters = listOf("Глава 1" to "https://s1.reasd.org/kobzar/old1.mp3"))
         val bookId = seedBook(original)

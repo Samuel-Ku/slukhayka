@@ -20,7 +20,18 @@ def diagnose_batch(value: Any, run_one: Callable[[Any], tuple[dict[str, Any], An
     result: list[dict[str, Any]] = []
     for item in selected:
         group = group_from_projection(item)
-        projection, verdict, contract = run_one(item)
+        # A broken model invocation is an ordinary triage outcome for this one
+        # group. It must not prevent the remaining bounded groups from being
+        # published for human triage.
+        try:
+            projection, verdict, contract = run_one(item)
+        except Exception:
+            result.append({
+                "fingerprint": group.fingerprint,
+                "status": "needs-triage",
+                "reason": "diagnosis worker failed unexpectedly",
+            })
+            continue
         # The worker must return the same marker; it cannot invent an Issue key.
         if projection.get("fingerprint") != group.fingerprint:
             raise SanitizationError("diagnosis result crossed a group boundary")

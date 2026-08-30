@@ -44,6 +44,20 @@ class CrashDiagnoseBatchTest(unittest.TestCase):
         self.assertEqual([item["fingerprint"] for item in items], [item["fingerprint"] for item in result["diagnoses"]])
         self.assertTrue(all(item["status"] == "needs-triage" for item in result["diagnoses"]))
 
+    def test_one_unexpected_worker_failure_does_not_drop_the_next_group(self):
+        first, second = group(1), group(2)
+
+        def worker(value):
+            if value["fingerprint"] == first["fingerprint"]:
+                raise RuntimeError("proxy disconnected")
+            return value, type("Verdict", (), {"status": "needs-triage", "reason": "not reproduced"})(), None
+
+        result = diagnose_batch({"diagnose": [first, second], "retained": []}, worker)
+
+        self.assertEqual([first["fingerprint"], second["fingerprint"]], [item["fingerprint"] for item in result["diagnoses"]])
+        self.assertEqual("diagnosis worker failed unexpectedly", result["diagnoses"][0]["reason"])
+        self.assertEqual("not reproduced", result["diagnoses"][1]["reason"])
+
 
 if __name__ == "__main__":
     unittest.main()

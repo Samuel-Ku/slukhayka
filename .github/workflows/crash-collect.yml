@@ -64,3 +64,25 @@ jobs:
           name: crash-sanitized-groups
           path: crash-groups.json
           if-no-files-found: error
+
+  queue:
+    needs: collect
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # The queue receives only an allowlisted artifact. It cannot read
+    # Crashlytics, mint OIDC tokens, or mutate GitHub state.
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: crash-sanitized-groups
+      - name: Prioritize at most three proven diagnosis candidates
+        run: python3 scripts/crash_queue.py --input crash-groups.json --output crash-queue.json
+      - name: Upload bounded queue handoff
+        uses: actions/upload-artifact@v4
+        with:
+          name: crash-priority-queue
+          path: crash-queue.json
+          if-no-files-found: error

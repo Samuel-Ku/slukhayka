@@ -256,16 +256,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // resolved-profile state; the reviews block unlocks for writing the
         // moment ensure() answers (or degrades to local-only, its contract).
         attachListenerIdentity(listenerIdentityModule)
-        // #394 — observe notification button actions (pause / continue / cancel)
-        viewModelScope.launch {
-            com.slukhayka.audiobooks.data.downloads.DownloadNotificationService.notificationActions.collect { action ->
-                when (action) {
-                    is com.slukhayka.audiobooks.data.downloads.NotificationAction.Pause -> pauseDownload(action.bookId)
-                    is com.slukhayka.audiobooks.data.downloads.NotificationAction.Continue -> continueDownload(action.bookId)
-                    is com.slukhayka.audiobooks.data.downloads.NotificationAction.Cancel -> cancelDownload(action.bookId)
-                }
-            }
-        }
     }
 
     fun refreshCacheSize() {
@@ -2008,7 +1998,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) {
             offlineDownloads.pauseDownload(bookId)
             _downloadingBookId.value = null
-            com.slukhayka.audiobooks.data.downloads.DownloadNotificationService.notifyPaused(getApplication())
+            com.slukhayka.audiobooks.data.downloads.DownloadNotificationService.notifyPaused(getApplication(), bookId)
             refreshCacheSize()
         }
     }
@@ -2059,7 +2049,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             offlineDownloads.downloadBytesProgress.collect { map ->
                 val p = map[bookId] ?: return@collect
                 com.slukhayka.audiobooks.data.downloads.DownloadNotificationService.updateProgress(
-                    ctx, p.completedChapters, p.totalChapters, p.totalBytes, p.isApproximate
+                    ctx, bookId, p.completedChapters, p.totalChapters, p.totalBytes, p.isApproximate
                 )
             }
         }

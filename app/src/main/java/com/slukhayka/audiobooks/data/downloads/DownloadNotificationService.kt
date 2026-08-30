@@ -11,8 +11,7 @@ import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import com.slukhayka.audiobooks.MainActivity
 import com.slukhayka.audiobooks.R
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.SharedFlow
+import com.slukhayka.audiobooks.App
 
 /**
  * #393 + #394 — Foreground service showing an ongoing download notification.
@@ -40,6 +39,7 @@ class DownloadNotificationService : Service() {
             ACTION_UPDATE -> {
                 val nm = getSystemService(NotificationManager::class.java)
                 isPaused = false
+                currentBookId = intent.getStringExtra(EXTRA_BOOK_ID) ?: currentBookId
                 nm.notify(NOTIFICATION_ID, buildNotification(
                     currentBookId,
                     intent.getIntExtra(EXTRA_COMPLETED, 0),
@@ -50,20 +50,21 @@ class DownloadNotificationService : Service() {
             }
             ACTION_PAUSED -> {
                 isPaused = true
+                currentBookId = intent.getStringExtra(EXTRA_BOOK_ID) ?: currentBookId
                 val nm = getSystemService(NotificationManager::class.java)
                 nm.notify(NOTIFICATION_ID, buildPausedNotification(currentBookId))
             }
             ACTION_PAUSE_REQUEST -> {
                 val bookId = intent.getStringExtra(EXTRA_BOOK_ID) ?: currentBookId
-                _notificationActions.tryEmit(NotificationAction.Pause(bookId))
+                (application as App).downloadNotificationActions.dispatch(NotificationAction.Pause(bookId))
             }
             ACTION_CONTINUE_REQUEST -> {
                 val bookId = intent.getStringExtra(EXTRA_BOOK_ID) ?: currentBookId
-                _notificationActions.tryEmit(NotificationAction.Continue(bookId))
+                (application as App).downloadNotificationActions.dispatch(NotificationAction.Continue(bookId))
             }
             ACTION_CANCEL_REQUEST -> {
                 val bookId = intent.getStringExtra(EXTRA_BOOK_ID) ?: currentBookId
-                _notificationActions.tryEmit(NotificationAction.Cancel(bookId))
+                (application as App).downloadNotificationActions.dispatch(NotificationAction.Cancel(bookId))
             }
             ACTION_STOP -> {
                 stopForeground(STOP_FOREGROUND_REMOVE)
@@ -203,10 +204,6 @@ class DownloadNotificationService : Service() {
     override fun onDestroy() { super.onDestroy(); stopForeground(STOP_FOREGROUND_REMOVE) }
 
     companion object {
-        /** #394 — actions emitted by notification buttons for the ViewModel to observe. */
-        private val _notificationActions = MutableSharedFlow<NotificationAction>(extraBufferCapacity = 4)
-        val notificationActions: SharedFlow<NotificationAction> = _notificationActions
-
         const val CHANNEL_ID = "download_progress"
         const val NOTIFICATION_ID = 2001
         private const val ACTION_START = "com.slukhayka.DOWNLOAD_START"
@@ -235,16 +232,17 @@ class DownloadNotificationService : Service() {
                 putExtra(EXTRA_TITLE, title); putExtra(EXTRA_AUTHOR, author)
             })
         }
-        fun updateProgress(ctx: Context, completed: Int, total: Int, totalBytes: Long?, isApprox: Boolean) {
+        fun updateProgress(ctx: Context, bookId: String, completed: Int, total: Int, totalBytes: Long?, isApprox: Boolean) {
             ctx.startService(Intent(ctx, DownloadNotificationService::class.java).apply {
                 action = ACTION_UPDATE; putExtra(EXTRA_COMPLETED, completed)
+                putExtra(EXTRA_BOOK_ID, bookId)
                 putExtra(EXTRA_TOTAL, total); putExtra(EXTRA_TOTAL_BYTES, totalBytes ?: -1L)
                 putExtra(EXTRA_IS_APPROXIMATE, isApprox)
             })
         }
-        fun notifyPaused(ctx: Context) {
+        fun notifyPaused(ctx: Context, bookId: String) {
             ctx.startService(Intent(ctx, DownloadNotificationService::class.java).apply {
-                action = ACTION_PAUSED
+                action = ACTION_PAUSED; putExtra(EXTRA_BOOK_ID, bookId)
             })
         }
         fun stop(ctx: Context) {

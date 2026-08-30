@@ -650,6 +650,9 @@ class OfflineDownloads(
         return job != null && job.isActive
     }
 
+    /** One download at a time is the UI contract; notification actions honour it too. */
+    fun hasActiveDownload(): Boolean = _activeDownloadJobs.value.values.any { it.isActive }
+
     /**
      * Whether a download is paused for the given bookId.
      */

@@ -1161,7 +1161,10 @@ class SourceCatalog(
         val book = dao.getAudiobookById(bookId) ?: return emptyList()
         val workSources = book.workId?.let { dao.getWorkSourcesForWorkSync(it) }.orEmpty()
         val rows = if (workSources.isNotEmpty()) {
-            workSources.map { source ->
+            // #433 — the informational list follows the shared runtime policy
+            // (LOCAL → DIRECT → UNKNOWN → BROWSER, tie-break by name/id/url),
+            // so the book page's order matches playback's own selection order.
+            workSourcesForWork(book.workId!!).map { source ->
                 WorkSourceRow(
                     sourceId = source.sourceId,
                     sourceName = sourceDisplayName(source.sourceId),

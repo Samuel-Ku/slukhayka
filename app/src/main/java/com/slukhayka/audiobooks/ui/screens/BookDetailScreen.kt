@@ -2518,7 +2518,7 @@ fun WorkSourceRowCard(
         buildString {
             append(if (source.streamOnly) stringResource(R.string.book_detail_source_stream_only, base) else base)
             if (SourceAccessPolicy.modeFor(source.sourceId) == SourceAccessMode.BROWSER) {
-                append(" · Потрібен браузер")
+                append(" · ${stringResource(R.string.book_detail_browser_needed)}")
             }
         }
     }

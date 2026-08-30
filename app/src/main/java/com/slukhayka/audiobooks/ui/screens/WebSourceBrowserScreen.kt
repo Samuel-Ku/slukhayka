@@ -196,7 +196,7 @@ fun WebSourceBrowserScreen(
             return
         }
         // Snapshot the ordered audio candidates observed so far (deduplicated).
-        val audioCandidates = observedAudioUrls.toList()
+        val audioCandidates = synchronized(capturedAudioUrls) { capturedAudioUrls.toList() }
         isImporting = true
         importResult = ""
         blockedNavMessage = ""
@@ -696,7 +696,7 @@ fun WebSourceBrowserScreen(
                                 isLoading = true
                                 hasWebError = false
                                 // #430 — new top-level page → fresh candidate set.
-                                observedAudioUrls = emptyList()
+                                synchronized(capturedAudioUrls) { capturedAudioUrls.clear() }
                                 url?.let {
                                     currentWebUrl = it
                                     urlInput = it

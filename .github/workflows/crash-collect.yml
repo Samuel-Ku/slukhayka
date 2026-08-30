@@ -1,0 +1,48 @@
+name: Crash diagnostics collect
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Verify OIDC read path only; never publish an Issue'
+        required: false
+        default: true
+        type: boolean
+
+# #415 trust zone: the collector can read repository contents and mint an OIDC
+# token, but never gets GitHub Issues/PR write access or a model credential.
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: crash-collect
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require configured OIDC federation
+        env:
+          PROVIDER: ${{ vars.CRASHLYTICS_WIF_PROVIDER }}
+          SERVICE_ACCOUNT: ${{ vars.CRASHLYTICS_READER_SERVICE_ACCOUNT }}
+        run: |
+          test -n "$PROVIDER" && test -n "$SERVICE_ACCOUNT" || {
+            echo "needs-triage: missing Crashlytics read-only OIDC configuration" >&2
+            exit 2
+          }
+      - name: Authenticate read-only to Google through OIDC
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.CRASHLYTICS_WIF_PROVIDER }}
+          service_account: ${{ vars.CRASHLYTICS_READER_SERVICE_ACCOUNT }}
+          token_format: access_token
+      - name: Dry-run collector boundary
+        run: |
+          # The production adapter is deliberately invoked only by an explicit
+          # dispatch after federation configuration. Do not print tokens,
+          # HTTP headers, raw events, traces or artifacts here.
+          test "${{ inputs.dry_run }}" = "true"

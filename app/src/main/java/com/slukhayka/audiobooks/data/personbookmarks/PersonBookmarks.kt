@@ -82,6 +82,10 @@ class PersonBookmarks(
     /** Every bookmarked person; consumers keep the role boundary in [PersonIdentity]. */
     fun allBookmarks(): Flow<List<PersonBookmarkEntity>> = dao.getAllPersonBookmarks()
 
+    internal suspend fun upsertRemote(bookmark: PersonBookmarkEntity) = withContext(ioDispatcher) {
+        dao.upsertPersonBookmark(bookmark)
+    }
+
     /** Total bookmark count per kind: {AUTHOR → N, NARRATOR → M}. */
     fun counts(): Flow<Map<PersonRole, Int>> =
         dao.getAllPersonBookmarks().map { bookmarks ->

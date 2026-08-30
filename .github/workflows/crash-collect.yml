@@ -89,6 +89,9 @@ jobs:
 
   publish:
     needs: queue
+    # A manually dispatched dry run exercises collection and queue validation
+    # without granting the run a publication step. Scheduled runs publish.
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.dry_run != true }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     # This is the only group-publication boundary. It receives neither the

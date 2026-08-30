@@ -33,4 +33,22 @@ class SourceAccessPolicyTest {
     fun `4read is explicitly browser backed`() {
         assertEquals(SourceAccessMode.BROWSER, SourceAccessPolicy.modeFor("4read"))
     }
+
+    @Test
+    fun `browser-only card needs the explicit browser door`() {
+        val needs = SourceAccessPolicy.needsBrowserImport(listOf("4read"))
+        assertEquals(true, needs)
+    }
+
+    @Test
+    fun `card with any direct source does not need the browser door`() {
+        val mixed = SourceAccessPolicy.needsBrowserImport(listOf("soundbooks", "4read"))
+        val direct = SourceAccessPolicy.needsBrowserImport(listOf("audiobookmp3"))
+        val unknown = SourceAccessPolicy.needsBrowserImport(listOf("legacy"))
+        val empty = SourceAccessPolicy.needsBrowserImport(emptyList())
+        assertEquals(false, mixed)
+        assertEquals(false, direct)
+        assertEquals(false, unknown)
+        assertEquals(false, empty)
+    }
 }

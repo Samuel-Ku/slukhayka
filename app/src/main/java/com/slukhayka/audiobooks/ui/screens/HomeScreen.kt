@@ -187,6 +187,21 @@ fun HomeScreen(
     // the embedding pass stays orchestrated by the ViewModel (single-flight).
     val scope = rememberCoroutineScope()
     val recommendationSnackbar = remember { SnackbarHostState() }
+    // #434: a browser-only search card cannot import silently — offer the
+    // explicit 4read browser door with the work title prefilled.
+    val browserNeededImport by viewModel.browserNeededImport.collectAsState()
+    LaunchedEffect(browserNeededImport) {
+        val needed = browserNeededImport ?: return@LaunchedEffect
+        val result = recommendationSnackbar.showSnackbar(
+            message = "Ця книга лише на 4read — потрібен браузер",
+            actionLabel = "Відкрити",
+            withDismissAction = true
+        )
+        if (result == SnackbarResult.ActionPerformed) {
+            viewModel.open4ReadSearch(needed.workTitle)
+        }
+        viewModel.consumeBrowserNeededImport()
+    }
     LaunchedEffect(Unit) {
         // One cancellable delta chain for this active Огляд session. Filters,
         // cards and recompositions only read Room; none of them touch Firestore.

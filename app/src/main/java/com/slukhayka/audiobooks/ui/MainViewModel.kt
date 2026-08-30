@@ -1110,6 +1110,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (book != null) {
                 probeDurationsAfterImport(book.id)
                 selectBook(book.id)
+            } else if (SourceAccessPolicy.needsBrowserImport(result.sources.map { it.sourceId })) {
+                // Every source on this card is browser-gated: the tap can
+                // never import silently. Surface the honest refusal and let
+                // the UI offer the explicit 4read browser door.
+                _browserNeededImport.value = BrowserNeededImport(result.title)
             }
         }
     }
@@ -2412,6 +2417,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /** One-shot user-facing message for import outcomes (consumed by the UI). */
     private val _importMessage = MutableStateFlow<String?>(null)
     val importMessage: StateFlow<String?> = _importMessage.asStateFlow()
+
+    /**
+     * Honest refusal for a browser-only search card (#434): the work title is
+     * carried so the UI can open the prefilled 4read browser search.
+     */
+    data class BrowserNeededImport(val workTitle: String)
+    private val _browserNeededImport = MutableStateFlow<BrowserNeededImport?>(null)
+    val browserNeededImport: StateFlow<BrowserNeededImport?> = _browserNeededImport.asStateFlow()
+
+    fun consumeBrowserNeededImport() {
+        _browserNeededImport.value = null
+    }
 
     /** The pending smart-import preview (wayfinder #29), null when none. */
     private val _importPreview = MutableStateFlow<ImportPreviewState?>(null)

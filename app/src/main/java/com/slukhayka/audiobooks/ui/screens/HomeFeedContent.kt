@@ -24,6 +24,7 @@ import com.slukhayka.audiobooks.data.collections.CollectionMatcher
 import com.slukhayka.audiobooks.data.db.GenreFacetOption
 import com.slukhayka.audiobooks.data.db.WorkFeedRow
 import com.slukhayka.audiobooks.data.recommend.RecommendationEngine
+import com.slukhayka.audiobooks.data.personbookmarks.PersonNewArrivals
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.ui.PeopleKind
@@ -54,6 +55,7 @@ fun LazyListScope.homeFeedContent(
     genreFacetOptions: List<GenreFacetOption>,
     collections: List<CollectionMatcher.MatchedCollection>,
     newArrivals: List<GlobalSearchResult>,
+    peopleNewArrivals: PersonNewArrivals.CatalogProjection = PersonNewArrivals.CatalogProjection(emptyList(), emptySet()),
     recommendedBooks: List<RecommendationEngine.Recommendation>,
     recommendationsReady: Boolean = true,
     personalCycles: List<com.slukhayka.audiobooks.ui.library.PersonalCycle>,
@@ -71,6 +73,7 @@ fun LazyListScope.homeFeedContent(
     onOpenCollectionsIndex: () -> Unit,
     onOpenSeries: (title: String, url: String) -> Unit,
     onPlayGlobalSearchResult: (GlobalSearchResult) -> Unit,
+    onMarkPeopleNewArrivalsSeen: () -> Unit = {},
     onOpenRecommendedBook: (candidateId: String) -> Unit,
     onOpenWorkFeedRow: (WorkFeedRow) -> Unit,
     onBookClick: (String) -> Unit,
@@ -252,6 +255,17 @@ fun LazyListScope.homeFeedContent(
 
     // Editorial and catalogue shelves form the second top-level group.
     item { OverviewGroupHeader(title = "Відкрити нове") }
+
+    if (peopleNewArrivals.results.isNotEmpty()) {
+        item {
+            PeopleNewArrivalsRail(
+                results = peopleNewArrivals.results,
+                newCount = peopleNewArrivals.count,
+                onBookClick = onPlayGlobalSearchResult,
+                onMarkSeen = onMarkPeopleNewArrivalsSeen
+            )
+        }
+    }
 
     // spec-28 (#192): «Новинки» — the ONE cross-source new-arrivals
     // rail (4read's «Новинки» section + every other source's feed,

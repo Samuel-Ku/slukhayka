@@ -69,6 +69,8 @@ import com.slukhayka.audiobooks.data.db.GenreFacetOption
 import com.slukhayka.audiobooks.data.duration.ChapterDurationProbe
 import com.slukhayka.audiobooks.data.duration.DurationEnrichment
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
+import com.slukhayka.audiobooks.data.personbookmarks.PersonBookmarks
+import com.slukhayka.audiobooks.data.personbookmarks.PersonNewArrivals
 import com.slukhayka.audiobooks.data.metadata.EditionDurationPolicy
 import com.slukhayka.audiobooks.data.metadata.EditionDurationSummary
 import com.slukhayka.audiobooks.data.db.WorkFeedRow
@@ -107,6 +109,7 @@ fun HomeScreen(
     // and navigation orchestration stay on the ViewModel.
     libraryEntries: LibraryEntries,
     sourceCatalog: SourceCatalog,
+    personBookmarks: PersonBookmarks,
     durationEnrichment: DurationEnrichment,
     // spec-24 T8 (#169): the throttled chapter-duration probing pass.
     chapterDurationProbe: ChapterDurationProbe,
@@ -161,6 +164,17 @@ fun HomeScreen(
     // loading states; recomputed only when an input actually changes.
     val recentProgress by libraryEntries.recentProgress.collectAsState(initial = emptyList())
     val allWorks by sourceCatalog.allWorks.collectAsState(initial = emptyList())
+    val allEditions by sourceCatalog.allEditions.collectAsState(initial = emptyList())
+    val allPersonBookmarks by personBookmarks.allBookmarks().collectAsState(initial = emptyList())
+    val unifiedCatalog by sourceCatalog.unifiedCatalog.collectAsState()
+    val peopleNewArrivals = remember(allPersonBookmarks, allWorks, allEditions, unifiedCatalog) {
+        PersonNewArrivals.projectCatalog(
+            bookmarks = allPersonBookmarks,
+            works = allWorks,
+            editions = allEditions,
+            unifiedCatalog = unifiedCatalog
+        )
+    }
 
     // Spec-16 T2: the «Колекції» block — curated lists matched against the
     // union, recomputed on every union refresh (same trigger). The flow
@@ -389,6 +403,7 @@ fun HomeScreen(
                 genreFacetOptions = genreFacetOptions,
                 collections = collections,
                 newArrivals = newArrivals,
+                peopleNewArrivals = peopleNewArrivals,
                 recommendedBooks = recommendedBooks,
                 recommendationsReady = recommendationsReady,
                 personalCycles = personalCycles,
@@ -410,6 +425,11 @@ fun HomeScreen(
                 onOpenCollectionsIndex = { viewModel.openCollectionsIndex() },
                 onOpenSeries = { title, url -> viewModel.openSeries(title, url) },
                 onPlayGlobalSearchResult = { viewModel.openGlobalSearchResult(it) },
+                onMarkPeopleNewArrivalsSeen = {
+                    scope.launch {
+                        peopleNewArrivals.bookmarkKeys.forEach { personBookmarks.markSeen(it) }
+                    }
+                },
                 onOpenRecommendedBook = { viewModel.openRecommendedBook(it) },
                 onOpenWorkFeedRow = { viewModel.openWorkFeedRow(it) },
                 onBookClick = onBookClick,
@@ -824,6 +844,45 @@ fun NewArrivalsRail(
                     result = result,
                     onClick = { onBookClick(result) }
                 )
+            }
+        }
+    }
+}
+
+/** #402 — personal, locally-derived shelf above the general discovery feed. */
+@Composable
+fun PeopleNewArrivalsRail(
+    results: List<GlobalSearchResult>,
+    newCount: Int,
+    onBookClick: (GlobalSearchResult) -> Unit,
+    onMarkSeen: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier.testTag("people_new_arrivals_rail")) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onMarkSeen)
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = "Нове від ваших авторів/виконавців",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+            TextButton(
+                onClick = onMarkSeen,
+                modifier = Modifier.testTag("people_new_arrivals_badge")
+            ) { Text("• $newCount нові") }
+        }
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            items(results, key = { it.key }) { result ->
+                UnifiedCatalogCard(result = result, onClick = { onBookClick(result) })
             }
         }
     }

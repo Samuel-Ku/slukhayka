@@ -329,6 +329,10 @@ interface AudiobookDao {
     @Query("SELECT * FROM editions WHERE workId = :bookId LIMIT 1")
     suspend fun getEditionForWork(bookId: String): EditionEntity?
 
+    /** Every known rendition, for local projections such as person-bookmark news. */
+    @Query("SELECT * FROM editions ORDER BY addedAt DESC")
+    fun observeEditions(): Flow<List<EditionEntity>>
+
     // --- Spec-24 T1: the one-time stored-title scrub -----------------------
     // The startup pass reads every stored title (audiobooks + works), applies
     // the pure normalizeTitle rule in Kotlin, and rewrites only the rows that

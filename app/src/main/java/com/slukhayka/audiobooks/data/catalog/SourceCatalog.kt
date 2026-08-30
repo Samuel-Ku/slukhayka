@@ -202,6 +202,9 @@ class SourceCatalog(
     // against this base; the flow is read-only, nothing here persists.
     val allWorks: kotlinx.coroutines.flow.Flow<List<WorkEntity>> = dao.observeWorks()
 
+    /** The local Edition projection paired with [allWorks]. */
+    val allEditions: kotlinx.coroutines.flow.Flow<List<EditionEntity>> = dao.observeEditions()
+
     // Spec-16 follow-up: the last fetched LIVE collections (static + live are
     // matched together; this flow lets tests pin what a live source actually
     // contributed). TTL-cached per source like the feeds — repeated refreshes

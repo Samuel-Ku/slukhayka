@@ -465,6 +465,8 @@ class FakeAudiobookDao(
     override suspend fun getEditionForWork(bookId: String): EditionEntity? =
         editionsState.value.firstOrNull { it.workId == bookId }
 
+    override fun observeEditions(): Flow<List<EditionEntity>> = editionsState
+
     // --- Bookmarks --------------------------------------------------------
 
     override fun getBookmarksForBook(bookId: String): Flow<List<BookmarkEntity>> =

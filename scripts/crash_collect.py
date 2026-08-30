@@ -170,18 +170,32 @@ class CrashlyticsV1AlphaReader:
         self.access_token = access_token
 
     def open_events(self) -> list[dict[str, Any]]:
-        query = urllib.parse.urlencode([("filter.issue.states", "OPEN"), ("pageSize", "100")])
-        url = f"https://firebasecrashlytics.googleapis.com/v1alpha/{self.parent}/events?{query}"
-        request = urllib.request.Request(url, headers={"Authorization": f"Bearer {self.access_token}"})
-        try:
-            with urllib.request.urlopen(request, timeout=30) as response:
-                payload = json.load(response)
-        except (OSError, ValueError) as error:
-            raise CollectError("Crashlytics read failed") from error
-        values = _mapping(payload, "event list").get("events", [])
-        if not isinstance(values, list) or any(not isinstance(value, dict) for value in values):
-            raise CollectError("unknown event list schema")
-        return values
+        """Read every page, or reject the run before it becomes incomplete."""
+        all_events: list[dict[str, Any]] = []
+        token: str | None = None
+        # A weekly run has a hard, visible bound rather than silently skipping
+        # old pages. `pageSize=100` means the cap still allows 10,000 events.
+        for _ in range(100):
+            parameters = [("filter.issue.states", "OPEN"), ("pageSize", "100")]
+            if token is not None:
+                parameters.append(("pageToken", token))
+            url = f"https://firebasecrashlytics.googleapis.com/v1alpha/{self.parent}/events?{urllib.parse.urlencode(parameters)}"
+            request = urllib.request.Request(url, headers={"Authorization": f"Bearer {self.access_token}"})
+            try:
+                with urllib.request.urlopen(request, timeout=30) as response:
+                    payload = _mapping(json.load(response), "event list")
+            except (OSError, ValueError, CollectError) as error:
+                raise CollectError("Crashlytics read failed") from error
+            values = payload.get("events", [])
+            token = payload.get("nextPageToken")
+            if not isinstance(values, list) or any(not isinstance(value, dict) for value in values):
+                raise CollectError("unknown event list schema")
+            if token is not None and (not isinstance(token, str) or not token or len(token) > 512):
+                raise CollectError("unknown event page token")
+            all_events.extend(values)
+            if token is None:
+                return all_events
+        raise CollectError("Crashlytics event pagination exceeded the safe bound")
 
 
 def collect(reader: CrashlyticsV1AlphaReader) -> tuple[list[SanitizedGroup], int]:

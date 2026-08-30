@@ -41,9 +41,13 @@ class PeopleNewArrivalWorker(
 
         fun schedule(context: Context) {
             val request = PeriodicWorkRequestBuilder<PeopleNewArrivalWorker>(12, TimeUnit.HOURS).build()
-            WorkManager.getInstance(context).enqueueUniquePeriodicWork(
-                UNIQUE_WORK, ExistingPeriodicWorkPolicy.UPDATE, request
-            )
+            // Tests and Firebase-less recovery builds may intentionally omit
+            // WorkManager startup; background discovery is best-effort.
+            runCatching {
+                WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+                    UNIQUE_WORK, ExistingPeriodicWorkPolicy.UPDATE, request
+                )
+            }
         }
 
         suspend fun notifyIfNeeded(app: App) {

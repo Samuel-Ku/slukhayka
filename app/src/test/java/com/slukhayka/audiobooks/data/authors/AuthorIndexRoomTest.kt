@@ -109,7 +109,12 @@ class AuthorIndexRoomTest {
         val boundedIndex = RoomAuthorIndex(db.audiobookDao(), CoroutineScope(backgroundDispatcher))
 
         assertTrue(boundedIndex.search("автор 0").isNotEmpty())
-        assertEquals(1, db.audiobookDao().worksMissingCanonicalAuthor(RoomAuthorIndex.BACKFILL_BATCH_SIZE).size)
+        // The foreground read indexes exactly one bounded page. The separate
+        // dispatcher may already have completed its next page by the time a
+        // Room query resumes, so the observable remainder is 1 or 0.
+        assertTrue(
+            db.audiobookDao().worksMissingCanonicalAuthor(RoomAuthorIndex.BACKFILL_BATCH_SIZE).size <= 1
+        )
 
         testScheduler.advanceUntilIdle()
         assertEquals(0, db.audiobookDao().worksMissingCanonicalAuthor(RoomAuthorIndex.BACKFILL_BATCH_SIZE).size)

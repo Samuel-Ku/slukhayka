@@ -266,15 +266,10 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
-      # reactivecircus/android-emulator-runner requires explicit KVM
-      # permissions on Linux runners. Without this the emulator falls back to
-      # software acceleration, becomes unresponsive during APK installation,
-      # and the accessibility journey starts zero tests.
-      - name: Enable KVM group permissions
+      - name: Enable KVM access
         run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
+          test -e /dev/kvm
+          sudo chmod 0666 /dev/kvm
 
       - name: Prebuild accessibility APKs
         run: ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon --max-workers=1 --stacktrace
@@ -283,7 +278,7 @@ jobs:
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
-          target: google_apis
+          target: google_atd
           arch: x86_64
           profile: pixel_6
           disable-animations: true
@@ -295,10 +290,10 @@ jobs:
             adb shell cmd overlay enable-exclusive --category com.android.internal.systemui.navbar.threebutton
             adb shell cmd overlay list | grep -F "[x] com.android.internal.systemui.navbar.threebutton"
             adb logcat -c
-            test_status=0
-            ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.slukhayka.audiobooks.accessibility.MainActivityAccessibilityTest --no-daemon --max-workers=1 --stacktrace || test_status=$?
+            rm -f app/build/reports/androidTests/accessibility-test-exit-status
+            ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.slukhayka.audiobooks.accessibility.MainActivityAccessibilityTest --no-daemon --max-workers=1 --stacktrace || echo $? > app/build/reports/androidTests/accessibility-test-exit-status
             adb logcat -d > app/build/reports/androidTests/accessibility-api35-logcat.txt
-            exit "$test_status"
+            test ! -f app/build/reports/androidTests/accessibility-test-exit-status || exit "$(cat app/build/reports/androidTests/accessibility-test-exit-status)"
 
       - name: Upload API 35 accessibility results
         if: always()

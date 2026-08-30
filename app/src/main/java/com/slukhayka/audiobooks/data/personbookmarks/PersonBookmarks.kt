@@ -155,4 +155,15 @@ class PersonBookmarks(
     ) = withContext(ioDispatcher) {
         dao.updatePersonBookmarkLastSeen(key.role.storageValue, key.id, nowMs, nowMs)
     }
+
+    /** Records the exact aggregate that was shown in a grouped notification. */
+    suspend fun markNotified(
+        keys: Collection<PersonBookmarkKey>,
+        count: Int,
+        nowMs: Long = System.currentTimeMillis()
+    ) = withContext(ioDispatcher) {
+        keys.forEach { key ->
+            dao.updatePersonBookmarkLastNotified(key.role.storageValue, key.id, nowMs, count)
+        }
+    }
 }

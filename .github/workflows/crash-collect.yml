@@ -86,3 +86,22 @@ jobs:
           name: crash-priority-queue
           path: crash-queue.json
           if-no-files-found: error
+
+  publish:
+    needs: queue
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # This is the only group-publication boundary. It receives neither the
+    # OIDC/Firebase credential nor a model credential.
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: crash-priority-queue
+      - name: Create or update every sanitized crash issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/crash_publish.py --input crash-queue.json --repo "${{ github.repository }}"

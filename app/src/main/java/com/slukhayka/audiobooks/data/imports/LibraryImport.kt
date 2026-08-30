@@ -27,6 +27,8 @@ import com.slukhayka.audiobooks.data.metadata.MetadataAssertions
 import com.slukhayka.audiobooks.data.metadata.ProfileFreshness
 import com.slukhayka.audiobooks.data.metadata.ProfileProvenance
 import com.slukhayka.audiobooks.data.metadata.SharedBookMetaStore
+import com.slukhayka.audiobooks.data.metadata.VerifiedProfileReadOutcome
+import com.slukhayka.audiobooks.data.metadata.VerifiedSourceProfileReader
 import com.slukhayka.audiobooks.data.source.SourceAdapter
 import com.slukhayka.audiobooks.data.source.SourceBookDetail
 import com.slukhayka.audiobooks.data.source.SourceChapter
@@ -73,7 +75,11 @@ class LibraryImport(
     // resolved page writes its full profile back so the next listener skips
     // the page fetch. Null without Firebase keys: imports behave exactly as
     // before. Best-effort by contract — a failing write never breaks import.
-    private val profileStore: SharedBookMetaStore? = null
+    private val profileStore: SharedBookMetaStore? = null,
+    // #431 — 4read cache entries may shortcut browser recovery only after a
+    // fresh cookie-free probe. Generic source profiles retain their existing
+    // best-effort read-skip contract.
+    private val verifiedProfileReader: VerifiedSourceProfileReader? = null
 ) {
     private val authorIndex: AuthorIndex = RoomAuthorIndex(dao)
 
@@ -331,9 +337,22 @@ class LibraryImport(
             // title|author|narrator — so only a caller that knows the Work
             // identity can ask the shared base at all. The entry is fetched
             // ONCE and serves both the fresh check and the stale fail-open.
-            val entry = if (known != null && store != null) {
-                runCatching { store.getProfileEntry(sourceId, editionIdOf(sourceId, known)) }.getOrNull()
-            } else null
+            val editionId = known?.let { editionIdOf(sourceId, it) }
+            val entry = when {
+                sourceId == "4read" && known != null && verifiedProfileReader != null -> when (
+                    val verified = verifiedProfileReader.read(sourceId, editionId!!)
+                ) {
+                    is VerifiedProfileReadOutcome.Ready -> verified.entry
+                    // A stale, blocked or missing profile must lead to the
+                    // listener-controlled browser path, not a hidden 4read
+                    // transport attempt from this import door.
+                    VerifiedProfileReadOutcome.BrowserRequired,
+                    VerifiedProfileReadOutcome.Missing -> return@withContext null
+                }
+                known != null && store != null ->
+                    runCatching { store.getProfileEntry(sourceId, editionId!!) }.getOrNull()
+                else -> null
+            }
             if (entry != null && ProfileFreshness.isFresh(entry.resolvedAt, System.currentTimeMillis()) &&
                 entry.profile.chapters.isNotEmpty()
             ) {

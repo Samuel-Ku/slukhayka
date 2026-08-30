@@ -49,6 +49,10 @@ import com.slukhayka.audiobooks.data.metadata.LibraryCoverResolver
 import com.slukhayka.audiobooks.data.metadata.SearchCoverResolver
 import com.slukhayka.audiobooks.data.metadata.SearchDurationResolver
 import com.slukhayka.audiobooks.data.metadata.StoredMetadataScrub
+import com.slukhayka.audiobooks.data.metadata.CleanProfileProbeVerdict
+import com.slukhayka.audiobooks.data.metadata.CleanProfileProber
+import com.slukhayka.audiobooks.data.metadata.VerifiedSourceProfilePublisher
+import com.slukhayka.audiobooks.data.metadata.VerifiedSourceProfileReader
 import com.slukhayka.audiobooks.data.personbookmarks.PersonBookmarks
 import com.slukhayka.audiobooks.data.reviews.FirestoreListenerReviewsStore
 import com.slukhayka.audiobooks.data.reviews.FirestoreNarrationRatingsStore
@@ -158,6 +162,32 @@ class App : Application() {
     }
 
     /**
+     * #431 — one clean, cookie-free transport check shared by every recovered
+     * 4read profile. A successful local WebView session is never itself a
+     * reason to publish its URLs to another listener.
+     */
+    private val cleanProfileProber: CleanProfileProber by lazy {
+        val fetcher = HttpFetcher()
+        CleanProfileProber { url, headers ->
+                val result = fetcher.getSizedStreamResult(url, headers)
+                result.sizedStream?.stream?.use { CleanProfileProbeVerdict.PLAYABLE }
+                    ?: if (result.status == 403 || result.status == 404) {
+                        CleanProfileProbeVerdict.BLOCKED
+                    } else {
+                        CleanProfileProbeVerdict.UNAVAILABLE
+                    }
+        }
+    }
+
+    internal val verifiedSourceProfilePublisher: VerifiedSourceProfilePublisher by lazy {
+        VerifiedSourceProfilePublisher(sharedMetaStore, cleanProfileProber)
+    }
+
+    internal val verifiedSourceProfileReader: VerifiedSourceProfileReader by lazy {
+        VerifiedSourceProfileReader(sharedMetaStore, cleanProfileProber)
+    }
+
+    /**
      * Spec-40 #277 (#278, #280) — listener reviews of a Work over Firestore
      * (`book_reviews`, keyed `${workId}_${uid}`). Null without Firebase keys
      * (no google-services.json): the book page then simply shows no «Відгуки»
@@ -264,7 +294,8 @@ class App : Application() {
             // profile to the shared base (the next listener skips the page
             // fetch), and a card import reads a fresh profile back instead of
             // fetching. Null without Firebase keys: imports behave as before.
-            profileStore = sharedMetaStore
+            profileStore = sharedMetaStore,
+            verifiedProfileReader = verifiedSourceProfileReader
         )
     }
 

@@ -3,7 +3,7 @@ package com.slukhayka.audiobooks.data.source
 import kotlinx.coroutines.withTimeoutOrNull
 
 /** The caller's intent; selection policy stays identical across entry points. */
-enum class SourceOperation { PLAYBACK, OPEN_WORK, SEARCH, RECOMMENDATION, WORK_FEED }
+enum class SourceOperation { PLAYBACK, OPEN_WORK, SEARCH, RECOMMENDATION, WORK_FEED, DOWNLOAD }
 
 /** A candidate is inseparable from the Edition whose tracks it represents. */
 data class SourceSelectionCandidate(

@@ -815,9 +815,7 @@ fun BookDetailScreen(
                     // Spec-23 T5/#426: «Джерела» is informational — it shows
                     // which sources carry the Work and whether a browser is
                     // required. Playback chooses the shared source order.
-                    BookDetailSourceSection(detailPresentation) { source ->
-                        viewModel.playFromSource(source.sourceId, source.url)
-                    }
+                    BookDetailSourceSection(detailPresentation)
 
                     Spacer(modifier = Modifier.height(20.dp))
 
@@ -2470,8 +2468,7 @@ fun BookDetailDescription(presentation: BookDetailPresentation) {
 
 @Composable
 fun BookDetailSourceSection(
-    presentation: BookDetailPresentation,
-    onSourceClick: (BookDetailSourcePresentation) -> Unit = {}
+    presentation: BookDetailPresentation
 ) {
     if (presentation.sources.isEmpty()) return
     Spacer(modifier = Modifier.height(20.dp))
@@ -2487,8 +2484,7 @@ fun BookDetailSourceSection(
     presentation.sources.forEach { source ->
         WorkSourceRowCard(
             source = source,
-            workTitle = presentation.title,
-            onClick = { onSourceClick(source) }
+            workTitle = presentation.title
         )
     }
 }
@@ -2503,8 +2499,7 @@ fun BookDetailSourceSection(
 @Composable
 fun WorkSourceRowCard(
     source: BookDetailSourcePresentation,
-    workTitle: String = "",
-    onClick: () -> Unit
+    workTitle: String = ""
 ) {
     val contextualTitle = workTitle.takeIf(String::isNotBlank) ?: "книгу"
     val actionDescription = if (source.selectable) {
@@ -2535,7 +2530,6 @@ fun WorkSourceRowCard(
             .defaultMinSize(minHeight = 48.dp)
             .padding(horizontal = 8.dp, vertical = 4.dp)
             .testTag("work_source_${source.sourceId}")
-            .then(if (source.selectable) Modifier.clickable(onClick = onClick) else Modifier)
             .semantics(mergeDescendants = true) {
                 contentDescription = actionDescription
                 stateDescription = sourceState

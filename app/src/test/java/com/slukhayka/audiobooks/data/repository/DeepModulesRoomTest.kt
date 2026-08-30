@@ -1281,7 +1281,7 @@ class DeepModulesRoomTest {
     }
 
     @Test
-    fun `getChaptersList on a chapter-less 4read book fetches through the adapter seam`() = runBlocking {
+    fun `getChaptersList never performs an implicit fetch for a chapter-less browser-only 4read book`() = runBlocking {
         val mods = fourReadRepo()
         val book = TestDataFactory.dataBooks()[0].copy(
             id = "4read-7589-neostannij-bij",
@@ -1303,22 +1303,16 @@ class DeepModulesRoomTest {
 
         val chapters = mods.catalog.getChaptersList(book.id)
 
-        // Chapters came from the adapter's playlist expansion, not new repo parsing.
-        assertTrue(chapters.isNotEmpty())
-        // ADR-0007: the physical stream lives on the primary source's TRACK.
+        // 4read is browser-only: a background read must not bypass Cloudflare
+        // or manufacture a session. The listener explicitly enters recovery.
+        assertTrue(chapters.isEmpty())
         val tracks = dao.getSourcesForBookSync(book.id)
             .flatMap { dao.getTracksForSourceSync(it.id) }
-        assertEquals("https://4read.org/uploads/audio/7589/01.mp3", tracks.single().url)
-        // The enriched profile flowed into the row's backing state (COALESCE
-        // back-fill replaces the seed placeholders).
+        assertTrue(tracks.isEmpty())
+        // A passive detail read leaves the existing book untouched.
         val stored = dao.getAudiobookById(book.id)!!
-        assertEquals("Костянтин Шелест", stored.author)
-        assertEquals("Валерій Завалко", stored.narrator)
-        assertEquals(4.9f, stored.rating)
-        assertEquals("Пригоди · Фентезі", stored.genre)
-        assertEquals("Максим Темний", stored.seriesTitle)
-        assertEquals(7, stored.seriesIndex)
-        assertEquals(39438L, stored.totalDurationSeconds)
+        assertEquals(book.author, stored.author)
+        assertEquals(book.narrator, stored.narrator)
     }
 
     // ---------------------------------------------------------------------

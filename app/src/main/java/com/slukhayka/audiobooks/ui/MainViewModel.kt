@@ -41,7 +41,15 @@ import com.slukhayka.audiobooks.data.reviews.ReviewRemoteResult
 import com.slukhayka.audiobooks.data.reviews.ReviewWriteReceipt
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.data.source.SourceAccessCandidate
-import com.slukhayka.audiobooks.data.source.SourceAccessPolicy
+import com.slukhayka.audiobooks.data.source.SourceCandidateProber
+import com.slukhayka.audiobooks.data.source.SourceOperation
+import com.slukhayka.audiobooks.data.source.SourceSelectionCandidate
+import com.slukhayka.audiobooks.data.source.SourceSelectionCoordinator
+import com.slukhayka.audiobooks.data.source.SourceSelectionOutcome
+import com.slukhayka.audiobooks.data.source.SourceSelectionRequest
+import com.slukhayka.audiobooks.data.metadata.BookProfile
+import com.slukhayka.audiobooks.data.metadata.ProfileChapter
+import com.slukhayka.audiobooks.data.metadata.VerifiedSourceProfile
 import com.slukhayka.audiobooks.player.AudioPlayerManager
 import com.slukhayka.audiobooks.player.PlayerState
 import com.slukhayka.audiobooks.ui.library.OutcomeMessages
@@ -556,6 +564,39 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (!awaitRecoveryPlaybackVerdict(playerState, bookId, chapterIndex)) {
                     withContext(Dispatchers.Main) { onComplete(false) }
                     return@launch
+                }
+                // Publishing is strictly post-verdict and best-effort. The
+                // publisher repeats a clean, cookie-free transport probe, so
+                // the private WebView session never becomes shared metadata.
+                val recoveredSource = libraryEntries.getSourcesForBook(bookId)
+                    .firstOrNull { it.type == sourceId && it.url == url }
+                val editionId = editionIdForBook(bookId)
+                if (recoveredSource != null && editionId != null) {
+                    val profile = BookProfile(
+                        title = recovered.title,
+                        author = recovered.author,
+                        narrator = recovered.narrator,
+                        description = recovered.description,
+                        chapters = playable.mapNotNull { chapter ->
+                            chapter.track?.url
+                                ?.takeIf { it.startsWith("http", ignoreCase = true) }
+                                ?.let { trackUrl ->
+                                    ProfileChapter(chapter.chapter.title, trackUrl, chapter.chapter.durationSeconds)
+                                }
+                        },
+                        totalDurationSeconds = recovered.totalDurationSeconds.takeIf { it > 0L }
+                    )
+                    runCatching {
+                        App.instance.verifiedSourceProfilePublisher.publish(
+                            VerifiedSourceProfile(
+                                sourceId = sourceId,
+                                editionId = editionId,
+                                playerOpened = true,
+                                source = SourceAccessCandidate(sourceId, url = recoveredSource.url),
+                                profile = profile
+                            )
+                        )
+                    }
                 }
                 // A paused offline queue is resumed only after the explicit
                 // browser recovery completed. Existing local files are reused
@@ -1091,36 +1132,42 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         identity: KnownBookIdentity,
         forDownload: Boolean = false
     ): AudiobookEntity? {
-        val ordered = SourceAccessPolicy.order(
-            candidates.map { SourceAccessCandidate(it.sourceId, it.sourceName, it.url) }
-        )
-        val deadline = System.nanoTime() + 10_000_000_000L
-        val directCandidates = ordered.filter {
-            it.accessMode != com.slukhayka.audiobooks.data.source.SourceAccessMode.BROWSER &&
-                (!forDownload || !com.slukhayka.audiobooks.data.source.streamOnlyFor(it.sourceId))
-        }
-        // A browser Source is intentionally excluded here. The caller must
-        // first perform the explicit browser import/recovery action; a
-        // download tap must never launch WebView or perform a direct 4read
-        // request behind the listener's back.
-        for (candidate in directCandidates) {
-            val remainingMs = ((deadline - System.nanoTime()) / 1_000_000L).coerceAtLeast(1L)
-            val book = kotlinx.coroutines.withTimeoutOrNull(remainingMs) {
-                try {
-                    libraryImport.importFromSourceUrl(
-                        candidate.sourceId,
-                        candidate.url,
-                        identity
+        // All cards in this call describe one rendition. Keep that identity
+        // explicit so the coordinator cannot cross into a same-title source
+        // with another narration while looking for a fallback.
+        val editionId = listOf(identity.title, identity.author, identity.narrator)
+            .joinToString("\u0000") { it.trim().lowercase(Locale.ROOT) }
+        val imports = mutableMapOf<SourceSelectionCandidate, AudiobookEntity>()
+        val request = SourceSelectionRequest(
+            editionId = editionId,
+            operation = if (forDownload) SourceOperation.DOWNLOAD else SourceOperation.OPEN_WORK,
+            candidates = candidates
+                .filterNot { forDownload && com.slukhayka.audiobooks.data.source.streamOnlyFor(it.sourceId) }
+                .map { source ->
+                    SourceSelectionCandidate(
+                        editionId,
+                        SourceAccessCandidate(source.sourceId, source.sourceName, source.url)
                     )
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (_: Exception) {
-                    null
                 }
+        )
+        val outcome = SourceSelectionCoordinator().select(request, SourceCandidateProber { candidate, _ ->
+            val imported = try {
+                libraryImport.importFromSourceUrl(
+                    candidate.source.sourceId,
+                    candidate.source.url,
+                    identity
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                null
             }
-            if (book != null) return book
-        }
-        return null
+            if (imported != null) imports[candidate] = imported
+            imported != null
+        })
+        // BrowserRequired deliberately has no side effect. The UI decides
+        // when to present the listener-controlled browser action.
+        return (outcome as? SourceSelectionOutcome.Selected)?.candidate?.let(imports::get)
     }
 
     /**

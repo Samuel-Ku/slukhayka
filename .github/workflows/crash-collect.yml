@@ -113,27 +113,36 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: crash-priority-queue
-      - name: Require the dedicated diagnosis proxy
+      - name: Detect the dedicated diagnosis proxy
         env:
           PROXY_URL: ${{ vars.CRASH_DIAGNOSIS_PROXY_URL }}
         run: |
-          test -n "$PROXY_URL" || {
-            echo "needs-triage: missing diagnosis proxy configuration" >&2
-            exit 2
-          }
-      - name: Mint an OIDC token only for the diagnosis proxy
+          if test -z "$PROXY_URL"; then
+            echo "DIAGNOSIS_UNAVAILABLE=diagnosis proxy unavailable" >> "$GITHUB_ENV"
+          fi
+      - name: Mint an OIDC token only when diagnosis is available
+        if: ${{ env.DIAGNOSIS_UNAVAILABLE == '' }}
         env:
           AUDIENCE: crash-diagnosis-proxy
         run: |
           token="$(curl --fail --silent --show-error \
             -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${AUDIENCE}" | jq --raw-output '.value')"
-          test -n "$token" && test "$token" != "null" || exit 2
-          echo "CRASH_DIAGNOSIS_OIDC_TOKEN=$token" >> "$GITHUB_ENV"
-      - name: Run at most three read-only OpenCode diagnoses
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${AUDIENCE}" | jq --raw-output '.value' || true)"
+          if test -n "$token" && test "$token" != "null"; then
+            echo "CRASH_DIAGNOSIS_OIDC_TOKEN=$token" >> "$GITHUB_ENV"
+          else
+            echo "DIAGNOSIS_UNAVAILABLE=diagnosis OIDC token unavailable" >> "$GITHUB_ENV"
+          fi
+      - name: Run at most three diagnoses or retain visible triage
         env:
           CRASH_DIAGNOSIS_PROXY_URL: ${{ vars.CRASH_DIAGNOSIS_PROXY_URL }}
-        run: python3 scripts/crash_diagnose_batch.py --input crash-queue.json --output crash-diagnoses.json
+        run: |
+          if test -n "$DIAGNOSIS_UNAVAILABLE"; then
+            python3 scripts/crash_diagnose_batch.py --input crash-queue.json --output crash-diagnoses.json \
+              --unavailable-reason "$DIAGNOSIS_UNAVAILABLE"
+          else
+            python3 scripts/crash_diagnose_batch.py --input crash-queue.json --output crash-diagnoses.json
+          fi
       - name: Upload bounded diagnosis statuses
         uses: actions/upload-artifact@v4
         with:

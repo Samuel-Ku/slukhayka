@@ -35,13 +35,29 @@ def diagnose_batch(value: Any, run_one: Callable[[Any], tuple[dict[str, Any], An
     return {"diagnoses": result}
 
 
+def triage_batch(value: Any, reason: str) -> dict[str, list[dict[str, str]]]:
+    """Keep #417 publication alive when the separate model zone is unavailable."""
+    if not isinstance(reason, str) or not reason or len(reason) > 120:
+        raise SanitizationError("diagnosis unavailability reason is not bounded")
+    if not isinstance(value, dict) or set(value) != {"diagnose", "retained"} or not isinstance(value["diagnose"], list):
+        raise SanitizationError("diagnosis queue has an unknown field")
+    if len(value["diagnose"]) > 3:
+        raise SanitizationError("diagnosis queue exceeds the hard cap")
+    return {"diagnoses": [
+        {"fingerprint": group_from_projection(item).fingerprint, "status": "needs-triage", "reason": reason}
+        for item in value["diagnose"]
+    ]}
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Diagnose at most three sanitized crash groups")
     parser.add_argument("--input", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--unavailable-reason", help="skip model work but preserve selected triage statuses")
     args = parser.parse_args(argv)
     try:
-        result = diagnose_batch(json.loads(args.input.read_text(encoding="utf-8")))
+        queue = json.loads(args.input.read_text(encoding="utf-8"))
+        result = triage_batch(queue, args.unavailable_reason) if args.unavailable_reason else diagnose_batch(queue)
     except (OSError, json.JSONDecodeError, SanitizationError):
         result = {"diagnoses": []}
     args.output.write_text(json.dumps(result, sort_keys=True), encoding="utf-8")

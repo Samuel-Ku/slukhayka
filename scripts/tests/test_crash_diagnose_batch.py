@@ -1,7 +1,7 @@
 import dataclasses
 import unittest
 
-from scripts.crash_diagnose_batch import diagnose_batch
+from scripts.crash_diagnose_batch import diagnose_batch, triage_batch
 from scripts.crash_tracer import SanitizationError, normalize_group
 
 
@@ -36,6 +36,13 @@ class CrashDiagnoseBatchTest(unittest.TestCase):
 
         with self.assertRaises(SanitizationError):
             diagnose_batch({"diagnose": [group(1)], "retained": []}, wrong_worker)
+
+    def test_unavailable_model_keeps_every_selected_group_in_needs_triage(self):
+        items = [group(1), group(2)]
+        result = triage_batch({"diagnose": items, "retained": []}, "diagnosis proxy unavailable")
+
+        self.assertEqual([item["fingerprint"] for item in items], [item["fingerprint"] for item in result["diagnoses"]])
+        self.assertTrue(all(item["status"] == "needs-triage" for item in result["diagnoses"]))
 
 
 if __name__ == "__main__":

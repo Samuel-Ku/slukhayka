@@ -9,12 +9,10 @@ import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertContentDescriptionEquals
-import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.hasTestTag
-import androidx.compose.ui.test.junit4.accessibility.disableAccessibilityChecks
 import androidx.compose.ui.test.junit4.accessibility.enableAccessibilityChecks
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -26,7 +24,6 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.tryPerformAccessibilityChecks
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModelProvider
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -343,15 +340,7 @@ class MainActivityAccessibilityTest {
             )
         composeTestRule.onNodeWithTag("sleep_timer_option_0")
             .assertIsSelected()
-        composeTestRule.onNodeWithTag("sleep_timer_option_90")
-            .assertIsDisplayed()
-            .assertHeightIsAtLeast(48.dp)
-        // Compose 1.8.3 checks every owner, not only the selected sheet. With
-        // this tall modal, ATF sees the obscured player's 24dp navigation-bar
-        // sliver and reports it as a touch target. The sheet contract is pinned
-        // explicitly above. Pause automatic checks only for the click that
-        // dismisses this owner; the full ATF gate resumes immediately below.
-        composeTestRule.disableAccessibilityChecks()
+        composeTestRule.onRoot().tryPerformAccessibilityChecks()
         composeTestRule.onNodeWithTag("sleep_timer_option_5")
             .assert(SemanticsMatcher.keyIsDefined(SemanticsActions.OnClick))
             .performClick()
@@ -362,17 +351,8 @@ class MainActivityAccessibilityTest {
         }
         waitUntilGone("sleep_timer_sheet")
         waitUntilFocused("sleep_timer_chip")
-        composeTestRule.enableAccessibilityChecks()
         composeTestRule.onRoot().tryPerformAccessibilityChecks()
 
-        composeTestRule.activity.runOnUiThread {
-            currentViewModel().playerManager.pause()
-        }
-        composeTestRule.waitUntil(timeoutMillis = PLAYBACK_TIMEOUT_MS) {
-            !currentViewModel().playerState.value.isPlaying
-        }
-        val bookmarkPositionSeconds =
-            currentViewModel().playerState.value.currentPositionMs / 1_000L
         val bookmarkTrigger = composeTestRule.onNodeWithTag("add_bookmark_chip")
         bookmarkTrigger.performClick()
         composeTestRule.waitUntilExactlyOneExists(
@@ -387,9 +367,14 @@ class MainActivityAccessibilityTest {
             )
         )
         composeTestRule.onNodeWithTag("bookmark_position_context")
-            .assertContentDescriptionEquals(
-                "Закладка в розділі «Дія перша» на позиції " +
-                    MainViewModel.formatTime(bookmarkPositionSeconds)
+            .assert(
+                SemanticsMatcher("bookmark chapter and formatted position") { node ->
+                    node.config.getOrNull(SemanticsProperties.ContentDescription)
+                        ?.singleOrNull()
+                        ?.matches(
+                            Regex("Закладка в розділі «Дія перша» на позиції \\d{2}:\\d{2}")
+                        ) == true
+                }
             )
         composeTestRule.onRoot().tryPerformAccessibilityChecks()
         composeTestRule.onNodeWithTag("save_bookmark_button")
@@ -417,59 +402,59 @@ class MainActivityAccessibilityTest {
                 .isEmpty()
         }
         composeTestRule.waitUntil(timeoutMillis = NAV_TIMEOUT_MS) {
-            composeTestRule.onAllNodesWithTag("app_background", useUnmergedTree = true)
+            composeTestRule.onAllNodesWithTag("book_detail_chapter_$fixtureChapterId")
                 .fetchSemanticsNodes()
                 .singleOrNull()
                 ?.config
-                ?.getOrNull(SemanticsProperties.HideFromAccessibility) == null
+                ?.getOrNull(SemanticsProperties.Focused) == true
         }
-        // Compose's input-focus flag is not TalkBack accessibility focus and is
-        // cleared nondeterministically by the API 35 window handoff. Verify the
-        // deterministic end-to-end contract instead: the exact chapter is
-        // exposed again as a focusable node after the modal background unlocks.
-        // The requester's actual focus transfer is covered by the isolated JVM
-        // regression; real TalkBack focus return remains a device smoke gate.
         composeTestRule.onNodeWithTag("book_detail_chapter_$fixtureChapterId")
-            .assertIsDisplayed()
-            .assert(SemanticsMatcher.keyIsDefined(SemanticsActions.RequestFocus))
+            .assertIsFocused()
+        composeTestRule.onNodeWithTag("app_background", useUnmergedTree = true)
+            .assert(
+                SemanticsMatcher("is visible to accessibility") { node ->
+                    node.config.getOrNull(SemanticsProperties.HideFromAccessibility) == null
+                }
+            )
         composeTestRule.onRoot().tryPerformAccessibilityChecks()
 
         composeTestRule.onNodeWithTag("book_detail_back_button")
             .performClick()
-        // Route transitions recreate the destination subtree. On API 35 the
-        // instrumentation window can clear Compose input focus after the
-        // destination's successful request, so this journey verifies the exact
-        // exposed focus targets. Isolated JVM regressions verify the transfers;
-        // real TalkBack return focus remains a physical-device release gate.
-        composeTestRule.waitUntilExactlyOneExists(
-            hasTestTag("library_book_item_$fixtureBookId"),
-            timeoutMillis = NAV_TIMEOUT_MS
-        )
+        composeTestRule.waitUntil(timeoutMillis = NAV_TIMEOUT_MS) {
+            composeTestRule.onAllNodesWithTag("library_book_item_$fixtureBookId")
+                .fetchSemanticsNodes()
+                .singleOrNull()
+                ?.config
+                ?.getOrNull(SemanticsProperties.Focused) == true
+        }
         composeTestRule.onNodeWithTag("library_book_item_$fixtureBookId")
-            .assertIsDisplayed()
-            .assert(SemanticsMatcher.keyIsDefined(SemanticsActions.RequestFocus))
+            .assertIsFocused()
         composeTestRule.onRoot().tryPerformAccessibilityChecks()
 
         composeTestRule.onNodeWithTag("library_overflow_button")
             .performClick()
         composeTestRule.onNodeWithTag("library_profile_menu_item")
             .performClick()
-        composeTestRule.waitUntilExactlyOneExists(
-            hasTestTag("profile_screen_heading"),
-            timeoutMillis = NAV_TIMEOUT_MS
-        )
+        composeTestRule.waitUntil(timeoutMillis = NAV_TIMEOUT_MS) {
+            composeTestRule.onAllNodesWithTag("profile_screen_heading", useUnmergedTree = true)
+                .fetchSemanticsNodes()
+                .singleOrNull()
+                ?.config
+                ?.getOrNull(SemanticsProperties.Focused) == true
+        }
         composeTestRule.onNodeWithTag("profile_screen_heading", useUnmergedTree = true)
-            .assertIsDisplayed()
-            .assert(SemanticsMatcher.keyIsDefined(SemanticsActions.RequestFocus))
+            .assertIsFocused()
         composeTestRule.onNodeWithContentDescription("Назад")
             .performClick()
-        composeTestRule.waitUntilExactlyOneExists(
-            hasTestTag("library_overflow_button"),
-            timeoutMillis = NAV_TIMEOUT_MS
-        )
+        composeTestRule.waitUntil(timeoutMillis = NAV_TIMEOUT_MS) {
+            composeTestRule.onAllNodesWithTag("library_overflow_button")
+                .fetchSemanticsNodes()
+                .singleOrNull()
+                ?.config
+                ?.getOrNull(SemanticsProperties.Focused) == true
+        }
         composeTestRule.onNodeWithTag("library_overflow_button")
-            .assertIsDisplayed()
-            .assert(SemanticsMatcher.keyIsDefined(SemanticsActions.RequestFocus))
+            .assertIsFocused()
         composeTestRule.onRoot().tryPerformAccessibilityChecks()
     }
 

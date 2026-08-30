@@ -65,6 +65,7 @@ import com.slukhayka.audiobooks.data.identity.ListenerIdentity
 import com.slukhayka.audiobooks.data.identity.ListenerProfile
 import com.slukhayka.audiobooks.data.diagnostics.CrashConsent
 import com.slukhayka.audiobooks.data.diagnostics.CrashReporting
+import com.slukhayka.audiobooks.data.identity.RecoveryCodeAvailability
 import com.slukhayka.audiobooks.data.listening.ProgressSyncSettingsStore
 import com.slukhayka.audiobooks.ui.components.accessibilityPane
 import com.slukhayka.audiobooks.ui.components.accessibilityModalBackground
@@ -354,13 +355,24 @@ private fun RecoverySection(
     var restoreFailed by remember { mutableStateOf(false) }
     var confirmRestore by remember { mutableStateOf(false) }
     var shouldRestoreFocus by remember { mutableStateOf(false) }
+    var recoveryAvailability by remember(identity) {
+        mutableStateOf<RecoveryCodeAvailability?>(null)
+    }
     val restoreFocusRequester = remember { FocusRequester() }
     val dialogFocusRequester = remember { FocusRequester() }
 
     val biometricUnavailable = stringResource(R.string.profile_biometric_unavailable)
     val recoveryUnavailable = stringResource(R.string.profile_recovery_unavailable)
+    val recoveryFirebaseNotConfigured =
+        stringResource(R.string.profile_recovery_firebase_not_configured)
     val biometricTitle = stringResource(R.string.profile_biometric_title)
     val biometricSubtitle = stringResource(R.string.profile_biometric_subtitle)
+    val restoreUnavailable =
+        recoveryAvailability == RecoveryCodeAvailability.FirebaseNotConfigured
+
+    LaunchedEffect(identity) {
+        recoveryAvailability = identity.recoveryCodeAvailability()
+    }
 
     LaunchedEffect(confirmRestore) {
         if (!confirmRestore && shouldRestoreFocus) {
@@ -391,11 +403,22 @@ private fun RecoverySection(
             object : BiometricPrompt.AuthenticationCallback() {
                 override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
                     scope.launch {
-                        recoveryCode = identity.recoveryCode()
-                        if (recoveryCode == null) {
-                            biometricError = recoveryUnavailable
-                        } else {
-                            biometricError = null
+                        when (val availability = identity.recoveryCodeAvailability()) {
+                            is RecoveryCodeAvailability.Available -> {
+                                recoveryAvailability = availability
+                                recoveryCode = availability.code
+                                biometricError = null
+                            }
+                            RecoveryCodeAvailability.FirebaseNotConfigured -> {
+                                recoveryAvailability = availability
+                                recoveryCode = null
+                                biometricError = recoveryFirebaseNotConfigured
+                            }
+                            RecoveryCodeAvailability.AccountNotLinked -> {
+                                recoveryAvailability = availability
+                                recoveryCode = null
+                                biometricError = recoveryUnavailable
+                            }
                         }
                     }
                 }
@@ -443,6 +466,7 @@ private fun RecoverySection(
                 copyNotice = null
             },
             shape = RoundedCornerShape(AppDimens.RadiusCard),
+            enabled = recoveryAvailability != null,
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(min = 48.dp)
@@ -520,6 +544,17 @@ private fun RecoverySection(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+        if (restoreUnavailable) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = recoveryFirebaseNotConfigured,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier
+                    .testTag("profile_restore_unavailable")
+                    .semantics { liveRegion = LiveRegionMode.Polite }
+            )
+        }
         Spacer(modifier = Modifier.height(8.dp))
         OutlinedTextField(
             value = restoreDraft,
@@ -529,6 +564,7 @@ private fun RecoverySection(
                 restoreFailed = false
             },
             label = { Text(stringResource(R.string.profile_restore_field_label)) },
+            enabled = recoveryAvailability != null && !restoreUnavailable,
             singleLine = true,
             isError = restoreFailed,
             modifier = Modifier
@@ -542,7 +578,9 @@ private fun RecoverySection(
                 confirmRestore = true
                 onDialogVisibilityChange(true)
             },
-            enabled = restoreDraft.isNotBlank(),
+            enabled = restoreDraft.isNotBlank() &&
+                recoveryAvailability != null &&
+                !restoreUnavailable,
             colors = ButtonDefaults.buttonColors(
                 containerColor = MaterialTheme.colorScheme.error,
                 contentColor = MaterialTheme.colorScheme.onError

@@ -36,6 +36,7 @@ data class BookRow(
     val createdAt: Long = 0L,
     val isFavorite: Boolean = false,
     val downloadProgress: Float = 0f,
+    val downloadState: String = DownloadState.IDLE,
     // Nullable: the LEFT JOIN yields NULL for a book without a Works row.
     val mergeKey: String? = null,
     val workId: String? = null
@@ -64,6 +65,7 @@ data class BookRow(
         it.createdAt = createdAt
         it.isFavorite = isFavorite
         it.downloadProgress = downloadProgress
+        it.downloadState = downloadState
         it.mergeKey = mergeKey ?: ""
         it.workId = workId
     }
@@ -92,6 +94,7 @@ fun AudiobookEntity.toBookRow(): BookRow = BookRow(
     createdAt = createdAt,
     isFavorite = isFavorite,
     downloadProgress = downloadProgress,
+    downloadState = downloadState,
     mergeKey = mergeKey,
     workId = workId
 )

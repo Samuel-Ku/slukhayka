@@ -40,13 +40,16 @@ fun BookListScreen(
     errorMessage: String? = null,
     restoreFocusBookId: String? = null,
     onBookFocusRestored: (String) -> Unit = {},
-    listState: LazyListState = rememberLazyListState()
+    listState: LazyListState = rememberLazyListState(),
+    // #400 — optional action slot in the TopAppBar (e.g. person bookmark button)
+    headerAction: @Composable () -> Unit = {}
 ) {
     val returnFocusRequester = remember { FocusRequester() }
 
     IndexScreenScaffold(
         title = title,
-        onBackClick = onBackClick
+        onBackClick = onBackClick,
+        actions = headerAction
     ) { padding ->
         LaunchedEffect(restoreFocusBookId, books, isLoading, errorMessage) {
             val bookId = restoreFocusBookId ?: return@LaunchedEffect

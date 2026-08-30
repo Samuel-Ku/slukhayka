@@ -83,6 +83,12 @@ binding.
 - Firebase deployment prerequisites: Email/Password AND Anonymous providers
   enabled; App Check enforcement unchanged (writes already require a valid
   token).
+- The release workflow restores `app/src/release/google-services.json` from
+  the `GOOGLE_SERVICES_RELEASE_JSON_BASE64` repository secret and fails before
+  building when it is absent. A local debug build without
+  `app/src/debug/google-services.json` remains deliberately local-only and the
+  profile screen identifies that limitation instead of promising that a
+  network retry will create a recovery code.
 
 ## Considered options
 

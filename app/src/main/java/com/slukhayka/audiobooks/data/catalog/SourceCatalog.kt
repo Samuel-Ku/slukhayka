@@ -2,6 +2,9 @@ package com.slukhayka.audiobooks.data.catalog
 
 import android.util.Log
 import androidx.paging.PagingSource
+import com.slukhayka.audiobooks.data.authors.AuthorIndex
+import com.slukhayka.audiobooks.data.authors.AuthorSummary
+import com.slukhayka.audiobooks.data.authors.RoomAuthorIndex
 import com.slukhayka.audiobooks.data.EditionId
 import com.slukhayka.audiobooks.data.db.AudiobookDao
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
@@ -12,9 +15,10 @@ import com.slukhayka.audiobooks.data.db.SourceTrackEntity
 import com.slukhayka.audiobooks.data.db.WorkEntity
 import com.slukhayka.audiobooks.data.db.WorkFeedRow
 import com.slukhayka.audiobooks.data.db.WorkSourceEntity
-import com.slukhayka.audiobooks.data.imports.LibraryImport
-import com.slukhayka.audiobooks.data.merge.MergeKey
-import com.slukhayka.audiobooks.data.metadata.MetadataAssertions
+import com.slukhayka.audiobooks.data.metadata.FacetPageLimits
+import com.slukhayka.audiobooks.data.metadata.SharedBookMetaStore
+import com.slukhayka.audiobooks.data.facets.FacetDeltaSync
+import com.slukhayka.audiobooks.data.facets.FacetSyncCursorStore
 import com.slukhayka.audiobooks.data.facets.GenreFacetAssertion
 import com.slukhayka.audiobooks.data.facets.GenreSourceFacetReplacement
 import com.slukhayka.audiobooks.data.facets.LocalFacetDelta
@@ -22,6 +26,10 @@ import com.slukhayka.audiobooks.data.facets.LocalFacetWriter
 import com.slukhayka.audiobooks.data.facets.RoomLocalFacetWriter
 import com.slukhayka.audiobooks.data.facets.WorkFacetDelta
 import com.slukhayka.audiobooks.data.facets.WorkFacetFilter
+import com.slukhayka.audiobooks.data.imports.LibraryImport
+import com.slukhayka.audiobooks.data.merge.MergeKey
+import com.slukhayka.audiobooks.data.metadata.EditionDurationPolicy
+import com.slukhayka.audiobooks.data.metadata.MetadataAssertions
 import com.slukhayka.audiobooks.data.metadata.SearchCoverResolver
 import com.slukhayka.audiobooks.data.metadata.SearchDurationResolver
 import com.slukhayka.audiobooks.data.search.SearchCache
@@ -101,13 +109,41 @@ class SourceCatalog(
     // generation, which is exactly why the feed's filters looked dead while
     // the catalogue kept syncing. Identity by default; the composition root
     // supplies the real Room withTransaction.
-    private val writeBatchRunner: suspend (suspend () -> Unit) -> Unit = { it() }
+    private val writeBatchRunner: suspend (suspend () -> Unit) -> Unit = { it() },
+    private val sharedFacetStore: SharedBookMetaStore? = null,
+    private val facetSyncCursorStore: FacetSyncCursorStore? = null,
+    private val facetSyncNowMillis: () -> Long = System::currentTimeMillis
 ) {
     /** Frozen local-write seam consumed by the later shared delta lane. */
     val facetWriter: LocalFacetWriter = RoomLocalFacetWriter(dao)
 
+    private val facetDeltaSync: FacetDeltaSync? =
+        if (sharedFacetStore != null && facetSyncCursorStore != null) {
+            FacetDeltaSync(sharedFacetStore, facetWriter, facetSyncCursorStore, facetSyncNowMillis)
+        } else {
+            null
+        }
+
+    /** One bounded chain per active Огляд composition; all interactions remain local. */
+    suspend fun syncSharedFacets(
+        pageSize: Int = FacetPageLimits.MAX_PAGE_SIZE,
+        maxPages: Int = 20
+    ): FacetDeltaSync.ChainResult =
+        facetDeltaSync?.syncAvailablePages(pageSize, maxPages) ?: FacetDeltaSync.ChainResult(0, 0)
+
     /** Bounded local options for the filter sheet; never a Work materialization. */
     val genreFacetOptions = dao.observeGenreFacetOptions()
+
+    /** Canonical cross-Source author read model; provider people pages never own it. */
+    private val authorIndex: AuthorIndex = RoomAuthorIndex(dao)
+    val authors = authorIndex.authors
+
+    suspend fun searchAuthors(query: String, limit: Int = AuthorIndex.DEFAULT_SEARCH_LIMIT): List<AuthorSummary> =
+        authorIndex.search(query, limit)
+
+    suspend fun authorWorks(authorId: String): List<WorkEntity> = authorIndex.works(authorId)
+
+    suspend fun authorForWork(workId: String): AuthorSummary? = authorIndex.authorForWork(workId)
 
     private val fourReadAdapter: SourceAdapter =
         sourceAdapters.firstOrNull { it.sourceId == SourceIds.FOUR_READ } ?: FourReadAdapter()
@@ -813,7 +849,7 @@ class SourceCatalog(
                 seriesIndex = seriesIndex,
                 coverImageUrl = coverImageUrl,
                 addedAt = System.currentTimeMillis()
-            ).also { dao.upsertWork(it) }
+            )
         } else {
             val id = "w-$sourceId-${stableIdOf(sourceUrl)}"
             WorkEntity(
@@ -825,23 +861,31 @@ class SourceCatalog(
                 seriesIndex = seriesIndex,
                 coverImageUrl = coverImageUrl,
                 addedAt = System.currentTimeMillis()
-            ).also { dao.upsertWork(it) }
+            )
         }
         val workSourceId = "${work.id}|$sourceId|${stableIdOf(sourceUrl)}"
+        // Every persisted Work immediately participates in the canonical
+        // cross-Source author index. This is idempotent and entirely local.
+        authorIndex.indexWorks(listOf(work), sourceId)
         val sourceAlreadyKnown = dao.getWorkSourcesForWorkSync(work.id).any { it.id == workSourceId }
-        dao.upsertWorkWithSource(
-            work,
-            WorkSourceEntity(
-                id = workSourceId,
-                workId = work.id,
-                sourceId = sourceId,
-                sourceUrl = sourceUrl,
-                streamOnly = streamOnly,
-                coverImageUrl = coverImageUrl,
-                durationSeconds = durationSeconds,
-                addedAt = System.currentTimeMillis()
-            )
+        val workSource = WorkSourceEntity(
+            id = workSourceId,
+            workId = work.id,
+            sourceId = sourceId,
+            sourceUrl = sourceUrl,
+            streamOnly = streamOnly,
+            coverImageUrl = coverImageUrl,
+            durationSeconds = durationSeconds,
+            addedAt = System.currentTimeMillis()
         )
+        // #388 — use safe/transactional upsert. If the Work was just
+        // created, both rows are written atomically; if it already
+        // existed, a missing parent (race/tombstone) degrades gracefully.
+        if (existing == null) {
+            dao.upsertWorkWithSource(work, workSource)
+        } else {
+            dao.safeUpsertWorkSource(workSource)
+        }
         if (genreTexts != null) {
             val facetObservedAt = System.currentTimeMillis()
             facetWriter.apply(
@@ -993,29 +1037,55 @@ class SourceCatalog(
     // ---------------------------------------------------------------------
 
     /** Endless feed, newest Works first. */
-    fun pagedWorkFeedRecent(filter: WorkFacetFilter = WorkFacetFilter()): PagingSource<Int, WorkFeedRow> =
+    fun pagedWorkFeedRecent(
+        filter: WorkFacetFilter = WorkFacetFilter(),
+        availabilityAtMillis: Long = System.currentTimeMillis()
+    ): PagingSource<Int, WorkFeedRow> =
         dao.pagedWorksFeedRecent(
             filter.genreIds.toList(), if (filter.genreIds.isEmpty()) 0 else 1,
             filter.durationBucketIds.toList(), if (filter.durationBucketIds.isEmpty()) 0 else 1,
-            filter.authorIds.toList(), if (filter.authorIds.isEmpty()) 0 else 1
+            filter.authorIds.toList(), if (filter.authorIds.isEmpty()) 0 else 1,
+            availabilityAtMillis
         )
 
     /** Endless feed, sorted by title (stable tiebreak: newest first). */
-    fun pagedWorkFeedByTitle(filter: WorkFacetFilter = WorkFacetFilter()): PagingSource<Int, WorkFeedRow> =
+    fun pagedWorkFeedByTitle(
+        filter: WorkFacetFilter = WorkFacetFilter(),
+        availabilityAtMillis: Long = System.currentTimeMillis()
+    ): PagingSource<Int, WorkFeedRow> =
         dao.pagedWorksFeedByTitle(
             filter.genreIds.toList(), if (filter.genreIds.isEmpty()) 0 else 1,
             filter.durationBucketIds.toList(), if (filter.durationBucketIds.isEmpty()) 0 else 1,
-            filter.authorIds.toList(), if (filter.authorIds.isEmpty()) 0 else 1
+            filter.authorIds.toList(), if (filter.authorIds.isEmpty()) 0 else 1,
+            availabilityAtMillis
         )
 
-    /** The Sources carrying one Work, in the shared capability order. */
-    suspend fun workSourcesForWork(workId: String): List<WorkSourceEntity> {
+    /** The Sources carrying one Work, in capability order then duration context. */
+    suspend fun workSourcesForWork(
+        workId: String,
+        preferredDurationBucketIds: Set<String> = emptySet()
+    ): List<WorkSourceEntity> {
         val sources = dao.getWorkSourcesForWorkSync(workId)
+        val durationOrdered = if (preferredDurationBucketIds.isEmpty()) sources else sources.withIndex()
+            .sortedWith(
+                compareByDescending<IndexedValue<WorkSourceEntity>> { indexed ->
+                    indexed.value.durationSeconds
+                        ?.let(EditionDurationPolicy::bucketFor)
+                        ?.wireName in preferredDurationBucketIds
+                }.thenBy { it.index }
+            )
+            .map { it.value }
         return SourceAccessPolicy.order(
-            sources.map { SourceAccessCandidate(it.sourceId, sourceDisplayName(it.sourceId), it.sourceUrl) }
+            durationOrdered.map { SourceAccessCandidate(it.sourceId, sourceDisplayName(it.sourceId), it.sourceUrl) }
         ).mapNotNull { candidate ->
-            sources.firstOrNull { it.sourceId == candidate.sourceId && it.sourceUrl == candidate.url }
+            durationOrdered.firstOrNull { it.sourceId == candidate.sourceId && it.sourceUrl == candidate.url }
         }
+    }
+
+    /** Resolves an already imported rendition without collapsing its sibling Editions. */
+    suspend fun libraryBookForEdition(editionId: String?): AudiobookEntity? {
+        val edition = editionId?.let { dao.getEditionById(it) } ?: return null
+        return dao.getAudiobookById(edition.workId)?.toAudiobookEntity()
     }
 
     /**

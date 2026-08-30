@@ -6,8 +6,11 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.slukhayka.audiobooks.data.duration.DurationBuckets
 import com.slukhayka.audiobooks.data.facets.FacetIdentity
 import com.slukhayka.audiobooks.data.facets.GenreIdentity
+import com.slukhayka.audiobooks.data.metadata.DurationSanity
+import com.slukhayka.audiobooks.data.metadata.EditionDurationPolicy
 
 @Database(
     entities = [
@@ -40,9 +43,10 @@ import com.slukhayka.audiobooks.data.facets.GenreIdentity
         GenreAssertionEntity::class,
         EditionFacetEntity::class,
         AuthorFacetEntity::class,
-        AuthorAliasEntity::class
+        AuthorAliasEntity::class,
+        PersonBookmarkEntity::class
     ],
-    version = 22,
+    version = 24,
     exportSchema = true
 )
 abstract class AudiobookDatabase : RoomDatabase() {
@@ -66,7 +70,7 @@ abstract class AudiobookDatabase : RoomDatabase() {
                     // upgrades, so a schema change fails loudly at runtime
                     // instead of silently dropping the database.
                     .addMigrations(
-                        MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22
+                        MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24
                     )
                     .build()
                 INSTANCE = instance
@@ -1064,13 +1068,69 @@ abstract class AudiobookDatabase : RoomDatabase() {
             }
         }
 
+        /** #392 — downloadState for Library Entry (IDLE default). */
+        internal val MIGRATION_22_23 = object : Migration(22, 23) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE library_entries ADD COLUMN downloadState TEXT NOT NULL DEFAULT 'IDLE'")
+            }
+        }
+
+        /**
+         * #399 — person-bookmarks foundation: create the `person_bookmarks`
+         * table and add `editions.addedAt` (backfilling existing rows with the
+         * current timestamp so every known Edition starts as 'seen'). The new
+         * table is additive — no existing row is touched, so the migration is
+         * trivially safe on any v23 database.
+         */
+        internal val MIGRATION_23_24 = object : Migration(23, 24) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // New table: person bookmarks (kind + id composite PK).
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS person_bookmarks (
+                        kind TEXT NOT NULL,
+                        id TEXT NOT NULL,
+                        displayName TEXT NOT NULL,
+                        normalizedName TEXT NOT NULL,
+                        createdAt INTEGER NOT NULL,
+                        lastSeenAt INTEGER NOT NULL DEFAULT 0,
+                        lastNotifiedAt INTEGER NOT NULL DEFAULT 0,
+                        notifyEnabled INTEGER NOT NULL DEFAULT 1,
+                        updatedAt INTEGER NOT NULL,
+                        PRIMARY KEY(kind, id)
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_person_bookmarks_normalizedName ON person_bookmarks(normalizedName)")
+                // Add editions.addedAt (backfill existing rows with now).
+                db.execSQL("ALTER TABLE editions ADD COLUMN addedAt INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("UPDATE editions SET addedAt = (strftime('%s','now') * 1000) WHERE addedAt = 0")
+            }
+        }
+
         /** Public for the migration acceptance test; replay is idempotent. */
         internal fun backfillFacetProjections(db: SupportSQLiteDatabase) {
             db.execSQL(
                 "INSERT OR IGNORE INTO edition_facets (editionId, workId, narratorId, language, durationSeconds, durationBucketId, chapterCount, isAbridged, availabilityAvailable, availabilityObservedAtMillis, availabilityTtlSeconds, updatedAt) " +
-                    "SELECT e.id, COALESCE(le.workId, e.workId), NULL, NULLIF(e.language, ''), CASE WHEN e.totalDurationSeconds > 0 THEN e.totalDurationSeconds ELSE NULL END, NULL, CASE WHEN e.totalChapters > 0 THEN e.totalChapters ELSE NULL END, NULL, NULL, NULL, NULL, 0 " +
-                    "FROM editions e LEFT JOIN library_entries le ON le.id=e.workId"
+                    "SELECT e.id, COALESCE(le.workId, e.workId), NULL, NULLIF(e.language, ''), " +
+                    "CASE WHEN e.totalDurationSeconds > 0 AND e.totalDurationSeconds != ? AND e.totalDurationSeconds <= ? THEN e.totalDurationSeconds ELSE NULL END, " +
+                    "NULL, CASE WHEN e.totalChapters > 0 THEN e.totalChapters ELSE NULL END, NULL, NULL, NULL, NULL, 0 " +
+                    "FROM editions e LEFT JOIN library_entries le ON le.id=e.workId",
+                arrayOf(DurationBuckets.FABRICATED_LEGACY_SECONDS, DurationSanity.MAX_PLAUSIBLE_SECONDS)
             )
+            EditionDurationPolicy.buckets.forEach { bucket ->
+                val secondsRange = EditionDurationPolicy.secondsRangeFor(bucket)
+                db.execSQL(
+                    "UPDATE edition_facets SET durationBucketId=? " +
+                        "WHERE durationBucketId IS NULL AND durationSeconds BETWEEN ? AND ? AND durationSeconds != ?",
+                    arrayOf<Any>(
+                        bucket.wireName,
+                        secondsRange.first,
+                        secondsRange.last,
+                        DurationBuckets.FABRICATED_LEGACY_SECONDS
+                    )
+                )
+            }
             db.query("SELECT id, author FROM works").use { cursor ->
                 while (cursor.moveToNext()) {
                     val workId = cursor.getString(0)

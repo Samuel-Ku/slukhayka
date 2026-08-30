@@ -967,7 +967,13 @@ class AudioPlayerManagerTest {
 
             assertEquals("no heal retry", 1, engine.prepareCount)
             assertEquals(1, manager.playbackMetrics.failures())
-            assertTrue(manager.playerState.value.lastErrorMsg.contains("Primary stream error"))
+            // Issue #381: the failure text is a Ukrainian resource now —
+            // the typed kind is the stable contract, not the wording.
+            assertEquals(
+                PlaybackErrorKind.TRANSIENT,
+                manager.playerState.value.errorKind
+            )
+            assertTrue(manager.playerState.value.lastErrorMsg.isNotBlank())
         }
 
     @Test

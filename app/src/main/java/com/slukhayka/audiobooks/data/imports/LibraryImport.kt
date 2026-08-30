@@ -4,6 +4,8 @@ import android.content.Context
 import android.net.Uri
 import android.util.Log
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.data.authors.AuthorIndex
+import com.slukhayka.audiobooks.data.authors.RoomAuthorIndex
 import com.slukhayka.audiobooks.data.EditionId
 import com.slukhayka.audiobooks.data.HASH_BUFFER_SIZE
 import com.slukhayka.audiobooks.data.contentHashOf
@@ -73,6 +75,7 @@ class LibraryImport(
     // before. Best-effort by contract — a failing write never breaks import.
     private val profileStore: SharedBookMetaStore? = null
 ) {
+    private val authorIndex: AuthorIndex = RoomAuthorIndex(dao)
 
     // ---------------------------------------------------------------------
     // Door 1 + 2 core: the shared import path (explicit + captured pages)
@@ -195,6 +198,7 @@ class LibraryImport(
                 } else {
                     bookId
                 }
+                dao.getWorkById(workId)?.let { work -> authorIndex.indexWorks(listOf(work), sourceId) }
                 dao.upsertLibraryEntry(
                     id = bookId,
                     workId = workId,
@@ -751,7 +755,7 @@ class LibraryImport(
         // Only when the guarded insert actually landed: the Works + Library
         // Entry rows are written alongside (ADR-0009), so a tombstoned Work
         // gains nothing — not even a browse-row that could resurrect it.
-        return if (dao.getAudiobookById(book.id) != null) {
+        return if (dao.hasAudiobookRow(book.id)) {
             ensureWorkAndEntry(book, book.id)
             // The JOINed projection carries the series the Works row now holds
             // (and the entry's createdAt/favorite), so callers get a fully
@@ -792,6 +796,12 @@ class LibraryImport(
             null
         }
         val workId = work?.id ?: bookId
+        dao.getWorkById(workId)?.let { work ->
+            authorIndex.indexWorks(
+                listOf(work),
+                sourceId = book.url.takeIf(String::isNotBlank)?.let(::sourceIdForUrl) ?: "catalog-union"
+            )
+        }
         dao.upsertLibraryEntry(
             id = bookId,
             workId = workId,
@@ -799,10 +809,11 @@ class LibraryImport(
             createdAt = System.currentTimeMillis(),
             downloadProgress = 0f
         )
-        if (work != null && book.url.isNotBlank()) {
+        // #388 — blank-key books have no Works row (workId == bookId), so
+        // a work_source would violate the FK (workId → works.id). Skip it.
+        if (mergeKey.isNotBlank() && workId.isNotBlank() && book.url.isNotBlank()) {
             val sourceId = sourceIdForUrl(book.url)
-            dao.upsertWorkWithSource(
-                work,
+            dao.safeUpsertWorkSource(
                 WorkSourceEntity(
                     id = "$workId|$sourceId|${Integer.toHexString(book.url.hashCode())}",
                     workId = workId,

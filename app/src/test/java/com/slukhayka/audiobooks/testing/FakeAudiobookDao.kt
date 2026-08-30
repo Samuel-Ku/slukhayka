@@ -36,6 +36,8 @@ import com.slukhayka.audiobooks.data.db.GenreFacetOption
 import com.slukhayka.audiobooks.data.db.EditionFacetEntity
 import com.slukhayka.audiobooks.data.db.AuthorFacetEntity
 import com.slukhayka.audiobooks.data.db.AuthorAliasEntity
+import com.slukhayka.audiobooks.data.db.PersonBookmarkEntity
+import com.slukhayka.audiobooks.data.authors.AuthorSummary
 import androidx.paging.PagingSource
 import androidx.paging.PagingState
 import kotlinx.coroutines.flow.Flow
@@ -96,6 +98,7 @@ class FakeAudiobookDao(
     private val editionFacetsState = MutableStateFlow(emptyList<EditionFacetEntity>())
     private val authorFacetsState = MutableStateFlow(emptyList<AuthorFacetEntity>())
     private val authorAliasesState = MutableStateFlow(emptyList<AuthorAliasEntity>())
+    private val personBookmarksState = MutableStateFlow(emptyList<PersonBookmarkEntity>())
 
     /** Snapshot of the recorded playback failures, for assertions. */
     val savedFailures: List<PlaybackFailureEntity> get() = failuresState.value
@@ -126,6 +129,9 @@ class FakeAudiobookDao(
 
     /** Snapshot of the persisted correction memory, for assertions. */
     val savedCorrections: List<CorrectionEntity> get() = correctionsState.value
+
+    /** Snapshot of the persisted person bookmarks, for assertions. */
+    val savedPersonBookmarks: List<PersonBookmarkEntity> get() = personBookmarksState.value
 
     /** Snapshot of the persisted library-entry rows (ADR-0009), for assertions. */
     val savedLibraryEntries: List<LibraryEntryEntity> get() = libraryEntriesState.value
@@ -188,6 +194,20 @@ class FakeAudiobookDao(
                     createdAt = System.currentTimeMillis(), downloadProgress = progress
                 )
             }
+        }
+    }
+
+    override suspend fun updateDownloadStateValue(bookId: String, state: String) {
+        booksState.update { current ->
+            current.map { book ->
+                if (book.id == bookId) {
+                    book.downloadState = state
+                    book
+                } else book
+            }
+        }
+        libraryEntriesState.update { current ->
+            current.map { if (it.id == bookId) it.copy(downloadState = state) else it }
         }
     }
 
@@ -435,7 +455,7 @@ class FakeAudiobookDao(
 
     // --- Domain Editions (ADR-0007) ---------------------------------------
 
-    override suspend fun insertEdition(edition: EditionEntity) {
+    override suspend fun replaceEdition(edition: EditionEntity) {
         editionsState.update { current -> current.filterNot { it.id == edition.id } + edition }
     }
 
@@ -503,6 +523,9 @@ class FakeAudiobookDao(
             .filter { it.isNotBlank() }
             .distinct()
 
+    override suspend fun hasAudiobookRow(bookId: String): Boolean =
+        booksState.value.any { it.id == bookId }
+
     override suspend fun updateSourceFingerprint(sourceId: String, fingerprint: String?) {
         sourcesState.update { current ->
             current.map { source ->
@@ -567,7 +590,8 @@ class FakeAudiobookDao(
         workId: String,
         isFavorite: Boolean,
         createdAt: Long,
-        downloadProgress: Float
+        downloadProgress: Float,
+        downloadState: String
     ) {
         libraryEntriesState.update { current ->
             val existing = current.firstOrNull { it.id == id }
@@ -575,12 +599,12 @@ class FakeAudiobookDao(
                 // True upsert: only the link and progress update on an
                 // existing row (isFavorite/createdAt never reset on re-sync).
                 current.map {
-                    if (it.id == id) it.copy(workId = workId, downloadProgress = downloadProgress) else it
+                    if (it.id == id) it.copy(workId = workId, downloadProgress = downloadProgress, downloadState = downloadState) else it
                 }
             } else {
                 current + LibraryEntryEntity(
                     id = id, workId = workId, isFavorite = isFavorite,
-                    createdAt = createdAt, downloadProgress = downloadProgress
+                    createdAt = createdAt, downloadProgress = downloadProgress, downloadState = downloadState
                 )
             }
         }
@@ -784,6 +808,17 @@ class FakeAudiobookDao(
         workSourcesState.update { current -> current.filterNot { it.id == workSource.id } + workSource }
     }
 
+    override suspend fun upsertWorkWithSource(work: WorkEntity, workSource: WorkSourceEntity) {
+        upsertWork(work)
+        upsertWorkSource(workSource)
+    }
+
+    override suspend fun safeUpsertWorkSource(workSource: WorkSourceEntity): Boolean {
+        if (worksState.value.none { it.id == workSource.workId }) return false
+        upsertWorkSource(workSource)
+        return true
+    }
+
     // --- Spec-25 (#171): the universe resolution cache ---------------------
 
     override suspend fun upsertUniverse(universe: UniverseEntity) {
@@ -861,10 +896,20 @@ class FakeAudiobookDao(
 
     override suspend fun countWorkSources(): Int = workSourcesState.value.size
 
-    override fun pagedWorksFeedRecent(genreIds: List<String>, genreActive: Int, durationBucketIds: List<String>, durationActive: Int, authorIds: List<String>, authorActive: Int): PagingSource<Int, WorkFeedRow> =
+    override fun pagedWorksFeedRecent(
+        genreIds: List<String>, genreActive: Int,
+        durationBucketIds: List<String>, durationActive: Int,
+        authorIds: List<String>, authorActive: Int,
+        availabilityAtMillis: Long
+    ): PagingSource<Int, WorkFeedRow> =
         fakeFeed(genreIds, genreActive, durationBucketIds, durationActive, authorIds, authorActive, sortByTitle = false)
 
-    override fun pagedWorksFeedByTitle(genreIds: List<String>, genreActive: Int, durationBucketIds: List<String>, durationActive: Int, authorIds: List<String>, authorActive: Int): PagingSource<Int, WorkFeedRow> =
+    override fun pagedWorksFeedByTitle(
+        genreIds: List<String>, genreActive: Int,
+        durationBucketIds: List<String>, durationActive: Int,
+        authorIds: List<String>, authorActive: Int,
+        availabilityAtMillis: Long
+    ): PagingSource<Int, WorkFeedRow> =
         fakeFeed(genreIds, genreActive, durationBucketIds, durationActive, authorIds, authorActive, sortByTitle = true)
 
     /** In-memory PagingSource over the same state the fake DAO owns. */
@@ -933,7 +978,11 @@ class FakeAudiobookDao(
         val current = workFacetsState.value.firstOrNull { it.workId == workId }
         val merged = WorkFacetEntity(
             workId,
-            authorId ?: current?.canonicalAuthorId,
+            when {
+                current?.canonicalAuthorId == null -> authorId
+                authorId != null && updatedAt > current.updatedAt -> authorId
+                else -> current.canonicalAuthorId
+            },
             maxOf(updatedAt, current?.updatedAt ?: 0)
         )
         workFacetsState.update { rows -> rows.filterNot { it.workId == workId } + merged }
@@ -1000,12 +1049,68 @@ class FakeAudiobookDao(
         editionFacetsState.update { rows -> rows.filterNot { it.editionId == editionId } + merged }
     }
 
-    override suspend fun upsertAuthorFacets(rows: List<AuthorFacetEntity>) {
-        authorFacetsState.update { current -> (current.filterNot { old -> rows.any { it.id == old.id } } + rows) }
+    override suspend fun mergeAuthorFacet(id: String, displayName: String, normalizedName: String, updatedAt: Long) {
+        authorFacetsState.update { current ->
+            val old = current.firstOrNull { it.id == id }
+            val merged = if (old == null || updatedAt > old.updatedAt) {
+                AuthorFacetEntity(id, displayName, normalizedName, updatedAt)
+            } else {
+                old
+            }
+            current.filterNot { it.id == id } + merged
+        }
     }
 
     override suspend fun insertAuthorAliases(rows: List<AuthorAliasEntity>) {
         authorAliasesState.update { current -> (current + rows).distinctBy { Triple(it.authorId, it.normalizedAlias, it.sourceId) } }
+    }
+
+    override fun observeAuthorIndex(): Flow<List<AuthorSummary>> =
+        combine(authorFacetsState, workFacetsState) { authors, workFacets ->
+            authors.mapNotNull { author ->
+                val count = workFacets.count { it.canonicalAuthorId == author.id }
+                author.takeIf { count > 0 }?.let {
+                    AuthorSummary(it.id, it.displayName, it.normalizedName, count)
+                }
+            }.sortedWith(compareBy(AuthorSummary::normalizedName, AuthorSummary::id))
+        }
+
+    override suspend fun searchAuthors(
+        lowerBound: String,
+        upperBound: String,
+        limit: Int
+    ): List<AuthorSummary> {
+        val matchingIds = authorAliasesState.value
+            .filter { it.normalizedAlias >= lowerBound && it.normalizedAlias < upperBound }
+            .map { it.authorId }
+            .toSet()
+        return authorFacetsState.value.mapNotNull { author ->
+            val count = workFacetsState.value.count { it.canonicalAuthorId == author.id }
+            author.takeIf { it.id in matchingIds && count > 0 }?.let {
+                AuthorSummary(it.id, it.displayName, it.normalizedName, count)
+            }
+        }.sortedWith(compareBy(AuthorSummary::normalizedName, AuthorSummary::id)).take(limit)
+    }
+
+    override suspend fun worksForAuthor(authorId: String): List<WorkEntity> {
+        val ids = workFacetsState.value.filter { it.canonicalAuthorId == authorId }.map { it.workId }.toSet()
+        return worksState.value.filter { it.id in ids }.sortedWith(compareBy(WorkEntity::title, WorkEntity::id))
+    }
+
+    override suspend fun authorForWork(workId: String): AuthorSummary? {
+        val authorId = workFacetsState.value.firstOrNull { it.workId == workId }?.canonicalAuthorId ?: return null
+        val author = authorFacetsState.value.firstOrNull { it.id == authorId } ?: return null
+        return AuthorSummary(
+            author.id,
+            author.displayName,
+            author.normalizedName,
+            workFacetsState.value.count { it.canonicalAuthorId == authorId }
+        )
+    }
+
+    override suspend fun worksMissingCanonicalAuthor(limit: Int): List<WorkEntity> {
+        val indexed = workFacetsState.value.filter { it.canonicalAuthorId != null }.map { it.workId }.toSet()
+        return worksState.value.filterNot { it.id in indexed }.sortedBy(WorkEntity::id).take(limit)
     }
 
     override fun observeGenreFacetOptions(): Flow<List<GenreFacetOption>> =
@@ -1021,4 +1126,48 @@ class FakeAudiobookDao(
 
     override suspend fun genreAssertionsForWork(workId: String): List<GenreAssertionEntity> =
         genreAssertionsState.value.filter { it.workId == workId }.sortedBy { it.id }
+
+    // --- Person Bookmarks (#399) ------------------------------------------
+
+    override fun getPersonBookmarksByKind(kind: String): Flow<List<PersonBookmarkEntity>> =
+        personBookmarksState.map { bookmarks ->
+            bookmarks.filter { it.kind == kind }.sortedByDescending { it.createdAt }
+        }
+
+    override fun getAllPersonBookmarks(): Flow<List<PersonBookmarkEntity>> =
+        personBookmarksState.map { bookmarks -> bookmarks.sortedByDescending { it.createdAt } }
+
+    override suspend fun getPersonBookmark(kind: String, id: String): PersonBookmarkEntity? =
+        personBookmarksState.value.firstOrNull { it.kind == kind && it.id == id }
+
+    override fun observePersonBookmark(kind: String, id: String): Flow<PersonBookmarkEntity?> =
+        personBookmarksState.map { bookmarks -> bookmarks.firstOrNull { it.kind == kind && it.id == id } }
+
+    override suspend fun upsertPersonBookmark(bookmark: PersonBookmarkEntity) {
+        personBookmarksState.update { current ->
+            current.filterNot { it.kind == bookmark.kind && it.id == bookmark.id } + bookmark
+        }
+    }
+
+    override suspend fun deletePersonBookmark(kind: String, id: String) {
+        personBookmarksState.update { current -> current.filterNot { it.kind == kind && it.id == id } }
+    }
+
+    override suspend fun updatePersonBookmarkNotifyEnabled(kind: String, id: String, enabled: Boolean, updatedAt: Long) {
+        personBookmarksState.update { current ->
+            current.map { if (it.kind == kind && it.id == id) it.copy(notifyEnabled = enabled, updatedAt = updatedAt) else it }
+        }
+    }
+
+    override suspend fun updatePersonBookmarkLastSeen(kind: String, id: String, lastSeenAt: Long, updatedAt: Long) {
+        personBookmarksState.update { current ->
+            current.map { if (it.kind == kind && it.id == id) it.copy(lastSeenAt = lastSeenAt, updatedAt = updatedAt) else it }
+        }
+    }
+
+    override suspend fun updatePersonBookmarkLastNotified(kind: String, id: String, lastNotifiedAt: Long) {
+        personBookmarksState.update { current ->
+            current.map { if (it.kind == kind && it.id == id) it.copy(lastNotifiedAt = lastNotifiedAt) else it }
+        }
+    }
 }

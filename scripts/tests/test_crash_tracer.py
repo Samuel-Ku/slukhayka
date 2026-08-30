@@ -1,9 +1,11 @@
 import unittest
+import dataclasses
 
 from scripts.crash_tracer import (
     FakeIssuePublisher,
     SanitizationError,
     normalize_group,
+    group_from_projection,
     publish_group,
 )
 
@@ -76,6 +78,17 @@ class CrashTracerTest(unittest.TestCase):
         })
         self.assertIn("LOW_MEMORY", group.issue_body)
         self.assertNotIn("trace", group.issue_body.lower())
+
+    def test_downstream_rechecks_the_sanitized_artifact_and_fingerprint(self):
+        projection = dataclasses.asdict(normalize_group(fatal_payload()))
+
+        rebuilt = group_from_projection(projection)
+
+        self.assertEqual(projection["fingerprint"], rebuilt.fingerprint)
+        self.assertEqual("background", rebuilt.context["app_visibility"])
+        projection["context"]["app_visibility"] = "secret"
+        with self.assertRaises(SanitizationError):
+            group_from_projection(projection)
 
 
 if __name__ == "__main__":

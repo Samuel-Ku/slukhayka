@@ -50,6 +50,7 @@ class SanitizedGroup:
     affected_install_count: int
     event_count: int
     details: dict[str, Any]
+    context: dict[str, Any]
 
     @property
     def marker(self) -> str:
@@ -208,7 +209,34 @@ def normalize_group(payload: Any) -> SanitizedGroup:
     # must update the existing Issue rather than producing a new marker.
     fingerprint_source = {"event_type": event_type, "details": details}
     fingerprint = hashlib.sha256(json.dumps(fingerprint_source, sort_keys=True, separators=(",", ":")).encode()).hexdigest()[:20]
-    return SanitizedGroup(fingerprint, event_type, version, shared["affected_install_count"], shared["event_count"], details)
+    return SanitizedGroup(
+        fingerprint, event_type, version, shared["affected_install_count"],
+        shared["event_count"], details, shared["context"]
+    )
+
+
+def group_from_projection(value: Any) -> SanitizedGroup:
+    """Re-check a sanitized collect artifact before another trust zone uses it."""
+    fields = _exact_mapping(
+        value,
+        {"fingerprint", "event_type", "app_version", "affected_install_count", "event_count", "details", "context"},
+        "sanitized group",
+    )
+    event_type = fields["event_type"]
+    if event_type not in EVENT_FIELDS:
+        raise SanitizationError("sanitized group has an unknown event type")
+    payload: dict[str, Any] = {
+        "event_type": event_type,
+        "app_version": fields["app_version"],
+        "affected_install_count": fields["affected_install_count"],
+        "event_count": fields["event_count"],
+        "context": fields["context"],
+    }
+    payload["exception" if event_type in {"fatal", "anr"} else "exit"] = fields["details"]
+    group = normalize_group(payload)
+    if fields["fingerprint"] != group.fingerprint:
+        raise SanitizationError("sanitized group fingerprint does not match its contents")
+    return group
 
 
 def publish_group(group: SanitizedGroup, publisher: IssuePublisher) -> PublishResult:

@@ -186,7 +186,7 @@ def collect(reader: CrashlyticsV1AlphaReader) -> tuple[list[SanitizedGroup], int
             groups[group.fingerprint] = SanitizedGroup(
                 fingerprint=group.fingerprint, event_type=group.event_type, app_version=group.app_version,
                 affected_install_count=previous.affected_install_count + 1,
-                event_count=previous.event_count + 1, details=group.details,
+                event_count=previous.event_count + 1, details=group.details, context=group.context,
             )
     return list(groups.values()), rejected
 

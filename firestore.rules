@@ -390,5 +390,26 @@ service cloud.firestore {
         && isWellFormedListeningState(request.resource.data);
       allow delete: if false;
     }
+
+    // #404 — private, owner-only person bookmarks. The server timestamp is
+    // the sole LWW clock; documents never become public catalogue data.
+    function isWellFormedPersonBookmark(d) {
+      return d.keys().hasOnly(['uid', 'kind', 'personId', 'displayName', 'notifyEnabled', 'updatedAt'])
+        && d.uid is string && d.uid.size() > 0
+        && (d.kind == 'AUTHOR' || d.kind == 'NARRATOR')
+        && d.personId is string && d.personId.size() > 0 && d.personId.size() <= 300
+        && d.displayName is string && d.displayName.size() > 0 && d.displayName.size() <= 200
+        && d.notifyEnabled is bool
+        && d.updatedAt == request.time;
+    }
+    match /person_bookmarks/{document} {
+      allow read: if isAppCheckValid() && request.auth != null && resource.data.uid == request.auth.uid;
+      allow create: if isAppCheckValid() && request.auth != null
+        && request.resource.data.uid == request.auth.uid && isWellFormedPersonBookmark(request.resource.data);
+      allow update: if isAppCheckValid() && request.auth != null
+        && resource.data.uid == request.auth.uid && request.resource.data.uid == request.auth.uid
+        && isWellFormedPersonBookmark(request.resource.data);
+      allow delete: if isAppCheckValid() && request.auth != null && resource.data.uid == request.auth.uid;
+    }
   }
 }

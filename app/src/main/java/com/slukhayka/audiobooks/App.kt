@@ -49,6 +49,8 @@ import com.slukhayka.audiobooks.data.metadata.SearchDurationResolver
 import com.slukhayka.audiobooks.data.metadata.StoredMetadataScrub
 import com.slukhayka.audiobooks.data.personbookmarks.PersonBookmarks
 import com.slukhayka.audiobooks.data.personbookmarks.PeopleNewArrivalWorker
+import com.slukhayka.audiobooks.data.personbookmarks.FirestorePersonBookmarksSyncStore
+import com.slukhayka.audiobooks.data.personbookmarks.PersonBookmarksSyncController
 import com.slukhayka.audiobooks.data.reviews.FirestoreListenerReviewsStore
 import com.slukhayka.audiobooks.data.reviews.FirestoreNarrationRatingsStore
 import com.slukhayka.audiobooks.data.recommend.RecommendationSettingsStore
@@ -143,6 +145,10 @@ class App : Application() {
 
     /** #399 — process-scoped local person-bookmark module. */
     val personBookmarks: PersonBookmarks by lazy { PersonBookmarks(audiobookDao) }
+
+    private val personBookmarksSync by lazy {
+        PersonBookmarksSyncController(personBookmarks, listenerIdentity, FirestorePersonBookmarksSyncStore.create(this))
+    }
 
     /** #290 — local personalization controls; shared upload is not part of this graph. */
     val recommendationSettings: RecommendationSettingsStore by lazy {
@@ -579,6 +585,7 @@ class App : Application() {
         crashReporting.start()
         unexpectedExitReporter.inspectLatest()
         PeopleNewArrivalWorker.schedule(this)
+        CoroutineScope(Dispatchers.IO).launch { personBookmarksSync.sync() }
         // Spec-38 T1 (#253): install the persisted privacy route BEFORE any
         // module can touch the network, and warm the real system WebView
         // User-Agent off the main thread (it initialises the WebView engine;

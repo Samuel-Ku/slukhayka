@@ -137,14 +137,21 @@ class PersonBookmarksSyncControllerTest {
         val controller = PersonBookmarksSyncController(bookmarks, identity, store, pending)
         // Simulate unavailable Firestore for the initial explicit removal.
         val offlineStore = object : PersonBookmarksSyncStore by store {
-            override suspend fun delete(documentId: String) = false
+            override suspend fun remove(uid: String, kind: String, personId: String) = false
         }
         val offlineController = PersonBookmarksSyncController(bookmarks, identity, offlineStore, pending)
 
+        // The local source of truth removes the bookmark before its best-effort
+        // cloud mutation is queued. A stale remote response must not add it
+        // back while that removal is still pending.
+        assertTrue(bookmarks.toggle(person, nowMs = 100L))
+        assertFalse(bookmarks.toggle(person, nowMs = 101L))
+        assertEquals(null, database.audiobookDao().getPersonBookmark(person.role.storageValue, person.id))
         offlineController.remove(person.role.storageValue, person.id)
+        assertTrue(pending.keys().contains(person.role.storageValue to person.id))
         controller.sync()
 
-        assertTrue(bookmarks.allBookmarks().first().isEmpty())
+        assertEquals(null, database.audiobookDao().getPersonBookmark(person.role.storageValue, person.id))
         assertTrue(store.deletes.contains(documentId))
         assertTrue(pending.keys().isEmpty())
     }

@@ -57,32 +57,36 @@ object PersonNewArrivals {
     ): CatalogProjection {
         val detected = detect(bookmarks, works, editions)
         val worksById = works.associateBy { it.id }
-        val keys = linkedSetOf<PersonBookmarkKey>()
-        val workMergeKeys = linkedSetOf<String>()
+        val keysByWorkMergeKey = linkedMapOf<String, MutableSet<PersonBookmarkKey>>()
+
+        fun add(key: String, bookmarkKey: PersonBookmarkKey) {
+            keysByWorkMergeKey.getOrPut(key) { linkedSetOf() } += bookmarkKey
+        }
 
         detected.workIds.forEach { workId ->
             worksById[workId]?.let { work ->
-                workMergeKeys += work.mergeKey.ifBlank { work.id }
-                keys += PersonBookmarkKey(
+                add(work.mergeKey.ifBlank { work.id }, PersonBookmarkKey(
                     PersonRole.AUTHOR,
                     PersonIdentity.from(PersonRole.AUTHOR, work.author).id
-                )
+                ))
             }
         }
         detected.editionIds.forEach { editionId ->
             editions.firstOrNull { it.id == editionId }?.let { edition ->
                 worksById[edition.workId]?.let { work ->
-                    workMergeKeys += work.mergeKey.ifBlank { work.id }
+                    add(work.mergeKey.ifBlank { work.id }, PersonBookmarkKey(
+                        PersonRole.NARRATOR,
+                        PersonIdentity.from(PersonRole.NARRATOR, edition.narrator).id
+                    ))
                 }
-                keys += PersonBookmarkKey(
-                    PersonRole.NARRATOR,
-                    PersonIdentity.from(PersonRole.NARRATOR, edition.narrator).id
-                )
             }
         }
+        val results = unifiedCatalog.filter { it.key in keysByWorkMergeKey }.distinctBy { it.key }
         return CatalogProjection(
-            results = unifiedCatalog.filter { it.key in workMergeKeys }.distinctBy { it.key },
-            bookmarkKeys = keys
+            results = results,
+            // The header/badge action means “seen what the shelf showed”, not
+            // every detected row that was absent from this catalog projection.
+            bookmarkKeys = results.flatMapTo(linkedSetOf()) { keysByWorkMergeKey.getValue(it.key) }
         )
     }
 }

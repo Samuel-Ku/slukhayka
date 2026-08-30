@@ -1,6 +1,10 @@
 name: Crash diagnostics collect
 
 on:
+  schedule:
+    # #417: one controlled weekly entry point; manual dispatch remains for
+    # urgent validation of the same read-only collection boundary.
+    - cron: '0 6 * * 5'
   workflow_dispatch:
     inputs:
       dry_run:

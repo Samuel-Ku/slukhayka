@@ -9,19 +9,23 @@ import kotlinx.coroutines.flow.first
 class PersonBookmarksSyncController(
     private val bookmarks: PersonBookmarks,
     private val identity: ListenerIdentity,
-    private val store: PersonBookmarksSyncStore?
+    private val store: PersonBookmarksSyncStore?,
+    private val pendingDeletes: PendingPersonBookmarkDeletes = NoopPendingPersonBookmarkDeletes
 ) {
     suspend fun remove(kind: String, personId: String) {
-        val remote = store ?: return
-        val uid = cloudUid() ?: return
-        remote.remove(uid, kind, personId)
+        // Persist before the best-effort network call: a remote document must
+        // not resurrect after an offline local removal and later sync.
+        pendingDeletes.add(kind, personId)
+        deleteQueuedRemovals(cloudUid())
     }
 
     suspend fun sync() {
         val remote = store ?: return
         val uid = cloudUid() ?: return
+        val deletedKeys = pendingDeletes.keys()
+        deleteQueuedRemovals(uid)
         val local = bookmarks.allBookmarks().first()
-        val remoteRows = remote.pull(uid)
+        val remoteRows = remote.pull(uid).filterNot { (it.kind to it.personId) in deletedKeys }
         val remoteByKey = remoteRows.associateBy { it.kind to it.personId }
         for (row in remoteRows) {
             val existing = local.firstOrNull { it.kind == row.kind && it.id == row.personId }
@@ -45,4 +49,12 @@ class PersonBookmarksSyncController(
 
     private suspend fun cloudUid(): String? = runCatching { identity.ensure().uid }.getOrNull()
         ?.takeUnless { it.startsWith(LocalOnlyIdentity.LOCAL_UID_PREFIX) }
+
+    private suspend fun deleteQueuedRemovals(uid: String?) {
+        val remote = store ?: return
+        val cloudUid = uid ?: return
+        pendingDeletes.keys().forEach { (kind, personId) ->
+            if (remote.remove(cloudUid, kind, personId)) pendingDeletes.remove(kind, personId)
+        }
+    }
 }

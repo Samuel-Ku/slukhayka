@@ -104,4 +104,10 @@ jobs:
       - name: Create or update every sanitized crash issue
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python3 scripts/crash_publish.py --input crash-queue.json --repo "${{ github.repository }}"
+        run: python3 scripts/crash_publish.py --input crash-queue.json --repo "${{ github.repository }}" --output crash-issues.json
+      - name: Upload public Issue mapping
+        uses: actions/upload-artifact@v4
+        with:
+          name: crash-public-issues
+          path: crash-issues.json
+          if-no-files-found: error

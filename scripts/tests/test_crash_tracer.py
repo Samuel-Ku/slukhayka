@@ -71,7 +71,7 @@ class CrashTracerTest(unittest.TestCase):
             "app_version": "1.3.8",
             "affected_install_count": 1,
             "event_count": 1,
-            "exit": {"reason": "LOW_MEMORY", "status": 0, "importance": "BACKGROUND", "rss_kb": 20, "pss_kb": 10, "android_api": 36},
+            "exit": {"reason": "LOW_MEMORY", "status": 0, "importance": "FOREGROUND_SERVICE", "rss_kb": 20, "pss_kb": 10, "android_api": 36},
             "context": {"app_visibility": "background", "playback_state": "playing", "playback_service": "started", "audio_origin": "remote", "cast_active": False},
         })
         self.assertIn("LOW_MEMORY", group.issue_body)

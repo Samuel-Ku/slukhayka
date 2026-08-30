@@ -38,8 +38,8 @@ EVENT_FIELDS = {
 FRAME = re.compile(r"^com\.slukhayka\.audiobooks\.[A-Za-z0-9_$.]+\([A-Za-z0-9_]+\.kt:[0-9]+\)$")
 EXCEPTION_TYPE = re.compile(r"^(?:[A-Za-z_][A-Za-z0-9_]*\.)+[A-Za-z_][A-Za-z0-9_]*$")
 VERSION = re.compile(r"^[0-9]+(?:\.[0-9]+){1,3}(?:[-+][A-Za-z0-9._-]+)?$")
-EXIT_REASONS = {"CRASH", "ANR", "LOW_MEMORY", "EXCESSIVE_RESOURCE", "DEPENDENCY_DIED"}
-IMPORTANCE = {"FOREGROUND", "BACKGROUND", "CACHED"}
+EXIT_REASONS = {"SIGNALED", "LOW_MEMORY", "EXCESSIVE_RESOURCE_USAGE", "DEPENDENCY_DIED"}
+IMPORTANCE = {"FOREGROUND", "FOREGROUND_SERVICE", "VISIBLE", "PERCEPTIBLE", "SERVICE", "CACHED", "GONE", "UNKNOWN"}
 
 
 @dataclasses.dataclass(frozen=True)

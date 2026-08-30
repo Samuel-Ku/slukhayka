@@ -12,6 +12,15 @@ on:
         required: false
         default: true
         type: boolean
+      implement:
+        description: 'Allow one proven crash Issue to propose a PR (requires dry_run=false)'
+        required: false
+        default: false
+        type: boolean
+      issue_number:
+        description: 'The one ready-for-agent crash Issue to implement'
+        required: false
+        type: string
 
 # #415 trust zone: the collector can read repository contents and mint an OIDC
 # token, but never gets GitHub Issues/PR write access or a model credential.
@@ -149,13 +158,119 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: crash-priority-queue
+      - uses: actions/download-artifact@v4
+        with:
+          name: crash-diagnoses
       - name: Create or update every sanitized crash issue
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python3 scripts/crash_publish.py --input crash-queue.json --repo "${{ github.repository }}" --output crash-issues.json
+        run: python3 scripts/crash_publish.py --input crash-queue.json --diagnoses crash-diagnoses.json --repo "${{ github.repository }}" --output crash-issues.json
       - name: Upload public Issue mapping
         uses: actions/upload-artifact@v4
         with:
           name: crash-public-issues
           path: crash-issues.json
           if-no-files-found: error
+
+  implementation:
+    needs: [publish, diagnose]
+    # #416 is deliberately opt-in. Scheduled collection/diagnosis can never
+    # create a branch or PR, and the requested issue must be ready in this run.
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run != true && inputs.implement == true && inputs.issue_number != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          name: crash-priority-queue
+      - uses: actions/download-artifact@v4
+        with:
+          name: crash-diagnoses
+      - uses: actions/download-artifact@v4
+        with:
+          name: crash-public-issues
+      - name: Select one verified implementation contract
+        run: |
+          python3 scripts/crash_implementation.py \
+            --queue crash-queue.json --diagnoses crash-diagnoses.json \
+            --issues crash-issues.json --issue "${{ inputs.issue_number }}" \
+            --output implementation-plan.json
+      - name: Require that the recorded red loop still fails
+        run: |
+          python3 - <<'PY'
+          import json
+          import subprocess
+          from scripts.crash_implementation import gate_contract
+
+          plan = json.load(open("implementation-plan.json", encoding="utf-8"))
+          verdict = gate_contract(plan["issue_number"], plan["contract"], False, subprocess.run)
+          if not verdict.allowed:
+              raise SystemExit("needs-triage: " + verdict.reason)
+          PY
+      - name: Refuse a duplicate crash branch or pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: codex/crash-${{ inputs.issue_number }}
+        run: |
+          test -z "$(gh pr list --repo "${{ github.repository }}" --head "$BRANCH" --state open --json number --jq '.[].number')" || exit 2
+          ! git ls-remote --exit-code --heads origin "refs/heads/$BRANCH"
+      - name: Require the dedicated implementation proxy
+        env:
+          PROXY_URL: ${{ vars.CRASH_DIAGNOSIS_PROXY_URL }}
+        run: test -n "$PROXY_URL"
+      - name: Mint an implementation-only OIDC token
+        env:
+          AUDIENCE: crash-implementation-proxy
+        run: |
+          token="$(curl --fail --silent --show-error \
+            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${AUDIENCE}" | jq --raw-output '.value')"
+          test -n "$token" && test "$token" != "null" || exit 2
+          echo "CRASH_DIAGNOSIS_OIDC_TOKEN=$token" >> "$GITHUB_ENV"
+      - name: Ask the isolated agent for the minimal fix only
+        env:
+          CRASH_DIAGNOSIS_PROXY_URL: ${{ vars.CRASH_DIAGNOSIS_PROXY_URL }}
+        run: |
+          opencode run --agent crash-implementation \
+            --model crash-diagnosis-proxy/glm-5.3-flash --format default \
+            --file implementation-plan.json \
+            "Implement only the verified crash contract in implementation-plan.json. Make the smallest fix and regression test. Do not modify workflow, OpenCode configuration, GitHub metadata, or scripts/crash*. Do not commit, push, create branches, or create a PR."
+      - name: Require a minimal diff and a green recorded regression test
+        run: |
+          if git diff --quiet; then
+            echo "needs-triage: implementation agent produced no fix" >&2
+            exit 2
+          fi
+          python3 - <<'PY'
+          import json
+          import shlex
+          import subprocess
+
+          plan = json.load(open("implementation-plan.json", encoding="utf-8"))
+          result = subprocess.run(shlex.split(plan["contract"]["red_command"]), shell=False, check=False)
+          if result.returncode != 0:
+              raise SystemExit("needs-triage: regression test is not green after the fix")
+          PY
+      - name: Create exactly one reviewable pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: codex/crash-${{ inputs.issue_number }}
+        run: |
+          git switch -c "$BRANCH"
+          git config user.name "slukhayka crash diagnostics"
+          git config user.email "noreply@github.com"
+          git add -A
+          git commit -m "fix(crash): #${{ inputs.issue_number }} proven regression"
+          git push origin "HEAD:$BRANCH"
+          gh pr create --repo "${{ github.repository }}" --base main --head "$BRANCH" \
+            --title "fix(crash): #${{ inputs.issue_number }} proven regression" \
+            --body "Fixes #${{ inputs.issue_number }}\n\nThe implementation job independently replayed the recorded red loop before editing and confirmed the same regression test is green afterward. No auto-merge, release, or deployment is requested."

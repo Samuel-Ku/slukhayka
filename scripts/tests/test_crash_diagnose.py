@@ -34,10 +34,11 @@ class CrashDiagnoseTest(unittest.TestCase):
                 return subprocess.CompletedProcess(args, 0, stdout=json.dumps(model_contract), stderr="")
             return subprocess.CompletedProcess(args, 1, stdout="", stderr="")
 
-        projection, verdict = diagnose(group(), run=run)
+        projection, verdict, contract = diagnose(group(), run=run)
 
         self.assertEqual(group()["fingerprint"], projection["fingerprint"])
         self.assertEqual("ready-for-agent", verdict.status)
+        self.assertEqual(model_contract, contract)
         self.assertEqual("opencode", invocations[0][0])
         self.assertNotIn("shell", invocations[0])
 
@@ -45,10 +46,11 @@ class CrashDiagnoseTest(unittest.TestCase):
         def run(args, **kwargs):
             return subprocess.CompletedProcess(args, 1, stdout="untrusted", stderr="untrusted")
 
-        projection, verdict = diagnose(group(), run=run)
+        projection, verdict, contract = diagnose(group(), run=run)
 
         self.assertEqual(group()["fingerprint"], projection["fingerprint"])
         self.assertEqual("needs-triage", verdict.status)
+        self.assertIsNone(contract)
 
 
 if __name__ == "__main__":

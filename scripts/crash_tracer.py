@@ -59,6 +59,9 @@ class SanitizedGroup:
 
     @property
     def issue_body(self) -> str:
+        return self.render_issue_body()
+
+    def render_issue_body(self, diagnosis_status: str = "needs-triage") -> str:
         lines = [
             self.marker,
             "## Безпечний діагностичний знімок",
@@ -81,7 +84,12 @@ class SanitizedGroup:
                 f"- RSS/PSS KiB: `{self.details['rss_kb']}/{self.details['pss_kb']}`",
                 f"- Android API: `{self.details['android_api']}`",
             ]
-        lines += ["", "## Статус діагностики", "Потрібен triage: група очищена, але причина ще не доведена."]
+        status = (
+            "Доведений red-loop передано окремому агенту для мінімального виправлення."
+            if diagnosis_status == "ready-for-agent"
+            else "Потрібен triage: група очищена, але причина ще не доведена."
+        )
+        lines += ["", "## Статус діагностики", status]
         return "\n".join(lines)
 
 
@@ -242,13 +250,15 @@ def group_from_projection(value: Any) -> SanitizedGroup:
     return dataclasses.replace(group, is_new_or_regressed=fields["is_new_or_regressed"])
 
 
-def publish_group(group: SanitizedGroup, publisher: IssuePublisher) -> PublishResult:
+def publish_group(group: SanitizedGroup, publisher: IssuePublisher, diagnosis_status: str = "needs-triage") -> PublishResult:
+    if diagnosis_status not in {"needs-triage", "ready-for-agent"}:
+        raise SanitizationError("unknown diagnosis status")
     existing = publisher.find_by_marker(group.marker)
-    labels = ["needs-triage"]
+    labels = [diagnosis_status]
     if existing is None:
-        created = publisher.create(f"[Crash] {group.event_type}: {group.fingerprint}", group.issue_body, labels)
+        created = publisher.create(f"[Crash] {group.event_type}: {group.fingerprint}", group.render_issue_body(diagnosis_status), labels)
         return PublishResult("created", created.number)
-    publisher.update(existing.number, group.issue_body, labels)
+    publisher.update(existing.number, group.render_issue_body(diagnosis_status), labels)
     return PublishResult("updated", existing.number)
 
 

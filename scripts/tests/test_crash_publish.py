@@ -38,6 +38,25 @@ class CrashPublishTest(unittest.TestCase):
         self.assertEqual("updated", result[0].action)
         self.assertEqual(1, len(publisher.issues))
 
+    def test_only_valid_selected_diagnosis_can_make_an_issue_ready(self):
+        publisher = FakeIssuePublisher()
+        selected, retained = group("fatal", "One"), group("fatal", "Two")
+        diagnosis = {
+            "diagnoses": [{
+                "fingerprint": selected["fingerprint"], "status": "ready-for-agent", "reason": "verified",
+                "contract": {
+                    "red_command": "python3 -m unittest ExampleTest", "red_exit_code": 1,
+                    "reproduction": "Fixture.", "hypotheses": ["A", "B", "C"], "evidence": ["Red."],
+                    "regression_test": "ExampleTest", "cleanup_plan": "Clean up.",
+                },
+            }]
+        }
+
+        publish_queue({"diagnose": [selected], "retained": [retained]}, publisher, diagnosis)
+
+        self.assertEqual(["ready-for-agent"], publisher.issues[0].labels)
+        self.assertEqual(["needs-triage"], publisher.issues[1].labels)
+
     def test_cli_writes_an_explicit_empty_public_issue_mapping(self):
         with tempfile.TemporaryDirectory() as directory:
             queue_path = f"{directory}/queue.json"

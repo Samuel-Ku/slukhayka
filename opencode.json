@@ -31,5 +31,23 @@
       "./gradlew :app:test*": "allow",
       "python3 -m unittest *": "allow"
     }
+  },
+  "agent": {
+    "crash-implementation": {
+      "description": "Minimal crash-fix agent; it cannot publish GitHub state.",
+      "permission": {
+        "edit": "allow",
+        "bash": {
+          "*": "deny",
+          "git status*": "allow",
+          "git diff*": "allow",
+          "rg *": "allow",
+          "sed *": "allow",
+          "find *": "allow",
+          "./gradlew :app:test*": "allow",
+          "python3 -m unittest *": "allow"
+        }
+      }
+    }
   }
 }

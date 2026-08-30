@@ -46,7 +46,9 @@ raw event, URL, session/installation id, headers чи trace.
 
 Diagnosis запускається окремо від collect і отримує лише sanitized artifact
 та checkout. Proxy для GLM-5.3-Flash має сам зберігати provider credential.
-Workflow і OpenCode не отримують reusable Z.ai key.
+Workflow і OpenCode не отримують reusable Z.ai key. Proxy мусить мати окремі
+OIDC audiences `crash-diagnosis-proxy` і `crash-implementation-proxy`: другий
+дозволений тільки для opt-in implementation job і не має доступу до Firebase.
 
 Перед увімкненням diagnosis додайте public URL proxy як
 `CRASH_DIAGNOSIS_PROXY_URL`. Proxy повинен приймати лише short-lived GitHub
@@ -56,7 +58,8 @@ Secret як заміну proxy.
 
 ## 4. Межа реалізації
 
-Навіть proven diagnosis не мержиться сам. Implementation run повторює
-зафіксовану red-команду, створює максимум один `codex/crash-<issue>` PR і
-залишає його на CI та людське рішення. Авто-merge, release і deployment тут
-не дозволені.
+Навіть proven diagnosis не мержиться сам. Щоб дозволити implementation run,
+вручну запустіть workflow з `dry_run=false`, `implement=true` і конкретним
+`issue_number`. Він повторює зафіксовану red-команду, створює максимум один
+`codex/crash-<issue>` PR і залишає його на CI та людське рішення. Auto-merge,
+release і deployment тут не дозволені.

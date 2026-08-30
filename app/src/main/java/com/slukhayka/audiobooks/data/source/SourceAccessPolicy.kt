@@ -45,4 +45,12 @@ object SourceAccessPolicy {
                 .thenBy { it.sourceId }
                 .thenBy { it.url }
         )
+
+    /**
+     * True when every source on a search card is browser-gated: the shared
+     * import budget can never fetch such a card, so the tap must surface the
+     * honest refusal with the explicit browser door instead of doing nothing.
+     */
+    fun needsBrowserImport(sourceIds: Collection<String>): Boolean =
+        sourceIds.isNotEmpty() && sourceIds.all { modeFor(it) == SourceAccessMode.BROWSER }
 }

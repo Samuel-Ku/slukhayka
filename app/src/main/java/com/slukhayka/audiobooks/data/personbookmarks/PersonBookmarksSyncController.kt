@@ -16,7 +16,9 @@ class PersonBookmarksSyncController(
         // Persist before the best-effort network call: a remote document must
         // not resurrect after an offline local removal and later sync.
         pendingDeletes.add(kind, personId)
-        deleteQueuedRemovals(cloudUid())
+        val remote = store ?: return
+        val uid = cloudUid() ?: return
+        flushPendingDelete(remote, uid, kind, personId)
     }
 
     suspend fun sync() {
@@ -54,7 +56,16 @@ class PersonBookmarksSyncController(
         val remote = store ?: return
         val cloudUid = uid ?: return
         pendingDeletes.keys().forEach { (kind, personId) ->
-            if (remote.remove(cloudUid, kind, personId)) pendingDeletes.remove(kind, personId)
+            flushPendingDelete(remote, cloudUid, kind, personId)
         }
+    }
+
+    private suspend fun flushPendingDelete(
+        remote: PersonBookmarksSyncStore,
+        uid: String,
+        kind: String,
+        personId: String
+    ) {
+        if (remote.remove(uid, kind, personId)) pendingDeletes.remove(kind, personId)
     }
 }

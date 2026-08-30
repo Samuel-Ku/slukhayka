@@ -83,7 +83,7 @@ class PeopleNewArrivalWorker(
                     .addAction(0, "Переглянути", pending)
                     .build()
             )
-            app.personBookmarks.markNotified(decision.bookmarkKeys, decision.count)
+            app.personBookmarks.markNotified(decision.notifiedCounts)
         }
     }
 }

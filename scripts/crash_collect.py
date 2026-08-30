@@ -49,9 +49,9 @@ def _positive_int(value: Any, name: str, maximum: int = 2**31 - 1) -> int:
     return result
 
 
-def _context(raw: Any) -> dict[str, Any]:
+def _context(raw: Any, extra_keys: set[str] | None = None) -> dict[str, Any]:
     values = _mapping(raw, "custom keys")
-    if set(values) != CONTEXT_KEYS:
+    if set(values) != CONTEXT_KEYS | (extra_keys or set()):
         raise CollectError("custom keys are not the reporting allowlist")
     cast_active = values["cast_active"]
     if cast_active == "true":
@@ -94,6 +94,17 @@ def _exception(raw: Any) -> dict[str, Any]:
     return {"type": exception_type, "frames": _frames(values.get("frames"))}
 
 
+def _unexpected_exit(values: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "reason": values["exit_reason"],
+        "status": _positive_int(values["exit_status"], "exit status"),
+        "importance": values["process_importance"],
+        "rss_kb": _positive_int(values["rss_kb"], "rss"),
+        "pss_kb": _positive_int(values["pss_kb"], "pss"),
+        "android_api": _positive_int(values["android_api"], "android api", 99),
+    }
+
+
 def event_to_group(event: Any) -> SanitizedGroup:
     """Project one Android FATAL/ANR event into the #412 synthetic contract.
 
@@ -105,19 +116,32 @@ def event_to_group(event: Any) -> SanitizedGroup:
         raise CollectError("only Android events are supported")
     issue = _mapping(source.get("issue"), "issue")
     version = _mapping(source.get("version"), "version")
-    event_type = {"FATAL": "fatal", "ANR": "anr"}.get(issue.get("errorType"))
-    if event_type is None:
-        raise CollectError("event is not an actionable fatal or ANR")
     exceptions = source.get("exceptions")
     if not isinstance(exceptions, list) or not exceptions:
         raise CollectError("event has no Android exception")
+    event_type = {"FATAL": "fatal", "ANR": "anr"}.get(issue.get("errorType"))
+    if event_type is not None:
+        return normalize_group({
+            "event_type": event_type,
+            "app_version": version.get("displayVersion"),
+            "affected_install_count": 1,
+            "event_count": 1,
+            "exception": _exception(exceptions[-1]),
+            "context": _context(source.get("customKeys")),
+        })
+    exception = _exception(exceptions[-1])
+    if issue.get("errorType") != "NON_FATAL" or exception["type"] != (
+        "com.slukhayka.audiobooks.data.diagnostics.UnexpectedPlaybackExit"
+    ):
+        raise CollectError("event is not an approved diagnostic type")
+    custom_keys = _mapping(source.get("customKeys"), "custom keys")
     return normalize_group({
-        "event_type": event_type,
+        "event_type": "unexpected_playback_exit",
         "app_version": version.get("displayVersion"),
         "affected_install_count": 1,
         "event_count": 1,
-        "exception": _exception(exceptions[-1]),
-        "context": _context(source.get("customKeys")),
+        "exit": _unexpected_exit(custom_keys),
+        "context": _context(custom_keys, EXIT_KEYS),
     })
 
 

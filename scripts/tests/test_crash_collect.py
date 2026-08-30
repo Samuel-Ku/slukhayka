@@ -54,6 +54,21 @@ class CrashCollectTest(unittest.TestCase):
         with self.assertRaises(CollectError):
             event_to_group(event(customKeys={"app_visibility": "background"}))
 
+    def test_projects_only_the_bounded_unexpected_playback_exit(self):
+        keys = dict(event()["customKeys"], **{
+            "exit_reason": "LOW_MEMORY", "exit_status": "0",
+            "process_importance": "FOREGROUND_SERVICE", "rss_kb": "24",
+            "pss_kb": "12", "app_version_code": "10308", "android_api": "36",
+        })
+        group = event_to_group(event(
+            issue={"errorType": "NON_FATAL"}, customKeys=keys,
+            exceptions=[{"type": "com.slukhayka.audiobooks.data.diagnostics.UnexpectedPlaybackExit", "frames": []}],
+        ))
+
+        self.assertEqual("unexpected_playback_exit", group.event_type)
+        self.assertEqual("LOW_MEMORY", group.details["reason"])
+        self.assertEqual("FOREGROUND_SERVICE", group.details["importance"])
+
 
 if __name__ == "__main__":
     unittest.main()

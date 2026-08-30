@@ -87,8 +87,53 @@ jobs:
           path: crash-queue.json
           if-no-files-found: error
 
-  publish:
+  diagnose:
     needs: queue
+    # The default manual dispatch proves only the read path. A maintainer must
+    # opt out of dry_run before any model call can occur.
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.dry_run != true }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # #414 trust zone: sanitized queue + public checkout + short-lived OIDC
+    # token only. This job cannot read Crashlytics or write GitHub state.
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: crash-priority-queue
+      - name: Require the dedicated diagnosis proxy
+        env:
+          PROXY_URL: ${{ vars.CRASH_DIAGNOSIS_PROXY_URL }}
+        run: |
+          test -n "$PROXY_URL" || {
+            echo "needs-triage: missing diagnosis proxy configuration" >&2
+            exit 2
+          }
+      - name: Mint an OIDC token only for the diagnosis proxy
+        env:
+          AUDIENCE: crash-diagnosis-proxy
+        run: |
+          token="$(curl --fail --silent --show-error \
+            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${AUDIENCE}" | jq --raw-output '.value')"
+          test -n "$token" && test "$token" != "null" || exit 2
+          echo "CRASH_DIAGNOSIS_OIDC_TOKEN=$token" >> "$GITHUB_ENV"
+      - name: Run at most three read-only OpenCode diagnoses
+        env:
+          CRASH_DIAGNOSIS_PROXY_URL: ${{ vars.CRASH_DIAGNOSIS_PROXY_URL }}
+        run: python3 scripts/crash_diagnose_batch.py --input crash-queue.json --output crash-diagnoses.json
+      - name: Upload bounded diagnosis statuses
+        uses: actions/upload-artifact@v4
+        with:
+          name: crash-diagnoses
+          path: crash-diagnoses.json
+          if-no-files-found: error
+
+  publish:
+    needs: [queue, diagnose]
     # A manually dispatched dry run exercises collection and queue validation
     # without granting the run a publication step. Scheduled runs publish.
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.dry_run != true }}

@@ -1,6 +1,17 @@
+import dataclasses
+import json
 import subprocess
 import unittest
-from scripts.crash_diagnosis import validate_diagnosis, verify_diagnosis_red_loop
+from scripts.crash_diagnosis import diagnosis_prompt, parse_model_diagnosis, validate_diagnosis, verify_diagnosis_red_loop
+from scripts.crash_tracer import normalize_group
+
+
+def safe_group():
+    return dataclasses.asdict(normalize_group({
+        "event_type": "fatal", "app_version": "1.3.0", "affected_install_count": 2, "event_count": 3,
+        "exception": {"type": "java.lang.IllegalStateException", "frames": []},
+        "context": {"app_visibility": "foreground", "playback_state": "playing", "playback_service": "started", "audio_origin": "remote", "cast_active": False},
+    }))
 
 
 def proven(**overrides):
@@ -43,6 +54,22 @@ class CrashDiagnosisTest(unittest.TestCase):
         green = lambda args, **kwargs: subprocess.CompletedProcess(args, returncode=0)
         self.assertEqual("needs-triage", verify_diagnosis_red_loop(proven(), run=green).status)
         self.assertEqual("needs-triage", verify_diagnosis_red_loop(proven(red_command="rm -rf x"), run=green).status)
+
+    def test_prompt_revalidates_the_allowlisted_group_and_never_accepts_prose(self):
+        group = safe_group()
+        prompt = diagnosis_prompt(group)
+
+        self.assertIn('"fingerprint": "' + group["fingerprint"], prompt)
+        self.assertNotIn("https://", prompt)
+        self.assertEqual(proven(), parse_model_diagnosis(json.dumps(proven())))
+        with self.assertRaises(ValueError):
+            parse_model_diagnosis("Here is the result: " + json.dumps(proven()))
+        with self.assertRaises(ValueError):
+            diagnosis_prompt({"raw_payload": "no"})
+
+    def test_contract_rejects_potential_pii_or_secret_like_model_text(self):
+        self.assertEqual("needs-triage", validate_diagnosis(proven(evidence=["email a@b.example"])).status)
+        self.assertEqual("needs-triage", validate_diagnosis(proven(reproduction="https://private.example")).status)
 
 
 if __name__ == "__main__":

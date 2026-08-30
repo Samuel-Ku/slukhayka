@@ -5,16 +5,63 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import json
+import re
 import shlex
 import subprocess
 from pathlib import Path
 from typing import Any
+
+from scripts.crash_tracer import SanitizationError, group_from_projection
 
 
 @dataclasses.dataclass(frozen=True)
 class DiagnosisVerdict:
     status: str  # ready-for-agent | needs-triage
     reason: str
+
+
+_MAX_TEXT = 800
+_FORBIDDEN_OUTPUT = re.compile(
+    r"(?:https?://|\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b|"
+    r"\b(?:AIza|gh[ps]_|github_pat_|ya29\.)[A-Za-z0-9._-]+)",
+    re.IGNORECASE,
+)
+
+
+def _is_bounded_text(value: Any) -> bool:
+    return isinstance(value, str) and bool(value.strip()) and len(value) <= _MAX_TEXT and not _FORBIDDEN_OUTPUT.search(value)
+
+
+def diagnosis_prompt(group: Any) -> str:
+    """Build the only model prompt from a revalidated sanitized projection."""
+    try:
+        safe_group = dataclasses.asdict(group_from_projection(group))
+    except (SanitizationError, TypeError, ValueError):
+        raise ValueError("group is not an allowlisted sanitized projection") from None
+    return """You are a read-only crash diagnosis agent. Diagnose only this sanitized JSON group:\n\n""" + json.dumps(
+        safe_group, sort_keys=True
+    ) + """\n\nReturn exactly one JSON object, with no Markdown or prose, using these exact keys:
+red_command, red_exit_code, reproduction, hypotheses, evidence, regression_test, cleanup_plan.
+You must propose 3–5 ranked, falsifiable hypotheses. `red_command` must be a
+safe deterministic test command (./gradlew :app:test... --tests <name> or
+python3 -m unittest ...), `red_exit_code` must be the non-zero code you
+actually observed, and `regression_test` must name that failing test. Do not
+include URLs, user data, credentials, raw crash data, or logs. You may inspect
+the public checkout but must not edit files, run commands, use the network, or
+change any GitHub state."""
+
+
+def parse_model_diagnosis(output: str) -> Any:
+    """Accept one JSON object only; prose around a model answer fails closed."""
+    if not isinstance(output, str) or len(output) > 20_000:
+        raise ValueError("malformed model output")
+    try:
+        value = json.loads(output)
+    except json.JSONDecodeError as error:
+        raise ValueError("model output must be exactly one JSON object") from error
+    if not isinstance(value, dict):
+        raise ValueError("model output must be an object")
+    return value
 
 
 def validate_diagnosis(value: Any) -> DiagnosisVerdict:
@@ -31,13 +78,13 @@ def validate_diagnosis(value: Any) -> DiagnosisVerdict:
         return DiagnosisVerdict("needs-triage", "unknown diagnosis field")
     command, reproduction, regression = value["red_command"], value["reproduction"], value["regression_test"]
     hypotheses, evidence, cleanup = value["hypotheses"], value["evidence"], value["cleanup_plan"]
-    if not all(isinstance(item, str) and item.strip() for item in (command, reproduction, regression, cleanup)):
+    if not all(_is_bounded_text(item) for item in (command, reproduction, regression, cleanup)):
         return DiagnosisVerdict("needs-triage", "missing reproducible evidence")
     if type(value["red_exit_code"]) is not int or value["red_exit_code"] == 0:
         return DiagnosisVerdict("needs-triage", "red command did not fail")
-    if not isinstance(hypotheses, list) or not 3 <= len(hypotheses) <= 5 or any(not isinstance(item, str) or not item.strip() for item in hypotheses):
+    if not isinstance(hypotheses, list) or not 3 <= len(hypotheses) <= 5 or any(not _is_bounded_text(item) for item in hypotheses):
         return DiagnosisVerdict("needs-triage", "hypotheses are not ranked and falsifiable")
-    if not isinstance(evidence, list) or not evidence or any(not isinstance(item, str) or not item.strip() for item in evidence):
+    if not isinstance(evidence, list) or not evidence or any(not _is_bounded_text(item) for item in evidence):
         return DiagnosisVerdict("needs-triage", "missing recorded evidence")
     return DiagnosisVerdict("ready-for-agent", "recorded red loop and regression contract")
 
@@ -90,8 +137,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args(argv)
     try:
-        verdict = verify_diagnosis_red_loop(json.loads(args.input.read_text(encoding="utf-8")))
-    except (OSError, json.JSONDecodeError):
+        verdict = verify_diagnosis_red_loop(parse_model_diagnosis(args.input.read_text(encoding="utf-8")))
+    except (OSError, ValueError):
         verdict = DiagnosisVerdict("needs-triage", "malformed diagnosis input")
     args.output.write_text(json.dumps(dataclasses.asdict(verdict), sort_keys=True), encoding="utf-8")
     print(json.dumps({"status": verdict.status, "reason": verdict.reason}))

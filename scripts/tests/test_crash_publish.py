@@ -1,7 +1,9 @@
 import dataclasses
+import json
+import tempfile
 import unittest
 
-from scripts.crash_publish import publish_queue
+from scripts.crash_publish import main, publish_queue
 from scripts.crash_tracer import FakeIssuePublisher, normalize_group
 
 
@@ -35,6 +37,16 @@ class CrashPublishTest(unittest.TestCase):
 
         self.assertEqual("updated", result[0].action)
         self.assertEqual(1, len(publisher.issues))
+
+    def test_cli_writes_an_explicit_empty_public_issue_mapping(self):
+        with tempfile.TemporaryDirectory() as directory:
+            queue_path = f"{directory}/queue.json"
+            output_path = f"{directory}/issues.json"
+            with open(queue_path, "w", encoding="utf-8") as stream:
+                json.dump({"diagnose": [], "retained": []}, stream)
+            self.assertEqual(0, main(["--input", queue_path, "--repo", "bad/repo", "--output", output_path]))
+            with open(output_path, encoding="utf-8") as stream:
+                self.assertEqual({"issues": []}, json.load(stream))
 
 
 if __name__ == "__main__":

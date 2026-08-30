@@ -159,7 +159,9 @@ jobs:
     needs: [queue, diagnose]
     # A manually dispatched dry run exercises collection and queue validation
     # without granting the run a publication step. Scheduled runs publish.
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.dry_run != true }}
+    # Queue success is enough to publish. A failed diagnosis zone must not
+    # hide all groups; it gets a bounded needs-triage fallback below.
+    if: ${{ always() && needs.queue.result == 'success' && (github.event_name != 'workflow_dispatch' || inputs.dry_run != true) }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     # This is the only group-publication boundary. It receives neither the
@@ -173,8 +175,16 @@ jobs:
         with:
           name: crash-priority-queue
       - uses: actions/download-artifact@v4
+        id: download-diagnoses
+        continue-on-error: true
         with:
           name: crash-diagnoses
+      - name: Retain visible triage when diagnosis did not publish an artifact
+        run: |
+          if ! test -f crash-diagnoses.json; then
+            python3 scripts/crash_diagnose_batch.py --input crash-queue.json --output crash-diagnoses.json \
+              --unavailable-reason "diagnosis job unavailable"
+          fi
       - name: Create or update every sanitized crash issue
         env:
           GH_TOKEN: ${{ github.token }}

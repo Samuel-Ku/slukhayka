@@ -87,7 +87,7 @@ def main(argv: list[str] | None = None) -> int:
              "issue_number": result.issue_number, "action": result.action}
             for group, result in zip(groups, results, strict=True)
         ]}, sort_keys=True), encoding="utf-8")
-        print(json.dumps({"created": sum(result.action == "created" for result in results), "updated": sum(result.action == "updated" for result in results)}))
+        print(json.dumps({"created": sum(result.action == "created" for result in results), "updated": sum(result.action == "updated" for result in results), "reopened": sum(result.action == "reopened" for result in results)}))
         return 0
     except (OSError, RuntimeError, json.JSONDecodeError, SanitizationError):
         print("needs-triage: crash publication rejected the queue")

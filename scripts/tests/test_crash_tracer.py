@@ -67,6 +67,26 @@ class CrashTracerTest(unittest.TestCase):
         self.assertEqual(["needs-triage"], publisher.issues[0].labels)
         self.assertIn("9", publisher.issues[0].body)
 
+    def test_only_a_newer_build_after_a_verified_merged_fix_reopens(self):
+        publisher = FakeIssuePublisher()
+        original = normalize_group(fatal_payload(app_version="1.3.7"))
+        publish_group(original, publisher)
+        issue = publisher.issues[0]
+        issue.state = "CLOSED"
+        issue.fixed_version = "1.3.7"
+        issue.fix_was_merged = True
+        issue.prior_pr_url = "https://github.com/Samuel-Ku/slukhayka/pull/99"
+
+        same = publish_group(normalize_group(fatal_payload(app_version="1.3.7", event_count=8)), publisher)
+        self.assertEqual("updated", same.action)
+        self.assertEqual("CLOSED", issue.state)
+
+        reopened = publish_group(normalize_group(fatal_payload(app_version="1.3.8", event_count=9)), publisher)
+        self.assertEqual("reopened", reopened.action)
+        self.assertEqual("OPEN", issue.state)
+        self.assertEqual(["needs-triage"], issue.labels)
+        self.assertIn("https://github.com/Samuel-Ku/slukhayka/pull/99", issue.body)
+
     def test_unexpected_exit_uses_typed_event_without_raw_trace(self):
         group = normalize_group({
             "event_type": "unexpected_playback_exit",

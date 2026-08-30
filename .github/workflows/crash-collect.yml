@@ -110,6 +110,11 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install the pinned non-interactive OpenCode CLI
+        run: npm install --global opencode-ai@1.18.25
       - uses: actions/download-artifact@v4
         with:
           name: crash-priority-queue
@@ -198,6 +203,11 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install the pinned non-interactive OpenCode CLI
+        run: npm install --global opencode-ai@1.18.25
       - uses: actions/download-artifact@v4
         with:
           name: crash-priority-queue

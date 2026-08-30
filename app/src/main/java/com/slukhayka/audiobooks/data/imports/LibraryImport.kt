@@ -550,27 +550,28 @@ class LibraryImport(
         val detail = parsed.withCapturedAudioUrls(capturedAudioUrls)
         if (detail.chapters.isEmpty()) return@withContext null
         if (detail.chapters.any { !it.streamUrl.isPlayableSourceUrl() }) return@withContext null
-        val source = dao.getSourcesForBookSync(bookId).firstOrNull { it.type == sourceId && it.url == url }
-            ?: dao.getSourcesForBookSync(bookId).firstOrNull { it.type == sourceId }
+        // Recovery is never a fuzzy source lookup. A same-type 4read page can
+        // be a different narration (or entirely different Work), and replacing
+        // its tracks would corrupt this Edition's progress and downloads.
+        val source = dao.getSourcesForBookSync(bookId)
+            .firstOrNull { it.type == sourceId && it.url == url }
             ?: return@withContext null
         val edition = dao.getEditionForWork(bookId)
+        val storedBook = dao.getAudiobookById(bookId)?.toAudiobookEntity() ?: return@withContext null
         if (edition != null && source.editionId != null && source.editionId != edition.id) {
             return@withContext null
         }
-        if (edition != null && edition.narrator.isNotBlank() && detail.narrator.isNotBlank() &&
-            !edition.narrator.equals(detail.narrator, ignoreCase = true)
-        ) {
-            return@withContext null
-        }
         val logicalChapters = dao.getChaptersListForBook(bookId).sortedBy { it.chapterIndex }
-        if (logicalChapters.size != detail.chapters.size || logicalChapters.indices.any { index ->
-                val storedTitle = logicalChapters[index].title.trim()
-                val capturedTitle = detail.chapters[index].title.trim()
-                storedTitle.isNotBlank() && capturedTitle.isNotBlank() &&
-                    !storedTitle.equals(capturedTitle, ignoreCase = true)
-            }) {
+        if (!RecoveryIdentityGuard.matches(
+                storedTitle = storedBook.title,
+                storedAuthor = storedBook.author,
+                storedNarrator = edition?.narrator.orEmpty(),
+                storedLanguage = edition?.language.orEmpty(),
+                storedChapterTitles = logicalChapters.map { it.title },
+                captured = detail
+            )) {
             // Same-count pages can still be reordered. Refuse the update rather
-            // than attaching a new URL to the wrong logical chapter.
+            // than attaching a new URL to the wrong Work, Edition or chapter.
             return@withContext null
         }
         val tracks = dao.getTracksForSourceSync(source.id).sortedBy { it.trackIndex }

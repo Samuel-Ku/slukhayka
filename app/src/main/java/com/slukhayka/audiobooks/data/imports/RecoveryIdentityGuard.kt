@@ -1,0 +1,35 @@
+package com.slukhayka.audiobooks.data.imports
+
+import com.slukhayka.audiobooks.data.merge.MergeKey
+import com.slukhayka.audiobooks.data.source.SourceBookDetail
+
+/**
+ * Pure fail-closed guard for browser recovery. A captured page may refresh
+ * tracks only when it proves it belongs to the stored Work and Edition.
+ */
+internal object RecoveryIdentityGuard {
+    fun matches(
+        storedTitle: String,
+        storedAuthor: String,
+        storedNarrator: String,
+        storedLanguage: String,
+        storedChapterTitles: List<String>,
+        captured: SourceBookDetail,
+        capturedLanguage: String = ""
+    ): Boolean {
+        if (MergeKey.keyFor(storedTitle, storedAuthor) != MergeKey.keyFor(captured.title, captured.author)) return false
+        if (storedNarrator.isNotBlank() && captured.narrator.isNotBlank() &&
+            !storedNarrator.trim().equals(captured.narrator.trim(), ignoreCase = true)
+        ) return false
+        // A source which declares a language must prove the captured page has
+        // the same one.  4read currently leaves it blank, so legacy blank rows
+        // continue to recover while a language-bearing Edition fails closed.
+        if (storedLanguage.isNotBlank() && !storedLanguage.trim().equals(capturedLanguage.trim(), ignoreCase = true)) return false
+        if (storedChapterTitles.size != captured.chapters.size) return false
+        return storedChapterTitles.indices.all { index ->
+            val expected = storedChapterTitles[index].trim()
+            val actual = captured.chapters[index].title.trim()
+            expected.isBlank() || actual.isNotBlank() && expected.equals(actual, ignoreCase = true)
+        }
+    }
+}

@@ -418,12 +418,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
             modifier = Modifier
                 .testTag("app_background")
                 .accessibilityModalBackground(
-                    modalVisible = fullPlayerModalActive || crashReportingState.shouldShowPrompt,
-                    // BookDetailScreen restores the exact chapter after the
-                    // player closes, so keep the root restorer out of that modal
-                    // handoff. Outside the player it remains responsible for
-                    // route-level return focus (for example, detail → library).
-                    automaticFocusRestoration = !fullPlayerModalActive
+                    modalVisible = fullPlayerModalActive || crashReportingState.shouldShowPrompt
                 ),
             bottomBar = {
                 Column {

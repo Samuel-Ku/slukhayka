@@ -190,6 +190,9 @@ data class ProfileProvenance(
     companion object {
         /** A profile resolved from the source page by the app. */
         const val SOURCE_RESOLVED = "resolved"
+
+        /** A recovered profile that passed both player and clean-transport checks. */
+        const val SOURCE_VERIFIED = "verified"
     }
 }
 
@@ -200,7 +203,9 @@ data class ProfileProvenance(
  */
 data class SharedProfileEntry(
     val profile: BookProfile,
-    val resolvedAt: Long
+    val resolvedAt: Long,
+    /** Older generic cache rows remain readable but never masquerade as verified recovery. */
+    val provenanceSource: String? = null
 )
 
 /**
@@ -321,7 +326,7 @@ object BookProfileCodec {
     fun fromMapEntry(map: Map<String, Any>): SharedProfileEntry? {
         val profile = fromMap(map) ?: return null
         val resolvedAt = (map["resolvedAt"] as? Number)?.toLong() ?: return null
-        return SharedProfileEntry(profile, resolvedAt)
+        return SharedProfileEntry(profile, resolvedAt, map["source"] as? String)
     }
 
     fun fromMap(map: Map<String, Any>): BookProfile? {

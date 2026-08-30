@@ -145,7 +145,6 @@ fun BookDetailScreen(
     RestoreFocusAfterModal(
         modalVisible = playerModalVisible,
         returnFocusRequester = playerReturnFocusRequester,
-        settleFrames = 3,
         onFocusRestored = {
             playerReturnFocusChapterId = null
             playerReturnFocusRequester = null
@@ -1675,7 +1674,7 @@ fun ChapterRowItem(
                 1.dp,
                 if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
                 RoundedCornerShape(AppDimens.RadiusCard)
-            )
+            ),
         colors = CardDefaults.cardColors(
             containerColor = if (isCurrent) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
             else MaterialTheme.colorScheme.surfaceContainer

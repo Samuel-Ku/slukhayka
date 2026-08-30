@@ -13,6 +13,9 @@ import com.slukhayka.audiobooks.data.collections.SluhayuaPopularSource
 import com.slukhayka.audiobooks.data.collections.SoundBooksTopSource
 import com.slukhayka.audiobooks.data.db.AudiobookDao
 import com.slukhayka.audiobooks.data.db.AudiobookDatabase
+import com.slukhayka.audiobooks.data.downloads.DownloadNotificationActionCoordinator
+import com.slukhayka.audiobooks.data.downloads.DownloadNotificationService
+import com.slukhayka.audiobooks.data.downloads.NotificationAction
 import com.slukhayka.audiobooks.data.downloads.OfflineDownloads
 import com.slukhayka.audiobooks.data.duration.ChapterDurationProbe
 import com.slukhayka.audiobooks.data.duration.DurationEnrichment
@@ -72,6 +75,10 @@ import com.slukhayka.audiobooks.player.AudioPlayerManager
 import com.slukhayka.audiobooks.player.CastPlaybackController
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -293,6 +300,61 @@ class App : Application() {
             // Spec 2026-08-26: YouTube watch URLs resolve per-use before the fetch.
             streamUrlResolver = { url -> youTubeStreamResolver.resolve(url) }
         )
+    }
+
+    /**
+     * #394 — a PendingIntent may start only [DownloadNotificationService],
+     * with no Activity or MainViewModel in this process. Keep the command
+     * bridge at the application composition root for that lifecycle.
+     */
+    private val downloadNotificationActionScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    internal val downloadNotificationActions: DownloadNotificationActionCoordinator by lazy {
+        DownloadNotificationActionCoordinator(downloadNotificationActionScope, ::executeDownloadNotificationAction)
+    }
+
+    private suspend fun executeDownloadNotificationAction(action: NotificationAction) {
+        when (action) {
+            is NotificationAction.Pause -> {
+                offlineDownloads.pauseDownload(action.bookId)
+                DownloadNotificationService.notifyPaused(this, action.bookId)
+            }
+            is NotificationAction.Continue -> continueDownloadFromNotification(action.bookId)
+            is NotificationAction.Cancel -> {
+                offlineDownloads.cancelDownload(action.bookId)
+                DownloadNotificationService.stop(this)
+            }
+        }
+    }
+
+    private suspend fun continueDownloadFromNotification(bookId: String) = coroutineScope {
+        // The app supports one active download. A notification action cannot
+        // surface the UI toast, so it safely leaves the existing job alone.
+        if (offlineDownloads.hasActiveDownload()) return@coroutineScope
+
+        val book = audiobookDao.getAudiobookById(bookId) ?: return@coroutineScope
+        DownloadNotificationService.start(this@App, bookId, book.title, book.author)
+        val downloadJob = currentCoroutineContext()[Job] ?: return@coroutineScope
+        offlineDownloads.registerDownloadJob(bookId, downloadJob)
+        val progressJob = launch {
+            offlineDownloads.downloadBytesProgress.collect { progressByBook ->
+                val progress = progressByBook[bookId] ?: return@collect
+                DownloadNotificationService.updateProgress(
+                    this@App,
+                    bookId,
+                    progress.completedChapters,
+                    progress.totalChapters,
+                    progress.totalBytes,
+                    progress.isApproximate
+                )
+            }
+        }
+        try {
+            offlineDownloads.continueDownload(bookId)
+        } finally {
+            progressJob.cancel()
+            offlineDownloads.unregisterDownloadJob(bookId)
+            DownloadNotificationService.stop(this@App)
+        }
     }
 
     /** Library Entries: delete/remove/favourite/metadata + library reads. */

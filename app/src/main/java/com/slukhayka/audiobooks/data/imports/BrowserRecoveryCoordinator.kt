@@ -120,11 +120,11 @@ class BrowserRecoveryCoordinator(
         val trackUrl = track?.url.orEmpty()
 
         if (trackUrl.isBlank() || !trackUrl.startsWith("http", ignoreCase = true)) {
-            // Rollback recovery's track update if we already wrote dead URL.
+            // Recovery rolls back the failed track update so the existing book keeps its old source;
+            // a new import is NEVER deleted — the import already committed a Room row and deletion
+            // would lose the book after force-stop (QA #430, hypothesis 3).
             if (!isNewImport && oldTracksSnapshot.isNotEmpty()) {
                 dao.insertTracks(oldTracksSnapshot)
-            } else if (book != null) {
-                dao.deleteAudiobook(book.id)
             }
             return@withContext Outcome.Failure(
                 message = "Аудіо ще не знайдено. Відкрийте книгу та запустіть її на сайті, потім спробуйте ще раз.",
@@ -140,11 +140,10 @@ class BrowserRecoveryCoordinator(
 
         if (!canPlay) {
             // Dead candidate — 403, dead URL, etc. Browser stays open.
-            // Rollback to old tracks for recovery; delete dead new book.
+            // Recovery rolls back to old tracks; a new import is NEVER deleted
+            // (QA #430, hypothesis 3 — deletion would lose the book after force-stop).
             if (!isNewImport && oldTracksSnapshot.isNotEmpty()) {
                 dao.insertTracks(oldTracksSnapshot)
-            } else if (book != null) {
-                dao.deleteAudiobook(book.id)
             }
             return@withContext Outcome.Failure(
                 message = "Аудіо недоступне. Перевірте з'єднання або спробуйте іншу книгу.",

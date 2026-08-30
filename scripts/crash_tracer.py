@@ -51,6 +51,7 @@ class SanitizedGroup:
     event_count: int
     details: dict[str, Any]
     context: dict[str, Any]
+    is_new_or_regressed: bool = False
 
     @property
     def marker(self) -> str:
@@ -219,7 +220,7 @@ def group_from_projection(value: Any) -> SanitizedGroup:
     """Re-check a sanitized collect artifact before another trust zone uses it."""
     fields = _exact_mapping(
         value,
-        {"fingerprint", "event_type", "app_version", "affected_install_count", "event_count", "details", "context"},
+        {"fingerprint", "event_type", "app_version", "affected_install_count", "event_count", "details", "context", "is_new_or_regressed"},
         "sanitized group",
     )
     event_type = fields["event_type"]
@@ -236,7 +237,9 @@ def group_from_projection(value: Any) -> SanitizedGroup:
     group = normalize_group(payload)
     if fields["fingerprint"] != group.fingerprint:
         raise SanitizationError("sanitized group fingerprint does not match its contents")
-    return group
+    if type(fields["is_new_or_regressed"]) is not bool:
+        raise SanitizationError("sanitized group has an unbounded priority flag")
+    return dataclasses.replace(group, is_new_or_regressed=fields["is_new_or_regressed"])
 
 
 def publish_group(group: SanitizedGroup, publisher: IssuePublisher) -> PublishResult:

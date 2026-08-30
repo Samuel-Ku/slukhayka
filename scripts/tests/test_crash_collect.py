@@ -6,7 +6,7 @@ from scripts.crash_collect import CollectError, event_to_group
 def event(**overrides):
     value = {
         "platform": "ANDROID",
-        "issue": {"errorType": "FATAL"},
+        "issue": {"errorType": "FATAL", "signals": []},
         "version": {"displayVersion": "1.3.8"},
         "customKeys": {
             "app_visibility": "background",
@@ -43,6 +43,10 @@ class CrashCollectTest(unittest.TestCase):
         self.assertEqual(["com.slukhayka.audiobooks.player.PlaybackService.stop(PlaybackService.kt:123)"], group.details["frames"])
         self.assertNotIn("must-not-leave", group.issue_body)
         self.assertNotIn("book title", group.issue_body)
+
+    def test_uses_only_official_fresh_or_regressed_signal_for_queue_priority(self):
+        group = event_to_group(event(issue={"errorType": "FATAL", "signals": [{"signal": "SIGNAL_REGRESSED"}]}))
+        self.assertTrue(group.is_new_or_regressed)
 
     def test_missing_required_shape_or_non_app_frame_fails_closed(self):
         with self.assertRaises(CollectError):

@@ -7,6 +7,7 @@ it.  The only serializable result is a `crash_tracer.SanitizedGroup` projection.
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import os
 import re
@@ -105,6 +106,19 @@ def _unexpected_exit(values: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _is_new_or_regressed(issue: dict[str, Any]) -> bool:
+    signals = issue.get("signals", [])
+    if not isinstance(signals, list):
+        raise CollectError("issue signals have unknown shape")
+    try:
+        names = {item["signal"] for item in signals if isinstance(item, dict)}
+    except (KeyError, TypeError) as error:
+        raise CollectError("issue signals have unknown shape") from error
+    if len(names) != len(signals) or any(not isinstance(name, str) for name in names):
+        raise CollectError("issue signals have unknown shape")
+    return bool(names & {"SIGNAL_FRESH", "SIGNAL_REGRESSED"})
+
+
 def event_to_group(event: Any) -> SanitizedGroup:
     """Project one Android FATAL/ANR event into the #412 synthetic contract.
 
@@ -121,28 +135,28 @@ def event_to_group(event: Any) -> SanitizedGroup:
         raise CollectError("event has no Android exception")
     event_type = {"FATAL": "fatal", "ANR": "anr"}.get(issue.get("errorType"))
     if event_type is not None:
-        return normalize_group({
+        return dataclasses.replace(normalize_group({
             "event_type": event_type,
             "app_version": version.get("displayVersion"),
             "affected_install_count": 1,
             "event_count": 1,
             "exception": _exception(exceptions[-1]),
             "context": _context(source.get("customKeys")),
-        })
+        }), is_new_or_regressed=_is_new_or_regressed(issue))
     exception = _exception(exceptions[-1])
     if issue.get("errorType") != "NON_FATAL" or exception["type"] != (
         "com.slukhayka.audiobooks.data.diagnostics.UnexpectedPlaybackExit"
     ):
         raise CollectError("event is not an approved diagnostic type")
     custom_keys = _mapping(source.get("customKeys"), "custom keys")
-    return normalize_group({
+    return dataclasses.replace(normalize_group({
         "event_type": "unexpected_playback_exit",
         "app_version": version.get("displayVersion"),
         "affected_install_count": 1,
         "event_count": 1,
         "exit": _unexpected_exit(custom_keys),
         "context": _context(custom_keys, EXIT_KEYS),
-    })
+    }), is_new_or_regressed=_is_new_or_regressed(issue))
 
 
 class CrashlyticsV1AlphaReader:
@@ -187,6 +201,7 @@ def collect(reader: CrashlyticsV1AlphaReader) -> tuple[list[SanitizedGroup], int
                 fingerprint=group.fingerprint, event_type=group.event_type, app_version=group.app_version,
                 affected_install_count=previous.affected_install_count + 1,
                 event_count=previous.event_count + 1, details=group.details, context=group.context,
+                is_new_or_regressed=previous.is_new_or_regressed or group.is_new_or_regressed,
             )
     return list(groups.values()), rejected
 

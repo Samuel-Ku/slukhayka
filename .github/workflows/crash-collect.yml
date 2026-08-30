@@ -35,14 +35,28 @@ jobs:
             exit 2
           }
       - name: Authenticate read-only to Google through OIDC
+        id: auth
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ vars.CRASHLYTICS_WIF_PROVIDER }}
           service_account: ${{ vars.CRASHLYTICS_READER_SERVICE_ACCOUNT }}
           token_format: access_token
-      - name: Dry-run collector boundary
+      - name: Collect only sanitized groups
+        env:
+          ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
+          PROJECT: ${{ vars.CRASHLYTICS_PROJECT_ID }}
+          APP: ${{ vars.CRASHLYTICS_ANDROID_APP_ID }}
         run: |
-          # The production adapter is deliberately invoked only by an explicit
-          # dispatch after federation configuration. Do not print tokens,
-          # HTTP headers, raw events, traces or artifacts here.
-          test "${{ inputs.dry_run }}" = "true"
+          test -n "$PROJECT" && test -n "$APP" || {
+            echo "needs-triage: missing Crashlytics project/app configuration" >&2
+            exit 2
+          }
+          # This adapter issues GET only. It keeps the REST response in
+          # memory and writes one allowlisted projection for downstream jobs.
+          python3 scripts/crash_collect.py --project "$PROJECT" --app "$APP" --output crash-groups.json
+      - name: Upload sanitized handoff only
+        uses: actions/upload-artifact@v4
+        with:
+          name: crash-sanitized-groups
+          path: crash-groups.json
+          if-no-files-found: error

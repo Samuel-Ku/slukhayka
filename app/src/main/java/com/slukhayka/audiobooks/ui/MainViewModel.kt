@@ -619,8 +619,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         android.util.Log.w("MainViewModel", "4read download resume failed", e)
                     }
                 }
-            }
-            withContext(Dispatchers.Main) { onComplete(recovered != null) }
         }
     }
 

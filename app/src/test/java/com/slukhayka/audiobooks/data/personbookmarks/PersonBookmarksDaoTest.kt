@@ -146,12 +146,13 @@ class PersonBookmarksDaoTest {
     }
 
     @Test
-    fun `updateLastNotified updates the timestamp`() = runBlocking {
+    fun `updateLastNotified updates timestamp and aggregate`() = runBlocking {
         dao.upsertPersonBookmark(testBookmark())
-        dao.updatePersonBookmarkLastNotified(PersonBookmarkKind.AUTHOR, "author-test-123", 6000L)
+        dao.updatePersonBookmarkLastNotified(PersonBookmarkKind.AUTHOR, "author-test-123", 6000L, 3)
         val found = dao.getPersonBookmark(PersonBookmarkKind.AUTHOR, "author-test-123")
         assertNotNull(found)
         assertEquals(6000L, found!!.lastNotifiedAt)
+        assertEquals(3, found.lastNotifiedCount)
     }
 
     @Test

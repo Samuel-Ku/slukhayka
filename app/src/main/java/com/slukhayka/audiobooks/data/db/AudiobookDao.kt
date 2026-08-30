@@ -1100,6 +1100,6 @@ interface AudiobookDao {
     @Query("UPDATE person_bookmarks SET lastSeenAt = :lastSeenAt, updatedAt = :updatedAt WHERE kind = :kind AND id = :id")
     suspend fun updatePersonBookmarkLastSeen(kind: String, id: String, lastSeenAt: Long, updatedAt: Long)
 
-    @Query("UPDATE person_bookmarks SET lastNotifiedAt = :lastNotifiedAt WHERE kind = :kind AND id = :id")
-    suspend fun updatePersonBookmarkLastNotified(kind: String, id: String, lastNotifiedAt: Long)
+    @Query("UPDATE person_bookmarks SET lastNotifiedAt = :lastNotifiedAt, lastNotifiedCount = :lastNotifiedCount, updatedAt = :lastNotifiedAt WHERE kind = :kind AND id = :id")
+    suspend fun updatePersonBookmarkLastNotified(kind: String, id: String, lastNotifiedAt: Long, lastNotifiedCount: Int)
 }

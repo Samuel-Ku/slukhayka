@@ -48,6 +48,8 @@ object PersonBookmarkKind {
  * or tapped "Mark seen"; drives the new-count badge.
  * [lastNotifiedAt] — the last time a notification was posted for this
  * person; prevents duplicate notifications.
+ * [lastNotifiedCount] — aggregate new-item count at that notification;
+ * unchanged refreshes remain silent (#403).
  * [notifyEnabled] — the per-person notification toggle (default true).
  */
 @Entity(
@@ -70,6 +72,8 @@ data class PersonBookmarkEntity(
     val lastSeenAt: Long = 0L,
     /** Epoch millis when the last notification was posted for this person. */
     val lastNotifiedAt: Long = 0L,
+    /** Aggregate new-item count at [lastNotifiedAt]. */
+    val lastNotifiedCount: Int = 0,
     /** Whether new-book notifications are enabled for this person (default true). */
     val notifyEnabled: Boolean = true,
     /** Epoch millis of the last write — LWW merge key for #404. */

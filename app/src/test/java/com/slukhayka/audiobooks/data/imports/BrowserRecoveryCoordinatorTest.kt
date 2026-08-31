@@ -16,6 +16,7 @@ import com.slukhayka.audiobooks.data.source.SourceBookDetail
 import com.slukhayka.audiobooks.data.source.SourceChapter
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.flow.first
+import java.io.File
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
@@ -198,7 +199,7 @@ class BrowserRecoveryCoordinatorTest {
     }
 
     @Test
-    fun `changed chapter structure keeps every stored recovery state untouched`() = runBlocking {
+    fun `cancelling a structure repair keeps every stored recovery state untouched`() = runBlocking {
         val original = detail(chapters = listOf("Глава 1" to "https://s1.reasd.org/kobzar/old1.mp3"))
         val bookId = seedBook(original)
         val edition = requireNotNull(dao.getEditionForWork(bookId))
@@ -255,7 +256,8 @@ class BrowserRecoveryCoordinatorTest {
         dao.savePlaybackProgress(PlaybackProgressEntity(edition.id, bookId, currentPositionSeconds = 42L))
         dao.insertBookmark(BookmarkEntity(bookId = bookId, editionId = edition.id, chapterIndex = 0, chapterTitle = "Глава 1", timestampSeconds = 42L, note = "Стара"))
         val originalTrack = dao.getTracksForBookSync(bookId).single()
-        dao.updateTrackDownloadState(originalTrack.id, true, "/tmp/kobzar.mp3")
+        val staleFile = File.createTempFile("kobzar-repair", ".mp3").apply { writeBytes(byteArrayOf(1)) }
+        dao.updateTrackDownloadState(originalTrack.id, true, staleFile.absolutePath)
         val alternateSource = com.slukhayka.audiobooks.data.db.SourceEntity(
             id = "local-${edition.id}",
             bookId = bookId,
@@ -286,8 +288,10 @@ class BrowserRecoveryCoordinatorTest {
         assertEquals(listOf("https://s1.reasd.org/kobzar/1.mp3", "https://s1.reasd.org/kobzar/2.mp3"), dao.getTracksForSourceSync(repairedSource.id).map { it.url })
         assertNull(dao.getPlaybackProgressSync(bookId))
         assertTrue(dao.getBookmarksForBook(bookId).first().isEmpty())
-        assertEquals("/tmp/alternate.mp3", dao.getTracksForSourceSync(alternateSource.id).single().localFilePath)
+        assertTrue(dao.getTracksForSourceSync(alternateSource.id).isEmpty())
         assertEquals(repairedSource.id, dao.getSourcesForBookSync(bookId).single { it.type == "4read" }.id)
+        assertFalse(staleFile.exists())
+        assertFalse(requireNotNull(dao.getAudiobookById(bookId)).isDownloaded)
     }
 
     @Test

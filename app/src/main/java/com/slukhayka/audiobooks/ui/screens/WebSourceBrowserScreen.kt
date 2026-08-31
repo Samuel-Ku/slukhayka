@@ -204,6 +204,7 @@ fun WebSourceBrowserScreen(
         val audioCandidates = synchronized(capturedAudioUrls) { capturedAudioUrls.toList() }
         isImporting = true
         importResult = ""
+        structureMismatch = null
         blockedNavMessage = ""
         instance.evaluateJavascript(
             "(function(){return document.documentElement.outerHTML;})()"
@@ -470,7 +471,7 @@ fun WebSourceBrowserScreen(
                         text = {
                             Text(
                                 "Розділів було ${mismatch.storedChapterCount}, стане ${mismatch.capturedChapterCount}. " +
-                                    "Будуть очищені локальні файли, прогрес по розділах і закладки. " +
+                                    "Будуть очищені локальні файли цієї структури, прогрес по розділах і закладки. " +
                                     "Назва книги, медіатека та джерело 4read залишаться."
                             )
                         },

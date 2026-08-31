@@ -40,6 +40,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.UUID
 
 /**
  * ADR-0002 — Library Import: the deep module that owns all five import doors
@@ -588,15 +589,29 @@ class LibraryImport(
         val storedCount = dao.getChaptersListForBook(bookId).size
         if (storedCount == detail.chapters.size) return@withContext null
 
-        // The repaired Source's old topology cannot safely keep a local copy.
-        // Remove only files no other downloaded Source track still references.
-        dao.getTracksForSourceSync(source.id)
+        // Chapters belong to the Edition, so every old Source Track of this
+        // book is incompatible with the new topology. Stage unshared local
+        // copies first: a failed Room transaction can restore them, and only
+        // a successful transaction makes their deletion final.
+        val sourceIds = dao.getSourcesForBookSync(bookId).map { it.id }.toSet()
+        val stagedFiles = mutableListOf<Pair<File, File>>()
+        val staged = dao.getTracksForBookSync(bookId)
             .mapNotNull { it.localFilePath }
             .distinct()
-            .forEach { path ->
-                val referencedElsewhere = dao.getTracksByFilePath(path).any { it.sourceId != source.id }
-                if (!referencedElsewhere) runCatching { File(path).delete() }
+            .all { path ->
+                val referencedOutsideBook = dao.getTracksByFilePath(path).any { it.sourceId !in sourceIds }
+                if (referencedOutsideBook) return@all true
+                val original = File(path)
+                if (!original.exists()) return@all true
+                val quarantined = File("${original.absolutePath}.repair-${UUID.randomUUID()}")
+                if (!original.renameTo(quarantined)) return@all false
+                stagedFiles += original to quarantined
+                true
             }
+        if (!staged) {
+            stagedFiles.asReversed().forEach { (original, quarantined) -> quarantined.renameTo(original) }
+            return@withContext null
+        }
 
         val materialized = MetadataAssertions.materializeChaptersAndTracks(
             editionId = edition.id,
@@ -611,7 +626,21 @@ class LibraryImport(
         val duration = MetadataAssertions.normalizeDurationSeconds(detail.totalDurationSeconds)
             ?: MetadataAssertions.normalizeDurationSeconds(detail.chapters.sumOf { it.durationSeconds })
             ?: 0L
-        dao.replaceConfirmedChapterStructure(bookId, source.id, materialized.chapters, tracks, duration, edition)
+        try {
+            dao.replaceConfirmedChapterStructure(bookId, materialized.chapters, tracks, duration, edition)
+        } catch (error: Exception) {
+            stagedFiles.asReversed().forEach { (original, quarantined) -> quarantined.renameTo(original) }
+            throw error
+        }
+        stagedFiles.forEach { (_, quarantined) ->
+            // A media scanner can briefly hold the renamed file. Retry the
+            // final unlink before surfacing success; the DB no longer exposes
+            // the quarantined name, so it must not become a durable cache.
+            repeat(3) {
+                if (!quarantined.exists() || quarantined.delete()) return@forEach
+            }
+            Log.e("LibraryImport", "Could not delete repaired local copy after retries: ${quarantined.name}")
+        }
         dao.getAudiobookById(bookId)?.toAudiobookEntity()
     }
 

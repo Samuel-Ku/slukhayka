@@ -81,6 +81,7 @@ fun LazyListScope.homeFeedContent(
     onOpenFeedFilters: (() -> Unit)? = null,
     feedFilterTriggerModifier: Modifier = Modifier,
     onOpenWebSource: (() -> Unit)? = null,
+    onOpenWebSource4read: (() -> Unit)? = null,
     onRecommendationFeedback: (RecommendationEngine.Recommendation, String) -> Unit = { _, _ -> },
     showRecommendationConsent: Boolean = false,
     onOpenRecommendationConsent: () -> Unit = {},
@@ -369,6 +370,20 @@ fun LazyListScope.homeFeedContent(
             OpenWebSourceRow(
                 displayName = "Sluhay",
                 onClick = onOpenWebSource
+            )
+        }
+    }
+
+    // Spec-42 #440 — the 4read door is the ONE release-accessible browser
+    // exception (ADR-0027): it shows in both release and debug builds, so a
+    // release listener can reach the 4read catalogue through the in-app
+    // browser. The Sluhay door above stays debug-only.
+    if (onOpenWebSource4read != null) {
+        item {
+            OpenWebSourceRow(
+                displayName = "4read",
+                onClick = onOpenWebSource4read,
+                testTag = "open_web_source_4read"
             )
         }
     }

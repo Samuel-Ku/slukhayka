@@ -1,5 +1,7 @@
 package com.slukhayka.audiobooks.data.source
 
+import com.slukhayka.audiobooks.testing.FakeFetcher
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -128,5 +130,40 @@ class GlobalSearchMergeTest {
         )
 
         assertEquals("Кобзар", merged.single().title)
+    }
+
+    /**
+     * Spec-42 #439 — the real effect: once [FourReadAdapter] takes the author
+     * from the SECOND subtitle (not genres), a 4read search hit with the real
+     * Cyrillic author merges into the same Work card as the book found on
+     * sound-books under the same "title|author" merge key. With genres as the
+     * author the cards would stay separate and search would look empty.
+     */
+    @Test
+    fun `4read search hit with real author merges with the same work on another source`() = kotlinx.coroutines.runBlocking {
+        val fourRead = FourReadAdapter(FakeFetcher(emptyMap(), fallback = """
+            <html><body>
+            <div class="poster has-overlay grid-item d-flex fd-column">
+                <div class="poster__desc order-last">
+                    <a href="https://4read.org/5359-taras-shevchenko-kobzar.html" class="poster__link"><div class="poster__title line-clamp">Кобзар</div></a>
+                    <div class="poster__subtitle ws-nowrap">Українська література / Роман</div>
+                    <div class="poster__subtitle ws-nowrap">Тарас Шевченко</div>
+                </div>
+            </div>
+            </body></html>
+        """))
+        val fourReadBook = fourRead.search("Кобзар").single()
+
+        val merged = mergeGlobalSearchResults(
+            listOf(
+                fourReadBook,
+                book("Кобзар", "Тарас Шевченко", "soundbooks", "https://sound-books.net/kobzar.html")
+            )
+        )
+
+        // One card, the real author, both sources — not a split 4read-only card.
+        assertEquals(1, merged.size)
+        assertEquals("Тарас Шевченко", merged.single().author)
+        assertEquals(listOf("soundbooks", "4read"), merged.single().sources.map { it.sourceId })
     }
 }

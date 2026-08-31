@@ -41,6 +41,7 @@ import com.slukhayka.audiobooks.data.reviews.ReviewRemoteResult
 import com.slukhayka.audiobooks.data.reviews.ReviewWriteReceipt
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.data.source.SourceAccessCandidate
+import com.slukhayka.audiobooks.data.source.fourReadSearchUrl
 import com.slukhayka.audiobooks.data.source.SourceAccessPolicy
 import com.slukhayka.audiobooks.data.source.HttpFetcher
 import com.slukhayka.audiobooks.data.source.headersFor
@@ -448,6 +449,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 )
             BrowserDestination.SYSTEM_BROWSER -> openInSystemBrowser(homeUrl)
         }
+    }
+
+    /**
+     * Spec-42 #440 — open the 4read catalogue pre-filled with [query] in the
+     * in-app browser (release-accessible per ADR-0027). The query is URL-encoded
+     * exactly like [FourReadAdapter.search]; 4read resolves to the in-app
+     * browser in every build via [browserDestinationFor].
+     */
+    fun open4readSearch(query: String) {
+        openWebSource(sourceId = "4read", homeUrl = fourReadSearchUrl(query), displayName = "4read")
     }
 
     fun closeWebSource() {

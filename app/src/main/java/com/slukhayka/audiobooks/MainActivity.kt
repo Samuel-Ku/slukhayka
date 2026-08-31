@@ -863,6 +863,17 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                             // Listen) renders only in debug builds — in
                             // release the same row would open an in-app
                             // browser that cannot exist.
+                            // Spec-42 #440 (ADR-0027): the 4read door is the one
+                            // release-accessible browser exception, so it is wired
+                            // in BOTH build flavours (unlike the debug-only Sluhay
+                            // door just above).
+                            onOpenWebSource4read = {
+                                viewModel.openWebSource(
+                                    sourceId = "4read",
+                                    homeUrl = "https://4read.org/",
+                                    displayName = "4read"
+                                )
+                            },
                             onOpenWebSource = if (BuildConfig.DEBUG) {
                                 {
                                     viewModel.openWebSource(

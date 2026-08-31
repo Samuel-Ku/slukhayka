@@ -305,6 +305,9 @@ interface AudiobookDao {
     )
     suspend fun deleteTracksForBook(bookId: String)
 
+    @Query("DELETE FROM source_tracks WHERE sourceId = :sourceId")
+    suspend fun deleteTracksForSource(sourceId: String)
+
     // --- Domain Editions (ADR-0007) ---
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -575,6 +578,32 @@ interface AudiobookDao {
 
     @Query("DELETE FROM playback_progress WHERE bookId = :bookId")
     suspend fun deletePlaybackProgressForBook(bookId: String)
+
+    /**
+     * #445 — the explicitly confirmed repair door for a Chapter topology that
+     * was imported incorrectly. All chapter-scoped state changes together, so
+     * process death cannot leave a new Chapter list paired with old progress
+     * or downloaded tracks. Work, Library Entry and Source rows are untouched.
+     */
+    @Transaction
+    suspend fun replaceConfirmedChapterStructure(
+        bookId: String,
+        sourceId: String,
+        chapters: List<ChapterEntity>,
+        tracks: List<SourceTrackEntity>,
+        totalDurationSeconds: Long,
+        edition: EditionEntity
+    ) {
+        deletePlaybackProgressForBook(bookId)
+        deleteBookmarksForBook(bookId)
+        deleteTracksForSource(sourceId)
+        deleteChaptersForBook(bookId)
+        insertChapters(chapters)
+        insertTracks(tracks)
+        updateBookStats(bookId, chapters.size, totalDurationSeconds)
+        replaceEdition(edition.copy(totalChapters = chapters.size, totalDurationSeconds = totalDurationSeconds))
+        updateDownloadStateWithState(bookId, isDownloaded = false, progress = 0f, state = DownloadState.IDLE)
+    }
 
     @Query("DELETE FROM audiobooks WHERE id = :bookId")
     suspend fun deleteAudiobook(bookId: String)

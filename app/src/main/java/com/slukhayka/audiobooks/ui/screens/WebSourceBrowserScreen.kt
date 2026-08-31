@@ -226,8 +226,8 @@ fun WebSourceBrowserScreen(
                     html = decoded,
                     capturedAudioUrls = synchronized(capturedAudioUrls) { capturedAudioUrls.toList() },
                     chapterIndex = recoveryChapterIndex,
-                    positionMs = recoveryPositionMs
-                ) { success ->
+                    positionMs = recoveryPositionMs,
+                    onComplete = { success ->
                     if (success) {
                         importResult = "Книгу оновлено"
                         // Success closes the browser and resumes the same
@@ -237,7 +237,12 @@ fun WebSourceBrowserScreen(
                         importResult = "Аудіо ще не знайдено. Відкрийте книгу та запустіть її на сайті, потім спробуйте ще раз."
                     }
                     isImporting = false
-                }
+                    },
+                    onStructureMismatch = { mismatch ->
+                        importResult = mismatch.message
+                        isImporting = false
+                    }
+                )
             } else {
                 viewModel.importWebSourcePage(
                     sourceId,
@@ -427,6 +432,13 @@ fun WebSourceBrowserScreen(
                             MaterialTheme.colorScheme.error
                         }
                     )
+                    if (importResult.startsWith("Не оновлено:")) {
+                        Text(
+                            text = "Виправлення структури потребує окремого підтвердження.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
                 if (blockedNavMessage.isNotBlank()) {
                     Spacer(modifier = Modifier.height(4.dp))

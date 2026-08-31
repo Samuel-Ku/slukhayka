@@ -8,12 +8,15 @@ import com.slukhayka.audiobooks.data.source.SourceBookDetail
  * tracks only when it proves it belongs to the stored Work and Edition.
  */
 internal object RecoveryIdentityGuard {
-    fun matches(
+    /**
+     * The identity proof that can be checked before comparing Chapter topology.
+     * A mismatch must never be attributed to another narration of the same Work.
+     */
+    fun matchesWorkAndEdition(
         storedTitle: String,
         storedAuthor: String,
         storedNarrator: String,
         storedLanguage: String,
-        storedChapterTitles: List<String>,
         captured: SourceBookDetail,
         capturedLanguage: String = ""
     ): Boolean {
@@ -24,7 +27,20 @@ internal object RecoveryIdentityGuard {
         // A source which declares a language must prove the captured page has
         // the same one.  4read currently leaves it blank, so legacy blank rows
         // continue to recover while a language-bearing Edition fails closed.
-        if (storedLanguage.isNotBlank() && !storedLanguage.trim().equals(capturedLanguage.trim(), ignoreCase = true)) return false
+        return storedLanguage.isBlank() ||
+            storedLanguage.trim().equals(capturedLanguage.trim(), ignoreCase = true)
+    }
+
+    fun matches(
+        storedTitle: String,
+        storedAuthor: String,
+        storedNarrator: String,
+        storedLanguage: String,
+        storedChapterTitles: List<String>,
+        captured: SourceBookDetail,
+        capturedLanguage: String = ""
+    ): Boolean {
+        if (!matchesWorkAndEdition(storedTitle, storedAuthor, storedNarrator, storedLanguage, captured, capturedLanguage)) return false
         if (storedChapterTitles.size != captured.chapters.size) return false
         return storedChapterTitles.indices.all { index ->
             val expected = storedChapterTitles[index].trim()

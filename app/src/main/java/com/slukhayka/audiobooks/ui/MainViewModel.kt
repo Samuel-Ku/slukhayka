@@ -564,7 +564,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         capturedAudioUrls: List<String> = emptyList(),
         chapterIndex: Int,
         positionMs: Long,
-        onComplete: (Boolean) -> Unit = {}
+        onComplete: (Boolean) -> Unit = {},
+        onStructureMismatch: (com.slukhayka.audiobooks.data.imports.BrowserRecoveryCoordinator.Outcome.StructureMismatch) -> Unit = {}
     ) {
         viewModelScope.launch(Dispatchers.IO) {
             val coordinator = com.slukhayka.audiobooks.data.imports.BrowserRecoveryCoordinator(
@@ -645,6 +646,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         onComplete(true)
                     }
                     is com.slukhayka.audiobooks.data.imports.BrowserRecoveryCoordinator.Outcome.Failure -> onComplete(false)
+                    is com.slukhayka.audiobooks.data.imports.BrowserRecoveryCoordinator.Outcome.StructureMismatch -> onStructureMismatch(outcome)
                     null -> onComplete(false)
                 }
             }

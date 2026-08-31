@@ -540,6 +540,26 @@ class LibraryImport(
             }
         }
 
+    /** Parses a captured page without mutating the library; recovery uses this
+     * preflight to report a changed Chapter structure honestly. */
+    suspend fun inspectWebSourcePage(
+        sourceId: String,
+        url: String,
+        html: String,
+        capturedAudioUrls: List<String> = emptyList()
+    ): SourceBookDetail? = withContext(Dispatchers.IO) {
+        val adapter = sourceAdapters.firstOrNull { it.sourceId == sourceId } ?: return@withContext null
+        val parsed = try {
+            adapter.parseCapturedPage(html, url)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            null
+        } ?: return@withContext null
+        val detail = parsed.withCapturedAudioUrls(capturedAudioUrls)
+        detail.takeIf { it.chapters.isNotEmpty() && it.chapters.all { chapter -> chapter.streamUrl.isPlayableSourceUrl() } }
+    }
+
     /**
      * #428 — 4read recovery: updates the exact 4read [Source] of the same
      * [Work] and [Edition] with fresh physical URLs, never creating a duplicate.

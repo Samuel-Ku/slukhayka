@@ -51,6 +51,14 @@ class BrowserRecoveryCoordinator(
             val shouldCloseBrowser: Boolean = false,
             val keepAudioCount: Int = 0
         ) : Outcome
+
+        data class StructureMismatch(
+            val storedChapterCount: Int,
+            val capturedChapterCount: Int,
+            val shouldCloseBrowser: Boolean = false
+        ) : Outcome {
+            val message: String = "Не оновлено: у збереженій книзі $storedChapterCount розділ(и), на сайті зараз $capturedChapterCount. Прогрес не змінено."
+        }
     }
 
     /**
@@ -77,6 +85,29 @@ class BrowserRecoveryCoordinator(
         // 1. Capture → parse is inside LibraryImport (which also handles capturedAudioUrls).
         // For new import we use importWebSourcePage, for recovery we use recoverWebSourcePage.
         val isNewImport = bookId.isNullOrBlank() || dao.getAudiobookById(bookId) == null
+        if (!isNewImport) {
+            val captured = libraryImport.inspectWebSourcePage(sourceId, url, html, capturedAudioUrls)
+            val storedSource = dao.getSourcesForBookSync(bookId!!)
+                .firstOrNull { it.type == sourceId && it.url == url }
+            val storedBook = dao.getAudiobookById(bookId)?.toAudiobookEntity()
+            val storedEdition = dao.getEditionForWork(bookId)
+            val storedCount = dao.getChaptersListForBook(bookId!!).size
+            if (
+                captured != null &&
+                storedSource != null &&
+                storedBook != null &&
+                RecoveryIdentityGuard.matchesWorkAndEdition(
+                    storedTitle = storedBook.title,
+                    storedAuthor = storedBook.author,
+                    storedNarrator = storedEdition?.narrator.orEmpty(),
+                    storedLanguage = storedEdition?.language.orEmpty(),
+                    captured = captured
+                ) &&
+                captured.chapters.size != storedCount
+            ) {
+                return@withContext Outcome.StructureMismatch(storedCount, captured.chapters.size)
+            }
+        }
         // Snapshot old tracks for rollback on verifier failure (recovery only).
         val oldTracksSnapshot = if (!isNewImport) {
             val src = dao.getSourcesForBookSync(bookId!!).firstOrNull { it.type == sourceId && it.url == url }
@@ -91,19 +122,17 @@ class BrowserRecoveryCoordinator(
         }
 
         if (book == null) {
-            // Distinguish empty/challenge vs identity mismatch via html inspection?
-            // For now, honest message for any non-parseable or guarded failure.
-            // If html is blank or too short, treat as empty/challenge page.
-            val isEmptyPage = html.trim().length < 200
-            return@withContext if (isEmptyPage) {
+            return@withContext if (isChallengePage(html)) {
+                Outcome.Failure(
+                    message = "Сайт ще перевіряє браузер. Завершіть перевірку й спробуйте ще раз.",
+                    shouldCloseBrowser = false
+                )
+            } else if (html.trim().length < 200) {
                 Outcome.Failure(
                     message = "Сторінку не вдалося прочитати",
                     shouldCloseBrowser = false
                 )
             } else {
-                // Check if html looks like challenge/search vs valid book page?
-                // For simplicity, use generic honest message for missing audio.
-                // The browser stays open.
                 Outcome.Failure(
                     message = "Аудіо ще не знайдено. Відкрийте книгу та запустіть її на сайті, потім спробуйте ще раз.",
                     shouldCloseBrowser = false
@@ -211,6 +240,14 @@ class BrowserRecoveryCoordinator(
     }
 
     companion object {
+        private fun isChallengePage(html: String): Boolean {
+            val page = html.lowercase()
+            return "just a moment" in page ||
+                "verify you are human" in page ||
+                "cf-chl-" in page ||
+                "cloudflare" in page && "challenge" in page
+        }
+
         /** 4read search URL with prefilled Work title. */
         fun searchUrlFor(workTitle: String): String {
             val encoded = java.net.URLEncoder.encode(workTitle.trim(), "UTF-8")

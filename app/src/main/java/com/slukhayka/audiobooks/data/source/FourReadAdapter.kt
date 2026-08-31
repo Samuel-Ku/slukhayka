@@ -39,11 +39,10 @@ class FourReadAdapter(
         val html = if (cookie.isBlank()) fetcher.getText(searchUrl) else fetcher.getText(searchUrl, mapOf("Cookie" to cookie))
         if (html.isEmpty()) return emptyList()
 
-        // 4read renders each hit as a .poster block: the real Cyrillic title
-        // in poster__title and the real author in the first poster__subtitle
-        // (the second one carries the duration clock). Real authors matter for
-        // the cross-source merge — a "4read.org" placeholder could never match
-        // the same Work on sound-books.net.
+        // 4read renders each hit as a .poster block. In the current search
+        // layout the first subtitle is a genre trail and the next non-empty
+        // subtitle is the author. A title-only genre row must never become a
+        // fabricated author, or the result cannot merge with another Source.
         val books = mutableListOf<SourceBook>()
         val addedSlugs = mutableSetOf<String>()
         val posterStarts = POSTER_START.findAll(html).map { it.range.first }.toList()

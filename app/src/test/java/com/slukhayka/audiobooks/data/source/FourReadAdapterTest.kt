@@ -14,6 +14,10 @@ import org.junit.Test
  */
 class FourReadAdapterTest {
 
+    private fun fixture(name: String): String = requireNotNull(
+        FourReadAdapterTest::class.java.getResourceAsStream("/fixtures/$name")
+    ).bufferedReader().use { it.readText() }
+
     private val bookPage = """
         <html><head>
         <meta property="og:title" content="Неостанній бій">
@@ -230,6 +234,18 @@ class FourReadAdapterTest {
         assertEquals("", books[0].author)
     }
 
+    fun `search fixture skips genres and keeps the second subtitle as author`() = runBlocking {
+        val adapter = FourReadAdapter(FakeFetcher(emptyMap(), fallback = fixture("4read-search-sny-2026-08-30.html")))
+
+        val books = adapter.search("сни")
+
+        assertEquals(2, books.size)
+        assertEquals("Сни", books[0].title)
+        assertEquals("Олесь Ільченко", books[0].author)
+        assertEquals("https://4read.org/9001-sny.html", books[0].url)
+        assertEquals("https://4read.org/uploads/posts/2026-08/medium/sny.webp", books[0].coverImageUrl)
+        assertEquals("", books[1].author)
+    }
 
     @Test
     fun `new feed parses homepage posters`() = runBlocking {

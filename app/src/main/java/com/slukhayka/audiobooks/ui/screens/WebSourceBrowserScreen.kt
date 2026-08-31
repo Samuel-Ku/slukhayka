@@ -105,6 +105,11 @@ fun WebSourceBrowserScreen(
     var canGoForward by remember { mutableStateOf(false) }
     var isImporting by remember { mutableStateOf(false) }
     var importResult by remember { mutableStateOf("") }
+    var structureMismatch by remember { mutableStateOf<com.slukhayka.audiobooks.data.imports.BrowserRecoveryCoordinator.Outcome.StructureMismatch?>(null) }
+    var repairHtml by remember { mutableStateOf("") }
+    var repairUrl by remember { mutableStateOf("") }
+    var repairAudioUrls by remember { mutableStateOf(emptyList<String>()) }
+    var showRepairConfirmation by remember { mutableStateOf(false) }
     val actionLabels = webSourceBrowserActionLabels(
         context = context,
         sourceName = displayName,
@@ -240,6 +245,10 @@ fun WebSourceBrowserScreen(
                     },
                     onStructureMismatch = { mismatch ->
                         importResult = mismatch.message
+                        structureMismatch = mismatch
+                        repairHtml = decoded
+                        repairUrl = pageUrl
+                        repairAudioUrls = audioCandidates
                         isImporting = false
                     }
                 )
@@ -432,12 +441,8 @@ fun WebSourceBrowserScreen(
                             MaterialTheme.colorScheme.error
                         }
                     )
-                    if (importResult.startsWith("Не оновлено:")) {
-                        Text(
-                            text = "Виправлення структури потребує окремого підтвердження.",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                    if (structureMismatch != null) {
+                        TextButton(onClick = { showRepairConfirmation = true }) { Text("Виправити структуру книги") }
                     }
                 }
                 if (blockedNavMessage.isNotBlank()) {
@@ -454,6 +459,45 @@ fun WebSourceBrowserScreen(
                         text = "Захоплено $lastCapturedAudioCount аудіо-файл(и) — натисни «Додати до медіатеки»",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.secondary
+                    )
+                }
+
+                if (showRepairConfirmation && structureMismatch != null) {
+                    val mismatch = requireNotNull(structureMismatch)
+                    AlertDialog(
+                        onDismissRequest = { showRepairConfirmation = false },
+                        title = { Text("Виправити структуру книги?") },
+                        text = {
+                            Text(
+                                "Розділів було ${mismatch.storedChapterCount}, стане ${mismatch.capturedChapterCount}. " +
+                                    "Будуть очищені локальні файли, прогрес по розділах і закладки. " +
+                                    "Назва книги, медіатека та джерело 4read залишаться."
+                            )
+                        },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                showRepairConfirmation = false
+                                isImporting = true
+                                viewModel.repairConfirmedWebSourceStructure(
+                                    bookId = requireNotNull(recoveryBookId),
+                                    sourceId = sourceId,
+                                    url = repairUrl,
+                                    html = repairHtml,
+                                    capturedAudioUrls = repairAudioUrls
+                                ) { repaired ->
+                                    importResult = if (repaired) {
+                                        structureMismatch = null
+                                        "Структуру книги виправлено"
+                                    } else {
+                                        "Не вдалося підтвердити нову структуру. Дані не змінено."
+                                    }
+                                    isImporting = false
+                                }
+                            }) { Text("Виправити") }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showRepairConfirmation = false }) { Text("Скасувати") }
+                        }
                     )
                 }
 

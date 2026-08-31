@@ -561,6 +561,61 @@ class LibraryImport(
     }
 
     /**
+     * #445 — explicitly replaces a verified wrong Chapter topology. This is
+     * intentionally separate from recovery: callers must first receive #444's
+     * mismatch and obtain the listener's confirmation.
+     */
+    suspend fun repairConfirmedWebSourceStructure(
+        bookId: String,
+        sourceId: String,
+        url: String,
+        html: String,
+        capturedAudioUrls: List<String> = emptyList()
+    ): AudiobookEntity? = withContext(Dispatchers.IO) {
+        val detail = inspectWebSourcePage(sourceId, url, html, capturedAudioUrls) ?: return@withContext null
+        val source = dao.getSourcesForBookSync(bookId)
+            .firstOrNull { it.type == sourceId && it.url == url }
+            ?: return@withContext null
+        val book = dao.getAudiobookById(bookId)?.toAudiobookEntity() ?: return@withContext null
+        val edition = dao.getEditionForWork(bookId) ?: return@withContext null
+        if (!RecoveryIdentityGuard.matchesWorkAndEdition(
+                storedTitle = book.title,
+                storedAuthor = book.author,
+                storedNarrator = edition.narrator,
+                storedLanguage = edition.language,
+                captured = detail
+            )) return@withContext null
+        val storedCount = dao.getChaptersListForBook(bookId).size
+        if (storedCount == detail.chapters.size) return@withContext null
+
+        // The repaired Source's old topology cannot safely keep a local copy.
+        // Remove only files no other downloaded Source track still references.
+        dao.getTracksForSourceSync(source.id)
+            .mapNotNull { it.localFilePath }
+            .distinct()
+            .forEach { path ->
+                val referencedElsewhere = dao.getTracksByFilePath(path).any { it.sourceId != source.id }
+                if (!referencedElsewhere) runCatching { File(path).delete() }
+            }
+
+        val materialized = MetadataAssertions.materializeChaptersAndTracks(
+            editionId = edition.id,
+            sourceId = source.id,
+            bookId = bookId,
+            bookTitle = book.title,
+            chapters = detail.chapters
+        )
+        val tracks = materialized.tracks.map { track ->
+            track.copy(sourceId = source.id, id = MetadataAssertions.trackId(source.id, track.trackIndex))
+        }
+        val duration = MetadataAssertions.normalizeDurationSeconds(detail.totalDurationSeconds)
+            ?: MetadataAssertions.normalizeDurationSeconds(detail.chapters.sumOf { it.durationSeconds })
+            ?: 0L
+        dao.replaceConfirmedChapterStructure(bookId, source.id, materialized.chapters, tracks, duration, edition)
+        dao.getAudiobookById(bookId)?.toAudiobookEntity()
+    }
+
+    /**
      * #428 — 4read recovery: updates the exact 4read [Source] of the same
      * [Work] and [Edition] with fresh physical URLs, never creating a duplicate.
      *

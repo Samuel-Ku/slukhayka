@@ -653,6 +653,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun repairConfirmedWebSourceStructure(
+        bookId: String,
+        sourceId: String,
+        url: String,
+        html: String,
+        capturedAudioUrls: List<String>,
+        onComplete: (Boolean) -> Unit
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val repaired = try {
+                libraryImport.repairConfirmedWebSourceStructure(bookId, sourceId, url, html, capturedAudioUrls)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                null
+            }
+            withContext(Dispatchers.Main) { onComplete(repaired != null) }
+        }
+    }
+
     /**
      * #349 — the targeted post-import duration probe: fire-and-forget on the
      * ViewModel scope, so a fresh card gets its chapter durations in seconds

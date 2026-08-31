@@ -529,6 +529,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Opens 4read's in-app browser as an explicit recovery action — “Оновити через браузер”. */
     fun open4ReadRecovery(bookId: String, chapterIndex: Int, positionMs: Long) {
+        // The full player is an overlay above the app destination tree.  Leave
+        // it before publishing the browser route; otherwise recovery did open
+        // the WebView, but it remained invisible and untappable behind Player.
+        _showFullPlayer.value = false
         viewModelScope.launch(Dispatchers.IO) {
             val book = libraryEntries.getBookSync(bookId)
             val sourceUrl = try {

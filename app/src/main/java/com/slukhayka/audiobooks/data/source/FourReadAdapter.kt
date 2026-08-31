@@ -59,10 +59,15 @@ class FourReadAdapter(
             if (slug.contains("index") || slug.contains("page") || rawTitle.length < 3 || !addedSlugs.add(slug)) {
                 continue
             }
+            // Live 4read search results put genres in the FIRST poster__subtitle
+            // and the author in the SECOND. Taking the first would store genres
+            // as the author and break the cross-source "title|author" merge.
+            // When only one subtitle is present (genres), leave the author empty
+            // rather than claiming genres as the author.
             val author = POSTER_SUBTITLE.findAll(block)
-                .map { stripTags(it.groupValues[1]).trim() }
-                .firstOrNull { it.isNotBlank() }
-                ?: ""
+                .map { stripTags(it.groupValues[1]).replace(Regex("""\s+"""), " ").trim() }
+                .filter { it.isNotBlank() }
+                .let { subs -> if (subs.count() >= 2) subs.elementAt(1) else "" }
             val cover = POSTER_IMG.find(block)?.groupValues?.get(1)
                 ?.takeIf { it.contains("/uploads/posts/") }
             books.add(

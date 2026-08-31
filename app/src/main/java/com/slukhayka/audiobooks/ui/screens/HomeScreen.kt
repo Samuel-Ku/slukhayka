@@ -117,7 +117,10 @@ fun HomeScreen(
     onPlayClick: (AudiobookEntity) -> Unit,
     // spec-28 (#192): the «Більше книг на Sluhay» exit CTA — wired from the
     // composition root exactly like on Listen (debug-only, spec-13 T3/T2).
-    onOpenWebSource: (() -> Unit)? = null
+    onOpenWebSource: (() -> Unit)? = null,
+    // Spec-42 #440: the 4read door is release-accessible (ADR-0027) — wired
+    // unconditionally from the composition root.
+    onOpenWebSource4read: (() -> Unit)? = null
 ) {
     // ADR-0008: module flows are read directly — no forwarding StateFlow on
     // the ViewModel. Cold flows need an initial value; the catalogue StateFlows
@@ -366,6 +369,30 @@ fun HomeScreen(
                             resultsEmpty = true
                         )
                     }
+                    // Spec-42 #440: empty result set — offer the 4read catalogue
+                    // pre-filled with the query (release-accessible, ADR-0027).
+                    item {
+                        OpenWebSourceRow(
+                            displayName = "4read",
+                            onClick = { viewModel.open4readSearch(searchQuery) },
+                            text = "Шукати «${searchQuery.trim()}» на 4read",
+                            testTag = "open_4read_search_empty"
+                        )
+                    }
+                } else {
+                    // Some sources matched, but none resolved to 4read: surface a
+                    // browser door below the results (spec-42 #440).
+                    val has4read = globalResults.any { it.sources.any { s -> s.sourceId == "4read" } }
+                    if (!has4read) {
+                        item {
+                            OpenWebSourceRow(
+                                displayName = "4read",
+                                onClick = { viewModel.open4readSearch(searchQuery) },
+                                text = "Нічого на 4read? Шукати в браузері",
+                                testTag = "open_4read_search_footer"
+                            )
+                        }
+                    }
                 }
                 items(globalResults, key = { it.key }) { result ->
                     GlobalSearchResultCard(
@@ -434,6 +461,7 @@ fun HomeScreen(
                 onOpenFeedFilters = { showWorkFeedFilters = true },
                 feedFilterTriggerModifier = Modifier.focusRequester(workFeedFilterTriggerFocusRequester),
                 onOpenWebSource = onOpenWebSource,
+                onOpenWebSource4read = onOpenWebSource4read,
                 onRecommendationFeedback = { rec, kind ->
                     scope.launch {
                         val token = withContext(kotlinx.coroutines.Dispatchers.IO) {
@@ -845,22 +873,26 @@ fun NewArrivalsRail(
 }
 
 /**
- * Spec-13 T3 — compact «більше книг на Sluhay →» exit row to the source's
- * browser surface (spec-28 #192: re-homed from Слухати to Огляд as a
- * footer CTA, not a content shelf). One line, not a storefront.
+ * Spec-13 T3 — compact exit row to a source's browser surface (spec-28 #192:
+ * re-homed from Слухати to Огляд as a footer CTA, not a content shelf). One
+ * line, not a storefront. [text] defaults to «Більше книг на $displayName»;
+ * the 4read search doors (#440) reuse the same row with a custom prompt.
  */
 @Composable
 fun OpenWebSourceRow(
     displayName: String,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    text: String = "Більше книг на $displayName",
+    testTag: String = "open_web_source_${displayName.lowercase()}"
 ) {
     Card(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 5.dp)
             .clip(RoundedCornerShape(AppDimens.RadiusCardLg))
             .clickable { onClick() }
-            .testTag("open_web_source_sluhay"),
+            .testTag(testTag),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
@@ -878,7 +910,7 @@ fun OpenWebSourceRow(
             )
             Spacer(modifier = Modifier.width(10.dp))
             Text(
-                text = "Більше книг на $displayName",
+                text = text,
                 style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.weight(1f)

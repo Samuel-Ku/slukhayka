@@ -74,6 +74,17 @@ fun sourceIdForUrl(url: String): String = when {
     else -> "unknown"
 }
 
+/**
+ * Spec-42 #440 — the 4read search URL for a free-text [query], URL-encoded the
+ * same way [FourReadAdapter.search] does. Pure JVM so the door's target can be
+ * pinned without a WebView. 4read resolves to the in-app browser in every build
+ * (ADR-0027), so this is the release-accessible pre-filled search.
+ */
+fun fourReadSearchUrl(query: String): String {
+    val encoded = java.net.URLEncoder.encode(query.trim(), "UTF-8")
+    return "https://4read.org/index.php?do=search&subaction=search&story=$encoded"
+}
+
 /** Human-readable source label for badges. */
 fun sourceDisplayName(sourceId: String): String = when (sourceId) {
     "4read" -> "4read"

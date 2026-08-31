@@ -191,6 +191,27 @@ class FourReadAdapterTest {
     }
 
     @Test
+    fun `captured page expands a query-string m3u playlist into every chapter`() = runBlocking {
+        val pageUrl = "https://4read.org/7810-dzho-aberkrombi-trohi-nenavisti.html"
+        val playlistUrl = "https://4read.org/m33u2/7810-dzho-aberkrombi-trohi-nenavisti.m3u?session=fresh"
+        val page = """
+            <meta property="og:title" content="Трохи ненависті">
+            <li><span>Автор:</span> Джо Аберкромбі</li>
+            <script>new Playerjs({file:"$playlistUrl"});</script>
+        """.trimIndent()
+        val playlist = """
+            https://cdn.example/01.mp3
+            https://cdn.example/02.mp3
+            https://cdn.example/03.mp3
+        """.trimIndent()
+        val adapter = FourReadAdapter(FakeFetcher(mapOf(playlistUrl to playlist)))
+
+        val detail = adapter.parseCapturedPage(page, pageUrl)
+
+        assertEquals(listOf("https://cdn.example/01.mp3", "https://cdn.example/02.mp3", "https://cdn.example/03.mp3"), detail.chapters.map { it.streamUrl })
+    }
+
+    @Test
     fun `book page without a playlist yields no chapters instead of fake audio`() = runBlocking {
         val adapter = FourReadAdapter(
             FakeFetcher(mapOf("https://4read.org/empty.html" to "<html><body>nope</body></html>"))

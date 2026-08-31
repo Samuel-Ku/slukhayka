@@ -95,7 +95,7 @@ class WebViewHtmlParser {
         // chapter stream URLs.
         val expandedStreams = mutableListOf<String>()
         for (stream in audioStreams) {
-            if (stream.endsWith(".m3u") || stream.endsWith(".txt")) {
+            if (isPlaylistUrl(stream)) {
                 val playlistContent = resolveContent(stream)
                 if (playlistContent.isNotEmpty()) {
                     if (playlistContent.trim().startsWith("[{")) {
@@ -196,6 +196,12 @@ class WebViewHtmlParser {
             if (result.length >= MIN_FULL_ANNOTATION) break
         }
         return result.toString().trim()
+    }
+
+    /** Query parameters carry session tokens on live 4read playlist URLs. */
+    private fun isPlaylistUrl(url: String): Boolean {
+        val path = runCatching { URL(url).path }.getOrDefault(url.substringBefore('?'))
+        return path.endsWith(".m3u", ignoreCase = true) || path.endsWith(".txt", ignoreCase = true)
     }
 
     private companion object {

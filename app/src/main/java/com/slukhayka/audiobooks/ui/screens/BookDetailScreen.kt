@@ -338,7 +338,7 @@ fun BookDetailScreen(
             val recoveryBookId = downloadRecoveryBookId
             val result = snackbarHostState.showSnackbar(
                 message = message,
-                actionLabel = recoveryBookId?.let { "Відкрити браузер" }
+                actionLabel = recoveryBookId?.let { "Оновити через браузер" }
             )
             if (result == SnackbarResult.ActionPerformed && recoveryBookId != null) {
                 viewModel.open4ReadRecovery(recoveryBookId, chapterIndex = 0, positionMs = 0L)

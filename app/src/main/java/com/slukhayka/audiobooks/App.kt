@@ -410,7 +410,10 @@ class App : Application() {
             }
         }
         try {
-            offlineDownloads.continueDownload(bookId)
+            // A notification is still an explicit listener action, but it
+            // must not bypass the 4read browser-recovery gate.
+            offlineDownloads.resumePendingBrowserRefresh(bookId)
+                ?: offlineDownloads.continueDownload(bookId)
         } finally {
             progressJob.cancel()
             offlineDownloads.unregisterDownloadJob(bookId)

@@ -13,6 +13,7 @@ import com.slukhayka.audiobooks.data.source.sourceIdForUrl
 import com.slukhayka.audiobooks.data.source.streamOnlyFor
 import com.slukhayka.audiobooks.data.db.DownloadState
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -30,6 +31,7 @@ import java.io.File
 import java.io.FileInputStream
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * ADR-0002 — Offline Downloads: the deep module that owns downloading Works
@@ -81,16 +83,78 @@ class OfflineDownloads(
         context?.getSharedPreferences("offline_download_recovery", Context.MODE_PRIVATE)
     }
 
+    /**
+     * The exact 4read recovery operation, persisted without a Room migration.
+     * A browser recovery is only allowed to continue this explicit queue; it
+     * must not restart unrelated or already-downloaded chapters.
+     */
+    data class BrowserRefreshQueue(
+        val bookId: String,
+        val sourceId: String,
+        val failedChapterIds: Set<String>,
+        val pendingChapterIds: Set<String>,
+        val recoveryConfirmed: Boolean
+    )
+
     /** A 4read queue survives Activity/process recreation without a schema change. */
     fun hasPendingBrowserRefresh(bookId: String): Boolean =
-        recoveryPrefs?.getBoolean("4read_$bookId", false) == true
+        pendingBrowserRefresh(bookId) != null
 
-    fun clearPendingBrowserRefresh(bookId: String) {
-        recoveryPrefs?.edit()?.remove("4read_$bookId")?.apply()
+    fun pendingBrowserRefresh(bookId: String): BrowserRefreshQueue? {
+        val prefs = recoveryPrefs ?: return null
+        if (prefs.getString("4read_${bookId}_source", null) != "4read") return null
+        val pending = prefs.getStringSet("4read_${bookId}_pending", emptySet()).orEmpty()
+        if (pending.isEmpty()) return null
+        return BrowserRefreshQueue(
+            bookId = bookId,
+            sourceId = "4read",
+            failedChapterIds = prefs.getStringSet("4read_${bookId}_failed", emptySet()).orEmpty(),
+            pendingChapterIds = pending,
+            recoveryConfirmed = prefs.getBoolean("4read_${bookId}_recovered", false)
+        )
     }
 
-    private fun markPendingBrowserRefresh(bookId: String) {
-        recoveryPrefs?.edit()?.putBoolean("4read_$bookId", true)?.apply()
+    fun clearPendingBrowserRefresh(bookId: String) {
+        recoveryPrefs?.edit()
+            ?.remove("4read_$bookId") // v1.3.7 and earlier: no resumable context
+            ?.remove("4read_${bookId}_source")
+            ?.remove("4read_${bookId}_failed")
+            ?.remove("4read_${bookId}_pending")
+            ?.remove("4read_${bookId}_recovered")
+            ?.apply()
+    }
+
+    private fun markPendingBrowserRefresh(
+        bookId: String,
+        failedChapterIds: Set<String>,
+        pendingChapterIds: Set<String>
+    ) {
+        recoveryPrefs?.edit()
+            ?.putString("4read_${bookId}_source", "4read")
+            ?.putStringSet("4read_${bookId}_failed", failedChapterIds)
+            ?.putStringSet("4read_${bookId}_pending", pendingChapterIds)
+            ?.putBoolean("4read_${bookId}_recovered", false)
+            ?.apply()
+    }
+
+    /** Browser recovery is the explicit gate before a paused 4read queue may resume. */
+    fun confirmBrowserRefresh(bookId: String) {
+        if (pendingBrowserRefresh(bookId) != null) {
+            recoveryPrefs?.edit()?.putBoolean("4read_${bookId}_recovered", true)?.apply()
+        }
+    }
+
+    /** Continues only the persisted 4read queue after explicit WebView recovery. */
+    suspend fun resumePendingBrowserRefresh(bookId: String): OfflineDownloadResult? {
+        val queue = pendingBrowserRefresh(bookId) ?: return null
+        if (!queue.recoveryConfirmed) {
+            return OfflineDownloadResult(
+                downloadedChapters = 0,
+                totalChapters = queue.pendingChapterIds.size,
+                requiresBrowserRefresh = true
+            )
+        }
+        return downloadAudiobookOffline(bookId, queue.pendingChapterIds)
     }
 
     /**
@@ -185,7 +249,13 @@ class OfflineDownloads(
         else EstimatedSize(total, isApproximate = known < playable.size, knownCount = known, totalCount = playable.size)
     }
 
-    suspend fun downloadAudiobookOffline(bookId: String): OfflineDownloadResult {
+    suspend fun downloadAudiobookOffline(bookId: String): OfflineDownloadResult =
+        downloadAudiobookOffline(bookId, requestedChapterIds = null)
+
+    private suspend fun downloadAudiobookOffline(
+        bookId: String,
+        requestedChapterIds: Set<String>?
+    ): OfflineDownloadResult {
         val streamOnlyBook = dao.getAudiobookById(bookId)
 
         // Use the fallback-fetching catalog chapter fetch (chapters + their
@@ -196,7 +266,9 @@ class OfflineDownloads(
         // button did nothing (observed on-device: 183 of 214 books had no
         // chapters in Room). ADR-0007: the download loop consumes the
         // chapter→track pairing and writes ONLY the track rows.
-        val playable = sourceCatalog.getPlayableChapters(bookId)
+        val playable = sourceCatalog.getPlayableChapters(bookId).let { chapters ->
+            requestedChapterIds?.let { requested -> chapters.filter { it.chapter.id in requested } } ?: chapters
+        }
         val total = playable.size
         if (total == 0) {
             Log.w("OfflineDownloads", "downloadAudiobookOffline: no chapters found for bookId=$bookId")
@@ -234,6 +306,8 @@ class OfflineDownloads(
         val sharedCount = AtomicInteger(0)
         val reusedCount = AtomicInteger(0)
         val browserRefreshRequired = AtomicInteger(0)
+        val browserFailedChapterIds = ConcurrentHashMap.newKeySet<String>()
+        val browserPendingChapterIds = ConcurrentHashMap.newKeySet<String>()
         // A browser-backed 4read refresh is a user-visible recovery step. Run
         // its queue serially and stop scheduling new chapters after the first
         // failed request, leaving the completed tracks intact for a later
@@ -251,8 +325,16 @@ class OfflineDownloads(
         dao.updateDownloadStateWithState(bookId, isDownloaded = false, progress = 0.05f, state = DownloadState.DOWNLOADING)
 
         coroutineScope {
-            playable.map { playableChapter ->
-                async(Dispatchers.IO) {
+            val scheduled = mutableListOf<Deferred<Unit>>()
+            playable.forEach { playableChapter ->
+                // A semaphore limits concurrency but does not guarantee the
+                // acquire order of already-scheduled coroutines. 4read must
+                // stop at the first session-gated chapter, so chain only its
+                // jobs in source order. Direct sources keep their three-way
+                // bounded parallelism.
+                val previous = if (sourceId == "4read") scheduled.lastOrNull() else null
+                scheduled += async(Dispatchers.IO) {
+                    previous?.await()
                     semaphore.withPermit {
                         val chapter = playableChapter.chapter
                         val track = playableChapter.track
@@ -268,6 +350,7 @@ class OfflineDownloads(
                         // tracks remain valid and the next explicit attempt
                         // resumes from the first failed chapter.
                         if (sourceId == "4read" && browserRefreshRequired.get() == 1) {
+                            browserPendingChapterIds += chapter.id
                             val finished = completedCount.incrementAndGet()
                             dao.updateDownloadState(
                                 bookId,
@@ -443,6 +526,8 @@ class OfflineDownloads(
                                             chapterOk = false
                                             if (sourceId == "4read" && response.status in setOf(403, 404)) {
                                                 browserRefreshRequired.set(1)
+                                                browserFailedChapterIds += chapter.id
+                                                browserPendingChapterIds += chapter.id
                                             }
                                         }
                                     } else {
@@ -542,7 +627,8 @@ class OfflineDownloads(
                         }
                     }
                 }
-            }.awaitAll()
+            }
+            scheduled.awaitAll()
         }
 
         // Post-book hash dedup: after all chapters, ensure any remaining
@@ -588,7 +674,11 @@ class OfflineDownloads(
         val allOk = totalSuccess == total
         val needsBrowserRefresh = browserRefreshRequired.get() == 1
         if (needsBrowserRefresh) {
-            markPendingBrowserRefresh(bookId)
+            markPendingBrowserRefresh(
+                bookId = bookId,
+                failedChapterIds = browserFailedChapterIds,
+                pendingChapterIds = browserPendingChapterIds
+            )
         } else if (allOk) {
             clearPendingBrowserRefresh(bookId)
         }

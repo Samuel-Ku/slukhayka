@@ -5,12 +5,15 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.slukhayka.audiobooks.data.catalog.SourceCatalog
 import com.slukhayka.audiobooks.data.db.AudiobookDatabase
+import com.slukhayka.audiobooks.data.imports.BrowserRecoveryCoordinator
 import com.slukhayka.audiobooks.data.imports.LibraryImport
 import com.slukhayka.audiobooks.data.source.SourceAdapter
 import com.slukhayka.audiobooks.data.source.SourceBook
 import com.slukhayka.audiobooks.data.source.SourceBookDetail
 import com.slukhayka.audiobooks.data.source.SourceChapter
+import com.slukhayka.audiobooks.data.source.HttpFetcher
 import com.slukhayka.audiobooks.testing.FakeFetcher
+import java.io.ByteArrayInputStream
 import java.io.File
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -78,7 +81,7 @@ class OfflineDownloadsReliabilityTest {
     private fun harness(
         numChapters: Int,
         streamUrl: (Int) -> String,
-        fetcher: FakeFetcher,
+        fetcher: HttpFetcher,
         sourceId: String = "sluhay",
         sourceUrl: String = "https://sluhay.com/svitova-literatura/6177-pasazhir.html"
     ): Triple<LibraryImport, SourceCatalog, OfflineDownloads> {
@@ -119,6 +122,92 @@ class OfflineDownloadsReliabilityTest {
 
         assertEquals(1, result.downloadedChapters)
         assertEquals(listOf(mapOf("Referer" to "https://4read.org/")), fetcher.recordedHeaders)
+    }
+
+    @Test
+    fun `4read browser refresh resumes only the persisted failed and pending chapters`() = runBlocking {
+        val urls = (0..2).map { "https://s1.reasd.org/5370/0$it-bunker.mp3" }
+        val refreshedUrls = (0..2).map { "https://s1.reasd.org/5370/new-0$it-bunker.mp3" }
+        val audio = ByteArray(2048) { 0x42 }
+        val requestedUrls = mutableListOf<String>()
+        val fetcher = object : HttpFetcher() {
+            override fun getSizedStreamResult(
+                url: String,
+                extraHeaders: Map<String, String>
+            ): SizedStreamResult {
+                requestedUrls += url
+                val status = when (url) {
+                    urls[0] -> 200
+                    urls[1] -> 403
+                    refreshedUrls[1], refreshedUrls[2] -> 200
+                    else -> 0
+                }
+                val stream = if (status == 200) SizedStream(ByteArrayInputStream(audio), audio.size.toLong()) else null
+                return SizedStreamResult(status, stream)
+            }
+        }
+        val (imports, catalog, downloads) = harness(
+            numChapters = 3,
+            streamUrl = { urls[it] },
+            fetcher = fetcher,
+            sourceId = "4read",
+            sourceUrl = "https://4read.org/5370-gu-goui-bunker-iluziia.html"
+        )
+        val bookId = importBook(
+            imports,
+            "https://4read.org/5370-gu-goui-bunker-iluziia.html",
+            sourceId = "4read"
+        )
+
+        val blocked = downloads.downloadAudiobookOffline(bookId)
+
+        assertTrue(blocked.requiresBrowserRefresh)
+        assertEquals(listOf(urls[0], urls[1]), requestedUrls)
+        assertEquals(setOf(dao.getChaptersListForBook(bookId)[1].id), downloads.pendingBrowserRefresh(bookId)!!.failedChapterIds)
+        assertEquals(2, downloads.pendingBrowserRefresh(bookId)!!.pendingChapterIds.size)
+
+        // Recreate the deep module: the queue is a persisted operation, not
+        // in-memory recovery state from the failed attempt.
+        val recreatedDownloads = OfflineDownloads(dao, context, catalog, fetcher, pauseFor = { })
+        val beforeRecovery = recreatedDownloads.resumePendingBrowserRefresh(bookId)!!
+        assertTrue(beforeRecovery.requiresBrowserRefresh)
+        assertEquals(listOf(urls[0], urls[1]), requestedUrls)
+
+        val recoveredDetail = SourceBookDetail(
+            title = "Пасажир",
+            author = "Жан-Крістоф Гранже",
+            url = "https://4read.org/5370-gu-goui-bunker-iluziia.html",
+            chapters = refreshedUrls.mapIndexed { index, url -> SourceChapter("Пасажир ${index + 1}", url) }
+        )
+        val recoveryAdapter = object : SourceAdapter {
+            override val sourceId: String = "4read"
+            override suspend fun search(query: String): List<SourceBook> = emptyList()
+            override suspend fun fetchNew(limit: Int): List<SourceBook> = emptyList()
+            override suspend fun fetchCatalog(limit: Int): List<SourceBook> = emptyList()
+            override suspend fun fetchBookPage(url: String): SourceBookDetail = recoveredDetail
+            override suspend fun parseCapturedPage(html: String, url: String): SourceBookDetail? =
+                recoveredDetail.takeIf { html == "recovered" }
+        }
+        val recovery = BrowserRecoveryCoordinator(
+            dao = dao,
+            libraryImport = LibraryImport(dao, context, listOf(recoveryAdapter)),
+            playbackVerifier = BrowserRecoveryCoordinator.PlaybackVerifier { _, _ -> true }
+        )
+        val recoveryOutcome = recovery.recover(
+            bookId = bookId,
+            sourceId = "4read",
+            url = "https://4read.org/5370-gu-goui-bunker-iluziia.html",
+            html = "recovered"
+        )
+        assertTrue(recoveryOutcome is BrowserRecoveryCoordinator.Outcome.Success)
+        assertEquals(refreshedUrls, dao.getTracksForBookSync(bookId).sortedBy { it.trackIndex }.map { it.url })
+        recreatedDownloads.confirmBrowserRefresh(bookId)
+        val resumed = recreatedDownloads.resumePendingBrowserRefresh(bookId)!!
+
+        assertEquals(2, resumed.downloadedChapters + resumed.sharedChapters + resumed.reusedChapters)
+        assertEquals(listOf(urls[0], urls[1], refreshedUrls[1], refreshedUrls[2]), requestedUrls)
+        assertNull(recreatedDownloads.pendingBrowserRefresh(bookId))
+        assertTrue(dao.getTracksForBookSync(bookId).all { it.isDownloaded })
     }
 
     private suspend fun importBook(

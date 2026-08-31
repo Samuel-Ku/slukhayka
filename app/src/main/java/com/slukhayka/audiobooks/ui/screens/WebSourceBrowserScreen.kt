@@ -369,32 +369,33 @@ fun WebSourceBrowserScreen(
                             color = MaterialTheme.colorScheme.onPrimary
                         )
                     }
-                    // Spec-15 T3: the WebView catalogue hydration tool — a
-                    // debug-only one-time crawl of the source's catalogue into
-                    // Room (this surface is itself debug-gated, T2, so the
-                    // tool never ships in release). Snapshots metadata + cover
-                    // + URL as normal Source rows through the shared import
-                    // path; the result counts render below.
-                    if (BuildConfig.DEBUG) {
-                        val isHydrating = viewModel.isHydrating.collectAsState().value
-                        val hydrationResult = viewModel.hydrationResult.collectAsState().value
-                        OutlinedButton(
-                            onClick = { viewModel.hydrateWebSourceCatalog(sourceId) },
-                            enabled = !isHydrating,
-                            shape = RoundedCornerShape(AppDimens.RadiusCard),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Refresh,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = if (isHydrating) "Гідратую…" else "Гідратувати каталог",
-                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
-                            )
-                        }
+                }
+
+                // Spec-15 T3: the debug-only catalogue hydration tool stays
+                // outside the browser's primary action row. Five browser
+                // controls plus the import action already fill a narrow phone;
+                // squeezing a labelled debug action beside them made its text
+                // wrap vertically and pushed the whole browser below the fold.
+                if (BuildConfig.DEBUG) {
+                    val isHydrating = viewModel.isHydrating.collectAsState().value
+                    Spacer(modifier = Modifier.height(6.dp))
+                    OutlinedButton(
+                        onClick = { viewModel.hydrateWebSourceCatalog(sourceId) },
+                        enabled = !isHydrating,
+                        shape = RoundedCornerShape(AppDimens.RadiusCard),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                        modifier = Modifier.align(Alignment.End)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = if (isHydrating) "Гідратую…" else "Гідратувати каталог",
+                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
+                        )
                     }
                 }
 

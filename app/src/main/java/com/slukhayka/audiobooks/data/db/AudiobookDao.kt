@@ -588,7 +588,6 @@ interface AudiobookDao {
     @Transaction
     suspend fun replaceConfirmedChapterStructure(
         bookId: String,
-        sourceId: String,
         chapters: List<ChapterEntity>,
         tracks: List<SourceTrackEntity>,
         totalDurationSeconds: Long,
@@ -596,7 +595,7 @@ interface AudiobookDao {
     ) {
         deletePlaybackProgressForBook(bookId)
         deleteBookmarksForBook(bookId)
-        deleteTracksForSource(sourceId)
+        deleteTracksForBook(bookId)
         deleteChaptersForBook(bookId)
         insertChapters(chapters)
         insertTracks(tracks)

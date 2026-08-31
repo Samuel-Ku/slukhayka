@@ -453,6 +453,10 @@ class FakeAudiobookDao(
         tracksState.update { current -> current.filterNot { it.sourceId in sourceIds } }
     }
 
+    override suspend fun deleteTracksForSource(sourceId: String) {
+        tracksState.update { current -> current.filterNot { it.sourceId == sourceId } }
+    }
+
     // --- Domain Editions (ADR-0007) ---------------------------------------
 
     override suspend fun replaceEdition(edition: EditionEntity) {

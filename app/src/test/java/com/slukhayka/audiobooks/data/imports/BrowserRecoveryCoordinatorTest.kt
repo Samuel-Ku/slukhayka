@@ -5,6 +5,8 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.slukhayka.audiobooks.data.db.AudiobookDao
 import com.slukhayka.audiobooks.data.db.AudiobookDatabase
+import com.slukhayka.audiobooks.data.db.BookmarkEntity
+import com.slukhayka.audiobooks.data.db.PlaybackProgressEntity
 import com.slukhayka.audiobooks.data.metadata.BookProfile
 import com.slukhayka.audiobooks.data.metadata.ProfileProvenance
 import com.slukhayka.audiobooks.data.metadata.SharedBookMetaStore
@@ -13,6 +15,7 @@ import com.slukhayka.audiobooks.data.source.SourceBook
 import com.slukhayka.audiobooks.data.source.SourceBookDetail
 import com.slukhayka.audiobooks.data.source.SourceChapter
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.flow.first
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
@@ -192,6 +195,120 @@ class BrowserRecoveryCoordinatorTest {
         // Tracks must be rolled back on verifier failure — dead URL must not persist.
         val tracks = dao.getTracksForBookSync(bookId).sortedBy { it.trackIndex }
         assertEquals("https://s1.reasd.org/kobzar/old1.mp3", tracks[0].url)
+    }
+
+    @Test
+    fun `changed chapter structure keeps every stored recovery state untouched`() = runBlocking {
+        val original = detail(chapters = listOf("Глава 1" to "https://s1.reasd.org/kobzar/old1.mp3"))
+        val bookId = seedBook(original)
+        val edition = requireNotNull(dao.getEditionForWork(bookId))
+        val originalTrack = dao.getTracksForBookSync(bookId).single()
+        dao.savePlaybackProgress(
+            PlaybackProgressEntity(
+                editionId = edition.id,
+                bookId = bookId,
+                currentChapterIndex = 0,
+                currentPositionSeconds = 42L
+            )
+        )
+        dao.insertBookmark(
+            BookmarkEntity(
+                bookId = bookId,
+                editionId = edition.id,
+                chapterIndex = 0,
+                chapterTitle = "Глава 1",
+                timestampSeconds = 42L,
+                note = "Не загубити"
+            )
+        )
+        dao.updateTrackDownloadState(originalTrack.id, isDownloaded = true, filePath = "/tmp/kobzar.mp3")
+        val refreshed = detail(chapters = listOf(
+            "Глава 1" to "https://s1.reasd.org/kobzar/new1.mp3",
+            "Глава 2" to "https://s1.reasd.org/kobzar/new2.mp3"
+        ))
+        val coordinator = BrowserRecoveryCoordinator(
+            dao = dao,
+            libraryImport = LibraryImport(dao, context, listOf(fakeAdapter(mapOf("cap" to refreshed))))
+        )
+
+        val outcome = coordinator.recover(bookId, "4read", "https://4read.org/kobzar.html", "cap")
+
+        assertTrue(outcome is BrowserRecoveryCoordinator.Outcome.StructureMismatch)
+        val mismatch = outcome as BrowserRecoveryCoordinator.Outcome.StructureMismatch
+        assertEquals(1, mismatch.storedChapterCount)
+        assertEquals(2, mismatch.capturedChapterCount)
+        assertFalse(mismatch.shouldCloseBrowser)
+        assertEquals(listOf("Глава 1"), dao.getChaptersListForBook(bookId).map { it.title })
+        assertEquals(42L, dao.getPlaybackProgressSync(bookId)?.currentPositionSeconds)
+        assertEquals("Не загубити", dao.getBookmarksForBook(bookId).first().single().note)
+        val preservedTrack = dao.getTracksForBookSync(bookId).single()
+        assertEquals("https://s1.reasd.org/kobzar/old1.mp3", preservedTrack.url)
+        assertTrue(preservedTrack.isDownloaded)
+        assertEquals("/tmp/kobzar.mp3", preservedTrack.localFilePath)
+    }
+
+    @Test
+    fun `a different captured Work is not reported as this Edition's structure mismatch`() = runBlocking {
+        val original = detail(chapters = listOf("Глава 1" to "https://s1.reasd.org/kobzar/old1.mp3"))
+        val bookId = seedBook(original)
+        val otherWork = detail(
+            title = "Лісова пісня",
+            author = "Леся Українка",
+            chapters = listOf(
+                "Глава 1" to "https://s1.reasd.org/lisova/1.mp3",
+                "Глава 2" to "https://s1.reasd.org/lisova/2.mp3"
+            )
+        )
+        val coordinator = BrowserRecoveryCoordinator(
+            dao = dao,
+            libraryImport = LibraryImport(dao, context, listOf(fakeAdapter(mapOf("other" to otherWork))))
+        )
+
+        val outcome = coordinator.recover(bookId, "4read", "https://4read.org/kobzar.html", "other")
+
+        assertTrue(outcome is BrowserRecoveryCoordinator.Outcome.Failure)
+        assertEquals("https://s1.reasd.org/kobzar/old1.mp3", dao.getTracksForBookSync(bookId).single().url)
+    }
+
+    @Test
+    fun `a different narrator is not reported as this Edition's structure mismatch`() = runBlocking {
+        val original = detail(chapters = listOf("Глава 1" to "https://s1.reasd.org/kobzar/old1.mp3"))
+        val bookId = seedBook(original)
+        val otherNarration = detail(
+            narrator = "Марія Романенко",
+            chapters = listOf(
+                "Глава 1" to "https://s1.reasd.org/kobzar-maria/1.mp3",
+                "Глава 2" to "https://s1.reasd.org/kobzar-maria/2.mp3"
+            )
+        )
+        val coordinator = BrowserRecoveryCoordinator(
+            dao = dao,
+            libraryImport = LibraryImport(dao, context, listOf(fakeAdapter(mapOf("other-narrator" to otherNarration))))
+        )
+
+        val outcome = coordinator.recover(bookId, "4read", "https://4read.org/kobzar.html", "other-narrator")
+
+        assertTrue(outcome is BrowserRecoveryCoordinator.Outcome.Failure)
+    }
+
+    @Test
+    fun `challenge page explains that browser verification must finish`() = runBlocking {
+        val original = detail(chapters = listOf("Глава 1" to "https://s1.reasd.org/kobzar/old1.mp3"))
+        val bookId = seedBook(original)
+        val coordinator = BrowserRecoveryCoordinator(
+            dao = dao,
+            libraryImport = LibraryImport(dao, context, listOf(fakeAdapter(mapOf("challenge" to null))))
+        )
+
+        val outcome = coordinator.recover(
+            bookId,
+            "4read",
+            "https://4read.org/kobzar.html",
+            "<html><title>Just a moment...</title><body>Checking your browser before accessing 4read.</body></html>"
+        )
+
+        assertTrue(outcome is BrowserRecoveryCoordinator.Outcome.Failure)
+        assertTrue((outcome as BrowserRecoveryCoordinator.Outcome.Failure).message.contains("перевіряє браузер"))
     }
 
     @Test

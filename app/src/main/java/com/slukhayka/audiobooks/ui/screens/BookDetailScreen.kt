@@ -2501,6 +2501,7 @@ fun WorkSourceRowCard(
     source: BookDetailSourcePresentation,
     workTitle: String = ""
 ) {
+    val requiresBrowser = SourceAccessPolicy.modeFor(source.sourceId) == SourceAccessMode.BROWSER
     val contextualTitle = workTitle.takeIf(String::isNotBlank) ?: "книгу"
     val actionDescription = if (source.selectable) {
         stringResource(R.string.book_detail_play_source, contextualTitle, source.name)
@@ -2513,7 +2514,7 @@ fun WorkSourceRowCard(
     ).let { base ->
         buildString {
             append(if (source.streamOnly) stringResource(R.string.book_detail_source_stream_only, base) else base)
-            if (SourceAccessPolicy.modeFor(source.sourceId) == SourceAccessMode.BROWSER) {
+            if (requiresBrowser) {
                 append(" · ${stringResource(R.string.book_detail_browser_needed)}")
             }
         }
@@ -2554,9 +2555,15 @@ fun WorkSourceRowCard(
                         style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                         color = MaterialTheme.colorScheme.onSurface
                     )
-                    if (source.isCurrent) {
+                    if (requiresBrowser || source.isCurrent) {
                         Spacer(modifier = Modifier.width(6.dp))
-                        SourceBadgePill(label = "Поточна")
+                        SourceBadgePill(
+                            label = if (requiresBrowser) {
+                                stringResource(R.string.book_detail_browser_needed)
+                            } else {
+                                "Поточна"
+                            }
+                        )
                     }
                 }
                 source.rating?.let { rating ->

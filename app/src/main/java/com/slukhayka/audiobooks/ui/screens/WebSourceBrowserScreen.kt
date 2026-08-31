@@ -801,11 +801,7 @@ fun WebSourceBrowserScreen(
                                 canGoBack = view?.canGoBack() ?: false
                                 canGoForward = view?.canGoForward() ?: false
                                 view?.evaluateJavascript(
-                                    "(function() { " +
-                                        "var style = document.createElement('style');" +
-                                        "style.innerHTML = '.sect-rek, .rek, #rek, .reklama, .banner, .adsbygoogle, [id^=yandex_rtb_], iframe[src*=\\\"ads\\\"] { display: none !important; height: 0 !important; }';" +
-                                        "document.head.appendChild(style);" +
-                                        "})();", null
+                                    sourceBrowserAdCleanupScript(), null
                                 )
                             }
 
@@ -986,13 +982,44 @@ internal fun webSourceBrowserActionLabels(
 /** Ad/tracker host suffixes blocked during browsing (from the #71 prototype). */
 private val AD_HOST_SUFFIXES = listOf(
     "adskeeper.com",
+    "adnxs.com",
+    "adform.net",
+    "adfox.ru",
+    "adservice.google.com",
+    "googleadservices.com",
     "googlesyndication.com",
     "adtrafficquality.google",
     "google-analytics.com",
     "googletagmanager.com",
     "doubleclick.net",
-    "mc.yandex.com"
+    "mc.yandex.com",
+    "outbrain.com",
+    "taboola.com"
 )
+
+/**
+ * Removes advertising placeholders already injected into a source page and
+ * keeps removing late async inserts. Network blocking alone is insufficient:
+ * an ad slot can be supplied by a script cached before this WebView session.
+ */
+internal fun sourceBrowserAdCleanupScript(): String = """
+    (function () {
+      var selectors = '.sect-rek, .rek, #rek, .reklama, .banner, .adsbygoogle, ins.adsbygoogle, [id^="yandex_rtb_"], [id*="adskeeper" i], [class*="adskeeper" i], [data-adskeeper], [id*="reklam" i], [class*="reklam" i], iframe[src*="adskeeper"], iframe[src*="doubleclick"], iframe[src*="googlesyndication"], iframe[src*="adfox"]';
+      var removeAds = function () {
+        document.querySelectorAll(selectors).forEach(function (node) { node.remove(); });
+      };
+      if (window.__slukhaykaAdCleanupInstalled) {
+        removeAds();
+        return;
+      }
+      window.__slukhaykaAdCleanupInstalled = true;
+      var style = document.createElement('style');
+      style.textContent = selectors + ' { display: none !important; height: 0 !important; min-height: 0 !important; }';
+      document.head.appendChild(style);
+      removeAds();
+      new MutationObserver(removeAds).observe(document.documentElement, { childList: true, subtree: true });
+    })();
+""".trimIndent()
 
 private fun looksLikeAudio(url: String): Boolean {
     val lower = url.lowercase()

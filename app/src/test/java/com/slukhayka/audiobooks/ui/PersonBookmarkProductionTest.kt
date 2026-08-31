@@ -10,6 +10,7 @@ import com.slukhayka.audiobooks.testing.FakeAudiobookDao
 import com.slukhayka.audiobooks.ui.screens.CanonicalAuthorScreen
 import com.slukhayka.audiobooks.ui.screens.PersonBooksScreen
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
@@ -99,7 +100,12 @@ class PersonBookmarkProductionTest {
 
     @Test
     fun canonicalAuthorScreen_toggleCallbackFires() {
-        val bookmarks = PersonBookmarks(FakeAudiobookDao())
+        // Determinism: the surface toggles via rememberCoroutineScope (main
+        // looper) -> PersonBookmarks.toggle (Dispatchers.IO). The write racing
+        // the main-looper `waitUntil` poll is the flake in full suites, so the
+        // toggle's IO hop is removed by injecting an unconfined dispatcher —
+        // the bookmark is then committed synchronously on the calling thread.
+        val bookmarks = PersonBookmarks(FakeAudiobookDao(), Dispatchers.Unconfined)
 
         composeTestRule.setContent {
             AudiobookTheme(darkTheme = true) {

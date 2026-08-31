@@ -635,31 +635,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 )
                             }
                         }
+                        if (sourceId == "4read") {
+                            offlineDownloads.confirmBrowserRefresh(outcome.book.id)
+                        }
                         onComplete(true)
                     }
                     is com.slukhayka.audiobooks.data.imports.BrowserRecoveryCoordinator.Outcome.Failure -> onComplete(false)
                     null -> onComplete(false)
                 }
             }
-                // A paused offline queue is resumed only after the explicit
-                // browser recovery completed. Existing local files are reused
-                // and only the failed tracks are fetched again.
-                if (outcome is com.slukhayka.audiobooks.data.imports.BrowserRecoveryCoordinator.Outcome.Success &&
-                offlineDownloads.hasPendingBrowserRefresh(outcome.book.id)
-            ) {
-                    offlineDownloads.clearPendingBrowserRefresh(outcome.book.id)
-                    try {
-                        val result = offlineDownloads.downloadAudiobookOffline(outcome.book.id)
-                        if (_selectedBookId.value == outcome.book.id) {
-                            _downloadMessage.value = OutcomeMessages.downloadOutcome(result)
-                            _downloadRecoveryBookId.value = outcome.book.id.takeIf { result.requiresBrowserRefresh }
-                        }
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (e: Exception) {
-                        android.util.Log.w("MainViewModel", "4read download resume failed", e)
-                    }
-                }
         }
     }
 
@@ -2223,7 +2207,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val book = libraryEntries.getBookSync(bookId)
                 startDownloadNotification(bookId, book?.title ?: "", book?.author ?: "")
                 offlineDownloads.registerDownloadJob(bookId, kotlinx.coroutines.currentCoroutineContext()[kotlinx.coroutines.Job]!!)
-                val result = offlineDownloads.downloadAudiobookOffline(bookId)
+                // Browser recovery only prepares the persisted 4read queue.
+                // This explicit listener action continues its failed and
+                // pending chapters instead of restarting the whole book.
+                val result = offlineDownloads.resumePendingBrowserRefresh(bookId)
+                    ?: offlineDownloads.downloadAudiobookOffline(bookId)
                 if (_selectedBookId.value == bookId) {
                     _downloadMessage.value = OutcomeMessages.downloadOutcome(result)
                     _downloadRecoveryBookId.value = bookId.takeIf { result.requiresBrowserRefresh }
@@ -2267,7 +2255,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val book = libraryEntries.getBookSync(bookId)
                 startDownloadNotification(bookId, book?.title ?: "", book?.author ?: "")
                 offlineDownloads.registerDownloadJob(bookId, kotlinx.coroutines.currentCoroutineContext()[kotlinx.coroutines.Job]!!)
-                val result = offlineDownloads.continueDownload(bookId)
+                // CONTEXT.md/ADR-0026: browser recovery never resumes on its
+                // own; this explicit Continue is the only door that does.
+                val result = offlineDownloads.resumePendingBrowserRefresh(bookId)
+                    ?: offlineDownloads.continueDownload(bookId)
                 if (_selectedBookId.value == bookId) {
                     _downloadMessage.value = OutcomeMessages.downloadOutcome(result)
                 }

@@ -285,6 +285,8 @@ class BookDetailAccessibilityTest {
                     true
                 )
             )
+        composeTestRule.onAllNodesWithText("Потрібен браузер", useUnmergedTree = true).assertCountEquals(2)
+        composeTestRule.onAllNodesWithText("Поточна", useUnmergedTree = true).assertCountEquals(0)
         composeTestRule.onNodeWithTag("work_source_sluhay")
             .assertContentDescriptionEquals("Джерело Sluhay для «${book.title}»")
             .assert(

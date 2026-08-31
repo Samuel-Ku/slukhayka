@@ -1,7 +1,9 @@
 package com.slukhayka.audiobooks.ui
 
 import com.slukhayka.audiobooks.ui.screens.unescapeCapturedHtml
+import com.slukhayka.audiobooks.ui.screens.sourceBrowserAdCleanupScript
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -12,6 +14,15 @@ import org.junit.Test
  * parsed — the `<meta …>` patterns never matched the literal `\u003Cmeta`).
  */
 class WebSourceBrowserDecodeTest {
+
+    @Test
+    fun `removes adskeeper and late injected ad slots from source pages`() {
+        val script = sourceBrowserAdCleanupScript()
+
+        assertTrue("adskeeper selector is missing", "adskeeper" in script)
+        assertTrue("late inserts are not observed", "MutationObserver" in script)
+        assertTrue("cleanup is not idempotent", "__slukhaykaAdCleanupInstalled" in script)
+    }
 
     @Test
     fun `decodes the JSON-escaped angle brackets back to html`() {

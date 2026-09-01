@@ -20,6 +20,7 @@ import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsFocused
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -213,6 +214,39 @@ class BookDetailAccessibilityTest {
             composeTestRule.runOnIdle { assertEquals(origin, restoredOrigin) }
             composeTestRule.runOnUiThread { returnOrigin = null }
         }
+    }
+
+    @Test
+    fun personBookmarksShareATrailingColumnAndSeriesDoesNotStretchMetadataRow() {
+        val seriesBook = book.copy().also {
+            it.seriesTitle = "Перший закон — довга назва циклу"
+            it.seriesUrl = "https://4read.org/series/first-law"
+        }
+        val presentation = bookDetailPresentation(seriesBook, emptyList(), emptyList())
+
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                Surface {
+                    Column(modifier = Modifier.width(320.dp)) {
+                        BookDetailCanonicalSummary(presentation = presentation)
+                    }
+                }
+            }
+        }
+
+        val authorBookmark = composeTestRule.onNodeWithTag("book_detail_author_bookmark")
+            .assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        val narratorBookmark = composeTestRule.onNodeWithTag("book_detail_narrator_bookmark")
+            .assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        assertEquals(authorBookmark.left, narratorBookmark.left, 0.01f)
+
+        val metadataBottom = composeTestRule.onNodeWithTag("book_detail_metadata_chips")
+            .fetchSemanticsNode().boundsInRoot.bottom
+        val seriesTop = composeTestRule.onNodeWithTag("book_detail_series_row")
+            .fetchSemanticsNode().boundsInRoot.top
+        assertTrue("series must have its own row: top=$seriesTop bottom=$metadataBottom", seriesTop >= metadataBottom)
+        composeTestRule.onNodeWithTag("book_detail_series_pill")
+            .assertHeightIsAtLeast(48.dp)
     }
 
     @Test

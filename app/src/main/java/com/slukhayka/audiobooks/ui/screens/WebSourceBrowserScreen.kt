@@ -37,7 +37,6 @@ import androidx.webkit.ProxyConfig
 import androidx.webkit.ProxyController
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
-import com.slukhayka.audiobooks.BuildConfig
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.privacy.WebViewSessionPrivacy
 import com.slukhayka.audiobooks.data.source.SourceBrowserPolicy
@@ -471,51 +470,6 @@ fun WebSourceBrowserScreen(
                             },
                             style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
                             color = MaterialTheme.colorScheme.onPrimary
-                        )
-                    }
-                }
-
-                // Spec-15 T3: the debug-only catalogue hydration tool stays
-                // outside the browser's primary action row. Five browser
-                // controls plus the import action already fill a narrow phone;
-                // squeezing a labelled debug action beside them made its text
-                // wrap vertically and pushed the whole browser below the fold.
-                if (BuildConfig.DEBUG) {
-                    val isHydrating = viewModel.isHydrating.collectAsState().value
-                    Spacer(modifier = Modifier.height(6.dp))
-                    OutlinedButton(
-                        onClick = { viewModel.hydrateWebSourceCatalog(sourceId) },
-                        enabled = !isHydrating,
-                        shape = RoundedCornerShape(AppDimens.RadiusCard),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                        modifier = Modifier.align(Alignment.End)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Refresh,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = if (isHydrating) "Гідратую…" else "Гідратувати каталог",
-                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
-                        )
-                    }
-                }
-
-                // Spec-15 T3: hydration outcome — found/imported/failed counts.
-                if (BuildConfig.DEBUG) {
-                    val hydrationResult = viewModel.hydrationResult.collectAsState().value
-                    if (hydrationResult != null) {
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = buildString {
-                                append("Каталог: знайдено ${hydrationResult.found}, імпортовано ${hydrationResult.imported}")
-                                if (hydrationResult.merged > 0) append(", об'єднано ${hydrationResult.merged}")
-                                append(", помилок ${hydrationResult.failed}")
-                            },
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.secondary
                         )
                     }
                 }

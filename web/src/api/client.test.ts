@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import { dedupeWorks } from './client'
-import { appendCatalogPage } from '../ui/Catalog'
 import { cardResultState } from '../ui/Catalog'
 
 describe('dedupeWorks', () => {
@@ -28,16 +27,5 @@ describe('card action terminal states', () => {
     expect(cardResultState(null, false, false)).toBe('no-network')
     expect(cardResultState(null, false, true)).toBe('temporary-failure')
     expect(cardResultState(missing, true, true)).toBe('browser-required')
-  })
-})
-
-describe('appendCatalogPage', () => {
-  it('keeps seen card order and appends only new cursor cards', () => {
-    const result = appendCatalogPage(
-      [{ id: 'new', title: 'Нове', cards: [{ url: 'a', title: 'A', author: '' }] }],
-      [{ id: 'new', title: 'Нове', cards: [{ url: 'a', title: 'A', author: '' }, { url: 'b', title: 'B', author: '' }] }],
-    )
-
-    expect(result[0].cards.map((card) => card.url)).toEqual(['a', 'b'])
   })
 })

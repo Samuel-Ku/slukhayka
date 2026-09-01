@@ -1,6 +1,7 @@
 package com.slukhayka.audiobooks.ui.components
 
 import android.graphics.drawable.Drawable
+import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
@@ -24,6 +25,8 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
+import com.slukhayka.audiobooks.data.source.AndroidSourceCookieProvider
+import com.slukhayka.audiobooks.data.source.coverHeadersFor
 import com.slukhayka.audiobooks.ui.displayAuthor
 import com.slukhayka.audiobooks.ui.theme.*
 
@@ -91,7 +94,7 @@ fun BookCoverImage(
             ImageRequest.Builder(context)
                 .data(imageUrl)
                 // Spec-38: UA rides the shared image loader's browser identity.
-                .setHeader("Referer", "https://4read.org/")
+                .applySourceCoverHeaders(imageUrl)
                 .crossfade(true)
                 .allowHardware(false) // Disable hardware bitmaps to prevent Ashmem pinning errors on Android Q+
                 .build()
@@ -105,7 +108,10 @@ fun BookCoverImage(
             modifier = modifier,
             contentScale = contentScale,
             onSuccess = { onImageLoaded?.invoke(it.result.drawable) },
-            onError = { isError = true }
+            onError = {
+                Log.w("BookCover", "Не вдалося завантажити обкладинку: $imageUrl", it.result.throwable)
+                isError = true
+            }
         )
     } else {
         // Fallback layout: genre-tinted typographic cover with book title &
@@ -163,4 +169,15 @@ fun BookCoverImage(
             }
         }
     }
+}
+
+/**
+ * Applies the source-owned cover policy without exposing source or cookie
+ * mechanics to a Compose caller.
+ */
+fun ImageRequest.Builder.applySourceCoverHeaders(url: String): ImageRequest.Builder {
+    AndroidSourceCookieProvider.coverHeadersFor(url).forEach { (name, value) ->
+        setHeader(name, value)
+    }
+    return this
 }

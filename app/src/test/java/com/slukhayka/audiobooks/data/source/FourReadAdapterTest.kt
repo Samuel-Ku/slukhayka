@@ -212,6 +212,33 @@ class FourReadAdapterTest {
     }
 
     @Test
+    fun `captured public playlist ignores a stale WebView cookie`() = runBlocking {
+        val playlistUrl = "https://4read.org/m33u2/7810.m3u"
+        val page = """
+            <meta property="og:title" content="Трохи ненависті">
+            <script>new Playerjs({file:"$playlistUrl"});</script>
+        """.trimIndent()
+        val fetcher = object : HttpFetcher() {
+            override fun getText(url: String): String =
+                if (url == playlistUrl) "https://cdn.example/01.mp3\nhttps://cdn.example/02.mp3" else ""
+
+            override fun getText(url: String, extraHeaders: Map<String, String>): String =
+                "<html>session challenge</html>"
+        }
+        val adapter = FourReadAdapter(
+            fetcher = fetcher,
+            cookieProvider = FakeSourceCookieProvider(mapOf("4read.org" to "cf_clearance=stale"))
+        )
+
+        val detail = adapter.parseCapturedPage(page, "https://4read.org/7810.html")
+
+        assertEquals(
+            listOf("https://cdn.example/01.mp3", "https://cdn.example/02.mp3"),
+            detail.chapters.map { it.streamUrl }
+        )
+    }
+
+    @Test
     fun `book page without a playlist yields no chapters instead of fake audio`() = runBlocking {
         val adapter = FourReadAdapter(
             FakeFetcher(mapOf("https://4read.org/empty.html" to "<html><body>nope</body></html>"))

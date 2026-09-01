@@ -327,6 +327,81 @@ class WebViewHtmlParserTest {
     """.trimIndent()
 
     @Test
+    fun `captured 4read stream decodes an HTML encoded query separator`() {
+        val detail = WebViewHtmlParser().parse(
+            minimalPage(
+                """<script>var player = new Playerjs({file:"https://s1.reasd.org/7810/chapter.mp3?expires=1788211520&amp%3Bmd5=ZxR0ibXl3Y9XkiMLf44Ltw"});</script>"""
+            ),
+            "https://4read.org/7810-dzho-aberkrombi-trohi-nenavisti.html"
+        )
+
+        assertEquals(
+            "https://s1.reasd.org/7810/chapter.mp3?expires=1788211520&md5=ZxR0ibXl3Y9XkiMLf44Ltw",
+            detail.chapters.single().streamUrl
+        )
+    }
+
+    @Test
+    fun `captured page with an unresolved full playlist does not become a two track book`() {
+        val playlistUrl = "https://4read.org/m33u2/7810-dzho-aberkrombi-trohi-nenavisti.m3u"
+        val detail = WebViewHtmlParser().parse(
+            minimalPage(
+                """
+                <script>
+                  var preview = "https://s1.reasd.org/7810/01.mp3?expires=1788211520&amp%3Bmd5=preview";
+                  new Playerjs({file:"$playlistUrl"});
+                </script>
+                """.trimIndent()
+            ),
+            "https://4read.org/7810-dzho-aberkrombi-trohi-nenavisti.html"
+        ) { "" }
+
+        assertTrue(detail.chapters.isEmpty())
+    }
+
+    @Test
+    fun `browser-session playlist is authoritative over transient player audio`() {
+        val playlist = """
+            https://s1.reasd.org/7810/01.mp3?expires=1&md5=one
+            https://s1.reasd.org/7810/02.mp3?expires=1&md5=two
+            https://s1.reasd.org/7810/03.mp3?expires=1&md5=three
+        """.trimIndent()
+        val encoded = java.util.Base64.getEncoder().encodeToString(playlist.toByteArray())
+        val detail = WebViewHtmlParser().parse(
+            minimalPage(
+                """
+                <script>new Playerjs({file:"https://4read.org/m33u2/7810.m3u"});</script>
+                <audio src="https://s1.reasd.org/7810/01.mp3?expires=old&amp%3Bmd5=old"></audio>
+                <i data-slukhayka-playlist="$encoded"></i>
+                """.trimIndent()
+            ),
+            "https://4read.org/7810.html"
+        ) { error("The captured playlist must avoid a second HTTP request") }
+
+        assertEquals(
+            listOf(
+                "https://s1.reasd.org/7810/01.mp3?expires=1&md5=one",
+                "https://s1.reasd.org/7810/02.mp3?expires=1&md5=two",
+                "https://s1.reasd.org/7810/03.mp3?expires=1&md5=three"
+            ),
+            detail.chapters.map { it.streamUrl }
+        )
+    }
+
+    @Test
+    fun `4read OpenGraph site suffix is not part of the book title`() {
+        val detail = WebViewHtmlParser().parse(
+            """
+            <meta property="og:title" content="Трохи ненависті - АудіоКниги Українською">
+            <script>new Playerjs({file:"https://s1.reasd.org/7810/01.mp3"});</script>
+            """.trimIndent(),
+            "https://4read.org/7810.html"
+        )
+
+        assertEquals("Трохи ненависті", detail.title)
+    }
+
+    @Test
     fun `a page without playerjs audio but with a youtube embed resolves chapters from the embed`() {
         val html = minimalPage(
             """<iframe data-src="https://www.youtube.com/embed/ozaZXk5Qcwc" allowfullscreen></iframe>"""

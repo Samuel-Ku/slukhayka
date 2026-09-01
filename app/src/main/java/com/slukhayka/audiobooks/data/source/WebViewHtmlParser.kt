@@ -76,6 +76,17 @@ class WebViewHtmlParser {
 
         extractAudioFromHtml(html, url, audioStreams)
 
+        // The 4read manifest can be read by its WebView session while a
+        // separate OkHttp request receives 403. WebSourceBrowser appends the
+        // session-fetched manifest in this bounded, base64-safe marker. When
+        // present it is the authoritative ordered topology; ignore the
+        // player's transient current-MP3 nodes and original .m3u reference.
+        val capturedManifestTracks = capturedPlaylistStreams(html)
+        if (capturedManifestTracks.isNotEmpty()) {
+            audioStreams.clear()
+            audioStreams.addAll(capturedManifestTracks)
+        }
+
         // Player pages can live in an iframe (e.g. the playerjs embed).
         val iframeRegex = Regex("""<iframe[^>]+src=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
         iframeRegex.findAll(html).forEach { m ->
@@ -93,6 +104,10 @@ class WebViewHtmlParser {
 
         // Expand playlist references (.m3u / .txt / playerjs JSON) into their
         // chapter stream URLs.
+        // A declared playlist is the book's chapter topology. 4read also
+        // leaves the currently playing MP3 in the DOM; it must not turn into
+        // an extra Chapter beside the full playlist (#443).
+        val declaredPlaylist = capturedManifestTracks.isEmpty() && audioStreams.any(::isPlaylistUrl)
         val expandedStreams = mutableListOf<String>()
         for (stream in audioStreams) {
             if (isPlaylistUrl(stream)) {
@@ -112,9 +127,12 @@ class WebViewHtmlParser {
                         }
                     }
                 } else {
-                    expandedStreams.add(stream)
+                    // A playlist we could not read is never a substitute for
+                    // its chapters. Refuse the partial import honestly.
+                    expandedStreams.clear()
+                    break
                 }
-            } else {
+            } else if (!declaredPlaylist) {
                 expandedStreams.add(stream)
             }
         }
@@ -128,7 +146,7 @@ class WebViewHtmlParser {
         // time (signed stream URLs expire; they are never stored). A page
         // WITH playerjs audio never reaches this branch — direct audio wins,
         // the embed adds nothing.
-        if (audioStreams.isEmpty()) {
+        if (audioStreams.isEmpty() && !declaredPlaylist) {
             YOUTUBE_VIDEO_ID.findAll(html).forEach { m ->
                 audioStreams.add("https://www.youtube.com/watch?v=${m.groupValues[1]}")
             }
@@ -204,6 +222,16 @@ class WebViewHtmlParser {
         return path.endsWith(".m3u", ignoreCase = true) || path.endsWith(".txt", ignoreCase = true)
     }
 
+    private fun capturedPlaylistStreams(html: String): List<String> =
+        CAPTURED_PLAYLIST.findAll(html).flatMap { match ->
+            runCatching {
+                String(java.util.Base64.getDecoder().decode(match.groupValues[1]), Charsets.UTF_8)
+            }.getOrDefault("").lineSequence()
+                .map(String::trim)
+                .filter { it.startsWith("http") }
+                .map(::encodeUrl)
+        }.distinct().toList()
+
     private companion object {
         /** A full annotation is around this size — longer scanning is waste. */
         const val MIN_FULL_ANNOTATION = 1200
@@ -222,6 +250,9 @@ class WebViewHtmlParser {
         private val paragraphRegex =
             Regex("""<p[^>]*>(.*?)</p>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
         private val WHITESPACE_REGEX = Regex("""\s+""")
+        private val CAPTURED_PLAYLIST = Regex("""data-slukhayka-playlist=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
+        /** 4read's captured DOM can encode `&` as either `&amp;` or `&amp%3B`. */
+        private val HTML_QUERY_SEPARATOR = Regex("""&amp(?:;|%3b)""", RegexOption.IGNORE_CASE)
         private val TAIL_MARKERS = listOf("Теги#", "Теги", "Телеграм канал", "Подякувати", "Ютуб канал", "PayPal")
 
         /** Percent-encoding alphabet for [encodeUrl]. */
@@ -301,7 +332,12 @@ class WebViewHtmlParser {
     private fun titleFromPage(html: String, url: String): String {
         val ogTitle = Regex("""<meta\s+property="og:title"\s+content="([^"]+)"""", RegexOption.IGNORE_CASE).find(html)
             ?.groupValues?.get(1)?.trim()
-        if (!ogTitle.isNullOrBlank()) return ogTitle
+        if (!ogTitle.isNullOrBlank()) {
+            // 4read's OpenGraph title is a page title, not a Work title:
+            // it appends this stable site suffix. Keeping it would make a
+            // captured browser recovery fail its exact Work identity guard.
+            return ogTitle.removeSuffix(" - АудіоКниги Українською").trim()
+        }
         val slug = url.substringAfterLast('/').removeSuffix(".html")
         return slug.split("-")
             .filter { it.isNotBlank() }
@@ -385,9 +421,10 @@ class WebViewHtmlParser {
      * arrived mangled as `Ð%94...` instead of `%D0%94...`).
      */
     private fun encodeUrl(url: String): String {
+        val normalizedUrl = HTML_QUERY_SEPARATOR.replace(url, "&")
         val allowed = "@#&=*+-_.,:!?()/~'%"
-        val sb = StringBuilder(url.length)
-        for (b in url.toByteArray(Charsets.UTF_8)) {
+        val sb = StringBuilder(normalizedUrl.length)
+        for (b in normalizedUrl.toByteArray(Charsets.UTF_8)) {
             val c = b.toInt() and 0xFF
             if (c < 0x80) {
                 val ch = c.toChar()

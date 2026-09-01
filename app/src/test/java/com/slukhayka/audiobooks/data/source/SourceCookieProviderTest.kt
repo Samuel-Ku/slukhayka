@@ -74,6 +74,24 @@ class SourceCookieProviderTest {
     }
 
     @Test
+    fun `cover headers are scoped to 4read and use only that host cookie`() {
+        val provider = FakeSourceCookieProvider(
+            mapOf(
+                "4read.org" to "cf_clearance=4read",
+                "s1.reasd.org" to "reasd_token=audio"
+            )
+        )
+
+        val headers = provider.coverHeadersFor("https://4read.org/uploads/posts/cover.jpg")
+
+        assertEquals("https://4read.org/", headers["Referer"])
+        assertEquals("cf_clearance=4read", headers["Cookie"])
+        assertEquals("image", headers["Sec-Fetch-Dest"])
+        assertTrue(provider.coverHeadersFor("https://s1.reasd.org/cover.jpg").isEmpty())
+        assertTrue(provider.coverHeadersFor("https://example.org/cover.jpg").isEmpty())
+    }
+
+    @Test
     fun `there is one shared interface - sluhay adapter uses host-aware provider not a fixed lambda`() = runBlocking {
         // Prove the host-awareness contract inside the adapter: fetchNew for
         // sluhay.com must send the sluhay cookie, but the internal playlist

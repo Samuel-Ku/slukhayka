@@ -662,6 +662,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         onComplete: (Boolean) -> Unit
     ) {
         viewModelScope.launch(Dispatchers.IO) {
+            val activeBookId = playerState.value.currentBook?.id
             val repaired = try {
                 libraryImport.repairConfirmedWebSourceStructure(bookId, sourceId, url, html, capturedAudioUrls)
             } catch (e: kotlinx.coroutines.CancellationException) {
@@ -669,15 +670,36 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             } catch (_: Exception) {
                 null
             }
-            withContext(Dispatchers.Main) { onComplete(repaired != null) }
+            if (repaired != null) probeDurationsAfterImport(repaired.id)
+            val repairedPlayable = repaired
+                ?.takeIf { it.id == activeBookId }
+                ?.let { repairedBook ->
+                    sourceCatalog.getPlayableChapters(repairedBook.id)
+                }
+            withContext(Dispatchers.Main) {
+                // A confirmed topology repair replaces the tracks under this
+                // Edition. If it is already loaded, the manager still holds
+                // the old playlist/URLs in memory; reload it paused so the
+                // mini-player cannot retry a removed stale track.
+                if (repaired != null && repairedPlayable != null) {
+                    playerManager.loadAndPlayBook(
+                        book = repaired,
+                        chapters = repairedPlayable.map { it.chapter },
+                        playable = repairedPlayable,
+                        initialChapterIndex = 0,
+                        initialPositionSeconds = 0,
+                        autoPlay = false
+                    )
+                }
+                onComplete(repaired != null)
+            }
         }
     }
 
     /**
-     * #349 — the targeted post-import duration probe: fire-and-forget on the
-     * ViewModel scope, so a fresh card gets its chapter durations in seconds
-     * instead of waiting for the throttled Огляд pass (#350). Best-effort —
-     * a failing probe never surfaces as an import error.
+     * #349 — targeted duration probe, fired after import and when opening an
+     * older card with unknown chapter lengths. It bypasses the throttled Огляд
+     * pass (#350); a failure is best-effort and never blocks the screen.
      */
     private fun probeDurationsAfterImport(bookId: String) {
         viewModelScope.launch(Dispatchers.IO) {
@@ -1625,6 +1647,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         bookDetailSourceState.select(bookId)
         if (bookId != null) {
             _selectedBookUniverse.value = null
+            // A structural repair recreates its Chapter rows. Re-probe on the
+            // next detail open as well, so a book repaired before this build
+            // does not keep showing «невідомо» for every chapter.
+            probeDurationsAfterImport(bookId)
             viewModelScope.launch(Dispatchers.IO) {
                 // #388 — refresh is best-effort; a FK violation or network
                 // failure must never crash the book page (tapping «Сни» was

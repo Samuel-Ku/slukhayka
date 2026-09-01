@@ -229,11 +229,11 @@ class OfflineDownloads(
     }
 
     /** #392 — estimate total bytes via HEAD before download (for UI). */
-    suspend fun estimateOfflineSize(bookId: String): EstimatedSize {
+    suspend fun estimateOfflineSize(bookId: String): EstimatedSize = withContext(Dispatchers.IO) {
         val book = dao.getAudiobookById(bookId)
         val sourceId = book?.let { sourceIdForUrl(it.sourceUrl) } ?: "unknown"
         val playable = try { sourceCatalog.getPlayableChapters(bookId) } catch (_: Exception) { emptyList() }
-        if (playable.isEmpty()) return EstimatedSize(null, isApproximate = false, knownCount = 0, totalCount = 0)
+        if (playable.isEmpty()) return@withContext EstimatedSize(null, isApproximate = false, knownCount = 0, totalCount = 0)
         var total: Long = 0
         var known = 0
         for (pc in playable) {
@@ -245,7 +245,7 @@ class OfflineDownloads(
                 known++
             }
         }
-        return if (known == 0) EstimatedSize(null, isApproximate = false, knownCount = 0, totalCount = playable.size)
+        return@withContext if (known == 0) EstimatedSize(null, isApproximate = false, knownCount = 0, totalCount = playable.size)
         else EstimatedSize(total, isApproximate = known < playable.size, knownCount = known, totalCount = playable.size)
     }
 

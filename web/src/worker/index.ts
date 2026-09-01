@@ -15,6 +15,7 @@
 import { mayFetch, REGISTRY, sourceEntry, type SourceEntry } from './registry'
 import type { CatalogCard, SourceId } from './types'
 import { mergeWorkFeed } from './workFeed'
+import { decodeWorkFeedCursor, encodeWorkFeedCursor } from './workFeedCursor'
 
 const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8' }
 const MAX_REDIRECTS = 3
@@ -86,25 +87,51 @@ export default {
       return ok(Object.entries(REGISTRY).map(([id, entry]) => ({ id, displayName: entry.adapter.displayName })))
     }
 
-    // #458: one bounded Work page. We ask each available adapter for its
-    // front page best-effort; a failed adapter simply contributes no cards.
-    // The optional source filter reuses this exact Work contract.
+    // #458/#459: one bounded Work page. The opaque cursor carries the next
+    // URL for every Source, so an append continues pagination instead of
+    // repeatedly fetching source roots. Every carried URL is still checked
+    // by guardedFetchText before it ever reaches the network.
     if (pathname === '/api/work-feed') {
       const requestedSource = searchParams.get('source')?.trim() ?? ''
       if (requestedSource && !sourceEntry(requestedSource)) return fail(`unknown source: ${requestedSource}`)
-      const cursor = Number.parseInt(searchParams.get('cursor') ?? '0', 10)
+      const rawCursor = searchParams.get('cursor')
+      const cursor = rawCursor ? decodeWorkFeedCursor(rawCursor) : null
+      if (rawCursor && cursor === null) return fail('invalid work-feed cursor')
       const entries = Object.entries(REGISTRY).filter(([id]) => !requestedSource || id === requestedSource)
+      const currentPages = cursor?.pages ?? Object.fromEntries(entries.map(([id, entry]) => [id, entry.adapter.baseUrl]))
       const settled = await Promise.allSettled(entries.map(async ([id, entry]) => {
-        const pageUrl = entry.adapter.baseUrl
+        const pageUrl = currentPages[id as SourceId]
+        if (!pageUrl) return { sourceId: id as SourceId, cards: [] as CatalogCard[], nextPageUrl: undefined }
         const html = await guardedFetchText(entry, pageUrl, pageUrl)
-        if (html === null) return { sourceId: id as SourceId, cards: [] as CatalogCard[] }
+        if (html === null) return { sourceId: id as SourceId, cards: [] as CatalogCard[], nextPageUrl: undefined }
         const parsed = entry.adapter.parseCatalog(html, pageUrl)
-        return { sourceId: id as SourceId, cards: parsed?.sections.flatMap((section) => section.cards) ?? [] }
+        return {
+          sourceId: id as SourceId,
+          cards: parsed?.sections.flatMap((section) => section.cards) ?? [],
+          nextPageUrl: parsed?.nextPageUrl,
+        }
       }))
       const sources = settled
-        .filter((result): result is PromiseFulfilledResult<{ sourceId: SourceId; cards: CatalogCard[] }> => result.status === 'fulfilled')
+        .filter((result): result is PromiseFulfilledResult<{ sourceId: SourceId; cards: CatalogCard[]; nextPageUrl: string | undefined }> => result.status === 'fulfilled')
         .map((result) => result.value)
-      return ok(mergeWorkFeed(sources, Number.isFinite(cursor) ? cursor : 0))
+      const page = mergeWorkFeed(sources, cursor?.offset ?? 0)
+      if (page.nextCursor) {
+        return ok({
+          ...page,
+          nextCursor: encodeWorkFeedCursor({ offset: Number(page.nextCursor), pages: currentPages }),
+        })
+      }
+      const nextPages = Object.fromEntries(
+        sources
+          .filter((source) => source.nextPageUrl)
+          .map((source) => [source.sourceId, source.nextPageUrl!]),
+      ) as Partial<Record<SourceId, string>>
+      return ok({
+        ...page,
+        nextCursor: Object.keys(nextPages).length
+          ? encodeWorkFeedCursor({ offset: 0, pages: nextPages })
+          : undefined,
+      })
     }
 
     // #458: search projects into the same Work → Edition → Source model as

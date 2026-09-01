@@ -512,8 +512,11 @@ class SettingsAccessibilityTest {
             .performClick()
         composeTestRule.onNodeWithTag("profile_clear_4read_session_dialog", useUnmergedTree = true)
             .assertIsDisplayed()
-        composeTestRule.onNodeWithTag("profile_clear_4read_session_dialog", useUnmergedTree = true)
-            .assertTextContains("Сесії інших джерел залишаться.")
+        composeTestRule.onNodeWithText(
+            "Сесії інших джерел залишаться.",
+            substring = true,
+            useUnmergedTree = true
+        ).assertIsDisplayed()
         composeTestRule.onNodeWithTag("profile_clear_4read_session_confirm")
             .assertHeightIsAtLeast(48.dp)
             .performClick()

@@ -1879,7 +1879,10 @@ fun WorkFeedCard(
                     }
                 )
                 if (rowState is CatalogCardActionState.BrowserRequired) {
-                    TextButton(onClick = onOpenBrowser) {
+                    TextButton(
+                        onClick = onOpenBrowser,
+                        modifier = catalogBrowserReturnFocusModifier(row.workId)
+                    ) {
                         Text(stringResource(R.string.catalog_card_open_browser))
                     }
                 }

@@ -283,13 +283,13 @@ class WorkFeedPagingTest {
     }
 
     @Test
-    fun `duration filter accepts fresh or unknown availability and rejects stale at exact expiry`() = runBlocking {
+    fun `duration filter keeps Work stable across fresh stale and negative availability`() = runBlocking {
         val catalog = catalog()
-        listOf("Свіжа", "Протермінована", "Без спостереження").forEachIndexed { index, title ->
+        listOf("Свіжа", "Протермінована", "Недоступна", "Без спостереження").forEachIndexed { index, title ->
             catalog.writeWorkEdition("4read", title, "Автор", "", "https://4read/availability-$index")
         }
         val works = dao.observeWorks().first().associateBy { it.title }
-        suspend fun facet(title: String, observedAt: Long?, ttlSeconds: Long?) {
+        suspend fun facet(title: String, available: Boolean?, observedAt: Long?, ttlSeconds: Long?) {
             val workId = works.getValue(title).id
             catalog.facetWriter.apply(
                 listOf(
@@ -300,7 +300,7 @@ class WorkFeedPagingTest {
                                 editionId = "edition-$title",
                                 workId = workId,
                                 durationSeconds = 3_600L,
-                                availabilityAvailable = observedAt?.let { true },
+                                availabilityAvailable = available,
                                 availabilityObservedAtMillis = observedAt,
                                 availabilityTtlSeconds = ttlSeconds,
                                 updatedAt = 1
@@ -310,20 +310,23 @@ class WorkFeedPagingTest {
                 )
             )
         }
-        facet("Свіжа", observedAt = 1_001L, ttlSeconds = 9L)
-        facet("Протермінована", observedAt = 1_000L, ttlSeconds = 9L)
-        facet("Без спостереження", observedAt = null, ttlSeconds = null)
+        facet("Свіжа", available = true, observedAt = 1_001L, ttlSeconds = 9L)
+        facet("Протермінована", available = true, observedAt = 1_000L, ttlSeconds = 9L)
+        facet("Недоступна", available = false, observedAt = 9_999L, ttlSeconds = 900L)
+        facet("Без спостереження", available = null, observedAt = null, ttlSeconds = null)
 
         val rows = collectAll(
             catalog.pagedWorkFeedRecent(
                 filter = WorkFacetFilter(
                     durationBucketIds = setOf(FacetDurationBucket.UNDER_FIVE_HOURS.wireName)
-                ),
-                availabilityAtMillis = 10_000L
+                )
             )
         )
 
-        assertEquals(setOf("Свіжа", "Без спостереження"), rows.map { it.title }.toSet())
+        assertEquals(
+            setOf("Свіжа", "Протермінована", "Недоступна", "Без спостереження"),
+            rows.map { it.title }.toSet()
+        )
     }
 
     @Test

@@ -93,13 +93,21 @@ fun Top100Screen(
 
                 loadFailed -> {
                     item {
-                        SecondaryMessageState(
-                            message = stringResource(R.string.secondary_top100_error),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(48.dp),
-                            isError = true
-                        )
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(48.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            SecondaryMessageState(
+                                message = stringResource(R.string.secondary_top100_error),
+                                modifier = Modifier.fillMaxWidth(),
+                                isError = true
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            OutlinedButton(
+                                onClick = { viewModel.openTop100InBrowser() },
+                                modifier = Modifier.testTag("top100_open_browser")
+                            ) { Text("Відкрити рейтинг у 4read") }
+                        }
                     }
                 }
 

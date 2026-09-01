@@ -89,13 +89,21 @@ fun SeriesScreen(
 
                 loadFailed -> {
                     item {
-                        SecondaryMessageState(
-                            message = stringResource(R.string.secondary_series_error),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(48.dp),
-                            isError = true
-                        )
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(48.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            SecondaryMessageState(
+                                message = stringResource(R.string.secondary_series_error),
+                                modifier = Modifier.fillMaxWidth(),
+                                isError = true
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            OutlinedButton(
+                                onClick = { viewModel.openSeriesInBrowser() },
+                                modifier = Modifier.testTag("series_open_browser")
+                            ) { Text("Відкрити цикл у 4read") }
+                        }
                     }
                 }
 

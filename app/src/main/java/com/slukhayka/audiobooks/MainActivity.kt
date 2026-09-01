@@ -464,6 +464,8 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                         recoveryBookId = selectedWebSource!!.recoveryBookId,
                         recoveryChapterIndex = selectedWebSource!!.recoveryChapterIndex,
                         recoveryPositionMs = selectedWebSource!!.recoveryPositionMs,
+                        captureTop100 = selectedWebSource!!.captureTop100,
+                        captureSeriesUrl = selectedWebSource!!.captureSeriesUrl,
                         onClose = { viewModel.closeWebSource() }
                     )
 

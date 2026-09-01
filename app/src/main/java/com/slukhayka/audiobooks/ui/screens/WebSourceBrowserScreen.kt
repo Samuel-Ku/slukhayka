@@ -78,6 +78,8 @@ fun WebSourceBrowserScreen(
     recoveryBookId: String? = null,
     recoveryChapterIndex: Int? = null,
     recoveryPositionMs: Long = 0L,
+    captureTop100: Boolean = false,
+    captureSeriesUrl: String? = null,
     onClose: () -> Unit
 ) {
     val context = LocalContext.current
@@ -287,6 +289,63 @@ fun WebSourceBrowserScreen(
         }
     }
 
+    /** Captures only the verified ranking page; browser cookies never leave WebView. */
+    fun importTop100Page() {
+        val instance = webViewInstance ?: return
+        val pageUrl = currentWebUrl
+        if (sourceId != "4read" || !pageUrl.substringBefore('?').endsWith("/top-100.html")) {
+            importResult = "Відкрийте сторінку рейтингу 4read"
+            return
+        }
+        isImporting = true
+        importResult = ""
+        instance.evaluateJavascript("document.documentElement.outerHTML") { raw ->
+            val decoded = raw?.trim()?.let { value ->
+                val inner = if (value.startsWith("\"") && value.endsWith("\"")) {
+                    value.substring(1, value.length - 1)
+                } else value
+                unescapeCapturedHtml(inner)
+            }.orEmpty()
+            viewModel.importCapturedTop100(decoded) { success ->
+                isImporting = false
+                if (success) {
+                    importResult = "Рейтинг завантажено"
+                    onClose()
+                } else {
+                    importResult = "Рейтинг ще не доступний — завершіть перевірку 4read і спробуйте знову"
+                }
+            }
+        }
+    }
+
+    /** Captures the requested cycle only after the listener opened it in 4read. */
+    fun importSeriesPage() {
+        val instance = webViewInstance ?: return
+        if (sourceId != "4read" || captureSeriesUrl == null ||
+            !SourceBrowserPolicy.isUrlAllowed(currentWebUrl, sourceId)
+        ) {
+            importResult = "Відкрийте сторінку циклу в 4read"
+            return
+        }
+        isImporting = true
+        importResult = ""
+        instance.evaluateJavascript("document.documentElement.outerHTML") { raw ->
+            val decoded = raw?.trim()?.let { value ->
+                val inner = if (value.startsWith("\"") && value.endsWith("\"")) value.substring(1, value.length - 1) else value
+                unescapeCapturedHtml(inner)
+            }.orEmpty()
+            viewModel.importCapturedSeries(decoded) { success ->
+                isImporting = false
+                if (success) {
+                    importResult = "Цикл завантажено"
+                    onClose()
+                } else {
+                    importResult = "Цикл ще не доступний — завершіть перевірку 4read і спробуйте знову"
+                }
+            }
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -380,7 +439,13 @@ fun WebSourceBrowserScreen(
                     // (manual; auto-capture happens when the user pressed the
                     // site's «Слухати» first — the captured tracks show below).
                     Button(
-                        onClick = { importCurrentPage() },
+                        onClick = {
+                            when {
+                                captureTop100 -> importTop100Page()
+                                captureSeriesUrl != null -> importSeriesPage()
+                                else -> importCurrentPage()
+                            }
+                        },
                         enabled = !isImporting,
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                         shape = RoundedCornerShape(AppDimens.RadiusCard),
@@ -394,7 +459,13 @@ fun WebSourceBrowserScreen(
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
-                            text = if (isImporting) "Додаю…" else "Додати до медіатеки",
+                            text = if (isImporting) {
+                                if (captureTop100 || captureSeriesUrl != null) "Завантажую…" else "Додаю…"
+                            } else when {
+                                captureTop100 -> "Завантажити рейтинг"
+                                captureSeriesUrl != null -> "Завантажити цикл"
+                                else -> "Додати до медіатеки"
+                            },
                             style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
                             color = MaterialTheme.colorScheme.onPrimary
                         )

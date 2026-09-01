@@ -106,7 +106,51 @@ class TombstoneCatalogGuardTest {
 
     private val seriesUrl = "https://4read.org/xfsearch/cikl/maksym-temnyj/"
 
+    private val top100Html = """
+        <div class="linek d-flex ai-center has-overlay card">
+            <div class="linek__img img-fit-cover"><img src="/uploads/posts/2026-02/medium/x.webp"></div>
+            <div class="linek__desc flex-grow-1">
+                <a href="https://4read.org/6945-dzho-aberkrombi-chorti.html"><div class="linek__title ws-nowrap">Чорти - Джо Аберкромбі</div></a>
+                <div class="linek__meta ws-nowrap"><span>Триває:</span> 21:42:42</div>
+            </div>
+        </div>
+    """.trimIndent()
+
     // --- The guard at the upsert -------------------------------------------
+
+    @Test
+    fun `captured top100 page imports the browser-verified ranking without HTTP`() = runBlocking {
+        val result = catalog().importCapturedTop100Result(top100Html)
+
+        val books = (result as CatalogFetchResult.Success).value
+        assertEquals(1, books.size)
+        assertEquals("Чорти", books.single().title)
+        assertNotNull(dao.getAudiobookById("4read-6945-dzho-aberkrombi-chorti"))
+    }
+
+    @Test
+    fun `captured top100 challenge page is rejected`() = runBlocking {
+        val result = catalog().importCapturedTop100Result("<html><title>Just a moment...</title></html>")
+
+        assertTrue(result is CatalogFetchResult.Failure)
+    }
+
+    @Test
+    fun `captured series page imports the browser-verified cycle without HTTP`() = runBlocking {
+        val catalog = catalog()
+        val result = catalog.importCapturedSeriesBooksResult(
+            seriesUrl,
+            poster(
+                "https://4read.org/6945-dzho-aberkrombi-chorti.html",
+                "Чорти",
+                "Джо Аберкромбі"
+            )
+        )
+
+        val books = (result as CatalogFetchResult.Success).value
+        assertEquals(1, books.size)
+        assertNotNull(dao.getAudiobookById("4read-6945-dzho-aberkrombi-chorti"))
+    }
 
     @Test
     fun `tombstoned catalog upsert is a no-op - nothing lands`() = runBlocking {

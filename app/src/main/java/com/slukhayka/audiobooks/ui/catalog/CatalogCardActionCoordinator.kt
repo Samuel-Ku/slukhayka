@@ -98,6 +98,7 @@ interface CatalogCardActionGateway<Book> {
     ): List<SourceSelectionCoordinator.SourceCandidate> = sourceCandidates(target)
     suspend fun import(target: CatalogCardTarget, source: SourceEntity): Book?
     suspend fun open(book: Book): Boolean
+    suspend fun prepare(book: Book, source: SourceEntity?): Boolean = true
     suspend fun play(book: Book, source: SourceEntity?): Boolean
     /** Local Edition verdict; implementations must keep this best-effort. */
     suspend fun recordAvailability(book: Book, available: Boolean) = Unit
@@ -113,7 +114,7 @@ class CatalogCardActionCoordinator<Book>(
     private val gateway: CatalogCardActionGateway<Book>,
     private val sourceProbe: SourceSelectionCoordinator.SourceProbe,
     private val clock: SourceSelectionCoordinator.Clock = SourceSelectionCoordinator.DefaultClock,
-    private val budgetMs: Long = SourceSelectionCoordinator.DEFAULT_BUDGET_MS
+    private val budgetMs: Long = CatalogAvailabilityPolicy.SOURCE_BUDGET_MS
 ) {
     private val _state = MutableStateFlow<CatalogCardActionState>(CatalogCardActionState.Idle)
     val state: StateFlow<CatalogCardActionState> = _state.asStateFlow()
@@ -181,7 +182,7 @@ class CatalogCardActionCoordinator<Book>(
                         val byId = eligible.associateBy { it.source.id }
                         val importedBooks = ConcurrentHashMap<String, Book>()
                         val sawImportedBook = AtomicBoolean(false)
-                        val raceResult = BoundedEditionPlaybackRace(budgetMs).race(
+                        val raceResult = BoundedEditionPlaybackRace(budgetMs).racePrepared(
                             selectedEditionId = raceEdition,
                             candidates = eligible.map { candidate ->
                                 EditionSourceCandidate(
@@ -189,27 +190,37 @@ class CatalogCardActionCoordinator<Book>(
                                     editionId = candidate.source.editionId ?: raceEdition,
                                     url = candidate.source.url
                                 )
+                            },
+                            prepare = { raceCandidate ->
+                                val candidate = byId.getValue(raceCandidate.sourceId)
+                                val imported = try {
+                                    gateway.import(target, candidate.source)
+                                } catch (cancelled: CancellationException) {
+                                    throw cancelled
+                                } catch (_: Exception) {
+                                    null
+                                } ?: return@racePrepared SourceAttemptVerdict.TEMPORARY_FAILURE
+                                if (!isCurrent(requestGeneration)) {
+                                    return@racePrepared SourceAttemptVerdict.TEMPORARY_FAILURE
+                                }
+                                importedBooks[raceCandidate.sourceId] = imported
+                                sawImportedBook.set(true)
+                                if (gateway.prepare(imported, candidate.source)) {
+                                    SourceAttemptVerdict.READY
+                                } else {
+                                    SourceAttemptVerdict.TEMPORARY_FAILURE
+                                }
+                            },
+                            play = { raceCandidate ->
+                                val candidate = byId.getValue(raceCandidate.sourceId)
+                                val imported = importedBooks.getValue(raceCandidate.sourceId)
+                                if (gateway.play(imported, candidate.source)) {
+                                    SourceAttemptVerdict.PLAYING
+                                } else {
+                                    SourceAttemptVerdict.TEMPORARY_FAILURE
+                                }
                             }
-                        ) { raceCandidate ->
-                            val candidate = byId.getValue(raceCandidate.sourceId)
-                            val imported = try {
-                                gateway.import(target, candidate.source)
-                            } catch (cancelled: CancellationException) {
-                                throw cancelled
-                            } catch (_: Exception) {
-                                null
-                            } ?: return@race SourceAttemptVerdict.TEMPORARY_FAILURE
-                            if (!isCurrent(requestGeneration)) {
-                                return@race SourceAttemptVerdict.TEMPORARY_FAILURE
-                            }
-                            importedBooks[raceCandidate.sourceId] = imported
-                            sawImportedBook.set(true)
-                            if (gateway.play(imported, candidate.source)) {
-                                SourceAttemptVerdict.PLAYING
-                            } else {
-                                SourceAttemptVerdict.TEMPORARY_FAILURE
-                            }
-                        }
+                        )
                         if (!isCurrent(requestGeneration)) return@launch
                         if (raceResult.verdict == SourceAttemptVerdict.PLAYING) {
                             val winningBook = raceResult.source?.sourceId?.let(importedBooks::get)
@@ -334,7 +345,7 @@ class CatalogCardActionCoordinator<Book>(
         val succeeded = try {
             when (action) {
                 CatalogCardAction.OPEN -> gateway.open(book)
-                CatalogCardAction.PLAY -> gateway.play(book, source)
+                CatalogCardAction.PLAY -> gateway.prepare(book, source) && gateway.play(book, source)
             }
         } catch (cancelled: CancellationException) {
             throw cancelled

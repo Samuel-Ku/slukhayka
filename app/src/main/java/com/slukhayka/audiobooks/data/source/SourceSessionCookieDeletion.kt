@@ -27,6 +27,35 @@ object SourceSessionCookieDeletion {
             }
         }
 
+    /** Expire cookies at every observed path without touching another Source. */
+    fun commandsForUrls(
+        sourceId: String,
+        cookieHeadersByUrl: Map<String, String?>
+    ): List<Command> = cookieHeadersByUrl.entries
+        .filter { (url, _) -> SourceBrowserPolicy.isUrlAllowed(url, sourceId) }
+        .flatMap { (url, header) ->
+            val uri = runCatching { java.net.URI(url) }.getOrNull() ?: return@flatMap emptyList()
+            val path = uri.path?.takeIf(String::isNotBlank) ?: "/"
+            val host = uri.host?.lowercase()?.removePrefix("www.") ?: return@flatMap emptyList()
+            val domain = SourceBrowserPolicy.allowedHostsFor(sourceId).firstOrNull { base ->
+                host == base || host.endsWith(".$base")
+            }
+            cookieNames(header).flatMap { name ->
+                buildList {
+                    add(Command(url, "$name=; Max-Age=0; Path=$path; Secure"))
+                    if (domain != null) {
+                        add(
+                            Command(
+                                url,
+                                "$name=; Max-Age=0; Path=$path; Domain=$domain; Secure"
+                            )
+                        )
+                    }
+                }
+            }
+        }
+        .distinct()
+
     private fun cookieNames(header: String?): List<String> = header
         .orEmpty()
         .split(';')

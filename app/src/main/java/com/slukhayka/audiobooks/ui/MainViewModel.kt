@@ -75,6 +75,7 @@ import com.slukhayka.audiobooks.ui.catalog.CatalogCardTarget
 import com.slukhayka.audiobooks.ui.catalog.CatalogBrowserFocusReturn
 import com.slukhayka.audiobooks.ui.catalog.MediaRangeValidator
 import com.slukhayka.audiobooks.ui.catalog.catalogSessionCandidates
+import com.slukhayka.audiobooks.ui.catalog.hasUsableSourceSession
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -316,6 +317,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 selectBook(book.id)
                 return true
             }
+
+            override suspend fun prepare(
+                book: AudiobookEntity,
+                source: SourceEntity?
+            ): Boolean = preflightCatalogMedia(book, source)
 
             override suspend fun play(book: AudiobookEntity, source: SourceEntity?): Boolean {
                 val playing = startCatalogPlaybackAndAwait(book, source)
@@ -1590,7 +1596,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             catalogSessionCandidates(
                 source = entity,
                 mode = SourceAccessPolicy.modeFor(entity.type),
-                hasFirstPartySession = AndroidSourceCookieProvider.cookieFor(entity.url).isNotBlank()
+                hasFirstPartySession = hasUsableSourceSession(
+                    AndroidSourceCookieProvider.cookieFor(entity.url)
+                )
             )
         }
     }
@@ -1618,7 +1626,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         candidate.category == SourceSelectionCoordinator.SourceCategory.DIRECT ||
                             candidate.category == SourceSelectionCoordinator.SourceCategory.UNKNOWN ||
                             (candidate.category == SourceSelectionCoordinator.SourceCategory.BROWSER &&
-                                AndroidSourceCookieProvider.cookieFor(candidate.source.url).isNotBlank())
+                                hasUsableSourceSession(
+                                    AndroidSourceCookieProvider.cookieFor(candidate.source.url)
+                                ))
                     }
                     .distinctBy { it.source.type to it.source.url }
                     .take(CatalogAvailabilityPolicy.MAX_PARALLEL_SOURCES)
@@ -1638,23 +1648,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         book: AudiobookEntity,
         preferredSource: SourceEntity?
     ): Boolean = coroutineScope {
-        // A card's "checking" phase validates a tiny media range before it
-        // asks ExoPlayer to open. This is deliberately a preflight only: the
-        // terminal success below remains the Player's real `isPlaying` event.
-        if (!preflightCatalogMedia(book, preferredSource)) return@coroutineScope false
-        val before = playerState.value
-        val verdict = async(start = CoroutineStart.UNDISPATCHED) {
-            withTimeoutOrNull(CatalogAvailabilityPolicy.SOURCE_BUDGET_MS) {
-                playerState
-                    .dropWhile { it == before }
-                    .first { state ->
-                        state.currentBook?.id == book.id &&
-                            (state.isPlaying || state.errorKind != PlaybackErrorKind.NONE)
+            // Media was preflighted while both Source candidates prepared in
+            // parallel. Only this ready candidate now enters the one Player;
+            // terminal success remains the real `isPlaying` event.
+            val before = playerState.value
+            val verdict = async(start = CoroutineStart.UNDISPATCHED) {
+                withTimeoutOrNull(CatalogAvailabilityPolicy.SOURCE_BUDGET_MS) {
+                    playerState
+                        .dropWhile { it == before }
+                        .first { state ->
+                            state.currentBook?.id == book.id &&
+                                (state.isPlaying || state.errorKind != PlaybackErrorKind.NONE)
+                        }
                     }
-            }
-        }
-        playAudiobook(book, preferredSource = preferredSource)
-        verdict.await()?.isPlaying == true
+                }
+            startAudiobookPlaybackNow(
+                book = book,
+                chapterIndex = null,
+                autoPlay = true,
+                forceRelisten = false,
+                preferredSource = preferredSource
+            )
+            verdict.await()?.isPlaying == true
     }
 
     private suspend fun preflightCatalogMedia(
@@ -2463,6 +2478,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         preferredSource: SourceEntity? = null
     ) {
         viewModelScope.launch(Dispatchers.IO) {
+            startAudiobookPlaybackNow(
+                book = book,
+                chapterIndex = chapterIndex,
+                autoPlay = autoPlay,
+                forceRelisten = forceRelisten,
+                preferredSource = preferredSource
+            )
+        }
+    }
+
+    private suspend fun startAudiobookPlaybackNow(
+        book: AudiobookEntity,
+        chapterIndex: Int?,
+        autoPlay: Boolean,
+        forceRelisten: Boolean,
+        preferredSource: SourceEntity? = null
+    ) {
             val updatedBook = libraryEntries.getBookSync(book.id) ?: book
             // ADR-0007: the chapter→track pairing rides the same fetch — the
             // player resolves chapter → track 1:1 by index.
@@ -2475,7 +2507,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             // Code-review LOW: if the book was deleted while this IO fetch was
             // in flight (e.g. deleteBook on another screen), do not resurrect
             // playback for it.
-            if (libraryEntries.getBookSync(updatedBook.id) == null) return@launch
+            if (libraryEntries.getBookSync(updatedBook.id) == null) return
             // ADR-0023 (spec-43 T6): the cloud mirror lands BEFORE the resume
             // decision — «почав на телефоні — продовж тут». A forced
             // re-listen skips it: the explicit restart intent wins.
@@ -2518,7 +2550,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
             // Asynchronously refresh metadata/cover in background without delaying audio startup
             libraryEntries.refreshBookCoverAndDetails(book.id)
-        }
     }
 
     fun addBookmarkAtCurrentPosition(note: String) {

@@ -36,9 +36,11 @@ v1.3.7 має залишатися невеликим стабілізаційн
    Source; 4read/reasd audio-запити можуть отримати власну cookie лише через
    scoped `DownloadPolicy`.
 6. Автоматична дія `Play` обмежена однією явно вибраною Edition. Коли її
-   provenance підтверджує кілька Source, coordinator запускає не більше двох
-   спроб паралельно, кожну з бюджетом 8 секунд; перша реальна подія `playing`
-   скасовує сусідню спробу. Work-level `work_sources` без `editionId` не
+   provenance підтверджує кілька Source, coordinator паралельно готує не
+   більше двох Source, кожен із бюджетом 8 секунд. Готові кандидати входять у
+   єдиний Android Player послідовно, кожен із власним 8-секундним бюджетом:
+   timeout першого не позбавляє другий його спроби, а перша реальна подія
+   `playing` завершує дію. Work-level `work_sources` без `editionId` не
    отримують вигадану Edition і тому не можуть утворити cross-narration race.
 7. Локальний позитивний verdict Edition живе 6 годин, негативний — 15 хвилин,
    а очищений від cookies `Verified Source×Edition Profile` — 24 години. На

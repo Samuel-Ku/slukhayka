@@ -14,6 +14,8 @@ data class EditionSourceCandidate(
 )
 
 enum class SourceAttemptVerdict {
+    /** Source import and media preflight succeeded; it may enter the one Player. */
+    READY,
     /** The audio element/player emitted its real playing event. */
     PLAYING,
     NO_NETWORK,
@@ -36,6 +38,72 @@ data class EditionPlaybackRaceResult(
 class BoundedEditionPlaybackRace(
     private val perSourceBudgetMs: Long = CatalogAvailabilityPolicy.SOURCE_BUDGET_MS
 ) {
+    /**
+     * Prepares at most two Sources concurrently, then gives the singleton
+     * Player to ready candidates one at a time. A failed Player start cannot
+     * starve the already-prepared sibling.
+     */
+    suspend fun racePrepared(
+        selectedEditionId: String,
+        candidates: List<EditionSourceCandidate>,
+        prepare: suspend (EditionSourceCandidate) -> SourceAttemptVerdict,
+        play: suspend (EditionSourceCandidate) -> SourceAttemptVerdict
+    ): EditionPlaybackRaceResult = coroutineScope {
+        val eligible = candidates
+            .filter { it.editionId == selectedEditionId }
+            .take(CatalogAvailabilityPolicy.MAX_PARALLEL_SOURCES)
+        if (eligible.isEmpty()) {
+            return@coroutineScope EditionPlaybackRaceResult(null, SourceAttemptVerdict.AUDIO_MISSING)
+        }
+
+        val prepared = Channel<Pair<EditionSourceCandidate, SourceAttemptVerdict>>(Channel.UNLIMITED)
+        val preparationJobs = eligible.map { source ->
+            launch {
+                val verdict = try {
+                    withTimeoutOrNull(perSourceBudgetMs) { prepare(source) }
+                        ?: SourceAttemptVerdict.TIMEOUT
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    SourceAttemptVerdict.TEMPORARY_FAILURE
+                }
+                prepared.send(source to verdict)
+            }
+        }
+
+        val failures = mutableListOf<Pair<EditionSourceCandidate, SourceAttemptVerdict>>()
+        repeat(eligible.size) {
+            val result = prepared.receive()
+            if (result.second != SourceAttemptVerdict.READY) {
+                failures += result
+                return@repeat
+            }
+            val playVerdict = try {
+                withTimeoutOrNull(perSourceBudgetMs) { play(result.first) }
+                    ?: SourceAttemptVerdict.TIMEOUT
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                SourceAttemptVerdict.TEMPORARY_FAILURE
+            }
+            if (playVerdict == SourceAttemptVerdict.PLAYING) {
+                preparationJobs.forEach { job -> if (job.isActive) job.cancel() }
+                return@coroutineScope EditionPlaybackRaceResult(result.first, playVerdict)
+            }
+            failures += result.first to playVerdict
+        }
+
+        val terminalOrder = listOf(
+            SourceAttemptVerdict.SESSION_REQUIRED,
+            SourceAttemptVerdict.NO_NETWORK,
+            SourceAttemptVerdict.AUDIO_MISSING,
+            SourceAttemptVerdict.TEMPORARY_FAILURE,
+            SourceAttemptVerdict.TIMEOUT
+        )
+        val terminal = terminalOrder.first { wanted -> failures.any { it.second == wanted } }
+        EditionPlaybackRaceResult(failures.firstOrNull { it.second == terminal }?.first, terminal)
+    }
+
     suspend fun race(
         selectedEditionId: String,
         candidates: List<EditionSourceCandidate>,

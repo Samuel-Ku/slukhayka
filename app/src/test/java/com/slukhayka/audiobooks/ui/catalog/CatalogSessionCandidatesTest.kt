@@ -40,6 +40,12 @@ class CatalogSessionCandidatesTest {
     }
 
     @Test
+    fun `expired CookieManager remnants are not treated as a session`() {
+        assertEquals(false, hasUsableSourceSession("session=; cf_clearance= "))
+        assertEquals(true, hasUsableSourceSession("session=ready"))
+    }
+
+    @Test
     fun `one durable source session is reusable for two books then expiry restores browser door`() {
         val firstBook = source.copy(id = "sluhay-first", bookId = "work-1", url = "https://sluhay.com/first")
         val secondBook = source.copy(id = "sluhay-second", bookId = "work-2", url = "https://sluhay.com/second")

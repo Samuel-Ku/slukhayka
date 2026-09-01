@@ -5,11 +5,14 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.slukhayka.audiobooks.data.db.AudiobookDatabase
 import com.slukhayka.audiobooks.data.db.WorkEntity
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.test.StandardTestDispatcher
-import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -89,7 +92,7 @@ class AuthorIndexRoomTest {
     }
 
     @Test
-    fun `first read repairs only one bounded page then continues in background`() = runTest {
+    fun `first read repairs only one bounded page then continues in background`() = runBlocking {
         val sqlite = db.openHelper.writableDatabase
         db.runInTransaction {
             val insert = sqlite.compileStatement(
@@ -105,14 +108,21 @@ class AuthorIndexRoomTest {
                 insert.clearBindings()
             }
         }
-        val backgroundDispatcher = StandardTestDispatcher(testScheduler)
-        val boundedIndex = RoomAuthorIndex(db.audiobookDao(), CoroutineScope(backgroundDispatcher))
+        val backgroundScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val boundedIndex = RoomAuthorIndex(db.audiobookDao(), backgroundScope)
 
-        assertTrue(boundedIndex.search("автор 0").isNotEmpty())
-        assertEquals(1, db.audiobookDao().worksMissingCanonicalAuthor(RoomAuthorIndex.BACKFILL_BATCH_SIZE).size)
+        try {
+            assertTrue(boundedIndex.search("автор 0").isNotEmpty())
+            assertEquals(1, db.audiobookDao().worksMissingCanonicalAuthor(RoomAuthorIndex.BACKFILL_BATCH_SIZE).size)
 
-        testScheduler.advanceUntilIdle()
-        assertEquals(0, db.audiobookDao().worksMissingCanonicalAuthor(RoomAuthorIndex.BACKFILL_BATCH_SIZE).size)
+            withTimeout(5_000) {
+                while (db.audiobookDao().worksMissingCanonicalAuthor(RoomAuthorIndex.BACKFILL_BATCH_SIZE).isNotEmpty()) {
+                    delay(25)
+                }
+            }
+        } finally {
+            backgroundScope.cancel()
+        }
     }
 
     @Test

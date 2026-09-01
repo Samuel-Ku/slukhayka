@@ -316,4 +316,45 @@ class SluhayAdapterTest {
         assertEquals(1, fetcher.recordedHeaders.size)
         assertEquals(mapOf("Cookie" to "cf_clearance=abc"), fetcher.recordedHeaders[0])
     }
+
+    @Test
+    fun `one durable session serves two different books of the same source`() = runBlocking {
+        val secondUrl = "https://sluhay.com/svitova-literatura/6151-insha-knyha.html"
+        val fetcher = FakeFetcher(
+            mapOf(
+                bookUrl to bookPage,
+                secondUrl to bookPage,
+                playlistUrl to playlistJson
+            )
+        )
+        val adapter = adapterWithCookies("cf_clearance=shared", fetcher)
+
+        assertTrue(adapter.fetchBookPage(bookUrl).chapters.isNotEmpty())
+        assertTrue(adapter.fetchBookPage(secondUrl).chapters.isNotEmpty())
+
+        assertEquals(2, fetcher.recordedHeaders.size)
+        assertTrue(fetcher.recordedHeaders.all { it["Cookie"] == "cf_clearance=shared" })
+    }
+
+    @Test
+    fun `expired session challenge produces no playable chapters`() = runBlocking {
+        var cookie = "cf_clearance=fresh"
+        val provider = object : SourceCookieProvider {
+            override fun cookieFor(url: String): String = cookie
+        }
+        val fetcher = object : HttpFetcher() {
+            override fun getText(url: String): String = when (url) {
+                playlistUrl -> playlistJson
+                else -> "<html><title>Just a moment</title></html>"
+            }
+
+            override fun getText(url: String, extraHeaders: Map<String, String>): String =
+                if (extraHeaders["Cookie"] == "cf_clearance=fresh") bookPage else ""
+        }
+        val adapter = SluhayAdapter(fetcher, cookieProvider = provider)
+
+        assertTrue(adapter.fetchBookPage(bookUrl).chapters.isNotEmpty())
+        cookie = ""
+        assertTrue(adapter.fetchBookPage(bookUrl).chapters.isEmpty())
+    }
 }

@@ -67,6 +67,8 @@ import com.slukhayka.audiobooks.data.diagnostics.CrashConsent
 import com.slukhayka.audiobooks.data.diagnostics.CrashReporting
 import com.slukhayka.audiobooks.data.identity.RecoveryCodeAvailability
 import com.slukhayka.audiobooks.data.listening.ProgressSyncSettingsStore
+import com.slukhayka.audiobooks.data.source.SourceBrowserPolicy
+import com.slukhayka.audiobooks.data.source.sourceDisplayName
 import com.slukhayka.audiobooks.ui.components.accessibilityPane
 import com.slukhayka.audiobooks.ui.components.accessibilityModalBackground
 import com.slukhayka.audiobooks.ui.theme.AppDimens
@@ -93,7 +95,9 @@ fun ProfileScreen(
     // reads the settings store directly (ADR-0008); defaults keep existing
     // call sites and previews unchanged.
     progressSyncSettings: ProgressSyncSettingsStore? = null,
-    crashReporting: CrashReporting? = null
+    crashReporting: CrashReporting? = null,
+    /** Session cookies stay inside WebView; clearing one source never signs out of another. */
+    onClearSourceSession: (String) -> Unit = {}
 ) {
     // The module is read directly (ADR-0008); suspend calls ride the
     // composition scope like every other screen.
@@ -108,13 +112,14 @@ fun ProfileScreen(
     }
     var savedNotice by remember { mutableStateOf<String?>(null) }
     var restoreDialogVisible by remember { mutableStateOf(false) }
+    var sourceSessionPendingClear by remember { mutableStateOf<SourceSessionOption?>(null) }
     val loadingDescription = stringResource(R.string.profile_loading)
     val nicknameSavedMessage = stringResource(R.string.profile_nickname_saved)
 
     SettingsDestinationScaffold(
         destination = SettingsDestination.Profile,
         onBackClick = onBackClick,
-        modalVisible = restoreDialogVisible
+        modalVisible = restoreDialogVisible || sourceSessionPendingClear != null
     ) { padding ->
         Column(
             modifier = Modifier
@@ -324,8 +329,86 @@ fun ProfileScreen(
                 Spacer(modifier = Modifier.height(16.dp))
                 CrashReportsSettingsRow(crashReporting)
             }
+
+            Spacer(modifier = Modifier.height(24.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                text = stringResource(R.string.profile_source_sessions_heading),
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                modifier = Modifier.semantics { heading() }
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = stringResource(R.string.profile_source_sessions_description),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            sourceSessionOptions.forEach { source ->
+                OutlinedButton(
+                    onClick = { sourceSessionPendingClear = source },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp)
+                        .testTag("profile_clear_${source.id}_session")
+                ) {
+                    Text(stringResource(R.string.profile_source_session_clear, source.displayName))
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+            }
         }
     }
+
+    sourceSessionPendingClear?.let { source ->
+        AlertDialog(
+            onDismissRequest = { sourceSessionPendingClear = null },
+            title = {
+                Text(
+                    stringResource(
+                        R.string.profile_source_session_clear_dialog_title,
+                        source.displayName
+                    )
+                )
+            },
+            text = {
+                Text(
+                    stringResource(
+                        R.string.profile_source_session_clear_dialog_body,
+                        source.displayName
+                    )
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onClearSourceSession(source.id)
+                        sourceSessionPendingClear = null
+                    },
+                    modifier = Modifier
+                        .heightIn(min = 48.dp)
+                        .testTag("profile_clear_${source.id}_session_confirm")
+                ) { Text(stringResource(R.string.profile_source_session_clear_confirm)) }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { sourceSessionPendingClear = null },
+                    modifier = Modifier.heightIn(min = 48.dp)
+                ) { Text(stringResource(R.string.action_cancel)) }
+            },
+            modifier = Modifier.testTag("profile_clear_${source.id}_session_dialog")
+        )
+    }
+}
+
+/** Browser cookie jars are source-scoped; presenting each separately preserves that boundary. */
+private data class SourceSessionOption(
+    val id: String,
+    val displayName: String
+)
+
+private val sourceSessionOptions = SourceBrowserPolicy.browserSourceIds.map { sourceId ->
+    SourceSessionOption(sourceId, sourceDisplayName(sourceId))
 }
 
 @Composable

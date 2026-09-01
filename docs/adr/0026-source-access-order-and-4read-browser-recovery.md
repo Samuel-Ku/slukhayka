@@ -28,11 +28,27 @@ v1.3.7 має залишатися невеликим стабілізаційн
    content hashes і завершені розділи не змінюються. Невдала офлайн-спроба
    4read ставить решту черги на паузу; наступна явна спроба добирає невдалі
    розділи після browser refresh.
-5. First-party cookies зберігаються локально в окремому source-scoped browser
-   snapshot. Перед входом в інший Source глобальна cookie-банка очищується;
-   cookie ніколи не потрапляє в Room, shared profile, логи або запит на інший
-   хост. 4read/reasd audio-запити можуть отримати власну cookie лише через
+5. First-party cookies залишаються лише у власній durable cookie-банці
+   WebView: не копіюються між Source/host, не серіалізуються в preferences і
+   не потрапляють у Room, shared profile, логи, backup чи sync. Тому вже
+   пройдена сесія може відкрити інший список того самого Source після
+   перезапуску. Слухач може явно очистити лише allowlisted hosts одного
+   Source; 4read/reasd audio-запити можуть отримати власну cookie лише через
    scoped `DownloadPolicy`.
+6. Автоматична дія `Play` обмежена однією явно вибраною Edition. Коли її
+   provenance підтверджує кілька Source, coordinator паралельно готує не
+   більше двох Source, кожен із бюджетом 8 секунд. Готові кандидати входять у
+   єдиний Android Player послідовно, кожен із власним 8-секундним бюджетом:
+   timeout першого не позбавляє другий його спроби, а перша реальна подія
+   `playing` завершує дію. Work-level `work_sources` без `editionId` не
+   отримують вигадану Edition і тому не можуть утворити cross-narration race.
+7. Локальний позитивний verdict Edition живе 6 годин, негативний — 15 хвилин,
+   а очищений від cookies `Verified Source×Edition Profile` — 24 години. На
+   точній межі expiry запис уже stale. Negative verdict не видаляє Work і не
+   виключає його з активної стрічки; він впливає лише на наступне ранжування.
+8. Легка viewport-перевірка використовує bounded byte range та перевіряє
+   media MIME/signature. HTML і challenge не є позитивним доказом. Остаточний
+   позитивний verdict виникає лише після `playing`.
 
 ## Наслідки
 
@@ -41,12 +57,15 @@ v1.3.7 має залишатися невеликим стабілізаційн
   підміняє аудіо вигаданими файлами.
 - Повторна download-спроба не починає книгу спочатку й не видаляє вже валідні
   локальні копії.
+- Поточна сторінка каталогу не перестрибує й не втрачає картку після verdict;
+  оновлені пріоритети застосовуються на наступному refresh.
 - У WebView потрібен короткий informational notice для нових слухачів; факт
   входу зберігається локально, без ідентифікації слухача.
 
 ## Тестовий шов
 
-Pure JVM-тести фіксують порядок capability, стабільні tie-break правила,
+Pure JVM-тести фіксують порядок capability, точні 6h/15m/24h TTL, максимум дві
+same-Edition спроби, first-success cancellation, стабільні tie-break правила,
 cookie allowlist і повідомлення результату. Adapter/import тести перевіряють
 відмову на зміненому порядку розділів, same-Edition track replacement та
 збереження локального шляху. UI/accessibility тести бачать лише явну browser

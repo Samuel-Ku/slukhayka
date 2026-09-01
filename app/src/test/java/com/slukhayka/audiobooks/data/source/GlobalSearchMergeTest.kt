@@ -13,6 +13,20 @@ import org.junit.Test
  */
 class GlobalSearchMergeTest {
 
+    @Test
+    fun `sources expose shared Edition only when narrator identity matches`() {
+        val merged = mergeGlobalSearchResults(
+            listOf(
+                book("Книга", "Автор", "soundbooks").copy(narrator = "Читець"),
+                book("Книга", "Автор", "audiobookmp3").copy(narrator = "Читець"),
+                book("Книга", "Автор", "fourread").copy(narrator = "Інший")
+            )
+        ).single()
+
+        assertEquals(merged.sources[0].editionId, merged.sources[1].editionId)
+        assertTrue(merged.sources[0].editionId != merged.sources[2].editionId)
+    }
+
     private fun book(
         title: String,
         author: String,

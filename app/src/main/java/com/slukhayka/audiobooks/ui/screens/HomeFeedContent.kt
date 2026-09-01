@@ -27,6 +27,7 @@ import com.slukhayka.audiobooks.data.recommend.RecommendationEngine
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.ui.PeopleKind
+import com.slukhayka.audiobooks.ui.catalog.CatalogCardActionState
 import com.slukhayka.audiobooks.ui.components.NavigationChip
 
 /**
@@ -86,7 +87,19 @@ fun LazyListScope.homeFeedContent(
     showRecommendationConsent: Boolean = false,
     onOpenRecommendationConsent: () -> Unit = {},
     onDeclineRecommendationConsent: () -> Unit = {},
-    recommendationDisclosureTriggerModifier: Modifier = Modifier
+    recommendationDisclosureTriggerModifier: Modifier = Modifier,
+    onPlayWorkFeedRow: (WorkFeedRow) -> Unit = onOpenWorkFeedRow,
+    catalogCardActionState: CatalogCardActionState = CatalogCardActionState.Idle,
+    onCancelCatalogCardAction: () -> Unit = {},
+    onOpenCatalogBrowser: () -> Unit = {},
+    onPreflightGlobalSearchResult: (GlobalSearchResult) -> Unit = {},
+    onPreflightCatalogBook: (CatalogBook) -> Unit = {},
+    onPreflightRecommendedBook: (String) -> Unit = {},
+    onPreflightWorkFeedRow: (WorkFeedRow) -> Unit = {},
+    onOpenGlobalSearchResult: (GlobalSearchResult) -> Unit = onPlayGlobalSearchResult,
+    onOpenCatalogBook: (CatalogBook) -> Unit = { onBookClick(it.id) },
+    onPlayCatalogBook: (CatalogBook) -> Unit = { onBookClick(it.id) },
+    onPlayRecommendedBook: (candidateId: String) -> Unit = onOpenRecommendedBook
 ) {
     // Loading spinner while the catalogue syncs on a fresh start.
     if (isCatalogLoading && !hasLibraryBooks && sections.isEmpty()) {
@@ -223,6 +236,11 @@ fun LazyListScope.homeFeedContent(
                     RecommendedBookCard(
                         rec = rec,
                         onClick = { onOpenRecommendedBook(rec.candidate.id) },
+                        onPlayClick = { onPlayRecommendedBook(rec.candidate.id) },
+                        actionState = catalogCardActionState,
+                        onCancelAction = onCancelCatalogCardAction,
+                        onOpenBrowser = onOpenCatalogBrowser,
+                        onPreflight = { onPreflightRecommendedBook(rec.candidate.id) },
                         onFeedback = { kind -> onRecommendationFeedback(rec, kind) }
                     )
                 }
@@ -264,7 +282,12 @@ fun LazyListScope.homeFeedContent(
         item {
             NewArrivalsRail(
                 results = newArrivals,
-                onBookClick = { result -> onPlayGlobalSearchResult(result) }
+                onBookClick = { result -> onOpenGlobalSearchResult(result) },
+                onPlayClick = { result -> onPlayGlobalSearchResult(result) },
+                actionState = catalogCardActionState,
+                onCancelAction = onCancelCatalogCardAction,
+                onOpenBrowser = onOpenCatalogBrowser,
+                onPreflight = onPreflightGlobalSearchResult
             )
         }
     }
@@ -276,7 +299,13 @@ fun LazyListScope.homeFeedContent(
         DurationSection(
             shortBooks = shortBooks,
             longBooks = longBooks,
-            onBookClick = onBookClick
+            onBookClick = onBookClick,
+            onOpenClick = onOpenCatalogBook,
+            onPlayClick = onPlayCatalogBook,
+            actionState = catalogCardActionState,
+            onCancelAction = onCancelCatalogCardAction,
+            onOpenBrowser = onOpenCatalogBrowser,
+            onPreflight = onPreflightCatalogBook
         )
     }
 
@@ -304,7 +333,12 @@ fun LazyListScope.homeFeedContent(
                     items(section.books, key = { it.id }) { book ->
                         CatalogBookCard(
                             book = book,
-                            onClick = { onBookClick(book.id) }
+                            onClick = { onOpenCatalogBook(book) },
+                            onPlayClick = { onPlayCatalogBook(book) },
+                            actionState = catalogCardActionState,
+                            onCancelAction = onCancelCatalogCardAction,
+                            onOpenBrowser = onOpenCatalogBrowser,
+                            onPreflight = { onPreflightCatalogBook(book) }
                         )
                     }
                 }
@@ -353,7 +387,12 @@ fun LazyListScope.homeFeedContent(
                     items(collection.books, key = { it.key }) { result ->
                         CollectionBookCard(
                             result = result,
-                            onClick = { onPlayGlobalSearchResult(result) }
+                            onClick = { onOpenGlobalSearchResult(result) },
+                            onPlayClick = { onPlayGlobalSearchResult(result) },
+                            actionState = catalogCardActionState,
+                            onCancelAction = onCancelCatalogCardAction,
+                            onOpenBrowser = onOpenCatalogBrowser,
+                            onPreflight = { onPreflightGlobalSearchResult(result) }
                         )
                     }
                 }
@@ -427,7 +466,12 @@ fun LazyListScope.homeFeedContent(
         workFeedItems[index]?.let { row ->
             WorkFeedCard(
                 row = row,
-                onClick = { onOpenWorkFeedRow(row) }
+                onClick = { onOpenWorkFeedRow(row) },
+                onPlayClick = { onPlayWorkFeedRow(row) },
+                actionState = catalogCardActionState,
+                onCancelAction = onCancelCatalogCardAction,
+                onOpenBrowser = onOpenCatalogBrowser,
+                onPreflight = { onPreflightWorkFeedRow(row) }
             )
         }
     }

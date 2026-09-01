@@ -11,15 +11,23 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.data.db.WorkFeedRow
 import com.slukhayka.audiobooks.ui.screens.WorkFeedCard
+import com.slukhayka.audiobooks.ui.catalog.CatalogCardAction
+import com.slukhayka.audiobooks.ui.catalog.CatalogCardActionState
+import com.slukhayka.audiobooks.ui.catalog.CatalogCardFailure
+import com.slukhayka.audiobooks.ui.catalog.CatalogCardTarget
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
 import com.github.takahirom.roborazzi.captureRoboImage
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -144,6 +152,71 @@ class WorkFeedCardSnapshotTest {
         composeTestRule.onNodeWithText("16:41:01").assertDoesNotExist()
         composeTestRule.onRoot().captureRoboImage(
             filePath = "src/test/snapshots/work_feed_no_duration.png"
+        )
+    }
+
+    @Test
+    fun feed_card_exposes_open_and_play_as_separate_accessible_actions() {
+        var opened = false
+        var played = false
+        setContent {
+            WorkFeedCard(
+                row = row("Пасажир", "Жан-Крістоф Гранже", editionCount = 1),
+                onClick = { opened = true },
+                onPlayClick = { played = true }
+            )
+        }
+
+        composeTestRule.onNodeWithContentDescription("Відкрити книгу: Пасажир").performClick()
+        assertTrue(opened)
+        assertFalse(played)
+
+        composeTestRule.onNodeWithContentDescription("Слухати: Пасажир").performClick()
+        assertTrue(played)
+    }
+
+    @Test
+    fun feed_card_checking_state_is_visible_and_cancellable() {
+        var cancelled = false
+        val work = row("Пасажир", "Жан-Крістоф Гранже", editionCount = 1)
+        setContent {
+            WorkFeedCard(
+                row = work,
+                onClick = {},
+                actionState = CatalogCardActionState.Checking(
+                    CatalogCardTarget(work.workId, work.title, work.author),
+                    CatalogCardAction.PLAY
+                ),
+                onCancelAction = { cancelled = true }
+            )
+        }
+
+        composeTestRule.onNodeWithText("Перевіряємо…").assertExists()
+        composeTestRule.onNodeWithContentDescription("Скасувати").performClick()
+        assertTrue(cancelled)
+        composeTestRule.onRoot().captureRoboImage(
+            filePath = "src/test/snapshots/work_feed_checking.png"
+        )
+    }
+
+    @Test
+    fun feed_card_terminal_error_is_visible() {
+        val work = row("Пасажир", "Жан-Крістоф Гранже", editionCount = 1)
+        setContent {
+            WorkFeedCard(
+                row = work,
+                onClick = {},
+                actionState = CatalogCardActionState.Failed(
+                    CatalogCardTarget(work.workId, work.title, work.author),
+                    CatalogCardAction.OPEN,
+                    CatalogCardFailure.EMPTY_SOURCES
+                )
+            )
+        }
+
+        composeTestRule.onNodeWithText("Не вдалося відкрити книгу. Спробуйте ще раз.").assertExists()
+        composeTestRule.onRoot().captureRoboImage(
+            filePath = "src/test/snapshots/work_feed_error.png"
         )
     }
 }

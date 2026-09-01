@@ -84,3 +84,24 @@ fun SourceCookieProvider.cookieHeadersFor(url: String): Map<String, String> {
     val cookie = cookieFor(url).trim()
     return if (cookie.isBlank()) emptyMap() else mapOf("Cookie" to cookie)
 }
+
+/**
+ * Browser-shaped headers required by 4read's protected cover endpoint.
+ *
+ * Kept beside the source transport policy: callers receive no special headers
+ * for another source or for an audio host, and a 4read cookie is read only for
+ * the exact 4read cover host.
+ */
+fun SourceCookieProvider.coverHeadersFor(url: String): Map<String, String> {
+    val host = runCatching { java.net.URI(url.trim()).host?.lowercase()?.removePrefix("www.") }
+        .getOrNull()
+    if (host != "4read.org") return emptyMap()
+    return buildMap {
+        put("Referer", "https://4read.org/")
+        put("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
+        put("Sec-Fetch-Dest", "image")
+        put("Sec-Fetch-Mode", "no-cors")
+        put("Sec-Fetch-Site", "same-origin")
+        cookieFor(url).trim().takeIf { it.isNotBlank() }?.let { put("Cookie", it) }
+    }
+}

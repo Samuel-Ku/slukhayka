@@ -207,7 +207,22 @@ fun WebSourceBrowserScreen(
         structureMismatch = null
         blockedNavMessage = ""
         instance.evaluateJavascript(
-            "(function(){return document.documentElement.outerHTML;})()"
+            """(function(){
+                const html = document.documentElement.outerHTML;
+                const urls = [...html.matchAll(/file\s*:\s*["']([^"']+\.(?:m3u|txt)(?:\?[^"']*)?)["']/gi)].map(m => m[1]);
+                const manifests = [...new Set(urls)].map(url => {
+                    try {
+                        const request = new XMLHttpRequest();
+                        request.open('GET', url, false);
+                        request.withCredentials = true;
+                        request.send(null);
+                        if (request.status !== 200) return '';
+                        const body = request.responseText;
+                        return '<i data-slukhayka-playlist="' + btoa(unescape(encodeURIComponent(body))) + '"></i>';
+                    } catch (_) { return ''; }
+                });
+                return html + manifests.join('');
+            })()"""
         ) { raw ->
             val decoded = raw?.trim()?.let { r ->
                 val inner = if (r.startsWith("\"") && r.endsWith("\"")) {

@@ -111,9 +111,31 @@ class FourReadAdapter(
      */
     override suspend fun parseCapturedPage(html: String, url: String): SourceBookDetail =
         WebViewHtmlParser().parse(html, url, resolveContent = { toResolve ->
+            // 4read serves its M3U manifests publicly. Passing a WebView
+            // session to this endpoint can turn a valid playlist into a
+            // challenge document that itself mentions `.mp3`; therefore no
+            // content heuristic can safely distinguish it from the manifest.
+            // Fetch the public manifest without a session, while all other
+            // page/iframe requests retain the host-scoped cookie policy.
+            if (isPublicPlaylistUrl(toResolve)) return@parse fetcher.getText(toResolve)
             val c = cookieProvider.cookieFor(toResolve).trim()
-            if (c.isBlank()) fetcher.getText(toResolve) else fetcher.getText(toResolve, mapOf("Cookie" to c))
+            val withSession = if (c.isBlank()) fetcher.getText(toResolve)
+            else fetcher.getText(toResolve, mapOf("Cookie" to c))
+            // A playlist is public on 4read, while a stale browser cookie can
+            // make its CDN reply with an empty/challenge page. The captured
+            // page already passed the browser gate; retrying this read without
+            // a cookie restores a public nested resource without sending a
+            // cookie anywhere else (#443).
+            if (c.isBlank() || withSession.contains(".mp3", ignoreCase = true)) {
+                withSession
+            } else {
+                fetcher.getText(toResolve)
+            }
         })
+
+    private fun isPublicPlaylistUrl(url: String): Boolean =
+        url.substringBefore('?').endsWith(".m3u", ignoreCase = true) &&
+            runCatching { java.net.URI(url).host?.equals("4read.org", ignoreCase = true) == true }.getOrDefault(false)
 
     /**
      * Spec-40 #282 — коментарі відвідувачів 4read. The page's DLE comment

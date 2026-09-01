@@ -57,6 +57,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.slukhayka.audiobooks.ui.components.applySourceCoverHeaders
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
@@ -1372,7 +1373,7 @@ fun CatalogCoverImage(
             ImageRequest.Builder(context)
                 .data(coverImageUrl)
                 // Spec-38: UA rides the shared image loader's browser identity.
-                .setHeader("Referer", "https://4read.org/")
+                .applySourceCoverHeaders(coverImageUrl)
                 .crossfade(true)
                 .allowHardware(false)
                 .build()

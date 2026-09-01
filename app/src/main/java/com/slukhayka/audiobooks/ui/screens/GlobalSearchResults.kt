@@ -3,7 +3,6 @@ package com.slukhayka.audiobooks.ui.screens
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,6 +30,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -400,12 +400,20 @@ internal fun catalogBrowserReturnFocusModifier(cardKey: String): Modifier {
     val returnCardKey by CatalogBrowserFocusReturn.returnCardKey.collectAsState()
     val requester = remember(cardKey) { FocusRequester() }
     LaunchedEffect(returnCardKey) {
-        if (returnCardKey == cardKey && runCatching { requester.requestFocus() }.getOrDefault(false)) {
+        if (returnCardKey != cardKey) return@LaunchedEffect
+        // A nested feed action can enter composition before its focus target
+        // is attached. Waiting one frame keeps the durable return token until
+        // the button can actually accept focus.
+        withFrameNanos { }
+        if (runCatching { requester.requestFocus() }.getOrDefault(false)) {
             CatalogBrowserFocusReturn.consume(cardKey)
         }
     }
     return if (returnCardKey == cardKey) {
-        Modifier.focusRequester(requester).focusable()
+        // TextButton already owns the focus target. Adding a second
+        // `focusable()` target here can make nested feed buttons report focus
+        // on the wrapper instead of on the actual accessibility node.
+        Modifier.focusRequester(requester)
     } else {
         Modifier
     }

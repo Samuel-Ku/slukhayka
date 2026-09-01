@@ -1882,6 +1882,7 @@ fun WorkFeedCard(
                     TextButton(
                         onClick = onOpenBrowser,
                         modifier = catalogBrowserReturnFocusModifier(row.workId)
+                            .testTag("catalog_card_open_browser_${row.workId}")
                     ) {
                         Text(stringResource(R.string.catalog_card_open_browser))
                     }

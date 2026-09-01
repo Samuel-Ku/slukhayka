@@ -70,9 +70,10 @@ A local, expiring observation about one Edition, never a Work-wide claim. A
 positive verdict is fresh for 6 hours and a negative verdict for 15 minutes;
 both are stale at the exact expiry boundary. A shared clean Source×Edition
 profile is fresh for 24 hours. Checking is limited to the active card or a
-bounded viewport window, and an action races at most two Sources of the same
-Edition for 8 seconds each; only an actual Player `playing` event creates a
-positive verdict. A late cancelled probe cannot alter the result or reorder
+bounded viewport window. An action prepares at most two Sources of the same
+Edition concurrently for 8 seconds each, then gives ready candidates their
+own 8-second turn in Android's singleton Player; only an actual Player
+`playing` event creates a positive verdict. A late cancelled probe cannot alter the result or reorder
 the current list.
 _Avoid_: HTML/challenge as proof, catalogue-wide crawl, Work availability,
 cross-Edition fallback, reordering under the listener

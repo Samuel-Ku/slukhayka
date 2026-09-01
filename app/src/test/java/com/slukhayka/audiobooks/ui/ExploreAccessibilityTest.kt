@@ -206,6 +206,47 @@ class ExploreAccessibilityTest {
     }
 
     @Test
+    fun workFeedBrowserFallbackRestoresFocusToItsWebsiteAction() {
+        val row = WorkFeedRow(
+            workId = "work-feed-browser",
+            mergeKey = result.mergeKey,
+            title = result.title,
+            author = result.author,
+            coverImageUrl = null,
+            addedAt = 1L,
+            sourceCount = 1
+        )
+        val target = CatalogCardTarget(row.workId, row.title, cardKey = row.workId)
+        val source = SourceEntity(
+            id = "4read-edition",
+            bookId = row.workId,
+            editionId = "edition",
+            type = "4read",
+            url = "https://4read.org/work-feed-browser"
+        )
+        CatalogBrowserFocusReturn.remember(row.workId)
+        CatalogBrowserFocusReturn.publishAfterBrowserClose()
+
+        compose.setContent {
+            AudiobookTheme(darkTheme = true) {
+                WorkFeedCard(
+                    row = row,
+                    onClick = {},
+                    actionState = CatalogCardActionState.BrowserRequired(
+                        target,
+                        CatalogCardAction.PLAY,
+                        source
+                    )
+                )
+            }
+        }
+
+        compose.waitForIdle()
+        compose.onNodeWithTag("catalog_card_open_browser_${row.workId}").assertIsFocused()
+        CatalogBrowserFocusReturn.consume(row.workId)
+    }
+
+    @Test
     fun newArrivalsPreflightsOnlyTheLazyViewportAndItsBuffer() {
         val results = (0 until 50).map { index ->
             result.copy(

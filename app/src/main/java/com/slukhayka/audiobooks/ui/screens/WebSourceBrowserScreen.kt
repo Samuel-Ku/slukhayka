@@ -865,6 +865,7 @@ fun WebSourceBrowserScreen(
                                 // #430 — new top-level page → fresh candidate set.
                                 synchronized(capturedAudioUrls) { capturedAudioUrls.clear() }
                                 url?.let {
+                                    SourceWebViewSession.rememberVisitedUrl(sourceId, it)
                                     currentWebUrl = it
                                     urlInput = it
                                 }

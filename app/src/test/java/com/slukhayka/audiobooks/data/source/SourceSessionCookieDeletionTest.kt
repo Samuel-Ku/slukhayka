@@ -38,4 +38,26 @@ class SourceSessionCookieDeletionTest {
         assertEquals("valid=; Max-Age=0; Path=/; Secure", commands.single().value)
         assertTrue(SourceSessionCookieDeletion.commandsFor("unknown", mapOf("x" to "a=b")).isEmpty())
     }
+
+    @Test
+    fun `observed path emits host-only and allowlisted domain expiry variants`() {
+        val commands = SourceSessionCookieDeletion.commandsForUrls(
+            "sluhay",
+            mapOf("https://www.sluhay.com/books/" to "session=ready")
+        )
+
+        assertEquals(
+            listOf(
+                SourceSessionCookieDeletion.Command(
+                    "https://www.sluhay.com/books/",
+                    "session=; Max-Age=0; Path=/books/; Secure"
+                ),
+                SourceSessionCookieDeletion.Command(
+                    "https://www.sluhay.com/books/",
+                    "session=; Max-Age=0; Path=/books/; Domain=sluhay.com; Secure"
+                )
+            ),
+            commands
+        )
+    }
 }

@@ -65,6 +65,19 @@ _Avoid_: automatic WebView, re-import as a new book, URL-prefix success
 An anonymously shared, provenance-bearing claim that one Source URL actually started playback and passed a clean cookie-free probe. Read before recovery so the next listener may skip the browser; it never carries cookies, audio files, browser history, or listener identity, and unavailable shared storage removes only the shortcut, never the local flow.
 _Avoid_: session sharing, publishing cookie-bound URLs
 
+**Edition Availability Assertion**:
+A local, expiring observation about one Edition, never a Work-wide claim. A
+positive verdict is fresh for 6 hours and a negative verdict for 15 minutes;
+both are stale at the exact expiry boundary. A shared clean Source×Edition
+profile is fresh for 24 hours. Checking is limited to the active card or a
+bounded viewport window. An action prepares at most two Sources of the same
+Edition concurrently for 8 seconds each, then gives ready candidates their
+own 8-second turn in Android's singleton Player; only an actual Player
+`playing` event creates a positive verdict. A late cancelled probe cannot alter the result or reorder
+the current list.
+_Avoid_: HTML/challenge as proof, catalogue-wide crawl, Work availability,
+cross-Edition fallback, reordering under the listener
+
 ## Metadata
 
 **Metadata Assertion**:
@@ -156,7 +169,7 @@ The indexed Room read model used by «Огляд» filters. Work facets carry ca
 _Avoid_: free-form `LIKE` filters, genre text as identity, duration on Work, direct facet-table writes from sync
 
 **One Source seam, one HTTP transport**:
-Captured-page import is a [SourceAdapter] capability — `parseCapturedPage(html, url)` with a "not mine" default; the WebView-pattern adapters (4read, sluhay) override it under one name and no import door downcasts to a concrete adapter. All HTTP goes through the shared [HttpFetcher] on the ONE shared OkHttp client (pool, identity, route, DoH): it serves text (`getText`) and binary streams (`getStream`), and the offline download loop consumes the stream method — every request carries the device's browser identity (the real system WebView User-Agent, static fallback on JVM; superseding ADR-0006's dedicated download agent) and rides the listener's network privacy route (spec-38), never silently falling back to direct. Domain names resolve through encrypted DoH with a transparent system-resolver fallback (spec-38 T4) — one decision independent of the chosen route, on by default. Offline downloads ride the human-rhythm pacing from the privacy door (`PacingPolicy`: random pause + per-domain burst budget; the loop owns no thresholds) so bulk fetching never looks like scraping (spec-38 T5). The relay prototype (spec-38 T6) is just another resolved route: requests are rewritten `<base>?url=<target>` at the transport's single request-shaping seam, never a default; a route WebView cannot carry refuses the browser instead of going direct. The source-browser WebView sessions ride the SAME route through the official webkit proxy controller and keep the same session hygiene (third-party cookies rejected, geolocation/sensors denied, cookies isolated per source by purge-on-entry with a source-scoped first-party snapshot restored on re-entry). Per-source header rules (Referer) stay beside the transport in the source package.
+Captured-page import is a [SourceAdapter] capability — `parseCapturedPage(html, url)` with a "not mine" default; the WebView-pattern adapters (4read, sluhay) override it under one name and no import door downcasts to a concrete adapter. All HTTP goes through the shared [HttpFetcher] on the ONE shared OkHttp client (pool, identity, route, DoH): it serves text (`getText`) and binary streams (`getStream`), and the offline download loop consumes the stream method — every request carries the device's browser identity (the real system WebView User-Agent, static fallback on JVM; superseding ADR-0006's dedicated download agent) and rides the listener's network privacy route (spec-38), never silently falling back to direct. Domain names resolve through encrypted DoH with a transparent system-resolver fallback (spec-38 T4) — one decision independent of the chosen route, on by default. Offline downloads ride the human-rhythm pacing from the privacy door (`PacingPolicy`: random pause + per-domain burst budget; the loop owns no thresholds) so bulk fetching never looks like scraping (spec-38 T5). The relay prototype (spec-38 T6) is just another resolved route: requests are rewritten `<base>?url=<target>` at the transport's single request-shaping seam, never a default; a route WebView cannot carry refuses the browser instead of going direct. The source-browser WebView sessions ride the SAME route through the official webkit proxy controller and keep the same session hygiene (third-party cookies rejected, geolocation/sensors denied). WebView keeps its durable first-party cookie jar across restarts so a solved Source session serves future lists too; cookies stay host/origin-bound in CookieManager and are never copied or serialized by the app. The listener can explicitly clear only one Source's allowlisted hosts. Per-source header rules (Referer) stay beside the transport in the source package.
 _Avoid_: per-adapter captured-page methods, raw HttpURLConnection in modules, app-named User-Agents, system-DNS lookups for transport hosts, special-cased relay branches outside the door, WebView sessions off-route
 
 **4read browser recovery**:
@@ -165,8 +178,10 @@ When a 4read stream or offline chapter fails, the listener explicitly opens the
 order must match the stored Edition before Source tracks are updated; valid
 downloaded files and Listening State are retained. The failed download queue is
 paused and resumes on the next explicit download attempt. First-party browser
-cookies are kept only in a source-scoped local session; they are never written
-to Room, shared profile metadata, logs or requests to another host. A short
+cookies stay in WebView's durable first-party jar, so they can help later
+lists from the same source; they are never written to Room, shared profile
+metadata, logs, backup, sync or requests to another host. The listener can
+clear just that source's session explicitly. A short
 first-entry notice explains that 4read now needs the browser and is not shown
 again after the listener has opened that session.
 _Avoid_: browser auto-launch, track replacement by request-arrival order,

@@ -1,5 +1,6 @@
 package com.slukhayka.audiobooks.data.source
 
+import com.slukhayka.audiobooks.data.EditionId
 import com.slukhayka.audiobooks.data.merge.MergeKey
 import com.slukhayka.audiobooks.data.metadata.MetadataAssertions
 
@@ -24,7 +25,9 @@ import com.slukhayka.audiobooks.data.metadata.MetadataAssertions
 data class GlobalSearchSource(
     val sourceId: String,
     val sourceName: String,
-    val url: String
+    val url: String,
+    /** Explicit rendition ownership; automatic fallback never crosses it. */
+    val editionId: String = ""
 )
 
 /** One search-result card: a Work with all matching sources. */
@@ -128,7 +131,17 @@ fun mergeGlobalSearchResults(results: List<SourceBook>): List<GlobalSearchResult
                     books
                         .map { SourceAccessCandidate(it.sourceId, sourceDisplayName(it.sourceId), it.url) }
                         .distinctBy { it.sourceId }
-                ).map { GlobalSearchSource(it.sourceId, it.sourceName, it.url) }
+                ).map { candidate ->
+                    val book = books.first { it.sourceId == candidate.sourceId && it.url == candidate.url }
+                    val narrator = MetadataAssertions.normalizeClaimedText(book.narrator)
+                        ?: "${book.sourceId} narrator"
+                    GlobalSearchSource(
+                        candidate.sourceId,
+                        candidate.sourceName,
+                        candidate.url,
+                        EditionId.forBook(MergeKey.keyFor(book.title, book.author), "", narrator)
+                    )
+                }
             )
         }
         .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.title })

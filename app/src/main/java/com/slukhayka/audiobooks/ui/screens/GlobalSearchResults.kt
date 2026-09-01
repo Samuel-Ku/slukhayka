@@ -17,18 +17,31 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -37,6 +50,9 @@ import androidx.compose.ui.platform.testTag
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.ui.MainViewModel
+import com.slukhayka.audiobooks.ui.catalog.CatalogCardAction
+import com.slukhayka.audiobooks.ui.catalog.CatalogCardActionState
+import com.slukhayka.audiobooks.ui.catalog.CatalogBrowserFocusReturn
 import com.slukhayka.audiobooks.ui.components.BookCoverSemantics
 import com.slukhayka.audiobooks.ui.theme.AppBadgeScrim
 import com.slukhayka.audiobooks.ui.theme.AppBadgeScrimBorder
@@ -52,16 +68,30 @@ import com.slukhayka.audiobooks.ui.theme.AppDimens
 fun GlobalSearchResultCard(
     result: GlobalSearchResult,
     onClick: () -> Unit,
+    onPlayClick: () -> Unit = onClick,
+    actionState: CatalogCardActionState = CatalogCardActionState.Idle,
+    onCancelAction: () -> Unit = {},
+    onOpenBrowser: () -> Unit = {},
+    onPreflight: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    LaunchedEffect(result.key) { onPreflight() }
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = AppDimens.SpaceLg, vertical = AppDimens.SpaceSm)
-            .testTag("global_search_result_${result.key}"),
+            .padding(horizontal = AppDimens.SpaceLg, vertical = AppDimens.SpaceSm),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .clickable(onClick = onClick)
+                .semantics {
+                    contentDescription = "Відкрити книгу: ${result.title}"
+                }
+                .testTag("global_search_result_${result.key}"),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
         // Cover: the real artwork when the source carries one — the global
         // search used to render only the letter placeholder, so EVERY result
         // (4read, sound-books, audiobook-mp3, …) looked imageless
@@ -131,13 +161,16 @@ fun GlobalSearchResultCard(
                 }
             }
         }
-        Icon(
-            imageVector = Icons.Default.PlayArrow,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(32.dp)
+        }
+        CatalogCardActionAffordance(
+            title = result.title,
+            cardKey = result.key,
+            state = actionState,
+            onPlay = onPlayClick,
+            onCancel = onCancelAction
         )
     }
+    CatalogCardStatus(result.key, actionState, onOpenBrowser)
 }
 
 /** Small unobtrusive pill: which source(s) carry a book (spec-10 T4). */
@@ -176,19 +209,28 @@ fun SourceBadgePill(
 fun UnifiedCatalogCard(
     result: GlobalSearchResult,
     onClick: () -> Unit,
+    onPlayClick: () -> Unit = onClick,
+    actionState: CatalogCardActionState = CatalogCardActionState.Idle,
+    onCancelAction: () -> Unit = {},
+    onOpenBrowser: () -> Unit = {},
+    onPreflight: () -> Unit = {},
     modifier: Modifier = Modifier,
     downloadAllowed: Boolean = true,
     downloadProgress: Float? = null,
     isDownloaded: Boolean = false,
     onDownload: (() -> Unit)? = null
 ) {
-    Column(
-        modifier = modifier
+    LaunchedEffect(result.key) { onPreflight() }
+    Column(modifier = modifier.width(120.dp)) {
+      Box {
+       Column(
+        modifier = Modifier
             .width(120.dp)
             .clickable(onClick = onClick)
+            .semantics { contentDescription = "Відкрити книгу: ${result.title}" }
             .testTag("unified_catalog_${result.key}"),
         horizontalAlignment = Alignment.CenterHorizontally
-    ) {
+       ) {
         Box {
             CatalogCoverImage(
                 coverImageUrl = result.coverImageUrl,
@@ -275,5 +317,104 @@ fun UnifiedCatalogCard(
                 }
             }
         }
+       }
+       CatalogCardActionAffordance(
+           title = result.title,
+           cardKey = result.key,
+           state = actionState,
+           onPlay = onPlayClick,
+           onCancel = onCancelAction,
+           modifier = Modifier.align(Alignment.BottomEnd)
+       )
+      }
+      CatalogCardStatus(result.key, actionState, onOpenBrowser)
+    }
+}
+
+@Composable
+internal fun CatalogCardActionAffordance(
+    title: String,
+    cardKey: String,
+    state: CatalogCardActionState,
+    onPlay: () -> Unit,
+    onCancel: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val checking = state is CatalogCardActionState.Checking && state.target.cardKey == cardKey
+    IconButton(onClick = if (checking) onCancel else onPlay, modifier = modifier.size(AppDimens.TouchTarget)) {
+        Icon(
+            imageVector = if (checking) Icons.Default.Close else Icons.Default.PlayArrow,
+            contentDescription = if (checking) {
+                stringResource(R.string.catalog_card_cancel)
+            } else {
+                stringResource(R.string.a11y_catalog_card_listen, title)
+            },
+            tint = if (checking) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary
+        )
+    }
+}
+
+@Composable
+internal fun CatalogCardStatus(
+    cardKey: String,
+    state: CatalogCardActionState,
+    onOpenBrowser: () -> Unit = {}
+) {
+    val relevant = when (state) {
+        is CatalogCardActionState.Checking -> state.target.cardKey == cardKey
+        is CatalogCardActionState.Failed -> state.target.cardKey == cardKey
+        is CatalogCardActionState.BrowserRequired -> state.target.cardKey == cardKey
+        is CatalogCardActionState.Cancelled -> state.target.cardKey == cardKey
+        else -> false
+    }
+    if (!relevant) return
+    val text = when (state) {
+        is CatalogCardActionState.Checking -> stringResource(R.string.catalog_card_checking)
+        is CatalogCardActionState.Failed -> stringResource(
+            if (state.action == CatalogCardAction.OPEN) R.string.catalog_card_open_error
+            else R.string.catalog_card_play_error
+        )
+        is CatalogCardActionState.BrowserRequired -> stringResource(R.string.catalog_card_browser_required)
+        is CatalogCardActionState.Cancelled -> stringResource(R.string.catalog_card_cancelled)
+        else -> return
+    }
+    Column(modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelSmall,
+            color = if (state is CatalogCardActionState.Failed) MaterialTheme.colorScheme.error
+            else MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        if (state is CatalogCardActionState.BrowserRequired) {
+            TextButton(
+                onClick = onOpenBrowser,
+                modifier = catalogBrowserReturnFocusModifier(cardKey)
+                    .testTag("catalog_card_open_browser_$cardKey")
+            ) { Text(stringResource(R.string.catalog_card_open_browser)) }
+        }
+    }
+}
+
+@Composable
+internal fun catalogBrowserReturnFocusModifier(cardKey: String): Modifier {
+    val returnCardKey by CatalogBrowserFocusReturn.returnCardKey.collectAsState()
+    val requester = remember(cardKey) { FocusRequester() }
+    LaunchedEffect(returnCardKey) {
+        if (returnCardKey != cardKey) return@LaunchedEffect
+        // A nested feed action can enter composition before its focus target
+        // is attached. Waiting one frame keeps the durable return token until
+        // the button can actually accept focus.
+        withFrameNanos { }
+        if (runCatching { requester.requestFocus() }.getOrDefault(false)) {
+            CatalogBrowserFocusReturn.consume(cardKey)
+        }
+    }
+    return if (returnCardKey == cardKey) {
+        // TextButton already owns the focus target. Adding a second
+        // `focusable()` target here can make nested feed buttons report focus
+        // on the wrapper instead of on the actual accessibility node.
+        Modifier.focusRequester(requester)
+    } else {
+        Modifier
     }
 }

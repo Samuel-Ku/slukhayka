@@ -48,7 +48,11 @@ data class CatalogBook(
     val seriesUrl: String? = null,
     val seriesIndex: Int? = null,
     /** Real total duration carried by the source page (ТОП 100), 0 when unknown. */
-    val totalDurationSeconds: Long = 0L
+    val totalDurationSeconds: Long = 0L,
+    /** Imported identity when this shelf item already belongs to the library. */
+    val workId: String? = null,
+    val mergeKey: String = "",
+    val narrator: String = ""
 )
 
 /** One person (narrator/author) from the Виконавці/Автори pages. */

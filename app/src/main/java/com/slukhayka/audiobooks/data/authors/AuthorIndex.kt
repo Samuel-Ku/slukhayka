@@ -11,6 +11,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -162,6 +163,14 @@ class RoomAuthorIndex(
         }
         if (hasMore) {
             backfillScope.launch {
+                // The first local read has a strict bounded-work contract:
+                // it repairs one page and returns. Without a scheduling
+                // boundary an IO dispatcher can begin the next page before
+                // that caller observes its result, making latency and the
+                // visible count race each other. One dispatcher tick keeps
+                // continuation truly background while preserving immediate
+                // eventual repair (including virtual-time tests).
+                delay(BACKFILL_CONTINUATION_DELAY_MS)
                 while (repairBackfillPage()) Unit
             }
         }
@@ -175,6 +184,7 @@ class RoomAuthorIndex(
 
     companion object {
         const val BACKFILL_BATCH_SIZE = AuthorIndex.MAX_INDEX_BATCH
+        private const val BACKFILL_CONTINUATION_DELAY_MS = 1L
         private val BACKFILL_SCOPE = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     }
 }

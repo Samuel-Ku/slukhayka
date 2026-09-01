@@ -1,5 +1,6 @@
 package com.slukhayka.audiobooks.data.metadata
 
+import com.slukhayka.audiobooks.data.catalog.CatalogAvailabilityPolicy
 import com.slukhayka.audiobooks.data.source.SourceAccessCandidate
 import com.slukhayka.audiobooks.data.source.headersFor
 
@@ -21,6 +22,13 @@ data class VerifiedSourceProfile(
 
 enum class ProfilePublication { PUBLISHED, LOCAL_ONLY }
 
+object VerifiedSourceProfileFreshness {
+    const val FRESHNESS_MILLIS = CatalogAvailabilityPolicy.VERIFIED_PROFILE_TTL_MS
+
+    fun isFresh(resolvedAtMillis: Long, nowMillis: Long): Boolean =
+        CatalogAvailabilityPolicy.isVerifiedProfileFresh(resolvedAtMillis, nowMillis)
+}
+
 sealed interface VerifiedProfileReadOutcome {
     data class Ready(val entry: SharedProfileEntry) : VerifiedProfileReadOutcome
     data object BrowserRequired : VerifiedProfileReadOutcome
@@ -41,7 +49,7 @@ class VerifiedSourceProfileReader(
         val entry = runCatching { store?.getProfileEntry(sourceId, editionId) }.getOrNull()
             ?: return VerifiedProfileReadOutcome.Missing
         if (entry.provenanceSource != ProfileProvenance.SOURCE_VERIFIED ||
-            !ProfileFreshness.isFresh(entry.resolvedAt, nowMillis()) ||
+            !VerifiedSourceProfileFreshness.isFresh(entry.resolvedAt, nowMillis()) ||
             entry.profile.chapters.isEmpty()
         ) return VerifiedProfileReadOutcome.BrowserRequired
         val url = entry.profile.chapters.first().streamUrl

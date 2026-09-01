@@ -224,6 +224,7 @@ class GlobalSearchRepositoryTest {
         <div class="poster has-overlay grid-item d-flex fd-column">
             <div class="poster__desc order-last">
                 <a href="https://4read.org/5359-taras-shevchenko-kobzar.html" class="poster__link"><div class="poster__title line-clamp">Кобзар</div></a>
+                <div class="poster__subtitle ws-nowrap">Поезія</div>
                 <div class="poster__subtitle ws-nowrap">Тарас Шевченко</div>
             </div>
             <div class="poster__img img-responsive img-responsive--portrait img-fit-cover anim">

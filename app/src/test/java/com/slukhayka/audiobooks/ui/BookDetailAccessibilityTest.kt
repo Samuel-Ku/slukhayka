@@ -285,8 +285,15 @@ class BookDetailAccessibilityTest {
                     true
                 )
             )
+            .assert(
+                SemanticsMatcher.expectValue(
+                    SemanticsProperties.StateDescription,
+                    "Поточне джерело · Потрібен браузер"
+                )
+            )
         composeTestRule.onAllNodesWithText("Потрібен браузер", useUnmergedTree = true).assertCountEquals(2)
-        composeTestRule.onAllNodesWithText("Поточна", useUnmergedTree = true).assertCountEquals(0)
+        // Поточне джерело може потребувати браузера для захищеного відтворення.
+        composeTestRule.onAllNodesWithText("Поточна", useUnmergedTree = true).assertCountEquals(1)
         composeTestRule.onNodeWithTag("work_source_sluhay")
             .assertContentDescriptionEquals("Джерело Sluhay для «${book.title}»")
             .assert(

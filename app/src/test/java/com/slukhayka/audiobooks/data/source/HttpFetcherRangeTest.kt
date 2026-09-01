@@ -73,6 +73,18 @@ class HttpFetcherRangeTest {
         assertNull(fetcher.getRangeStream(url()))
     }
 
+    @Test
+    fun `SoundBooks archive request reaches the transport with its referer`() {
+        server.requiredReferer = "https://sound-books.net/"
+        val sourceTrack = "https://arch.sound-books.net/3081/%D0%96%D0%B5%D1%80%D1%82%D0%B2%D0%B0.mp3"
+
+        val stream = fetcher.getStream(url(), headersFor("soundbooks", sourceTrack))
+
+        assertNotNull(stream)
+        stream!!.use { assertEquals("full", it.readBytes().decodeToString()) }
+        assertEquals("https://sound-books.net/", server.lastReferer)
+    }
+
     private fun url(): String = "http://127.0.0.1:${server.listeningPort}/audio.mp3"
 
     /** Minimal controllable upstream: records what actually arrived on wire. */
@@ -81,6 +93,7 @@ class HttpFetcherRangeTest {
         var partialBytes: ByteArray = ByteArray(0)
         var partialTotal: Long = -1L
         var statusToServe: Int = 0
+        var requiredReferer: String? = null
 
         var lastRangeHeader: String? = null
         var lastReferer: String? = null
@@ -89,6 +102,9 @@ class HttpFetcherRangeTest {
             lastRangeHeader = session.headers["range"]
             lastReferer = session.headers["referer"]
             return when {
+                requiredReferer != null && lastReferer != requiredReferer -> newFixedLengthResponse(
+                    Response.Status.FORBIDDEN, "text/plain", "Referer required"
+                )
                 statusToServe != 0 -> newFixedLengthResponse(
                     Response.Status.lookup(statusToServe) ?: Response.Status.NOT_FOUND,
                     "text/plain", ""

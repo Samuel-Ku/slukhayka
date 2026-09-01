@@ -167,6 +167,43 @@ class SoundBooksAdapterTest {
         assertEquals("Темна матерія-01", detail.chapters[0].title)
     }
 
+    @Test
+    fun `book page decodes a percent encoded playlist filename for the chapter title`() = runBlocking {
+        val encodedStream =
+            "https://arch.sound-books.net/3081/%D0%96%D0%B5%D1%80%D1%82%D0%B2%D0%B0%20%D0%B7%20%D0%BA%D0%BE%D1%81%D0%BC%D0%BE%D1%81%D1%83.mp3?expires=1788301675&md5=a3n-xTf87ppzJEGAx81Trg"
+        val adapter = SoundBooksAdapter(
+            FakeFetcher(
+                mapOf(
+                    "https://sound-books.net/x.html" to bookPage,
+                    "https://sound-books.net/uploads/public_files/2026-07/4111-krauch-bleik-temna-materiia.m3u" to encodedStream
+                )
+            )
+        )
+
+        val chapter = adapter.fetchBookPage("https://sound-books.net/x.html").chapters.single()
+
+        assertEquals("Жертва з космосу", chapter.title)
+        assertEquals(encodedStream, chapter.streamUrl)
+    }
+
+    @Test
+    fun `book page keeps malformed percent encoding as the chapter title fallback`() = runBlocking {
+        val malformedStream = "https://arch.sound-books.net/3081/%D0%ZZжертва.mp3"
+        val adapter = SoundBooksAdapter(
+            FakeFetcher(
+                mapOf(
+                    "https://sound-books.net/x.html" to bookPage,
+                    "https://sound-books.net/uploads/public_files/2026-07/4111-krauch-bleik-temna-materiia.m3u" to malformedStream
+                )
+            )
+        )
+
+        val chapter = adapter.fetchBookPage("https://sound-books.net/x.html").chapters.single()
+
+        assertEquals("Глава 1", chapter.title)
+        assertEquals(malformedStream, chapter.streamUrl)
+    }
+
     // Spec-35 T5 — page profile fields, per field.
     @Test
     fun `book page preserves duration from Триває`() = runBlocking {
@@ -363,9 +400,9 @@ class SoundBooksAdapterTest {
         val detail = adapter.fetchBookPage("https://sound-books.net/x.html")
 
         // AC4: the import must not fail and the title must stay readable —
-        // the raw filename with its invalid escapes kept verbatim.
+        // the chapter number replaces an undecodable filename.
         assertEquals(1, detail.chapters.size)
-        assertEquals("100%%D0broken-Chapter", detail.chapters[0].title)
+        assertEquals("Глава 1", detail.chapters[0].title)
     }
 
     // Spec-24 T9 (#170): a page without og:image keeps a null cover — never

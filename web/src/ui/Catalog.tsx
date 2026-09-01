@@ -16,7 +16,7 @@ const SOURCES: Array<{ id: 'all' | SourceId; label: string }> = [
 /** spec-43/T3+T4 — огляд із перемикачем джерел і пошуком. */
 export function Catalog({ onOpenBook, onPlay }: {
   onOpenBook: (url: string, source: SourceId) => void
-  onPlay: (detail: BookDetail, chapterIndex: number) => void
+  onPlay: (detail: BookDetail, chapterIndex: number) => Promise<boolean>
 }) {
   const [source, setSource] = useState<'all' | SourceId>('all')
   const [works, setWorks] = useState<UnifiedWork[] | null>(null)
@@ -26,7 +26,7 @@ export function Catalog({ onOpenBook, onPlay }: {
   const [showingCachedCatalog, setShowingCachedCatalog] = useState(false)
   const [failed, setFailed] = useState(false)
   const [query, setQuery] = useState('')
-  const [searchGroups, setSearchGroups] = useState<import('../api/client').SearchGroup[] | null>(null)
+  const [searchWorks, setSearchWorks] = useState<UnifiedWork[] | null>(null)
   const [searching, setSearching] = useState(false)
   const loadMoreMarker = useRef<HTMLDivElement | null>(null)
 
@@ -65,26 +65,23 @@ export function Catalog({ onOpenBook, onPlay }: {
   useEffect(() => {
     const trimmed = query.trim()
     if (trimmed.length < 2) {
-      setSearchGroups(null)
+      setSearchWorks(null)
       return
     }
     let alive = true
     setSearching(true)
     const timer = setTimeout(() => {
-      import('../api/client').then(({ api, dedupeWorks }) => {
-        api.searchAll(trimmed).then((groups) => {
-          if (!alive) return
-          setSearching(false)
-          if (groups === null) setSearchGroups([])
-          else setSearchGroups(dedupeWorks(groups))
-        })
+      api.workSearch(trimmed, source === 'all' ? undefined : source).then((page) => {
+        if (!alive) return
+        setSearching(false)
+        setSearchWorks(page?.works ?? [])
       })
     }, 400)
     return () => {
       alive = false
       clearTimeout(timer)
     }
-  }, [query])
+  }, [query, source])
 
   const loadMore = (): void => {
     if (!nextPageUrl || loadingMore || query.trim().length >= 2) return
@@ -142,19 +139,15 @@ export function Catalog({ onOpenBook, onPlay }: {
       {query.trim().length >= 2 ? (
         searching ? (
           <div className="placeholder">Шукаємо…</div>
-        ) : searchGroups === null || searchGroups.length === 0 ? (
+        ) : searchWorks === null || searchWorks.length === 0 ? (
           <div className="placeholder">Нічого не знайшли.</div>
         ) : (
-          searchGroups.map((group) => (
-            <section key={group.id}>
-              <h2>
-                {group.displayName} · {group.cards.length}
-              </h2>
-              <ul className="card-list">
-                {group.cards.map((card) => <CatalogCardRow key={card.url} card={card} source={group.id as SourceId} onOpenBook={onOpenBook} onPlay={onPlay} />)}
-              </ul>
-            </section>
-          ))
+          <section>
+            <h2>Результати пошуку</h2>
+            <ul className="card-list">
+              {searchWorks.map((work) => <UnifiedWorkRow key={work.id} work={work} onOpenBook={onOpenBook} onPlay={onPlay} />)}
+            </ul>
+          </section>
         )
       ) : failed ? (
         <div className="placeholder">Джерело не відповіло спробуйте пізніше.</div>
@@ -190,7 +183,7 @@ function appendWorks(current: UnifiedWork[], incoming: UnifiedWork[]): UnifiedWo
 function UnifiedWorkRow({ work, onOpenBook, onPlay }: {
   work: UnifiedWork
   onOpenBook: (url: string, source: SourceId) => void
-  onPlay: (detail: BookDetail, chapterIndex: number) => void
+  onPlay: (detail: BookDetail, chapterIndex: number) => Promise<boolean>
 }) {
   const [editionIndex, setEditionIndex] = useState(0)
   const edition = work.editions[editionIndex] ?? work.editions[0]
@@ -250,7 +243,7 @@ function CatalogCardRow({ card, source, onOpenBook, onPlay }: {
   card: CatalogCard
   source: SourceId
   onOpenBook: (url: string, source: SourceId) => void
-  onPlay: (detail: BookDetail, chapterIndex: number) => void
+  onPlay: (detail: BookDetail, chapterIndex: number) => Promise<boolean>
 }) {
   const [state, setState] = useState<CardActionState>('idle')
   const generation = useRef(0)
@@ -268,8 +261,10 @@ function CatalogCardRow({ card, source, onOpenBook, onPlay }: {
       if (result !== 'ready') {
         setState(result)
       } else if (detail) {
-        setState('idle')
-        onPlay(detail, 0)
+        void onPlay(detail, 0).then((playing) => {
+          if (request !== generation.current) return
+          setState(playing ? 'idle' : (typeof navigator === 'undefined' || navigator.onLine !== false ? 'temporary-failure' : 'no-network'))
+        })
       }
     })
   }

@@ -64,6 +64,7 @@ import com.slukhayka.audiobooks.ui.screens.SeriesScreen
 import com.slukhayka.audiobooks.ui.screens.StorageDestinationScreen
 import com.slukhayka.audiobooks.ui.screens.Top100Screen
 import com.slukhayka.audiobooks.ui.screens.WebSourceBrowserScreen
+import com.slukhayka.audiobooks.ui.screens.SourceWebViewSession
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
 
 internal enum class SecondaryBookParent {
@@ -659,7 +660,8 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                         hiddenAuthors = hiddenAuthors,
                         onUnhideAuthor = { viewModel.unhideAuthor(it) },
                         progressSyncSettings = viewModel.progressSyncSettingsModule,
-                        crashReporting = App.instance.crashReporting
+                        crashReporting = App.instance.crashReporting,
+                        onClearSourceSession = SourceWebViewSession::clear
                     )
 
                     // Genre (category) page ("Аудіокниги жанру:").

@@ -27,7 +27,7 @@ export class AudioEngine {
   private editionId: string | undefined
   private bookTitle = ''
   private chapters: Chapter[] = []
-  private ticker: number | null = null
+  private ticker: ReturnType<typeof setInterval> | null = null
   private lastPersistMs = 0
   private relayBase: string | undefined
 
@@ -91,6 +91,41 @@ export class AudioEngine {
     void this.audio?.play().catch(() => {})
     this.startTicker()
     this.updateSession()
+  }
+
+  /**
+   * Resolves only when the real media element emits `playing`. A successful
+   * catalogue action must never be inferred from a fetched book page or from
+   * assigning `audio.src`; the direct→relay fallback remains inside this one
+   * bounded user attempt.
+   */
+  loadBookAndAwaitPlaying(
+    detail: { title: string; chapters: Chapter[]; editionId?: string },
+    startChapter = 0,
+    timeoutMs = 8_000,
+  ): Promise<boolean> {
+    const audio = this.audio
+    if (!audio) return Promise.resolve(false)
+    return new Promise((resolve) => {
+      let done = false
+      let unsubscribe = () => {}
+      const finish = (playing: boolean): void => {
+        if (done) return
+        done = true
+        clearTimeout(timeout)
+        audio.removeEventListener('playing', onPlaying)
+        unsubscribe()
+        if (!playing) this.pause()
+        resolve(playing)
+      }
+      const onPlaying = (): void => finish(true)
+      const timeout = setTimeout(() => finish(false), timeoutMs)
+      audio.addEventListener('playing', onPlaying)
+      unsubscribe = this.subscribe((state) => {
+        if (state.status === 'unavailable') finish(false)
+      })
+      void this.loadBook(detail, startChapter).catch(() => finish(false))
+    })
   }
 
   play(): void {
@@ -186,7 +221,7 @@ export class AudioEngine {
 
   private startTicker(): void {
     this.stopTicker()
-    this.ticker = window.setInterval(() => {
+    this.ticker = globalThis.setInterval(() => {
       this.engine.tick(1000)
       const state = this.engine.getState()
       if (this.audio && state.status === 'playing' && Math.abs(this.audio.currentTime - state.positionSeconds) > 1) {

@@ -93,7 +93,9 @@ fun ProfileScreen(
     // reads the settings store directly (ADR-0008); defaults keep existing
     // call sites and previews unchanged.
     progressSyncSettings: ProgressSyncSettingsStore? = null,
-    crashReporting: CrashReporting? = null
+    crashReporting: CrashReporting? = null,
+    /** Session cookies stay inside WebView; clearing one source never signs out of another. */
+    onClearSourceSession: (String) -> Unit = {}
 ) {
     // The module is read directly (ADR-0008); suspend calls ride the
     // composition scope like every other screen.
@@ -108,13 +110,14 @@ fun ProfileScreen(
     }
     var savedNotice by remember { mutableStateOf<String?>(null) }
     var restoreDialogVisible by remember { mutableStateOf(false) }
+    var clearSourceSessionDialogVisible by remember { mutableStateOf(false) }
     val loadingDescription = stringResource(R.string.profile_loading)
     val nicknameSavedMessage = stringResource(R.string.profile_nickname_saved)
 
     SettingsDestinationScaffold(
         destination = SettingsDestination.Profile,
         onBackClick = onBackClick,
-        modalVisible = restoreDialogVisible
+        modalVisible = restoreDialogVisible || clearSourceSessionDialogVisible
     ) { padding ->
         Column(
             modifier = Modifier
@@ -324,7 +327,58 @@ fun ProfileScreen(
                 Spacer(modifier = Modifier.height(16.dp))
                 CrashReportsSettingsRow(crashReporting)
             }
+
+            Spacer(modifier = Modifier.height(24.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                text = stringResource(R.string.profile_source_sessions_heading),
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                modifier = Modifier.semantics { heading() }
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = stringResource(R.string.profile_source_sessions_description),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = { clearSourceSessionDialogVisible = true },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 48.dp)
+                    .testTag("profile_clear_4read_session")
+            ) {
+                Text(stringResource(R.string.profile_source_session_clear))
+            }
         }
+    }
+
+    if (clearSourceSessionDialogVisible) {
+        AlertDialog(
+            onDismissRequest = { clearSourceSessionDialogVisible = false },
+            title = { Text(stringResource(R.string.profile_source_session_clear_dialog_title)) },
+            text = { Text(stringResource(R.string.profile_source_session_clear_dialog_body)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onClearSourceSession("4read")
+                        clearSourceSessionDialogVisible = false
+                    },
+                    modifier = Modifier
+                        .heightIn(min = 48.dp)
+                        .testTag("profile_clear_4read_session_confirm")
+                ) { Text(stringResource(R.string.profile_source_session_clear_confirm)) }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { clearSourceSessionDialogVisible = false },
+                    modifier = Modifier.heightIn(min = 48.dp)
+                ) { Text(stringResource(R.string.action_cancel)) }
+            },
+            modifier = Modifier.testTag("profile_clear_4read_session_dialog")
+        )
     }
 }
 

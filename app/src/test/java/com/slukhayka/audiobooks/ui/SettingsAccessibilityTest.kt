@@ -493,6 +493,34 @@ class SettingsAccessibilityTest {
             .assertIsFocused()
     }
 
+    @Test
+    fun sourceSessionCanBeClearedFromSettingsWithoutAffectingOtherSources() {
+        val clearedSources = mutableListOf<String>()
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                ProfileScreen(
+                    identity = FakeListenerIdentity(Random(46)),
+                    onBackClick = {},
+                    onClearSourceSession = clearedSources::add
+                )
+            }
+        }
+
+        composeTestRule.onNodeWithTag("profile_clear_4read_session")
+            .performScrollTo()
+            .assertHeightIsAtLeast(48.dp)
+            .performClick()
+        composeTestRule.onNodeWithTag("profile_clear_4read_session_dialog", useUnmergedTree = true)
+            .assertIsDisplayed()
+        composeTestRule.onNodeWithTag("profile_clear_4read_session_dialog", useUnmergedTree = true)
+            .assertTextContains("Сесії інших джерел залишаться.")
+        composeTestRule.onNodeWithTag("profile_clear_4read_session_confirm")
+            .assertHeightIsAtLeast(48.dp)
+            .performClick()
+
+        assertEquals(listOf("4read"), clearedSources)
+    }
+
     private fun assertSettingsDestinationChrome(
         destination: SettingsDestination,
         title: String,

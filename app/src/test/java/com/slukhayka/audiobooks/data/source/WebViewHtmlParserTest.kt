@@ -389,6 +389,32 @@ class WebViewHtmlParserTest {
     }
 
     @Test
+    fun `full WebView playlist fixture imports every 4read chapter in order`() {
+        // This is the exact shape appended by WebSourceBrowserScreen after its
+        // same-session XHR. A long manifest is important here: a partial
+        // capture of the currently buffered tracks must never define a
+        // two-chapter edition (#443).
+        val expectedTracks = (1..65).map { chapter ->
+            "https://s1.reasd.org/7810/${chapter.toString().padStart(2, '0')}.mp3?expires=1&md5=chapter-$chapter"
+        }
+        val encoded = java.util.Base64.getEncoder().encodeToString(
+            expectedTracks.joinToString("\n").toByteArray()
+        )
+        val detail = WebViewHtmlParser().parse(
+            minimalPage(
+                """
+                <script>new Playerjs({file:"https://4read.org/m33u2/7810.m3u"});</script>
+                <audio src="https://s1.reasd.org/7810/01.mp3?expires=old&amp%3Bmd5=partial"></audio>
+                <i data-slukhayka-playlist="$encoded"></i>
+                """.trimIndent()
+            ),
+            "https://4read.org/7810.html"
+        ) { error("The browser-captured manifest is the import authority") }
+
+        assertEquals(expectedTracks, detail.chapters.map { it.streamUrl })
+    }
+
+    @Test
     fun `4read OpenGraph site suffix is not part of the book title`() {
         val detail = WebViewHtmlParser().parse(
             """

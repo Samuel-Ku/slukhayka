@@ -1308,6 +1308,25 @@ class SourceCatalog(
             }
         }
 
+    /** Imports a 4read cycle from the listener-approved browser session. */
+    suspend fun importCapturedSeriesBooksResult(
+        seriesUrl: String,
+        html: String
+    ): CatalogFetchResult<List<AudiobookEntity>> = withContext(Dispatchers.IO) {
+        try {
+            val parsed = CatalogParser.parseSeriesPage(html)
+            if (parsed.isEmpty()) return@withContext CatalogFetchResult.Failure
+            val books = parsed.mapNotNull { libraryImport.upsertCatalogBook(it) }
+            seriesBooksCache[seriesUrl] = books
+            CatalogFetchResult.Success(books)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            Log.w("SourceCatalog", "Captured series import failed for $seriesUrl", failure)
+            CatalogFetchResult.Failure
+        }
+    }
+
     /** Backward-compatible best-effort list API for non-UI consumers. */
     suspend fun fetchSeriesBooks(seriesUrl: String): List<AudiobookEntity> =
         fetchSeriesBooksResult(seriesUrl).valueOrEmpty()
@@ -1349,6 +1368,24 @@ class SourceCatalog(
      * and opens its own detail. Cached per session; rank is the list order.
      */
     private var top100Cache: List<AudiobookEntity>? = null
+
+    /** Captures the ranking from the listener-approved 4read WebView session. */
+    suspend fun importCapturedTop100Result(html: String): CatalogFetchResult<List<AudiobookEntity>> =
+        withContext(Dispatchers.IO) {
+            try {
+                val parsed = CatalogParser.parseTop100(html)
+                // Challenge pages contain no ranking cards; never cache one as a result.
+                if (parsed.isEmpty()) return@withContext CatalogFetchResult.Failure
+                val books = parsed.mapNotNull { libraryImport.upsertCatalogBook(it) }
+                top100Cache = books
+                CatalogFetchResult.Success(books)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                Log.w("SourceCatalog", "Captured Top-100 import failed", failure)
+                CatalogFetchResult.Failure
+            }
+        }
     suspend fun fetchTop100Result(): CatalogFetchResult<List<AudiobookEntity>> =
         withContext(Dispatchers.IO) {
             top100Cache?.let { return@withContext CatalogFetchResult.Success(it) }
@@ -1440,6 +1477,21 @@ class SourceCatalog(
         }
 
     private val seriesBooksCache = java.util.concurrent.ConcurrentHashMap<String, List<AudiobookEntity>>()
+
+    /**
+     * Already-resolved series remain browseable when 4read's catalogue request
+     * is challenged. A local row with no provider URL is not a navigable card.
+     */
+    suspend fun localSeriesIndex(): List<CatalogSeries> = withContext(Dispatchers.IO) {
+        dao.getAllSeries()
+            .mapNotNull { row ->
+                row.url?.takeIf(String::isNotBlank)?.let { url ->
+                    CatalogSeries(title = row.title, url = url, coverImageUrl = null)
+                }
+            }
+            .distinctBy { it.url }
+            .sortedBy { it.title.lowercase() }
+    }
 
     /**
      * Inserts the book if absent; otherwise returns the stored row. Series

@@ -2555,15 +2555,13 @@ fun WorkSourceRowCard(
                         style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                         color = MaterialTheme.colorScheme.onSurface
                     )
-                    if (requiresBrowser || source.isCurrent) {
+                    if (source.isCurrent) {
                         Spacer(modifier = Modifier.width(6.dp))
-                        SourceBadgePill(
-                            label = if (requiresBrowser) {
-                                stringResource(R.string.book_detail_browser_needed)
-                            } else {
-                                "Поточна"
-                            }
-                        )
+                        SourceBadgePill(label = "Поточна")
+                    }
+                    if (requiresBrowser) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        SourceBadgePill(label = stringResource(R.string.book_detail_browser_needed))
                     }
                 }
                 source.rating?.let { rating ->

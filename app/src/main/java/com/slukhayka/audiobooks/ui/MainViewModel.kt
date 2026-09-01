@@ -15,6 +15,7 @@ import com.slukhayka.audiobooks.data.authors.authorMatchesOrEmpty
 import com.slukhayka.audiobooks.data.catalog.CatalogPerson
 import com.slukhayka.audiobooks.data.catalog.CatalogSeries
 import com.slukhayka.audiobooks.data.catalog.CatalogSeriesIndex
+import com.slukhayka.audiobooks.data.catalog.CatalogFetchResult
 import com.slukhayka.audiobooks.data.db.*
 import com.slukhayka.audiobooks.data.duration.ChapterDurationProbe
 import com.slukhayka.audiobooks.data.duration.DurationEnrichment
@@ -95,7 +96,9 @@ data class SelectedWebSource(
     val displayName: String,
     val recoveryBookId: String? = null,
     val recoveryChapterIndex: Int? = null,
-    val recoveryPositionMs: Long = 0L
+    val recoveryPositionMs: Long = 0L,
+    val captureTop100: Boolean = false,
+    val captureSeriesUrl: String? = null
 )
 
 /** A genre (category) opened from the Explore "Жанри" chips row. */
@@ -754,6 +757,34 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _selectedSeriesUniverse.value = null
     }
 
+    /** Explicit 4read browser door for a cycle whose direct page is challenged. */
+    fun openSeriesInBrowser() {
+        val series = _selectedSeries.value ?: return
+        _selectedWebSource.value = SelectedWebSource(
+            sourceId = "4read",
+            homeUrl = series.url,
+            displayName = "4read",
+            captureSeriesUrl = series.url
+        )
+    }
+
+    fun importCapturedSeries(html: String, onComplete: (Boolean) -> Unit) {
+        val series = _selectedSeries.value
+        if (series == null) {
+            onComplete(false)
+            return
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            val result = sourceCatalog.importCapturedSeriesBooksResult(series.url, html)
+            withContext(Dispatchers.Main) {
+                if (result is CatalogFetchResult.Success && _selectedSeries.value == series) {
+                    seriesLoader.open(series)
+                }
+                onComplete(result is CatalogFetchResult.Success)
+            }
+        }
+    }
+
     // spec-28 (#189): the «Серії» index — every series aggregated from the
     // catalogue sections, deduplicated by URL. No new data source: the index
     // re-shapes what the catalogue parser already produces. One read-only
@@ -769,6 +800,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun openSeriesIndex() {
         _seriesIndex.value = CatalogSeriesIndex.aggregate(sourceCatalog.catalogSections.value)
         _seriesIndexOpen.value = true
+        viewModelScope.launch(Dispatchers.IO) {
+            val catalogueSeries = CatalogSeriesIndex.aggregate(sourceCatalog.catalogSections.value)
+            val localSeries = sourceCatalog.localSeriesIndex()
+            val merged = (catalogueSeries + localSeries)
+                .distinctBy { it.url }
+                .sortedBy { it.title.lowercase() }
+            if (_seriesIndexOpen.value) _seriesIndex.value = merged
+        }
     }
 
     fun closeSeriesIndex() {
@@ -918,6 +957,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun openTop100() {
         _selectedTop100.value = true
         top100Loader.open(Unit)
+    }
+
+    /** Explicit 4read door used when Cloudflare rejects the ranking HTTP call. */
+    fun openTop100InBrowser() {
+        _selectedWebSource.value = SelectedWebSource(
+            sourceId = "4read",
+            homeUrl = "https://4read.org/top-100.html",
+            displayName = "4read",
+            captureTop100 = true
+        )
+    }
+
+    fun importCapturedTop100(html: String, onComplete: (Boolean) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val result = sourceCatalog.importCapturedTop100Result(html)
+            withContext(Dispatchers.Main) {
+                if (result is CatalogFetchResult.Success) top100Loader.open(Unit)
+                onComplete(result is CatalogFetchResult.Success)
+            }
+        }
     }
 
     fun closeTop100() {

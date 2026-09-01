@@ -21,6 +21,14 @@ data class VerifiedSourceProfile(
 
 enum class ProfilePublication { PUBLISHED, LOCAL_ONLY }
 
+object VerifiedSourceProfileFreshness {
+    const val FRESHNESS_MILLIS = 24L * 60 * 60 * 1_000
+
+    fun isFresh(resolvedAtMillis: Long, nowMillis: Long): Boolean =
+        resolvedAtMillis >= 0L && nowMillis >= resolvedAtMillis &&
+            nowMillis - resolvedAtMillis < FRESHNESS_MILLIS
+}
+
 sealed interface VerifiedProfileReadOutcome {
     data class Ready(val entry: SharedProfileEntry) : VerifiedProfileReadOutcome
     data object BrowserRequired : VerifiedProfileReadOutcome
@@ -41,7 +49,7 @@ class VerifiedSourceProfileReader(
         val entry = runCatching { store?.getProfileEntry(sourceId, editionId) }.getOrNull()
             ?: return VerifiedProfileReadOutcome.Missing
         if (entry.provenanceSource != ProfileProvenance.SOURCE_VERIFIED ||
-            !ProfileFreshness.isFresh(entry.resolvedAt, nowMillis()) ||
+            !VerifiedSourceProfileFreshness.isFresh(entry.resolvedAt, nowMillis()) ||
             entry.profile.chapters.isEmpty()
         ) return VerifiedProfileReadOutcome.BrowserRequired
         val url = entry.profile.chapters.first().streamUrl

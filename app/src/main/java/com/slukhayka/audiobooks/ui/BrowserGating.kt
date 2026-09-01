@@ -1,5 +1,7 @@
 package com.slukhayka.audiobooks.ui
 
+import com.slukhayka.audiobooks.data.source.SourceBrowserPolicy
+
 /**
  * Spec-15 T2 / Spec-42 #425 — where «Відкрити на сайті» goes. Pure JVM so the
  * debug-gating test can pin both build flavours without an Android build variant.
@@ -15,7 +17,7 @@ enum class BrowserDestination { SYSTEM_BROWSER, IN_APP_BROWSER }
 
 /** WebView-pattern sources (spec-13): discovery needs a live browser session. */
 private fun isWebViewSource(sourceId: String): Boolean =
-    sourceId == "4read" || sourceId == "sluhay" || sourceId == "sluhayknigi"
+    sourceId in SourceBrowserPolicy.browserSourceIds
 
 /**
  * The destination of a book's "open on site" action for [sourceId]. 4read

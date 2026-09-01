@@ -65,9 +65,9 @@
     <string name="profile_restore_error">Не вдалося відновити — перевірте код і з’єднання.</string>
     <string name="profile_source_sessions_heading">Сесії джерел</string>
     <string name="profile_source_sessions_description">Сесія допомагає відкривати книжки з цього джерела без повторної перевірки. Вона зберігається лише у браузері застосунку й нікуди не синхронізується.</string>
-    <string name="profile_source_session_clear">Очистити сесію 4read</string>
-    <string name="profile_source_session_clear_dialog_title">Очистити сесію 4read?</string>
-    <string name="profile_source_session_clear_dialog_body">Для 4read доведеться знову пройти перевірку або увійти. Сесії інших джерел залишаться.</string>
+    <string name="profile_source_session_clear">Очистити сесію %1$s</string>
+    <string name="profile_source_session_clear_dialog_title">Очистити сесію %1$s?</string>
+    <string name="profile_source_session_clear_dialog_body">Для %1$s доведеться знову пройти перевірку або увійти. Сесії інших джерел залишаться.</string>
     <string name="profile_source_session_clear_confirm">Очистити</string>
 
     <string name="storage_title">Завантаження та пам\'ять</string>

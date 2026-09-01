@@ -67,7 +67,7 @@ class CatalogCardActionCoordinatorTest {
                 effects += "open:$book"
                 return true
             }
-            override suspend fun play(book: String): Boolean {
+            override suspend fun play(book: String, source: SourceEntity?): Boolean {
                 effects += "play:$book"
                 return true
             }
@@ -99,7 +99,7 @@ class CatalogCardActionCoordinatorTest {
             override suspend fun import(target: CatalogCardTarget, source: SourceEntity): String? =
                 error("saved Listening State must not import")
             override suspend fun open(book: String) = error("Play must not navigate")
-            override suspend fun play(book: String): Boolean {
+            override suspend fun play(book: String, source: SourceEntity?): Boolean {
                 effects += "play:$book"
                 return true
             }
@@ -120,7 +120,7 @@ class CatalogCardActionCoordinatorTest {
             override suspend fun sourceCandidates(target: CatalogCardTarget) = emptyList<SourceSelectionCoordinator.SourceCandidate>()
             override suspend fun import(target: CatalogCardTarget, source: SourceEntity): String? = null
             override suspend fun open(book: String) = true
-            override suspend fun play(book: String) = true
+            override suspend fun play(book: String, source: SourceEntity?) = true
         }
         val coordinator = CatalogCardActionCoordinator(this, gateway, successfulProbe)
 
@@ -149,7 +149,7 @@ class CatalogCardActionCoordinatorTest {
                 effects += "open"
                 return true
             }
-            override suspend fun play(book: String): Boolean {
+            override suspend fun play(book: String, source: SourceEntity?): Boolean {
                 effects += "play"
                 return true
             }
@@ -164,5 +164,86 @@ class CatalogCardActionCoordinatorTest {
 
         assertTrue(effects.isEmpty())
         assertTrue(coordinator.state.value is CatalogCardActionState.Cancelled)
+    }
+
+    @Test
+    fun `failed first Source falls back inside the same Edition`() = runTest {
+        val attempted = mutableListOf<String>()
+        val availability = mutableListOf<Boolean>()
+        val first = directSource("a-first")
+        val second = directSource("b-second").copy(
+            source = directSource("b-second").source.copy(
+                url = "https://sound-books.net/book-1-backup"
+            )
+        )
+        val gateway = object : CatalogCardActionGateway<String> {
+            override suspend fun savedBook(target: CatalogCardTarget): String? = null
+            override suspend fun sourceCandidates(target: CatalogCardTarget) = listOf(first, second)
+            override suspend fun import(target: CatalogCardTarget, source: SourceEntity): String = source.id
+            override suspend fun open(book: String): Boolean = true
+            override suspend fun play(book: String, source: SourceEntity?): Boolean {
+                attempted += source?.id.orEmpty()
+                return source?.id == "b-second"
+            }
+            override suspend fun recordAvailability(book: String, available: Boolean) {
+                availability += available
+            }
+        }
+        val coordinator = CatalogCardActionCoordinator(this, gateway, successfulProbe)
+
+        coordinator.start(CatalogCardTarget("work-1", "Книга"), CatalogCardAction.PLAY)
+        advanceUntilIdle()
+
+        assertEquals(listOf("a-first", "b-second"), attempted)
+        assertEquals(listOf(true), availability)
+        assertTrue(coordinator.state.value is CatalogCardActionState.Completed)
+    }
+
+    @Test
+    fun `rejected durable session ends at the same Source browser door`() = runTest {
+        val source = directSource().source.copy(type = "4read", url = "https://4read.org/book")
+        val candidates = catalogSessionCandidates(
+            source,
+            com.slukhayka.audiobooks.data.source.SourceAccessMode.BROWSER,
+            hasFirstPartySession = true
+        )
+        val gateway = object : CatalogCardActionGateway<String> {
+            override suspend fun savedBook(target: CatalogCardTarget): String? = null
+            override suspend fun sourceCandidates(target: CatalogCardTarget) = candidates
+            override suspend fun import(target: CatalogCardTarget, source: SourceEntity): String? = null
+            override suspend fun open(book: String): Boolean = true
+            override suspend fun play(book: String, source: SourceEntity?): Boolean = false
+        }
+        val coordinator = CatalogCardActionCoordinator(this, gateway, successfulProbe)
+
+        coordinator.start(CatalogCardTarget("work-1", "Книга"), CatalogCardAction.PLAY)
+        advanceUntilIdle()
+
+        val state = coordinator.state.value as CatalogCardActionState.BrowserRequired
+        assertEquals("4read", state.source.type)
+        assertEquals("edition-1", state.source.editionId)
+    }
+
+    @Test
+    fun `negative availability is recorded only after all compatible Sources fail`() = runTest {
+        val availability = mutableListOf<Boolean>()
+        val gateway = object : CatalogCardActionGateway<String> {
+            override suspend fun savedBook(target: CatalogCardTarget): String? = null
+            override suspend fun sourceCandidates(target: CatalogCardTarget) =
+                listOf(directSource("a"), directSource("b"))
+            override suspend fun import(target: CatalogCardTarget, source: SourceEntity): String = source.id
+            override suspend fun open(book: String): Boolean = true
+            override suspend fun play(book: String, source: SourceEntity?): Boolean = false
+            override suspend fun recordAvailability(book: String, available: Boolean) {
+                availability += available
+            }
+        }
+        val coordinator = CatalogCardActionCoordinator(this, gateway, successfulProbe)
+
+        coordinator.start(CatalogCardTarget("work-1", "Книга"), CatalogCardAction.PLAY)
+        advanceUntilIdle()
+
+        assertEquals(listOf(false), availability)
+        assertTrue(coordinator.state.value is CatalogCardActionState.Failed)
     }
 }

@@ -88,7 +88,7 @@ class SoundBooksAdapter(
             .filter { it.startsWith("http") }
             .mapIndexed { index, stream ->
                 SourceChapter(
-                    title = stream.substringAfterLast('/').substringBeforeLast('.').ifBlank { "Глава ${index + 1}" },
+                    title = chapterTitleFromStream(stream).ifBlank { "Глава ${index + 1}" },
                     streamUrl = stream
                 )
             }
@@ -290,6 +290,18 @@ class SoundBooksAdapter(
         // Book URLs are <category>/<id>-<slug>.html; the title is the slug.
         val slug = url.substringAfterLast('/').substringBeforeLast('.')
         return titleFromSlug(slug.substringAfter('-', slug))
+    }
+
+    /**
+     * Playlist URLs are physical Source-track locators, so they stay exactly
+     * as supplied. Only the filename displayed as a Chapter title is decoded.
+     * A malformed percent sequence is a title fallback, never an import error.
+     */
+    private fun chapterTitleFromStream(streamUrl: String): String {
+        val filename = streamUrl.substringBefore('?').substringAfterLast('/').substringBeforeLast('.')
+        return runCatching {
+            java.net.URLDecoder.decode(filename.replace("+", "%2B"), Charsets.UTF_8.name())
+        }.getOrDefault("")
     }
 
     private companion object {

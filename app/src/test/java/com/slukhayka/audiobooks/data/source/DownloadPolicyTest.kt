@@ -75,6 +75,21 @@ class DownloadPolicyTest {
     }
 
     @Test
+    fun `SoundBooks archive tracks require the SoundBooks referer`() {
+        val track = "https://arch.sound-books.net/3081/%D0%96%D0%B5%D1%80%D1%82%D0%B2%D0%B0.mp3"
+        assertEquals(
+            mapOf("Referer" to "https://sound-books.net/"),
+            headersFor("soundbooks", track)
+        )
+    }
+
+    @Test
+    fun `SoundBooks referer never leaks to an external archive track`() {
+        val track = "https://archive.org/download/example/chapter-01.mp3"
+        assertTrue(headersFor("soundbooks", track).isEmpty())
+    }
+
+    @Test
     fun `sources that serve plain GETs need no extra headers`() {
         val anyUrl = "https://cdn.example.invalid/s05/1/2/3/track-0.mp3"
         listOf("soundbooks", "sluhayua", "lihtar", "local", "unknown-source").forEach { sourceId ->

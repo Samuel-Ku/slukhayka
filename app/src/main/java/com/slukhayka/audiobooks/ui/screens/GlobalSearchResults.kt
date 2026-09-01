@@ -24,7 +24,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -62,13 +64,15 @@ fun GlobalSearchResultCard(
     onPlayClick: () -> Unit = onClick,
     actionState: CatalogCardActionState = CatalogCardActionState.Idle,
     onCancelAction: () -> Unit = {},
+    onOpenBrowser: () -> Unit = {},
+    onPreflight: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    LaunchedEffect(result.key) { onPreflight() }
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = AppDimens.SpaceLg, vertical = AppDimens.SpaceSm)
-            .testTag("global_search_result_${result.key}"),
+            .padding(horizontal = AppDimens.SpaceLg, vertical = AppDimens.SpaceSm),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Row(
@@ -77,7 +81,8 @@ fun GlobalSearchResultCard(
                 .clickable(onClick = onClick)
                 .semantics {
                     contentDescription = "Відкрити книгу: ${result.title}"
-                },
+                }
+                .testTag("global_search_result_${result.key}"),
             verticalAlignment = Alignment.CenterVertically
         ) {
         // Cover: the real artwork when the source carries one — the global
@@ -158,7 +163,7 @@ fun GlobalSearchResultCard(
             onCancel = onCancelAction
         )
     }
-    CatalogCardStatus(result.key, actionState)
+    CatalogCardStatus(result.key, actionState, onOpenBrowser)
 }
 
 /** Small unobtrusive pill: which source(s) carry a book (spec-10 T4). */
@@ -200,19 +205,23 @@ fun UnifiedCatalogCard(
     onPlayClick: () -> Unit = onClick,
     actionState: CatalogCardActionState = CatalogCardActionState.Idle,
     onCancelAction: () -> Unit = {},
+    onOpenBrowser: () -> Unit = {},
+    onPreflight: () -> Unit = {},
     modifier: Modifier = Modifier,
     downloadAllowed: Boolean = true,
     downloadProgress: Float? = null,
     isDownloaded: Boolean = false,
     onDownload: (() -> Unit)? = null
 ) {
-    Column(modifier = modifier.width(120.dp).testTag("unified_catalog_${result.key}")) {
+    LaunchedEffect(result.key) { onPreflight() }
+    Column(modifier = modifier.width(120.dp)) {
       Box {
        Column(
         modifier = Modifier
             .width(120.dp)
             .clickable(onClick = onClick)
-            .semantics { contentDescription = "Відкрити книгу: ${result.title}" },
+            .semantics { contentDescription = "Відкрити книгу: ${result.title}" }
+            .testTag("unified_catalog_${result.key}"),
         horizontalAlignment = Alignment.CenterHorizontally
        ) {
         Box {
@@ -311,7 +320,7 @@ fun UnifiedCatalogCard(
            modifier = Modifier.align(Alignment.BottomEnd)
        )
       }
-      CatalogCardStatus(result.key, actionState)
+      CatalogCardStatus(result.key, actionState, onOpenBrowser)
     }
 }
 
@@ -339,7 +348,11 @@ internal fun CatalogCardActionAffordance(
 }
 
 @Composable
-internal fun CatalogCardStatus(cardKey: String, state: CatalogCardActionState) {
+internal fun CatalogCardStatus(
+    cardKey: String,
+    state: CatalogCardActionState,
+    onOpenBrowser: () -> Unit = {}
+) {
     val relevant = when (state) {
         is CatalogCardActionState.Checking -> state.target.cardKey == cardKey
         is CatalogCardActionState.Failed -> state.target.cardKey == cardKey
@@ -358,11 +371,18 @@ internal fun CatalogCardStatus(cardKey: String, state: CatalogCardActionState) {
         is CatalogCardActionState.Cancelled -> stringResource(R.string.catalog_card_cancelled)
         else -> return
     }
-    Text(
-        text = text,
-        style = MaterialTheme.typography.labelSmall,
-        color = if (state is CatalogCardActionState.Failed) MaterialTheme.colorScheme.error
-        else MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }
-    )
+    Column(modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelSmall,
+            color = if (state is CatalogCardActionState.Failed) MaterialTheme.colorScheme.error
+            else MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        if (state is CatalogCardActionState.BrowserRequired) {
+            TextButton(
+                onClick = onOpenBrowser,
+                modifier = Modifier.testTag("catalog_card_open_browser_$cardKey")
+            ) { Text(stringResource(R.string.catalog_card_open_browser)) }
+        }
+    }
 }

@@ -67,6 +67,8 @@ import com.slukhayka.audiobooks.data.diagnostics.CrashConsent
 import com.slukhayka.audiobooks.data.diagnostics.CrashReporting
 import com.slukhayka.audiobooks.data.identity.RecoveryCodeAvailability
 import com.slukhayka.audiobooks.data.listening.ProgressSyncSettingsStore
+import com.slukhayka.audiobooks.data.source.SourceBrowserPolicy
+import com.slukhayka.audiobooks.data.source.sourceDisplayName
 import com.slukhayka.audiobooks.ui.components.accessibilityPane
 import com.slukhayka.audiobooks.ui.components.accessibilityModalBackground
 import com.slukhayka.audiobooks.ui.theme.AppDimens
@@ -110,14 +112,14 @@ fun ProfileScreen(
     }
     var savedNotice by remember { mutableStateOf<String?>(null) }
     var restoreDialogVisible by remember { mutableStateOf(false) }
-    var clearSourceSessionDialogVisible by remember { mutableStateOf(false) }
+    var sourceSessionPendingClear by remember { mutableStateOf<SourceSessionOption?>(null) }
     val loadingDescription = stringResource(R.string.profile_loading)
     val nicknameSavedMessage = stringResource(R.string.profile_nickname_saved)
 
     SettingsDestinationScaffold(
         destination = SettingsDestination.Profile,
         onBackClick = onBackClick,
-        modalVisible = restoreDialogVisible || clearSourceSessionDialogVisible
+        modalVisible = restoreDialogVisible || sourceSessionPendingClear != null
     ) { padding ->
         Column(
             modifier = Modifier
@@ -343,43 +345,70 @@ fun ProfileScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Spacer(modifier = Modifier.height(8.dp))
-            OutlinedButton(
-                onClick = { clearSourceSessionDialogVisible = true },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 48.dp)
-                    .testTag("profile_clear_4read_session")
-            ) {
-                Text(stringResource(R.string.profile_source_session_clear))
+            sourceSessionOptions.forEach { source ->
+                OutlinedButton(
+                    onClick = { sourceSessionPendingClear = source },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp)
+                        .testTag("profile_clear_${source.id}_session")
+                ) {
+                    Text(stringResource(R.string.profile_source_session_clear, source.displayName))
+                }
+                Spacer(modifier = Modifier.height(8.dp))
             }
         }
     }
 
-    if (clearSourceSessionDialogVisible) {
+    sourceSessionPendingClear?.let { source ->
         AlertDialog(
-            onDismissRequest = { clearSourceSessionDialogVisible = false },
-            title = { Text(stringResource(R.string.profile_source_session_clear_dialog_title)) },
-            text = { Text(stringResource(R.string.profile_source_session_clear_dialog_body)) },
+            onDismissRequest = { sourceSessionPendingClear = null },
+            title = {
+                Text(
+                    stringResource(
+                        R.string.profile_source_session_clear_dialog_title,
+                        source.displayName
+                    )
+                )
+            },
+            text = {
+                Text(
+                    stringResource(
+                        R.string.profile_source_session_clear_dialog_body,
+                        source.displayName
+                    )
+                )
+            },
             confirmButton = {
                 TextButton(
                     onClick = {
-                        onClearSourceSession("4read")
-                        clearSourceSessionDialogVisible = false
+                        onClearSourceSession(source.id)
+                        sourceSessionPendingClear = null
                     },
                     modifier = Modifier
                         .heightIn(min = 48.dp)
-                        .testTag("profile_clear_4read_session_confirm")
+                        .testTag("profile_clear_${source.id}_session_confirm")
                 ) { Text(stringResource(R.string.profile_source_session_clear_confirm)) }
             },
             dismissButton = {
                 TextButton(
-                    onClick = { clearSourceSessionDialogVisible = false },
+                    onClick = { sourceSessionPendingClear = null },
                     modifier = Modifier.heightIn(min = 48.dp)
                 ) { Text(stringResource(R.string.action_cancel)) }
             },
-            modifier = Modifier.testTag("profile_clear_4read_session_dialog")
+            modifier = Modifier.testTag("profile_clear_${source.id}_session_dialog")
         )
     }
+}
+
+/** Browser cookie jars are source-scoped; presenting each separately preserves that boundary. */
+private data class SourceSessionOption(
+    val id: String,
+    val displayName: String
+)
+
+private val sourceSessionOptions = SourceBrowserPolicy.browserSourceIds.map { sourceId ->
+    SourceSessionOption(sourceId, sourceDisplayName(sourceId))
 }
 
 @Composable

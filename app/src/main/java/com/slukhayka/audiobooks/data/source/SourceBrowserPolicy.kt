@@ -20,6 +20,9 @@ package com.slukhayka.audiobooks.data.source
  */
 object SourceBrowserPolicy {
 
+    /** Stable source order shared by browser routing and per-source settings. */
+    val browserSourceIds: List<String> = listOf("4read", "sluhay", "sluhayknigi")
+
     /**
      * Base hosts that are considered part of the source. `www.` is stripped
      * before comparison so both `https://4read.org/...` and

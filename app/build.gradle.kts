@@ -491,7 +491,15 @@ afterEvaluate {
         maxParallelForks = 2
         forkEvery = 1
       } else {
-        maxParallelForks = 1
+        if (requestedAlias == "testPureJvm") {
+          // Pure JVM tests do not initialise Android/Robolectric or native
+          // SQLite state, so they can safely use the otherwise idle cores.
+          // Cap the fan-out to keep local builds responsive and avoid making
+          // CI workers contend for memory.
+          maxParallelForks = minOf(4, Runtime.getRuntime().availableProcessors())
+        } else {
+          maxParallelForks = 1
+        }
         if (requestedAlias == "testRoomRobolectricOnly") {
           // Robolectric keeps Android framework state for the life of a test
           // JVM. A fresh worker per class prevents that state from accumulating

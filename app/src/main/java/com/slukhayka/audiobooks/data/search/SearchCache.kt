@@ -184,11 +184,12 @@ object SearchResultCodec {
             "sources" to result.sources
                 .filter { it.url.isNotBlank() }
                 .map { source ->
-                    mapOf(
-                        "sourceId" to source.sourceId,
-                        "sourceName" to source.sourceName,
-                        "url" to source.url
-                    )
+                    buildMap<String, Any> {
+                        put("sourceId", source.sourceId)
+                        put("sourceName", source.sourceName)
+                        put("url", source.url)
+                        if (source.editionId.isNotBlank()) put("editionId", source.editionId)
+                    }
                 }
         ) + optionalFields(result)
 
@@ -226,7 +227,8 @@ object SearchResultCodec {
         return GlobalSearchSource(
             sourceId = sourceId,
             sourceName = map["sourceName"] as? String ?: "",
-            url = url
+            url = url,
+            editionId = map["editionId"] as? String ?: ""
         )
     }
 }

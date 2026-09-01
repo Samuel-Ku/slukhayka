@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.data.catalog.CatalogSeries
 import com.slukhayka.audiobooks.data.db.WorkFeedRow
 import com.slukhayka.audiobooks.data.db.GenreFacetOption
+import com.slukhayka.audiobooks.data.db.SourceEntity
 import com.slukhayka.audiobooks.data.recommend.RecommendationEngine
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.data.source.GlobalSearchSource
@@ -50,6 +51,7 @@ import com.slukhayka.audiobooks.ui.screens.CollectionBookCard
 import com.slukhayka.audiobooks.ui.screens.GlobalSearchResultCard
 import com.slukhayka.audiobooks.ui.screens.GlobalSearchStatus
 import com.slukhayka.audiobooks.ui.screens.HomeHeader
+import com.slukhayka.audiobooks.ui.screens.NewArrivalsRail
 import com.slukhayka.audiobooks.ui.screens.RecommendedBookCard
 import com.slukhayka.audiobooks.ui.screens.RecommendationDisclosureDialog
 import com.slukhayka.audiobooks.ui.screens.UnifiedCatalogCard
@@ -57,6 +59,9 @@ import com.slukhayka.audiobooks.ui.screens.WorkFeedCard
 import com.slukhayka.audiobooks.ui.screens.WorkFeedFilters
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
 import com.slukhayka.audiobooks.ui.components.accessibilityModalBackground
+import com.slukhayka.audiobooks.ui.catalog.CatalogCardAction
+import com.slukhayka.audiobooks.ui.catalog.CatalogCardActionState
+import com.slukhayka.audiobooks.ui.catalog.CatalogCardTarget
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -129,6 +134,68 @@ class ExploreAccessibilityTest {
             .assertDoesNotExist()
         compose.onNodeWithContentDescription("Відтворити", useUnmergedTree = true)
             .assertDoesNotExist()
+    }
+
+    @Test
+    fun browserRequiredCardOffersAWorkingWebsiteAction() {
+        var opens = 0
+        val target = CatalogCardTarget(
+            workId = result.key,
+            title = result.title,
+            cardKey = result.key
+        )
+        val source = SourceEntity(
+            id = "4read-edition",
+            bookId = result.key,
+            editionId = "edition",
+            type = "4read",
+            url = "https://example.invalid/session"
+        )
+        compose.setContent {
+            AudiobookTheme(darkTheme = true) {
+                GlobalSearchResultCard(
+                    result = result,
+                    onClick = {},
+                    actionState = CatalogCardActionState.BrowserRequired(
+                        target = target,
+                        action = CatalogCardAction.PLAY,
+                        source = source
+                    ),
+                    onOpenBrowser = { opens++ }
+                )
+            }
+        }
+
+        compose.onNodeWithTag("catalog_card_open_browser_${result.key}")
+            .assertIsDisplayed()
+            .performClick()
+        org.junit.Assert.assertEquals(1, opens)
+    }
+
+    @Test
+    fun newArrivalsPreflightsOnlyTheLazyViewportAndItsBuffer() {
+        val results = (0 until 50).map { index ->
+            result.copy(
+                title = "${result.title} $index",
+                mergeKey = "${result.mergeKey}|$index",
+                sources = result.sources.map { it.copy(url = "https://example.invalid/$index") }
+            )
+        }
+        var preflightCount = 0
+        compose.setContent {
+            AudiobookTheme(darkTheme = true) {
+                Box(Modifier.width(320.dp).height(300.dp)) {
+                    NewArrivalsRail(
+                        results = results,
+                        onBookClick = {},
+                        onPreflight = { preflightCount++ }
+                    )
+                }
+            }
+        }
+
+        compose.waitForIdle()
+        org.junit.Assert.assertTrue(preflightCount in 1 until results.size)
     }
 
     @Test

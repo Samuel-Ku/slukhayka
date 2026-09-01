@@ -222,7 +222,8 @@ open class HttpFetcher(
                     stream = ownedStream(response),
                     status = response.code,
                     contentLength = response.body?.contentLength()?.takeIf { it >= 0 },
-                    contentRange = response.header("Content-Range")
+                    contentRange = response.header("Content-Range"),
+                    contentType = response.header("Content-Type")
                 )
             } else {
                 response.close()
@@ -280,6 +281,7 @@ open class HttpFetcher(
         val stream: InputStream,
         val status: Int,
         val contentLength: Long?,
-        val contentRange: String?
+        val contentRange: String?,
+        val contentType: String?
     )
 }

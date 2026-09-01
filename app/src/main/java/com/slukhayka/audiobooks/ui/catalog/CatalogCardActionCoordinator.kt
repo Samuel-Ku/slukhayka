@@ -91,7 +91,9 @@ interface CatalogCardActionGateway<Book> {
     suspend fun sourceCandidates(target: CatalogCardTarget): List<SourceSelectionCoordinator.SourceCandidate>
     suspend fun import(target: CatalogCardTarget, source: SourceEntity): Book?
     suspend fun open(book: Book): Boolean
-    suspend fun play(book: Book): Boolean
+    suspend fun play(book: Book, source: SourceEntity?): Boolean
+    /** Local Edition verdict; implementations must keep this best-effort. */
+    suspend fun recordAvailability(book: Book, available: Boolean) = Unit
 }
 
 /**
@@ -119,10 +121,11 @@ class CatalogCardActionCoordinator<Book>(
         job = scope.launch {
             try {
                 val saved = gateway.savedBook(target)
+                var lastPlayableBook = saved
                 if (!isCurrent(requestGeneration)) return@launch
                 if (saved != null) {
-                    finishAction(requestGeneration, target, action, saved)
-                    return@launch
+                    if (finishAction(requestGeneration, target, action, saved, null)) return@launch
+                    if (!isCurrent(requestGeneration)) return@launch
                 }
 
                 val candidates = try {
@@ -135,17 +138,23 @@ class CatalogCardActionCoordinator<Book>(
                 }
                 if (!isCurrent(requestGeneration)) return@launch
                 if (candidates.isEmpty()) {
+                    if (action == CatalogCardAction.PLAY && lastPlayableBook != null) {
+                        runCatching { gateway.recordAvailability(lastPlayableBook, false) }
+                    }
                     failIfCurrent(requestGeneration, target, action, CatalogCardFailure.EMPTY_SOURCES)
                     return@launch
                 }
 
-                when (val selection = SourceSelectionCoordinator.select(
-                    operation = SourceSelectionCoordinator.OperationKind.PLAYBACK,
-                    candidates = candidates,
-                    probe = sourceProbe,
-                    clock = clock,
-                    budgetMs = budgetMs
-                )) {
+                val remaining = candidates.toMutableList()
+                var lastFailure = CatalogCardFailure.RESOLVE_FAILED
+                while (remaining.isNotEmpty() && isCurrent(requestGeneration)) {
+                    when (val selection = SourceSelectionCoordinator.select(
+                        operation = SourceSelectionCoordinator.OperationKind.PLAYBACK,
+                        candidates = remaining,
+                        probe = sourceProbe,
+                        clock = clock,
+                        budgetMs = budgetMs
+                    )) {
                     is SourceSelectionCoordinator.SelectionResult.Selected -> {
                         if (!isCurrent(requestGeneration)) return@launch
                         val imported = try {
@@ -157,9 +166,20 @@ class CatalogCardActionCoordinator<Book>(
                         }
                         if (!isCurrent(requestGeneration)) return@launch
                         if (imported == null) {
-                            failIfCurrent(requestGeneration, target, action, CatalogCardFailure.IMPORT_FAILED)
+                            lastFailure = CatalogCardFailure.IMPORT_FAILED
+                            remaining.remove(selection.candidate)
                         } else {
-                            finishAction(requestGeneration, target, action, imported)
+                            lastPlayableBook = imported
+                            val succeeded = finishAction(
+                                requestGeneration,
+                                target,
+                                action,
+                                imported,
+                                selection.candidate.source
+                            )
+                            if (succeeded || !isCurrent(requestGeneration)) return@launch
+                            lastFailure = CatalogCardFailure.ACTION_FAILED
+                            remaining.remove(selection.candidate)
                         }
                     }
                     is SourceSelectionCoordinator.SelectionResult.BrowserRequired -> {
@@ -170,10 +190,17 @@ class CatalogCardActionCoordinator<Book>(
                                 selection.candidate.source
                             )
                         }
+                        return@launch
                     }
-                    SourceSelectionCoordinator.SelectionResult.Unavailable ->
-                        failIfCurrent(requestGeneration, target, action, CatalogCardFailure.RESOLVE_FAILED)
+                    SourceSelectionCoordinator.SelectionResult.Unavailable -> {
+                        remaining.clear()
+                    }
+                    }
                 }
+                if (action == CatalogCardAction.PLAY && lastPlayableBook != null) {
+                    runCatching { gateway.recordAvailability(lastPlayableBook, false) }
+                }
+                failIfCurrent(requestGeneration, target, action, lastFailure)
             } catch (cancelled: CancellationException) {
                 // cancel() owns the visible terminal state. A replaced action
                 // has already published its own Checking state.
@@ -205,25 +232,28 @@ class CatalogCardActionCoordinator<Book>(
         requestGeneration: Long,
         target: CatalogCardTarget,
         action: CatalogCardAction,
-        book: Book
-    ) {
-        if (!isCurrent(requestGeneration)) return
+        book: Book,
+        source: SourceEntity?
+    ): Boolean {
+        if (!isCurrent(requestGeneration)) return false
         val succeeded = try {
             when (action) {
                 CatalogCardAction.OPEN -> gateway.open(book)
-                CatalogCardAction.PLAY -> gateway.play(book)
+                CatalogCardAction.PLAY -> gateway.play(book, source)
             }
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {
             false
         }
-        if (!isCurrent(requestGeneration)) return
-        _state.value = if (succeeded) {
-            CatalogCardActionState.Completed(target, action)
-        } else {
-            CatalogCardActionState.Failed(target, action, CatalogCardFailure.ACTION_FAILED)
+        if (!isCurrent(requestGeneration)) return false
+        if (succeeded) {
+            if (action == CatalogCardAction.PLAY) {
+                runCatching { gateway.recordAvailability(book, true) }
+            }
+            _state.value = CatalogCardActionState.Completed(target, action)
         }
+        return succeeded
     }
 
     private fun failIfCurrent(

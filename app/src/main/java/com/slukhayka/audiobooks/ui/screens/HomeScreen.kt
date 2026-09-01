@@ -404,7 +404,9 @@ fun HomeScreen(
                         onClick = { viewModel.openGlobalSearchResult(result) },
                         onPlayClick = { viewModel.playGlobalSearchResult(result) },
                         actionState = catalogCardActionState,
-                        onCancelAction = viewModel::cancelCatalogCardAction
+                        onCancelAction = viewModel::cancelCatalogCardAction,
+                        onOpenBrowser = viewModel::openCatalogBrowserRequired,
+                        onPreflight = { viewModel.preflightGlobalSearchResult(result) }
                     )
                 }
             }
@@ -468,6 +470,11 @@ fun HomeScreen(
                 onPlayWorkFeedRow = { viewModel.playWorkFeedRow(it) },
                 catalogCardActionState = catalogCardActionState,
                 onCancelCatalogCardAction = viewModel::cancelCatalogCardAction,
+                onOpenCatalogBrowser = viewModel::openCatalogBrowserRequired,
+                onPreflightGlobalSearchResult = viewModel::preflightGlobalSearchResult,
+                onPreflightCatalogBook = viewModel::preflightCatalogBook,
+                onPreflightRecommendedBook = viewModel::preflightRecommendedBook,
+                onPreflightWorkFeedRow = viewModel::preflightWorkFeedRow,
                 onBookClick = onBookClick,
                 onSetFeedGenreFilters = { viewModel.setFeedGenreFilters(it) },
                 onSetFeedDurationFilters = { viewModel.setFeedDurationFilters(it) },
@@ -831,6 +838,8 @@ fun DurationSection(
     onPlayClick: (CatalogBook) -> Unit = onOpenClick,
     actionState: CatalogCardActionState = CatalogCardActionState.Idle,
     onCancelAction: () -> Unit = {},
+    onOpenBrowser: () -> Unit = {},
+    onPreflight: (CatalogBook) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     if (shortBooks.isEmpty() && longBooks.isEmpty()) return
@@ -848,7 +857,9 @@ fun DurationSection(
                         onClick = { onOpenClick(book) },
                         onPlayClick = { onPlayClick(book) },
                         actionState = actionState,
-                        onCancelAction = onCancelAction
+                        onCancelAction = onCancelAction,
+                        onOpenBrowser = onOpenBrowser,
+                        onPreflight = { onPreflight(book) }
                     )
                 }
             }
@@ -866,7 +877,9 @@ fun DurationSection(
                         onClick = { onOpenClick(book) },
                         onPlayClick = { onPlayClick(book) },
                         actionState = actionState,
-                        onCancelAction = onCancelAction
+                        onCancelAction = onCancelAction,
+                        onOpenBrowser = onOpenBrowser,
+                        onPreflight = { onPreflight(book) }
                     )
                 }
             }
@@ -887,6 +900,8 @@ fun NewArrivalsRail(
     onPlayClick: (GlobalSearchResult) -> Unit = onBookClick,
     actionState: CatalogCardActionState = CatalogCardActionState.Idle,
     onCancelAction: () -> Unit = {},
+    onOpenBrowser: () -> Unit = {},
+    onPreflight: (GlobalSearchResult) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Column(modifier = modifier.testTag("new_arrivals_rail")) {
@@ -901,7 +916,9 @@ fun NewArrivalsRail(
                     onClick = { onBookClick(result) },
                     onPlayClick = { onPlayClick(result) },
                     actionState = actionState,
-                    onCancelAction = onCancelAction
+                    onCancelAction = onCancelAction,
+                    onOpenBrowser = onOpenBrowser,
+                    onPreflight = { onPreflight(result) }
                 )
             }
         }
@@ -971,8 +988,11 @@ fun CatalogBookCard(
     onClick: () -> Unit,
     onPlayClick: () -> Unit = onClick,
     actionState: CatalogCardActionState = CatalogCardActionState.Idle,
-    onCancelAction: () -> Unit = {}
+    onCancelAction: () -> Unit = {},
+    onOpenBrowser: () -> Unit = {},
+    onPreflight: () -> Unit = {}
 ) {
+    LaunchedEffect(book.id) { onPreflight() }
     Column(modifier = Modifier.width(120.dp).testTag("catalog_book_${book.id}")) {
       Box {
        Column(
@@ -1023,7 +1043,7 @@ fun CatalogBookCard(
            modifier = Modifier.align(Alignment.BottomEnd)
        )
       }
-      CatalogCardStatus(book.id, actionState)
+      CatalogCardStatus(book.id, actionState, onOpenBrowser)
     }
 }
 
@@ -1039,13 +1059,18 @@ fun CollectionBookCard(
     onClick: () -> Unit,
     onPlayClick: () -> Unit = onClick,
     actionState: CatalogCardActionState = CatalogCardActionState.Idle,
-    onCancelAction: () -> Unit = {}
+    onCancelAction: () -> Unit = {},
+    onOpenBrowser: () -> Unit = {},
+    onPreflight: () -> Unit = {}
 ) {
+    LaunchedEffect(result.key) { onPreflight() }
     val openLabel = stringResource(R.string.a11y_open_work, result.title)
-    Column(modifier = Modifier.width(120.dp).testTag("collection_book_${result.key.hashCode()}")) {
+    Column(modifier = Modifier.width(120.dp)) {
       Box {
        Column(
-        modifier = Modifier.clickable(onClickLabel = openLabel, onClick = onClick),
+        modifier = Modifier
+            .clickable(onClickLabel = openLabel, onClick = onClick)
+            .testTag("collection_book_${result.key.hashCode()}"),
         horizontalAlignment = Alignment.CenterHorizontally
        ) {
         CatalogCoverImage(
@@ -1078,7 +1103,7 @@ fun CollectionBookCard(
            modifier = Modifier.align(Alignment.BottomEnd)
        )
       }
-      CatalogCardStatus(result.key, actionState)
+      CatalogCardStatus(result.key, actionState, onOpenBrowser)
     }
 }
 
@@ -1094,8 +1119,11 @@ fun RecommendedBookCard(
     onPlayClick: () -> Unit = onClick,
     actionState: CatalogCardActionState = CatalogCardActionState.Idle,
     onCancelAction: () -> Unit = {},
+    onOpenBrowser: () -> Unit = {},
+    onPreflight: () -> Unit = {},
     onFeedback: (String) -> Unit = {}
 ) {
+    LaunchedEffect(rec.candidate.id) { onPreflight() }
     var menuExpanded by remember { mutableStateOf(false) }
     var feedbackExpanded by remember { mutableStateOf(false) }
     Card(
@@ -1198,7 +1226,7 @@ fun RecommendedBookCard(
                     onCancel = onCancelAction
                 )
             }
-            CatalogCardStatus(rec.candidate.id, actionState)
+            CatalogCardStatus(rec.candidate.id, actionState, onOpenBrowser)
         }
     }
 }
@@ -1714,8 +1742,11 @@ fun WorkFeedCard(
     onPlayClick: () -> Unit = onClick,
     actionState: CatalogCardActionState = CatalogCardActionState.Idle,
     onCancelAction: () -> Unit = {},
+    onOpenBrowser: () -> Unit = {},
+    onPreflight: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    LaunchedEffect(row.workId) { onPreflight() }
     val rowState = actionState.takeIf { state ->
         when (state) {
             is CatalogCardActionState.Checking -> state.target.cardKey == row.workId
@@ -1734,7 +1765,6 @@ fun WorkFeedCard(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp)
-            .testTag("work_feed_${row.workId}")
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Row(
@@ -1742,6 +1772,7 @@ fun WorkFeedCard(
                     .weight(1f)
                     .clickable(enabled = !checking, onClick = onClick)
                     .semantics { contentDescription = openDescription }
+                    .testTag("work_feed_${row.workId}")
                     .testTag("work_feed_${row.workId}_open"),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -1833,18 +1864,26 @@ fun WorkFeedCard(
             else -> null
         }
         if (statusText != null) {
-            Text(
-                text = statusText,
-                style = MaterialTheme.typography.labelSmall,
-                color = if (rowState is CatalogCardActionState.Failed) {
-                    MaterialTheme.colorScheme.error
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
+            Column(
                 modifier = Modifier
                     .padding(start = 68.dp, top = 4.dp)
                     .semantics { liveRegion = LiveRegionMode.Polite }
-            )
+            ) {
+                Text(
+                    text = statusText,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (rowState is CatalogCardActionState.Failed) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    }
+                )
+                if (rowState is CatalogCardActionState.BrowserRequired) {
+                    TextButton(onClick = onOpenBrowser) {
+                        Text(stringResource(R.string.catalog_card_open_browser))
+                    }
+                }
+            }
         }
     }
 }

@@ -22,6 +22,7 @@ import com.slukhayka.audiobooks.data.facets.FacetSyncCursorStore
 import com.slukhayka.audiobooks.data.facets.GenreFacetAssertion
 import com.slukhayka.audiobooks.data.facets.GenreSourceFacetReplacement
 import com.slukhayka.audiobooks.data.facets.LocalFacetDelta
+import com.slukhayka.audiobooks.data.facets.EditionFacetDelta
 import com.slukhayka.audiobooks.data.facets.LocalFacetWriter
 import com.slukhayka.audiobooks.data.facets.RoomLocalFacetWriter
 import com.slukhayka.audiobooks.data.facets.WorkFacetDelta
@@ -605,6 +606,37 @@ class SourceCatalog(
         val sourceUrl: String? = null
     )
 
+    /** #455 — persist only the Edition-level terminal verdict from a card action. */
+    suspend fun recordBookAvailability(
+        book: AudiobookEntity,
+        available: Boolean,
+        observedAtMillis: Long = System.currentTimeMillis()
+    ) {
+        val edition = dao.getEditionForWork(book.id) ?: return
+        val domainWorkId = book.workId?.takeIf(String::isNotBlank) ?: book.id
+        val ttlSeconds = if (available) 6L * 60 * 60 else 15L * 60
+        facetWriter.apply(
+            listOf(
+                LocalFacetDelta(
+                    work = WorkFacetDelta(
+                        workId = domainWorkId,
+                        updatedAt = observedAtMillis
+                    ),
+                    editions = listOf(
+                        EditionFacetDelta(
+                            editionId = edition.id,
+                            workId = domainWorkId,
+                            availabilityAvailable = available,
+                            availabilityObservedAtMillis = observedAtMillis,
+                            availabilityTtlSeconds = ttlSeconds,
+                            updatedAt = observedAtMillis
+                        )
+                    )
+                )
+            )
+        )
+    }
+
     /**
      * Returns a book's chapters PAIRED with the best available Source. A
      * chapter-less 4read catalogue row does not trigger an implicit browser or
@@ -612,7 +644,11 @@ class SourceCatalog(
      * This is the seam Offline Downloads and the playback stack route through
      * — never a raw Room read alone.
      */
-    suspend fun getPlayableChapters(bookId: String): List<PlayableChapter> {
+    suspend fun getPlayableChapters(
+        bookId: String,
+        preferredSourceType: String? = null,
+        preferredSourceUrl: String? = null
+    ): List<PlayableChapter> {
         var chapters = dao.getChaptersListForBook(bookId)
         val book = dao.getAudiobookById(bookId)
         val sourceUrl = book?.sourceUrl ?: ""
@@ -752,18 +788,24 @@ class SourceCatalog(
                 )
             }
         )
-        val selectedSource = orderedSources
+        val orderedEntities = orderedSources
             .mapNotNull { candidate ->
                 sources.firstOrNull { it.type == candidate.sourceId && it.url == candidate.url }
             }
+        // A catalogue action has already selected this Source inside the
+        // Edition. Keep that explicit choice ahead of the static policy for
+        // this one playback attempt; ordinary playback still uses policy
+        // order because both preferences are null.
+        val preferred = orderedEntities.firstOrNull { source ->
+            source.type == preferredSourceType && source.url == preferredSourceUrl
+        }
+        val playbackOrder = listOfNotNull(preferred) + orderedEntities.filterNot { it == preferred }
+        val selectedSource = playbackOrder
             .firstOrNull { source ->
                 val tracks = tracksBySource[source].orEmpty()
                 tracks.count { it.trackIndex in chapters.indices } == chapters.size
             }
-            ?: orderedSources
-                .mapNotNull { candidate ->
-                    sources.firstOrNull { it.type == candidate.sourceId && it.url == candidate.url }
-                }
+            ?: playbackOrder
                 .firstOrNull { tracksBySource[it].orEmpty().isNotEmpty() }
             ?: sources.firstOrNull()
         val tracks = selectedSource?.let { tracksBySource[it].orEmpty() }.orEmpty()

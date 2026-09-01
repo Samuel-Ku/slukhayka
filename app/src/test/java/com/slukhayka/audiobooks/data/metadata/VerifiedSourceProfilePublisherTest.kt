@@ -83,6 +83,30 @@ class VerifiedSourceProfilePublisherTest {
         )
     }
 
+    @Test
+    fun `verified shortcut is stale at the exact twenty four hour boundary`() = runBlocking {
+        val observedAt = 5_000L
+        val entry = SharedProfileEntry(profile(), observedAt, ProfileProvenance.SOURCE_VERIFIED)
+        val store = EntryStore(entry)
+        val probe = RecordingProbe(CleanProfileProbeVerdict.PLAYABLE)
+
+        assertTrue(
+            VerifiedSourceProfileReader(
+                store,
+                probe,
+                nowMillis = { observedAt + VerifiedSourceProfileFreshness.FRESHNESS_MILLIS - 1 }
+            ).read("4read", "edition-a") is VerifiedProfileReadOutcome.Ready
+        )
+        assertEquals(
+            VerifiedProfileReadOutcome.BrowserRequired,
+            VerifiedSourceProfileReader(
+                store,
+                probe,
+                nowMillis = { observedAt + VerifiedSourceProfileFreshness.FRESHNESS_MILLIS }
+            ).read("4read", "edition-a")
+        )
+    }
+
     private fun verified(playerOpened: Boolean) = VerifiedSourceProfile(
         sourceId = "4read",
         editionId = "edition-a",

@@ -15,6 +15,7 @@
     <string name="catalog_card_open_error">Не вдалося відкрити книгу. Спробуйте ще раз.</string>
     <string name="catalog_card_play_error">Не вдалося почати слухати. Спробуйте ще раз.</string>
     <string name="catalog_card_browser_required">Потрібна перевірка на сайті.</string>
+    <string name="catalog_card_open_browser">Відкрити сайт</string>
     <string name="catalog_card_cancelled">Перевірку скасовано.</string>
     <string name="a11y_pause_work">Пауза: %1$s</string>
     <string name="a11y_next_chapter_work">Наступний розділ: %1$s</string>

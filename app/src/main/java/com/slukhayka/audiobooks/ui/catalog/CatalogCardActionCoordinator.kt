@@ -32,6 +32,30 @@ data class CatalogCardSource(
     val streamOnly: Boolean = false
 )
 
+/**
+ * Keeps automatic Source fallback inside an explicitly known Edition.
+ * Browse-layer `work_sources` predates Edition ownership and therefore has no
+ * narrator/Edition key; treating all of its rows as interchangeable would
+ * let a Play tap silently change the listener's narration. Until a source
+ * carries an explicit `editionId`, only the capability-first source is safe.
+ */
+fun editionScopedCatalogSources(
+    preferredEditionId: String?,
+    sources: List<CatalogCardSource>
+): List<CatalogCardSource> {
+    if (sources.isEmpty()) return emptyList()
+    val selected = preferredEditionId?.takeIf { it.isNotBlank() }
+    if (selected != null) {
+        sources.filter { it.editionId == selected }.takeIf { it.isNotEmpty() }?.let { return it }
+    }
+    val assertedEditionIds = sources.mapNotNull { it.editionId?.takeIf(String::isNotBlank) }.distinct()
+    return if (assertedEditionIds.size == 1) {
+        sources.filter { it.editionId == assertedEditionIds.single() }
+    } else {
+        listOf(sources.first())
+    }
+}
+
 enum class CatalogCardFailure {
     EMPTY_SOURCES,
     RESOLVE_FAILED,

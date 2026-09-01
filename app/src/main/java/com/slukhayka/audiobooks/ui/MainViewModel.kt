@@ -67,6 +67,7 @@ import com.slukhayka.audiobooks.ui.catalog.CatalogCardActionCoordinator
 import com.slukhayka.audiobooks.ui.catalog.CatalogCardActionGateway
 import com.slukhayka.audiobooks.ui.catalog.CatalogCardActionState
 import com.slukhayka.audiobooks.ui.catalog.CatalogCardSource
+import com.slukhayka.audiobooks.ui.catalog.editionScopedCatalogSources
 import com.slukhayka.audiobooks.ui.catalog.CatalogCardTarget
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
@@ -1479,7 +1480,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private suspend fun catalogSourceCandidates(
         target: CatalogCardTarget
     ): List<SourceSelectionCoordinator.SourceCandidate> =
-        (if (target.sources.isNotEmpty()) {
+        editionScopedCatalogSources(target.preferredEditionId, if (target.sources.isNotEmpty()) {
             target.sources
         } else {
             sourceCatalog.workSourcesForWork(target.workId).map { source ->

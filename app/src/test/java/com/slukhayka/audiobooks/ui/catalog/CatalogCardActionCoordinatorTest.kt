@@ -33,6 +33,30 @@ class CatalogCardActionCoordinatorTest {
         )
 
     @Test
+    fun `only explicitly matching Edition Sources are eligible for automatic fallback`() {
+        val sources = listOf(
+            CatalogCardSource("soundbooks", "https://sound-books.net/a", editionId = "edition-a"),
+            CatalogCardSource("audiobookmp3", "https://audiobook-mp3.com/a", editionId = "edition-a"),
+            CatalogCardSource("lihtar", "https://lihtar.in.ua/b", editionId = "edition-b")
+        )
+
+        assertEquals(
+            listOf("soundbooks", "audiobookmp3"),
+            editionScopedCatalogSources("edition-a", sources).map { it.sourceId }
+        )
+    }
+
+    @Test
+    fun `unasserted browse Sources never imply a cross narration fallback`() {
+        val sources = listOf(
+            CatalogCardSource("soundbooks", "https://sound-books.net/a"),
+            CatalogCardSource("lihtar", "https://lihtar.in.ua/a")
+        )
+
+        assertEquals(listOf("soundbooks"), editionScopedCatalogSources(null, sources).map { it.sourceId })
+    }
+
+    @Test
     fun `open resolves a Source and opens details without starting playback`() = runTest {
         val effects = mutableListOf<String>()
         val gateway = object : CatalogCardActionGateway<String> {

@@ -48,6 +48,7 @@ fun PersonBookmarkButton(
     personName: String,
     onToggle: () -> Unit,
     onToggleNotify: (Boolean) -> Unit,
+    testTag: String = "person_bookmark_button",
     modifier: Modifier = Modifier
 ) {
     var showMenu by remember { mutableStateOf(false) }
@@ -63,7 +64,7 @@ fun PersonBookmarkButton(
     Box(
         modifier = modifier
             .size(48.dp)
-            .testTag("person_bookmark_button")
+            .testTag(testTag)
             .semantics {
                 role = Role.Button
                 contentDescription = actionDescription

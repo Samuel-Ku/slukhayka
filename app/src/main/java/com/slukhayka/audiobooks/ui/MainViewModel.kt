@@ -49,6 +49,7 @@ import com.slukhayka.audiobooks.data.source.SourceAccessPolicy
 import com.slukhayka.audiobooks.data.source.SourceSelectionCoordinator
 import com.slukhayka.audiobooks.data.source.sourceIdForUrl
 import com.slukhayka.audiobooks.data.source.HttpFetcher
+import com.slukhayka.audiobooks.data.source.AndroidSourceCookieProvider
 import com.slukhayka.audiobooks.data.source.headersFor
 import com.slukhayka.audiobooks.data.metadata.FirestoreBookMetaStore
 import com.slukhayka.audiobooks.data.metadata.BookProfile
@@ -1539,7 +1540,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val sourceId = first.sourceId ?: sourceIdForUrl(book.sourceUrl)
             withTimeoutOrNull(com.slukhayka.audiobooks.ui.catalog.CatalogAvailabilityPolicy.SOURCE_BUDGET_MS) {
                 val response = HttpFetcher()
-                    .getRangeStream(track.url, headersFor(sourceId, track.url))
+                    // The durable WebView jar is consulted just-in-time for
+                    // this exact audio host. It is never copied into Room or
+                    // another Source's request, but a listener who already
+                    // passed the site's challenge need not open a hidden
+                    // WebView again for this preflight.
+                    .getRangeStream(
+                        track.url,
+                        headersFor(sourceId, track.url, AndroidSourceCookieProvider.cookieFor(track.url))
+                    )
                     ?: return@withTimeoutOrNull false
                 response.stream.close()
                 true

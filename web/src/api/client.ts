@@ -62,6 +62,7 @@ export interface Api {
   search(source: SourceId, query: string): Promise<CatalogCard[] | null>
   searchAll(query: string): Promise<SearchGroup[] | null>
   workFeed(cursor?: string, source?: SourceId): Promise<UnifiedWorkPage | null>
+  workSearch(query: string, source?: SourceId): Promise<UnifiedWorkPage | null>
 }
 
 export const api: Api = {
@@ -73,4 +74,6 @@ export const api: Api = {
   searchAll: (query) => call<SearchGroup[]>(`/api/search-all?q=${encodeURIComponent(query)}`),
   workFeed: (cursor, source) =>
     call<UnifiedWorkPage>(`/api/work-feed?${cursor ? `cursor=${encodeURIComponent(cursor)}&` : ''}${source ? `source=${source}` : ''}`),
+  workSearch: (query, source) =>
+    call<UnifiedWorkPage>(`/api/work-search?q=${encodeURIComponent(query)}${source ? `&source=${source}` : ''}`),
 }

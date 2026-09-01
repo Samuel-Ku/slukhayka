@@ -107,6 +107,38 @@ export default {
       return ok(mergeWorkFeed(sources, Number.isFinite(cursor) ? cursor : 0))
     }
 
+    // #458: search projects into the same Work → Edition → Source model as
+    // the feed. A Source that cannot search simply contributes nothing; it
+    // never changes the shape back to a per-source card list.
+    if (pathname === '/api/work-search') {
+      const query = searchParams.get('q')?.trim() ?? ''
+      const requestedSource = searchParams.get('source')?.trim() ?? ''
+      if (query.length < 2) return fail('query too short')
+      if (requestedSource && !sourceEntry(requestedSource)) return fail(`unknown source: ${requestedSource}`)
+      const entries = Object.entries(REGISTRY)
+        .filter(([id, entry]) => (!requestedSource || id === requestedSource) && entry.searchUrl && entry.adapter.search)
+      const settled = await Promise.allSettled(entries.map(async ([id, entry]) => {
+        const searchEntry = entry as Required<Pick<SourceEntry, 'searchUrl' | 'searchHeaders'>> & SourceEntry
+        const searchUrl = searchEntry.searchUrl(query)
+        const payload = mayFetch(entry, searchUrl)
+          ? await guardedFetchText(entry, searchUrl, entry.adapter.baseUrl, 0, searchEntry.searchHeaders ?? {})
+          : null
+        let cards: CatalogCard[] = []
+        if (payload !== null) {
+          try {
+            cards = entry.adapter.search!(payload, searchUrl) ?? []
+          } catch {
+            cards = []
+          }
+        }
+        return { sourceId: id as SourceId, cards }
+      }))
+      const sources = settled
+        .filter((result): result is PromiseFulfilledResult<{ sourceId: SourceId; cards: CatalogCard[] }> => result.status === 'fulfilled')
+        .map((result) => result.value)
+      return ok(mergeWorkFeed(sources))
+    }
+
     if (pathname === '/api/search' || pathname === '/api/search-all') {
       const query = searchParams.get('q')?.trim() ?? ''
       if (query.length < 2) return fail('query too short')

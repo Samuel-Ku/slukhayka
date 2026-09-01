@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api/client'
+import { readWarm, warmKey, writeWarm } from '../api/warmCache'
 import type { BookDetail } from '../worker/types'
 
 /**
@@ -24,10 +25,17 @@ export function BookPage({
     let alive = true
     setDetail(null)
     setFailed(false)
-    api.book(source, url).then((result) => {
+    api.book(source, url).then(async (result) => {
       if (!alive) return
-      if (result === null) setFailed(true)
-      else setDetail(result)
+      if (result === null) {
+        const cached = await readWarm<BookDetail>(warmKey('book', source, url))
+        if (!alive) return
+        if (cached === null) setFailed(true)
+        else setDetail(cached)
+      } else {
+        setDetail(result)
+        void writeWarm(warmKey('book', source, url), result)
+      }
     })
     return () => {
       alive = false

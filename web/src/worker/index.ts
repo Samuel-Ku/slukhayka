@@ -13,7 +13,8 @@
  * degrade to `{ok:false}` with an honest reason — never fabricated data.
  */
 import { mayFetch, REGISTRY, sourceEntry, type SourceEntry } from './registry'
-import type { CatalogCard } from './types'
+import type { CatalogCard, SourceId } from './types'
+import { mergeWorkFeed } from './workFeed'
 
 const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8' }
 const MAX_REDIRECTS = 3
@@ -83,6 +84,27 @@ export default {
 
     if (pathname === '/api/sources') {
       return ok(Object.entries(REGISTRY).map(([id, entry]) => ({ id, displayName: entry.adapter.displayName })))
+    }
+
+    // #458: one bounded Work page. We ask each available adapter for its
+    // front page best-effort; a failed adapter simply contributes no cards.
+    // The optional source filter reuses this exact Work contract.
+    if (pathname === '/api/work-feed') {
+      const requestedSource = searchParams.get('source')?.trim() ?? ''
+      if (requestedSource && !sourceEntry(requestedSource)) return fail(`unknown source: ${requestedSource}`)
+      const cursor = Number.parseInt(searchParams.get('cursor') ?? '0', 10)
+      const entries = Object.entries(REGISTRY).filter(([id]) => !requestedSource || id === requestedSource)
+      const settled = await Promise.allSettled(entries.map(async ([id, entry]) => {
+        const pageUrl = entry.adapter.baseUrl
+        const html = await guardedFetchText(entry, pageUrl, pageUrl)
+        if (html === null) return { sourceId: id as SourceId, cards: [] as CatalogCard[] }
+        const parsed = entry.adapter.parseCatalog(html, pageUrl)
+        return { sourceId: id as SourceId, cards: parsed?.sections.flatMap((section) => section.cards) ?? [] }
+      }))
+      const sources = settled
+        .filter((result): result is PromiseFulfilledResult<{ sourceId: SourceId; cards: CatalogCard[] }> => result.status === 'fulfilled')
+        .map((result) => result.value)
+      return ok(mergeWorkFeed(sources, Number.isFinite(cursor) ? cursor : 0))
     }
 
     if (pathname === '/api/search' || pathname === '/api/search-all') {

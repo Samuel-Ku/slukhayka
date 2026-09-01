@@ -28,10 +28,12 @@ v1.3.7 має залишатися невеликим стабілізаційн
    content hashes і завершені розділи не змінюються. Невдала офлайн-спроба
    4read ставить решту черги на паузу; наступна явна спроба добирає невдалі
    розділи після browser refresh.
-5. First-party cookies зберігаються локально в окремому source-scoped browser
-   snapshot. Перед входом в інший Source глобальна cookie-банка очищується;
-   cookie ніколи не потрапляє в Room, shared profile, логи або запит на інший
-   хост. 4read/reasd audio-запити можуть отримати власну cookie лише через
+5. First-party cookies залишаються лише у власній durable cookie-банці
+   WebView: не копіюються між Source/host, не серіалізуються в preferences і
+   не потрапляють у Room, shared profile, логи, backup чи sync. Тому вже
+   пройдена сесія може відкрити інший список того самого Source після
+   перезапуску. Слухач може явно очистити лише allowlisted hosts одного
+   Source; 4read/reasd audio-запити можуть отримати власну cookie лише через
    scoped `DownloadPolicy`.
 
 ## Наслідки

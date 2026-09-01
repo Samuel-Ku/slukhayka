@@ -63,9 +63,11 @@ import com.slukhayka.audiobooks.ui.theme.*
  * carry refuses honestly instead of silently going direct); third-party
  * cookies are rejected; geolocation is hard-off with prompt-deny; the
  * sensor/geolocation JS-API surface is removed by a document-start lockdown
- * script; entering a source purges stored cookies so two sources' sessions
- * never coexist (per-source isolation). No configured route = exactly the
- * pre-spec behaviour («прямо», system defaults).
+ * script; WebView's persistent first-party jar is left intact across source
+ * entries and app restarts. CookieManager applies host/origin isolation, so
+ * this screen never copies a Source cookie to another source or serializes it
+ * into app preferences. No configured route = exactly the pre-spec behaviour
+ * («прямо», system defaults).
  */
 @SuppressLint("SetJavaScriptEnabled")
 @OptIn(ExperimentalMaterial3Api::class)
@@ -112,6 +114,7 @@ fun WebSourceBrowserScreen(
     var repairUrl by remember { mutableStateOf("") }
     var repairAudioUrls by remember { mutableStateOf(emptyList<String>()) }
     var showRepairConfirmation by remember { mutableStateOf(false) }
+    var showClearSessionConfirmation by remember(sourceId) { mutableStateOf(false) }
     val actionLabels = webSourceBrowserActionLabels(
         context = context,
         sourceName = displayName,
@@ -549,6 +552,37 @@ fun WebSourceBrowserScreen(
                     )
                 }
 
+                // The session remains available for future cards from this
+                // Source. Clearing it is explicit and only expires cookies
+                // belonging to this Source's allowlisted hosts.
+                TextButton(
+                    onClick = { showClearSessionConfirmation = true },
+                    modifier = Modifier.align(Alignment.End)
+                ) {
+                    Text("Очистити сесію $displayName")
+                }
+
+                if (showClearSessionConfirmation) {
+                    AlertDialog(
+                        onDismissRequest = { showClearSessionConfirmation = false },
+                        title = { Text("Очистити сесію $displayName?") },
+                        text = {
+                            Text("Потрібно буде знову увійти або пройти перевірку лише для цього джерела. Сесії інших джерел залишаться.")
+                        },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                SourceWebViewSession.clear(sourceId)
+                                showClearSessionConfirmation = false
+                                webViewInstance?.clearHistory()
+                                webViewInstance?.loadUrl(homeUrl)
+                            }) { Text("Очистити") }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showClearSessionConfirmation = false }) { Text("Скасувати") }
+                        }
+                    )
+                }
+
                 if (showRepairConfirmation && structureMismatch != null) {
                     val mismatch = requireNotNull(structureMismatch)
                     AlertDialog(
@@ -739,23 +773,12 @@ fun WebSourceBrowserScreen(
             AndroidView(
                 factory = { ctx ->
                     WebView(ctx).apply {
-                        // Keep first-party cookies per source across closing
-                        // and reopening the browser, while purging the global
-                        // jar before restoring this source's own snapshot.
-                        // No third-party cookie is persisted or restored.
+                        // CookieManager owns the durable first-party session.
+                        // Do not purge the jar or copy its header into
+                        // preferences: both force another challenge and can
+                        // leak session material outside the browser store.
                         val cookieManager = android.webkit.CookieManager.getInstance()
-                        val savedCookies = sessionPrefs.getString("cookies_$sourceId", null)
-                        cookieManager.removeAllCookies {
-                            if (!savedCookies.isNullOrBlank()) {
-                                savedCookies.split(';')
-                                    .map(String::trim)
-                                    .filter(String::isNotBlank)
-                                    .forEach { cookie -> cookieManager.setCookie(homeUrl, cookie) }
-                            }
-                            cookieManager.flush()
-                            post { loadUrl(homeUrl) }
-                        }
-                        android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(this@apply, false)
+                        cookieManager.setAcceptThirdPartyCookies(this@apply, false)
                         settings.apply {
                             javaScriptEnabled = true
                             domStorageEnabled = true
@@ -1021,14 +1044,11 @@ fun WebSourceBrowserScreen(
                 } catch (_: Exception) {}
             }
             webViewInstance = null
-            // Spec-38 T3 session hygiene: persist only this source's
-            // first-party cookie header. The next source entry purges the
-            // global jar before restoring its own snapshot.
+            // Persist WebView's own first-party jar. Cookie values never
+            // leave CookieManager for preferences, Room, diagnostics, logs,
+            // shared metadata, backup or sync payloads.
             runCatching {
                 val cookieManager = android.webkit.CookieManager.getInstance()
-                cookieManager.getCookie(homeUrl)?.takeIf { it.isNotBlank() }?.let { cookies ->
-                    sessionPrefs.edit().putString("cookies_$sourceId", cookies).apply()
-                }
                 cookieManager.flush()
                 sessionPrefs.edit().putBoolean("4read_method_notice_seen", true).apply()
             }

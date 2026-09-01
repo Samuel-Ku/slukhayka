@@ -264,7 +264,7 @@ export function App({ profile: initialProfile }: { profile: ListenerProfile | nu
         ) : tab === 'listen' ? (
           <Stub title="Продовження слухання" what="Оберіть книгу в Огляді й натисніть ▶ на розділі." />
         ) : tab === 'catalog' ? (
-          <Catalog onOpenBook={(url, source) => setBook({ url, source })} />
+          <Catalog onOpenBook={(url, source) => setBook({ url, source })} onPlay={handlePlay} />
         ) : (
           <Profile profile={profile} onProfileChange={setProfile} />
         )}

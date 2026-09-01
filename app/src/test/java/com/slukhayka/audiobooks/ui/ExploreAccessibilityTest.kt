@@ -61,6 +61,7 @@ import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
 import com.slukhayka.audiobooks.ui.components.accessibilityModalBackground
 import com.slukhayka.audiobooks.ui.catalog.CatalogCardAction
 import com.slukhayka.audiobooks.ui.catalog.CatalogCardActionState
+import com.slukhayka.audiobooks.ui.catalog.CatalogBrowserFocusReturn
 import com.slukhayka.audiobooks.ui.catalog.CatalogCardTarget
 import org.junit.Rule
 import org.junit.Test
@@ -170,6 +171,38 @@ class ExploreAccessibilityTest {
             .assertIsDisplayed()
             .performClick()
         org.junit.Assert.assertEquals(1, opens)
+    }
+
+    @Test
+    fun browserRequiredCardRestoresFocusToWebsiteActionAfterBrowserClose() {
+        val target = CatalogCardTarget(result.key, result.title, cardKey = result.key)
+        val source = SourceEntity(
+            id = "4read-edition",
+            bookId = result.key,
+            editionId = "edition",
+            type = "4read",
+            url = "https://example.invalid/session"
+        )
+        CatalogBrowserFocusReturn.remember(result.key)
+        CatalogBrowserFocusReturn.publishAfterBrowserClose()
+
+        compose.setContent {
+            AudiobookTheme(darkTheme = true) {
+                GlobalSearchResultCard(
+                    result = result,
+                    onClick = {},
+                    actionState = CatalogCardActionState.BrowserRequired(
+                        target,
+                        CatalogCardAction.PLAY,
+                        source
+                    )
+                )
+            }
+        }
+
+        compose.waitForIdle()
+        compose.onNodeWithTag("catalog_card_open_browser_${result.key}").assertIsFocused()
+        CatalogBrowserFocusReturn.consume(result.key)
     }
 
     @Test

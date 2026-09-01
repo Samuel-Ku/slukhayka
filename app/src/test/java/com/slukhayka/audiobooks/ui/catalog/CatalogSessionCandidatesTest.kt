@@ -38,4 +38,23 @@ class CatalogSessionCandidatesTest {
             candidates.map { it.category }
         )
     }
+
+    @Test
+    fun `one durable source session is reusable for two books then expiry restores browser door`() {
+        val firstBook = source.copy(id = "sluhay-first", bookId = "work-1", url = "https://sluhay.com/first")
+        val secondBook = source.copy(id = "sluhay-second", bookId = "work-2", url = "https://sluhay.com/second")
+
+        assertEquals(
+            listOf(SourceSelectionCoordinator.SourceCategory.UNKNOWN, SourceSelectionCoordinator.SourceCategory.BROWSER),
+            catalogSessionCandidates(firstBook, SourceAccessMode.BROWSER, true).map { it.category }
+        )
+        assertEquals(
+            listOf(SourceSelectionCoordinator.SourceCategory.UNKNOWN, SourceSelectionCoordinator.SourceCategory.BROWSER),
+            catalogSessionCandidates(secondBook, SourceAccessMode.BROWSER, true).map { it.category }
+        )
+        assertEquals(
+            listOf(SourceSelectionCoordinator.SourceCategory.BROWSER),
+            catalogSessionCandidates(secondBook, SourceAccessMode.BROWSER, false).map { it.category }
+        )
+    }
 }

@@ -3,6 +3,7 @@ package com.slukhayka.audiobooks.ui.screens
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,8 +28,13 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -46,6 +52,7 @@ import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.catalog.CatalogCardAction
 import com.slukhayka.audiobooks.ui.catalog.CatalogCardActionState
+import com.slukhayka.audiobooks.ui.catalog.CatalogBrowserFocusReturn
 import com.slukhayka.audiobooks.ui.components.BookCoverSemantics
 import com.slukhayka.audiobooks.ui.theme.AppBadgeScrim
 import com.slukhayka.audiobooks.ui.theme.AppBadgeScrimBorder
@@ -381,8 +388,25 @@ internal fun CatalogCardStatus(
         if (state is CatalogCardActionState.BrowserRequired) {
             TextButton(
                 onClick = onOpenBrowser,
-                modifier = Modifier.testTag("catalog_card_open_browser_$cardKey")
+                modifier = catalogBrowserReturnFocusModifier(cardKey)
+                    .testTag("catalog_card_open_browser_$cardKey")
             ) { Text(stringResource(R.string.catalog_card_open_browser)) }
         }
+    }
+}
+
+@Composable
+internal fun catalogBrowserReturnFocusModifier(cardKey: String): Modifier {
+    val returnCardKey by CatalogBrowserFocusReturn.returnCardKey.collectAsState()
+    val requester = remember(cardKey) { FocusRequester() }
+    LaunchedEffect(returnCardKey) {
+        if (returnCardKey == cardKey && runCatching { requester.requestFocus() }.getOrDefault(false)) {
+            CatalogBrowserFocusReturn.consume(cardKey)
+        }
+    }
+    return if (returnCardKey == cardKey) {
+        Modifier.focusRequester(requester).focusable()
+    } else {
+        Modifier
     }
 }

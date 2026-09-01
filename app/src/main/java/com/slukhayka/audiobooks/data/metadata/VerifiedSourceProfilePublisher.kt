@@ -1,5 +1,6 @@
 package com.slukhayka.audiobooks.data.metadata
 
+import com.slukhayka.audiobooks.data.catalog.CatalogAvailabilityPolicy
 import com.slukhayka.audiobooks.data.source.SourceAccessCandidate
 import com.slukhayka.audiobooks.data.source.headersFor
 
@@ -22,11 +23,10 @@ data class VerifiedSourceProfile(
 enum class ProfilePublication { PUBLISHED, LOCAL_ONLY }
 
 object VerifiedSourceProfileFreshness {
-    const val FRESHNESS_MILLIS = 24L * 60 * 60 * 1_000
+    const val FRESHNESS_MILLIS = CatalogAvailabilityPolicy.VERIFIED_PROFILE_TTL_MS
 
     fun isFresh(resolvedAtMillis: Long, nowMillis: Long): Boolean =
-        resolvedAtMillis >= 0L && nowMillis >= resolvedAtMillis &&
-            nowMillis - resolvedAtMillis < FRESHNESS_MILLIS
+        CatalogAvailabilityPolicy.isVerifiedProfileFresh(resolvedAtMillis, nowMillis)
 }
 
 sealed interface VerifiedProfileReadOutcome {

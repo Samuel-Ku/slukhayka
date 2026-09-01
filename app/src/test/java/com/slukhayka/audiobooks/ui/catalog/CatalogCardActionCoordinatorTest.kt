@@ -4,6 +4,7 @@ import com.slukhayka.audiobooks.data.db.SourceEntity
 import com.slukhayka.audiobooks.data.source.SourceSelectionCoordinator
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -167,9 +168,14 @@ class CatalogCardActionCoordinatorTest {
     }
 
     @Test
-    fun `failed first Source falls back inside the same Edition`() = runTest {
+    fun `same Edition playback races two Sources and first playing cancels sibling`() = runTest {
         val attempted = mutableListOf<String>()
         val availability = mutableListOf<Boolean>()
+        val bothStarted = CompletableDeferred<Unit>()
+        val winnerMayFinish = CompletableDeferred<Unit>()
+        var active = 0
+        var maxActive = 0
+        var loserCancelled = false
         val first = directSource("a-first")
         val second = directSource("b-second").copy(
             source = directSource("b-second").source.copy(
@@ -183,7 +189,21 @@ class CatalogCardActionCoordinatorTest {
             override suspend fun open(book: String): Boolean = true
             override suspend fun play(book: String, source: SourceEntity?): Boolean {
                 attempted += source?.id.orEmpty()
-                return source?.id == "b-second"
+                active += 1
+                maxActive = maxOf(maxActive, active)
+                if (active == 2) bothStarted.complete(Unit)
+                return try {
+                    bothStarted.await()
+                    if (source?.id == "b-second") {
+                        winnerMayFinish.await()
+                        true
+                    } else {
+                        awaitCancellation()
+                    }
+                } finally {
+                    active -= 1
+                    if (source?.id == "a-first") loserCancelled = true
+                }
             }
             override suspend fun recordAvailability(book: String, available: Boolean) {
                 availability += available
@@ -192,9 +212,14 @@ class CatalogCardActionCoordinatorTest {
         val coordinator = CatalogCardActionCoordinator(this, gateway, successfulProbe)
 
         coordinator.start(CatalogCardTarget("work-1", "Книга"), CatalogCardAction.PLAY)
+        runCurrent()
+        bothStarted.await()
+        winnerMayFinish.complete(Unit)
         advanceUntilIdle()
 
         assertEquals(listOf("a-first", "b-second"), attempted)
+        assertEquals(2, maxActive)
+        assertTrue(loserCancelled)
         assertEquals(listOf(true), availability)
         assertTrue(coordinator.state.value is CatalogCardActionState.Completed)
     }

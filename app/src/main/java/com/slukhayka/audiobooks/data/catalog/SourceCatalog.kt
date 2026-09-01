@@ -614,7 +614,11 @@ class SourceCatalog(
     ) {
         val edition = dao.getEditionForWork(book.id) ?: return
         val domainWorkId = book.workId?.takeIf(String::isNotBlank) ?: book.id
-        val ttlSeconds = if (available) 6L * 60 * 60 else 15L * 60
+        val ttlSeconds = if (available) {
+            CatalogAvailabilityPolicy.POSITIVE_TTL_MS / 1_000L
+        } else {
+            CatalogAvailabilityPolicy.NEGATIVE_TTL_MS / 1_000L
+        }
         facetWriter.apply(
             listOf(
                 LocalFacetDelta(
@@ -1140,26 +1144,22 @@ class SourceCatalog(
 
     /** Endless feed, newest Works first. */
     fun pagedWorkFeedRecent(
-        filter: WorkFacetFilter = WorkFacetFilter(),
-        availabilityAtMillis: Long = System.currentTimeMillis()
+        filter: WorkFacetFilter = WorkFacetFilter()
     ): PagingSource<Int, WorkFeedRow> =
         dao.pagedWorksFeedRecent(
             filter.genreIds.toList(), if (filter.genreIds.isEmpty()) 0 else 1,
             filter.durationBucketIds.toList(), if (filter.durationBucketIds.isEmpty()) 0 else 1,
-            filter.authorIds.toList(), if (filter.authorIds.isEmpty()) 0 else 1,
-            availabilityAtMillis
+            filter.authorIds.toList(), if (filter.authorIds.isEmpty()) 0 else 1
         )
 
     /** Endless feed, sorted by title (stable tiebreak: newest first). */
     fun pagedWorkFeedByTitle(
-        filter: WorkFacetFilter = WorkFacetFilter(),
-        availabilityAtMillis: Long = System.currentTimeMillis()
+        filter: WorkFacetFilter = WorkFacetFilter()
     ): PagingSource<Int, WorkFeedRow> =
         dao.pagedWorksFeedByTitle(
             filter.genreIds.toList(), if (filter.genreIds.isEmpty()) 0 else 1,
             filter.durationBucketIds.toList(), if (filter.durationBucketIds.isEmpty()) 0 else 1,
-            filter.authorIds.toList(), if (filter.authorIds.isEmpty()) 0 else 1,
-            availabilityAtMillis
+            filter.authorIds.toList(), if (filter.authorIds.isEmpty()) 0 else 1
         )
 
     /** The Sources carrying one Work, in the shared capability order. */
@@ -1194,6 +1194,10 @@ class SourceCatalog(
         val edition = editionId?.let { dao.getEditionById(it) } ?: return null
         return dao.getAudiobookById(edition.workId)?.toAudiobookEntity()
     }
+
+    /** Physical Sources whose persisted provenance explicitly names one Edition. */
+    suspend fun editionSources(editionId: String): List<SourceEntity> =
+        dao.getSourcesForEditionSync(editionId)
 
     /**
      * The imported rendition this Work should resume. A real Listening State

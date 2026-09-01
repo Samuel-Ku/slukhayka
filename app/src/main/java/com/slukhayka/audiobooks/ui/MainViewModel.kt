@@ -26,6 +26,7 @@ import com.slukhayka.audiobooks.data.universe.SeriesUniverseContext
 import com.slukhayka.audiobooks.data.universe.SeriesUniverses
 import com.slukhayka.audiobooks.data.update.UpdateChecker
 import com.slukhayka.audiobooks.data.catalog.SourceCatalog
+import com.slukhayka.audiobooks.data.catalog.CatalogAvailabilityPolicy
 import com.slukhayka.audiobooks.data.downloads.OfflineDownloads
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
 import com.slukhayka.audiobooks.data.imports.KnownBookIdentity
@@ -71,6 +72,7 @@ import com.slukhayka.audiobooks.ui.catalog.CatalogCardActionState
 import com.slukhayka.audiobooks.ui.catalog.CatalogCardSource
 import com.slukhayka.audiobooks.ui.catalog.editionScopedCatalogSources
 import com.slukhayka.audiobooks.ui.catalog.CatalogCardTarget
+import com.slukhayka.audiobooks.ui.catalog.CatalogBrowserFocusReturn
 import com.slukhayka.audiobooks.ui.catalog.MediaRangeValidator
 import com.slukhayka.audiobooks.ui.catalog.catalogSessionCandidates
 import kotlinx.coroutines.CancellationException
@@ -284,6 +286,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             override suspend fun sourceCandidates(target: CatalogCardTarget) =
                 catalogSourceCandidates(target)
 
+            override suspend fun sourceCandidates(
+                target: CatalogCardTarget,
+                savedBook: AudiobookEntity?
+            ): List<SourceSelectionCoordinator.SourceCandidate> {
+                val savedEditionId = savedBook?.let { editionIdForBook(it.id) }
+                return catalogSourceCandidates(
+                    if (savedEditionId.isNullOrBlank()) target
+                    else target.copy(preferredEditionId = savedEditionId)
+                )
+            }
+
             override suspend fun import(
                 target: CatalogCardTarget,
                 source: SourceEntity
@@ -328,7 +341,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val catalogCardActionState: StateFlow<CatalogCardActionState> = catalogCardCoordinator.state
     private val catalogPreflightKeys = ConcurrentHashMap.newKeySet<String>()
     private val catalogPreflightSlots = Semaphore(
-        com.slukhayka.audiobooks.ui.catalog.CatalogAvailabilityPolicy.MAX_PARALLEL_SOURCES
+        CatalogAvailabilityPolicy.MAX_PARALLEL_SOURCES
     )
 
     // Spec-27 (#184) BUG-001: the raw byte count feeds the confirm dialog's
@@ -550,6 +563,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun closeWebSource() {
         _selectedWebSource.value = null
+        CatalogBrowserFocusReturn.publishAfterBrowserClose()
         // Spec-13 T4: returning from the browser surface may have refreshed the
         // Cloudflare session — re-hydrate the session-bound feeds («Нове з
         // Sluhay») immediately so a fresh challenge shows the row, not the CTA.
@@ -574,6 +588,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun openCatalogBrowserRequired() {
         val required = catalogCardActionState.value as? CatalogCardActionState.BrowserRequired
             ?: return
+        if (browserDestinationFor(com.slukhayka.audiobooks.BuildConfig.DEBUG, required.source.type) == BrowserDestination.IN_APP_BROWSER) {
+            CatalogBrowserFocusReturn.remember(required.target.cardKey)
+        }
         openWebSource(
             sourceId = required.source.type,
             homeUrl = required.source.url,
@@ -1534,34 +1551,49 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private suspend fun catalogSourceCandidates(
         target: CatalogCardTarget
-    ): List<SourceSelectionCoordinator.SourceCandidate> =
-        editionScopedCatalogSources(target.preferredEditionId, if (target.sources.isNotEmpty()) {
-            target.sources
-        } else {
-            sourceCatalog.workSourcesForWork(target.workId).map { source ->
-                CatalogCardSource(
-                    sourceId = source.sourceId,
-                    url = source.sourceUrl,
-                    editionId = target.preferredEditionId,
-                    streamOnly = source.streamOnly
+    ): List<SourceSelectionCoordinator.SourceCandidate> {
+        val persistedEditionSources = target.preferredEditionId
+            ?.takeIf(String::isNotBlank)
+            ?.let { sourceCatalog.editionSources(it) }
+            .orEmpty()
+        val entities = when {
+            persistedEditionSources.isNotEmpty() -> persistedEditionSources
+            else -> editionScopedCatalogSources(
+                target.preferredEditionId,
+                if (target.sources.isNotEmpty()) {
+                    target.sources
+                } else {
+                    sourceCatalog.workSourcesForWork(target.workId).map { source ->
+                        CatalogCardSource(
+                            sourceId = source.sourceId,
+                            url = source.sourceUrl,
+                            streamOnly = source.streamOnly
+                        )
+                    }
+                }
+            ).mapIndexed { index, source ->
+                SourceEntity(
+                    id = "${target.cardKey}|${source.sourceId}|$index",
+                    bookId = target.workId,
+                    // Never manufacture Edition provenance for a Work-level
+                    // browse row. Only adapters/search or persisted Source
+                    // rows may assert that two URLs carry one narration.
+                    editionId = source.editionId,
+                    type = source.sourceId,
+                    url = source.url,
+                    streamOnly = source.streamOnly,
+                    addedAt = index.toLong()
                 )
             }
-        }).flatMapIndexed { index, source ->
-            val entity = SourceEntity(
-                id = "${target.cardKey}|${source.sourceId}|$index",
-                bookId = target.workId,
-                editionId = source.editionId ?: target.preferredEditionId ?: "catalog:${target.workId}",
-                type = source.sourceId,
-                url = source.url,
-                streamOnly = source.streamOnly,
-                addedAt = index.toLong()
-            )
+        }
+        return entities.flatMap { entity ->
             catalogSessionCandidates(
                 source = entity,
-                mode = SourceAccessPolicy.modeFor(source.sourceId),
-                hasFirstPartySession = AndroidSourceCookieProvider.cookieFor(source.url).isNotBlank()
+                mode = SourceAccessPolicy.modeFor(entity.type),
+                hasFirstPartySession = AndroidSourceCookieProvider.cookieFor(entity.url).isNotBlank()
             )
         }
+    }
 
     /**
      * Compose creates only visible Lazy items plus its bounded look-ahead.
@@ -1589,7 +1621,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 AndroidSourceCookieProvider.cookieFor(candidate.source.url).isNotBlank())
                     }
                     .distinctBy { it.source.type to it.source.url }
-                    .take(com.slukhayka.audiobooks.ui.catalog.CatalogAvailabilityPolicy.MAX_PARALLEL_SOURCES)
+                    .take(CatalogAvailabilityPolicy.MAX_PARALLEL_SOURCES)
                     .map { candidate ->
                         async {
                             catalogPreflightSlots.withPermit {
@@ -1612,7 +1644,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (!preflightCatalogMedia(book, preferredSource)) return@coroutineScope false
         val before = playerState.value
         val verdict = async(start = CoroutineStart.UNDISPATCHED) {
-            withTimeoutOrNull(50_000L) {
+            withTimeoutOrNull(CatalogAvailabilityPolicy.SOURCE_BUDGET_MS) {
                 playerState
                     .dropWhile { it == before }
                     .first { state ->
@@ -1645,7 +1677,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private suspend fun validateCatalogMediaRange(url: String, sourceId: String): Boolean =
         withContext(Dispatchers.IO) {
             if (url.isBlank()) return@withContext false
-            withTimeoutOrNull(com.slukhayka.audiobooks.ui.catalog.CatalogAvailabilityPolicy.SOURCE_BUDGET_MS) {
+            withTimeoutOrNull(CatalogAvailabilityPolicy.SOURCE_BUDGET_MS) {
                 val response = HttpFetcher()
                     // CookieManager is consulted just-in-time for this exact
                     // first-party host; no cookie value leaves request memory.

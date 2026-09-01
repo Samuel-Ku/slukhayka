@@ -1,5 +1,6 @@
 package com.slukhayka.audiobooks.ui.catalog
 
+import com.slukhayka.audiobooks.data.catalog.CatalogAvailabilityPolicy
 import com.slukhayka.audiobooks.data.db.SourceEntity
 import com.slukhayka.audiobooks.data.source.SourceSelectionCoordinator
 import kotlinx.coroutines.CancellationException
@@ -9,6 +10,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
 enum class CatalogCardAction { OPEN, PLAY }
@@ -89,6 +92,10 @@ interface CatalogCardActionGateway<Book> {
     /** The imported rendition carrying the most relevant Listening State, when present. */
     suspend fun savedBook(target: CatalogCardTarget): Book?
     suspend fun sourceCandidates(target: CatalogCardTarget): List<SourceSelectionCoordinator.SourceCandidate>
+    suspend fun sourceCandidates(
+        target: CatalogCardTarget,
+        savedBook: Book?
+    ): List<SourceSelectionCoordinator.SourceCandidate> = sourceCandidates(target)
     suspend fun import(target: CatalogCardTarget, source: SourceEntity): Book?
     suspend fun open(book: Book): Boolean
     suspend fun play(book: Book, source: SourceEntity?): Boolean
@@ -129,7 +136,7 @@ class CatalogCardActionCoordinator<Book>(
                 }
 
                 val candidates = try {
-                    gateway.sourceCandidates(target)
+                    gateway.sourceCandidates(target, saved)
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (_: Exception) {
@@ -144,9 +151,97 @@ class CatalogCardActionCoordinator<Book>(
                     failIfCurrent(requestGeneration, target, action, CatalogCardFailure.EMPTY_SOURCES)
                     return@launch
                 }
+                var lastFailure = CatalogCardFailure.RESOLVE_FAILED
+
+                if (action == CatalogCardAction.PLAY) {
+                    val browserFallback = candidates.firstOrNull {
+                        it.category == SourceSelectionCoordinator.SourceCategory.BROWSER
+                    }
+                    val automatic = candidates.filterNot {
+                        it.category == SourceSelectionCoordinator.SourceCategory.BROWSER
+                    }
+                    val preferredEdition = target.preferredEditionId
+                        ?.takeIf(String::isNotBlank)
+                        ?.takeIf { edition -> automatic.any { it.source.editionId == edition } }
+                    val assertedEdition = preferredEdition ?: automatic
+                        .mapNotNull { it.source.editionId?.takeIf(String::isNotBlank) }
+                        .firstOrNull()
+                    val eligible = if (assertedEdition != null) {
+                        automatic.filter { it.source.editionId == assertedEdition }
+                    } else {
+                        // Browse-layer work_sources carry Work provenance only.
+                        // Without an asserted Edition, trying a second row could
+                        // silently switch narration, so only the ordered leader
+                        // participates in this action.
+                        automatic.take(1)
+                    }.take(CatalogAvailabilityPolicy.MAX_PARALLEL_SOURCES)
+
+                    if (eligible.isNotEmpty()) {
+                        val raceEdition = assertedEdition ?: "catalog-single:${eligible.first().source.id}"
+                        val byId = eligible.associateBy { it.source.id }
+                        val importedBooks = ConcurrentHashMap<String, Book>()
+                        val sawImportedBook = AtomicBoolean(false)
+                        val raceResult = BoundedEditionPlaybackRace(budgetMs).race(
+                            selectedEditionId = raceEdition,
+                            candidates = eligible.map { candidate ->
+                                EditionSourceCandidate(
+                                    sourceId = candidate.source.id,
+                                    editionId = candidate.source.editionId ?: raceEdition,
+                                    url = candidate.source.url
+                                )
+                            }
+                        ) { raceCandidate ->
+                            val candidate = byId.getValue(raceCandidate.sourceId)
+                            val imported = try {
+                                gateway.import(target, candidate.source)
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (_: Exception) {
+                                null
+                            } ?: return@race SourceAttemptVerdict.TEMPORARY_FAILURE
+                            if (!isCurrent(requestGeneration)) {
+                                return@race SourceAttemptVerdict.TEMPORARY_FAILURE
+                            }
+                            importedBooks[raceCandidate.sourceId] = imported
+                            sawImportedBook.set(true)
+                            if (gateway.play(imported, candidate.source)) {
+                                SourceAttemptVerdict.PLAYING
+                            } else {
+                                SourceAttemptVerdict.TEMPORARY_FAILURE
+                            }
+                        }
+                        if (!isCurrent(requestGeneration)) return@launch
+                        if (raceResult.verdict == SourceAttemptVerdict.PLAYING) {
+                            val winningBook = raceResult.source?.sourceId?.let(importedBooks::get)
+                            if (winningBook != null) {
+                                runCatching { gateway.recordAvailability(winningBook, true) }
+                            }
+                            _state.value = CatalogCardActionState.Completed(target, action)
+                            return@launch
+                        }
+                        lastPlayableBook = importedBooks.values.firstOrNull() ?: lastPlayableBook
+                        lastFailure = if (sawImportedBook.get()) {
+                            CatalogCardFailure.ACTION_FAILED
+                        } else {
+                            CatalogCardFailure.IMPORT_FAILED
+                        }
+                    }
+                    if (browserFallback != null && isCurrent(requestGeneration)) {
+                        _state.value = CatalogCardActionState.BrowserRequired(
+                            target,
+                            action,
+                            browserFallback.source
+                        )
+                        return@launch
+                    }
+                    if (lastPlayableBook != null) {
+                        runCatching { gateway.recordAvailability(lastPlayableBook, false) }
+                    }
+                    failIfCurrent(requestGeneration, target, action, lastFailure)
+                    return@launch
+                }
 
                 val remaining = candidates.toMutableList()
-                var lastFailure = CatalogCardFailure.RESOLVE_FAILED
                 while (remaining.isNotEmpty() && isCurrent(requestGeneration)) {
                     when (val selection = SourceSelectionCoordinator.select(
                         operation = SourceSelectionCoordinator.OperationKind.PLAYBACK,

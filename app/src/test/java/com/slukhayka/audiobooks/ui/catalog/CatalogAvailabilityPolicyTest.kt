@@ -1,7 +1,9 @@
 package com.slukhayka.audiobooks.ui.catalog
 
+import com.slukhayka.audiobooks.data.catalog.CatalogAvailabilityPolicy
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.async
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -36,25 +38,27 @@ class CatalogAvailabilityPolicyTest {
             EditionSourceCandidate("other-narration", "edition-2")
         )
 
-        val result = BoundedEditionPlaybackRace(this).race(
-            selectedEditionId = "edition-1",
-            candidates = candidates
-        ) { source ->
-            attempts += source.sourceId
-            when (source.sourceId) {
-                "source-a" -> {
-                    try {
-                        firstGate.await()
-                        SourceAttemptVerdict.TEMPORARY_FAILURE
-                    } finally {
-                        cancelledSibling = true
+        val result = async {
+            BoundedEditionPlaybackRace().race(
+                selectedEditionId = "edition-1",
+                candidates = candidates
+            ) { source ->
+                attempts += source.sourceId
+                when (source.sourceId) {
+                    "source-a" -> {
+                        try {
+                            firstGate.await()
+                            SourceAttemptVerdict.TEMPORARY_FAILURE
+                        } finally {
+                            cancelledSibling = true
+                        }
                     }
+                    "source-b" -> {
+                        secondGate.await()
+                        SourceAttemptVerdict.PLAYING
+                    }
+                    else -> error("cross-Edition fallback")
                 }
-                "source-b" -> {
-                    secondGate.await()
-                    SourceAttemptVerdict.PLAYING
-                }
-                else -> error("cross-Edition fallback")
             }
         }
         // The race is suspended; both and only same-Edition attempts started.
@@ -72,21 +76,23 @@ class CatalogAvailabilityPolicyTest {
     fun `late cancellation-ignoring attempt cannot replace first success`() = runTest {
         val lateGate = CompletableDeferred<Unit>()
         val fastGate = CompletableDeferred<Unit>()
-        val result = BoundedEditionPlaybackRace(this).race(
-            selectedEditionId = "edition-1",
-            candidates = listOf(
-                EditionSourceCandidate("late", "edition-1"),
-                EditionSourceCandidate("fast", "edition-1")
-            )
-        ) { source ->
-            if (source.sourceId == "late") {
-                withContext(NonCancellable) {
-                    lateGate.await()
+        val result = async {
+            BoundedEditionPlaybackRace().race(
+                selectedEditionId = "edition-1",
+                candidates = listOf(
+                    EditionSourceCandidate("late", "edition-1"),
+                    EditionSourceCandidate("fast", "edition-1")
+                )
+            ) { source ->
+                if (source.sourceId == "late") {
+                    withContext(NonCancellable) {
+                        lateGate.await()
+                        SourceAttemptVerdict.PLAYING
+                    }
+                } else {
+                    fastGate.await()
                     SourceAttemptVerdict.PLAYING
                 }
-            } else {
-                fastGate.await()
-                SourceAttemptVerdict.PLAYING
             }
         }
         runCurrent()

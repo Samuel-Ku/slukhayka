@@ -903,16 +903,14 @@ class FakeAudiobookDao(
     override fun pagedWorksFeedRecent(
         genreIds: List<String>, genreActive: Int,
         durationBucketIds: List<String>, durationActive: Int,
-        authorIds: List<String>, authorActive: Int,
-        availabilityAtMillis: Long
+        authorIds: List<String>, authorActive: Int
     ): PagingSource<Int, WorkFeedRow> =
         fakeFeed(genreIds, genreActive, durationBucketIds, durationActive, authorIds, authorActive, sortByTitle = false)
 
     override fun pagedWorksFeedByTitle(
         genreIds: List<String>, genreActive: Int,
         durationBucketIds: List<String>, durationActive: Int,
-        authorIds: List<String>, authorActive: Int,
-        availabilityAtMillis: Long
+        authorIds: List<String>, authorActive: Int
     ): PagingSource<Int, WorkFeedRow> =
         fakeFeed(genreIds, genreActive, durationBucketIds, durationActive, authorIds, authorActive, sortByTitle = true)
 

@@ -39,8 +39,10 @@ fun streamOnlyFor(sourceId: String): Boolean = when (sourceId) {
  * - `audiobookmp3`→ `Referer: https://audiobook-mp3.com/uk`
  * - `4read`        → `Referer: https://4read.org/` (its `s*.reasd.org`
  *   audio hosts reject both streaming and downloads with 403 without it)
- * - everything else → no extra headers (arch/sound-books serve plain GETs;
- *   SEC-004: never leak a Referer onto hosts that don't need one)
+ * - `soundbooks`   → `Referer: https://sound-books.net/` on its archive host
+ *   (the archive rejects playback and downloads with 403 without it)
+ * - everything else → no extra headers (SEC-004: never leak a Referer onto
+ *   hosts that don't need one)
  *
  * [streamUrl] scopes 4read's Referer to its own audio hosts so legacy tracks
  * on an external archive never receive it. Callers derive [sourceId] from the
@@ -56,6 +58,11 @@ fun headersFor(sourceId: String, streamUrl: String): Map<String, String> = when 
     "sluhay" -> mapOf("Referer" to "https://sluhay.com/")
     "sluhayknigi" -> mapOf("Referer" to "https://sluhayknigi.com/")
     "audiobookmp3" -> mapOf("Referer" to "https://audiobook-mp3.com/uk")
+    "soundbooks" -> if (isSoundBooksAudioHost(streamUrl)) {
+        mapOf("Referer" to "https://sound-books.net/")
+    } else {
+        emptyMap()
+    }
     else -> emptyMap()
 }
 
@@ -71,11 +78,16 @@ fun headersFor(sourceId: String, streamUrl: String, cookieHeader: String?): Map<
     }
 
 private fun isFourReadAudioHost(streamUrl: String): Boolean {
-    val host = try {
-        java.net.URI(streamUrl).host?.lowercase()
-    } catch (_: Exception) {
-        null
-    } ?: return false
+    val host = hostOf(streamUrl) ?: return false
     return host == "4read.org" || host.endsWith(".4read.org") ||
         host == "reasd.org" || host.endsWith(".reasd.org")
+}
+
+private fun isSoundBooksAudioHost(streamUrl: String): Boolean =
+    hostOf(streamUrl) == "arch.sound-books.net"
+
+private fun hostOf(streamUrl: String): String? = try {
+    java.net.URI(streamUrl).host?.lowercase()
+} catch (_: Exception) {
+    null
 }

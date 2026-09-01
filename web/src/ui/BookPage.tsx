@@ -20,20 +20,26 @@ export function BookPage({
 }) {
   const [detail, setDetail] = useState<BookDetail | null>(null)
   const [failed, setFailed] = useState(false)
+  const [showingCachedBook, setShowingCachedBook] = useState(false)
 
   useEffect(() => {
     let alive = true
     setDetail(null)
     setFailed(false)
+    setShowingCachedBook(false)
     api.book(source, url).then(async (result) => {
       if (!alive) return
       if (result === null) {
         const cached = await readWarm<BookDetail>(warmKey('book', source, url))
         if (!alive) return
         if (cached === null) setFailed(true)
-        else setDetail(cached)
+        else {
+          setDetail(cached)
+          setShowingCachedBook(true)
+        }
       } else {
         setDetail(result)
+        setShowingCachedBook(false)
         void writeWarm(warmKey('book', source, url), result)
       }
     })
@@ -48,6 +54,7 @@ export function BookPage({
   return (
     <article>
       <h1>{detail.title}</h1>
+      {showingCachedBook && <p className="notice" role="status" aria-live="polite">Показуємо збережені дані книги. Оновлення каталогу тимчасово недоступне.</p>}
       <p className="byline">
         {detail.author}
         {detail.narrator ? ` · читає ${detail.narrator}` : ''}

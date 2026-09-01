@@ -22,6 +22,8 @@ export function Catalog({ onOpenBook, onPlay }: {
   const [works, setWorks] = useState<UnifiedWork[] | null>(null)
   const [nextPageUrl, setNextPageUrl] = useState<string | null>(null)
   const [loadingMore, setLoadingMore] = useState(false)
+  const [appendError, setAppendError] = useState(false)
+  const [showingCachedCatalog, setShowingCachedCatalog] = useState(false)
   const [failed, setFailed] = useState(false)
   const [query, setQuery] = useState('')
   const [searchGroups, setSearchGroups] = useState<import('../api/client').SearchGroup[] | null>(null)
@@ -32,6 +34,8 @@ export function Catalog({ onOpenBook, onPlay }: {
     if (query.trim().length >= 2) return
     let alive = true
     setFailed(false)
+    setAppendError(false)
+    setShowingCachedCatalog(false)
     setWorks(null)
     setNextPageUrl(null)
     // The aggregate Work contract serves both the default feed and a
@@ -43,11 +47,15 @@ export function Catalog({ onOpenBook, onPlay }: {
           const cached = await readWarm<UnifiedWork[]>(warmKey('catalog', source))
           if (!alive) return
           if (cached === null) setFailed(true)
-          else setWorks(cached)
+          else {
+            setWorks(cached)
+            setShowingCachedCatalog(true)
+          }
           return
         }
         setWorks(page.works)
         setNextPageUrl(page.nextCursor ?? null)
+        setShowingCachedCatalog(false)
         void writeWarm(warmKey('catalog', source), page.works)
       })
       return () => { alive = false }
@@ -81,8 +89,12 @@ export function Catalog({ onOpenBook, onPlay }: {
   const loadMore = (): void => {
     if (!nextPageUrl || loadingMore || query.trim().length >= 2) return
     setLoadingMore(true)
+    setAppendError(false)
     api.workFeed(nextPageUrl, source === 'all' ? undefined : source).then((page) => {
-      if (page === null) return
+      if (page === null) {
+        setAppendError(true)
+        return
+      }
       setWorks((current) => appendWorks(current ?? [], page.works))
       setNextPageUrl(page.nextCursor ?? null)
     }).finally(() => setLoadingMore(false))
@@ -151,6 +163,7 @@ export function Catalog({ onOpenBook, onPlay }: {
       ) : (
         <section>
           <h2>{source === 'all' ? 'Усі джерела' : SOURCES.find((item) => item.id === source)?.label}</h2>
+          {showingCachedCatalog && <p className="notice" role="status" aria-live="polite">Показуємо останній збережений каталог. Оновлення тимчасово недоступне.</p>}
           <ul className="card-list">
             {works!.map((work) => <UnifiedWorkRow key={work.id} work={work} onOpenBook={onOpenBook} onPlay={onPlay} />)}
           </ul>
@@ -158,8 +171,9 @@ export function Catalog({ onOpenBook, onPlay }: {
       )}
       {query.trim().length < 2 && nextPageUrl && (
         <div ref={loadMoreMarker} style={{ padding: '16px 0', textAlign: 'center' }}>
+          {appendError && <p className="notice" role="status">Не вдалося оновити каталог. Уже завантажені книги залишилися тут.</p>}
           <button onClick={loadMore} disabled={loadingMore}>
-            {loadingMore ? 'Завантажуємо…' : 'Показати більше'}
+            {loadingMore ? 'Завантажуємо…' : appendError ? 'Спробувати ще раз' : 'Показати більше'}
           </button>
         </div>
       )}

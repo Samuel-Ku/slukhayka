@@ -51,6 +51,7 @@ class RoomAuthorIndex(
     private val backfillScope: CoroutineScope = BACKFILL_SCOPE
 ) : AuthorIndex {
     @Volatile private var backfillChecked = false
+    private val backfillMutex = Mutex()
 
     override val authors: Flow<List<AuthorSummary>> = flow {
         ensureBackfilled()
@@ -152,7 +153,7 @@ class RoomAuthorIndex(
 
     private suspend fun ensureBackfilled() {
         if (backfillChecked) return
-        val hasMore = BACKFILL_MUTEX.withLock {
+        val hasMore = backfillMutex.withLock {
             if (backfillChecked) return
             val page = dao.worksMissingCanonicalAuthor(BACKFILL_BATCH_SIZE)
             indexWorks(page, sourceId = "local-backfill")
@@ -166,7 +167,7 @@ class RoomAuthorIndex(
         }
     }
 
-    private suspend fun repairBackfillPage(): Boolean = BACKFILL_MUTEX.withLock {
+    private suspend fun repairBackfillPage(): Boolean = backfillMutex.withLock {
         val page = dao.worksMissingCanonicalAuthor(BACKFILL_BATCH_SIZE)
         indexWorks(page, sourceId = "local-backfill")
         page.size == BACKFILL_BATCH_SIZE
@@ -174,7 +175,6 @@ class RoomAuthorIndex(
 
     companion object {
         const val BACKFILL_BATCH_SIZE = AuthorIndex.MAX_INDEX_BATCH
-        private val BACKFILL_MUTEX = Mutex()
         private val BACKFILL_SCOPE = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     }
 }

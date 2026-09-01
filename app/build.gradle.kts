@@ -492,6 +492,12 @@ afterEvaluate {
         forkEvery = 1
       } else {
         maxParallelForks = 1
+        if (requestedAlias == "testRoomRobolectricOnly") {
+          // Robolectric keeps Android framework state for the life of a test
+          // JVM. A fresh worker per class prevents that state from accumulating
+          // across the long non-native accessibility suite.
+          forkEvery = 1
+        }
       }
       if (requestedAlias.startsWith("testRoomNative")) {
         systemProperty(

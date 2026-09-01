@@ -1154,6 +1154,38 @@ class SourceCatalog(
     }
 
     /**
+     * The imported rendition this Work should resume. A real Listening State
+     * wins; without one, the explicitly selected Edition wins; the stable id
+     * tie-break is the final local fallback. Availability never changes this
+     * choice, so playback cannot jump to another narration under the listener.
+     */
+    suspend fun resumableLibraryBookForWork(
+        workId: String,
+        preferredEditionId: String? = null,
+        mergeKey: String = ""
+    ): AudiobookEntity? {
+        val books = dao.getAllAudiobooksOnce()
+            .map { it.toAudiobookEntity() }
+            .filter { book ->
+                book.workId == workId ||
+                    (mergeKey.isNotBlank() && book.mergeKey == mergeKey)
+            }
+        if (books.isEmpty()) return null
+
+        val resumed = books.mapNotNull { book ->
+            dao.getPlaybackProgressSync(book.id)?.let { progress -> book to progress.lastListenedAt }
+        }.sortedWith(
+            compareByDescending<Pair<AudiobookEntity, Long>> { it.second }
+                .thenBy { it.first.id }
+        ).firstOrNull()
+            ?.first
+        if (resumed != null) return resumed
+
+        val preferred = preferredEditionId?.let { libraryBookForEdition(it) }
+        return preferred?.takeIf { it.workId == workId } ?: books.minBy { it.id }
+    }
+
+    /**
      * Spec-23 T5 — one source carrying a Work, for the book page's
      * «Джерела» section: display name, the Edition url and the source's
      * stream-only policy (from the persisted Edition row for post-merge

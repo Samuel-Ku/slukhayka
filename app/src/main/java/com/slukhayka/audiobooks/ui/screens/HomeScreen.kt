@@ -87,6 +87,8 @@ import com.slukhayka.audiobooks.ui.components.RestoreFocusAfterModal
 import com.slukhayka.audiobooks.ui.components.genreAccentColor
 import com.slukhayka.audiobooks.ui.displayAuthor
 import com.slukhayka.audiobooks.ui.durationBooksFrom
+import com.slukhayka.audiobooks.ui.catalog.CatalogCardAction
+import com.slukhayka.audiobooks.ui.catalog.CatalogCardActionState
 import com.slukhayka.audiobooks.ui.theme.*
 
 /**
@@ -144,6 +146,7 @@ fun HomeScreen(
     val feedGenreFilters by viewModel.feedGenreFilters.collectAsState()
     val feedDurationFilters by viewModel.feedDurationFilters.collectAsState()
     val feedSortByTitle by viewModel.feedSortByTitle.collectAsState()
+    val catalogCardActionState by viewModel.catalogCardActionState.collectAsState()
     // Spec-19 Track A: the on-device «Рекомендовано для вас» row — semantic
     // similarity of catalogue descriptions to favourite/completed/recent
     // signals, computed locally, with a per-card reason chip.
@@ -398,7 +401,10 @@ fun HomeScreen(
                 items(globalResults, key = { it.key }) { result ->
                     GlobalSearchResultCard(
                         result = result,
-                        onClick = { viewModel.openGlobalSearchResult(result) }
+                        onClick = { viewModel.openGlobalSearchResult(result) },
+                        onPlayClick = { viewModel.playGlobalSearchResult(result) },
+                        actionState = catalogCardActionState,
+                        onCancelAction = viewModel::cancelCatalogCardAction
                     )
                 }
             }
@@ -452,9 +458,16 @@ fun HomeScreen(
                 onOpenSeriesIndex = { viewModel.openSeriesIndex() },
                 onOpenCollectionsIndex = { viewModel.openCollectionsIndex() },
                 onOpenSeries = { title, url -> viewModel.openSeries(title, url) },
-                onPlayGlobalSearchResult = { viewModel.openGlobalSearchResult(it) },
+                onPlayGlobalSearchResult = { viewModel.playGlobalSearchResult(it) },
+                onOpenGlobalSearchResult = { viewModel.openGlobalSearchResult(it) },
                 onOpenRecommendedBook = { viewModel.openRecommendedBook(it) },
+                onPlayRecommendedBook = { viewModel.playRecommendedBook(it) },
+                onOpenCatalogBook = { viewModel.openCatalogBook(it) },
+                onPlayCatalogBook = { viewModel.playCatalogBook(it) },
                 onOpenWorkFeedRow = { viewModel.openWorkFeedRow(it) },
+                onPlayWorkFeedRow = { viewModel.playWorkFeedRow(it) },
+                catalogCardActionState = catalogCardActionState,
+                onCancelCatalogCardAction = viewModel::cancelCatalogCardAction,
                 onBookClick = onBookClick,
                 onSetFeedGenreFilters = { viewModel.setFeedGenreFilters(it) },
                 onSetFeedDurationFilters = { viewModel.setFeedDurationFilters(it) },
@@ -814,6 +827,10 @@ fun DurationSection(
     shortBooks: List<CatalogBook>,
     longBooks: List<CatalogBook>,
     onBookClick: (String) -> Unit,
+    onOpenClick: (CatalogBook) -> Unit = { onBookClick(it.id) },
+    onPlayClick: (CatalogBook) -> Unit = onOpenClick,
+    actionState: CatalogCardActionState = CatalogCardActionState.Idle,
+    onCancelAction: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     if (shortBooks.isEmpty() && longBooks.isEmpty()) return
@@ -826,7 +843,13 @@ fun DurationSection(
                 modifier = Modifier.testTag("duration_short_row")
             ) {
                 items(shortBooks, key = { it.id }) { book ->
-                    CatalogBookCard(book = book, onClick = { onBookClick(book.id) })
+                    CatalogBookCard(
+                        book = book,
+                        onClick = { onOpenClick(book) },
+                        onPlayClick = { onPlayClick(book) },
+                        actionState = actionState,
+                        onCancelAction = onCancelAction
+                    )
                 }
             }
         }
@@ -838,7 +861,13 @@ fun DurationSection(
                 modifier = Modifier.testTag("duration_long_row")
             ) {
                 items(longBooks, key = { it.id }) { book ->
-                    CatalogBookCard(book = book, onClick = { onBookClick(book.id) })
+                    CatalogBookCard(
+                        book = book,
+                        onClick = { onOpenClick(book) },
+                        onPlayClick = { onPlayClick(book) },
+                        actionState = actionState,
+                        onCancelAction = onCancelAction
+                    )
                 }
             }
         }
@@ -855,6 +884,9 @@ fun DurationSection(
 fun NewArrivalsRail(
     results: List<GlobalSearchResult>,
     onBookClick: (GlobalSearchResult) -> Unit,
+    onPlayClick: (GlobalSearchResult) -> Unit = onBookClick,
+    actionState: CatalogCardActionState = CatalogCardActionState.Idle,
+    onCancelAction: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Column(modifier = modifier.testTag("new_arrivals_rail")) {
@@ -866,7 +898,10 @@ fun NewArrivalsRail(
             items(results, key = { it.key }) { result ->
                 UnifiedCatalogCard(
                     result = result,
-                    onClick = { onBookClick(result) }
+                    onClick = { onBookClick(result) },
+                    onPlayClick = { onPlayClick(result) },
+                    actionState = actionState,
+                    onCancelAction = onCancelAction
                 )
             }
         }
@@ -933,15 +968,19 @@ fun OpenWebSourceRow(
 @Composable
 fun CatalogBookCard(
     book: CatalogBook,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onPlayClick: () -> Unit = onClick,
+    actionState: CatalogCardActionState = CatalogCardActionState.Idle,
+    onCancelAction: () -> Unit = {}
 ) {
-    Column(
+    Column(modifier = Modifier.width(120.dp).testTag("catalog_book_${book.id}")) {
+      Box {
+       Column(
         modifier = Modifier
             .width(120.dp)
-            .clickable { onClick() }
-            .testTag("catalog_book_${book.id}"),
+            .clickable(onClickLabel = stringResource(R.string.a11y_open_work, book.title)) { onClick() },
         horizontalAlignment = Alignment.CenterHorizontally
-    ) {
+       ) {
         CatalogCoverImage(
             coverImageUrl = book.coverImageUrl,
             title = book.title,
@@ -974,6 +1013,17 @@ fun CatalogBookCard(
                 modifier = Modifier.fillMaxWidth()
             )
         }
+       }
+       CatalogCardActionAffordance(
+           title = book.title,
+           cardKey = book.id,
+           state = actionState,
+           onPlay = onPlayClick,
+           onCancel = onCancelAction,
+           modifier = Modifier.align(Alignment.BottomEnd)
+       )
+      }
+      CatalogCardStatus(book.id, actionState)
     }
 }
 
@@ -986,16 +1036,18 @@ fun CatalogBookCard(
 @Composable
 fun CollectionBookCard(
     result: com.slukhayka.audiobooks.data.source.GlobalSearchResult,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onPlayClick: () -> Unit = onClick,
+    actionState: CatalogCardActionState = CatalogCardActionState.Idle,
+    onCancelAction: () -> Unit = {}
 ) {
     val openLabel = stringResource(R.string.a11y_open_work, result.title)
-    Column(
-        modifier = Modifier
-            .width(120.dp)
-            .clickable(onClickLabel = openLabel, onClick = onClick)
-            .testTag("collection_book_${result.key.hashCode()}"),
+    Column(modifier = Modifier.width(120.dp).testTag("collection_book_${result.key.hashCode()}")) {
+      Box {
+       Column(
+        modifier = Modifier.clickable(onClickLabel = openLabel, onClick = onClick),
         horizontalAlignment = Alignment.CenterHorizontally
-    ) {
+       ) {
         CatalogCoverImage(
             coverImageUrl = result.coverImageUrl,
             title = result.title,
@@ -1016,6 +1068,17 @@ fun CollectionBookCard(
             textAlign = TextAlign.Center,
             modifier = Modifier.fillMaxWidth()
         )
+       }
+       CatalogCardActionAffordance(
+           title = result.title,
+           cardKey = result.key,
+           state = actionState,
+           onPlay = onPlayClick,
+           onCancel = onCancelAction,
+           modifier = Modifier.align(Alignment.BottomEnd)
+       )
+      }
+      CatalogCardStatus(result.key, actionState)
     }
 }
 
@@ -1028,6 +1091,9 @@ fun CollectionBookCard(
 fun RecommendedBookCard(
     rec: com.slukhayka.audiobooks.data.recommend.RecommendationEngine.Recommendation,
     onClick: () -> Unit,
+    onPlayClick: () -> Unit = onClick,
+    actionState: CatalogCardActionState = CatalogCardActionState.Idle,
+    onCancelAction: () -> Unit = {},
     onFeedback: (String) -> Unit = {}
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
@@ -1123,6 +1189,16 @@ fun RecommendedBookCard(
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                 )
             }
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                CatalogCardActionAffordance(
+                    title = rec.candidate.title,
+                    cardKey = rec.candidate.id,
+                    state = actionState,
+                    onPlay = onPlayClick,
+                    onCancel = onCancelAction
+                )
+            }
+            CatalogCardStatus(rec.candidate.id, actionState)
         }
     }
 }
@@ -1635,72 +1711,141 @@ fun AudiobookListItem(
 fun WorkFeedCard(
     row: WorkFeedRow,
     onClick: () -> Unit,
+    onPlayClick: () -> Unit = onClick,
+    actionState: CatalogCardActionState = CatalogCardActionState.Idle,
+    onCancelAction: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    Row(
+    val rowState = actionState.takeIf { state ->
+        when (state) {
+            is CatalogCardActionState.Checking -> state.target.cardKey == row.workId
+            is CatalogCardActionState.Completed -> state.target.cardKey == row.workId
+            is CatalogCardActionState.BrowserRequired -> state.target.cardKey == row.workId
+            is CatalogCardActionState.Failed -> state.target.cardKey == row.workId
+            is CatalogCardActionState.Cancelled -> state.target.cardKey == row.workId
+            CatalogCardActionState.Idle -> false
+        }
+    }
+    val checking = rowState is CatalogCardActionState.Checking
+    val openDescription = stringResource(R.string.a11y_open_work, row.title)
+    val listenDescription = stringResource(R.string.a11y_catalog_card_listen, row.title)
+
+    Column(
         modifier = modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 8.dp)
-            .testTag("work_feed_${row.workId}"),
-        verticalAlignment = Alignment.CenterVertically
+            .testTag("work_feed_${row.workId}")
     ) {
-        CatalogCoverImage(
-            coverImageUrl = row.coverImageUrl,
-            title = row.title,
-            semantics = BookCoverSemantics.Decorative,
-            modifier = Modifier
-                .width(56.dp)
-                .height(80.dp)
-                .clip(RoundedCornerShape(AppDimens.RadiusCard))
-        )
-        Spacer(modifier = Modifier.width(12.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = row.title,
-                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            if (row.author.isNotBlank()) {
-                Text(
-                    text = row.author,
-                    style = MaterialTheme.typography.bodySmall,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable(enabled = !checking, onClick = onClick)
+                    .semantics { contentDescription = openDescription }
+                    .testTag("work_feed_${row.workId}_open"),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                CatalogCoverImage(
+                    coverImageUrl = row.coverImageUrl,
+                    title = row.title,
+                    semantics = BookCoverSemantics.Decorative,
+                    modifier = Modifier
+                        .width(56.dp)
+                        .height(80.dp)
+                        .clip(RoundedCornerShape(AppDimens.RadiusCard))
                 )
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = row.title,
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    if (row.author.isNotBlank()) {
+                        Text(
+                            text = row.author,
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    val feedDuration = EditionDurationPolicy.summarize(
+                        listOfNotNull(row.durationSeconds, row.durationMaxSeconds)
+                    )
+                    if (feedDuration != null) {
+                        Text(
+                            text = when (feedDuration) {
+                                is EditionDurationSummary.Single ->
+                                    MainViewModel.formatTime(feedDuration.seconds)
+                                is EditionDurationSummary.Range ->
+                                    "${MainViewModel.formatTime(feedDuration.shortestSeconds)}–" +
+                                        MainViewModel.formatTime(feedDuration.longestSeconds)
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
             }
-            // Spec-24 T1: the full book duration under the author — always
-            // with seconds (Ч:ММ:СС), and only when the Edition's total is
-            // really known (never a fabricated «0:00»).
-            val feedDuration = EditionDurationPolicy.summarize(
-                listOfNotNull(row.durationSeconds, row.durationMaxSeconds)
-            )
-            if (feedDuration != null) {
-                Text(
-                    text = when (feedDuration) {
-                        is EditionDurationSummary.Single ->
-                            MainViewModel.formatTime(feedDuration.seconds)
-                        is EditionDurationSummary.Range ->
-                            "${MainViewModel.formatTime(feedDuration.shortestSeconds)}–" +
-                                MainViewModel.formatTime(feedDuration.longestSeconds)
-                    },
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+            Spacer(modifier = Modifier.width(8.dp))
+            if (checking) {
+                IconButton(
+                    onClick = onCancelAction,
+                    modifier = Modifier.size(AppDimens.TouchTarget)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = stringResource(R.string.catalog_card_cancel),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            } else {
+                IconButton(
+                    onClick = onPlayClick,
+                    modifier = Modifier.size(AppDimens.TouchTarget)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.PlayArrow,
+                        contentDescription = listenDescription,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
             }
         }
-        Spacer(modifier = Modifier.width(8.dp))
-        Icon(
-            imageVector = Icons.Default.PlayArrow,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(28.dp)
-        )
+
+        val statusText = when (val state = rowState) {
+            is CatalogCardActionState.Checking -> stringResource(R.string.catalog_card_checking)
+            is CatalogCardActionState.BrowserRequired -> stringResource(R.string.catalog_card_browser_required)
+            is CatalogCardActionState.Failed -> stringResource(
+                if (state.action == CatalogCardAction.OPEN) {
+                    R.string.catalog_card_open_error
+                } else {
+                    R.string.catalog_card_play_error
+                }
+            )
+            is CatalogCardActionState.Cancelled -> stringResource(R.string.catalog_card_cancelled)
+            else -> null
+        }
+        if (statusText != null) {
+            Text(
+                text = statusText,
+                style = MaterialTheme.typography.labelSmall,
+                color = if (rowState is CatalogCardActionState.Failed) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                modifier = Modifier
+                    .padding(start = 68.dp, top = 4.dp)
+                    .semantics { liveRegion = LiveRegionMode.Polite }
+            )
+        }
     }
 }
 
@@ -1942,5 +2087,9 @@ private fun AudiobookEntity.asCatalogBook() = CatalogBook(
     title = title,
     author = author,
     url = sourceUrl,
-    coverImageUrl = coverImageUrl
+    coverImageUrl = coverImageUrl,
+    totalDurationSeconds = totalDurationSeconds,
+    workId = workId,
+    mergeKey = mergeKey,
+    narrator = narrator
 )

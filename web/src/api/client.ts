@@ -3,7 +3,7 @@
  * degrades honestly: a failure or `{ok:false}` comes back null and the UI
  * shows its empty/error state, never fabricated data.
  */
-import type { BookDetail, CatalogCard, ParsedCatalog, SourceId } from '../worker/types'
+import type { BookDetail, CatalogCard, ParsedCatalog, SourceId, UnifiedWorkPage } from '../worker/types'
 
 interface Envelope<T> {
   ok: boolean
@@ -35,14 +35,19 @@ export function workKey(card: Pick<CatalogCard, 'title' | 'author'>): string {
   return `${norm(card.title)}|${norm(card.author)}`
 }
 
-/** Keeps FIRST occurrence of each Work across groups, preserving group order. */
+/**
+ * Removes transport duplicates inside one Source only. Similar cards from
+ * different Sources remain separate Editions: collapsing them to a "first"
+ * card used to silently discard a narration and made its Play action
+ * unreachable.
+ */
 export function dedupeWorks(groups: SearchGroup[]): SearchGroup[] {
   const seen = new Set<string>()
   return groups
     .map((group) => ({
       ...group,
       cards: group.cards.filter((card) => {
-        const key = workKey(card)
+        const key = `${group.id}|${card.url}`
         if (seen.has(key)) return false
         seen.add(key)
         return true
@@ -56,6 +61,7 @@ export interface Api {
   book(source: SourceId, url: string): Promise<BookDetail | null>
   search(source: SourceId, query: string): Promise<CatalogCard[] | null>
   searchAll(query: string): Promise<SearchGroup[] | null>
+  workFeed(cursor?: string, source?: SourceId): Promise<UnifiedWorkPage | null>
 }
 
 export const api: Api = {
@@ -65,4 +71,6 @@ export const api: Api = {
   search: (source, query) =>
     call<CatalogCard[]>(`/api/search?source=${source}&q=${encodeURIComponent(query)}`),
   searchAll: (query) => call<SearchGroup[]>(`/api/search-all?q=${encodeURIComponent(query)}`),
+  workFeed: (cursor, source) =>
+    call<UnifiedWorkPage>(`/api/work-feed?${cursor ? `cursor=${encodeURIComponent(cursor)}&` : ''}${source ? `source=${source}` : ''}`),
 }

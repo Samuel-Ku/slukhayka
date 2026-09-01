@@ -13,6 +13,7 @@ import com.slukhayka.audiobooks.data.authors.AuthorIndex
 import com.slukhayka.audiobooks.data.authors.AuthorIdentity
 import com.slukhayka.audiobooks.data.authors.authorMatchesOrEmpty
 import com.slukhayka.audiobooks.data.catalog.CatalogPerson
+import com.slukhayka.audiobooks.data.catalog.CatalogBook
 import com.slukhayka.audiobooks.data.catalog.CatalogSeries
 import com.slukhayka.audiobooks.data.catalog.CatalogSeriesIndex
 import com.slukhayka.audiobooks.data.catalog.CatalogFetchResult
@@ -42,8 +43,11 @@ import com.slukhayka.audiobooks.data.reviews.ReviewRemoteResult
 import com.slukhayka.audiobooks.data.reviews.ReviewWriteReceipt
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.data.source.SourceAccessCandidate
+import com.slukhayka.audiobooks.data.source.SourceAccessMode
 import com.slukhayka.audiobooks.data.source.fourReadSearchUrl
 import com.slukhayka.audiobooks.data.source.SourceAccessPolicy
+import com.slukhayka.audiobooks.data.source.SourceSelectionCoordinator
+import com.slukhayka.audiobooks.data.source.sourceIdForUrl
 import com.slukhayka.audiobooks.data.source.HttpFetcher
 import com.slukhayka.audiobooks.data.source.headersFor
 import com.slukhayka.audiobooks.data.metadata.FirestoreBookMetaStore
@@ -52,18 +56,29 @@ import com.slukhayka.audiobooks.data.metadata.ProfileChapter
 import com.slukhayka.audiobooks.data.metadata.VerifiedSourceProfile
 import com.slukhayka.audiobooks.player.AudioPlayerManager
 import com.slukhayka.audiobooks.player.PlayerState
+import com.slukhayka.audiobooks.player.PlaybackErrorKind
 import com.slukhayka.audiobooks.ui.library.OutcomeMessages
 import com.slukhayka.audiobooks.ui.library.ResumeStart
 import com.slukhayka.audiobooks.ui.library.computeResumeStart
 import com.slukhayka.audiobooks.ui.library.formatBytes
+import com.slukhayka.audiobooks.ui.catalog.CatalogCardAction
+import com.slukhayka.audiobooks.ui.catalog.CatalogCardActionCoordinator
+import com.slukhayka.audiobooks.ui.catalog.CatalogCardActionGateway
+import com.slukhayka.audiobooks.ui.catalog.CatalogCardActionState
+import com.slukhayka.audiobooks.ui.catalog.CatalogCardSource
+import com.slukhayka.audiobooks.ui.catalog.CatalogCardTarget
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
@@ -246,6 +261,53 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val updateChecker: UpdateChecker = App.instance.updateChecker
 
     val playerState: StateFlow<PlayerState> = playerManager.playerState
+
+    private val catalogCardCoordinator = CatalogCardActionCoordinator(
+        scope = viewModelScope,
+        gateway = object : CatalogCardActionGateway<AudiobookEntity> {
+            override suspend fun savedBook(target: CatalogCardTarget): AudiobookEntity? =
+                sourceCatalog.resumableLibraryBookForWork(
+                    target.workId,
+                    target.preferredEditionId,
+                    target.mergeKey
+                )
+
+            override suspend fun sourceCandidates(target: CatalogCardTarget) =
+                catalogSourceCandidates(target)
+
+            override suspend fun import(
+                target: CatalogCardTarget,
+                source: SourceEntity
+            ): AudiobookEntity? = libraryImport.importFromSourceUrl(
+                source.type,
+                source.url,
+                KnownBookIdentity(
+                    title = target.title,
+                    author = target.author,
+                    narrator = target.narrator,
+                    coverImageUrl = target.coverImageUrl
+                )
+            )
+
+            override suspend fun open(book: AudiobookEntity): Boolean {
+                probeDurationsAfterImport(book.id)
+                selectBook(book.id)
+                return true
+            }
+
+            override suspend fun play(book: AudiobookEntity): Boolean =
+                startCatalogPlaybackAndAwait(book)
+        },
+        sourceProbe = SourceSelectionCoordinator.SourceProbe { source, remainingMs ->
+            withTimeoutOrNull(remainingMs) {
+                withContext(Dispatchers.IO) { HttpFetcher().getTextResult(source.url).first }
+            }?.let { status ->
+                if (status in 200..399) SourceSelectionCoordinator.ProbeResult.Success
+                else SourceSelectionCoordinator.ProbeResult.Failure
+            } ?: SourceSelectionCoordinator.ProbeResult.Timeout
+        }
+    )
+    val catalogCardActionState: StateFlow<CatalogCardActionState> = catalogCardCoordinator.state
 
     // Spec-27 (#184) BUG-001: the raw byte count feeds the confirm dialog's
     // exact scope («Видалити 12 завантажених книг, 2,3 ГБ?»), while the
@@ -1092,23 +1154,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun openCanonicalAuthorWork(work: WorkEntity) {
-        viewModelScope.launch(Dispatchers.IO) {
-            val source = sourceCatalog.workSourcesForWork(work.id).firstOrNull() ?: return@launch
-            val book = try {
-                libraryImport.importFromSourceUrl(
-                    source.sourceId,
-                    source.sourceUrl,
-                    KnownBookIdentity(work.title, work.author, coverImageUrl = work.coverImageUrl)
-                )
-            } catch (_: Exception) {
-                null
-            }
-            if (book != null) {
-                closeCanonicalAuthor()
-                closeAuthorsIndex()
-                selectBook(book.id)
-            }
-        }
+        // An author result is still an Overview Work card. It must take the
+        // same capability-aware, cancellable path as search and feed cards;
+        // selecting `workSources.first()` here used to make an arbitrary
+        // Source look like a user choice.
+        closeCanonicalAuthor()
+        closeAuthorsIndex()
+        catalogCardCoordinator.start(
+            CatalogCardTarget(
+                workId = work.id,
+                title = work.title,
+                author = work.author,
+                coverImageUrl = work.coverImageUrl,
+                mergeKey = work.mergeKey,
+                cardKey = work.id
+            ),
+            CatalogCardAction.OPEN
+        )
     }
 
     // One person's books (`/xfsearch/chitaet|avtor/<name>/` — a poster grid).
@@ -1230,26 +1292,46 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /**
-     * Spec-10 T4 — tap a global search result: import from the found source
-     * (merging into the existing Work card when the merge key matches) and
-     * open the book's DETAIL page — the user reads description, narrator and
-     * chapters before deciding to listen (same as a recommended card).
-     */
+    /** #454 — global search uses the same explicit Open/Play coordinator as the feed. */
     fun openGlobalSearchResult(result: GlobalSearchResult) {
-        viewModelScope.launch(Dispatchers.IO) {
-            val book = importPreferredSource(result)
-            if (book != null) {
-                probeDurationsAfterImport(book.id)
-                selectBook(book.id)
-            } else if (SourceAccessPolicy.needsBrowserImport(result.sources.map { it.sourceId })) {
-                // Every source on this card is browser-gated: the tap can
-                // never import silently. Surface the honest refusal and let
-                // the UI offer the explicit 4read browser door.
-                _browserNeededImport.value = BrowserNeededImport(result.title)
-            }
-        }
+        catalogCardCoordinator.start(result.asCatalogCardTarget(), CatalogCardAction.OPEN)
     }
+
+    fun playGlobalSearchResult(result: GlobalSearchResult) {
+        catalogCardCoordinator.start(result.asCatalogCardTarget(), CatalogCardAction.PLAY)
+    }
+
+    private fun GlobalSearchResult.asCatalogCardTarget() = CatalogCardTarget(
+        workId = mergeKey.ifBlank { key },
+        title = title,
+        author = author,
+        narrator = narrator,
+        coverImageUrl = coverImageUrl,
+        mergeKey = mergeKey,
+        sources = sources.map { CatalogCardSource(it.sourceId, it.url) },
+        cardKey = key
+    )
+
+    fun openCatalogBook(book: CatalogBook) {
+        catalogCardCoordinator.start(book.asCatalogCardTarget(), CatalogCardAction.OPEN)
+    }
+
+    fun playCatalogBook(book: CatalogBook) {
+        catalogCardCoordinator.start(book.asCatalogCardTarget(), CatalogCardAction.PLAY)
+    }
+
+    private fun CatalogBook.asCatalogCardTarget() = CatalogCardTarget(
+        workId = workId ?: id,
+        title = title,
+        author = author,
+        narrator = narrator,
+        coverImageUrl = coverImageUrl,
+        mergeKey = mergeKey,
+        sources = if (url.isBlank()) emptyList() else {
+            listOf(CatalogCardSource(sourceIdForUrl(url), url))
+        },
+        cardKey = id
+    )
 
     /**
      * Tries only direct/unknown sources in the shared 10-second budget. A
@@ -1369,41 +1451,100 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _feedSortByTitle.value = byTitle
     }
 
-    /**
-     * Spec-23 T4 — tap a feed card: resolve the Work's first Edition and
-     * import-and-play from that source (the same path as the global-search
-     * cards, so the Work merges into the library on the merge key).
-     */
+    /** #453 — the body opens details. It never starts playback. */
     fun openWorkFeedRow(row: WorkFeedRow) {
-        viewModelScope.launch(Dispatchers.IO) {
-            // A duration-filtered row carries the matching Edition id. When
-            // that rendition is already in the library, open it first; the
-            // other rendition cards stay linked to the same Work and remain
-            // reachable through the existing «Інші начитки» block.
-            val matchingBook = sourceCatalog.libraryBookForEdition(row.matchingEditionId)
-            if (matchingBook != null) {
-                playAudiobook(matchingBook)
-                return@launch
-            }
-            val sources = sourceCatalog.workSourcesForWork(
-                workId = row.workId,
-                preferredDurationBucketIds = _feedDurationFilters.value
-            )
-                .map { source ->
-                    com.slukhayka.audiobooks.data.source.GlobalSearchSource(
-                        sourceId = source.sourceId,
-                        sourceName = com.slukhayka.audiobooks.data.source.sourceDisplayName(source.sourceId),
-                        url = source.sourceUrl
-                    )
-                }
-            val book = importPreferredSource(
-                candidates = sources,
-                identity = KnownBookIdentity(row.title, row.author, coverImageUrl = row.coverImageUrl)
-            ) ?: return@launch
-            probeDurationsAfterImport(book.id)
-            playAudiobook(book)
-        }
+        catalogCardCoordinator.start(row.asCatalogCardTarget(), CatalogCardAction.OPEN)
     }
+
+    /** #453 — the separate Play action resumes Listening State or starts the selected Edition. */
+    fun playWorkFeedRow(row: WorkFeedRow) {
+        catalogCardCoordinator.start(row.asCatalogCardTarget(), CatalogCardAction.PLAY)
+    }
+
+    fun cancelCatalogCardAction() {
+        catalogCardCoordinator.cancel()
+    }
+
+    private fun WorkFeedRow.asCatalogCardTarget() = CatalogCardTarget(
+        workId = workId,
+        title = title,
+        author = author,
+        coverImageUrl = coverImageUrl,
+        preferredEditionId = matchingEditionId,
+        mergeKey = mergeKey,
+        cardKey = workId
+    )
+
+    private suspend fun catalogSourceCandidates(
+        target: CatalogCardTarget
+    ): List<SourceSelectionCoordinator.SourceCandidate> =
+        (if (target.sources.isNotEmpty()) {
+            target.sources
+        } else {
+            sourceCatalog.workSourcesForWork(target.workId).map { source ->
+                CatalogCardSource(
+                    sourceId = source.sourceId,
+                    url = source.sourceUrl,
+                    editionId = target.preferredEditionId,
+                    streamOnly = source.streamOnly
+                )
+            }
+        }).mapIndexed { index, source ->
+            val entity = SourceEntity(
+                id = "${target.cardKey}|${source.sourceId}|$index",
+                bookId = target.workId,
+                editionId = source.editionId ?: target.preferredEditionId ?: "catalog:${target.workId}",
+                type = source.sourceId,
+                url = source.url,
+                streamOnly = source.streamOnly,
+                addedAt = index.toLong()
+            )
+            val category = when {
+                source.sourceId == "local" -> SourceSelectionCoordinator.SourceCategory.LOCAL
+                SourceAccessPolicy.modeFor(source.sourceId) == SourceAccessMode.DIRECT ->
+                    SourceSelectionCoordinator.SourceCategory.DIRECT
+                SourceAccessPolicy.modeFor(source.sourceId) == SourceAccessMode.BROWSER ->
+                    SourceSelectionCoordinator.SourceCategory.BROWSER
+                else -> SourceSelectionCoordinator.SourceCategory.UNKNOWN
+            }
+            SourceSelectionCoordinator.SourceCandidate(entity, category)
+        }
+
+    private suspend fun startCatalogPlaybackAndAwait(book: AudiobookEntity): Boolean = coroutineScope {
+        // A card's "checking" phase validates a tiny media range before it
+        // asks ExoPlayer to open. This is deliberately a preflight only: the
+        // terminal success below remains the Player's real `isPlaying` event.
+        if (!preflightCatalogMedia(book)) return@coroutineScope false
+        val before = playerState.value
+        val verdict = async(start = CoroutineStart.UNDISPATCHED) {
+            withTimeoutOrNull(50_000L) {
+                playerState
+                    .dropWhile { it == before }
+                    .first { state ->
+                        state.currentBook?.id == book.id &&
+                            (state.isPlaying || state.errorKind != PlaybackErrorKind.NONE)
+                    }
+            }
+        }
+        playAudiobook(book)
+        verdict.await()?.isPlaying == true
+    }
+
+    private suspend fun preflightCatalogMedia(book: AudiobookEntity): Boolean =
+        withContext(Dispatchers.IO) {
+            val first = sourceCatalog.getPlayableChapters(book.id).firstOrNull()
+                ?: return@withContext false
+            val track = first.track ?: return@withContext false
+            if (first.sourceId == "local" || track.localFilePath != null) return@withContext true
+            val sourceId = first.sourceId ?: sourceIdForUrl(book.sourceUrl)
+            withTimeoutOrNull(com.slukhayka.audiobooks.ui.catalog.CatalogAvailabilityPolicy.SOURCE_BUDGET_MS) {
+                val response = HttpFetcher()
+                    .getRangeStream(track.url, headersFor(sourceId, track.url))
+                    ?: return@withTimeoutOrNull false
+                response.stream.close()
+                true
+            } ?: false
+        }
 
     // Spec-15 T3: the WebView catalogue hydration tool. Debug-only by
     // construction (the browser surface that exposes it is debug-gated, T2):
@@ -1675,15 +1816,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun openRecommendedBook(candidateId: String) {
         val result = sourceCatalog.unifiedCatalog.value.firstOrNull { it.key == candidateId } ?: return
-        viewModelScope.launch(Dispatchers.IO) {
-            val book = importPreferredSource(result)
-            if (book != null) {
-                pendingRecommendationBookId.set(book.id)
-                recommendationPersonalization.recordDetailOpen()
-                probeDurationsAfterImport(book.id)
-                selectBook(book.id)
-            }
-        }
+        recommendationPersonalization.recordDetailOpen()
+        catalogCardCoordinator.start(result.asCatalogCardTarget(), CatalogCardAction.OPEN)
+    }
+
+    fun playRecommendedBook(candidateId: String) {
+        val result = sourceCatalog.unifiedCatalog.value.firstOrNull { it.key == candidateId } ?: return
+        catalogCardCoordinator.start(result.asCatalogCardTarget(), CatalogCardAction.PLAY)
     }
 
     fun selectGenreFilter(genre: String) {

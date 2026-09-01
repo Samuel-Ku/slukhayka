@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../api/client'
 import { readWarm, warmKey, writeWarm } from '../api/warmCache'
-import type { BookDetail, CatalogCard, CatalogSection, SourceId, UnifiedWork } from '../worker/types'
+import type { BookDetail, CatalogCard, SourceId, UnifiedWork } from '../worker/types'
 
 const SOURCES: Array<{ id: 'all' | SourceId; label: string }> = [
   { id: 'all', label: 'Усі джерела' },
@@ -119,7 +119,7 @@ export function Catalog({ onOpenBook, onPlay }: {
               borderRadius: 999,
               border: '1px solid var(--line)',
               background: source === s.id ? 'var(--accent)' : 'var(--surface)',
-              color: source === s.id ? '#000' : 'var(--fg)',
+              color: source === s.id ? 'var(--accent-contrast)' : 'var(--fg)',
             }}
           >
             {s.label}
@@ -208,18 +208,6 @@ function UnifiedWorkRow({ work, onOpenBook, onPlay }: {
 }
 
 /** Appends a source cursor page without moving cards the listener already saw. */
-export function appendCatalogPage(current: CatalogSection[], incoming: CatalogSection[]): CatalogSection[] {
-  const byId = new Map(current.map((section) => [section.id, section]))
-  const result = current.map((section) => {
-    const next = incoming.find((candidate) => candidate.id === section.id)
-    if (!next) return section
-    byId.delete(section.id)
-    const known = new Set(section.cards.map((card) => card.url))
-    return { ...section, cards: [...section.cards, ...next.cards.filter((card) => !known.has(card.url))] }
-  })
-  return [...result, ...incoming.filter((section) => byId.has(section.id))]
-}
-
 export type CardActionState = 'idle' | 'checking' | 'no-network' | 'temporary-failure' | 'audio-missing' | 'browser-required'
 
 export function cardResultState(
@@ -284,7 +272,7 @@ function CatalogCardRow({ card, source, onOpenBook, onPlay }: {
           onClick={state === 'checking' ? cancel : play}
           aria-label={state === 'checking' ? `Скасувати перевірку: ${card.title}` : `Слухати: ${card.title}`}
           aria-live="polite"
-          style={{ background: 'var(--accent)', color: '#000', border: 'none', borderRadius: 999, padding: '8px 12px' }}
+          style={{ background: 'var(--accent)', color: 'var(--accent-contrast)', border: 'none', borderRadius: 999, padding: '8px 12px' }}
         >
           {state === 'checking' ? 'Скасувати' : '▶'}
         </button>

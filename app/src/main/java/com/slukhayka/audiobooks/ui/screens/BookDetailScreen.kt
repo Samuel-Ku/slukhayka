@@ -2335,7 +2335,8 @@ fun BookDetailCanonicalSummary(
                     textAlign = TextAlign.Center,
                     modifier = Modifier
                         .widthIn(max = textMaxWidth)
-                        .defaultMinSize(minHeight = 48.dp)
+                        .heightIn(min = 48.dp)
+                        .wrapContentHeight(Alignment.CenterVertically)
                         .focusRequester(authorFocusRequester)
                         .testTag("book_detail_author_link")
                         .clickable {
@@ -2344,6 +2345,7 @@ fun BookDetailCanonicalSummary(
                         }
                 )
                 PersonBookmarkButton(
+                    modifier = Modifier.offset(x = (-4).dp),
                     isBookmarked = authorBookmark.isBookmarked,
                     notifyEnabled = authorBookmark.notifyEnabled,
                     personName = presentation.author,
@@ -2378,7 +2380,8 @@ fun BookDetailCanonicalSummary(
                     textAlign = TextAlign.Center,
                     modifier = Modifier
                         .widthIn(max = textMaxWidth)
-                        .defaultMinSize(minHeight = 48.dp)
+                        .heightIn(min = 48.dp)
+                        .wrapContentHeight(Alignment.CenterVertically)
                         .focusRequester(narratorFocusRequester)
                         .testTag("book_detail_narrator_link")
                         .clickable {
@@ -2388,6 +2391,7 @@ fun BookDetailCanonicalSummary(
                         .semantics { stateDescription = currentEditionState }
                 )
                 PersonBookmarkButton(
+                    modifier = Modifier.offset(x = (-4).dp),
                     isBookmarked = narratorBookmark.isBookmarked,
                     notifyEnabled = narratorBookmark.notifyEnabled,
                     personName = presentation.narrator,

@@ -3,7 +3,7 @@
  * degrades honestly: a failure or `{ok:false}` comes back null and the UI
  * shows its empty/error state, never fabricated data.
  */
-import type { BookDetail, CatalogCard, ParsedCatalog, SourceId } from '../worker/types'
+import type { BookDetail, CatalogCard, ParsedCatalog, SourceId, UnifiedWorkPage } from '../worker/types'
 
 interface Envelope<T> {
   ok: boolean
@@ -11,9 +11,9 @@ interface Envelope<T> {
   reason?: string
 }
 
-async function call<T>(path: string): Promise<T | null> {
+async function call<T>(path: string, signal?: AbortSignal): Promise<T | null> {
   try {
-    const response = await fetch(path)
+    const response = await fetch(path, { signal })
     if (!response.ok) return null
     const envelope = (await response.json()) as Envelope<T>
     return envelope.ok && envelope.data !== undefined ? envelope.data : null
@@ -35,14 +35,19 @@ export function workKey(card: Pick<CatalogCard, 'title' | 'author'>): string {
   return `${norm(card.title)}|${norm(card.author)}`
 }
 
-/** Keeps FIRST occurrence of each Work across groups, preserving group order. */
+/**
+ * Removes transport duplicates inside one Source only. Similar cards from
+ * different Sources remain separate Editions: collapsing them to a "first"
+ * card used to silently discard a narration and made its Play action
+ * unreachable.
+ */
 export function dedupeWorks(groups: SearchGroup[]): SearchGroup[] {
   const seen = new Set<string>()
   return groups
     .map((group) => ({
       ...group,
       cards: group.cards.filter((card) => {
-        const key = workKey(card)
+        const key = `${group.id}|${card.url}`
         if (seen.has(key)) return false
         seen.add(key)
         return true
@@ -53,16 +58,22 @@ export function dedupeWorks(groups: SearchGroup[]): SearchGroup[] {
 
 export interface Api {
   catalog(source: SourceId, url?: string): Promise<ParsedCatalog | null>
-  book(source: SourceId, url: string): Promise<BookDetail | null>
+  book(source: SourceId, url: string, signal?: AbortSignal): Promise<BookDetail | null>
   search(source: SourceId, query: string): Promise<CatalogCard[] | null>
   searchAll(query: string): Promise<SearchGroup[] | null>
+  workFeed(cursor?: string, source?: SourceId): Promise<UnifiedWorkPage | null>
+  workSearch(query: string, source?: SourceId): Promise<UnifiedWorkPage | null>
 }
 
 export const api: Api = {
   catalog: (source, url) =>
     call<ParsedCatalog>(`/api/catalog?source=${source}${url ? `&url=${encodeURIComponent(url)}` : ''}`),
-  book: (source, url) => call<BookDetail>(`/api/book?source=${source}&url=${encodeURIComponent(url)}`),
+  book: (source, url, signal) => call<BookDetail>(`/api/book?source=${source}&url=${encodeURIComponent(url)}`, signal),
   search: (source, query) =>
     call<CatalogCard[]>(`/api/search?source=${source}&q=${encodeURIComponent(query)}`),
   searchAll: (query) => call<SearchGroup[]>(`/api/search-all?q=${encodeURIComponent(query)}`),
+  workFeed: (cursor, source) =>
+    call<UnifiedWorkPage>(`/api/work-feed?${cursor ? `cursor=${encodeURIComponent(cursor)}&` : ''}${source ? `source=${source}` : ''}`),
+  workSearch: (query, source) =>
+    call<UnifiedWorkPage>(`/api/work-search?q=${encodeURIComponent(query)}${source ? `&source=${source}` : ''}`),
 }

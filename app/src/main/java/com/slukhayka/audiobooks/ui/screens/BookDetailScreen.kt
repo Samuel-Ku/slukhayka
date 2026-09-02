@@ -2315,32 +2315,29 @@ fun BookDetailCanonicalSummary(
     Spacer(modifier = Modifier.height(4.dp))
     if (presentation.author.isNotBlank()) {
         Row(
-            verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .fillMaxWidth()
                 .defaultMinSize(minHeight = 48.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
         ) {
-            Box(
+            Text(
+                text = "Автор: ${presentation.author}",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.primary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center,
                 modifier = Modifier
-                    .weight(1f)
+                    .width(IntrinsicSize.Max)
                     .defaultMinSize(minHeight = 48.dp)
                     .focusRequester(authorFocusRequester)
                     .testTag("book_detail_author_link")
                     .clickable {
                         onChildRouteOpened(BookDetailLinkOrigin.AUTHOR)
                         onAuthorClick(presentation.author)
-                    },
-                contentAlignment = Alignment.CenterEnd
-            ) {
-                Text(
-                    text = "Автор: ${presentation.author}",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    textAlign = TextAlign.End
-                )
-            }
+                    }
+            )
             PersonBookmarkButton(
                 isBookmarked = authorBookmark.isBookmarked,
                 notifyEnabled = authorBookmark.notifyEnabled,
@@ -2348,20 +2345,27 @@ fun BookDetailCanonicalSummary(
                 onToggle = authorBookmark.onToggle,
                 onToggleNotify = authorBookmark.onToggleNotify,
                 testTag = "book_detail_author_bookmark",
-                modifier = Modifier.padding(start = 4.dp)
+                modifier = Modifier.padding(start = 0.dp)
             )
         }
     }
     if (presentation.narrator.isNotBlank()) {
         Row(
-            verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .fillMaxWidth()
                 .defaultMinSize(minHeight = 48.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
         ) {
-            Box(
+            Text(
+                text = "Озвучує: ${presentation.narrator}",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center,
                 modifier = Modifier
-                    .weight(1f)
+                    .width(IntrinsicSize.Max)
                     .defaultMinSize(minHeight = 48.dp)
                     .focusRequester(narratorFocusRequester)
                     .testTag("book_detail_narrator_link")
@@ -2369,18 +2373,8 @@ fun BookDetailCanonicalSummary(
                         onChildRouteOpened(BookDetailLinkOrigin.NARRATOR)
                         onNarratorClick(presentation.narrator)
                     }
-                    .semantics { stateDescription = currentEditionState },
-                contentAlignment = Alignment.CenterEnd
-            ) {
-                Text(
-                    text = "Озвучує: ${presentation.narrator}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    textAlign = TextAlign.End
-                )
-            }
+                    .semantics { stateDescription = currentEditionState }
+            )
             PersonBookmarkButton(
                 isBookmarked = narratorBookmark.isBookmarked,
                 notifyEnabled = narratorBookmark.notifyEnabled,
@@ -2388,7 +2382,7 @@ fun BookDetailCanonicalSummary(
                 onToggle = narratorBookmark.onToggle,
                 onToggleNotify = narratorBookmark.onToggleNotify,
                 testTag = "book_detail_narrator_bookmark",
-                modifier = Modifier.padding(start = 4.dp)
+                modifier = Modifier.padding(start = 0.dp)
             )
         }
     }

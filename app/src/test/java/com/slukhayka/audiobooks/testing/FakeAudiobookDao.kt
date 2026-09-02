@@ -37,6 +37,7 @@ import com.slukhayka.audiobooks.data.db.EditionFacetEntity
 import com.slukhayka.audiobooks.data.db.AuthorFacetEntity
 import com.slukhayka.audiobooks.data.db.AuthorAliasEntity
 import com.slukhayka.audiobooks.data.db.PersonBookmarkEntity
+import com.slukhayka.audiobooks.data.db.FeedSnapshotEntity
 import com.slukhayka.audiobooks.data.authors.AuthorSummary
 import androidx.paging.PagingSource
 import androidx.paging.PagingState
@@ -1170,6 +1171,34 @@ class FakeAudiobookDao(
     override suspend fun updatePersonBookmarkLastNotified(kind: String, id: String, lastNotifiedAt: Long) {
         personBookmarksState.update { current ->
             current.map { if (it.kind == kind && it.id == id) it.copy(lastNotifiedAt = lastNotifiedAt) else it }
+        }
+    }
+
+    // --- Feed snapshots (spec #462 ID6, #467) ------------------------------
+
+    private val feedSnapshotsState = MutableStateFlow(emptyList<FeedSnapshotEntity>())
+
+    override suspend fun upsertFeedSnapshot(snapshot: FeedSnapshotEntity) {
+        feedSnapshotsState.update { current ->
+            current.filterNot {
+                it.sourceId == snapshot.sourceId && it.feedKey == snapshot.feedKey && it.pageCursor == snapshot.pageCursor
+            } + snapshot
+        }
+    }
+
+    override suspend fun getFeedSnapshot(sourceId: String, feedKey: String, pageCursor: String): FeedSnapshotEntity? =
+        feedSnapshotsState.value.firstOrNull {
+            it.sourceId == sourceId && it.feedKey == feedKey && it.pageCursor == pageCursor
+        }
+
+    override suspend fun getFeedSnapshots(sourceId: String, feedKey: String): List<FeedSnapshotEntity> =
+        feedSnapshotsState.value
+            .filter { it.sourceId == sourceId && it.feedKey == feedKey }
+            .sortedBy { it.pageCursor }
+
+    override suspend fun clearFeedSnapshots(sourceId: String, feedKey: String) {
+        feedSnapshotsState.update { current ->
+            current.filterNot { it.sourceId == sourceId && it.feedKey == feedKey }
         }
     }
 }

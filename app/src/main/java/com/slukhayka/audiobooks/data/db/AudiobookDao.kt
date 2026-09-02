@@ -1118,4 +1118,28 @@ interface AudiobookDao {
 
     @Query("UPDATE person_bookmarks SET lastNotifiedAt = :lastNotifiedAt WHERE kind = :kind AND id = :id")
     suspend fun updatePersonBookmarkLastNotified(kind: String, id: String, lastNotifiedAt: Long)
+
+    // --- Feed snapshots (spec #462 ID6, #467) ------------------------------
+
+    /** Upserts one feed snapshot row (REPLACE by sourceId + feedKey + pageCursor). */
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertFeedSnapshot(snapshot: FeedSnapshotEntity)
+
+    /** One snapshot row — the freshness decision (FeedSnapshotPolicy) is the caller's. */
+    @Query(
+        "SELECT * FROM feed_snapshots WHERE sourceId = :sourceId AND feedKey = :feedKey " +
+            "AND pageCursor = :pageCursor LIMIT 1"
+    )
+    suspend fun getFeedSnapshot(sourceId: String, feedKey: String, pageCursor: String = ""): FeedSnapshotEntity?
+
+    /** Every snapshot row of one feed, page order — a multi-page pull reads as one. */
+    @Query(
+        "SELECT * FROM feed_snapshots WHERE sourceId = :sourceId AND feedKey = :feedKey " +
+            "ORDER BY pageCursor ASC"
+    )
+    suspend fun getFeedSnapshots(sourceId: String, feedKey: String): List<FeedSnapshotEntity>
+
+    /** Drops one feed's snapshots (a changed page-cursor shape invalidates the old rows). */
+    @Query("DELETE FROM feed_snapshots WHERE sourceId = :sourceId AND feedKey = :feedKey")
+    suspend fun clearFeedSnapshots(sourceId: String, feedKey: String)
 }

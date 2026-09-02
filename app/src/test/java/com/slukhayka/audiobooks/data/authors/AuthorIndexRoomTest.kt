@@ -5,14 +5,13 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.slukhayka.audiobooks.data.db.AudiobookDatabase
 import com.slukhayka.audiobooks.data.db.WorkEntity
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestCoroutineScheduler
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -22,6 +21,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.util.concurrent.Executor
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
@@ -92,36 +92,53 @@ class AuthorIndexRoomTest {
     }
 
     @Test
-    fun `first read repairs only one bounded page then continues in background`() = runBlocking {
-        val sqlite = db.openHelper.writableDatabase
-        db.runInTransaction {
-            val insert = sqlite.compileStatement(
-                "INSERT INTO works(id, mergeKey, title, author, addedAt) VALUES(?, ?, ?, ?, 0)"
-            )
-            repeat(RoomAuthorIndex.BACKFILL_BATCH_SIZE + 1) { number ->
-                val id = "backfill-${number.toString().padStart(4, '0')}"
-                insert.bindString(1, id)
-                insert.bindString(2, id)
-                insert.bindString(3, "Книга $number")
-                insert.bindString(4, "Автор $number")
-                insert.executeInsert()
-                insert.clearBindings()
-            }
-        }
-        val backgroundScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        val boundedIndex = RoomAuthorIndex(db.audiobookDao(), backgroundScope)
-
+    fun `first read repairs only one bounded page then continues in background`() {
+        // Determinism: the bounded backfill runs on a StandardTestDispatcher
+        // scope, but its DAO writes go through Room's external ArchTaskExecutor
+        // disk pool — which `advanceUntilIdle()` does NOT pump, so the final
+        // `== 0` assertion raced against un-flushed writes (~2/3 flakes).
+        // Route the DB's query/transaction executors onto the same test
+        // scheduler so `advanceUntilIdle()` deterministically covers both the
+        // backfill coroutine and its Room writes.
+        val scheduler = TestCoroutineScheduler()
+        // Synchronous executor: Room query/transaction writes run inline on the
+        // calling thread (as InstantTaskExecutorRule does), so they cannot escape
+        // to Room's external disk pool and `advanceUntilIdle()` below covers them.
+        val testExecutor = Executor { it.run() }
+        val context: Context = ApplicationProvider.getApplicationContext()
+        val localDb = Room.inMemoryDatabaseBuilder(context, AudiobookDatabase::class.java)
+            .allowMainThreadQueries()
+            .setQueryExecutor(testExecutor)
+            .setTransactionExecutor(testExecutor)
+            .build()
         try {
-            assertTrue(boundedIndex.search("автор 0").isNotEmpty())
-            assertEquals(1, db.audiobookDao().worksMissingCanonicalAuthor(RoomAuthorIndex.BACKFILL_BATCH_SIZE).size)
-
-            withTimeout(5_000) {
-                while (db.audiobookDao().worksMissingCanonicalAuthor(RoomAuthorIndex.BACKFILL_BATCH_SIZE).isNotEmpty()) {
-                    delay(25)
+            val sqlite = localDb.openHelper.writableDatabase
+            localDb.runInTransaction {
+                val insert = sqlite.compileStatement(
+                    "INSERT INTO works(id, mergeKey, title, author, addedAt) VALUES(?, ?, ?, ?, 0)"
+                )
+                repeat(RoomAuthorIndex.BACKFILL_BATCH_SIZE + 1) { number ->
+                    val id = "backfill-${number.toString().padStart(4, '0')}"
+                    insert.bindString(1, id)
+                    insert.bindString(2, id)
+                    insert.bindString(3, "Книга $number")
+                    insert.bindString(4, "Автор $number")
+                    insert.executeInsert()
+                    insert.clearBindings()
                 }
             }
+            val backgroundDispatcher = StandardTestDispatcher(scheduler)
+            val boundedIndex = RoomAuthorIndex(localDb.audiobookDao(), CoroutineScope(backgroundDispatcher))
+
+            TestScope(backgroundDispatcher).runTest {
+                assertTrue(boundedIndex.search("автор 0").isNotEmpty())
+                assertEquals(1, localDb.audiobookDao().worksMissingCanonicalAuthor(RoomAuthorIndex.BACKFILL_BATCH_SIZE).size)
+
+                scheduler.advanceUntilIdle()
+                assertEquals(0, localDb.audiobookDao().worksMissingCanonicalAuthor(RoomAuthorIndex.BACKFILL_BATCH_SIZE).size)
+            }
         } finally {
-            backgroundScope.cancel()
+            localDb.close()
         }
     }
 

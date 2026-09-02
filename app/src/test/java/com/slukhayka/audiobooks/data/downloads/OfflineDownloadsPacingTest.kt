@@ -17,9 +17,12 @@ import java.io.File
 import java.util.Collections
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.random.Random
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -114,13 +117,17 @@ class OfflineDownloadsPacingTest {
         pacing: PacingPolicy,
         nowMillis: () -> Long,
         pauseFor: suspend (Long) -> Unit,
-        fetcher: FakeFetcher
+        fetcher: FakeFetcher,
+        dispatcher: CoroutineDispatcher = Dispatchers.IO
     ): Pair<LibraryImport, OfflineDownloads> {
         val book = SourceBook(title = "Пасажир", author = "Жан-Крістоф Гранже", url = "https://sluhay.com/svitova-literatura/6177-pasazhir.html", sourceId = "sluhay")
         val adapter = FakeAdapter("sluhay", book, numChapters, { i -> "https://cdn.example.com/track-$i.mp3" })
         val imports = LibraryImport(dao, context, listOf(adapter))
         val catalog = SourceCatalog(dao, listOf(adapter), imports)
-        val downloads = OfflineDownloads(dao, context, catalog, fetcher, pacing, nowMillis, pauseFor)
+        val downloads = OfflineDownloads(
+            dao, context, catalog, fetcher, pacing, nowMillis, pauseFor,
+            downloadDispatcher = dispatcher
+        )
         return imports to downloads
     }
 
@@ -145,7 +152,8 @@ class OfflineDownloadsPacingTest {
             pacing = PacingPolicy(params, Random(42)),
             nowMillis = { attempts.add(clock.millis()); clock.millis() },
             pauseFor = { millis -> clock.advanceBy(millis) },
-            fetcher = fetcher
+            fetcher = fetcher,
+            dispatcher = StandardTestDispatcher(testScheduler)
         )
         val bookId = importBook(imports)
 
@@ -180,7 +188,12 @@ class OfflineDownloadsPacingTest {
             pacing = PacingPolicy(params, Random(7)),
             nowMillis = { attempts.add(clock.millis()); clock.millis() },
             pauseFor = { millis -> clock.advanceBy(millis) },
-            fetcher = fetcher
+            fetcher = fetcher,
+            // Pin workers to the test scheduler so the burst-policy shared state
+            // and the virtual clock are advanced deterministically (no real
+            // Dispatchers.IO thread race) — the source of the order-dependent
+            // `expected 4 but was 3` flake.
+            dispatcher = StandardTestDispatcher(testScheduler)
         )
         val bookId = importBook(imports)
 

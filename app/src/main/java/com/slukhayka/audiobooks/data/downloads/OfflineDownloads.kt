@@ -24,6 +24,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
@@ -76,7 +77,12 @@ class OfflineDownloads(
     // LAST: keeps every pre-existing positional call site valid.
     private val streamUrlResolver: suspend (String) -> String? = { url -> url },
     /** Local WebView cookies, scoped by [headersFor] to 4read audio hosts. */
-    private val cookieProvider: () -> String = { "" }
+    private val cookieProvider: () -> String = { "" },
+    // The chapter workers historically ran on Dispatchers.IO (real time),
+    // invisible to a test scheduler — so their burst-policy shared state raced
+    // real threads under load. Injectable (default unchanged) so tests pin the
+    // workers to a controlled dispatcher and make the rhythm deterministic.
+    private val downloadDispatcher: CoroutineDispatcher = Dispatchers.IO
 ) {
 
     private val recoveryPrefs by lazy {
@@ -333,7 +339,7 @@ class OfflineDownloads(
                 // jobs in source order. Direct sources keep their three-way
                 // bounded parallelism.
                 val previous = if (sourceId == "4read") scheduled.lastOrNull() else null
-                scheduled += async(Dispatchers.IO) {
+                scheduled += async(downloadDispatcher) {
                     previous?.await()
                     semaphore.withPermit {
                         val chapter = playableChapter.chapter

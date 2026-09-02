@@ -60,17 +60,16 @@ import com.slukhayka.audiobooks.ui.theme.AppDimens
 
 /**
  * Spec-10 T4 — one global-search result card: a Work with a badge per source
- * that matched. Tapping imports from the found source and plays. Extracted as
- * a pure `@Composable` (no ViewModel) so the snapshot seam can pin the layout
- * and badges without a network or a database.
+ * that matched. Tapping opens the book page (ADR-0018: shelves carry no
+ * one-tap play). Extracted as a pure `@Composable` (no ViewModel) so the
+ * snapshot seam can pin the layout and badges without a network or a
+ * database.
  */
 @Composable
 fun GlobalSearchResultCard(
     result: GlobalSearchResult,
     onClick: () -> Unit,
-    onPlayClick: () -> Unit = onClick,
     actionState: CatalogCardActionState = CatalogCardActionState.Idle,
-    onCancelAction: () -> Unit = {},
     onOpenBrowser: () -> Unit = {},
     onPreflight: () -> Unit = {},
     modifier: Modifier = Modifier
@@ -162,17 +161,9 @@ fun GlobalSearchResultCard(
             }
         }
         }
-        CatalogCardActionAffordance(
-            title = result.title,
-            cardKey = result.key,
-            state = actionState,
-            onPlay = onPlayClick,
-            onCancel = onCancelAction
-        )
     }
     CatalogCardStatus(result.key, actionState, onOpenBrowser)
 }
-
 /** Small unobtrusive pill: which source(s) carry a book (spec-10 T4). */
 @Composable
 fun SourceBadgePill(
@@ -195,10 +186,9 @@ fun SourceBadgePill(
 
 /**
  * Spec-15 T1 — one cover-first card of the deduplicated «Увесь каталог»
- * union: a Work with a badge per source that carries it. Tapping imports from
- * the first found source and plays (same behaviour as the global-search
- * cards). Pure `@Composable` (no ViewModel) so the snapshot seam can pin it
- * from fixture data.
+ * union: a Work with a badge per source that carries it. Tapping opens the
+ * book page (ADR-0018: shelves carry no one-tap play). Pure `@Composable`
+ * (no ViewModel) so the snapshot seam can pin it from fixture data.
  *
  * Spec-15 T4 — the card also carries a one-tap download affordance (a small
  * icon on the cover). [downloadAllowed] hides it for stream-only sources;
@@ -209,9 +199,7 @@ fun SourceBadgePill(
 fun UnifiedCatalogCard(
     result: GlobalSearchResult,
     onClick: () -> Unit,
-    onPlayClick: () -> Unit = onClick,
     actionState: CatalogCardActionState = CatalogCardActionState.Idle,
-    onCancelAction: () -> Unit = {},
     onOpenBrowser: () -> Unit = {},
     onPreflight: () -> Unit = {},
     modifier: Modifier = Modifier,
@@ -318,39 +306,8 @@ fun UnifiedCatalogCard(
             }
         }
        }
-       CatalogCardActionAffordance(
-           title = result.title,
-           cardKey = result.key,
-           state = actionState,
-           onPlay = onPlayClick,
-           onCancel = onCancelAction,
-           modifier = Modifier.align(Alignment.BottomEnd)
-       )
       }
       CatalogCardStatus(result.key, actionState, onOpenBrowser)
-    }
-}
-
-@Composable
-internal fun CatalogCardActionAffordance(
-    title: String,
-    cardKey: String,
-    state: CatalogCardActionState,
-    onPlay: () -> Unit,
-    onCancel: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val checking = state is CatalogCardActionState.Checking && state.target.cardKey == cardKey
-    IconButton(onClick = if (checking) onCancel else onPlay, modifier = modifier.size(AppDimens.TouchTarget)) {
-        Icon(
-            imageVector = if (checking) Icons.Default.Close else Icons.Default.PlayArrow,
-            contentDescription = if (checking) {
-                stringResource(R.string.catalog_card_cancel)
-            } else {
-                stringResource(R.string.a11y_catalog_card_listen, title)
-            },
-            tint = if (checking) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary
-        )
     }
 }
 
@@ -418,3 +375,4 @@ internal fun catalogBrowserReturnFocusModifier(cardKey: String): Modifier {
         Modifier
     }
 }
+

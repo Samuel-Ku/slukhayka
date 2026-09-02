@@ -33,6 +33,31 @@ class CatalogCardActionCoordinatorTest {
             category = SourceSelectionCoordinator.SourceCategory.DIRECT
         )
 
+    /** The only candidate of a 4read-only card: the browser door (#469). */
+    private fun browserSource(id: String = "4read-ed-1") =
+        SourceSelectionCoordinator.SourceCandidate(
+            source = SourceEntity(
+                id = id,
+                bookId = "work-1",
+                editionId = "edition-1",
+                type = "4read",
+                url = "https://4read.org/book-1",
+                streamOnly = true,
+                addedAt = 1L
+            ),
+            category = SourceSelectionCoordinator.SourceCategory.BROWSER
+        )
+
+    /** The direct sluhayua counterpart a successful cross-resolve returns. */
+    private fun sluhayuaCrossSource() = SourceEntity(
+        id = "sluhayua-cross",
+        bookId = "",
+        type = "sluhayua",
+        url = "https://sluhay.com.ua/42:knyzhka",
+        streamOnly = false,
+        addedAt = 1L
+    )
+
     @Test
     fun `only explicitly matching Edition Sources are eligible for automatic fallback`() {
         val sources = listOf(
@@ -262,5 +287,133 @@ class CatalogCardActionCoordinatorTest {
 
         assertEquals(listOf(false), availability)
         assertTrue(coordinator.state.value is CatalogCardActionState.Failed)
+    }
+
+    // --- #469: tap-time sluhayua cross-resolve before the browser door -----
+
+    @Test
+    fun `4read-only card with a sluhayua MergeKey match plays from the direct source without the browser`() = runTest {
+        var searchCalls = 0
+        val effects = mutableListOf<String>()
+        val gateway = object : CatalogCardActionGateway<String> {
+            override suspend fun savedBook(target: CatalogCardTarget): String? = null
+            override suspend fun sourceCandidates(target: CatalogCardTarget) = listOf(browserSource())
+            override suspend fun crossResolveDirectSource(target: CatalogCardTarget): SourceEntity? {
+                searchCalls += 1
+                return sluhayuaCrossSource()
+            }
+            override suspend fun import(target: CatalogCardTarget, source: SourceEntity): String = source.id
+            override suspend fun open(book: String): Boolean = true
+            override suspend fun play(book: String, source: SourceEntity?): Boolean {
+                effects += "play:$book:${source?.type}"
+                return true
+            }
+        }
+        val coordinator = CatalogCardActionCoordinator(this, gateway, successfulProbe)
+
+        coordinator.start(
+            CatalogCardTarget("work-1", "Книга", mergeKey = "книга|автор"),
+            CatalogCardAction.PLAY
+        )
+        advanceUntilIdle()
+
+        // Exactly ONE search request, played from the direct source, and the
+        // browser door never surfaced.
+        assertEquals(1, searchCalls)
+        assertEquals(listOf("play:sluhayua-cross:sluhayua"), effects)
+        assertTrue(coordinator.state.value is CatalogCardActionState.Completed)
+    }
+
+    @Test
+    fun `4read-only card without a sluhayua match ends at the browser door with one search call`() = runTest {
+        var searchCalls = 0
+        val gateway = object : CatalogCardActionGateway<String> {
+            override suspend fun savedBook(target: CatalogCardTarget): String? = null
+            override suspend fun sourceCandidates(target: CatalogCardTarget) = listOf(browserSource())
+            override suspend fun crossResolveDirectSource(target: CatalogCardTarget): SourceEntity? {
+                searchCalls += 1
+                return null
+            }
+            override suspend fun import(target: CatalogCardTarget, source: SourceEntity): String? =
+                error("no match must not import")
+            override suspend fun open(book: String): Boolean = true
+            override suspend fun play(book: String, source: SourceEntity?): Boolean = true
+        }
+        val coordinator = CatalogCardActionCoordinator(this, gateway, successfulProbe)
+
+        coordinator.start(
+            CatalogCardTarget("work-1", "Книга", mergeKey = "книга|автор"),
+            CatalogCardAction.PLAY
+        )
+        advanceUntilIdle()
+
+        val state = coordinator.state.value as CatalogCardActionState.BrowserRequired
+        assertEquals("4read", state.source.type)
+        assertEquals(1, searchCalls)
+    }
+
+    @Test
+    fun `repeated tap serves the cached cross-resolve without a second search call`() = runTest {
+        var searchCalls = 0
+        val cachedVerdicts = HashMap<String, SourceEntity?>()
+        val gateway = object : CatalogCardActionGateway<String> {
+            override suspend fun savedBook(target: CatalogCardTarget): String? = null
+            override suspend fun sourceCandidates(target: CatalogCardTarget) = listOf(browserSource())
+            override suspend fun crossResolveDirectSource(target: CatalogCardTarget): SourceEntity? {
+                if (cachedVerdicts.containsKey(target.mergeKey)) {
+                    return cachedVerdicts.getValue(target.mergeKey)
+                }
+                searchCalls += 1
+                return sluhayuaCrossSource().also { cachedVerdicts[target.mergeKey] = it }
+            }
+            override suspend fun import(target: CatalogCardTarget, source: SourceEntity): String = source.id
+            override suspend fun open(book: String): Boolean = true
+            override suspend fun play(book: String, source: SourceEntity?): Boolean = true
+        }
+        val coordinator = CatalogCardActionCoordinator(this, gateway, successfulProbe)
+        val target = CatalogCardTarget("work-1", "Книга", mergeKey = "книга|автор")
+
+        coordinator.start(target, CatalogCardAction.PLAY)
+        advanceUntilIdle()
+        assertTrue(coordinator.state.value is CatalogCardActionState.Completed)
+
+        coordinator.clearTerminalState()
+        coordinator.start(target, CatalogCardAction.PLAY)
+        advanceUntilIdle()
+
+        assertEquals(1, searchCalls)
+        assertTrue(coordinator.state.value is CatalogCardActionState.Completed)
+    }
+
+    @Test
+    fun `4read-only open with a sluhayua match opens the imported edition instead of the browser`() = runTest {
+        var searchCalls = 0
+        val effects = mutableListOf<String>()
+        val gateway = object : CatalogCardActionGateway<String> {
+            override suspend fun savedBook(target: CatalogCardTarget): String? = null
+            override suspend fun sourceCandidates(target: CatalogCardTarget) = listOf(browserSource())
+            override suspend fun crossResolveDirectSource(target: CatalogCardTarget): SourceEntity? {
+                searchCalls += 1
+                return sluhayuaCrossSource()
+            }
+            override suspend fun import(target: CatalogCardTarget, source: SourceEntity): String = source.id
+            override suspend fun open(book: String): Boolean {
+                effects += "open:$book"
+                return true
+            }
+            override suspend fun play(book: String, source: SourceEntity?): Boolean =
+                error("Open must not start playback")
+        }
+        val coordinator = CatalogCardActionCoordinator(this, gateway, successfulProbe)
+
+        coordinator.start(
+            CatalogCardTarget("work-1", "Книга", mergeKey = "книга|автор"),
+            CatalogCardAction.OPEN
+        )
+        advanceUntilIdle()
+
+        assertEquals(1, searchCalls)
+        assertEquals(listOf("open:sluhayua-cross"), effects)
+        assertTrue(coordinator.state.value is CatalogCardActionState.Completed)
     }
 }

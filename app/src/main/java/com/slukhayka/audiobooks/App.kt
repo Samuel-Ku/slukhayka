@@ -163,6 +163,30 @@ class App : Application() {
     }
 
     /**
+     * Spec-33 — the shared search-result cache. Hoisted from the
+     * [SourceCatalog] construction so the #469 tap-time cross-resolve reads
+     * and writes the SAME collective channel (a fresh entry serves a tap
+     * without touching the sluhayua search endpoint).
+     */
+    val searchCache: com.slukhayka.audiobooks.data.search.SearchCache? by lazy {
+        com.slukhayka.audiobooks.data.search.FirestoreSearchCache.create(this)
+    }
+
+    /**
+     * Spec #462 ID7 (#469) — the tap-time cross-resolve of a 4read-only card
+     * onto the direct sluhayua source: one JSON search per tap, matched by
+     * the Work MergeKey, verdict cached with the availability TTL discipline.
+     * Best-effort by contract — without a sluhayua adapter or a shared store
+     * it simply reports «no match» and the browser door stays.
+     */
+    val sluhayuaCrossResolve: com.slukhayka.audiobooks.data.catalog.SluhayuaCrossResolve by lazy {
+        com.slukhayka.audiobooks.data.catalog.SluhayuaCrossResolve(
+            search = { query -> sourceAdapters.first { it.sourceId == "sluhayua" }.search(query) },
+            cache = searchCache
+        )
+    }
+
+    /**
      * #431 — one clean, cookie-free transport check shared by every recovered
      * 4read profile. A successful local WebView session is never itself a
      * reason to publish its URLs to another listener.
@@ -333,8 +357,9 @@ class App : Application() {
             // hit serves the merged result without touching the 4read /
             // sluhayua search endpoints; a miss or a stale entry resolves
             // live and writes back best-effort. Null without Firebase keys:
-            // search then behaves exactly as before.
-            searchCache = FirestoreSearchCache.create(this),
+            // search then behaves exactly as before. (#469: the same store
+            // now also serves the tap-time sluhayua cross-resolve.)
+            searchCache = searchCache,
             // Catalogue crawls land each page's merge-on-write block as ONE
             // Room transaction — one invalidation of the endless feed's
             // PagingSource per page instead of two per row (row-by-row

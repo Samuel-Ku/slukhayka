@@ -3,6 +3,7 @@ package com.slukhayka.audiobooks.data.imports
 import com.slukhayka.audiobooks.data.db.AudiobookDao
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.metadata.SharedBookMetaStore
+import com.slukhayka.audiobooks.data.source.sourceIdForUrl
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -359,17 +360,30 @@ class BrowserRecoveryCoordinator(
             return "https://4read.org/index.php?do=search&subaction=search&story=$encoded"
         }
 
-        /** Recovery entry URL: exact Source URL when present, otherwise search with Work title. */
+        /**
+         * Recovery entry URL: exact Source URL when present, otherwise the
+         * 4read search with the Work title. #471 — generalized to ANY
+         * browser Source ([sourceId]): a non-4read browser source without a
+         * stored row yields an empty string (no invented home URL — the
+         * caller hides the door instead of opening the wrong site).
+         */
         suspend fun recoveryEntryUrl(
             dao: AudiobookDao,
-            bookId: String
+            bookId: String,
+            sourceId: String = "4read"
         ): String {
-            val book = dao.getAudiobookById(bookId) ?: return "https://4read.org/"
+            val book = dao.getAudiobookById(bookId)
+                ?: return if (sourceId == "4read") "https://4read.org/" else ""
             val sources = dao.getSourcesForBookSync(bookId)
-            val exact = sources.firstOrNull { it.type == "4read" }?.url?.takeIf { it.isNotBlank() }
+            val exact = sources.firstOrNull { it.type == sourceId }?.url?.takeIf { it.isNotBlank() }
             if (!exact.isNullOrBlank()) return exact
-            val title = book.title.takeIf { it.isNotBlank() } ?: "книга"
-            return searchUrlFor(title)
+            if (sourceId == "4read") {
+                val title = book.title.takeIf { it.isNotBlank() } ?: "книга"
+                return searchUrlFor(title)
+            }
+            return book.sourceUrl
+                .takeIf { it.isNotBlank() && sourceIdForUrl(it) == sourceId }
+                .orEmpty()
         }
     }
 }

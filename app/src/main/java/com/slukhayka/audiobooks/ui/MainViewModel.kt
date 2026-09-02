@@ -334,6 +334,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             override suspend fun recordAvailability(book: AudiobookEntity, available: Boolean) {
                 sourceCatalog.recordBookAvailability(book, available)
             }
+
+            // #469 (spec #462 ID7) — reached only before the browser door:
+            // one sluhayua search (title + author) matched by MergeKey. The
+            // resolver owns the request discipline and the availability-TTL
+            // cache; a null keeps the honest «потребує браузер» door.
+            override suspend fun crossResolveDirectSource(
+                target: CatalogCardTarget
+            ): SourceEntity? {
+                val match = App.instance.sluhayuaCrossResolve.resolve(
+                    title = target.title,
+                    author = target.author,
+                    mergeKey = target.mergeKey
+                ) ?: return null
+                return SourceEntity(
+                    id = "sluhayua-cross",
+                    bookId = "",
+                    type = "sluhayua",
+                    url = match.url,
+                    streamOnly = false
+                )
+            }
         },
         sourceProbe = SourceSelectionCoordinator.SourceProbe { source, remainingMs ->
             // A book-page 2xx proves only that HTML was returned (a challenge

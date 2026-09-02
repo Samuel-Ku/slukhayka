@@ -11,9 +11,9 @@ interface Envelope<T> {
   reason?: string
 }
 
-async function call<T>(path: string): Promise<T | null> {
+async function call<T>(path: string, signal?: AbortSignal): Promise<T | null> {
   try {
-    const response = await fetch(path)
+    const response = await fetch(path, { signal })
     if (!response.ok) return null
     const envelope = (await response.json()) as Envelope<T>
     return envelope.ok && envelope.data !== undefined ? envelope.data : null
@@ -58,7 +58,7 @@ export function dedupeWorks(groups: SearchGroup[]): SearchGroup[] {
 
 export interface Api {
   catalog(source: SourceId, url?: string): Promise<ParsedCatalog | null>
-  book(source: SourceId, url: string): Promise<BookDetail | null>
+  book(source: SourceId, url: string, signal?: AbortSignal): Promise<BookDetail | null>
   search(source: SourceId, query: string): Promise<CatalogCard[] | null>
   searchAll(query: string): Promise<SearchGroup[] | null>
   workFeed(cursor?: string, source?: SourceId): Promise<UnifiedWorkPage | null>
@@ -68,7 +68,7 @@ export interface Api {
 export const api: Api = {
   catalog: (source, url) =>
     call<ParsedCatalog>(`/api/catalog?source=${source}${url ? `&url=${encodeURIComponent(url)}` : ''}`),
-  book: (source, url) => call<BookDetail>(`/api/book?source=${source}&url=${encodeURIComponent(url)}`),
+  book: (source, url, signal) => call<BookDetail>(`/api/book?source=${source}&url=${encodeURIComponent(url)}`, signal),
   search: (source, query) =>
     call<CatalogCard[]>(`/api/search?source=${source}&q=${encodeURIComponent(query)}`),
   searchAll: (query) => call<SearchGroup[]>(`/api/search-all?q=${encodeURIComponent(query)}`),

@@ -7,8 +7,9 @@
  * транспорт, тести — мапу фіксчур.
  */
 import { absoluteUrl, type BookDetail, type CatalogCard, type CatalogSection, type ParsedCatalog, type SourceAdapter } from '../types'
+import { SOURCE_METADATA } from '../sourceMetadata'
 
-const SITE = 'https://4read.org'
+const SITE = SOURCE_METADATA.fourread.homeUrl
 
 export const fourread: SourceAdapter = {
   id: 'fourread',

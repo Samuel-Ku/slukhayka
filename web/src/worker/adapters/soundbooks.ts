@@ -13,8 +13,9 @@ import {
   type ParsedCatalog,
   type SourceAdapter,
 } from '../types'
+import { SOURCE_METADATA } from '../sourceMetadata'
 
-const BASE = 'https://sound-books.net'
+const BASE = SOURCE_METADATA['sound-books'].homeUrl
 
 const PLAYLIST_URL = /file\s*:\s*"(https?:\/\/[^"]+\.m3u)"/i
 const BOOK_LINK_G =

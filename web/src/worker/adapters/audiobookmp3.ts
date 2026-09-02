@@ -12,8 +12,9 @@ import {
   type ParsedCatalog,
   type SourceAdapter,
 } from '../types'
+import { SOURCE_METADATA } from '../sourceMetadata'
 
-const BASE = 'https://audiobook-mp3.com'
+const BASE = SOURCE_METADATA['audiobook-mp3'].homeUrl
 
 const PLAYLIST_URL = /(https:\/\/[a-z0-9]+\.redirectto\.cc\/[^"'<> ]+\.pl\.txt)/i
 const BOOK_LINK_G = /href="(\/uk-audio-\d+-[^"]+)"[^>]*>([^<]*)/gi

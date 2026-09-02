@@ -13,8 +13,9 @@ import {
   type ParsedCatalog,
   type SourceAdapter,
 } from '../types'
+import { SOURCE_METADATA } from '../sourceMetadata'
 
-const BASE = 'https://lihtar.in.ua'
+const BASE = SOURCE_METADATA.lihtar.homeUrl
 
 const LISTEN_LINK = /href="(https:\/\/web\.lihtar\.in\.ua\/library\/[^"]+)"/i
 const AUDIO_SRC = /<audio[^>]+src="(https:\/\/web\.lihtar\.in\.ua\/audio\/[^"]+)"/i

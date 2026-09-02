@@ -1,4 +1,4 @@
-import type { CatalogCard, SourceId, UnifiedWork, UnifiedWorkPage } from './types'
+import type { CatalogCard, SourceId, UnifiedEdition, UnifiedSource, UnifiedWork, UnifiedWorkPage } from './types'
 
 export type SourceCards = { sourceId: SourceId; cards: CatalogCard[] }
 
@@ -12,6 +12,32 @@ const SOURCE_PRIORITY: Record<SourceId, number> = {
   lihtar: 3,
   sluhay: 4,
   fourread: 5,
+}
+
+function isDirect(source: UnifiedSource): boolean {
+  return source.sourceId !== 'fourread'
+}
+
+/** #458: deterministic Edition choice; another Edition is never a fallback. */
+export function rankEditionsForPlayback(editions: UnifiedEdition[]): UnifiedEdition[] {
+  return editions
+    .map((edition, index) => ({ edition, index }))
+    .sort((left, right) => {
+      const tuple = (edition: UnifiedEdition): [number, number, number, number, number] => [
+        edition.sources.some((source) => isDirect(source) && source.availability === 'available') ? 1 : 0,
+        edition.isComplete === true ? 1 : 0,
+        edition.narrator?.trim() ? 1 : 0,
+        (edition.chapterCount ?? 0) > 0 ? 1 : 0,
+        Math.max(edition.verifiedAt ?? 0, ...edition.sources.map((source) => source.verifiedAt ?? 0)),
+      ]
+      const a = tuple(left.edition)
+      const b = tuple(right.edition)
+      for (let index = 0; index < a.length; index += 1) {
+        if (a[index] !== b[index]) return b[index] - a[index]
+      }
+      return left.index - right.index || left.edition.id.localeCompare(right.edition.id)
+    })
+    .map(({ edition }) => edition)
 }
 
 /** The same bibliographic identity as Android's MergeKey: title + author only. */

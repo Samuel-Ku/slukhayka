@@ -476,7 +476,7 @@ data class EditionSettingsEntity(
  */
 @Entity(
     tableName = "works",
-    indices = [Index("mergeKey")]
+    indices = [Index("mergeKey"), Index(value = ["addedAt", "id"], orders = [Index.Order.DESC, Index.Order.ASC])]
 )
 data class WorkEntity(
     // The merge key itself for mergeable rows (the pinned identity, #54/#55);

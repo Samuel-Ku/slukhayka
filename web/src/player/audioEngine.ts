@@ -35,7 +35,7 @@ export class AudioEngine {
     this.relayBase = opts.relayBase
     this.syncController = opts.syncController ?? null
     this.engine = new PlaybackEngine({
-      relayUrlOf: this.relayBase ? (url) => `${this.relayBase}/audio?u=${encodeURIComponent(url)}` : undefined,
+      relayUrlOf: this.relayBase ? (url) => relayUrlFor(this.relayBase!, url) : undefined,
     })
     if (opts.store) {
       this.store = opts.store
@@ -274,5 +274,15 @@ export class AudioEngine {
         onNextTrack: () => this.nextChapter(),
       },
     )
+  }
+}
+
+/** A source query may be a signed locator; relay only clean public URLs. */
+export function relayUrlFor(relayBase: string, streamUrl: string): string {
+  try {
+    if (new URL(streamUrl).search.length > 0) return ''
+    return `${relayBase}/audio?u=${encodeURIComponent(streamUrl)}`
+  } catch {
+    return ''
   }
 }

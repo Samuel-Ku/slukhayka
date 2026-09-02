@@ -123,8 +123,6 @@ export function BookPage({
   )
 }
 
-const PRIVATE_STREAM_PARAMETERS = new Set(['token', 'signature', 'sig', 'expires', 'key', 'auth', 'session', 'cookie'])
-
 /** Keeps only direct tracks that another local browser context can safely reuse. */
 export function publicBookProjection(detail: BookDetail): BookDetail {
   return {
@@ -135,7 +133,9 @@ export function publicBookProjection(detail: BookDetail): BookDetail {
 
 function hasPrivateStreamParameter(streamUrl: string): boolean {
   try {
-    return [...new URL(streamUrl).searchParams.keys()].some((key) => PRIVATE_STREAM_PARAMETERS.has(key.toLowerCase()))
+    // A query can be a vendor-specific signed token (for example an AWS
+    // signature). There is no safe allowlist for a URL we did not issue.
+    return new URL(streamUrl).search.length > 0
   } catch {
     return true
   }

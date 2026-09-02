@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { AudioEngine } from '../audioEngine'
+import { AudioEngine, relayUrlFor } from '../audioEngine'
 
 class FakeAudio extends EventTarget {
   src = ''
@@ -39,5 +39,10 @@ describe('AudioEngine catalogue confirmation', () => {
 
     audio.dispatchEvent(new Event('error'))
     await expect(result).resolves.toBe(false)
+  })
+
+  it('never constructs a Worker relay URL from a query-bearing stream locator', () => {
+    expect(relayUrlFor('/api', 'https://audio.example/chapter.mp3?X-Amz-Signature=private')).toBe('')
+    expect(relayUrlFor('/api', 'https://audio.example/chapter.mp3')).toBe('/api/audio?u=https%3A%2F%2Faudio.example%2Fchapter.mp3')
   })
 })

@@ -30,6 +30,58 @@ class SourceAccessPolicyTest {
     }
 
     @Test
+    fun `direct sources follow the deterministic priority of the web worker SOURCE_PRIORITY`() {
+        // #465: within the DIRECT tier the sub-order is fixed —
+        // soundbooks → sluhayua → audiobookmp3 → lihtar — mirroring
+        // SOURCE_PRIORITY in web/src/worker/workFeed.ts. BROWSER stays last.
+        val ordered = SourceAccessPolicy.order(
+            listOf(
+                SourceAccessCandidate("lihtar", url = "https://lihtar/book"),
+                SourceAccessCandidate("sluhay", url = "https://sluhay/book"),
+                SourceAccessCandidate("audiobookmp3", url = "https://audiobook-mp3.net/book"),
+                SourceAccessCandidate("soundbooks", url = "https://sound-books.net/book"),
+                SourceAccessCandidate("4read", url = "https://4read.org/book"),
+                SourceAccessCandidate("sluhayua", url = "https://sluhay.com.ua/book"),
+                SourceAccessCandidate("legacy", url = "https://legacy/book")
+            )
+        )
+        assertEquals(
+            listOf("soundbooks", "sluhayua", "audiobookmp3", "lihtar", "legacy", "4read", "sluhay"),
+            ordered.map { it.sourceId }
+        )
+    }
+
+    @Test
+    fun `direct sources missing from the list keep the same relative order`() {
+        val ordered = SourceAccessPolicy.order(
+            listOf(
+                SourceAccessCandidate("lihtar", url = "https://lihtar/book"),
+                SourceAccessCandidate("sluhayua", url = "https://sluhay.com.ua/book")
+            )
+        )
+        assertEquals(listOf("sluhayua", "lihtar"), ordered.map { it.sourceId })
+    }
+
+    @Test
+    fun `direct id unknown to the priority list sorts after the known ones`() {
+        // A future adapter declared DIRECT but absent from the deterministic
+        // list (the candidate carries its access mode explicitly) falls behind
+        // every known direct source, before UNKNOWN and BROWSER tiers.
+        val ordered = SourceAccessPolicy.order(
+            listOf(
+                SourceAccessCandidate(
+                    "future-direct",
+                    url = "https://future.example/book",
+                    accessMode = SourceAccessMode.DIRECT
+                ),
+                SourceAccessCandidate("lihtar", url = "https://lihtar/book"),
+                SourceAccessCandidate("soundbooks", url = "https://sound-books.net/book")
+            )
+        )
+        assertEquals(listOf("soundbooks", "lihtar", "future-direct"), ordered.map { it.sourceId })
+    }
+
+    @Test
     fun `4read is explicitly browser backed`() {
         assertEquals(SourceAccessMode.BROWSER, SourceAccessPolicy.modeFor("4read"))
     }

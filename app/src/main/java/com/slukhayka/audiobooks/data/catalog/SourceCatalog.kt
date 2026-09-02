@@ -29,6 +29,7 @@ import com.slukhayka.audiobooks.data.facets.WorkFacetDelta
 import com.slukhayka.audiobooks.data.facets.WorkFacetFilter
 import com.slukhayka.audiobooks.data.imports.LibraryImport
 import com.slukhayka.audiobooks.data.merge.MergeKey
+import com.slukhayka.audiobooks.player.SmartRetryPolicy
 import com.slukhayka.audiobooks.data.metadata.EditionDurationPolicy
 import com.slukhayka.audiobooks.data.metadata.MetadataAssertions
 import com.slukhayka.audiobooks.data.metadata.SearchCoverResolver
@@ -53,7 +54,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
-import java.io.File
 
 /**
  * ADR-0002 — Source Catalog: the deep module that owns browse and sync —
@@ -809,10 +809,11 @@ class SourceCatalog(
                     sourceName = sourceDisplayName(source.type),
                     url = source.url,
                     localAvailable = tracks.any { track ->
-                        track.isDownloaded && track.localFilePath?.let { path ->
-                            val file = File(path)
-                            file.exists() && file.length() > 100
-                        } == true
+                        // #472: the ONE local-file threshold (#471) — the same
+                        // [SmartRetryPolicy.localFileReady] buildMediaItem and
+                        // the heal gate apply, so source ordering can never
+                        // disagree with what the engine would actually play.
+                        track.isDownloaded && SmartRetryPolicy.localFileReady(track.localFilePath)
                     }
                 )
             }
@@ -829,15 +830,44 @@ class SourceCatalog(
             source.type == preferredSourceType && source.url == preferredSourceUrl
         }
         val playbackOrder = listOfNotNull(preferred) + orderedEntities.filterNot { it == preferred }
-        val selectedSource = playbackOrder
-            .firstOrNull { source ->
-                val tracks = tracksBySource[source].orEmpty()
-                tracks.count { it.trackIndex in chapters.indices } == chapters.size
+        // #472 (spec #462, Implementation Decision 9) — часткове завантаження.
+        // When ANY source of the book carries a real local file (the ONE #471
+        // threshold), the book plays from LOCAL: the downloaded chapters pair
+        // with their local tracks and the REST are honestly unavailable
+        // (per-chapter `track = null`) — never a silent switch to the remote
+        // source, which may be dead (regression: «офлайн-скачана книга з
+        // частковим покриттям розділів усе одно грає скачані розділи»).
+        // Books with NO local files keep the full-remote selection below,
+        // unchanged. An explicitly preferred Source (the listener's own pick)
+        // still wins over the lock.
+        val localReadySource = if (preferred == null) {
+            playbackOrder.firstOrNull { source ->
+                tracksBySource[source].orEmpty().any { track ->
+                    SmartRetryPolicy.localFileReady(track.localFilePath)
+                }
             }
+        } else {
+            null
+        }
+        val selectedSource = localReadySource
+            ?: playbackOrder
+                .firstOrNull { source ->
+                    val tracks = tracksBySource[source].orEmpty()
+                    tracks.count { it.trackIndex in chapters.indices } == chapters.size
+                }
             ?: playbackOrder
                 .firstOrNull { tracksBySource[it].orEmpty().isNotEmpty() }
             ?: sources.firstOrNull()
-        val tracks = selectedSource?.let { tracksBySource[it].orEmpty() }.orEmpty()
+        val tracks = if (localReadySource != null) {
+            // Only chapters with a real local copy are playable; the rest
+            // surface honest per-chapter unavailability (PlayableChapter.track
+            // = null — the player reports the absence instead of fabricating
+            // audio or knocking on the remote).
+            tracksBySource[localReadySource].orEmpty()
+                .filter { SmartRetryPolicy.localFileReady(it.localFilePath) }
+        } else {
+            selectedSource?.let { tracksBySource[it].orEmpty() }.orEmpty()
+        }
         return chapters.mapIndexed { index, chapter ->
             PlayableChapter(
                 chapter = chapter,

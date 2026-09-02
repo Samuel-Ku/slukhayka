@@ -114,7 +114,13 @@ class SourceCatalog(
     private val writeBatchRunner: suspend (suspend () -> Unit) -> Unit = { it() },
     private val sharedFacetStore: SharedBookMetaStore? = null,
     private val facetSyncCursorStore: FacetSyncCursorStore? = null,
-    private val facetSyncNowMillis: () -> Long = System::currentTimeMillis
+    private val facetSyncNowMillis: () -> Long = System::currentTimeMillis,
+    // Spec #462 ID6 (#467): the persisted feed-snapshot store — the Огляд
+    // feeds read `feed_snapshots` FIRST and hit the network ONLY after the
+    // feed's TTL (новинки 6 h, каталог 24 h — FeedSnapshotPolicy) or on an
+    // explicit user refresh. Null keeps the pre-#467 behaviour (network on
+    // every cache miss); tests inject a store over an in-memory database.
+    private val feedSnapshotStore: FeedSnapshotStore? = null
 ) {
     /** Frozen local-write seam consumed by the later shared delta lane. */
     val facetWriter: LocalFacetWriter = RoomLocalFacetWriter(dao)
@@ -236,13 +242,16 @@ class SourceCatalog(
      * so a fresh challenge session surfaces in the union immediately — never
      * a stale empty cache.
      */
-    suspend fun refreshUnifiedCatalog(limit: Int = 60): List<GlobalSearchResult> =
+    suspend fun refreshUnifiedCatalog(
+        limit: Int = 60,
+        forceRefresh: Boolean = false
+    ): List<GlobalSearchResult> =
         withContext(Dispatchers.IO) {
             _isUnifiedCatalogLoading.value = true
             try {
                 val books = mutableListOf<SourceBook>()
                 for (adapter in catalogueAdapters) {
-                    books += catalogueFor(adapter, limit)
+                    books += catalogueFor(adapter, limit, forceRefresh)
                 }
                 val merged = mergeGlobalSearchResults(books)
                 _unifiedCatalog.value = merged
@@ -264,14 +273,17 @@ class SourceCatalog(
         }
 
     /** TTL-cached catalogue enumeration for one adapter (mirrors newFeedFor). */
-    private suspend fun catalogueFor(adapter: SourceAdapter, limit: Int): List<SourceBook> {
+    private suspend fun catalogueFor(adapter: SourceAdapter, limit: Int, forceRefresh: Boolean = false): List<SourceBook> {
         // Session-bound sources re-enumerate on every refresh: a fresh
         // challenge session must surface immediately, never a stale cache.
-        if (!adapter.sessionBound) {
+        if (!adapter.sessionBound && !forceRefresh) {
             val now = System.currentTimeMillis()
             adapterCatalogCache[adapter.sourceId]?.let { cached ->
                 if (now - cached.fetchedAt < newFeedTtlMs) return cached.books
             }
+            // #467: the persisted snapshot answers before any network call —
+            // the source is hit only after the 24-hour catalog TTL.
+            feedSnapshotStore?.freshBooks(adapter.sourceId, FeedSnapshotPolicy.FEED_CATALOG)?.let { return it }
         }
         val books = try {
             adapter.fetchCatalog(limit)
@@ -279,6 +291,9 @@ class SourceCatalog(
             emptyList()
         }
         adapterCatalogCache[adapter.sourceId] = CachedFeed(System.currentTimeMillis(), books)
+        // #467: remember what the live fetch served so the next read within
+        // the catalog TTL never touches the network.
+        feedSnapshotStore?.saveBooks(adapter.sourceId, FeedSnapshotPolicy.FEED_CATALOG, books)
         return books
     }
 
@@ -331,14 +346,14 @@ class SourceCatalog(
      * never the whole surface. Reuses the same in-memory feed cache as the
      * global search, so repeated refreshes within the TTL are free.
      */
-    suspend fun refreshSourceFeeds(): List<SourceNewFeed> = withContext(Dispatchers.IO) {
+    suspend fun refreshSourceFeeds(forceRefresh: Boolean = false): List<SourceNewFeed> = withContext(Dispatchers.IO) {
         _isFeedsLoading.value = true
         try {
             val feeds = feedAdapters.mapNotNull { adapter ->
                 // Session-bound sources re-hydrate on every refresh (skip the
                 // TTL cache): a fresh challenge session must surface the row
                 // immediately, never a stale empty cache.
-                val books = newFeedFor(adapter, skipCache = adapter.sessionBound).take(20)
+                val books = newFeedFor(adapter, skipCache = adapter.sessionBound, forceRefresh = forceRefresh).take(20)
                 when {
                     books.isNotEmpty() ->
                         SourceNewFeed(adapter.sourceId, sourceDisplayName(adapter.sourceId), books)
@@ -396,12 +411,19 @@ class SourceCatalog(
         sourceId = SourceIds.FOUR_READ
     )
 
-    private suspend fun newFeedFor(adapter: SourceAdapter, skipCache: Boolean = false): List<SourceBook> {
+    private suspend fun newFeedFor(
+        adapter: SourceAdapter,
+        skipCache: Boolean = false,
+        forceRefresh: Boolean = false
+    ): List<SourceBook> {
         val now = System.currentTimeMillis()
-        if (!skipCache) {
+        if (!skipCache && !forceRefresh) {
             newFeedCache[adapter.sourceId]?.let { cached ->
                 if (now - cached.fetchedAt < newFeedTtlMs) return cached.books
             }
+            // #467: the persisted snapshot answers before any network call —
+            // the source is hit only after the 6-hour new-arrivals TTL.
+            feedSnapshotStore?.freshBooks(adapter.sourceId, FeedSnapshotPolicy.FEED_NEW_ARRIVALS)?.let { return it }
         }
         val books = try {
             adapter.fetchNew()
@@ -409,6 +431,9 @@ class SourceCatalog(
             emptyList()
         }
         newFeedCache[adapter.sourceId] = CachedFeed(now, books)
+        // #467: remember what the live fetch served so the next read within
+        // the new-arrivals TTL never touches the network.
+        feedSnapshotStore?.saveBooks(adapter.sourceId, FeedSnapshotPolicy.FEED_NEW_ARRIVALS, books)
         return books
     }
 
@@ -1324,25 +1349,46 @@ class SourceCatalog(
      * This is the explicit sync call the composition root invokes when the app
      * wants catalogue sync — constructing the module performs no network I/O.
      *
+     * #467: the persisted homepage snapshot answers FIRST — the 4read homepage
+     * is fetched ONLY after the 24-hour catalog TTL ([FeedSnapshotPolicy]) or
+     * when [forceRefresh] marks an explicit user refresh (the «Оновити»
+     * buttons). Even a snapshot-served pass still upserts every card through
+     * [LibraryImport.upsertCatalogBook], so tombstones keep blocking reimport
+     * and the published list is what actually landed.
+     *
      * ADR-0005: tombstone enforcement lives in the persistence layer — the
      * upsert returns nothing for a tombstoned Work, so the published sections
      * are assembled from what actually landed; sections emptied by skips are
      * not published (matching today's behaviour).
      */
-    suspend fun fetchCatalogSections(): List<CatalogSection> =
+    suspend fun fetchCatalogSections(forceRefresh: Boolean = false): List<CatalogSection> =
         withContext(Dispatchers.IO) {
             _isCatalogLoading.value = true
             try {
+                // #467: a fresh snapshot serves the sections without any
+                // network call — an empty snapshot falls through to the live
+                // fetch below (never persists as a snapshot anyway).
+                if (!forceRefresh) {
+                    feedSnapshotStore?.freshHomepage()?.let { snapshot ->
+                        if (snapshot.sections.isNotEmpty()) {
+                            _catalogGenres.value = snapshot.genres
+                            val sections = upsertAndFilterSections(snapshot.sections)
+                            _catalogSections.value = sections
+                            publishNewArrivals(sections, _sourceFeeds.value)
+                            return@withContext sections
+                        }
+                    }
+                }
                 val html = fourReadFetcher.getText("https://4read.org/")
                 if (html.isBlank()) return@withContext emptyList()
                 _catalogGenres.value = CatalogParser.parseGenreNav(html)
-                val sections = CatalogParser.parseHomepage(html).mapNotNull { section ->
-                    val landed = section.books.mapNotNull { book -> libraryImport.upsertCatalogBook(book) }
-                    if (landed.isEmpty() && section.series.isEmpty()) return@mapNotNull null
-                    val landedIds = landed.map { it.id }.toSet()
-                    section.copy(books = section.books.filter { it.id in landedIds })
-                }
+                val sections = upsertAndFilterSections(CatalogParser.parseHomepage(html))
                 _catalogSections.value = sections
+                // #467: remember what the live homepage served so the next
+                // read within the catalog TTL never touches the network.
+                if (sections.isNotEmpty()) {
+                    feedSnapshotStore?.saveHomepage(sections, _catalogGenres.value)
+                }
                 // The rail's own half is the sections just parsed; the feed
                 // half comes from the latest published feeds (spec-28 #197).
                 publishNewArrivals(sections, _sourceFeeds.value)
@@ -1353,6 +1399,19 @@ class SourceCatalog(
             } finally {
                 _isCatalogLoading.value = false
             }
+        }
+
+    /**
+     * The one homepage→Room pass (shared by the snapshot and live paths):
+     * every card lands through [LibraryImport.upsertCatalogBook] — tombstoned
+     * Works land nothing — and each section keeps only the books that did.
+     */
+    private suspend fun upsertAndFilterSections(sections: List<CatalogSection>): List<CatalogSection> =
+        sections.mapNotNull { section ->
+            val landed = section.books.mapNotNull { book -> libraryImport.upsertCatalogBook(book) }
+            if (landed.isEmpty() && section.series.isEmpty()) return@mapNotNull null
+            val landedIds = landed.map { it.id }.toSet()
+            section.copy(books = section.books.filter { it.id in landedIds })
         }
 
     /**

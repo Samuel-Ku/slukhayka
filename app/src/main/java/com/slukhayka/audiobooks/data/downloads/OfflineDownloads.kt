@@ -238,7 +238,11 @@ class OfflineDownloads(
     suspend fun estimateOfflineSize(bookId: String): EstimatedSize = withContext(Dispatchers.IO) {
         val book = dao.getAudiobookById(bookId)
         val sourceId = book?.let { sourceIdForUrl(it.sourceUrl) } ?: "unknown"
-        val playable = try { sourceCatalog.getPlayableChapters(bookId) } catch (_: Exception) { emptyList() }
+        val playable = try {
+            // Download-path seam (see downloadAudiobookOffline): the lock is
+            // playback doctrine — the estimate must still see remote chapters.
+            sourceCatalog.getPlayableChapters(bookId, applyLocalLock = false)
+        } catch (_: Exception) { emptyList() }
         if (playable.isEmpty()) return@withContext EstimatedSize(null, isApproximate = false, knownCount = 0, totalCount = 0)
         var total: Long = 0
         var known = 0
@@ -272,7 +276,12 @@ class OfflineDownloads(
         // button did nothing (observed on-device: 183 of 214 books had no
         // chapters in Room). ADR-0007: the download loop consumes the
         // chapter→track pairing and writes ONLY the track rows.
-        val playable = sourceCatalog.getPlayableChapters(bookId).let { chapters ->
+        // The #472 local lock is a PLAYBACK doctrine (play what is on disk,
+        // report the rest honestly). The download queue is the explicit
+        // listener action that must still SEE the remote chapters — with the
+        // lock on, a partially downloaded book's browser-refresh resume found
+        // zero chapters to fetch (regression caught by the 4read resume test).
+        val playable = sourceCatalog.getPlayableChapters(bookId, applyLocalLock = false).let { chapters ->
             requestedChapterIds?.let { requested -> chapters.filter { it.chapter.id in requested } } ?: chapters
         }
         val total = playable.size

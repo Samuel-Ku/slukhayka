@@ -676,7 +676,8 @@ class SourceCatalog(
     suspend fun getPlayableChapters(
         bookId: String,
         preferredSourceType: String? = null,
-        preferredSourceUrl: String? = null
+        preferredSourceUrl: String? = null,
+        applyLocalLock: Boolean = true
     ): List<PlayableChapter> {
         var chapters = dao.getChaptersListForBook(bookId)
         val book = dao.getAudiobookById(bookId)
@@ -839,8 +840,12 @@ class SourceCatalog(
         // частковим покриттям розділів усе одно грає скачані розділи»).
         // Books with NO local files keep the full-remote selection below,
         // unchanged. An explicitly preferred Source (the listener's own pick)
-        // still wins over the lock.
-        val localReadySource = if (preferred == null) {
+        // still wins over the lock. The DOWNLOAD queue opts out
+        // (applyLocalLock = false): it is the explicit listener action that
+        // must still SEE the remote chapters — the browser-refresh resume
+        // after a successful recovery would otherwise find nothing to
+        // download once one chapter is already on disk.
+        val localReadySource = if (applyLocalLock && preferred == null) {
             playbackOrder.firstOrNull { source ->
                 tracksBySource[source].orEmpty().any { track ->
                     SmartRetryPolicy.localFileReady(track.localFilePath)

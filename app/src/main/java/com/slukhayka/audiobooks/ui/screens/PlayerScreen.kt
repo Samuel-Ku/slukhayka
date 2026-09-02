@@ -65,6 +65,7 @@ import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.BookmarkEntity
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
 import com.slukhayka.audiobooks.data.db.ChapterEntity
+import com.slukhayka.audiobooks.data.source.sourceDisplayName
 import com.slukhayka.audiobooks.player.PlaybackErrorKind
 import com.slukhayka.audiobooks.player.PlayerState
 import com.slukhayka.audiobooks.player.SleepTimerNotice
@@ -281,6 +282,25 @@ fun PlayerScreen(
     // above it), so LocalContentColor would otherwise stay at its framework
     // default (BLACK) and every IconButton/Icon without an explicit tint
     // would render near-invisible black glyphs on the dark backdrop.
+    // #471 — явні браузерні двері для кожного BROWSER джерела книги;
+    // читаються з бази один раз на книгу (не на кожну рекомпозицію).
+    val browserDoors by produceState(emptyList<PlayerBrowserDoor>(), book.id) {
+        value = viewModel.browserRecoverySources(book.id).map { sourceId ->
+            PlayerBrowserDoor(
+                sourceId = sourceId,
+                label = sourceDisplayName(sourceId),
+                onClick = {
+                    val current = viewModel.playerManager.playerState.value
+                    viewModel.openBrowserRecovery(
+                        bookId = book.id,
+                        sourceId = sourceId,
+                        chapterIndex = current.currentChapterIndex,
+                        positionMs = current.currentPositionMs
+                    )
+                }
+            )
+        }
+    }
     CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onBackground) {
         PlayerModalUnderlay(
             activeTool = activeTool,
@@ -339,15 +359,18 @@ fun PlayerScreen(
             onBookmark = { activeTool = PlayerQuickTool.Bookmark },
             onChapters = { activeTool = PlayerQuickTool.Chapters },
             onRetryPlayback = {
-                viewModel.playerManager.prepareChapter(
+                // #471 — розумний retry: локальний файл → ре-резолв
+                // джерел (LOCAL → DIRECT → UNKNOWN + cross-source) →
+                // чесне «Книга недоступна» з браузерними дверима.
+                viewModel.smartRetryPlayback(
+                    book.id,
                     playerState.currentChapterIndex,
-                    playerState.currentPositionMs,
-                    autoPlay = true
+                    playerState.currentPositionMs
                 )
             },
-            onOpenBrowserRecovery = if (playerState.currentSourceId == "4read" || book.sourceUrl.contains("4read.org")) {
-                { viewModel.open4ReadRecovery(book.id, playerState.currentChapterIndex, playerState.currentPositionMs) }
-            } else null,
+            // #471 — явні браузерні двері для ЛЮБОГО BROWSER джерела книги
+            // (узагальнення старих 4read-єдиних дверей).
+            browserDoors = browserDoors,
             activeTool = activeTool,
             castReady = castReady,
             lastBookmarkTarget = lastBookmarkTarget,
@@ -500,7 +523,9 @@ fun PlayerScreenContent(
     onBookmark: () -> Unit,
     onChapters: () -> Unit,
     onRetryPlayback: () -> Unit,
-    onOpenBrowserRecovery: (() -> Unit)? = null,
+    // #471 — явні браузерні двері (по одній на кожне BROWSER джерело книги)
+    // замість старого 4read-єдиного прапорця.
+    browserDoors: List<PlayerBrowserDoor> = emptyList(),
     modifier: Modifier = Modifier,
     activeTool: PlayerQuickTool? = null,
     castReady: Boolean = false,
@@ -737,7 +762,7 @@ fun PlayerScreenContent(
                         // матчу «недоступна» у тексті помилки.
                         kind = playerState.errorKind,
                         onRetryPlayback = onRetryPlayback,
-                        onOpenBrowserRecovery = onOpenBrowserRecovery
+                        browserDoors = browserDoors
                     )
                 } else if (playerState.isBuffering) {
                     // Issue #381 (a11y/UX-аудит v1.3.6): під час резолюції
@@ -1378,6 +1403,17 @@ private fun RowScope.QuickTool(
     }
 }
 
+/**
+ * #471 — одна явна браузерна двері: BROWSER джерело книги, яке слухач може
+ * відкрити свідомо після чесної «Книга недоступна» (браузер ніколи не
+ * запускається неявно — ADR-0026).
+ */
+data class PlayerBrowserDoor(
+    val sourceId: String,
+    val label: String,
+    val onClick: () -> Unit
+)
+
 @Composable
 private fun PlayerPlaybackError(
     bookTitle: String,
@@ -1386,7 +1422,8 @@ private fun PlayerPlaybackError(
     // detail.contains(«недоступна»), який ламався від зміни формулювання.
     kind: PlaybackErrorKind,
     onRetryPlayback: () -> Unit,
-    onOpenBrowserRecovery: (() -> Unit)? = null
+    // #471 — двері для ЛЮБОГО BROWSER джерела книги, не тільки 4read.
+    browserDoors: List<PlayerBrowserDoor> = emptyList()
 ) {
     val errorTitle = stringResource(R.string.a11y_player_error_title)
     val retryLabel = stringResource(R.string.a11y_player_retry, bookTitle)
@@ -1427,16 +1464,20 @@ private fun PlayerPlaybackError(
             ) {
                 Text(retryLabel, modifier = Modifier.clearAndSetSemantics { })
             }
-            if (onOpenBrowserRecovery != null) {
+            // #471 — по одній явній двері на кожне BROWSER джерело книги.
+            browserDoors.forEach { door ->
                 OutlinedButton(
-                    onClick = onOpenBrowserRecovery,
+                    onClick = door.onClick,
                     modifier = Modifier
                         .heightIn(min = AppDimens.TouchTarget)
                         .semantics {
-                            contentDescription = "Оновити 4read через браузер для $bookTitle"
+                            contentDescription = "Оновити ${door.label} через браузер для $bookTitle"
                         }
                 ) {
-                    Text("Оновити через браузер", modifier = Modifier.clearAndSetSemantics { })
+                    Text(
+                        "Оновити через браузер (${door.label})",
+                        modifier = Modifier.clearAndSetSemantics { }
+                    )
                 }
             }
         }

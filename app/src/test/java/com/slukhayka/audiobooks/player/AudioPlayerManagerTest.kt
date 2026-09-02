@@ -1081,6 +1081,29 @@ class AudioPlayerManagerTest {
     }
 
     @Test
+    fun `the smart retry unavailability surfaces the honest UNAVAILABLE state`() = playerTest { manager, _ ->
+        // Arrange — a book is loaded (the remote died before this; the smart
+        // retry's re-resolve chain found nothing and the memo is exhausted).
+        manager.loadAndPlayBook(book, chapters, playable = playable, initialChapterIndex = 0, autoPlay = true)
+
+        // Act — #471: the bounded retry reports «Книга недоступна» instead of
+        // knocking on the dead remote again (no fabricated retry, CR-002).
+        manager.reportRetryUnavailable()
+
+        // Assert — title-only UNAVAILABLE card: PlayerScreen shows the
+        // explicit browser doors for any BROWSER source next to it.
+        val state = manager.playerState.value
+        assertEquals(PlaybackErrorKind.UNAVAILABLE, state.errorKind)
+        assertFalse(state.isBuffering)
+        assertFalse(state.isPlaying)
+        assertTrue(
+            "the honest unavailable state must surface",
+            state.lastErrorMsg.contains("недоступна", ignoreCase = true)
+        )
+        assertEquals(1, manager.playbackMetrics.failureByCode()["SMART_RETRY_UNAVAILABLE"])
+    }
+
+    @Test
     fun `a user-initiated prepare resets the heal budget`() {
         var healCalls = 0
         playerTest(healer = HealerSeam { _, _, _ -> if (++healCalls == 1) HEALED_URL else HEALED_URL_2 }) { manager, factory ->

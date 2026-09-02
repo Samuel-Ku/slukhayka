@@ -402,9 +402,7 @@ fun HomeScreen(
                     GlobalSearchResultCard(
                         result = result,
                         onClick = { viewModel.openGlobalSearchResult(result) },
-                        onPlayClick = { viewModel.playGlobalSearchResult(result) },
                         actionState = catalogCardActionState,
-                        onCancelAction = viewModel::cancelCatalogCardAction,
                         onOpenBrowser = viewModel::openCatalogBrowserRequired,
                         onPreflight = { viewModel.preflightGlobalSearchResult(result) }
                     )
@@ -460,12 +458,9 @@ fun HomeScreen(
                 onOpenSeriesIndex = { viewModel.openSeriesIndex() },
                 onOpenCollectionsIndex = { viewModel.openCollectionsIndex() },
                 onOpenSeries = { title, url -> viewModel.openSeries(title, url) },
-                onPlayGlobalSearchResult = { viewModel.playGlobalSearchResult(it) },
                 onOpenGlobalSearchResult = { viewModel.openGlobalSearchResult(it) },
                 onOpenRecommendedBook = { viewModel.openRecommendedBook(it) },
-                onPlayRecommendedBook = { viewModel.playRecommendedBook(it) },
                 onOpenCatalogBook = { viewModel.openCatalogBook(it) },
-                onPlayCatalogBook = { viewModel.playCatalogBook(it) },
                 onOpenWorkFeedRow = { viewModel.openWorkFeedRow(it) },
                 onPlayWorkFeedRow = { viewModel.playWorkFeedRow(it) },
                 catalogCardActionState = catalogCardActionState,
@@ -835,9 +830,7 @@ fun DurationSection(
     longBooks: List<CatalogBook>,
     onBookClick: (String) -> Unit,
     onOpenClick: (CatalogBook) -> Unit = { onBookClick(it.id) },
-    onPlayClick: (CatalogBook) -> Unit = onOpenClick,
     actionState: CatalogCardActionState = CatalogCardActionState.Idle,
-    onCancelAction: () -> Unit = {},
     onOpenBrowser: () -> Unit = {},
     onPreflight: (CatalogBook) -> Unit = {},
     modifier: Modifier = Modifier
@@ -855,9 +848,7 @@ fun DurationSection(
                     CatalogBookCard(
                         book = book,
                         onClick = { onOpenClick(book) },
-                        onPlayClick = { onPlayClick(book) },
                         actionState = actionState,
-                        onCancelAction = onCancelAction,
                         onOpenBrowser = onOpenBrowser,
                         onPreflight = { onPreflight(book) }
                     )
@@ -875,9 +866,7 @@ fun DurationSection(
                     CatalogBookCard(
                         book = book,
                         onClick = { onOpenClick(book) },
-                        onPlayClick = { onPlayClick(book) },
                         actionState = actionState,
-                        onCancelAction = onCancelAction,
                         onOpenBrowser = onOpenBrowser,
                         onPreflight = { onPreflight(book) }
                     )
@@ -897,9 +886,7 @@ fun DurationSection(
 fun NewArrivalsRail(
     results: List<GlobalSearchResult>,
     onBookClick: (GlobalSearchResult) -> Unit,
-    onPlayClick: (GlobalSearchResult) -> Unit = onBookClick,
     actionState: CatalogCardActionState = CatalogCardActionState.Idle,
-    onCancelAction: () -> Unit = {},
     onOpenBrowser: () -> Unit = {},
     onPreflight: (GlobalSearchResult) -> Unit = {},
     modifier: Modifier = Modifier
@@ -914,9 +901,7 @@ fun NewArrivalsRail(
                 UnifiedCatalogCard(
                     result = result,
                     onClick = { onBookClick(result) },
-                    onPlayClick = { onPlayClick(result) },
                     actionState = actionState,
-                    onCancelAction = onCancelAction,
                     onOpenBrowser = onOpenBrowser,
                     onPreflight = { onPreflight(result) }
                 )
@@ -986,9 +971,7 @@ fun OpenWebSourceRow(
 fun CatalogBookCard(
     book: CatalogBook,
     onClick: () -> Unit,
-    onPlayClick: () -> Unit = onClick,
     actionState: CatalogCardActionState = CatalogCardActionState.Idle,
-    onCancelAction: () -> Unit = {},
     onOpenBrowser: () -> Unit = {},
     onPreflight: () -> Unit = {}
 ) {
@@ -1034,14 +1017,6 @@ fun CatalogBookCard(
             )
         }
        }
-       CatalogCardActionAffordance(
-           title = book.title,
-           cardKey = book.id,
-           state = actionState,
-           onPlay = onPlayClick,
-           onCancel = onCancelAction,
-           modifier = Modifier.align(Alignment.BottomEnd)
-       )
       }
       CatalogCardStatus(book.id, actionState, onOpenBrowser)
     }
@@ -1050,16 +1025,14 @@ fun CatalogBookCard(
 /**
  * Spec-16 — cover-first card of a smart-collection row: the union card
  * (Work) with its cover and title, uniform with the other Огляд cover cards.
- * Tapping resolves the Work through the same identity as any global-search
- * card (import-and-play).
+ * Tapping opens the book page through the same identity as any global-search
+ * card (ADR-0018: shelves carry no one-tap play).
  */
 @Composable
 fun CollectionBookCard(
     result: com.slukhayka.audiobooks.data.source.GlobalSearchResult,
     onClick: () -> Unit,
-    onPlayClick: () -> Unit = onClick,
     actionState: CatalogCardActionState = CatalogCardActionState.Idle,
-    onCancelAction: () -> Unit = {},
     onOpenBrowser: () -> Unit = {},
     onPreflight: () -> Unit = {}
 ) {
@@ -1094,14 +1067,6 @@ fun CollectionBookCard(
             modifier = Modifier.fillMaxWidth()
         )
        }
-       CatalogCardActionAffordance(
-           title = result.title,
-           cardKey = result.key,
-           state = actionState,
-           onPlay = onPlayClick,
-           onCancel = onCancelAction,
-           modifier = Modifier.align(Alignment.BottomEnd)
-       )
       }
       CatalogCardStatus(result.key, actionState, onOpenBrowser)
     }
@@ -1116,9 +1081,7 @@ fun CollectionBookCard(
 fun RecommendedBookCard(
     rec: com.slukhayka.audiobooks.data.recommend.RecommendationEngine.Recommendation,
     onClick: () -> Unit,
-    onPlayClick: () -> Unit = onClick,
     actionState: CatalogCardActionState = CatalogCardActionState.Idle,
-    onCancelAction: () -> Unit = {},
     onOpenBrowser: () -> Unit = {},
     onPreflight: () -> Unit = {},
     onFeedback: (String) -> Unit = {}
@@ -1215,15 +1178,6 @@ fun RecommendedBookCard(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                )
-            }
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                CatalogCardActionAffordance(
-                    title = rec.candidate.title,
-                    cardKey = rec.candidate.id,
-                    state = actionState,
-                    onPlay = onPlayClick,
-                    onCancel = onCancelAction
                 )
             }
             CatalogCardStatus(rec.candidate.id, actionState, onOpenBrowser)

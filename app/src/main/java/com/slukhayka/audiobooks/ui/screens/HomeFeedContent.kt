@@ -71,7 +71,6 @@ fun LazyListScope.homeFeedContent(
     onOpenSeriesIndex: () -> Unit,
     onOpenCollectionsIndex: () -> Unit,
     onOpenSeries: (title: String, url: String) -> Unit,
-    onPlayGlobalSearchResult: (GlobalSearchResult) -> Unit,
     onOpenRecommendedBook: (candidateId: String) -> Unit,
     onOpenWorkFeedRow: (WorkFeedRow) -> Unit,
     onBookClick: (String) -> Unit,
@@ -96,10 +95,8 @@ fun LazyListScope.homeFeedContent(
     onPreflightCatalogBook: (CatalogBook) -> Unit = {},
     onPreflightRecommendedBook: (String) -> Unit = {},
     onPreflightWorkFeedRow: (WorkFeedRow) -> Unit = {},
-    onOpenGlobalSearchResult: (GlobalSearchResult) -> Unit = onPlayGlobalSearchResult,
-    onOpenCatalogBook: (CatalogBook) -> Unit = { onBookClick(it.id) },
-    onPlayCatalogBook: (CatalogBook) -> Unit = { onBookClick(it.id) },
-    onPlayRecommendedBook: (candidateId: String) -> Unit = onOpenRecommendedBook
+    onOpenGlobalSearchResult: (GlobalSearchResult) -> Unit = { result -> onBookClick(result.key) },
+    onOpenCatalogBook: (CatalogBook) -> Unit = { onBookClick(it.id) }
 ) {
     // Loading spinner while the catalogue syncs on a fresh start.
     if (isCatalogLoading && !hasLibraryBooks && sections.isEmpty()) {
@@ -236,9 +233,7 @@ fun LazyListScope.homeFeedContent(
                     RecommendedBookCard(
                         rec = rec,
                         onClick = { onOpenRecommendedBook(rec.candidate.id) },
-                        onPlayClick = { onPlayRecommendedBook(rec.candidate.id) },
                         actionState = catalogCardActionState,
-                        onCancelAction = onCancelCatalogCardAction,
                         onOpenBrowser = onOpenCatalogBrowser,
                         onPreflight = { onPreflightRecommendedBook(rec.candidate.id) },
                         onFeedback = { kind -> onRecommendationFeedback(rec, kind) }
@@ -283,9 +278,7 @@ fun LazyListScope.homeFeedContent(
             NewArrivalsRail(
                 results = newArrivals,
                 onBookClick = { result -> onOpenGlobalSearchResult(result) },
-                onPlayClick = { result -> onPlayGlobalSearchResult(result) },
                 actionState = catalogCardActionState,
-                onCancelAction = onCancelCatalogCardAction,
                 onOpenBrowser = onOpenCatalogBrowser,
                 onPreflight = onPreflightGlobalSearchResult
             )
@@ -301,9 +294,7 @@ fun LazyListScope.homeFeedContent(
             longBooks = longBooks,
             onBookClick = onBookClick,
             onOpenClick = onOpenCatalogBook,
-            onPlayClick = onPlayCatalogBook,
             actionState = catalogCardActionState,
-            onCancelAction = onCancelCatalogCardAction,
             onOpenBrowser = onOpenCatalogBrowser,
             onPreflight = onPreflightCatalogBook
         )
@@ -334,9 +325,7 @@ fun LazyListScope.homeFeedContent(
                         CatalogBookCard(
                             book = book,
                             onClick = { onOpenCatalogBook(book) },
-                            onPlayClick = { onPlayCatalogBook(book) },
                             actionState = catalogCardActionState,
-                            onCancelAction = onCancelCatalogCardAction,
                             onOpenBrowser = onOpenCatalogBrowser,
                             onPreflight = { onPreflightCatalogBook(book) }
                         )
@@ -388,9 +377,7 @@ fun LazyListScope.homeFeedContent(
                         CollectionBookCard(
                             result = result,
                             onClick = { onOpenGlobalSearchResult(result) },
-                            onPlayClick = { onPlayGlobalSearchResult(result) },
                             actionState = catalogCardActionState,
-                            onCancelAction = onCancelCatalogCardAction,
                             onOpenBrowser = onOpenCatalogBrowser,
                             onPreflight = { onPreflightGlobalSearchResult(result) }
                         )

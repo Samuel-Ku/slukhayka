@@ -257,7 +257,6 @@ class HomeFeedPhoneFoldSnapshotTest {
                         onOpenSeriesIndex = {},
                         onOpenCollectionsIndex = {},
                         onOpenSeries = { _, _ -> },
-                        onPlayGlobalSearchResult = {},
                         onOpenRecommendedBook = {},
                         onOpenWorkFeedRow = {},
                         onBookClick = {},

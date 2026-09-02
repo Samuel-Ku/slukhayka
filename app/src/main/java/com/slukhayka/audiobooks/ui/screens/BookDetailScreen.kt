@@ -33,6 +33,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -48,6 +49,7 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.slukhayka.audiobooks.data.catalog.CatalogBook
@@ -2251,6 +2253,21 @@ data class PersonBookmarkControl(
     val onToggleNotify: (Boolean) -> Unit = {}
 )
 
+/**
+ * Keeps the full 48dp Material touch target for the bookmark star without
+ * letting it inflate the text line's height: the button still measures and
+ * draws 48×48dp, but reports zero height to the row, so the surrounding
+ * vertical rhythm stays at the natural line height. Safe because the rows
+ * themselves never clip — only the scroll viewport does.
+ */
+private fun Modifier.personBookmarkTouchTarget(): Modifier = layout { measurable, _ ->
+    val side = 48.dp.roundToPx()
+    val placeable = measurable.measure(Constraints.fixed(side, side))
+    layout(placeable.width, 0) {
+        placeable.placeRelative(0, -placeable.height / 2)
+    }
+}
+
 /** The production Work/Edition summary consumed by both the page and snapshots. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -2312,13 +2329,11 @@ fun BookDetailCanonicalSummary(
             .focusable()
             .semantics { heading() }
     )
-    // Keep the title→author rhythm equal to the cover→title gap above.
-    Spacer(modifier = Modifier.height(16.dp))
+    // Keep the title→author rhythm tight: title and its people read as one group.
+    Spacer(modifier = Modifier.height(8.dp))
     if (presentation.author.isNotBlank()) {
         BoxWithConstraints(
-            modifier = Modifier
-                .fillMaxWidth()
-                .defaultMinSize(minHeight = 48.dp)
+            modifier = Modifier.fillMaxWidth()
         ) {
             val textMaxWidth = (maxWidth - 48.dp).coerceAtLeast(0.dp)
             Row(
@@ -2335,8 +2350,6 @@ fun BookDetailCanonicalSummary(
                     textAlign = TextAlign.Center,
                     modifier = Modifier
                         .widthIn(max = textMaxWidth)
-                        .heightIn(min = 48.dp)
-                        .wrapContentHeight(Alignment.CenterVertically)
                         .focusRequester(authorFocusRequester)
                         .testTag("book_detail_author_link")
                         .clickable {
@@ -2345,7 +2358,7 @@ fun BookDetailCanonicalSummary(
                         }
                 )
                 PersonBookmarkButton(
-                    modifier = Modifier.offset(x = (-4).dp),
+                    modifier = Modifier.personBookmarkTouchTarget().offset(x = (-4).dp),
                     isBookmarked = authorBookmark.isBookmarked,
                     notifyEnabled = authorBookmark.notifyEnabled,
                     personName = presentation.author,
@@ -2357,13 +2370,11 @@ fun BookDetailCanonicalSummary(
         }
     }
     if (presentation.author.isNotBlank() && presentation.narrator.isNotBlank()) {
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(4.dp))
     }
     if (presentation.narrator.isNotBlank()) {
         BoxWithConstraints(
-            modifier = Modifier
-                .fillMaxWidth()
-                .defaultMinSize(minHeight = 48.dp)
+            modifier = Modifier.fillMaxWidth()
         ) {
             val textMaxWidth = (maxWidth - 48.dp).coerceAtLeast(0.dp)
             Row(
@@ -2380,8 +2391,6 @@ fun BookDetailCanonicalSummary(
                     textAlign = TextAlign.Center,
                     modifier = Modifier
                         .widthIn(max = textMaxWidth)
-                        .heightIn(min = 48.dp)
-                        .wrapContentHeight(Alignment.CenterVertically)
                         .focusRequester(narratorFocusRequester)
                         .testTag("book_detail_narrator_link")
                         .clickable {
@@ -2391,7 +2400,7 @@ fun BookDetailCanonicalSummary(
                         .semantics { stateDescription = currentEditionState }
                 )
                 PersonBookmarkButton(
-                    modifier = Modifier.offset(x = (-4).dp),
+                    modifier = Modifier.personBookmarkTouchTarget().offset(x = (-4).dp),
                     isBookmarked = narratorBookmark.isBookmarked,
                     notifyEnabled = narratorBookmark.notifyEnabled,
                     personName = presentation.narrator,

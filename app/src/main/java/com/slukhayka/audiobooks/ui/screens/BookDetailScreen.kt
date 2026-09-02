@@ -2345,7 +2345,9 @@ fun BookDetailCanonicalSummary(
                 onToggle = authorBookmark.onToggle,
                 onToggleNotify = authorBookmark.onToggleNotify,
                 testTag = "book_detail_author_bookmark",
-                modifier = Modifier.padding(start = 0.dp)
+                modifier = Modifier.padding(start = 0.dp),
+                iconOffsetX = (-8).dp,
+                iconOffsetY = (-12).dp
             )
         }
     }
@@ -2382,7 +2384,9 @@ fun BookDetailCanonicalSummary(
                 onToggle = narratorBookmark.onToggle,
                 onToggleNotify = narratorBookmark.onToggleNotify,
                 testTag = "book_detail_narrator_bookmark",
-                modifier = Modifier.padding(start = 0.dp)
+                modifier = Modifier.padding(start = 0.dp),
+                iconOffsetX = (-8).dp,
+                iconOffsetY = (-12).dp
             )
         }
     }

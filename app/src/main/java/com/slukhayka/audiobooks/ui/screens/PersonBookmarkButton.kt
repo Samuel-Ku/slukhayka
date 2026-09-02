@@ -28,6 +28,7 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import com.slukhayka.audiobooks.R
 
 /**
@@ -50,7 +51,9 @@ fun PersonBookmarkButton(
     onToggle: () -> Unit,
     onToggleNotify: (Boolean) -> Unit,
     testTag: String = "person_bookmark_button",
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    iconOffsetX: Dp = 0.dp,
+    iconOffsetY: Dp = 0.dp
 ) {
     var showMenu by remember { mutableStateOf(false) }
 
@@ -91,7 +94,7 @@ fun PersonBookmarkButton(
                 // Optical alignment: the star glyph's visual centre sits a
                 // little below the adjacent text baseline. Keep the full
                 // 48dp semantics/touch target, moving only the glyph.
-                .offset(y = (-8).dp)
+                .offset(x = iconOffsetX, y = iconOffsetY)
                 .size(24.dp)
                 .testTag("person_bookmark_icon")
         )

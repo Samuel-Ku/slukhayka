@@ -107,6 +107,22 @@ class SluhayuaAdapterTest {
     }
 
     @Test
+    fun `fetchNewPage builds the page N url and keeps the XHR gate`() = runBlocking {
+        // Spec #462 ID4 (#466): the feed cursor pulls successive pages via
+        // allcards?page=N — the page parameter is part of the URL shape.
+        val fetcher = FakeFetcher(
+            mapOf("https://sluhay.com.ua/find/allcards?sort=time&order=desc&page=3" to newJson)
+        )
+        val adapter = SluhayuaAdapter(fetcher)
+
+        val books = adapter.fetchNewPage(3)
+
+        assertEquals(2, books.size)
+        assertEquals("10 історій від пса Патрона «Коли ти…»", books[0].title)
+        assertTrue(fetcher.recordedHeaders.all { it["X-Requested-With"] == "XMLHttpRequest" })
+    }
+
+    @Test
     fun `new feed unescapes uXXXX cyrillic titles from the live json`() = runBlocking {
         // Live `sort=time&order=desc` response (2026-08-13, #88): the site
         // escapes EVERY non-ASCII char as `\uXXXX` — a literal title like

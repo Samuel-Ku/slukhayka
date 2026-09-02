@@ -13,8 +13,9 @@ import {
   type ParsedCatalog,
   type SourceAdapter,
 } from '../types'
+import { SOURCE_METADATA } from '../sourceMetadata'
 
-const BASE = 'https://sluhay.com.ua'
+const BASE = SOURCE_METADATA.sluhayua.homeUrl
 
 const TITLE_SUFFIX = /\s*\.\s*Слухай аудіокнигу онлайн\s*$/i
 const NARRATOR_MARK = /читає\s+([^.,]+)/i

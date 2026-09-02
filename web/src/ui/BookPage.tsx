@@ -41,7 +41,13 @@ export function BookPage({
       } else {
         setDetail(result)
         setShowingCachedBook(false)
-        void writeWarm(warmKey('book', source, url), result)
+        // A browser-session Source may expose a temporary cookie-bound stream
+        // URL. Keep its public metadata warm, but never persist that locator
+        // as if another browser session could replay it.
+        const cacheValue = sourceNeedsBrowserSession(source)
+          ? { ...result, chapters: [] }
+          : result
+        void writeWarm(warmKey('book', source, url), cacheValue)
       }
     })
     return () => {

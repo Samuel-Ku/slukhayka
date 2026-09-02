@@ -1,4 +1,5 @@
 import type { SourceId } from '../worker/types'
+import { SOURCE_METADATA } from '../worker/sourceMetadata'
 
 /**
  * A cached page only proves that its metadata was once visible. It does not
@@ -6,9 +7,9 @@ import type { SourceId } from '../worker/types'
  * before its audio controls are exposed.
  */
 export function canPlayBookFromDisplayedDetail(source: SourceId, showingCachedBook: boolean): boolean {
-  return !showingCachedBook || source !== 'fourread'
+  return !showingCachedBook || !sourceNeedsBrowserSession(source)
 }
 
 export function sourceNeedsBrowserSession(source: SourceId): boolean {
-  return source === 'fourread'
+  return SOURCE_METADATA[source].browserSessionRequired
 }

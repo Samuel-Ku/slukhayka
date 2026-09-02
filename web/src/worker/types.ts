@@ -45,12 +45,18 @@ export interface ParsedCatalog {
 export interface UnifiedSource {
   sourceId: SourceId
   url: string
+  /** Anonymous clean-probe metadata; never a cookie-bound stream URL. */
+  availability?: 'available' | 'unavailable'
+  verifiedAt?: number
 }
 
 export interface UnifiedEdition {
   id: string
   narrator?: string
   durationSeconds?: number
+  chapterCount?: number
+  isComplete?: boolean
+  verifiedAt?: number
   sources: UnifiedSource[]
 }
 

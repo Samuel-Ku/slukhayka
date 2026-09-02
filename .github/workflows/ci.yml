@@ -49,15 +49,12 @@ jobs:
             exit 0
           fi
 
+          # main may absorb the release line (fast-forward), so merge-base is
+          # no longer pinned to v1.3.6. The remaining invariant: no merge
+          # commits after v1.3.6 — that also forbids merging main into the
+          # release branch.
           git fetch --no-tags origin main
           tag_sha="$(git rev-parse 'v1.3.6^{commit}')"
-          shared_sha="$(git merge-base origin/main "$target_sha")"
-          if [ "$shared_sha" != "$tag_sha" ]; then
-            echo "The v1.3.7 branch no longer diverges from main at v1.3.6."
-            echo "Do not merge main into the release branch."
-            exit 1
-          fi
-
           merge_commits="$(git rev-list --merges "$tag_sha..$target_sha")"
           if [ -n "$merge_commits" ]; then
             echo "Merge commits are forbidden after v1.3.6 on the release branch:"

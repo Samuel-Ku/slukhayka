@@ -308,6 +308,11 @@ class CatalogCardActionCoordinator<Book>(
                     return@launch
                 }
 
+                // #470 — the OPEN tap auto-imports: the selected candidate is
+                // imported through [CatalogCardActionGateway.import] (the
+                // same MergeKey/upsert door PLAY uses — idempotent, never a
+                // duplicate Work) BEFORE the book page opens, so one tap puts
+                // the book in the library; no separate «Додати» action.
                 val remaining = candidates.toMutableList()
                 while (remaining.isNotEmpty() && isCurrent(requestGeneration)) {
                     when (val selection = SourceSelectionCoordinator.select(

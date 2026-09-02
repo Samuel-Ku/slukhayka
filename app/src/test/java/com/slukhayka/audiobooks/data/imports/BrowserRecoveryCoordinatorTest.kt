@@ -520,4 +520,109 @@ class BrowserRecoveryCoordinatorTest {
         // Local success despite failed put
         assertFalse((outcome as BrowserRecoveryCoordinator.Outcome.Success).publishedProfile)
     }
+
+    // --- #470: automatic non-destructive structure repair, bounded --------
+
+    /** A seed + capture pair whose chapter count differs (same Work identity). */
+    private suspend fun mismatchFixture(): Triple<LibraryImport, String, SourceBookDetail> {
+        val original = detail(chapters = listOf("Глава 1" to "https://s1.reasd.org/kobzar/old1.mp3"))
+        val bookId = seedBook(original)
+        val refreshed = detail(chapters = listOf(
+            "Глава 1" to "https://s1.reasd.org/kobzar/new1.mp3",
+            "Глава 2" to "https://s1.reasd.org/kobzar/new2.mp3"
+        ))
+        return Triple(LibraryImport(dao, context, listOf(fakeAdapter(mapOf("cap" to refreshed)))), bookId, refreshed)
+    }
+
+    @Test
+    fun `non-destructive structure mismatch repairs automatically without the listener's confirmation`() = runBlocking {
+        val (imports, bookId, _) = mismatchFixture()
+        val coordinator = BrowserRecoveryCoordinator(
+            dao = dao,
+            libraryImport = imports,
+            playbackVerifier = BrowserRecoveryCoordinator.PlaybackVerifier { _, _ -> true },
+            repairMemo = AutoRepairMemo()
+        )
+
+        val outcome = coordinator.recover(bookId, "4read", "https://4read.org/kobzar.html", "cap")
+
+        // No dialog: the repair lost nothing (no files, progress or bookmarks),
+        // so it ran automatically and reports itself honestly.
+        assertTrue(outcome is BrowserRecoveryCoordinator.Outcome.Success)
+        val success = outcome as BrowserRecoveryCoordinator.Outcome.Success
+        assertTrue(success.autoRepairedStructure)
+        assertEquals(listOf("Глава 1", "Глава 2"), dao.getChaptersListForBook(bookId).map { it.title })
+        val source = requireNotNull(dao.getSourcesForBookSync(bookId).singleOrNull { it.type == "4read" })
+        assertEquals(
+            listOf("https://s1.reasd.org/kobzar/new1.mp3", "https://s1.reasd.org/kobzar/new2.mp3"),
+            dao.getTracksForSourceSync(source.id).map { it.url }
+        )
+    }
+
+    @Test
+    fun `a destructive structure mismatch keeps the interactive confirmation dialog`() = runBlocking {
+        val (imports, bookId, _) = mismatchFixture()
+        val edition = requireNotNull(dao.getEditionForWork(bookId))
+        // One bookmark row is enough for the repair to cost the listener data.
+        dao.insertBookmark(
+            BookmarkEntity(
+                bookId = bookId,
+                editionId = edition.id,
+                chapterIndex = 0,
+                chapterTitle = "Глава 1",
+                timestampSeconds = 42L,
+                note = "Не загубити"
+            )
+        )
+        val coordinator = BrowserRecoveryCoordinator(
+            dao = dao,
+            libraryImport = imports,
+            playbackVerifier = BrowserRecoveryCoordinator.PlaybackVerifier { _, _ -> true },
+            repairMemo = AutoRepairMemo()
+        )
+
+        val outcome = coordinator.recover(bookId, "4read", "https://4read.org/kobzar.html", "cap")
+
+        assertTrue(outcome is BrowserRecoveryCoordinator.Outcome.StructureMismatch)
+        assertEquals(
+            listOf("Глава 1"),
+            dao.getChaptersListForBook(bookId).map { it.title }
+        )
+        assertEquals("Не загубити", dao.getBookmarksForBook(bookId).first().single().note)
+    }
+
+    @Test
+    fun `a failed automatic repair falls back to the dialog and does not re-run within the negative window`() = runBlocking {
+        val (imports, bookId, _) = mismatchFixture()
+        var now = 1_000_000L
+        val memo = AutoRepairMemo { now }
+        var repairCalls = 0
+        val coordinator = BrowserRecoveryCoordinator(
+            dao = dao,
+            libraryImport = imports,
+            playbackVerifier = BrowserRecoveryCoordinator.PlaybackVerifier { _, _ -> true },
+            repairMemo = memo,
+            structureRepair = { _, _, _, _, _ ->
+                repairCalls += 1
+                null // the repair fails
+            }
+        )
+
+        val first = coordinator.recover(bookId, "4read", "https://4read.org/kobzar.html", "cap")
+        assertTrue(first is BrowserRecoveryCoordinator.Outcome.StructureMismatch)
+        assertEquals(1, repairCalls)
+
+        // A later capture within the 15-minute negative window never re-runs
+        // the automatic repair (ADR-0019: no auto-loops) — the dialog stays.
+        now += com.slukhayka.audiobooks.data.catalog.CatalogAvailabilityPolicy.NEGATIVE_TTL_MS - 1
+        val second = coordinator.recover(bookId, "4read", "https://4read.org/kobzar.html", "cap")
+        assertTrue(second is BrowserRecoveryCoordinator.Outcome.StructureMismatch)
+        assertEquals(1, repairCalls)
+
+        // Past the negative boundary the verdict is stale — exactly one new
+        // automatic attempt is allowed, never an unbounded loop.
+        now += 1
+        coordinator.recover(bookId, "4read", "https://4read.org/kobzar.html", "cap")
+        assertEquals(2, repairCalls)
+    }
 }

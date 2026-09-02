@@ -61,6 +61,9 @@ import com.slukhayka.audiobooks.data.metadata.VerifiedSourceProfile
 import com.slukhayka.audiobooks.player.AudioPlayerManager
 import com.slukhayka.audiobooks.player.PlayerState
 import com.slukhayka.audiobooks.player.PlaybackErrorKind
+import com.slukhayka.audiobooks.player.SmartRetryMemo
+import com.slukhayka.audiobooks.player.SmartRetryPolicy
+import com.slukhayka.audiobooks.data.merge.MergeKey
 import com.slukhayka.audiobooks.ui.library.OutcomeMessages
 import com.slukhayka.audiobooks.ui.library.ResumeStart
 import com.slukhayka.audiobooks.ui.library.computeResumeStart
@@ -695,6 +698,184 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     sourceId = "4read",
                     homeUrl = sourceUrl,
                     displayName = "4read",
+                    recoveryBookId = bookId,
+                    recoveryChapterIndex = chapterIndex,
+                    recoveryPositionMs = positionMs
+                )
+            }
+        }
+    }
+
+    // #471 (spec #462, Implementation Decision 8) — розумний retry плеєра.
+
+    /** The bounded re-resolve memo (ADR-0019); process-wide like AutoRepairMemo. */
+    private val smartRetryMemo = SmartRetryMemo.shared
+
+    /** The overall re-resolve budget of ONE retry pass (the card-tap budget). */
+    private val smartRetryResolveTimeoutMs = 10_000L
+
+    /**
+     * Розумний retry плеєра — тап «Повторити» у плеєрі:
+     *
+     *  (a) **локальний файл розділу існує → грати з нього** — завантажена
+     *      копія перемагає мертвий remote (регресійний контракт: «скачана
+     *      книга грає після смерті remote»);
+     *  (b) **інакше один обмежений ре-резолв джерел книги** через
+     *      LOCAL → DIRECT → UNKNOWN ([SourceAccessPolicy.order]) з
+     *      cross-source пошуком sluhayua (#469) перед відмовою; BROWSER
+     *      джерело ніколи не відкривається неявно (ADR-0026);
+     *  (c) **нічого не знайдено → чесне «Книга недоступна»**
+     *      ([AudioPlayerManager.reportRetryUnavailable]); явні браузерні
+     *      двері для будь-якого BROWSER джерела рендерить PlayerScreen
+     *      ([browserRecoverySources]).
+     *
+     * Послідовність спроб обмежена [SmartRetryMemo] (ADR-0019): невдача
+     * блокує автоматичний ре-резолв на негативне вікно, успіх не повторюється
+     * у позитивному. Локальний файл і браузерні двері memo не читають —
+     * явна людська втеча ніколи не є циклом.
+     */
+    fun smartRetryPlayback(bookId: String, chapterIndex: Int, positionMs: Long) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val playable = runCatching { sourceCatalog.getPlayableChapters(bookId) }.getOrDefault(emptyList())
+            val track = playable.getOrNull(chapterIndex)?.track
+            when (
+                SmartRetryPolicy.decide(
+                    localFileReady = SmartRetryPolicy.localFileReady(track?.localFilePath),
+                    canReResolve = smartRetryMemo.canAttempt(bookId)
+                )
+            ) {
+                SmartRetryPolicy.Decision.PlayLocal -> withContext(Dispatchers.Main) {
+                    // prepare грає локальний файл (buildMediaItem) і ніколи
+                    // не стукає у мертвий стрім, поки копія існує.
+                    playerManager.prepareChapter(chapterIndex, positionMs, autoPlay = true)
+                }
+
+                SmartRetryPolicy.Decision.Unavailable -> withContext(Dispatchers.Main) {
+                    // Bounded: спроба вже витрачена — чесна відмова одразу,
+                    // без повторного обходу джерел.
+                    playerManager.reportRetryUnavailable()
+                }
+
+                SmartRetryPolicy.Decision.ReResolve -> resolveAndReplay(bookId, chapterIndex, positionMs)
+            }
+        }
+    }
+
+    /** (b) — один обмежений прохід ре-резолву, потім чесна відмова. */
+    private suspend fun resolveAndReplay(bookId: String, chapterIndex: Int, positionMs: Long) {
+        val book = runCatching { libraryEntries.getBookSync(bookId) }.getOrNull()
+        if (book == null) {
+            smartRetryMemo.recordFailure(bookId)
+            withContext(Dispatchers.Main) { playerManager.reportRetryUnavailable() }
+            return
+        }
+        val identity = KnownBookIdentity(
+            title = book.title,
+            author = book.author,
+            narrator = book.narrator,
+            coverImageUrl = book.coverImageUrl
+        )
+        // LOCAL → DIRECT → UNKNOWN у стабільному порядку; BROWSER виключено —
+        // браузер лише за явною дією слухача (ADR-0026).
+        val sources = runCatching { App.instance.audiobookDao.getSourcesForBookSync(bookId) }
+            .getOrDefault(emptyList())
+        val candidates = SourceAccessPolicy.order(
+            sources.map { SourceAccessCandidate(it.type, url = it.url) }
+        ).filter { it.accessMode != SourceAccessMode.BROWSER && it.url.isNotBlank() }
+        var resolved: AudiobookEntity? = null
+        for (candidate in candidates) {
+            resolved = runCatching {
+                withTimeoutOrNull(smartRetryResolveTimeoutMs) {
+                    libraryImport.importFromSourceUrl(candidate.sourceId, candidate.url, identity)
+                }
+            }.getOrNull()
+            if (resolved != null) break
+        }
+        // Cross-source search (#469): один sluhayua-запит перед відмовою —
+        // той самий резолвер, що й перед браузерними дверима картки.
+        if (resolved == null) {
+            val mergeKey = book.mergeKey.ifBlank { MergeKey.keyFor(book.title, book.author) }
+            val match = runCatching {
+                App.instance.sluhayuaCrossResolve.resolve(
+                    title = book.title,
+                    author = book.author,
+                    mergeKey = mergeKey
+                )
+            }.getOrNull()
+            if (match != null) {
+                resolved = runCatching {
+                    withTimeoutOrNull(smartRetryResolveTimeoutMs) {
+                        libraryImport.importFromSourceUrl("sluhayua", match.url, identity)
+                    }
+                }.getOrNull()
+            }
+        }
+        if (resolved == null) {
+            smartRetryMemo.recordFailure(bookId)
+            withContext(Dispatchers.Main) { playerManager.reportRetryUnavailable() }
+            return
+        }
+        smartRetryMemo.recordSuccess(bookId)
+        val freshPlayable = runCatching { sourceCatalog.getPlayableChapters(bookId) }.getOrDefault(emptyList())
+        if (freshPlayable.isEmpty()) {
+            withContext(Dispatchers.Main) { playerManager.reportRetryUnavailable() }
+            return
+        }
+        withContext(Dispatchers.Main) {
+            playerManager.loadAndPlayBook(
+                book = resolved,
+                chapters = freshPlayable.map { it.chapter },
+                playable = freshPlayable,
+                initialChapterIndex = chapterIndex.coerceIn(0, (freshPlayable.size - 1).coerceAtLeast(0)),
+                initialPositionSeconds = positionMs / 1000L,
+                autoPlay = true
+            )
+            _showFullPlayer.value = true
+        }
+    }
+
+    /**
+     * #471 — BROWSER джерела книги, для яких існує явні двері: 4read завжди
+     * має двері (пошук із підставленою назвою), будь-яке інше браузерне
+     * джерело — лише зі збереженим URL (домушок не вигадується).
+     */
+    suspend fun browserRecoverySources(bookId: String): List<String> {
+        val book = runCatching { libraryEntries.getBookSync(bookId) }.getOrNull() ?: return emptyList()
+        val sources = runCatching { App.instance.audiobookDao.getSourcesForBookSync(bookId) }
+            .getOrDefault(emptyList())
+        val candidateIds = sources.map { it.type } +
+            listOfNotNull(sourceIdForUrl(book.sourceUrl).takeIf { book.sourceUrl.isNotBlank() })
+        return SmartRetryPolicy.browserDoorSourceIds(candidateIds).filter { sourceId ->
+            sourceId == "4read" || sources.any { it.type == sourceId && it.url.isNotBlank() }
+        }
+    }
+
+    /**
+     * #471 — відкриває браузер ЛЮБОГО BROWSER джерела як явну дію
+     * відновлення (узагальнює [open4ReadRecovery] beyond 4read).
+     */
+    fun openBrowserRecovery(bookId: String, sourceId: String, chapterIndex: Int, positionMs: Long) {
+        if (sourceId == "4read") {
+            open4ReadRecovery(bookId, chapterIndex, positionMs)
+            return
+        }
+        // The full player is an overlay above the app destination tree — the
+        // browser route must be visible (same reason as open4ReadRecovery).
+        _showFullPlayer.value = false
+        viewModelScope.launch(Dispatchers.IO) {
+            val entry = runCatching {
+                com.slukhayka.audiobooks.data.imports.BrowserRecoveryCoordinator.recoveryEntryUrl(
+                    App.instance.audiobookDao,
+                    bookId,
+                    sourceId
+                )
+            }.getOrDefault("")
+            if (entry.isBlank()) return@launch
+            withContext(Dispatchers.Main) {
+                _selectedWebSource.value = SelectedWebSource(
+                    sourceId = sourceId,
+                    homeUrl = entry,
+                    displayName = sourceDisplayName(sourceId),
                     recoveryBookId = bookId,
                     recoveryChapterIndex = chapterIndex,
                     recoveryPositionMs = positionMs

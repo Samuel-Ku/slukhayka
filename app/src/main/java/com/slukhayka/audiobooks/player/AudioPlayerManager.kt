@@ -519,8 +519,10 @@ class AudioPlayerManager(
             if (playbackState == Player.STATE_READY) {
                 prepareTimeoutJob?.cancel()
                 val mp = mediaPlayer ?: return
-                val localFile = currentTrack?.localFilePath?.let { java.io.File(it) }
-                val isLocal = localFile != null && localFile.exists() && localFile.length() > 100
+                // #471: the local-file verdict is one shared decision
+                // ([SmartRetryPolicy.localFileReady]) — the retry policy can
+                // never disagree with what the engine actually plays.
+                val isLocal = SmartRetryPolicy.localFileReady(currentTrack?.localFilePath)
                 _playerState.value = _playerState.value.copy(
                     isBuffering = false,
                     durationMs = if (mp.duration > 0) mp.duration else _playerState.value.durationMs,
@@ -608,6 +610,22 @@ class AudioPlayerManager(
     }
 
     /**
+     * #471 (spec #462, Implementation Decision 8) — the honest terminal
+     * state of a bounded smart retry: the local copy is gone, the re-resolve
+     * chain found nothing (or the memo blocked a further attempt — ADR-0019).
+     * The UNAVAILABLE card renders title-only, and PlayerScreen offers the
+     * explicit browser doors for any BROWSER source of the book. No
+     * fabricated retry, no substitute audio (the CR-002 contract stands).
+     */
+    fun reportRetryUnavailable() {
+        reportPlaybackFailure(
+            errorCodeName = "SMART_RETRY_UNAVAILABLE",
+            detail = unavailableBookDetail(),
+            kind = PlaybackErrorKind.UNAVAILABLE
+        )
+    }
+
+    /**
      * Spec-32 T4 (#234): whether a stream failure qualifies for self-healing.
      * Mirrors [buildMediaItem]'s source decision exactly: a track plays
      * locally only while its file exists with real content — a stale local
@@ -616,8 +634,7 @@ class AudioPlayerManager(
      */
     private fun isNetworkStream(track: SourceTrackEntity?): Boolean {
         if (track == null) return false
-        val localFile = track.localFilePath?.let { java.io.File(it) }
-        val playsLocally = localFile != null && localFile.exists() && localFile.length() > 100
+        val playsLocally = SmartRetryPolicy.localFileReady(track.localFilePath)
         return !playsLocally && track.url?.startsWith("http", ignoreCase = true) == true
     }
 
@@ -1123,11 +1140,14 @@ class AudioPlayerManager(
             .build()
         // ADR-0007: playback resolves chapter → track one-to-one by index
         // (track.localFilePath ?: track.url — current behavior preserved
-        // exactly).
-        val localFile = track?.localFilePath?.let { java.io.File(it) }
-        return if (localFile != null && localFile.exists() && localFile.length() > 100) {
+        // exactly). #471: the local-file verdict is the one shared decision
+        // ([SmartRetryPolicy.localFileReady]) — the local downloaded copy
+        // wins over the (possibly dead) remote URL on every prepare,
+        // including a smart-retry one.
+        val localPath = track?.localFilePath
+        return if (SmartRetryPolicy.localFileReady(localPath)) {
             MediaItem.Builder()
-                .setUri(Uri.fromFile(localFile))
+                .setUri(Uri.fromFile(java.io.File(localPath!!)))
                 .setMediaMetadata(metadata)
                 .build()
         } else {

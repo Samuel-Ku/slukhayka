@@ -86,4 +86,21 @@ describe('CatalogCardRow accessibility and actions', () => {
     expect(screen.getByRole('link', { name: 'Відкрити 4read' }).getAttribute('href')).toBe('https://4read.org')
     expect(book).not.toHaveBeenCalled()
   })
+
+  it('links to the session-gated fallback Source that actually needs recovery', async () => {
+    vi.spyOn(api, 'book').mockResolvedValue(null)
+    render(<CatalogCardRow
+      card={card}
+      editionId="edition-a"
+      sources={[
+        { sourceId: 'sound-books', url: card.url },
+        { sourceId: 'fourread', url: 'https://4read.org/book' },
+      ]}
+      onOpenBook={vi.fn()}
+      onPlay={vi.fn(async () => true)}
+    />)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Слухати: Книга' }))
+    expect((await screen.findByRole('link', { name: 'Відкрити 4read' })).getAttribute('href')).toBe('https://4read.org')
+  })
 })

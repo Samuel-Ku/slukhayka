@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api/client'
-import { readWarm, warmKey, writeWarm } from '../api/warmCache'
+import { readWarm, WARM_CACHE_TTL_MS, warmKey, writeWarm } from '../api/warmCache'
 import type { BookDetail } from '../worker/types'
 import { canPlayBookFromDisplayedDetail, sourceNeedsBrowserSession } from './bookPlaybackAvailability'
 
@@ -31,7 +31,7 @@ export function BookPage({
     api.book(source, url).then(async (result) => {
       if (!alive) return
       if (result === null) {
-        const cached = await readWarm<BookDetail>(warmKey('book', source, url))
+        const cached = await readWarm<BookDetail>(warmKey('book', source, url), WARM_CACHE_TTL_MS)
         if (!alive) return
         if (cached === null) setFailed(true)
         else {
@@ -46,7 +46,7 @@ export function BookPage({
         // as if another browser session could replay it.
         const cacheValue = sourceNeedsBrowserSession(source)
           ? { ...result, chapters: [] }
-          : result
+          : publicBookProjection(result)
         void writeWarm(warmKey('book', source, url), cacheValue)
       }
     })
@@ -121,4 +121,22 @@ export function BookPage({
       )}
     </article>
   )
+}
+
+const PRIVATE_STREAM_PARAMETERS = new Set(['token', 'signature', 'sig', 'expires', 'key', 'auth', 'session', 'cookie'])
+
+/** Keeps only direct tracks that another local browser context can safely reuse. */
+export function publicBookProjection(detail: BookDetail): BookDetail {
+  return {
+    ...detail,
+    chapters: detail.chapters.filter((chapter) => !hasPrivateStreamParameter(chapter.streamUrl)),
+  }
+}
+
+function hasPrivateStreamParameter(streamUrl: string): boolean {
+  try {
+    return [...new URL(streamUrl).searchParams.keys()].some((key) => PRIVATE_STREAM_PARAMETERS.has(key.toLowerCase()))
+  } catch {
+    return true
+  }
 }

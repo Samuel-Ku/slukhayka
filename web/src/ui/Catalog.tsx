@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../api/client'
-import { readWarmEntry, warmKey, writeWarm } from '../api/warmCache'
+import { readWarmEntry, WARM_CACHE_TTL_MS, warmKey, writeWarm } from '../api/warmCache'
 import type { BookDetail, CatalogCard, SourceId, UnifiedSource, UnifiedWork, UnifiedWorkPage } from '../worker/types'
 import {
   availabilitySortRank,
@@ -54,7 +54,7 @@ export function Catalog({ onOpenBook, onPlay }: {
       api.workFeed(undefined, source === 'all' ? undefined : source).then(async (page) => {
         if (!alive) return
         if (page === null) {
-          const cached = await readWarmEntry<UnifiedWorkPage | UnifiedWork[]>(warmKey('catalog', source))
+          const cached = await readWarmEntry<UnifiedWorkPage | UnifiedWork[]>(warmKey('catalog', source), WARM_CACHE_TTL_MS)
           if (!alive) return
           if (cached === null) setFailed(true)
           else {
@@ -290,6 +290,7 @@ export function CatalogCardRow({ card, editionId, sources, onOpenBook, onPlay }:
 }) {
   const [state, setState] = useState<CardActionState>('idle')
   const [rankedSources, setRankedSources] = useState(sources)
+  const [sessionSource, setSessionSource] = useState<SourceId | null>(null)
   const generation = useRef(0)
   const activeAbort = useRef<AbortController | null>(null)
   const preflightAbort = useRef<AbortController | null>(null)
@@ -377,6 +378,7 @@ export function CatalogCardRow({ card, editionId, sources, onOpenBook, onPlay }:
     const actionAbort = new AbortController()
     activeAbort.current = actionAbort
     setState('checking')
+    setSessionSource(null)
     const details = new Map<string, BookDetail>()
     const candidates = rankedSources.map((candidate) => ({ ...candidate, editionId }))
     void raceEditionSources(editionId, candidates, async (candidate, signal): Promise<Exclude<AvailabilityVerdict, 'verified-profile'>> => {
@@ -401,6 +403,7 @@ export function CatalogCardRow({ card, editionId, sources, onOpenBook, onPlay }:
             observedAt: Date.now(),
           })
         }
+        if (result.verdict === 'session-required') setSessionSource(result.candidate?.sourceId ?? null)
         setState(
           result.verdict === 'timeout'
             ? 'temporary-failure'
@@ -461,7 +464,7 @@ export function CatalogCardRow({ card, editionId, sources, onOpenBook, onPlay }:
       {state === 'browser-required' && (
         <p className="notice" role="status">
           Це джерело потребує сесії на своєму сайті.{' '}
-          <a href={sourceHome(source)} target="_blank" rel="noreferrer">Відкрити {SOURCES.find((item) => item.id === source)?.label}</a>
+          <a href={sourceHome(sessionSource ?? source)} target="_blank" rel="noreferrer">Відкрити {SOURCES.find((item) => item.id === (sessionSource ?? source))?.label}</a>
         </p>
       )}
     </li>

@@ -116,4 +116,26 @@ describe('catalog availability policy', () => {
       '/api/audio?u=https%3A%2F%2Faudio.example%2Fbook.mp3',
     ])
   })
+
+  it('never sends a signed stream URL to the Worker relay', async () => {
+    const attempts: string[] = []
+    class FailingAudio extends EventTarget {
+      muted = false
+      preload = ''
+      private value = ''
+      set src(value: string) { this.value = value }
+      get src(): string { return this.value }
+      play = vi.fn(async () => {
+        attempts.push(this.value)
+        queueMicrotask(() => this.dispatchEvent(new Event('error')))
+      })
+      pause = vi.fn()
+      load = vi.fn()
+      removeAttribute = vi.fn()
+    }
+    vi.stubGlobal('Audio', FailingAudio)
+
+    await expect(probeStreamPlaying('https://audio.example/book.mp3?token=private', new AbortController().signal)).resolves.toBe(false)
+    expect(attempts).toEqual(['https://audio.example/book.mp3?token=private'])
+  })
 })

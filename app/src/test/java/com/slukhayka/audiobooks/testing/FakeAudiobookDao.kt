@@ -477,6 +477,9 @@ class FakeAudiobookDao(
             bookmarks.filter { it.bookId == bookId }.sortedBy { it.timestampSeconds }
         }
 
+    override suspend fun getBookmarksForBookSync(bookId: String): List<BookmarkEntity> =
+        bookmarksState.value.filter { it.bookId == bookId }
+
     override fun getBookmarksForEdition(editionId: String): Flow<List<BookmarkEntity>> =
         bookmarksState.map { bookmarks ->
             bookmarks.filter { it.editionId == editionId }.sortedBy { it.timestampSeconds }

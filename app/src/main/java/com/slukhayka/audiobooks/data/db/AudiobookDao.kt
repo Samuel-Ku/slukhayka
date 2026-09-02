@@ -548,6 +548,10 @@ interface AudiobookDao {
     @Query("SELECT * FROM bookmarks WHERE bookId = :bookId ORDER BY timestampSeconds ASC")
     fun getBookmarksForBook(bookId: String): Flow<List<BookmarkEntity>>
 
+    /** #470 — the auto-repair destructiveness precheck reads bookmarks once. */
+    @Query("SELECT * FROM bookmarks WHERE bookId = :bookId LIMIT 1")
+    suspend fun getBookmarksForBookSync(bookId: String): List<BookmarkEntity>
+
     @Query("SELECT * FROM bookmarks WHERE editionId = :editionId ORDER BY timestampSeconds ASC")
     fun getBookmarksForEdition(editionId: String): Flow<List<BookmarkEntity>>
 

@@ -17,13 +17,37 @@ import kotlinx.coroutines.withContext
  * State transition: capture → parse → identity guard → Track update → Player
  * verdict → UI outcome as one operation. Prefix `http(s)` alone is never
  * success; only a factual Player/media-open verdict is.
+ *
+ * #470 (spec #462) — the structure-mismatch outcome is the ONLY interactive
+ * repair prompt left here, and only when the repair would cost the listener
+ * something (downloaded files, per-chapter progress, bookmarks). A mismatch
+ * whose confirmed repair would lose nothing runs automatically — once per
+ * Work within [AutoRepairMemo]'s negative window (ADR-0019: no automatic
+ * loops) — and returns [Outcome.Success] with `autoRepairedStructure = true`.
+ * An identity collision (a captured page of a DIFFERENT Work) never repairs:
+ * the [RecoveryIdentityGuard] fails closed and the recovery surfaces the
+ * honest error with Room untouched.
  */
 class BrowserRecoveryCoordinator(
     private val dao: AudiobookDao,
     private val libraryImport: LibraryImport,
     private val profileStore: SharedBookMetaStore? = null,
     private val playbackVerifier: PlaybackVerifier = PlaybackVerifier { _, _ -> true },
-    private val cleanProbe: CleanProbe = CleanProbe { true }
+    private val cleanProbe: CleanProbe = CleanProbe { true },
+    // #470 — the bounded attempt memo; process-wide by default because the
+    // coordinator itself is constructed per recovery call.
+    private val repairMemo: AutoRepairMemo = AutoRepairMemo.shared,
+    // #470 — injectable so JVM tests can force a repair outcome without
+    // staging real files; production always rides the confirmed repair door.
+    private val structureRepair: suspend (
+        bookId: String,
+        sourceId: String,
+        url: String,
+        html: String,
+        capturedAudioUrls: List<String>
+    ) -> AudiobookEntity? = { bookId, sourceId, url, html, capturedAudioUrls ->
+        libraryImport.repairConfirmedWebSourceStructure(bookId, sourceId, url, html, capturedAudioUrls)
+    }
 ) {
 
     fun interface PlaybackVerifier {
@@ -43,7 +67,9 @@ class BrowserRecoveryCoordinator(
             val resumeChapterIndex: Int,
             val resumePositionMs: Long,
             val publishedProfile: Boolean = false,
-            val isNewImport: Boolean = false
+            val isNewImport: Boolean = false,
+            /** #470 — the structure repair ran automatically (no dialog). */
+            val autoRepairedStructure: Boolean = false
         ) : Outcome
 
         data class Failure(
@@ -105,7 +131,16 @@ class BrowserRecoveryCoordinator(
                 ) &&
                 captured.chapters.size != storedCount
             ) {
-                return@withContext Outcome.StructureMismatch(storedCount, captured.chapters.size)
+                return@withContext resolveStructureMismatch(
+                    bookId = bookId!!,
+                    mismatch = Outcome.StructureMismatch(storedCount, captured.chapters.size),
+                    sourceId = sourceId,
+                    url = url,
+                    html = html,
+                    capturedAudioUrls = capturedAudioUrls,
+                    requestedChapterIndex = requestedChapterIndex,
+                    requestedPositionMs = requestedPositionMs
+                )
             }
         }
         // Snapshot old tracks for rollback on verifier failure (recovery only).
@@ -237,6 +272,76 @@ class BrowserRecoveryCoordinator(
             publishedProfile = published,
             isNewImport = isNewImport
         )
+    }
+
+    /**
+     * #470 — the structure-mismatch decision point. The confirmed repair
+     * (`LibraryImport.repairConfirmedWebSourceStructure`) wipes local files,
+     * per-chapter progress and bookmarks, so the interactive dialog STAYS for
+     * every case where the listener would lose something:
+     *
+     *  - **destructive** — the stored Edition has downloaded files, a
+     *    Listening State row or bookmarks: the mismatch is surfaced as
+     *    [Outcome.StructureMismatch] and the listener decides;
+     *  - **bounded** — an automatic repair may run only once per Work within
+     *    [AutoRepairMemo]'s windows (ADR-0019: a failing repair can never
+     *    loop). A failed attempt falls back to the dialog and blocks further
+     *    automatic attempts for the negative window (15 min); a succeeded one
+     *    is not repeated while the positive verdict is fresh (6 h);
+     *  - **identity collision** — a captured page of a DIFFERENT Work never
+     *    reaches this method at all: [RecoveryIdentityGuard] fails closed
+     *    upstream and the recovery reports the honest error, touching
+     *    nothing.
+     */
+    private suspend fun resolveStructureMismatch(
+        bookId: String,
+        mismatch: Outcome.StructureMismatch,
+        sourceId: String,
+        url: String,
+        html: String,
+        capturedAudioUrls: List<String>,
+        requestedChapterIndex: Int,
+        requestedPositionMs: Long
+    ): Outcome {
+        if (!isStructureRepairNonDestructive(bookId)) return mismatch
+        if (!repairMemo.canAttempt(bookId)) return mismatch
+        val repaired = try {
+            structureRepair(bookId, sourceId, url, html, capturedAudioUrls)
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            null
+        }
+        if (repaired == null) {
+            repairMemo.recordFailure(bookId)
+            return mismatch
+        }
+        repairMemo.recordSuccess(bookId)
+        return Outcome.Success(
+            book = repaired,
+            shouldCloseBrowser = true,
+            // The non-destructive precondition guarantees the stored Edition
+            // had no Listening State, so the resume decision is honest and
+            // trivial: the chapter the listener was on, position as asked.
+            resumeChapterIndex = requestedChapterIndex.coerceIn(0, (repaired.totalChapters - 1).coerceAtLeast(0)),
+            resumePositionMs = requestedPositionMs,
+            publishedProfile = false,
+            isNewImport = false,
+            autoRepairedStructure = true
+        )
+    }
+
+    /**
+     * True when the confirmed structure repair would lose NOTHING: no
+     * downloaded local copies, no Listening State row, no bookmarks. This is
+     * exactly the state the repair's `replaceConfirmedChapterStructure`
+     * transaction clears — with none of it present the dialog is pure
+     * friction and the repair is non-destructive by construction.
+     */
+    private suspend fun isStructureRepairNonDestructive(bookId: String): Boolean {
+        if (dao.getTracksForBookSync(bookId).any { !it.localFilePath.isNullOrBlank() }) return false
+        if (dao.getPlaybackProgressSync(bookId) != null) return false
+        return dao.getBookmarksForBookSync(bookId).isEmpty()
     }
 
     companion object {

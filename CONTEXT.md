@@ -78,6 +78,14 @@ the current list.
 _Avoid_: HTML/challenge as proof, catalogue-wide crawl, Work availability,
 cross-Edition fallback, reordering under the listener
 
+**Feed Snapshot**:
+A persisted copy of one Source feed response (homepage sections or page cards) stored in Room with its fetch time. Огляд reads the snapshot first; the network is asked only after the TTL — новинки 6 hours, каталог 24 hours — or on an explicit listener refresh. Books from a snapshot enter through the same upsert path as live fetches: tombstones keep blocking, nothing is ever deleted.
+_Avoid_: re-fetch on every start, feed deletion, snapshot as the only truth
+
+**Cross-resolve**:
+The one-request check made when a listener taps a card whose only Source needs the browser: the same Work (by MergeKey) is looked up on a Direct Source, and a match imports and plays/opens without the browser. One search per tap, no background crawling; the verdict is memoized with the Edition Availability Assertion windows.
+_Avoid_: background cross-index, multi-request probe, silent browser fallback
+
 ## Metadata
 
 **Metadata Assertion**:

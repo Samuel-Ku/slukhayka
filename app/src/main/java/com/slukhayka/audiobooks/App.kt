@@ -181,7 +181,11 @@ class App : Application() {
      */
     val sluhayuaCrossResolve: com.slukhayka.audiobooks.data.catalog.SluhayuaCrossResolve by lazy {
         com.slukhayka.audiobooks.data.catalog.SluhayuaCrossResolve(
-            search = { query -> sourceAdapters.first { it.sourceId == "sluhayua" }.search(query) },
+            search = { query ->
+                sourceAdapters.first {
+                    it.sourceId == com.slukhayka.audiobooks.data.source.SourceIds.SLUHAYUA
+                }.search(query)
+            },
             cache = searchCache
         )
     }

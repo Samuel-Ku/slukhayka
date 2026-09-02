@@ -102,6 +102,19 @@ interface CatalogCardActionGateway<Book> {
     suspend fun play(book: Book, source: SourceEntity?): Boolean
     /** Local Edition verdict; implementations must keep this best-effort. */
     suspend fun recordAvailability(book: Book, available: Boolean) = Unit
+
+    /**
+     * #469 (spec #462 ID7) — the tap-time cross-resolve of a 4read-only card,
+     * reached by the coordinator ONLY right before the browser door: one JSON
+     * search on a direct source (title + author), matched by the Work
+     * MergeKey. Returns the matched direct SourceEntity (only `type`/`url`
+     * are consumed — the caller imports it through [import]), or null when
+     * nothing matches and the honest «потребує браузер» door stays.
+     * Implementations serve a cached verdict without a request (the same TTL
+     * discipline as the Edition Availability Assertion), issue at most one
+     * search per call and never crawl in the background.
+     */
+    suspend fun crossResolveDirectSource(target: CatalogCardTarget): SourceEntity? = null
 }
 
 /**
@@ -128,6 +141,26 @@ class CatalogCardActionCoordinator<Book>(
         _state.value = CatalogCardActionState.Checking(target, action)
         job = scope.launch {
             try {
+                // #469 — the cross-resolve runs at most once per tap (the
+                // first time the action reaches the browser door). The null
+                // «no match» verdict is memoized too: one action can never
+                // issue a second search request.
+                var crossResolved = false
+                var crossSource: SourceEntity? = null
+                suspend fun crossResolveOnce(): SourceEntity? {
+                    if (!crossResolved) {
+                        crossResolved = true
+                        crossSource = try {
+                            gateway.crossResolveDirectSource(target)
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (_: Exception) {
+                            null
+                        }
+                    }
+                    return crossSource
+                }
+
                 val saved = gateway.savedBook(target)
                 var lastPlayableBook = saved
                 if (!isCurrent(requestGeneration)) return@launch
@@ -238,6 +271,29 @@ class CatalogCardActionCoordinator<Book>(
                         }
                     }
                     if (browserFallback != null && isCurrent(requestGeneration)) {
+                        // #469 — before the honest browser door, one sluhayua
+                        // cross-resolve: a MergeKey match is imported and
+                        // played from the direct source, no browser. A failed
+                        // attempt still falls through to the browser door.
+                        val cross = crossResolveOnce()
+                        if (!isCurrent(requestGeneration)) return@launch
+                        if (cross != null) {
+                            val imported = try {
+                                gateway.import(target, cross)
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (_: Exception) {
+                                null
+                            }
+                            if (!isCurrent(requestGeneration)) return@launch
+                            if (imported != null) {
+                                lastPlayableBook = imported
+                                if (finishAction(requestGeneration, target, action, imported, cross)) {
+                                    return@launch
+                                }
+                                if (!isCurrent(requestGeneration)) return@launch
+                            }
+                        }
                         _state.value = CatalogCardActionState.BrowserRequired(
                             target,
                             action,
@@ -290,11 +346,34 @@ class CatalogCardActionCoordinator<Book>(
                     }
                     is SourceSelectionCoordinator.SelectionResult.BrowserRequired -> {
                         if (isCurrent(requestGeneration)) {
-                            _state.value = CatalogCardActionState.BrowserRequired(
-                                target,
-                                action,
-                                selection.candidate.source
-                            )
+                            // #469 — the same cross-resolve before the OPEN
+                            // browser door: the matched direct edition is
+                            // imported and its details opened instead of the
+                            // browser; otherwise the door stays as before.
+                            val cross = crossResolveOnce()
+                            if (isCurrent(requestGeneration) && cross != null) {
+                                val imported = try {
+                                    gateway.import(target, cross)
+                                } catch (cancelled: CancellationException) {
+                                    throw cancelled
+                                } catch (_: Exception) {
+                                    null
+                                }
+                                if (!isCurrent(requestGeneration)) return@launch
+                                if (imported != null) {
+                                    lastPlayableBook = imported
+                                    if (finishAction(requestGeneration, target, action, imported, cross)) {
+                                        return@launch
+                                    }
+                                }
+                            }
+                            if (isCurrent(requestGeneration)) {
+                                _state.value = CatalogCardActionState.BrowserRequired(
+                                    target,
+                                    action,
+                                    selection.candidate.source
+                                )
+                            }
                         }
                         return@launch
                     }

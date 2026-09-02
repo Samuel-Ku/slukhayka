@@ -3,6 +3,7 @@ package com.slukhayka.audiobooks.data.catalog
 import com.slukhayka.audiobooks.data.db.AudiobookDao
 import com.slukhayka.audiobooks.data.db.FeedSnapshotEntity
 import com.slukhayka.audiobooks.data.source.SourceBook
+import com.slukhayka.audiobooks.data.source.SourceIds
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -110,6 +111,6 @@ class FeedSnapshotStore(
 
     companion object {
         /** The 4read homepage snapshot anchors to the 4read source id. */
-        const val HOMEPAGE_SOURCE_ID: String = "4read"
+        const val HOMEPAGE_SOURCE_ID: String = SourceIds.FOUR_READ
     }
 }

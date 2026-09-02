@@ -12,4 +12,7 @@ package com.slukhayka.audiobooks.data.source
 object SourceIds {
     /** 4read.org — the catalogued source whose «Новинки» section feeds the rail. */
     const val FOUR_READ = "4read"
+
+    /** sluhay.com.ua — the server-fetch direct source (cross-resolve target, #469). */
+    const val SLUHAYUA = "sluhayua"
 }

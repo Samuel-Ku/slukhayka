@@ -45,6 +45,7 @@ import com.slukhayka.audiobooks.data.reviews.ReviewWriteReceipt
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.data.source.SourceAccessCandidate
 import com.slukhayka.audiobooks.data.source.SourceAccessMode
+import com.slukhayka.audiobooks.data.source.SourceIds
 import com.slukhayka.audiobooks.data.source.fourReadSearchUrl
 import com.slukhayka.audiobooks.data.source.SourceAccessPolicy
 import com.slukhayka.audiobooks.data.source.SourceSelectionCoordinator
@@ -353,7 +354,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 return SourceEntity(
                     id = "sluhayua-cross",
                     bookId = "",
-                    type = "sluhayua",
+                    type = com.slukhayka.audiobooks.data.source.SourceIds.SLUHAYUA,
                     url = match.url,
                     streamOnly = false
                 )
@@ -805,7 +806,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (match != null) {
                 resolved = runCatching {
                     withTimeoutOrNull(smartRetryResolveTimeoutMs) {
-                        libraryImport.importFromSourceUrl("sluhayua", match.url, identity)
+                        libraryImport.importFromSourceUrl(
+                            com.slukhayka.audiobooks.data.source.SourceIds.SLUHAYUA,
+                            match.url,
+                            identity
+                        )
                     }
                 }.getOrNull()
             }
@@ -846,7 +851,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val candidateIds = sources.map { it.type } +
             listOfNotNull(sourceIdForUrl(book.sourceUrl).takeIf { book.sourceUrl.isNotBlank() })
         return SmartRetryPolicy.browserDoorSourceIds(candidateIds).filter { sourceId ->
-            sourceId == "4read" || sources.any { it.type == sourceId && it.url.isNotBlank() }
+            sourceId == SourceIds.FOUR_READ ||
+                sources.any { it.type == sourceId && it.url.isNotBlank() }
         }
     }
 
@@ -855,7 +861,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * відновлення (узагальнює [open4ReadRecovery] beyond 4read).
      */
     fun openBrowserRecovery(bookId: String, sourceId: String, chapterIndex: Int, positionMs: Long) {
-        if (sourceId == "4read") {
+        if (sourceId == SourceIds.FOUR_READ) {
             open4ReadRecovery(bookId, chapterIndex, positionMs)
             return
         }

@@ -2312,12 +2312,15 @@ fun BookDetailCanonicalSummary(
             .focusable()
             .semantics { heading() }
     )
+    // Keep the title→author rhythm equal to the cover→title gap above.
+    Spacer(modifier = Modifier.height(16.dp))
     if (presentation.author.isNotBlank()) {
         BoxWithConstraints(
             modifier = Modifier
                 .fillMaxWidth()
                 .defaultMinSize(minHeight = 48.dp)
         ) {
+            val textMaxWidth = (maxWidth - 48.dp).coerceAtLeast(0.dp)
             Row(
                 modifier = Modifier.align(Alignment.Center),
                 verticalAlignment = Alignment.CenterVertically,
@@ -2331,7 +2334,7 @@ fun BookDetailCanonicalSummary(
                     overflow = TextOverflow.Ellipsis,
                     textAlign = TextAlign.Center,
                     modifier = Modifier
-                        .widthIn(max = (maxWidth - 48.dp).coerceAtLeast(0.dp))
+                        .widthIn(max = textMaxWidth)
                         .defaultMinSize(minHeight = 48.dp)
                         .focusRequester(authorFocusRequester)
                         .testTag("book_detail_author_link")
@@ -2351,12 +2354,16 @@ fun BookDetailCanonicalSummary(
             }
         }
     }
+    if (presentation.author.isNotBlank() && presentation.narrator.isNotBlank()) {
+        Spacer(modifier = Modifier.height(16.dp))
+    }
     if (presentation.narrator.isNotBlank()) {
         BoxWithConstraints(
             modifier = Modifier
                 .fillMaxWidth()
                 .defaultMinSize(minHeight = 48.dp)
         ) {
+            val textMaxWidth = (maxWidth - 48.dp).coerceAtLeast(0.dp)
             Row(
                 modifier = Modifier.align(Alignment.Center),
                 verticalAlignment = Alignment.CenterVertically,
@@ -2370,7 +2377,7 @@ fun BookDetailCanonicalSummary(
                     overflow = TextOverflow.Ellipsis,
                     textAlign = TextAlign.Center,
                     modifier = Modifier
-                        .widthIn(max = (maxWidth - 48.dp).coerceAtLeast(0.dp))
+                        .widthIn(max = textMaxWidth)
                         .defaultMinSize(minHeight = 48.dp)
                         .focusRequester(narratorFocusRequester)
                         .testTag("book_detail_narrator_link")

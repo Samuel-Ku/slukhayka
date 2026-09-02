@@ -213,11 +213,13 @@ fun WebSourceBrowserScreen(
         instance.evaluateJavascript(
             """(function(){
                 const html = document.documentElement.outerHTML;
-                const urls = [...html.matchAll(/file\s*:\s*["']([^"']+\.(?:m3u|txt)(?:\?[^"']*)?)["']/gi)].map(m => m[1]);
+                const urls = [...html.matchAll(/file\s*:\s*["']([^"']*(?:\{v1\}|\.(?:m3u|txt|json))(?:\?[^"']*)?)["']/gi)].map(m => m[1]);
                 const manifests = [...new Set(urls)].map(url => {
                     try {
+                        const targetUrl = url.replace(/\{v1\}/g, 'https://4read.org/m3u/');
+                        const fullUrl = targetUrl.startsWith('http') ? targetUrl : (targetUrl.startsWith('/') ? window.location.origin + targetUrl : window.location.origin + '/' + targetUrl);
                         const request = new XMLHttpRequest();
-                        request.open('GET', url, false);
+                        request.open('GET', fullUrl, false);
                         request.withCredentials = true;
                         request.send(null);
                         if (request.status !== 200) return '';
@@ -225,7 +227,12 @@ fun WebSourceBrowserScreen(
                         return '<i data-slukhayka-playlist="' + btoa(unescape(encodeURIComponent(body))) + '"></i>';
                     } catch (_) { return ''; }
                 });
-                return html + manifests.join('');
+                const inlineJsons = [...html.matchAll(/file\s*:\s*["'](\[\s*\{.*?\}\s*\])["']/gis)].map(m => {
+                    try {
+                        return '<i data-slukhayka-playlist="' + btoa(unescape(encodeURIComponent(m[1]))) + '"></i>';
+                    } catch (_) { return ''; }
+                });
+                return html + manifests.join('') + inlineJsons.join('');
             })()"""
         ) { raw ->
             val decoded = raw?.trim()?.let { r ->

@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api/client'
+import { readWarm, WARM_CACHE_TTL_MS, warmKey, writeWarm } from '../api/warmCache'
 import type { BookDetail } from '../worker/types'
+import { canPlayBookFromDisplayedDetail, sourceNeedsBrowserSession } from './bookPlaybackAvailability'
 
 /**
  * spec-43/T3+T5 — сторінка книги: метадані, розділи й «Інші начитки».
@@ -15,19 +17,38 @@ export function BookPage({
   url: string
   source: import('../worker/types').SourceId
   onOpenBook: (next: string, source: import('../worker/types').SourceId) => void
-  onPlay?: (detail: BookDetail, chapterIndex: number) => void
+  onPlay?: (detail: BookDetail, chapterIndex: number) => Promise<boolean>
 }) {
   const [detail, setDetail] = useState<BookDetail | null>(null)
   const [failed, setFailed] = useState(false)
+  const [showingCachedBook, setShowingCachedBook] = useState(false)
 
   useEffect(() => {
     let alive = true
     setDetail(null)
     setFailed(false)
-    api.book(source, url).then((result) => {
+    setShowingCachedBook(false)
+    api.book(source, url).then(async (result) => {
       if (!alive) return
-      if (result === null) setFailed(true)
-      else setDetail(result)
+      if (result === null) {
+        const cached = await readWarm<BookDetail>(warmKey('book', source, url), WARM_CACHE_TTL_MS)
+        if (!alive) return
+        if (cached === null) setFailed(true)
+        else {
+          setDetail(cached)
+          setShowingCachedBook(true)
+        }
+      } else {
+        setDetail(result)
+        setShowingCachedBook(false)
+        // A browser-session Source may expose a temporary cookie-bound stream
+        // URL. Keep its public metadata warm, but never persist that locator
+        // as if another browser session could replay it.
+        const cacheValue = sourceNeedsBrowserSession(source)
+          ? { ...result, chapters: [] }
+          : publicBookProjection(result)
+        void writeWarm(warmKey('book', source, url), cacheValue)
+      }
     })
     return () => {
       alive = false
@@ -37,9 +58,19 @@ export function BookPage({
   if (failed) return <div className="placeholder">Книга недоступна — джерело не відповіло.</div>
   if (detail === null) return <div className="placeholder">Завантажуємо книгу…</div>
 
+  const canPlay = canPlayBookFromDisplayedDetail(source, showingCachedBook)
+  const requiresFreshSession = !canPlay && sourceNeedsBrowserSession(source)
+
   return (
     <article>
       <h1>{detail.title}</h1>
+      {showingCachedBook && <p className="notice" role="status" aria-live="polite">Показуємо збережені дані книги. Оновлення каталогу тимчасово недоступне.</p>}
+      {requiresFreshSession && (
+        <p className="notice" role="status" aria-live="polite">
+          Щоб перевірити доступ до аудіо, відкрийте джерело у браузері й пройдіть перевірку, якщо воно її попросить.{' '}
+          <a href={url} target="_blank" rel="noreferrer">Відкрити сторінку джерела</a>
+        </p>
+      )}
       <p className="byline">
         {detail.author}
         {detail.narrator ? ` · читає ${detail.narrator}` : ''}
@@ -62,11 +93,11 @@ export function BookPage({
           {detail.chapters.map((chapter, idx) => (
             <li key={chapter.streamUrl} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span>{chapter.title}</span>
-              {onPlay && (
+              {onPlay && canPlay && (
                 <button
-                  onClick={() => onPlay(detail, idx)}
+                  onClick={() => { void onPlay(detail, idx) }}
                   aria-label={`Слухати розділ ${idx + 1}`}
-                  style={{ background: 'var(--accent)', color: '#000', border: 'none', borderRadius: 999, padding: '4px 12px' }}
+                  style={{ background: 'var(--accent)', color: 'var(--accent-contrast)', border: 'none', borderRadius: 999, padding: '4px 12px' }}
                 >
                   ▶
                 </button>
@@ -90,4 +121,22 @@ export function BookPage({
       )}
     </article>
   )
+}
+
+/** Keeps only direct tracks that another local browser context can safely reuse. */
+export function publicBookProjection(detail: BookDetail): BookDetail {
+  return {
+    ...detail,
+    chapters: detail.chapters.filter((chapter) => !hasPrivateStreamParameter(chapter.streamUrl)),
+  }
+}
+
+function hasPrivateStreamParameter(streamUrl: string): boolean {
+  try {
+    // A query can be a vendor-specific signed token (for example an AWS
+    // signature). There is no safe allowlist for a URL we did not issue.
+    return new URL(streamUrl).search.length > 0
+  } catch {
+    return true
+  }
 }

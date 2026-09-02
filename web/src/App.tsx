@@ -237,11 +237,15 @@ export function App({ profile: initialProfile }: { profile: ListenerProfile | nu
     if (audioRef.current) engine.attachAudio(audioRef.current)
   }, [engine])
 
-  const handlePlay = (detail: BookDetail, chapterIndex: number): void => {
+  const handlePlay = async (detail: BookDetail, chapterIndex: number): Promise<boolean> => {
     const mergeKey = mergeKeyFor(detail.title, detail.author)
     const editionId = editionIdFor(mergeKey, detail.url, detail.narrator ?? '')
-    void engine.loadBook({ title: detail.title, chapters: detail.chapters, editionId }, chapterIndex)
-    setPlayerOpen(true)
+    const playing = await engine.loadBookAndAwaitPlaying(
+      { title: detail.title, chapters: detail.chapters, editionId },
+      chapterIndex,
+    )
+    if (playing) setPlayerOpen(true)
+    return playing
   }
   return (
     <>
@@ -264,7 +268,7 @@ export function App({ profile: initialProfile }: { profile: ListenerProfile | nu
         ) : tab === 'listen' ? (
           <Stub title="Продовження слухання" what="Оберіть книгу в Огляді й натисніть ▶ на розділі." />
         ) : tab === 'catalog' ? (
-          <Catalog onOpenBook={(url, source) => setBook({ url, source })} />
+          <Catalog onOpenBook={(url, source) => setBook({ url, source })} onPlay={handlePlay} />
         ) : (
           <Profile profile={profile} onProfileChange={setProfile} />
         )}

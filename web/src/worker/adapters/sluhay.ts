@@ -14,8 +14,9 @@ import {
   type ParsedCatalog,
   type SourceAdapter,
 } from '../types'
+import { SOURCE_METADATA } from '../sourceMetadata'
 
-const BASE = 'https://sluhay.com'
+const BASE = SOURCE_METADATA.sluhay.homeUrl
 const HOME_SECTION_ID = 'home'
 
 const PLAYLIST_URL = /(https:\/\/[a-z0-9]+\.redirectto\.cc\/[^"'<>\s]+\.pl\.txt)/i

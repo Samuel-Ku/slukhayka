@@ -41,6 +41,40 @@ export interface ParsedCatalog {
   nextPageUrl?: string
 }
 
+/** One physical source attached to one Edition — never a cross-edition fallback. */
+export interface UnifiedSource {
+  sourceId: SourceId
+  url: string
+  /** Anonymous clean-probe metadata; never a cookie-bound stream URL. */
+  availability?: 'available' | 'unavailable'
+  verifiedAt?: number
+}
+
+export interface UnifiedEdition {
+  id: string
+  narrator?: string
+  durationSeconds?: number
+  chapterCount?: number
+  isComplete?: boolean
+  verifiedAt?: number
+  sources: UnifiedSource[]
+}
+
+/** A bibliographic Work; narrator and progress remain Edition-owned. */
+export interface UnifiedWork {
+  id: string
+  mergeKey: string
+  title: string
+  author: string
+  coverImageUrl?: string
+  editions: UnifiedEdition[]
+}
+
+export interface UnifiedWorkPage {
+  works: UnifiedWork[]
+  nextCursor?: string
+}
+
 export interface Chapter {
   title: string
   /** The physical track of this Edition's primary source (ADR-0007 pairing). */

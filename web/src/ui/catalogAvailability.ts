@@ -36,6 +36,18 @@ export interface LocalAvailabilityAssertion {
   observedAt: number
 }
 
+const PRIVATE_STREAM_PARAMETERS = new Set(['token', 'signature', 'sig', 'expires', 'key', 'auth', 'session', 'cookie'])
+
+function relayUrlFor(streamUrl: string): string | null {
+  try {
+    const url = new URL(streamUrl)
+    if ([...url.searchParams.keys()].some((key) => PRIVATE_STREAM_PARAMETERS.has(key.toLowerCase()))) return null
+    return `/api/audio?u=${encodeURIComponent(streamUrl)}`
+  } catch {
+    return null
+  }
+}
+
 export async function readAvailabilityAssertion(
   editionId: string,
   sourceId: SourceId,
@@ -159,10 +171,10 @@ export async function raceEditionSources(
 export async function probeStreamPlaying(
   streamUrl: string,
   signal: AbortSignal,
-  relayUrlOf: (url: string) => string = (url) => `/api/audio?u=${encodeURIComponent(url)}`,
+  relayUrlOf: (url: string) => string | null = relayUrlFor,
 ): Promise<boolean> {
   if (typeof Audio === 'undefined') return false
-  const urls = [streamUrl, relayUrlOf(streamUrl)]
+  const urls = [streamUrl, relayUrlOf(streamUrl)].filter((url): url is string => url !== null)
   for (const url of urls) {
     if (signal.aborted) return false
     const audio = new Audio()
@@ -199,10 +211,10 @@ export async function probeStreamPlaying(
 export async function preflightMediaRange(
   streamUrl: string,
   signal: AbortSignal,
-  relayUrlOf: (url: string) => string = (url) => `/api/audio?u=${encodeURIComponent(url)}`,
+  relayUrlOf: (url: string) => string | null = relayUrlFor,
   fetcher: typeof fetch = fetch,
 ): Promise<boolean> {
-  for (const url of [streamUrl, relayUrlOf(streamUrl)]) {
+  for (const url of [streamUrl, relayUrlOf(streamUrl)].filter((url): url is string => url !== null)) {
     if (signal.aborted) return false
     try {
       const response = await fetcher(url, {

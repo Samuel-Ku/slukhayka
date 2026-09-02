@@ -1,6 +1,6 @@
 import 'fake-indexeddb/auto'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { readWarmEntry, warmKey, writeWarm } from './warmCache'
+import { readWarmEntry, WARM_CACHE_TTL_MS, warmKey, writeWarm } from './warmCache'
 import {
   AVAILABILITY_POLICY,
   availabilitySortRank,
@@ -18,6 +18,16 @@ describe('IndexedDB warm cache', () => {
 
     await writeWarm(key, page)
     await expect(readWarmEntry<typeof page>(key)).resolves.toEqual({ key, value: page, savedAt: 123_456 })
+  })
+
+  it('does not offer a warm catalogue after its offline TTL expires', async () => {
+    const key = warmKey('catalog', 'all', 'ttl-page')
+    vi.spyOn(Date, 'now').mockReturnValue(10_000)
+    await writeWarm(key, { works: [] })
+    vi.spyOn(Date, 'now').mockReturnValue(10_000 + WARM_CACHE_TTL_MS - 1)
+    await expect(readWarmEntry(key, WARM_CACHE_TTL_MS)).resolves.not.toBeNull()
+    vi.spyOn(Date, 'now').mockReturnValue(10_000 + WARM_CACHE_TTL_MS)
+    await expect(readWarmEntry(key, WARM_CACHE_TTL_MS)).resolves.toBeNull()
   })
 
   it('stores an expiring Source×Edition verdict without URL or private session data', async () => {

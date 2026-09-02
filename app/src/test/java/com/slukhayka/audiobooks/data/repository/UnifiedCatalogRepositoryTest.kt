@@ -88,10 +88,12 @@ class UnifiedCatalogRepositoryTest {
         val union = repository.refreshUnifiedCatalog()
 
         // The same Work found on two sources collapses into ONE card with both
-        // badges; the third source's book stays its own card.
+        // badges in the deterministic DIRECT sub-order (#465: soundbooks →
+        // sluhayua → audiobookmp3 → lihtar, parity with the web worker's
+        // SOURCE_PRIORITY); the third source's book stays its own card.
         assertEquals(2, union.size)
         val kobzar = union.first { it.title.equals("Кобзар", ignoreCase = true) }
-        assertEquals(listOf("audiobookmp3", "soundbooks"), kobzar.sources.map { it.sourceId })
+        assertEquals(listOf("soundbooks", "audiobookmp3"), kobzar.sources.map { it.sourceId })
         val lisova = union.first { it.title == "Лісова пісня" }
         assertEquals(listOf("lihtar"), lisova.sources.map { it.sourceId })
     }

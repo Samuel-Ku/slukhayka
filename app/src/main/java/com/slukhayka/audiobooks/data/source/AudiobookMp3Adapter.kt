@@ -1,5 +1,8 @@
 package com.slukhayka.audiobooks.data.source
 
+import com.slukhayka.audiobooks.data.privacy.PacingPolicy
+import kotlinx.coroutines.delay
+
 /**
  * audiobook-mp3.com/uk [SourceAdapter] (spec-10 T1 verdict: PASS, server-fetch).
  *
@@ -34,7 +37,13 @@ package com.slukhayka.audiobooks.data.source
  *   4read-gated; out of T4 scope).
  */
 class AudiobookMp3Adapter(
-    private val fetcher: HttpFetcher = HttpFetcher(referer = "https://audiobook-mp3.com/uk")
+    private val fetcher: HttpFetcher = HttpFetcher(referer = "https://audiobook-mp3.com/uk"),
+    /** Spec #462 ID5 (#468) — how many genre pages one catalogue walk opens. */
+    private val genrePageLimit: Int = GENRE_PAGE_LIMIT,
+    /** Spec #462 ID5 (#468) — the human-rhythm pause source between pages. */
+    private val pacing: PacingPolicy = PacingPolicy(),
+    /** Injectable pause so tests pin the rhythm without sleeping (spec-38). */
+    private val pauseMillis: suspend (Long) -> Unit = { delay(it) }
 ) : SourceAdapter {
 
     override val sourceId: String = "audiobookmp3"
@@ -140,8 +149,14 @@ class AudiobookMp3Adapter(
     /**
      * Spec-15 T1 — catalogue enumeration: the /uk genre pages
      * (`/uk-genre-<id>-<slug>`) are the source's full catalogue; each genre
-     * page carries the same tiles as the homepage feed, so the union parses a
-     * few genre pages and dedupes by url.
+     * page carries the same tiles as the homepage feed, so the union parses
+     * genre pages and dedupes by url.
+     *
+     * Spec #462 ID5 (#468): the walk is no longer a hard-coded `take(6)` —
+     * it opens up to [genrePageLimit] pages, paced by [PacingPolicy] pauses
+     * between consecutive requests (spec-38: bulk fetching never looks like
+     * scraping). Requests ride the shared [HttpFetcher] — the listener's
+     * privacy transport route (TransportPrivacy).
      */
     override suspend fun fetchCatalog(limit: Int): List<SourceBook> {
         val home = fetcher.getText("https://audiobook-mp3.com/uk")
@@ -149,11 +164,14 @@ class AudiobookMp3Adapter(
         val genres = GENRE_LINK.findAll(home)
             .map { it.groupValues[1] }
             .distinct()
-            .take(6)
+            .take(genrePageLimit)
         val seen = mutableSetOf<String>()
         val books = mutableListOf<SourceBook>()
+        var paced = false
         for (genre in genres) {
             if (books.size >= limit) break
+            if (paced) pauseMillis(pacing.nextPauseMillis())
+            paced = true
             val html = fetcher.getText("https://audiobook-mp3.com$genre")
             if (html.isEmpty()) continue
             for (book in parseTiles(html, limit - books.size)) {
@@ -286,6 +304,14 @@ class AudiobookMp3Adapter(
     }
 
     private companion object {
+        /**
+         * Spec #462 ID5 (#468) — the named (and per-instance configurable,
+         * via [genrePageLimit]) genre limit that replaced the old magic
+         * `take(6)`: one user-initiated catalogue refresh walks this many
+         * genre pages, with [PacingPolicy] pauses between consecutive
+         * requests so the wider walk keeps the human rhythm (spec-38).
+         */
+        const val GENRE_PAGE_LIMIT: Int = 20
         val PLAYLIST_URL = Regex("""(https://[a-z0-9]+\.redirectto\.cc/[^"'<> ]+\.pl\.txt)""", RegexOption.IGNORE_CASE)
         val BOOK_LINK = Regex("""href="(/uk-audio-\d+-[^"]+)"[^>]*>([^<]*)""", RegexOption.IGNORE_CASE)
         val COVER_TILE = Regex("""<a\s+class="image-abook"\s+href="([^"]+)"[^>]*>\s*<img[^>]*src="([^"]+)"""", RegexOption.IGNORE_CASE)

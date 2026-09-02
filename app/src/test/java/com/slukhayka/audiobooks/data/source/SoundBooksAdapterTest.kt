@@ -1,11 +1,14 @@
 package com.slukhayka.audiobooks.data.source
 
+import com.slukhayka.audiobooks.data.privacy.PacingParams
+import com.slukhayka.audiobooks.data.privacy.PacingPolicy
 import com.slukhayka.audiobooks.testing.FakeFetcher
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlin.random.Random
 
 /**
  * Fixture tests for the spec-10 T3 SoundBooksAdapter. Markup mirrors real
@@ -546,7 +549,8 @@ class SoundBooksAdapterTest {
                     "https://sound-books.net/roman/" to ""
                 ),
                 fallback = "<html><body></body></html>"
-            )
+            ),
+            pauseMillis = {}
         )
 
         val books = adapter.fetchCatalog(limit = 40)
@@ -563,5 +567,72 @@ class SoundBooksAdapterTest {
         )
         assertEquals("Тиха планета", books[1].title)
         assertEquals("", books[1].author)
+    }
+
+    // Spec #462 ID5 (#468): the catalogue walk is no longer capped at the old
+    // magic take(6) — it opens up to CATEGORY_PAGE_LIMIT pages, and the pause
+    // between consecutive category requests keeps the human rhythm (spec-38).
+    private fun categoryPage(id: Int, slug: String) = """
+        <html><body>
+        <a class="short-img img-fit" href="https://sound-books.net/$slug/$id-knyha-$id.html"><img data-src="/uploads/posts/2026-07/$id.webp" alt="Книга $id"></a>
+        <a class="short-title" href="https://sound-books.net/$slug/$id-knyha-$id.html">Книга $id - Автор $id</a>
+        </body></html>
+    """.trimIndent()
+
+    private fun homeWithNCategories(n: Int): String = buildString {
+        append("<html><body>")
+        repeat(n) { i ->
+            val slug = listOf("fantastyka", "roman", "zhahy", "detektyv", "pryhodi", "poeziia", "dramaturhiia", "klassyka", "suchasna-proza", "istoriia")[i]
+            append("""<a href="https://sound-books.net/$slug/">Категорія ${i + 1}</a>""")
+        }
+        append("</body></html>")
+    }
+
+    @Test
+    fun `catalogue walks past the old six category pages with pacing pauses`() = runBlocking {
+        val n = 8 // more than the old hard-coded take(6)
+        val fetcher = FakeFetcher(
+            buildMap {
+                put("https://sound-books.net/", homeWithNCategories(n))
+                val slugs = listOf("fantastyka", "roman", "zhahy", "detektyv", "pryhodi", "poeziia", "dramaturhiia", "klassyka")
+                slugs.forEachIndexed { i, slug ->
+                    put("https://sound-books.net/$slug/", categoryPage(i + 1, slug))
+                }
+            }
+        )
+        val pauses = mutableListOf<Long>()
+        val adapter = SoundBooksAdapter(fetcher, pauseMillis = { pauses += it }, pacing = PacingPolicy(PacingParams(minPauseMillis = 100, maxPauseMillis = 100), Random(42)))
+
+        val books = adapter.fetchCatalog(limit = 100)
+
+        // All 8 categories contribute their book — the old take(6) would stop at 6.
+        assertEquals(n, books.size)
+        assertEquals("Книга 7", books[6].title)
+        assertEquals("Книга 8", books[7].title)
+        // One pause BETWEEN consecutive requests only: 8 pages → 7 pauses.
+        assertEquals(List(n - 1) { 100L }, pauses)
+    }
+
+    @Test
+    fun `catalogue honours the configurable category page limit`() = runBlocking {
+        val fetcher = FakeFetcher(
+            buildMap {
+                put("https://sound-books.net/", homeWithNCategories(4))
+                val slugs = listOf("fantastyka", "roman", "zhahy", "detektyv")
+                slugs.forEachIndexed { i, slug ->
+                    put("https://sound-books.net/$slug/", categoryPage(i + 1, slug))
+                }
+            },
+            fallback = "<html><body></body></html>"
+        )
+        val adapter = SoundBooksAdapter(fetcher, categoryPageLimit = 2, pauseMillis = {})
+
+        val books = adapter.fetchCatalog(limit = 100)
+
+        // Only the first 2 category pages are opened — the limit is the
+        // named, per-instance configurable CATEGORY_PAGE_LIMIT default.
+        assertEquals(2, books.size)
+        assertEquals("Книга 1", books[0].title)
+        assertEquals("Книга 2", books[1].title)
     }
 }

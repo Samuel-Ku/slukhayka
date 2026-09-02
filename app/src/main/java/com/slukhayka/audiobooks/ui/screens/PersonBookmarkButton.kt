@@ -2,7 +2,6 @@ package com.slukhayka.audiobooks.ui.screens
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
@@ -28,7 +27,6 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.Dp
 import com.slukhayka.audiobooks.R
 
 /**
@@ -51,9 +49,7 @@ fun PersonBookmarkButton(
     onToggle: () -> Unit,
     onToggleNotify: (Boolean) -> Unit,
     testTag: String = "person_bookmark_button",
-    modifier: Modifier = Modifier,
-    iconOffsetX: Dp = 0.dp,
-    iconOffsetY: Dp = 0.dp
+    modifier: Modifier = Modifier
 ) {
     var showMenu by remember { mutableStateOf(false) }
 
@@ -91,10 +87,6 @@ fun PersonBookmarkButton(
             contentDescription = null,
             tint = if (isBookmarked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
             modifier = Modifier
-                // Optical alignment: the star glyph's visual centre sits a
-                // little below the adjacent text baseline. Keep the full
-                // 48dp semantics/touch target, moving only the glyph.
-                .offset(x = iconOffsetX, y = iconOffsetY)
                 .size(24.dp)
                 .testTag("person_bookmark_icon")
         )

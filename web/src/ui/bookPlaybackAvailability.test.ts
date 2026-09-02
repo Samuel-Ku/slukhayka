@@ -18,7 +18,7 @@ describe('cached book playback availability', () => {
       url: 'https://source.example/book', title: 'Книга', author: 'Автор', genres: [], otherNarrations: [],
       chapters: [
         { title: 'Public', streamUrl: 'https://audio.example/public.mp3' },
-        { title: 'Signed', streamUrl: 'https://audio.example/signed.mp3?token=private' },
+        { title: 'Signed', streamUrl: 'https://audio.example/signed.mp3?X-Amz-Signature=private' },
       ],
     })
     expect(projected.chapters.map((chapter) => chapter.title)).toEqual(['Public'])

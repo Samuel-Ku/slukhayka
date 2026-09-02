@@ -36,12 +36,12 @@ export interface LocalAvailabilityAssertion {
   observedAt: number
 }
 
-const PRIVATE_STREAM_PARAMETERS = new Set(['token', 'signature', 'sig', 'expires', 'key', 'auth', 'session', 'cookie'])
-
 function relayUrlFor(streamUrl: string): string | null {
   try {
     const url = new URL(streamUrl)
-    if ([...url.searchParams.keys()].some((key) => PRIVATE_STREAM_PARAMETERS.has(key.toLowerCase()))) return null
+    // The Worker must never receive a source-issued query: it can be any
+    // vendor's signed locator, even if its parameter name looks harmless.
+    if (url.search.length > 0) return null
     return `/api/audio?u=${encodeURIComponent(streamUrl)}`
   } catch {
     return null

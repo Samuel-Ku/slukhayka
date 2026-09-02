@@ -21,6 +21,15 @@ object SourceAccessPolicy {
     private val browserSources = setOf("4read", "sluhay", "sluhayknigi")
     private val directSources = setOf("soundbooks", "audiobookmp3", "lihtar", "sluhayua")
 
+    /**
+     * Deterministic sub-order inside the DIRECT capability tier (#465):
+     * soundbooks → sluhayua → audiobookmp3 → lihtar — parity with the web
+     * worker's SOURCE_PRIORITY (`web/src/worker/workFeed.ts`). Direct sources
+     * absent from a list keep this relative order; a direct id not listed here
+     * (a future adapter) falls after the known ones and then ties by name.
+     */
+    private val directOrder = listOf("soundbooks", "sluhayua", "audiobookmp3", "lihtar")
+
     fun modeFor(sourceId: String): SourceAccessMode = when {
         sourceId in browserSources -> SourceAccessMode.BROWSER
         sourceId in directSources -> SourceAccessMode.DIRECT
@@ -35,16 +44,27 @@ object SourceAccessPolicy {
         else -> 3
     }
 
-    /** Stable ordering: capability first, then visible name, then id and URL. */
+    /**
+     * Stable ordering: capability first, then within DIRECT the deterministic
+     * [directOrder] sub-order, then visible name, then id and URL.
+     */
     fun order(candidates: Iterable<SourceAccessCandidate>): List<SourceAccessCandidate> =
         candidates.sortedWith(
             compareBy<SourceAccessCandidate> { priority(it) }
                 .thenComparator { left, right ->
-                    String.CASE_INSENSITIVE_ORDER.compare(left.sourceName, right.sourceName)
+                    val leftRank = directSubOrder(left)
+                    val rightRank = directSubOrder(right)
+                    if (leftRank != rightRank) leftRank - rightRank
+                    else String.CASE_INSENSITIVE_ORDER.compare(left.sourceName, right.sourceName)
                 }
                 .thenBy { it.sourceId }
                 .thenBy { it.url }
         )
+
+    private fun directSubOrder(candidate: SourceAccessCandidate): Int {
+        val rank = directOrder.indexOf(candidate.sourceId)
+        return if (candidate.accessMode == SourceAccessMode.DIRECT && rank >= 0) rank else directOrder.size
+    }
 
     /**
      * True when every source on a search card is browser-gated: the shared

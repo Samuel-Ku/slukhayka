@@ -6,6 +6,7 @@ import androidx.room.withTransaction
 import com.google.firebase.FirebaseApp
 import com.google.firebase.appcheck.FirebaseAppCheck
 import com.google.firebase.appcheck.recaptcha.RecaptchaAppCheckProviderFactory
+import com.slukhayka.audiobooks.data.catalog.FeedSnapshotStore
 import com.slukhayka.audiobooks.data.catalog.SourceCatalog
 import com.slukhayka.audiobooks.data.collections.CollectionAssets
 import com.slukhayka.audiobooks.data.collections.OpenLibraryTrendingSource
@@ -343,7 +344,11 @@ class App : Application() {
                 database.withTransaction { block() }
             },
             sharedFacetStore = sharedMetaStore,
-            facetSyncCursorStore = SharedPreferencesFacetSyncCursorStore(this)
+            facetSyncCursorStore = SharedPreferencesFacetSyncCursorStore(this),
+            // Spec #462 ID6 (#467): the persisted feed snapshots — Огляд's
+            // feeds read the database first and hit the network only after
+            // the TTL (новинки 6 год, каталог 24 год) or an explicit refresh.
+            feedSnapshotStore = FeedSnapshotStore(database.audiobookDao())
         )
     }
 

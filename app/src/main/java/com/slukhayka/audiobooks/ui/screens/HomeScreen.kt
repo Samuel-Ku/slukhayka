@@ -295,7 +295,7 @@ fun HomeScreen(
                         if (searchQuery.isNotBlank()) viewModel.updateSearchQuery("")
                     }
                 },
-                onRefresh = { scope.launch { sourceCatalog.fetchCatalogSections() } },
+                onRefresh = { scope.launch { sourceCatalog.fetchCatalogSections(forceRefresh = true) } },
                 onSearchQueryChange = viewModel::updateSearchQuery,
                 onCloseSearch = {
                     searchExpanded = false
@@ -448,7 +448,7 @@ fun HomeScreen(
                 feedGenreFilters = feedGenreFilters,
                 feedDurationFilters = feedDurationFilters,
                 feedSortByTitle = feedSortByTitle,
-                onRefreshCatalog = { scope.launch { sourceCatalog.fetchCatalogSections() } },
+                onRefreshCatalog = { scope.launch { sourceCatalog.fetchCatalogSections(forceRefresh = true) } },
                 onGoToLibrary = { viewModel.selectTab(com.slukhayka.audiobooks.ui.SelectedTab.LIBRARY) },
                 onOpenTop100 = { viewModel.openTop100() },
                 onOpenPeople = { kind ->

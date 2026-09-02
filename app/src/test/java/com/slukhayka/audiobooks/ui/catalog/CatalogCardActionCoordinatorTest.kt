@@ -416,4 +416,62 @@ class CatalogCardActionCoordinatorTest {
         assertEquals(listOf("open:sluhayua-cross"), effects)
         assertTrue(coordinator.state.value is CatalogCardActionState.Completed)
     }
+
+    // --- #470: one tap puts the book in the library ------------------------
+
+    /**
+     * A mergeKey-keyed stand-in for the library's Work table behind the
+     * gateway: `import` upserts (MergeKey semantics — the same Work never
+     * duplicates), `savedBook` reads what the store holds.
+     */
+    private class MergeKeyedBookStore(private val candidate: SourceSelectionCoordinator.SourceCandidate) {
+        val works = LinkedHashMap<String, String>() // mergeKey -> book id
+        var importCalls = 0
+        var openCalls = 0
+
+        fun gateway(openEffect: MutableList<String>) = object : CatalogCardActionGateway<String> {
+            override suspend fun savedBook(target: CatalogCardTarget): String? = works[target.mergeKey]
+            override suspend fun sourceCandidates(target: CatalogCardTarget) = listOf(candidate)
+            override suspend fun import(target: CatalogCardTarget, source: SourceEntity): String {
+                importCalls += 1
+                // MergeKey/upsert: an already-imported Work keeps its row.
+                return works.getOrPut(target.mergeKey) { "book-${works.size + 1}" }
+            }
+            override suspend fun open(book: String): Boolean {
+                openCalls += 1
+                openEffect += "open:$book"
+                return true
+            }
+            override suspend fun play(book: String, source: SourceEntity?): Boolean =
+                error("Open must not start playback")
+        }
+    }
+
+    @Test
+    fun `open tap on a not-yet-imported card persists the Work and never duplicates it on the second tap`() = runTest {
+        val store = MergeKeyedBookStore(directSource())
+        val effects = mutableListOf<String>()
+        val coordinator = CatalogCardActionCoordinator(this, store.gateway(effects), successfulProbe)
+        val target = CatalogCardTarget("work-1", "Книга", mergeKey = "книга|автор")
+
+        coordinator.start(target, CatalogCardAction.OPEN)
+        advanceUntilIdle()
+
+        // One tap — the Work is in the library and the book page opened.
+        assertEquals(1, store.importCalls)
+        assertEquals(1, store.works.size)
+        assertEquals("book-1", store.works["книга|автор"])
+        assertEquals(listOf("open:book-1"), effects)
+        assertTrue(coordinator.state.value is CatalogCardActionState.Completed)
+
+        coordinator.clearTerminalState()
+        coordinator.start(target, CatalogCardAction.OPEN)
+        advanceUntilIdle()
+
+        // The second tap reuses the stored Work — still exactly one row.
+        assertEquals(1, store.importCalls)
+        assertEquals(1, store.works.size)
+        assertEquals(listOf("open:book-1", "open:book-1"), effects)
+        assertTrue(coordinator.state.value is CatalogCardActionState.Completed)
+    }
 }

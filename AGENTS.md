@@ -30,3 +30,11 @@ Use the five canonical triage labels with their default names. See
 
 This is a single-context repository with root `CONTEXT.md` and `docs/adr/`.
 See `docs/agents/domain.md`.
+
+## Testing and verification
+
+Do NOT run the entire test suite (`./gradlew testDebugUnitTest` or `./scripts/test-all.sh`) for localized edits as it takes too much time. Instead:
+- Run targeted tests for the changed classes/packages (e.g. `./gradlew testDebugUnitTest --tests "com.slukhayka.audiobooks.data.source.*"`).
+- Or use `scripts/test-changed.sh` to execute only the relevant test partitions.
+- Run the full test suite only when explicitly requested or for pre-release verification.
+

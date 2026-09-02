@@ -55,8 +55,18 @@ class SluhayuaAdapter(
     }
 
     override suspend fun fetchNew(limit: Int): List<SourceBook> =
-        cardsFrom(fetcher.getText(allCardsUrl("sort=time&order=desc"), XHR))
-            .take(limit)
+        fetchNewPage(FIRST_PAGE).take(limit)
+
+    /**
+     * Spec #462 ID4 (#466) — one page of the newest-first feed
+     * (`/find/allcards?sort=time&order=desc&page=N`): the seam the feed
+     * cursor ([FeedCursor]) drives on a USER action (scroll / pull-to-refresh)
+     * to pull successive pages — never a background crawl. The request rides
+     * the shared [HttpFetcher], i.e. the listener's privacy transport route
+     * (TransportPrivacy, spec-38).
+     */
+    suspend fun fetchNewPage(page: Int): List<SourceBook> =
+        cardsFrom(fetcher.getText(allCardsUrl("sort=time&order=desc", page), XHR))
             .map { it.toSourceBook() }
 
     override suspend fun fetchBookPage(url: String): SourceBookDetail {
@@ -173,8 +183,9 @@ class SluhayuaAdapter(
         sourceId = sourceId
     )
 
-    private fun allCardsUrl(params: String): String =
-        "https://sluhay.com.ua/find/allcards?$params&page=1"
+    /** Spec #462 ID4 — the page parameter is part of the URL shape now. */
+    private fun allCardsUrl(params: String, page: Int = FIRST_PAGE): String =
+        "https://sluhay.com.ua/find/allcards?$params&page=$page"
 
     /** The book page URL — the slug may be Cyrillic and needs encoding. */
     private fun encodedPageUrl(url: String): String {
@@ -407,6 +418,9 @@ class SluhayuaAdapter(
 
     private companion object {
         val XHR = mapOf("X-Requested-With" to "XMLHttpRequest")
+
+        /** The newest-first feed starts at page 1 (the site's own shape). */
+        const val FIRST_PAGE = 1
 
         // Spec-35 T6 — one pass over the page's cardRoll region: a rail
         // header (cardRollCategoryDescription) or a rail card (blurb span

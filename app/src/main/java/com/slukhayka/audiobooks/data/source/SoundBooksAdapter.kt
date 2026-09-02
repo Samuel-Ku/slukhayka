@@ -1,5 +1,8 @@
 package com.slukhayka.audiobooks.data.source
 
+import com.slukhayka.audiobooks.data.privacy.PacingPolicy
+import kotlinx.coroutines.delay
+
 /**
  * sound-books.net [SourceAdapter] (spec-10 T1 verdict: PASS, server-fetch).
  *
@@ -29,7 +32,13 @@ package com.slukhayka.audiobooks.data.source
  *   («Переглянути всі книги цього автора/читача»), not a «схожі» rail.
  */
 class SoundBooksAdapter(
-    private val fetcher: HttpFetcher = HttpFetcher()
+    private val fetcher: HttpFetcher = HttpFetcher(),
+    /** Spec #462 ID5 (#468) — how many category pages one catalogue walk opens. */
+    private val categoryPageLimit: Int = CATEGORY_PAGE_LIMIT,
+    /** Spec #462 ID5 (#468) — the human-rhythm pause source between pages. */
+    private val pacing: PacingPolicy = PacingPolicy(),
+    /** Injectable pause so tests pin the rhythm without sleeping (spec-38). */
+    private val pauseMillis: suspend (Long) -> Unit = { delay(it) }
 ) : SourceAdapter {
 
     override val sourceId: String = "soundbooks"
@@ -117,7 +126,13 @@ class SoundBooksAdapter(
      * Spec-15 T1 — catalogue enumeration: the homepage's category sections
      * (`https://sound-books.net/<category>/`) are the source's full catalogue;
      * each category page carries the same tile markup as the homepage feed, so
-     * the union parses a few category pages and dedupes by url.
+     * the union parses category pages and dedupes by url.
+     *
+     * Spec #462 ID5 (#468): the walk is no longer a hard-coded `take(6)` —
+     * it opens up to [categoryPageLimit] pages, paced by [PacingPolicy]
+     * pauses between consecutive requests (spec-38: bulk fetching never
+     * looks like scraping). Requests ride the shared [HttpFetcher] — the
+     * listener's privacy transport route (TransportPrivacy).
      */
     override suspend fun fetchCatalog(limit: Int): List<SourceBook> {
         val home = fetcher.getText("https://sound-books.net/")
@@ -125,11 +140,14 @@ class SoundBooksAdapter(
         val categories = CATEGORY_LINK.findAll(home)
             .map { it.groupValues[1] }
             .distinct()
-            .take(6)
+            .take(categoryPageLimit)
         val seen = mutableSetOf<String>()
         val books = mutableListOf<SourceBook>()
+        var paced = false
         for (category in categories) {
             if (books.size >= limit) break
+            if (paced) pauseMillis(pacing.nextPauseMillis())
+            paced = true
             val html = fetcher.getText(category)
             if (html.isEmpty()) continue
             for (book in parseTiles(html, limit - books.size)) {
@@ -293,6 +311,14 @@ class SoundBooksAdapter(
     }
 
     private companion object {
+        /**
+         * Spec #462 ID5 (#468) — the named (and per-instance configurable,
+         * via [categoryPageLimit]) category limit that replaced the old magic
+         * `take(6)`: one user-initiated catalogue refresh walks this many
+         * category pages, with [PacingPolicy] pauses between consecutive
+         * requests so the wider walk keeps the human rhythm (spec-38).
+         */
+        const val CATEGORY_PAGE_LIMIT: Int = 20
         val PLAYLIST_URL = Regex("""file\s*:\s*"(https?://[^"]+\.m3u)"""", RegexOption.IGNORE_CASE)
         // Real tiles carry attributes before href (`<a class="short-title" href=…>`),
         // so the anchor tag is matched loosely.

@@ -1,11 +1,14 @@
 package com.slukhayka.audiobooks.data.source
 
+import com.slukhayka.audiobooks.data.privacy.PacingParams
+import com.slukhayka.audiobooks.data.privacy.PacingPolicy
 import com.slukhayka.audiobooks.testing.FakeFetcher
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlin.random.Random
 
 /**
  * Fixture tests for the spec-10 T3 AudiobookMp3Adapter. Markup mirrors real
@@ -382,7 +385,8 @@ class AudiobookMp3AdapterTest {
                     "https://audiobook-mp3.com/uk-genre-3-roman" to ""
                 ),
                 fallback = "<html><body></body></html>"
-            )
+            ),
+            pauseMillis = {}
         )
 
         val books = adapter.fetchCatalog(limit = 40)
@@ -397,5 +401,72 @@ class AudiobookMp3AdapterTest {
         )
         assertEquals("Лісова пісня", books[1].title)
         assertEquals("Леся Українка", books[1].author)
+    }
+
+    // Spec #462 ID5 (#468): the catalogue walk is no longer capped at the old
+    // magic take(6) — it opens up to GENRE_PAGE_LIMIT pages, and the pause
+    // between consecutive genre requests keeps the human rhythm (spec-38).
+    private fun genrePage(id: Int) = """
+        <html><body>
+        <article class="abook-item">
+        <a class="image-abook" href="/uk-audio-${id}00-knyha-$id" title="Слухати аудіокнигу Книга $id онлайн">
+            <img class="b-showshort__cover_image" src="https://cdn.audiobook-mp3.com/audiobooks/uk/$id.webp" alt="Аудіокнига Книга $id">
+        </a>
+        </article>
+        <a href="/uk-audio-${id}00-knyha-$id">Автор $id - Книга $id</a>
+        </body></html>
+    """.trimIndent()
+
+    @Test
+    fun `catalogue walks past the old six genre pages with pacing pauses`() = runBlocking {
+        val n = 8 // more than the old hard-coded take(6)
+        val genres = (1..n).joinToString("") { i ->
+            """<a href="/uk-genre-$i-zhanr-$i">Жанр $i</a>"""
+        }
+        val home = "<html><body>$genres</body></html>"
+        val fetcher = FakeFetcher(
+            buildMap {
+                put("https://audiobook-mp3.com/uk", home)
+                for (i in 1..n) put("https://audiobook-mp3.com/uk-genre-$i-zhanr-$i", genrePage(i))
+            }
+        )
+        val pauses = mutableListOf<Long>()
+        val adapter = AudiobookMp3Adapter(
+            fetcher,
+            pauseMillis = { pauses += it },
+            pacing = PacingPolicy(PacingParams(minPauseMillis = 100, maxPauseMillis = 100), Random(42))
+        )
+
+        val books = adapter.fetchCatalog(limit = 100)
+
+        // All 8 genre pages contribute their book — the old take(6) stopped at 6.
+        assertEquals(n, books.size)
+        assertEquals("Книга 7", books[6].title)
+        assertEquals("Книга 8", books[7].title)
+        // One pause BETWEEN consecutive requests only: 8 pages → 7 pauses.
+        assertEquals(List(n - 1) { 100L }, pauses)
+    }
+
+    @Test
+    fun `catalogue honours the configurable genre page limit`() = runBlocking {
+        val genres = (1..4).joinToString("") { i ->
+            """<a href="/uk-genre-$i-zhanr-$i">Жанр $i</a>"""
+        }
+        val fetcher = FakeFetcher(
+            buildMap {
+                put("https://audiobook-mp3.com/uk", "<html><body>$genres</body></html>")
+                for (i in 1..4) put("https://audiobook-mp3.com/uk-genre-$i-zhanr-$i", genrePage(i))
+            },
+            fallback = "<html><body></body></html>"
+        )
+        val adapter = AudiobookMp3Adapter(fetcher, genrePageLimit = 2, pauseMillis = {})
+
+        val books = adapter.fetchCatalog(limit = 100)
+
+        // Only the first 2 genre pages are opened — the limit is the named,
+        // per-instance configurable GENRE_PAGE_LIMIT default.
+        assertEquals(2, books.size)
+        assertEquals("Книга 1", books[0].title)
+        assertEquals("Книга 2", books[1].title)
     }
 }

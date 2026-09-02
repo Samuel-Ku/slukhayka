@@ -288,10 +288,9 @@ jobs:
 
   accessibility-api35:
     name: Accessibility journey (API 35)
-    needs: release-lineage
+    needs: [release-lineage, timing-start]
     runs-on: ubuntu-latest
     timeout-minutes: 50
-    needs: timing-start
 
     steps:
       - name: Checkout

@@ -2336,37 +2336,37 @@ fun BookDetailCanonicalSummary(
             modifier = Modifier.fillMaxWidth()
         ) {
             val textMaxWidth = (maxWidth - 48.dp).coerceAtLeast(0.dp)
-            Row(
-                modifier = Modifier.align(Alignment.Center),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center
-            ) {
-                Text(
-                    text = "Автор: ${presentation.author}",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier
-                        .widthIn(max = textMaxWidth)
-                        .focusRequester(authorFocusRequester)
-                        .testTag("book_detail_author_link")
-                        .clickable {
-                            onChildRouteOpened(BookDetailLinkOrigin.AUTHOR)
-                            onAuthorClick(presentation.author)
-                        }
-                )
-                PersonBookmarkButton(
-                    modifier = Modifier.personBookmarkTouchTarget().offset(x = (-4).dp),
-                    isBookmarked = authorBookmark.isBookmarked,
-                    notifyEnabled = authorBookmark.notifyEnabled,
-                    personName = presentation.author,
-                    onToggle = authorBookmark.onToggle,
-                    onToggleNotify = authorBookmark.onToggleNotify,
-                    testTag = "book_detail_author_bookmark"
-                )
-            }
+            // The star anchors to the shared trailing column (right edge), so
+            // its position never depends on the text width of either row.
+            Text(
+                text = "Автор: ${presentation.author}",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.primary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .widthIn(max = textMaxWidth)
+                    .focusRequester(authorFocusRequester)
+                    .testTag("book_detail_author_link")
+                    .clickable {
+                        onChildRouteOpened(BookDetailLinkOrigin.AUTHOR)
+                        onAuthorClick(presentation.author)
+                    }
+            )
+            PersonBookmarkButton(
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .personBookmarkTouchTarget()
+                    .offset(x = (-4).dp),
+                isBookmarked = authorBookmark.isBookmarked,
+                notifyEnabled = authorBookmark.notifyEnabled,
+                personName = presentation.author,
+                onToggle = authorBookmark.onToggle,
+                onToggleNotify = authorBookmark.onToggleNotify,
+                testTag = "book_detail_author_bookmark"
+            )
         }
     }
     if (presentation.author.isNotBlank() && presentation.narrator.isNotBlank()) {
@@ -2377,38 +2377,37 @@ fun BookDetailCanonicalSummary(
             modifier = Modifier.fillMaxWidth()
         ) {
             val textMaxWidth = (maxWidth - 48.dp).coerceAtLeast(0.dp)
-            Row(
-                modifier = Modifier.align(Alignment.Center),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center
-            ) {
-                Text(
-                    text = "Озвучує: ${presentation.narrator}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier
-                        .widthIn(max = textMaxWidth)
-                        .focusRequester(narratorFocusRequester)
-                        .testTag("book_detail_narrator_link")
-                        .clickable {
-                            onChildRouteOpened(BookDetailLinkOrigin.NARRATOR)
-                            onNarratorClick(presentation.narrator)
-                        }
-                        .semantics { stateDescription = currentEditionState }
-                )
-                PersonBookmarkButton(
-                    modifier = Modifier.personBookmarkTouchTarget().offset(x = (-4).dp),
-                    isBookmarked = narratorBookmark.isBookmarked,
-                    notifyEnabled = narratorBookmark.notifyEnabled,
-                    personName = presentation.narrator,
-                    onToggle = narratorBookmark.onToggle,
-                    onToggleNotify = narratorBookmark.onToggleNotify,
-                    testTag = "book_detail_narrator_bookmark"
-                )
-            }
+            // Same shared trailing column as the author row.
+            Text(
+                text = "Озвучує: ${presentation.narrator}",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .widthIn(max = textMaxWidth)
+                    .focusRequester(narratorFocusRequester)
+                    .testTag("book_detail_narrator_link")
+                    .clickable {
+                        onChildRouteOpened(BookDetailLinkOrigin.NARRATOR)
+                        onNarratorClick(presentation.narrator)
+                    }
+                    .semantics { stateDescription = currentEditionState }
+            )
+            PersonBookmarkButton(
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .personBookmarkTouchTarget()
+                    .offset(x = (-4).dp),
+                isBookmarked = narratorBookmark.isBookmarked,
+                notifyEnabled = narratorBookmark.notifyEnabled,
+                personName = presentation.narrator,
+                onToggle = narratorBookmark.onToggle,
+                onToggleNotify = narratorBookmark.onToggleNotify,
+                testTag = "book_detail_narrator_bookmark"
+            )
         }
     }
     // ADR-0023 (#348): the narration rating lives beside the narrator's name —

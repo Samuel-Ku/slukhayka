@@ -481,4 +481,53 @@ class WebViewHtmlParserTest {
 
         assertEquals(0, detail.chapters.size)
     }
+
+    @Test
+    fun `live september 2026 page shape maps profile and session playlist`() {
+        // Trimmed verbatim excerpts from the live DOM of
+        // https://4read.org/7589-neostannij-bij-kostjantin-shelest.html
+        // (2026-09-03, after the site's «я людина» gate): the playlist moved
+        // from `/m3u/<id>.txt` + `{v1}` to `/m33u2/<slug>.m3u`, while the
+        // pmovie profile kept its shape (schema.org wrappers included).
+        val liveManifest = """
+            https://s1.reasd.org/7589/01.mp3?expires=1&md5=one
+            https://s1.reasd.org/7589/02.mp3?expires=1&md5=two
+        """.trimIndent()
+        val encoded = java.util.Base64.getEncoder().encodeToString(liveManifest.toByteArray())
+        val detail = WebViewHtmlParser().parse(
+            """
+            <html><head>
+            <meta property="og:title" content="Неостанній бій - АудіоКниги Українською">
+            <meta property="og:image" content="https://4read.org/uploads/posts/2026-05/4_ks_mt7.webp">
+            </head><body>
+            <div id="playerjs1"></div><script>Playerjs({id:"playerjs1",file:"https://4read.org/m33u2/7589-neostannij-bij-kostjantin-shelest.m3u"});</script>
+            <div class="pmovie__rating-score js-color-rating r1">4.7</div>
+            <ul class="pmovie__list">
+              <li><span>Жанр:</span> <a href="https://4read.org/ukrayinska/">Українська література</a> / <a href="https://4read.org/modern/">Сучасна проза</a> / <a href="https://4read.org/prygody/">Пригоди</a> / <a href="https://4read.org/fentezi/">Фентезі</a></li>
+              <li class="not-shown-ajax"> <span>Автор:</span> <span itemprop="author" itemscope itemtype="https://schema.org/Person"> <span itemprop="name"><a href="https://4read.org/xfsearch/avtor/a/">Костянтин Шелест</a></span> </span> </li>
+              <li> <span>Читає:</span> <span itemprop="readBy" itemscope itemtype="https://schema.org/Person"> <span itemprop="name"><a href="https://4read.org/xfsearch/chitaet/b/">Валерій Завалко</a></span> </span> </li>
+              <li><span>Триває:</span> 23:02:02</li>
+              <meta itemprop="duration" content="23:02:02" />
+              <li itemscope itemtype="https://schema.org/PublicationVolume"> <span>Цикл:</span> <span itemprop="name"><a href="https://4read.org/xfsearch/cikl/c/">Максим Темний</a></span> (<span class="bolder" itemprop="volumeNumber">7</span>) </li>
+            </ul>
+            <i data-slukhayka-playlist="$encoded"></i>
+            </body></html>
+            """.trimIndent(),
+            "https://4read.org/7589-neostannij-bij-kostjantin-shelest.html"
+        ) { error("The browser-captured manifest is the import authority") }
+
+        assertEquals("Неостанній бій", detail.title)
+        assertEquals("Костянтин Шелест", detail.author)
+        assertEquals("Валерій Завалко", detail.narrator)
+        assertEquals(23 * 3600L + 2 * 60L + 2L, detail.totalDurationSeconds)
+        assertEquals(4.7, detail.rating!!, 0.001)
+        assertEquals("Максим Темний", detail.series?.name)
+        assertEquals(
+            listOf(
+                "https://s1.reasd.org/7589/01.mp3?expires=1&md5=one",
+                "https://s1.reasd.org/7589/02.mp3?expires=1&md5=two"
+            ),
+            detail.chapters.map { it.streamUrl }
+        )
+    }
 }

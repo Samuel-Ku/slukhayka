@@ -114,7 +114,15 @@ class WebViewHtmlParser {
                 val playlistContent = resolveContent(stream)
                 if (playlistContent.isNotEmpty()) {
                     if (playlistContent.trim().startsWith("[{")) {
-                        val jsonFileRegex = Regex("""file"\s*:\s*"([^"]+)"""", RegexOption.IGNORE_CASE)
+                        jsonFileRegex.findAll(playlistContent).forEach { m ->
+                            expandedStreams.add(encodeUrl(m.groupValues[1]))
+                        }
+                    } else if (playlistContent.contains("\"file\"")) {
+                        // #476 — the live manifest is not always a bare track
+                        // array: an object-wrapped or pretty-printed JSON
+                        // playlist carries the same "file" entries. The key
+                        // pattern (colon + quoted URL) keeps challenge pages
+                        // out — they never pair the key with a value.
                         jsonFileRegex.findAll(playlistContent).forEach { m ->
                             expandedStreams.add(encodeUrl(m.groupValues[1]))
                         }
@@ -235,6 +243,9 @@ class WebViewHtmlParser {
     private companion object {
         /** A full annotation is around this size — longer scanning is waste. */
         const val MIN_FULL_ANNOTATION = 1200
+
+        /** Every playerjs JSON playlist shape carries chapter URLs under this key. */
+        private val jsonFileRegex = Regex(""""file"\s*:\s*"([^"]+)"""", RegexOption.IGNORE_CASE)
 
         /**
          * Spec 2026-08-26 — every YouTube video locator a 4read page can

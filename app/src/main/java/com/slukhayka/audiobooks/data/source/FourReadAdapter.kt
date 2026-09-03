@@ -117,21 +117,41 @@ class FourReadAdapter(
             // content heuristic can safely distinguish it from the manifest.
             // Fetch the public manifest without a session, while all other
             // page/iframe requests retain the host-scoped cookie policy.
-            if (isPublicPlaylistUrl(toResolve)) return@parse fetcher.getText(toResolve)
-            val c = cookieProvider.cookieFor(toResolve).trim()
-            val withSession = if (c.isBlank()) fetcher.getText(toResolve)
-            else fetcher.getText(toResolve, mapOf("Cookie" to c))
-            // A playlist is public on 4read, while a stale browser cookie can
-            // make its CDN reply with an empty/challenge page. The captured
-            // page already passed the browser gate; retrying this read without
-            // a cookie restores a public nested resource without sending a
-            // cookie anywhere else (#443).
-            if (c.isBlank() || withSession.contains(".mp3", ignoreCase = true)) {
-                withSession
+            //
+            // #476 — under a hardened Cloudflare posture the session-less
+            // fetch itself returns the challenge (no playlist evidence at
+            // all). Only then retry once WITH the host cookie: the captured
+            // page already passed the browser gate, and a challenge document
+            // mentioning `.mp3` still takes the first branch, exactly as in
+            // #443 — the fallback cannot promote a poisoned read.
+            if (isPublicPlaylistUrl(toResolve)) {
+                val open = fetcher.getText(toResolve)
+                if (open.hasPlaylistEvidence()) open
+                else {
+                    val c = cookieProvider.cookieFor(toResolve).trim()
+                    if (c.isBlank()) open
+                    else runCatching { fetcher.getText(toResolve, mapOf("Cookie" to c)) }.getOrDefault(open)
+                }
             } else {
-                fetcher.getText(toResolve)
+                val c = cookieProvider.cookieFor(toResolve).trim()
+                val withSession = if (c.isBlank()) fetcher.getText(toResolve)
+                else fetcher.getText(toResolve, mapOf("Cookie" to c))
+                // A playlist is public on 4read, while a stale browser cookie can
+                // make its CDN reply with an empty/challenge page. The captured
+                // page already passed the browser gate; retrying this read without
+                // a cookie restores a public nested resource without sending a
+                // cookie anywhere else (#443).
+                if (c.isBlank() || withSession.contains(".mp3", ignoreCase = true)) {
+                    withSession
+                } else {
+                    fetcher.getText(toResolve)
+                }
             }
         })
+
+    /** A playlist resolve carries chapter topology when it names tracks. */
+    private fun String.hasPlaylistEvidence(): Boolean =
+        contains(".mp3", ignoreCase = true) || contains("\"file\"")
 
     private fun isPublicPlaylistUrl(url: String): Boolean =
         url.substringBefore('?').endsWith(".m3u", ignoreCase = true) &&

@@ -483,6 +483,47 @@ class WebViewHtmlParserTest {
     }
 
     @Test
+    fun `object-wrapped json playlist expands every file entry`() {
+        val playlistUrl = "https://4read.org/m33u2/7589-neostannij-bij-kostjantin-shelest.m3u"
+        val wrapped = """{"playlist":[{"title":"Глава 1","file":"https://s1.reasd.org/7589/01.mp3"},{"title":"Глава 2","file":"https://s1.reasd.org/7589/02.mp3"}]}"""
+        val detail = WebViewHtmlParser().parse(
+            minimalPage("""<script>Playerjs({id:"playerjs1",file:"$playlistUrl"});</script>"""),
+            "https://4read.org/7589-neostannij-bij-kostjantin-shelest.html"
+        ) { wrapped }
+
+        assertEquals(
+            listOf("https://s1.reasd.org/7589/01.mp3", "https://s1.reasd.org/7589/02.mp3"),
+            detail.chapters.map { it.streamUrl }
+        )
+    }
+
+    @Test
+    fun `pretty-printed json playlist expands every file entry`() {
+        val playlistUrl = "https://4read.org/m33u2/7589-neostannij-bij-kostjantin-shelest.m3u"
+        val pretty = """
+            [
+              {
+                "title" : "Глава 1",
+                "file" : "https://s1.reasd.org/7589/01.mp3"
+              },
+              {
+                "title" : "Глава 2",
+                "file" : "https://s1.reasd.org/7589/02.mp3"
+              }
+            ]
+        """.trimIndent()
+        val detail = WebViewHtmlParser().parse(
+            minimalPage("""<script>Playerjs({id:"playerjs1",file:"$playlistUrl"});</script>"""),
+            "https://4read.org/7589-neostannij-bij-kostjantin-shelest.html"
+        ) { pretty }
+
+        assertEquals(
+            listOf("https://s1.reasd.org/7589/01.mp3", "https://s1.reasd.org/7589/02.mp3"),
+            detail.chapters.map { it.streamUrl }
+        )
+    }
+
+    @Test
     fun `live september 2026 page shape maps profile and session playlist`() {
         // Trimmed verbatim excerpts from the live DOM of
         // https://4read.org/7589-neostannij-bij-kostjantin-shelest.html

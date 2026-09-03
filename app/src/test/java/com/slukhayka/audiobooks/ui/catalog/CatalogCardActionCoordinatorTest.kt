@@ -417,6 +417,114 @@ class CatalogCardActionCoordinatorTest {
         assertTrue(coordinator.state.value is CatalogCardActionState.Completed)
     }
 
+    // --- #477: best-effort direct page fetch before the browser door -----
+
+    @Test
+    fun `4read-only play with a directly fetchable page plays without the browser`() = runTest {
+        var directCalls = 0
+        val effects = mutableListOf<String>()
+        val gateway = object : CatalogCardActionGateway<String> {
+            override suspend fun savedBook(target: CatalogCardTarget): String? = null
+            override suspend fun sourceCandidates(target: CatalogCardTarget) = listOf(browserSource())
+            override suspend fun crossResolveDirectSource(target: CatalogCardTarget): SourceEntity? = null
+            override suspend fun importBrowserSourceDirect(
+                target: CatalogCardTarget,
+                source: SourceEntity
+            ): String? {
+                directCalls += 1
+                assertEquals("4read", source.type)
+                return "direct-book"
+            }
+            override suspend fun import(target: CatalogCardTarget, source: SourceEntity): String? =
+                error("the direct door owns this import")
+            override suspend fun open(book: String): Boolean = error("Play must not navigate")
+            override suspend fun play(book: String, source: SourceEntity?): Boolean {
+                effects += "play:$book:${source?.type}"
+                return true
+            }
+        }
+        val coordinator = CatalogCardActionCoordinator(this, gateway, successfulProbe)
+
+        coordinator.start(
+            CatalogCardTarget("work-1", "Книга", mergeKey = "книга|автор"),
+            CatalogCardAction.PLAY
+        )
+        advanceUntilIdle()
+
+        assertEquals(1, directCalls)
+        assertEquals(listOf("play:direct-book:4read"), effects)
+        assertTrue(coordinator.state.value is CatalogCardActionState.Completed)
+    }
+
+    @Test
+    fun `4read-only open with a directly fetchable page opens without the browser`() = runTest {
+        var directCalls = 0
+        val effects = mutableListOf<String>()
+        val gateway = object : CatalogCardActionGateway<String> {
+            override suspend fun savedBook(target: CatalogCardTarget): String? = null
+            override suspend fun sourceCandidates(target: CatalogCardTarget) = listOf(browserSource())
+            override suspend fun crossResolveDirectSource(target: CatalogCardTarget): SourceEntity? = null
+            override suspend fun importBrowserSourceDirect(
+                target: CatalogCardTarget,
+                source: SourceEntity
+            ): String? {
+                directCalls += 1
+                return "direct-book"
+            }
+            override suspend fun import(target: CatalogCardTarget, source: SourceEntity): String? =
+                error("the direct door owns this import")
+            override suspend fun open(book: String): Boolean {
+                effects += "open:$book"
+                return true
+            }
+            override suspend fun play(book: String, source: SourceEntity?): Boolean =
+                error("Open must not start playback")
+        }
+        val coordinator = CatalogCardActionCoordinator(this, gateway, successfulProbe)
+
+        coordinator.start(
+            CatalogCardTarget("work-1", "Книга", mergeKey = "книга|автор"),
+            CatalogCardAction.OPEN
+        )
+        advanceUntilIdle()
+
+        assertEquals(1, directCalls)
+        assertEquals(listOf("open:direct-book"), effects)
+        assertTrue(coordinator.state.value is CatalogCardActionState.Completed)
+    }
+
+    @Test
+    fun `challenged direct fetch keeps the honest browser door with one attempt`() = runTest {
+        var directCalls = 0
+        val gateway = object : CatalogCardActionGateway<String> {
+            override suspend fun savedBook(target: CatalogCardTarget): String? = null
+            override suspend fun sourceCandidates(target: CatalogCardTarget) = listOf(browserSource())
+            override suspend fun crossResolveDirectSource(target: CatalogCardTarget): SourceEntity? = null
+            override suspend fun importBrowserSourceDirect(
+                target: CatalogCardTarget,
+                source: SourceEntity
+            ): String? {
+                directCalls += 1
+                return null
+            }
+            override suspend fun import(target: CatalogCardTarget, source: SourceEntity): String? =
+                error("no direct page must not import")
+            override suspend fun open(book: String): Boolean = true
+            override suspend fun play(book: String, source: SourceEntity?): Boolean = true
+        }
+        val coordinator = CatalogCardActionCoordinator(this, gateway, successfulProbe)
+
+        coordinator.start(
+            CatalogCardTarget("work-1", "Книга", mergeKey = "книга|автор"),
+            CatalogCardAction.PLAY
+        )
+        advanceUntilIdle()
+
+        val state = coordinator.state.value as CatalogCardActionState.BrowserRequired
+        assertEquals("4read", state.source.type)
+        assertEquals(1, directCalls)
+    }
+
     // --- #470: one tap puts the book in the library ------------------------
 
     /**

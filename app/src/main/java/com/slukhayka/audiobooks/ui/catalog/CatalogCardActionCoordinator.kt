@@ -115,6 +115,17 @@ interface CatalogCardActionGateway<Book> {
      * search per call and never crawl in the background.
      */
     suspend fun crossResolveDirectSource(target: CatalogCardTarget): SourceEntity? = null
+
+    /**
+     * #477 — one best-effort direct page fetch of a BROWSER source, reached
+     * by the coordinator ONLY right before the browser door (the cross-resolve
+     * missed): the page is fetched once through the shared transport and
+     * imported through the same MergeKey/upsert door when it carries a
+     * non-empty playlist. Challenge/403/empty parse → null and the honest
+     * browser door stays; never a hidden WebView. Default null keeps existing
+     * gateways unchanged.
+     */
+    suspend fun importBrowserSourceDirect(target: CatalogCardTarget, source: SourceEntity): Book? = null
 }
 
 /**
@@ -159,6 +170,25 @@ class CatalogCardActionCoordinator<Book>(
                         }
                     }
                     return crossSource
+                }
+
+                // #477 — the direct page attempt runs at most once per tap,
+                // like the cross-resolve above: one action can never issue a
+                // second page request.
+                var directAttempted = false
+                var directBook: Book? = null
+                suspend fun directImportOnce(browserSource: SourceEntity): Book? {
+                    if (!directAttempted) {
+                        directAttempted = true
+                        directBook = try {
+                            gateway.importBrowserSourceDirect(target, browserSource)
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (_: Exception) {
+                            null
+                        }
+                    }
+                    return directBook
                 }
 
                 val saved = gateway.savedBook(target)
@@ -294,6 +324,19 @@ class CatalogCardActionCoordinator<Book>(
                                 if (!isCurrent(requestGeneration)) return@launch
                             }
                         }
+                        // #477 — the cross-resolve missed: one best-effort
+                        // direct page fetch before the honest door. A resolved
+                        // page plays from its own source, no browser; a
+                        // challenge/empty page falls through to the door.
+                        val direct = directImportOnce(browserFallback.source)
+                        if (!isCurrent(requestGeneration)) return@launch
+                        if (direct != null) {
+                            lastPlayableBook = direct
+                            if (finishAction(requestGeneration, target, action, direct, browserFallback.source)) {
+                                return@launch
+                            }
+                            if (!isCurrent(requestGeneration)) return@launch
+                        }
                         _state.value = CatalogCardActionState.BrowserRequired(
                             target,
                             action,
@@ -370,6 +413,20 @@ class CatalogCardActionCoordinator<Book>(
                                     if (finishAction(requestGeneration, target, action, imported, cross)) {
                                         return@launch
                                     }
+                                }
+                            }
+                            // #477 — same best-effort direct page before the
+                            // OPEN browser door: a resolved page opens its
+                            // details instead of the browser.
+                            if (isCurrent(requestGeneration)) {
+                                val direct = directImportOnce(selection.candidate.source)
+                                if (!isCurrent(requestGeneration)) return@launch
+                                if (direct != null) {
+                                    lastPlayableBook = direct
+                                    if (finishAction(requestGeneration, target, action, direct, selection.candidate.source)) {
+                                        return@launch
+                                    }
+                                    if (!isCurrent(requestGeneration)) return@launch
                                 }
                             }
                             if (isCurrent(requestGeneration)) {

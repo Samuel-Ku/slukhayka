@@ -58,6 +58,16 @@ class SourceBrowserPolicyTest {
     }
 
     @Test
+    fun `4read audio hosts cover the live manifest and track shapes`() {
+        // Live September 2026 forms (verified against the captured DOM):
+        // the manifest on 4read.org itself, tracks on s1.reasd.org.
+        assertTrue(SourceBrowserPolicy.allowsAudioHost("4read", "4read.org", "4read.org"))
+        assertTrue(SourceBrowserPolicy.allowsAudioHost("4read", "s1.reasd.org", "4read.org"))
+        assertFalse(SourceBrowserPolicy.allowsAudioHost("4read", "evil.com", "4read.org"))
+        assertFalse(SourceBrowserPolicy.allowsAudioHost("4read", null, "4read.org"))
+    }
+
+    @Test
     fun `only http and https are ever allowed`() {
         assertFalse(SourceBrowserPolicy.isUrlAllowed("ftp://sluhay.com/file", "sluhay"))
         assertFalse(SourceBrowserPolicy.isUrlAllowed("file:///sdcard/book.mp3", "sluhay"))

@@ -149,7 +149,10 @@ class MainActivity : FragmentActivity() {
     }
 
     override fun attachBaseContext(newBase: Context) {
-        super.attachBaseContext(newBase.withUkrainianUiLocale())
+        // Spec-45 (#405) — the UI language is a stored preference (system | uk | en);
+        // SYSTEM leaves the context unpinned, a concrete locale localizes the app
+        // AND Material/embedded library resources together.
+        super.attachBaseContext(newBase.withAppLocale(AppLocalePrefs(newBase).locale))
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {

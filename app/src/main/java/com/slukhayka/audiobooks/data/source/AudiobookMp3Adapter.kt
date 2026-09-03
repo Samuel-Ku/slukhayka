@@ -46,6 +46,9 @@ class AudiobookMp3Adapter(
     private val pauseMillis: suspend (Long) -> Unit = { delay(it) }
 ) : SourceAdapter {
 
+    /** Spec-45 (#405) — the catalogue speaks Ukrainian. */
+    override val contentLanguage = "uk"
+
     override val sourceId: String = "audiobookmp3"
 
     override suspend fun search(query: String): List<SourceBook> = emptyList()

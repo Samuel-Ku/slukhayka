@@ -41,6 +41,9 @@ class SoundBooksAdapter(
     private val pauseMillis: suspend (Long) -> Unit = { delay(it) }
 ) : SourceAdapter {
 
+    /** Spec-45 (#405) — the catalogue speaks Ukrainian. */
+    override val contentLanguage = "uk"
+
     override val sourceId: String = "soundbooks"
 
     override suspend fun search(query: String): List<SourceBook> = emptyList()

@@ -82,6 +82,93 @@ class WorkFeedPagingTest {
         return rows
     }
 
+    /** Applies an Edition language facet to one seeded Work. */
+    private suspend fun languageOf(
+        catalog: SourceCatalog,
+        workId: String,
+        editionId: String,
+        language: String?
+    ) {
+        catalog.facetWriter.apply(
+            listOf(
+                LocalFacetDelta(
+                    work = WorkFacetDelta(workId),
+                    editions = listOf(
+                        EditionFacetDelta(
+                            editionId = editionId,
+                            workId = workId,
+                            language = language,
+                            updatedAt = System.currentTimeMillis()
+                        )
+                    )
+                )
+            )
+        )
+    }
+
+    @Test
+    fun `language filter keeps selected-language and unknown works and hides the rest`() = runBlocking {
+        val catalog = catalog()
+        // Same author/title works, distinct by title for readable assertions.
+        catalog.writeWorkEdition("4read", "Pride and Prejudice", "Jane Austen", "", "https://4read/a", genreTexts = listOf("Фантастика"))
+        catalog.writeWorkEdition("4read", "Emma", "Jane Austen", "", "https://4read/b")
+        catalog.writeWorkEdition("soundbooks", "Кобзар", "Шевченко", "", "https://sb/a")
+        catalog.writeWorkEdition("soundbooks", "Без мови", "Автор", "", "https://sb/unknown")
+        val works = dao.observeWorks().first().associateBy { it.title }
+        languageOf(catalog, works.getValue("Pride and Prejudice").id, "en-edition", "en")
+        languageOf(catalog, works.getValue("Emma").id, "uk-edition", "uk")
+        languageOf(catalog, works.getValue("Кобзар").id, "uk-edition-2", "uk")
+        // «Без мови» has an Edition facet with an unknown (blank) language.
+        languageOf(catalog, works.getValue("Без мови").id, "blank-edition", "")
+
+        // English selection: the en Work, the blank-language Work and the
+        // Works with no language signal at all stay; uk-only Works hide.
+        assertEquals(
+            setOf("Pride and Prejudice", "Без мови"),
+            collectAll(catalog.pagedWorkFeedRecent(WorkFacetFilter(languages = setOf("en")))).map { it.title }.toSet()
+        )
+        // Empty selection (both content languages on) shows everything.
+        assertEquals(4, collectAll(catalog.pagedWorkFeedRecent()).size)
+        assertEquals(
+            setOf("Pride and Prejudice", "Emma", "Кобзар", "Без мови"),
+            collectAll(catalog.pagedWorkFeedRecent(WorkFacetFilter(languages = setOf("en", "uk")))).map { it.title }.toSet()
+        )
+        // A Work carrying BOTH an en and a uk Edition shows under either
+        // selection — Pride was hidden under {uk} before its uk Edition arrived.
+        languageOf(catalog, works.getValue("Pride and Prejudice").id, "en-edition-2", "uk")
+        assertEquals(
+            setOf("Pride and Prejudice", "Emma", "Кобзар", "Без мови"),
+            collectAll(catalog.pagedWorkFeedRecent(WorkFacetFilter(languages = setOf("uk")))).map { it.title }.toSet()
+        )
+        // ... and its en facet is still there: {en} still shows Pride.
+        assertEquals(
+            setOf("Pride and Prejudice", "Без мови"),
+            collectAll(catalog.pagedWorkFeedRecent(WorkFacetFilter(languages = setOf("en")))).map { it.title }.toSet()
+        )
+    }
+
+    @Test
+    fun `language filter composes AND with a genre dimension`() = runBlocking {
+        val catalog = catalog()
+        catalog.writeWorkEdition("4read", "English Fantasy", "Автор А", "", "https://4read/ef", genreTexts = listOf("Фентезі"))
+        catalog.writeWorkEdition("4read", "English Detective", "Автор Б", "", "https://4read/ed", genreTexts = listOf("Детектив"))
+        val works = dao.observeWorks().first().associateBy { it.title }
+        languageOf(catalog, works.getValue("English Fantasy").id, "ef-en", "en")
+        languageOf(catalog, works.getValue("English Detective").id, "ed-en", "en")
+
+        val englishFantasy = WorkFacetFilter(genreIds = setOf("fantasy"), languages = setOf("en"))
+
+        assertEquals(
+            listOf("English Fantasy"),
+            collectAll(catalog.pagedWorkFeedByTitle(englishFantasy)).map { it.title }
+        )
+        // The genre alone (no language selection) still shows the detective book.
+        assertEquals(
+            setOf("English Fantasy", "English Detective"),
+            collectAll(catalog.pagedWorkFeedByTitle(WorkFacetFilter(genreIds = setOf("fantasy", "detective")))).map { it.title }.toSet()
+        )
+    }
+
     @Test
     fun `feed pages through a large synthetic catalogue without gaps or duplicates`() = runBlocking {
         val catalog = catalog()

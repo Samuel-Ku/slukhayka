@@ -1213,7 +1213,8 @@ class SourceCatalog(
         dao.pagedWorksFeedRecent(
             filter.genreIds.toList(), if (filter.genreIds.isEmpty()) 0 else 1,
             filter.durationBucketIds.toList(), if (filter.durationBucketIds.isEmpty()) 0 else 1,
-            filter.authorIds.toList(), if (filter.authorIds.isEmpty()) 0 else 1
+            filter.authorIds.toList(), if (filter.authorIds.isEmpty()) 0 else 1,
+            filter.languages.toList(), if (filter.languages.isEmpty()) 0 else 1
         )
 
     /** Endless feed, sorted by title (stable tiebreak: newest first). */
@@ -1223,7 +1224,8 @@ class SourceCatalog(
         dao.pagedWorksFeedByTitle(
             filter.genreIds.toList(), if (filter.genreIds.isEmpty()) 0 else 1,
             filter.durationBucketIds.toList(), if (filter.durationBucketIds.isEmpty()) 0 else 1,
-            filter.authorIds.toList(), if (filter.authorIds.isEmpty()) 0 else 1
+            filter.authorIds.toList(), if (filter.authorIds.isEmpty()) 0 else 1,
+            filter.languages.toList(), if (filter.languages.isEmpty()) 0 else 1
         )
 
     /** The Sources carrying one Work, in the shared capability order. */

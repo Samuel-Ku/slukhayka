@@ -42,11 +42,35 @@ data class GlobalSearchResult(
     // null when unknown — the card then renders without a duration, never a
     // fabricated number.
     val durationSeconds: Long? = null,
-    val sources: List<GlobalSearchSource>
+    val sources: List<GlobalSearchSource>,
+    /**
+     * Spec-45 (#405) T5 (#493): the Work's known content language (BCP-47) —
+     * derived at merge time from the member books' effective languages; ""
+     * when unknown or when the sources disagree (mixed cards stay visible
+     * under any single-language selection, mirroring the WorkFeed rule that
+     * a Work with a matching Edition shows). Rendered nowhere today — it
+     * feeds the content-language filter (T5) and the EN/UA badges (T7).
+     */
+    val language: String = ""
 ) {
     /** Stable identity for list keys: the merge key, else the first source url. */
     val key: String get() = mergeKey.ifBlank { sources.firstOrNull()?.url ?: title }
 }
+
+/**
+ * Spec-45 (#405) T5 (#493): whether a card of [language] is visible under a
+ * content-language [selection] (US6/US21). An EMPTY selection = «Усі» (both
+ * content languages on) = inactive — everything shows. A card whose language
+ * is unknown ("") is never hidden by any selection (US17). The SAME rule the
+ * persisted WorkFeed DAO applies per Edition row (T4) — one semantics across
+ * every surface.
+ */
+fun contentLanguageVisible(language: String, selection: Set<String>): Boolean =
+    selection.isEmpty() || language.isBlank() || language in selection
+
+/** [contentLanguageVisible] over a merged card list. */
+fun List<GlobalSearchResult>.visibleInContentLanguages(selection: Set<String>): List<GlobalSearchResult> =
+    filter { contentLanguageVisible(it.language, selection) }
 
 /**
  * Spec-15 T4/#426 — whether a catalogue card may offer one-tap download: any
@@ -130,6 +154,10 @@ fun mergeGlobalSearchResults(results: List<SourceBook>): List<GlobalSearchResult
                 narrator = first.narrator,
                 mergeKey = MergeKey.keyFor(first.title, first.author),
                 coverImageUrl = first.coverImageUrl,
+                // One Work language: known only when every member source
+                // agrees on the same claim; "" (unknown) when any member is
+                // unclaimed or the sources disagree — unknown never hides.
+                language = books.mapNotNull { it.language.ifBlank { null } }.distinct().singleOrNull().orEmpty(),
                 // One badge per source, whatever urls it returned. The first
                 // source is the default playback/download choice and follows
                 // the shared capability policy (direct before browser).

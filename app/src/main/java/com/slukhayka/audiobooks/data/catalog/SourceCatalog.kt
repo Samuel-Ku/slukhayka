@@ -47,7 +47,9 @@ import com.slukhayka.audiobooks.data.source.mergeGlobalSearchResults
 import com.slukhayka.audiobooks.data.source.sourceDisplayName
 import com.slukhayka.audiobooks.data.source.sourceIdForUrl
 import com.slukhayka.audiobooks.data.source.SourceSelectionCoordinator
+import com.slukhayka.audiobooks.data.source.contentLanguageVisible
 import com.slukhayka.audiobooks.data.source.streamOnlyFor
+import com.slukhayka.audiobooks.data.source.visibleInContentLanguages
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -120,7 +122,15 @@ class SourceCatalog(
     // feed's TTL (новинки 6 h, каталог 24 h — FeedSnapshotPolicy) or on an
     // explicit user refresh. Null keeps the pre-#467 behaviour (network on
     // every cache miss); tests inject a store over an in-memory database.
-    private val feedSnapshotStore: FeedSnapshotStore? = null
+    private val feedSnapshotStore: FeedSnapshotStore? = null,
+    // Spec-45 (#405) T5 (#493): the VISIBLE content languages (BCP-47); an
+    // EMPTY selection = «Усі» (both on) = inactive — every card shows (US6).
+    // The ⚙️ «Мови контенту» destination and the Огляд chip (T6) write the
+    // SAME persisted preference whose flow is injected here; every ephemeral
+    // surface (union, collections, new arrivals, per-source feeds, search,
+    // and the recommendation row built over the union) filters through this
+    // ONE source of truth at publish/read time.
+    private val contentLanguageSelection: StateFlow<Set<String>> = MutableStateFlow(emptySet())
 ) {
     /** Frozen local-write seam consumed by the later shared delta lane. */
     val facetWriter: LocalFacetWriter = RoomLocalFacetWriter(dao)
@@ -251,10 +261,14 @@ class SourceCatalog(
             try {
                 val books = mutableListOf<SourceBook>()
                 for (adapter in catalogueAdapters) {
-                    books += catalogueFor(adapter, limit, forceRefresh)
+                    books += catalogueFor(adapter, limit, forceRefresh).map { it.effectiveFor(adapter) }
                 }
-                val merged = mergeGlobalSearchResults(books)
-                _unifiedCatalog.value = merged
+                // Spec-45 (#405) T5 (#493): the content-language filter cuts
+                // the union at publish — a hidden-language card never reaches
+                // the flow, the collections (matched over the visible corpus),
+                // or the recommendation row (candidates = the union).
+                val visible = mergeGlobalSearchResults(books).visibleInContentLanguages(contentLanguageSelection.value)
+                _unifiedCatalog.value = visible
                 // Spec-16 T2 + follow-up: the collections ride the same
                 // recompute — the union is the match corpus, so a changed
                 // union (or a changed live list) changes the collections with
@@ -264,9 +278,9 @@ class SourceCatalog(
                 _smartCollections.value =
                     com.slukhayka.audiobooks.data.collections.CollectionMatcher.matchAll(
                         collectionLists + _liveCollections.value,
-                        merged
+                        visible
                     )
-                merged
+                visible
             } finally {
                 _isUnifiedCatalogLoading.value = false
             }
@@ -353,7 +367,14 @@ class SourceCatalog(
                 // Session-bound sources re-hydrate on every refresh (skip the
                 // TTL cache): a fresh challenge session must surface the row
                 // immediately, never a stale empty cache.
-                val books = newFeedFor(adapter, skipCache = adapter.sessionBound, forceRefresh = forceRefresh).take(20)
+                // Spec-45 (#405) T5 (#493): each book carries its effective
+                // language (own claim, else the source's) and hidden-language
+                // books drop — a listener who hid English sees no English
+                // card in the per-source rows either (US21).
+                val books = newFeedFor(adapter, skipCache = adapter.sessionBound, forceRefresh = forceRefresh)
+                    .take(20)
+                    .map { it.effectiveFor(adapter) }
+                    .filter { contentLanguageVisible(it.language, contentLanguageSelection.value) }
                 when {
                     books.isNotEmpty() ->
                         SourceNewFeed(adapter.sourceId, sourceDisplayName(adapter.sourceId), books)
@@ -398,7 +419,10 @@ class SourceCatalog(
             ?.books.orEmpty()
             .map { it.toSourceBook() }
         val otherBooks = feeds.flatMap { it.books }
-        _newArrivals.value = mergeGlobalSearchResults(fourReadBooks + otherBooks)
+        // Spec-45 (#405) T5 (#493): the rail drops hidden-language cards at
+        // publish, like the union.
+        _newArrivals.value =
+            mergeGlobalSearchResults(fourReadBooks + otherBooks).visibleInContentLanguages(contentLanguageSelection.value)
     }
 
     private fun CatalogBook.toSourceBook(): SourceBook = SourceBook(
@@ -408,8 +432,20 @@ class SourceCatalog(
         coverImageUrl = coverImageUrl,
         seriesTitle = seriesTitle,
         seriesIndex = seriesIndex,
-        sourceId = SourceIds.FOUR_READ
+        sourceId = SourceIds.FOUR_READ,
+        // 4read is a Ukrainian-only source — the same claim its adapter owns.
+        language = fourReadAdapter.contentLanguage
     )
+
+    /**
+     * A book's effective language: its own claim when set (a page/detail
+     * claim, or a source that stamps per record like LibriVox), else its
+     * source's [SourceAdapter.contentLanguage] — the exact fallback the
+     * import write-through uses (spec-45 T1). Applied where the adapter is in
+     * hand so every ephemeral card carries a truthful claim before merging.
+     */
+    private fun SourceBook.effectiveFor(adapter: SourceAdapter): SourceBook =
+        if (language.isNotBlank()) this else copy(language = adapter.contentLanguage)
 
     private suspend fun newFeedFor(
         adapter: SourceAdapter,
@@ -470,9 +506,13 @@ class SourceCatalog(
                 } catch (e: Exception) {
                     emptyList()
                 }
-                matched += direct
+                // Spec-45 (#405) T5 (#493): search results carry their
+                // effective language before merging — the merge derives the
+                // card language from the member claims.
+                matched += direct.map { it.effectiveFor(adapter) }
                 if (direct.isEmpty()) {
                     matched += newFeedFor(adapter)
+                        .map { it.effectiveFor(adapter) }
                         .filter { book ->
                             book.title.contains(cleanQuery, ignoreCase = true) ||
                                 book.author.contains(cleanQuery, ignoreCase = true)
@@ -481,7 +521,7 @@ class SourceCatalog(
                         // key — fetch its book page once and use the real
                         // title/author/narrator so the Work-level merge with
                         // other sources actually composes.
-                        .map { book -> if (book.author.isBlank()) enrichFeedMatch(adapter, book) else book }
+                        .map { book -> if (book.author.isBlank()) enrichFeedMatch(adapter, book).effectiveFor(adapter) else book }
                 }
             }
             val merged = mergeGlobalSearchResults(matched)
@@ -500,7 +540,11 @@ class SourceCatalog(
             // seam's no-negative rule keeps the long tail of unique misses
             // unbounded-free; a failing write contributes nothing (US-11).
             searchCache?.putResults(cleanQuery, resolved)
-            resolved
+            // Spec-45 (#405) T5 (#493): the cache stores the UNFILTERED
+            // resolved result (selection-independent content), and the filter
+            // applies on every read — a preference change re-filters search
+            // without any cache invalidation.
+            resolved.visibleInContentLanguages(contentLanguageSelection.value)
         }
 
     /**

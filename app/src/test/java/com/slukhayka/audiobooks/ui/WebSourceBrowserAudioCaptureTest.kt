@@ -8,14 +8,15 @@ import org.junit.Test
 /**
  * #476 — the session-side audio hint must fire for 4read playlist manifests,
  * not only for direct tracks. The live book page serves its chapter topology
- * as `/m3u/<id>.txt` (or `.m3u`); with only `.m3u8`/`.pl.txt` recognised,
- * those manifest fetches passed unseen, `capturedAudioUrls` stayed empty and
- * «Додати до медіатеки» honestly reported «Аудіо ще не знайдено».
+ * as `/m33u2/<slug>.m3u` (previously `/m3u/<id>.txt`); with only
+ * `.m3u8`/`.pl.txt` recognised, those manifest fetches passed unseen,
+ * `capturedAudioUrls` stayed empty and «Додати до медіатеки» honestly
+ * reported «Аудіо ще не знайдено».
  */
 class WebSourceBrowserAudioCaptureTest {
 
     @Test
-    fun `recognises the live 4read txt manifest`() {
+    fun `recognises the legacy 4read txt manifest`() {
         assertTrue(
             looksLikeAudio("https://4read.org/m3u/7589.txt")
         )
@@ -49,5 +50,12 @@ class WebSourceBrowserAudioCaptureTest {
         assertFalse(looksLikeAudio("https://4read.org/templates/style.css"))
         assertFalse(looksLikeAudio("https://4read.org/engine/classes/js/app.js"))
         assertFalse(looksLikeAudio("https://4read.org/uploads/posts/2026-06/medium/neostannij-bij.webp"))
+    }
+
+    @Test
+    fun `ignores bare txt documents outside the manifest path`() {
+        assertFalse(looksLikeAudio("https://4read.org/robots.txt"))
+        assertFalse(looksLikeAudio("https://4read.org/CHANGELOG.txt"))
+        assertFalse(looksLikeAudio("https://4read.org/templates/license.txt"))
     }
 }

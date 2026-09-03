@@ -5,6 +5,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.Base64
 
 /**
  * Spec-14 T4 — fixture tests for the pure [WebViewHtmlParser] module. No
@@ -366,7 +367,7 @@ class WebViewHtmlParserTest {
             https://s1.reasd.org/7810/02.mp3?expires=1&md5=two
             https://s1.reasd.org/7810/03.mp3?expires=1&md5=three
         """.trimIndent()
-        val encoded = java.util.Base64.getEncoder().encodeToString(playlist.toByteArray())
+        val encoded = Base64.getEncoder().encodeToString(playlist.toByteArray())
         val detail = WebViewHtmlParser().parse(
             minimalPage(
                 """
@@ -397,7 +398,7 @@ class WebViewHtmlParserTest {
         val expectedTracks = (1..65).map { chapter ->
             "https://s1.reasd.org/7810/${chapter.toString().padStart(2, '0')}.mp3?expires=1&md5=chapter-$chapter"
         }
-        val encoded = java.util.Base64.getEncoder().encodeToString(
+        val encoded = Base64.getEncoder().encodeToString(
             expectedTracks.joinToString("\n").toByteArray()
         )
         val detail = WebViewHtmlParser().parse(
@@ -534,7 +535,7 @@ class WebViewHtmlParserTest {
             https://s1.reasd.org/7589/01.mp3?expires=1&md5=one
             https://s1.reasd.org/7589/02.mp3?expires=1&md5=two
         """.trimIndent()
-        val encoded = java.util.Base64.getEncoder().encodeToString(liveManifest.toByteArray())
+        val encoded = Base64.getEncoder().encodeToString(liveManifest.toByteArray())
         val detail = WebViewHtmlParser().parse(
             """
             <html><head>

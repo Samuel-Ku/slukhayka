@@ -1136,19 +1136,26 @@ internal fun sourceBrowserAdCleanupScript(): String = """
 """.trimIndent()
 
 /**
- * #476 — session-side audio hint for the «Додати цю книгу» flow. Matches
- * direct tracks AND 4read playlist manifests: the live book page serves its
- * chapter topology as `/m3u/<id>.txt` (or `.m3u`), fetched by the player
- * after «Слухати». The old `.pl.txt` suffix never occurs in those manifest
- * URLs, so playlist fetches passed unseen and the «Захоплено N» hint (plus
- * the `capturedAudioUrls` candidates) stayed empty. Host allowlisting stays
- * in [SourceBrowserPolicy.allowsAudioHost] — this is only the extension part.
+ * #476 — session-side audio hint for the «Додати до медіатеки» flow.
+ * Matches direct tracks AND 4read playlist manifests: the live book page
+ * serves its chapter topology as `/m33u2/<slug>.m3u` (previously
+ * `/m3u/<id>.txt`), fetched by the player after «Слухати». The old
+ * `.m3u8`/`.pl.txt` suffixes never occur in those manifest URLs, so
+ * playlist fetches passed unseen and the «Захоплено N» hint (plus the
+ * `capturedAudioUrls` candidates) stayed empty. The `.txt` match is scoped
+ * to the manifest path — a bare `.txt` anywhere (robots, changelogs) is not
+ * audio. Host allowlisting stays in [SourceBrowserPolicy.allowsAudioHost] —
+ * this is only the extension part.
  */
 internal fun looksLikeAudio(url: String): Boolean {
     val lower = url.lowercase()
-    return lower.contains(".mp3") || lower.contains(".m4a") || lower.contains(".m4b") ||
+    if (lower.contains(".mp3") || lower.contains(".m4a") || lower.contains(".m4b") ||
         lower.contains(".aac") || lower.contains(".ogg") || lower.contains(".opus") ||
-        lower.contains(".m3u") || lower.contains(".m3u8") || lower.contains(".txt")
+        lower.contains(".m3u") || lower.contains(".m3u8")
+    ) {
+        return true
+    }
+    return lower.contains("/m3u/") && lower.contains(".txt")
 }
 
 /** Mirrors [pageHasPlaylistRef] inside the WebView — keep the two in sync. */

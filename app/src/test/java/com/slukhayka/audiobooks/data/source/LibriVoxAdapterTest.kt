@@ -78,7 +78,9 @@ class LibriVoxAdapterTest {
         assertTrue(cards.none { it.title.contains("Gemüthsruhe") || it.title.contains("Vogelöd") })
         val littleMen = cards.first { it.title == "Little Men (version 2)" }
         assertEquals("Louisa May Alcott", littleMen.author)
-        assertEquals("https://librivox.org/little-men-version2-by-louisa-may-alcott/", littleMen.url)
+        // Cards carry the archive.org mirror page (T3 #491 plays from it) —
+        // the identifier the api embeds in `url_zip_file`.
+        assertEquals("https://archive.org/details/little_men_1107_librivox", littleMen.url)
         assertEquals("en", littleMen.language)
         assertEquals("librivox", littleMen.sourceId)
         // The API record carries the real duration.
@@ -101,6 +103,48 @@ class LibriVoxAdapterTest {
         assertEquals(6, cards.size)
         assertEquals("Count of Monte Cristo", cards.first().title)
         assertTrue(cards.all { it.language == "en" && it.sourceId == "librivox" })
+    }
+
+    @Test
+    fun `fetchBookPage parses ordered chapters with real streams from the archive metadata`() = runBlocking {
+        val adapter = LibriVoxAdapter(
+            FakeFetcher(fallback = fixture("librivox-archive-metadata-socialism.json"))
+        )
+
+        val detail = adapter.fetchBookPage("https://archive.org/details/socialism_2609_librivox")
+
+        assertEquals("Socialism", detail.title)
+        assertEquals("Edwin Clyde Robbins", detail.author)
+        assertEquals("en", detail.language)
+        assertEquals(
+            "https://archive.org/download/socialism_2609_librivox/__ia_thumb.jpg",
+            detail.coverImageUrl
+        )
+        assertTrue(detail.description.contains("LibriVox"))
+        // 22 VBR MP3 sections; the 64/128 Kbps duplicates and covers are never chapters.
+        assertEquals(22, detail.chapters.size)
+        val first = detail.chapters.first()
+        assertEquals("01 - Robbins, E. C., Introductory Statement", first.title)
+        assertEquals(
+            "https://archive.org/download/socialism_2609_librivox/socialism_01_robbins.mp3",
+            first.streamUrl
+        )
+        assertEquals(558L, first.durationSeconds) // id3 "length": "09:18"
+        // Chapters follow the id3 track order.
+        assertTrue(detail.chapters[1].streamUrl.endsWith("socialism_02_robbins.mp3"))
+    }
+
+    @Test
+    fun `fetchBookPage of a non-archive or blank url reports nothing playable`() = runBlocking {
+        val adapter = LibriVoxAdapter(FakeFetcher(fallback = ""))
+
+        // A librivox.org page has no archive identifier the adapter can play.
+        val page = adapter.fetchBookPage("https://librivox.org/socialism-by-edwin-clyde-robbins/")
+        assertTrue(page.chapters.isEmpty())
+
+        // A blank archive response degrades the same way.
+        val blank = adapter.fetchBookPage("https://archive.org/details/socialism_2609_librivox")
+        assertTrue(blank.chapters.isEmpty())
     }
 
     @Test

@@ -197,6 +197,9 @@ object SearchResultCodec {
     private fun optionalFields(result: GlobalSearchResult): Map<String, Any> = buildMap {
         result.coverImageUrl?.let { put("coverImageUrl", it) }
         result.durationSeconds?.let { put("durationSeconds", it) }
+        // Spec-45 (#405) T5 (#493): the content-language claim rides the
+        // document so cached cards keep filtering correctly across restarts.
+        result.language.takeIf { it.isNotBlank() }?.let { put("language", it) }
     }
 
     private fun resultFromMap(map: Map<*, *>): GlobalSearchResult? {
@@ -216,7 +219,11 @@ object SearchResultCodec {
             mergeKey = map["mergeKey"] as? String ?: "",
             coverImageUrl = map["coverImageUrl"] as? String,
             durationSeconds = (map["durationSeconds"] as? Number)?.toLong(),
-            sources = sources
+            sources = sources,
+            // Old documents carry no language — it decodes to "" (unknown),
+            // which no selection ever hides (US17); the next live resolve
+            // rewrites the doc with the claim.
+            language = map["language"] as? String ?: ""
         )
     }
 

@@ -701,13 +701,17 @@ class SourceCatalog(
                 // title fallback, duration conventions; Edition chapters +
                 // Source tracks) comes from the one module.
                 val edition = dao.getEditionForWork(bookId)
-                val editionId = edition?.id ?: EditionId.forBook(book?.mergeKey ?: "", bookId, book?.narrator ?: "")
+                // Spec-45 (#405) — the fallback-created Edition claims the
+                // page's content language, and the id formula agrees with the
+                // import write path so lookups match stored rows.
+                val editionId = edition?.id ?: EditionId.forBook(book?.mergeKey ?: "", bookId, book?.narrator ?: "", detail.language)
                 if (edition == null) {
                     dao.insertEdition(
                         EditionEntity(
                             id = editionId,
                             workId = bookId,
                             narrator = book?.narrator ?: "",
+                            language = detail.language,
                             totalChapters = detail.chapters.size,
                             totalDurationSeconds = detail.totalDurationSeconds ?: 0L
                         )

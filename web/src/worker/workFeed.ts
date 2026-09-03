@@ -1,4 +1,5 @@
 import type { CatalogCard, SourceId, UnifiedEdition, UnifiedSource, UnifiedWork, UnifiedWorkPage } from './types'
+import { sourceContentLanguage } from './sourceMetadata'
 
 export type SourceCards = { sourceId: SourceId; cards: CatalogCard[] }
 
@@ -46,8 +47,12 @@ export function mergeKeyOf(card: Pick<CatalogCard, 'title' | 'author'>): string 
   return `${normalize(card.title)}|${normalize(card.author)}`
 }
 
-function editionKeyOf(card: CatalogCard): string {
-  return `${mergeKeyOf(card)}|${card.narrator?.toLocaleLowerCase('uk-UA').trim() || 'unknown-narrator'}`
+function editionKeyOf(card: CatalogCard, language: string): string {
+  // Spec-45 (#405) — the language is rendition identity (Android ADR-0010 +
+  // #405): an en and a uk narration of one Work are two Editions, so the key
+  // mirrors the Android EditionId formula mergeKey|narrator|language.
+  const narrator = card.narrator?.toLocaleLowerCase('uk-UA').trim() || 'unknown-narrator'
+  return language ? `${mergeKeyOf(card)}|${narrator}|${language}` : `${mergeKeyOf(card)}|${narrator}`
 }
 
 /**
@@ -58,7 +63,10 @@ function editionKeyOf(card: CatalogCard): string {
 export function mergeWorkFeed(inputs: SourceCards[], offset = 0, limit = 30): UnifiedWorkPage {
   const works = new Map<string, UnifiedWork>()
   for (const { sourceId, cards } of inputs) {
+    // One source = one content language (a per-card claim may still override).
+    const sourceLanguage = sourceContentLanguage(sourceId)
     for (const card of cards) {
+      const language = card.language?.trim() || sourceLanguage || ''
       const mergeKey = mergeKeyOf(card)
       const work = works.get(mergeKey) ?? {
         id: mergeKey,
@@ -69,10 +77,16 @@ export function mergeWorkFeed(inputs: SourceCards[], offset = 0, limit = 30): Un
         editions: [],
       }
       if (!works.has(mergeKey)) works.set(mergeKey, work)
-      const editionKey = editionKeyOf(card)
+      const editionKey = editionKeyOf(card, language)
       let edition = work.editions.find((candidate) => candidate.id === editionKey)
       if (!edition) {
-        edition = { id: editionKey, narrator: card.narrator, durationSeconds: card.durationSeconds, sources: [] }
+        edition = {
+          id: editionKey,
+          narrator: card.narrator,
+          language: language || undefined,
+          durationSeconds: card.durationSeconds,
+          sources: [],
+        }
         work.editions.push(edition)
       }
       if (!edition.sources.some((candidate) => candidate.sourceId === sourceId && candidate.url === card.url)) {

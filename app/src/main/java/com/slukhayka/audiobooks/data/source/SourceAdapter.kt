@@ -22,7 +22,15 @@ data class SourceBook(
     val seriesIndex: Int? = null,
     val genre: String = "",
     val totalDurationSeconds: Long = 0L,
-    val sourceId: String
+    val sourceId: String,
+    /**
+     * BCP-47 content language of the narration (spec-45 #405), normalized via
+     * [com.slukhayka.audiobooks.data.LanguageCode.normalize]; empty = unknown
+     * (never guessed, never defaulted). A source whose whole catalogue speaks
+     * one language does not repeat it per book — the write path falls back to
+     * [SourceAdapter.contentLanguage].
+     */
+    val language: String = ""
 )
 
 /** One chapter of a book as parsed from a source book page. */
@@ -59,6 +67,12 @@ data class SourceBookDetail(
     val narrator: String = "",
     val url: String,
     val coverImageUrl: String? = null,
+    /**
+     * BCP-47 content language of this narration (spec-45 #405), normalized;
+     * empty = unknown. Overrides [SourceAdapter.contentLanguage] when both
+     * are set; a future mixed-language source emits it per page.
+     */
+    val language: String = "",
     val chapters: List<SourceChapter>,
     /** Real total duration from the page ("Триває:" / schema.org), null when absent. */
     val totalDurationSeconds: Long? = null,
@@ -89,6 +103,16 @@ data class SourceBookDetail(
  */
 interface SourceAdapter {
     val sourceId: String
+
+    /**
+     * Spec-45 (#405) — the BCP-47 content language of the source's catalogue
+     * ("uk" for the six Ukrainian sources; "en" for the future LibriVox
+     * adapter). One owner per source: individual [SourceBook]/[SourceBookDetail]
+     * emissions may override it per book, but the write path defaults to this
+     * property, so a source never has to tag every construction site. Empty =
+     * unknown — the language facet stays blank and is never guessed.
+     */
+    val contentLanguage: String get() = ""
 
     /** Static transport capability used for source recommendation order. */
     val accessMode: SourceAccessMode get() = SourceAccessPolicy.modeFor(sourceId)

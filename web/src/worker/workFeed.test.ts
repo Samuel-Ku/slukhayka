@@ -13,6 +13,21 @@ describe('mergeWorkFeed', () => {
     expect(page.works[0].editions[0].sources[0].sourceId).toBe('fourread')
   })
 
+  it('splits one Work into language-scoped Editions and claims the source language', () => {
+    // The uk card carries no language of its own: the source's declared
+    // content language (uk) applies. The en card overrides it per book — the
+    // same Work + same narrator still become two Editions, one Work.
+    const page = mergeWorkFeed([
+      { sourceId: 'sound-books', cards: [{ url: 'https://sound-books.net/a', title: 'Книга', author: 'Автор', narrator: 'Читець' }] },
+      { sourceId: 'sound-books', cards: [{ url: 'https://sound-books.net/a-en', title: 'Книга', author: 'Автор', narrator: 'Читець', language: 'en' }] },
+    ])
+
+    expect(page.works).toHaveLength(1)
+    expect(page.works[0].editions).toHaveLength(2)
+    expect(page.works[0].editions.map((edition) => edition.language)).toEqual(['uk', 'en'])
+    expect(page.works[0].editions[0].id).not.toBe(page.works[0].editions[1].id)
+  })
+
   it('uses a bounded cursor and keeps the remainder for the next page', () => {
     const input = Array.from({ length: 31 }, (_, n) => ({
       sourceId: 'fourread' as const,

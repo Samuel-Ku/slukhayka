@@ -47,6 +47,9 @@ class SluhayuaAdapter(
 
     override val sourceId: String = "sluhayua"
 
+    /** Spec-45 (#405) — the catalogue speaks Ukrainian. */
+    override val contentLanguage = "uk"
+
     override suspend fun search(query: String): List<SourceBook> {
         val cleanQuery = query.trim()
         if (cleanQuery.isBlank()) return emptyList()

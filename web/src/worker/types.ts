@@ -25,6 +25,12 @@ export interface CatalogCard {
   seriesPart?: number
   /** Real duration carried by the listing row («Триває:»), when the source shows one. */
   durationSeconds?: number
+  /**
+   * BCP-47 content language of this narration (spec-45 #405); absent =
+   * unknown (never guessed). A whole-language source doesn't tag every card:
+   * the merge resolves it from the source's declared content language.
+   */
+  language?: string
 }
 
 export interface CatalogSection {
@@ -53,6 +59,8 @@ export interface UnifiedSource {
 export interface UnifiedEdition {
   id: string
   narrator?: string
+  /** BCP-47 content language of the rendition (spec-45 #405); absent = unknown. */
+  language?: string
   durationSeconds?: number
   chapterCount?: number
   isComplete?: boolean
@@ -87,6 +95,8 @@ export interface BookDetail {
   title: string
   author: string
   narrator?: string
+  /** BCP-47 content language of this rendition (spec-45 #405); absent = unknown. */
+  language?: string
   coverImageUrl?: string
   genres: string[]
   descriptionHtml?: string

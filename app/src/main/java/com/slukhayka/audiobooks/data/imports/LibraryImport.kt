@@ -387,6 +387,39 @@ class LibraryImport(
         }
 
     /**
+     * #477 — ONE best-effort direct page fetch of a browser source (4read),
+     * reached only from the catalogue tap right before the browser door.
+     * Unlike [importFromSourceUrl] this door skips the verified-profile gate
+     * (a Missing/stale profile is exactly why the page is tried) and issues
+     * a single [SourceAdapter.fetchBookPage]: challenge/403/empty playlist →
+     * null and the caller opens the explicit browser. A resolved non-empty
+     * page imports through [importBookFromSource] — the same MergeKey/upsert
+     * door (idempotent, contributes its profile back). Never a hidden
+     * WebView; never a background crawl (one call per tap).
+     */
+    suspend fun importBrowserSourceDirectPage(
+        sourceId: String,
+        url: String,
+        known: KnownBookIdentity? = null
+    ): AudiobookEntity? =
+        withContext(Dispatchers.IO) {
+            val adapter = sourceAdapters.firstOrNull { it.sourceId == sourceId }
+                ?: return@withContext null
+            val detail = try {
+                adapter.fetchBookPage(url)
+            } catch (_: Exception) {
+                return@withContext null
+            }
+            if (detail.chapters.isEmpty()) return@withContext null
+            // The card's cover survives a page that carries none (see
+            // KnownBookIdentity.coverImageUrl).
+            val withCover = if (detail.coverImageUrl == null && known?.coverImageUrl != null) {
+                detail.copy(coverImageUrl = known.coverImageUrl)
+            } else detail
+            runCatching { importBookFromSource(sourceId, withCover) }.getOrNull()
+        }
+
+    /**
      * The Edition id of a known card identity — the shared profile key. The
      * narrator goes through the SAME normalization as the import write path
      * (blank → the per-source placeholder), so the read key always matches

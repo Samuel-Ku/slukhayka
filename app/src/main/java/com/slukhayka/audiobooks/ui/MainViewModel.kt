@@ -359,6 +359,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     streamOnly = false
                 )
             }
+
+            // #477 — one best-effort direct page fetch before the browser
+            // door: a resolved non-empty page imports silently through the
+            // MergeKey/upsert door; challenge/empty → null, the door stays.
+            // No hidden WebView — one transport request per tap at most.
+            override suspend fun importBrowserSourceDirect(
+                target: CatalogCardTarget,
+                source: SourceEntity
+            ): AudiobookEntity? = libraryImport.importBrowserSourceDirectPage(
+                source.type,
+                source.url,
+                KnownBookIdentity(
+                    title = target.title,
+                    author = target.author,
+                    narrator = target.narrator,
+                    coverImageUrl = target.coverImageUrl
+                )
+            )
         },
         sourceProbe = SourceSelectionCoordinator.SourceProbe { source, remainingMs ->
             // A book-page 2xx proves only that HTML was returned (a challenge

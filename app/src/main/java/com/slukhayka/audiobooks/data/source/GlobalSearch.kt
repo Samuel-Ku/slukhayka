@@ -74,6 +74,11 @@ fun sourceIdForUrl(url: String): String = when {
     url.contains("sluhay.com.ua") -> "sluhayua"
     url.contains("sluhayknigi.com") -> "sluhayknigi"
     url.contains("sluhay.com") -> "sluhay"
+    // Spec-45 (#405) T2 (#490): archive.org/details is the LibriVox MIRROR
+    // transport — the same sourceId, never a second catalogue row. Only
+    // librivoxaudio items reach the library through this adapter, so the URL
+    // shape maps to librivox, not to a generic archive source.
+    url.contains("archive.org/details/") -> "librivox"
     else -> "unknown"
 }
 
@@ -97,6 +102,7 @@ fun sourceDisplayName(sourceId: String): String = when (sourceId) {
     "sluhayua" -> "Sluhay"
     "sluhay" -> "Sluhay"
     "sluhayknigi" -> "SluhayKnigi"
+    "librivox" -> "LibriVox"
     "local" -> "Локальна"
     else -> sourceId
 }

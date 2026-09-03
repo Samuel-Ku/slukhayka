@@ -70,6 +70,7 @@ import com.slukhayka.audiobooks.data.source.FourReadAdapter
 import com.slukhayka.audiobooks.data.source.NewPipeYouTubeExtractor
 import com.slukhayka.audiobooks.data.source.YouTubeStreamResolver
 import com.slukhayka.audiobooks.data.source.LihtarAdapter
+import com.slukhayka.audiobooks.data.source.LibriVoxAdapter
 import com.slukhayka.audiobooks.data.source.SluhayAdapter
 import com.slukhayka.audiobooks.data.source.SluhayuaAdapter
 import com.slukhayka.audiobooks.data.source.SoundBooksAdapter
@@ -300,7 +301,11 @@ class App : Application() {
             AudiobookMp3Adapter(),
             LihtarAdapter(),
             SluhayuaAdapter(),
-            SluhayAdapter(cookieProvider = sharedCookies)
+            SluhayAdapter(cookieProvider = sharedCookies),
+            // Spec-45 (#405) T2 (#490): the English source — catalogue/search
+            // cards surface in the union and global search next to the
+            // Ukrainian ones (book pages are T3 #491).
+            LibriVoxAdapter()
         )
     }
 

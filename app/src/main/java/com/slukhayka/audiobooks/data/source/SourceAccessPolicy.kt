@@ -19,7 +19,9 @@ data class SourceAccessCandidate(
 
 object SourceAccessPolicy {
     private val browserSources = setOf("4read", "sluhay", "sluhayknigi")
-    private val directSources = setOf("soundbooks", "audiobookmp3", "lihtar", "sluhayua")
+    // Spec-45 (#405) T2 (#490): librivox streams from archive.org over plain
+    // HTTPS — a direct source like the other server-fetch adapters.
+    private val directSources = setOf("soundbooks", "audiobookmp3", "lihtar", "sluhayua", "librivox")
 
     /**
      * Deterministic sub-order inside the DIRECT capability tier (#465):

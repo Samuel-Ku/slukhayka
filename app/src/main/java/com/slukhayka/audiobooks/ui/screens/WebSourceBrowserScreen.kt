@@ -114,6 +114,11 @@ fun WebSourceBrowserScreen(
     var repairAudioUrls by remember { mutableStateOf(emptyList<String>()) }
     var showRepairConfirmation by remember { mutableStateOf(false) }
     var showClearSessionConfirmation by remember(sourceId) { mutableStateOf(false) }
+    // #478 — first-signal auto-import: attempted once per page (reset in
+    // onPageStarted). The manual «Додати до медіатеки» button stays as the
+    // fallback; an honest failure keeps the browser open.
+    var autoAttemptedPageUrl by remember { mutableStateOf<String?>(null) }
+    var pagePlaylistRefUrl by remember { mutableStateOf<String?>(null) }
     val actionLabels = webSourceBrowserActionLabels(
         context = context,
         sourceName = displayName,
@@ -157,8 +162,9 @@ fun WebSourceBrowserScreen(
 
     // Spec-13 T3: intercepted audio URLs of the session, in order. The adapter
     // reads chapters from the inline playlist in the page HTML, so this is a
-    // secondary signal («Додати цю книгу» when the user already pressed the
-    // site's «Слухати») — the request-log parser collapses Range repeats.
+    // secondary signal (#478: together with the DOM playlist probe it auto-
+    // starts the import once per page — the manual button stays as fallback)
+    // — the request-log parser collapses Range repeats.
     var lastCapturedAudioCount by remember { mutableStateOf(0) }
     val capturedAudioUrls = remember {
         java.util.Collections.synchronizedList(mutableListOf<String>())
@@ -352,6 +358,27 @@ fun WebSourceBrowserScreen(
                     importResult = "Цикл ще не доступний — завершіть перевірку 4read і спробуйте знову"
                 }
             }
+        }
+    }
+
+    // #478 — the first valid signal starts the import without the button:
+    // intercepted audio (the listener pressed the site's play) or a playlist
+    // reference probed in the finished DOM. Once per page; capture-only
+    // modes (top-100 / series) never auto-import.
+    val autoCaptureEnabled = !captureTop100 && captureSeriesUrl == null
+    LaunchedEffect(lastCapturedAudioCount, pagePlaylistRefUrl, currentWebUrl, isImporting) {
+        if (isImporting) return@LaunchedEffect
+        if (shouldAutoImportPage(
+                autoAttemptedUrl = autoAttemptedPageUrl,
+                pageUrl = currentWebUrl,
+                audioCount = lastCapturedAudioCount,
+                hasPlaylistRef = pagePlaylistRefUrl == currentWebUrl,
+                autoCaptureEnabled = autoCaptureEnabled
+            )
+        ) {
+            autoAttemptedPageUrl = currentWebUrl
+            Log.w("WebSource", "Auto-importing $currentWebUrl on first signal")
+            importCurrentPage()
         }
     }
 
@@ -825,6 +852,11 @@ fun WebSourceBrowserScreen(
                                 hasWebError = false
                                 // #430 — new top-level page → fresh candidate set.
                                 synchronized(capturedAudioUrls) { capturedAudioUrls.clear() }
+                                // #478 — a new page restarts the first-signal
+                                // gate: the stale audio count must not
+                                // auto-fire the import on the next page.
+                                lastCapturedAudioCount = 0
+                                pagePlaylistRefUrl = null
                                 url?.let {
                                     SourceWebViewSession.rememberVisitedUrl(sourceId, it)
                                     currentWebUrl = it
@@ -874,6 +906,20 @@ fun WebSourceBrowserScreen(
                                 view?.evaluateJavascript(
                                     sourceBrowserAdCleanupScript(), null
                                 )
+                                // #478 — DOM-side half of the first signal: a
+                                // cheap reference probe (no manifest fetch —
+                                // the import does that). The audio-intercept
+                                // half arrives via lastCapturedAudioCount.
+                                val finishedUrl = url
+                                if (autoCaptureEnabled && finishedUrl != null &&
+                                    pagePlaylistRefUrl != finishedUrl &&
+                                    autoAttemptedPageUrl != finishedUrl
+                                ) {
+                                    view?.evaluateJavascript(AUTO_IMPORT_PROBE_JS) { raw ->
+                                        val hit = raw?.trim()?.trim('"') == "1"
+                                        if (hit) pagePlaylistRefUrl = finishedUrl
+                                    }
+                                }
                             }
 
                             override fun onReceivedSslError(
@@ -1103,6 +1149,45 @@ internal fun looksLikeAudio(url: String): Boolean {
     return lower.contains(".mp3") || lower.contains(".m4a") || lower.contains(".m4b") ||
         lower.contains(".aac") || lower.contains(".ogg") || lower.contains(".opus") ||
         lower.contains(".m3u") || lower.contains(".m3u8") || lower.contains(".txt")
+}
+
+/** Mirrors [pageHasPlaylistRef] inside the WebView — keep the two in sync. */
+private const val AUTO_IMPORT_PROBE_JS =
+    """(function(){try{var h=document.documentElement.outerHTML;return (/file\s*:\s*["'][^"']*(?:\{v1\}|\.(?:m3u|txt|json))[^"']*["']/i.test(h)||/file\s*:\s*["']\[\s*\{/i.test(h))?'1':'0';}catch(_){return '0';}})()"""
+
+/**
+ * #478 — DOM-side half of the first-signal rule: the same playlist
+ * references the import capture resolves (a manifest `file:` with `{v1}` or
+ * a playlist extension, or an inline JSON playlist). The tail is deliberately
+ * wider than the capture regex (a mid-URL `{v1}` still counts as a signal —
+ * the capture decides what it can fetch, honestly failing at most once).
+ */
+internal fun pageHasPlaylistRef(html: String): Boolean {
+    if (html.isBlank()) return false
+    return PLAYLIST_REF_REGEX.containsMatchIn(html) || INLINE_JSON_REF_REGEX.containsMatchIn(html)
+}
+
+private val PLAYLIST_REF_REGEX =
+    Regex("""file\s*:\s*["'][^"']*(?:\{v1\}|\.(?:m3u|txt|json))[^"']*["']""", RegexOption.IGNORE_CASE)
+private val INLINE_JSON_REF_REGEX =
+    Regex("""file\s*:\s*["']\[\s*\{""", RegexOption.IGNORE_CASE)
+
+/**
+ * #478 — first-signal auto-import gate, pure for JVM tests. Fires at most
+ * once per page: a fresh page (`autoAttemptedUrl != pageUrl`) with either
+ * intercepted audio or a playlist reference in the DOM. Capture-only modes
+ * (top-100 / series) never auto-import.
+ */
+internal fun shouldAutoImportPage(
+    autoAttemptedUrl: String?,
+    pageUrl: String,
+    audioCount: Int,
+    hasPlaylistRef: Boolean,
+    autoCaptureEnabled: Boolean = true
+): Boolean {
+    if (!autoCaptureEnabled) return false
+    if (pageUrl.isBlank() || autoAttemptedUrl == pageUrl) return false
+    return audioCount > 0 || hasPlaylistRef
 }
 
 /** Empty 200 response for blocked hosts. */

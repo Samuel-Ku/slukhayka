@@ -907,30 +907,51 @@ class FakeAudiobookDao(
     override fun pagedWorksFeedRecent(
         genreIds: List<String>, genreActive: Int,
         durationBucketIds: List<String>, durationActive: Int,
-        authorIds: List<String>, authorActive: Int
+        authorIds: List<String>, authorActive: Int,
+        languages: List<String>, langActive: Int
     ): PagingSource<Int, WorkFeedRow> =
-        fakeFeed(genreIds, genreActive, durationBucketIds, durationActive, authorIds, authorActive, sortByTitle = false)
+        fakeFeed(genreIds, genreActive, durationBucketIds, durationActive, authorIds, authorActive, languages, langActive, sortByTitle = false)
 
     override fun pagedWorksFeedByTitle(
         genreIds: List<String>, genreActive: Int,
         durationBucketIds: List<String>, durationActive: Int,
-        authorIds: List<String>, authorActive: Int
+        authorIds: List<String>, authorActive: Int,
+        languages: List<String>, langActive: Int
     ): PagingSource<Int, WorkFeedRow> =
-        fakeFeed(genreIds, genreActive, durationBucketIds, durationActive, authorIds, authorActive, sortByTitle = true)
+        fakeFeed(genreIds, genreActive, durationBucketIds, durationActive, authorIds, authorActive, languages, langActive, sortByTitle = true)
 
     /** In-memory PagingSource over the same state the fake DAO owns. */
     private fun fakeFeed(
         genreIds: List<String>, genreActive: Int,
         durationBucketIds: List<String>, durationActive: Int,
         authorIds: List<String>, authorActive: Int,
+        languages: List<String>, langActive: Int,
         sortByTitle: Boolean
     ): PagingSource<Int, WorkFeedRow> {
+        // Spec-45 (#405) T4 (#492): mirrors the real feed SQL — a Work hides
+        // only when it carries a known language signal and none is selected;
+        // unknown signals ("" / none) are neutral (US17).
+        val editionLanguagesOf: (WorkEntity) -> List<String> = { work ->
+            editionFacetsState.value.filter { it.workId == work.id }.map { it.language.orEmpty() }
+        }
+        val knownLanguagesOf: (WorkEntity) -> Set<String> = { work ->
+            val facet = editionLanguagesOf(work)
+            val edition = booksState.value.firstOrNull { it.workId == work.id }
+                ?.let { book -> editionsState.value.filter { it.workId == book.id }.map { it.language } }
+                .orEmpty()
+            (facet + edition).filter { it.isNotBlank() }.toSet()
+        }
         val rows = worksState.value.mapNotNull { work ->
             if (genreActive != 0 && workGenresState.value.none { it.workId == work.id && it.genreId in genreIds }) {
                 return@mapNotNull null
             }
             if (durationActive != 0 && editionFacetsState.value.none { it.workId == work.id && it.durationBucketId in durationBucketIds }) return@mapNotNull null
             if (authorActive != 0 && workFacetsState.value.none { it.workId == work.id && it.canonicalAuthorId in authorIds }) return@mapNotNull null
+            if (langActive != 0) {
+                val known = knownLanguagesOf(work)
+                val hidden = known.isNotEmpty() && known.none { it in languages }
+                if (hidden) return@mapNotNull null
+            }
             val libraryBook = booksState.value.firstOrNull { it.workId == work.id }
             val libraryGenre = workGenresState.value.firstOrNull { it.workId == work.id }
                 ?.let { relation -> genreFacetsState.value.firstOrNull { it.id == relation.genreId }?.displayName }

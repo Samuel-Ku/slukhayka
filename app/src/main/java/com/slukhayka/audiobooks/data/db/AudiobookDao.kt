@@ -502,13 +502,27 @@ interface AudiobookDao {
         WHERE (:genreActive = 0 OR EXISTS (SELECT 1 FROM work_genres wg WHERE wg.workId=w.id AND wg.genreId IN (:genreIds)))
           AND (:durationActive = 0 OR EXISTS (SELECT 1 FROM edition_facets ef WHERE ef.workId=w.id AND ef.durationBucketId IN (:durationBucketIds)))
           AND (:authorActive = 0 OR EXISTS (SELECT 1 FROM work_facets wf WHERE wf.workId=w.id AND wf.canonicalAuthorId IN (:authorIds)))
+          AND (
+              :langActive = 0
+              -- Spec-45 (#405) T4 (#492): a Work is hidden only when it has at
+              -- least one KNOWN language signal and none of them is selected.
+              -- Unknown signals ("" / no row) are neutral — they never hide a
+              -- Work and never match one (US17).
+              OR (
+                  NOT EXISTS (SELECT 1 FROM edition_facets ef WHERE ef.workId=w.id AND ef.language IS NOT NULL AND ef.language != '')
+                  AND NOT EXISTS (SELECT 1 FROM editions e JOIN library_entries le ON le.id=e.workId WHERE le.workId=w.id AND e.language IS NOT NULL AND e.language != '')
+              )
+              OR EXISTS (SELECT 1 FROM edition_facets ef WHERE ef.workId=w.id AND ef.language IN (:languages))
+              OR EXISTS (SELECT 1 FROM editions e JOIN library_entries le ON le.id=e.workId WHERE le.workId=w.id AND e.language IN (:languages))
+          )
         ORDER BY w.addedAt DESC, w.id ASC
         """
     )
     fun pagedWorksFeedRecent(
         genreIds: List<String>, genreActive: Int,
         durationBucketIds: List<String>, durationActive: Int,
-        authorIds: List<String>, authorActive: Int
+        authorIds: List<String>, authorActive: Int,
+        languages: List<String>, langActive: Int
     ): PagingSource<Int, WorkFeedRow>
 
     /** Same feed, sorted by title (stable tiebreak: addedAt DESC). */
@@ -535,13 +549,27 @@ interface AudiobookDao {
         WHERE (:genreActive = 0 OR EXISTS (SELECT 1 FROM work_genres wg WHERE wg.workId=w.id AND wg.genreId IN (:genreIds)))
           AND (:durationActive = 0 OR EXISTS (SELECT 1 FROM edition_facets ef WHERE ef.workId=w.id AND ef.durationBucketId IN (:durationBucketIds)))
           AND (:authorActive = 0 OR EXISTS (SELECT 1 FROM work_facets wf WHERE wf.workId=w.id AND wf.canonicalAuthorId IN (:authorIds)))
+          AND (
+              :langActive = 0
+              -- Spec-45 (#405) T4 (#492): a Work is hidden only when it has at
+              -- least one KNOWN language signal and none of them is selected.
+              -- Unknown signals ("" / no row) are neutral — they never hide a
+              -- Work and never match one (US17).
+              OR (
+                  NOT EXISTS (SELECT 1 FROM edition_facets ef WHERE ef.workId=w.id AND ef.language IS NOT NULL AND ef.language != '')
+                  AND NOT EXISTS (SELECT 1 FROM editions e JOIN library_entries le ON le.id=e.workId WHERE le.workId=w.id AND e.language IS NOT NULL AND e.language != '')
+              )
+              OR EXISTS (SELECT 1 FROM edition_facets ef WHERE ef.workId=w.id AND ef.language IN (:languages))
+              OR EXISTS (SELECT 1 FROM editions e JOIN library_entries le ON le.id=e.workId WHERE le.workId=w.id AND e.language IN (:languages))
+          )
         ORDER BY w.title COLLATE NOCASE ASC, w.addedAt DESC, w.id ASC
         """
     )
     fun pagedWorksFeedByTitle(
         genreIds: List<String>, genreActive: Int,
         durationBucketIds: List<String>, durationActive: Int,
-        authorIds: List<String>, authorActive: Int
+        authorIds: List<String>, authorActive: Int,
+        languages: List<String>, langActive: Int
     ): PagingSource<Int, WorkFeedRow>
 
     // Bookmarks (ADR-0007: anchored to the Edition)

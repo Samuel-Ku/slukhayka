@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { api } from '../api/client'
 import { readWarmEntry, WARM_CACHE_TTL_MS, warmKey, writeWarm } from '../api/warmCache'
 import type { BookDetail, CatalogCard, SourceId, UnifiedSource, UnifiedWork, UnifiedWorkPage } from '../worker/types'
@@ -15,6 +15,15 @@ import {
 import { sourceNeedsBrowserSession } from './bookPlaybackAvailability'
 import { SOURCE_METADATA, SOURCE_ORDER } from '../worker/sourceMetadata'
 import { rankEditionsForPlayback } from '../worker/workFeed'
+import {
+  availableLanguagesOf,
+  badgeLabel,
+  filterWorksByLanguage,
+  LANGUAGE_LABELS,
+  loadContentLanguagePrefs,
+  saveContentLanguagePrefs,
+  toggleLanguage,
+} from './contentLanguagePrefs'
 
 const SOURCES: Array<{ id: 'all' | SourceId; label: string }> = [
   { id: 'all', label: 'Усі джерела' },
@@ -37,7 +46,14 @@ export function Catalog({ onOpenBook, onPlay }: {
   const [query, setQuery] = useState('')
   const [searchWorks, setSearchWorks] = useState<UnifiedWork[] | null>(null)
   const [searching, setSearching] = useState(false)
+  // spec-45 T13 — the persisted content-language preference; empty = all.
+  const [contentLanguages, setContentLanguages] = useState<string[]>(() => loadContentLanguagePrefs())
+  const applyLanguages = (next: string[]): void => setContentLanguages(saveContentLanguagePrefs(next))
   const loadMoreMarker = useRef<HTMLDivElement | null>(null)
+
+  const visibleWorks = filterWorksByLanguage(works ?? [], contentLanguages)
+  const visibleSearch = filterWorksByLanguage(searchWorks ?? [], contentLanguages)
+  const languageOptions = availableLanguagesOf([...(works ?? []), ...(searchWorks ?? [])], contentLanguages)
 
   useEffect(() => {
     if (query.trim().length >= 2) return
@@ -143,29 +159,45 @@ export function Catalog({ onOpenBook, onPlay }: {
               setSource(s.id)
               setQuery('')
             }}
-            style={{
-              padding: '4px 10px',
-              borderRadius: 999,
-              border: '1px solid var(--line)',
-              background: source === s.id ? 'var(--accent)' : 'var(--surface)',
-              color: source === s.id ? 'var(--accent-contrast)' : 'var(--fg)',
-            }}
+            style={pillStyle(source === s.id)}
           >
             {s.label}
           </button>
         ))}
       </div>
+      {languageOptions.length > 0 && (
+        <div style={{ display: 'flex', gap: 6, margin: '8px 0', flexWrap: 'wrap', alignItems: 'center' }}>
+          <span style={{ color: 'var(--fg-dim)', fontSize: 13 }}>Мова:</span>
+          <button
+            onClick={() => applyLanguages([])}
+            style={pillStyle(contentLanguages.length === 0)}
+            aria-pressed={contentLanguages.length === 0}
+          >
+            Усі
+          </button>
+          {languageOptions.map((code) => (
+            <button
+              key={code}
+              onClick={() => applyLanguages(toggleLanguage(contentLanguages, code))}
+              style={pillStyle(contentLanguages.includes(code))}
+              aria-pressed={contentLanguages.includes(code)}
+            >
+              {LANGUAGE_LABELS[code] ?? code}
+            </button>
+          ))}
+        </div>
+      )}
 
       {query.trim().length >= 2 ? (
         searching ? (
           <div className="placeholder">Шукаємо…</div>
-        ) : searchWorks === null || searchWorks.length === 0 ? (
+        ) : searchWorks === null || visibleSearch.length === 0 ? (
           <div className="placeholder">Нічого не знайшли.</div>
         ) : (
           <section>
             <h2>Результати пошуку</h2>
             <ul className="card-list">
-              {searchWorks.map((work) => <UnifiedWorkRow key={work.id} work={work} onOpenBook={onOpenBook} onPlay={onPlay} />)}
+              {visibleSearch.map((work) => <UnifiedWorkRow key={work.id} work={work} onOpenBook={onOpenBook} onPlay={onPlay} />)}
             </ul>
           </section>
         )
@@ -173,14 +205,13 @@ export function Catalog({ onOpenBook, onPlay }: {
         <div className="placeholder">Джерело не відповіло спробуйте пізніше.</div>
       ) : works === null ? (
         <div className="placeholder">Завантажуємо об’єднаний каталог…</div>
-      ) : (
-        <section>
-          <h2>{source === 'all' ? 'Усі джерела' : SOURCES.find((item) => item.id === source)?.label}</h2>
-          {showingCachedCatalog && <p className="notice" role="status" aria-live="polite">Показуємо останній збережений каталог{cachedAt ? ` від ${new Date(cachedAt).toLocaleString('uk-UA')}` : ''}. Оновлення тимчасово недоступне.</p>}
-          <ul className="card-list">
-            {works!.map((work) => <UnifiedWorkRow key={work.id} work={work} onOpenBook={onOpenBook} onPlay={onPlay} />)}
-          </ul>
-        </section>
+      ) : (          <section>
+            <h2>{source === 'all' ? 'Усі джерела' : SOURCES.find((item) => item.id === source)?.label}</h2>
+            {showingCachedCatalog && <p className="notice" role="status" aria-live="polite">Показуємо останній збережений каталог{cachedAt ? ` від ${new Date(cachedAt).toLocaleString('uk-UA')}` : ''}. Оновлення тимчасово недоступне.</p>}
+            <ul className="card-list">
+              {visibleWorks.map((work) => <UnifiedWorkRow key={work.id} work={work} onOpenBook={onOpenBook} onPlay={onPlay} />)}
+            </ul>
+          </section>
       )}
       {query.trim().length < 2 && nextPageUrl && (
         <div ref={loadMoreMarker} style={{ padding: '16px 0', textAlign: 'center' }}>
@@ -239,6 +270,7 @@ function UnifiedWorkRow({ work, onOpenBook, onPlay }: {
     narrator: edition.narrator,
     coverImageUrl: work.coverImageUrl,
     durationSeconds: edition.durationSeconds,
+    language: edition.language,
   }
   return (
     <>
@@ -261,6 +293,16 @@ function UnifiedWorkRow({ work, onOpenBook, onPlay }: {
       )}
     </>
   )
+}
+
+function pillStyle(active: boolean): CSSProperties {
+  return {
+    padding: '4px 10px',
+    borderRadius: 999,
+    border: '1px solid var(--line)',
+    background: active ? 'var(--accent)' : 'var(--surface)',
+    color: active ? 'var(--accent-contrast)' : 'var(--fg)',
+  }
 }
 
 /** Appends a source cursor page without moving cards the listener already saw. */
@@ -297,6 +339,7 @@ export function CatalogCardRow({ card, editionId, sources, onOpenBook, onPlay }:
   const rowRef = useRef<HTMLLIElement | null>(null)
   const primarySource = rankedSources[0]
   const source = primarySource?.sourceId
+  const badge = badgeLabel(card.language)
 
   useEffect(() => {
     let alive = true
@@ -447,6 +490,7 @@ export function CatalogCardRow({ card, editionId, sources, onOpenBook, onPlay }:
           {card.coverImageUrl && <img src={card.coverImageUrl} alt="" loading="lazy" />}
           <span className="card-title">{card.title}</span>
           <span className="card-author">{card.author}{card.narrator ? ` · ${card.narrator}` : ''}</span>
+          {badge && <span className="lang-badge" aria-label={badge.name}>{badge.label}</span>}
         </button>
         <button
           onClick={state === 'checking' ? cancel : play}

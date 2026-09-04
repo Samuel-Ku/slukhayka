@@ -93,10 +93,13 @@ class WorkFeedFilterWiringTest {
     private fun feedChain(
         genreFilters: MutableStateFlow<Set<String>>,
         sortByTitle: MutableStateFlow<Boolean>,
-        scope: CoroutineScope
-    ) = combine(genreFilters, sortByTitle) { genres, byTitle -> genres to byTitle }
-        .flatMapLatest { (genres, byTitle) ->
-            val filter = WorkFacetFilter(genreIds = genres)
+        scope: CoroutineScope,
+        // Spec-45 (#405) T6 (#494): the content-language dimension rides the
+        // same chain as MainViewModel.workFeed (the persisted pref flow).
+        languages: MutableStateFlow<Set<String>> = MutableStateFlow(emptySet())
+    ) = combine(genreFilters, sortByTitle, languages) { genres, byTitle, langs -> Triple(genres, byTitle, langs) }
+        .flatMapLatest { (genres, byTitle, langs) ->
+            val filter = WorkFacetFilter(genreIds = genres, languages = langs)
             Pager(config = PagingConfig(pageSize = 30, prefetchDistance = 15, enablePlaceholders = false)) {
                 if (byTitle) catalog.pagedWorkFeedByTitle(filter) else catalog.pagedWorkFeedRecent(filter)
             }.flow
@@ -383,5 +386,127 @@ class WorkFeedFilterWiringTest {
         assertTrue(genreFilters.value == setOf("science-fiction"))
         assertTrue(compose.onAllNodesWithText("Дюна").fetchSemanticsNodes().size == 1)
         assertTrue(compose.onAllNodesWithText("Відьмак").fetchSemanticsNodes().isEmpty())
+    }
+
+    /** Applies one Edition language facet to a seeded Work (T4 helper shape). */
+    private suspend fun languageOf(workId: String, editionId: String, language: String) {
+        catalog.facetWriter.apply(
+            listOf(
+                com.slukhayka.audiobooks.data.facets.LocalFacetDelta(
+                    work = com.slukhayka.audiobooks.data.facets.WorkFacetDelta(workId),
+                    editions = listOf(
+                        com.slukhayka.audiobooks.data.facets.EditionFacetDelta(
+                            editionId = editionId,
+                            workId = workId,
+                            language = language,
+                            updatedAt = System.currentTimeMillis()
+                        )
+                    )
+                )
+            )
+        )
+    }
+
+    // Spec-45 (#405) T6 (#494): the «Мова» chip cycles the SAME persisted
+    // content-language preference that feeds the Pager — a tap re-filters the
+    // endless feed live, no restart (US8/US7). Mirrors MainViewModel's
+    // cycleContentLanguages + workFeed combine exactly.
+    @Test
+    fun tapping_the_language_chip_re_filters_the_feed_without_restart() = runBlocking {
+        catalog.writeWorkEdition("4read", "Pride and Prejudice", "Jane Austen", "", "https://4read.org/p.html")
+        catalog.writeWorkEdition("4read", "Кобзар", "Тарас Шевченко", "", "https://4read.org/k.html")
+        val works = dao.observeWorks().first().associateBy { it.title }
+        languageOf(works.getValue("Pride and Prejudice").id, "pp-en", "en")
+        languageOf(works.getValue("Кобзар").id, "kobzar-uk", "uk")
+
+        val genreFilters = MutableStateFlow<Set<String>>(emptySet())
+        val sortByTitle = MutableStateFlow(false)
+        val languages = MutableStateFlow(setOf("uk", "en"))
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        lateinit var feed: LazyPagingItems<WorkFeedRow>
+
+        fun cycle(current: Set<String>) = when {
+            current == setOf("uk", "en") -> setOf("uk")
+            current == setOf("uk") -> setOf("en")
+            else -> setOf("uk", "en")
+        }
+
+        compose.setContent {
+            AudiobookTheme(darkTheme = true) {
+                feed = feedChain(genreFilters, sortByTitle, scope, languages).collectAsLazyPagingItems()
+                val langs by languages.collectAsState()
+                val label = when (langs) {
+                    setOf("uk") -> "Українська"
+                    setOf("en") -> "English"
+                    else -> "Усі"
+                }
+                LazyColumn {
+                    homeFeedContent(
+                        isCatalogLoading = false,
+                        hasLibraryBooks = false,
+                        sections = emptyList(),
+                        genreFacetOptions = emptyList(),
+                        collections = emptyList(),
+                        newArrivals = emptyList(),
+                        recommendedBooks = emptyList(),
+                        personalCycles = emptyList(),
+                        shortBooks = emptyList(),
+                        longBooks = emptyList(),
+                        workFeedItems = feed,
+                        feedGenreFilters = genreFilters.value,
+                        feedSortByTitle = sortByTitle.value,
+                        contentLanguageLabel = label,
+                        contentLanguageRestricted = langs.size == 1,
+                        onCycleContentLanguage = { languages.value = cycle(languages.value) },
+                        onRefreshCatalog = {},
+                        onGoToLibrary = {},
+                        onOpenTop100 = {},
+                        onOpenPeople = {},
+                        onOpenSeriesIndex = {},
+                        onOpenCollectionsIndex = {},
+                        onOpenSeries = { _, _ -> },
+                        onOpenRecommendedBook = {},
+                        onOpenWorkFeedRow = {},
+                        onBookClick = {},
+                        onSetFeedGenreFilters = {},
+                        onSetFeedSortByTitle = {}
+                    )
+                }
+            }
+        }
+
+        compose.waitUntil(20_000) { feed.itemCount >= 2 }
+        assertTrue(compose.onAllNodesWithText("Pride and Prejudice").fetchSemanticsNodes().isNotEmpty())
+        assertTrue(compose.onAllNodesWithText("Кобзар").fetchSemanticsNodes().isNotEmpty())
+
+        // Усі → Українська: the English book disappears, the chip reflects it.
+        // The genre-test idiom: wait for the restarted Pager's refresh to
+        // COMPLETE (a raw itemCount can sit on the previous generation's
+        // items while refresh is Loading).
+        compose.onNodeWithTag("feed_language").performClick()
+        var diag: String = ""
+        try {
+            compose.waitUntil(30_000) {
+                val refresh = feed.loadState.refresh
+                val kobzar = compose.onAllNodesWithText("Кобзар").fetchSemanticsNodes().size
+                val pride = compose.onAllNodesWithText("Pride and Prejudice").fetchSemanticsNodes().size
+                diag = "langs=${languages.value} itemCount=${feed.itemCount} refresh=$refresh kobzar=$kobzar pride=$pride"
+                refresh !is androidx.paging.LoadState.Loading && kobzar == 1
+            }
+        } catch (e: androidx.compose.ui.test.ComposeTimeoutException) {
+            throw AssertionError("Усі→Українська refilter timed out; state: $diag", e)
+        }
+        assertTrue(compose.onAllNodesWithText("Кобзар").fetchSemanticsNodes().isNotEmpty())
+        assertTrue(compose.onAllNodesWithText("Pride and Prejudice").fetchSemanticsNodes().isEmpty())
+        assertTrue(compose.onAllNodesWithText("Кобзар").fetchSemanticsNodes().isNotEmpty())
+        compose.onNodeWithText("Мова: Українська").assertExists()
+
+        // Українська → English: the opposite world, again without restart.
+        compose.onNodeWithTag("feed_language").performClick()
+        compose.waitUntil(30_000) {
+            feed.loadState.refresh !is androidx.paging.LoadState.Loading && languages.value == setOf("en") &&
+                compose.onAllNodesWithText("Pride and Prejudice").fetchSemanticsNodes().size == 1
+        }
+        assertTrue(compose.onAllNodesWithText("Кобзар").fetchSemanticsNodes().isEmpty())
     }
 }

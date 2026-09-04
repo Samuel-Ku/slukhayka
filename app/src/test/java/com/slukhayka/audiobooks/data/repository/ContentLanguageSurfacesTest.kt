@@ -8,11 +8,13 @@ import com.slukhayka.audiobooks.data.collections.CollectionEntry
 import com.slukhayka.audiobooks.data.collections.CollectionList
 import com.slukhayka.audiobooks.data.db.AudiobookDao
 import com.slukhayka.audiobooks.data.db.AudiobookDatabase
+import com.slukhayka.audiobooks.data.facets.ContentLanguagePrefs
 import com.slukhayka.audiobooks.data.imports.LibraryImport
 import com.slukhayka.audiobooks.data.source.SourceAdapter
 import com.slukhayka.audiobooks.data.source.SourceBook
 import com.slukhayka.audiobooks.data.source.SourceBookDetail
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -83,7 +85,7 @@ class ContentLanguageSurfacesTest {
         )
 
     private fun repo(
-        selection: MutableStateFlow<Set<String>>,
+        selection: StateFlow<Set<String>>,
         adapters: List<SourceAdapter>,
         collections: List<CollectionList> = emptyList()
     ) = SourceCatalog(
@@ -188,6 +190,29 @@ class ContentLanguageSurfacesTest {
         selection.value = emptySet()
         catalog.refreshSourceFeeds()
         assertEquals(setOf("Emma", "Кобзар"), catalog.newArrivals.value.map { it.title }.toSet())
+    }
+
+    @Test
+    fun `the persisted preference store drives the surfaces live`() = runBlocking {
+        // The REAL composition chain (T6 #494): the store's flow is injected
+        // as SourceCatalog's contentLanguageSelection, so a preference write
+        // re-filters the next union refresh — no restart, no extra wiring.
+        val store = ContentLanguagePrefs(context)
+        store.setLanguages(setOf("en"))
+        val catalog = repo(
+            store.languages,
+            listOf(
+                FakeAdapter("librivox", "en", catalogBooks = listOf(book("Emma", "Jane Austen", "librivox"))),
+                FakeAdapter("soundbooks", "uk", catalogBooks = listOf(book("Кобзар", "Тарас Шевченко", "soundbooks")))
+            )
+        )
+        catalog.refreshUnifiedCatalog()
+        assertEquals(listOf("Emma"), catalog.unifiedCatalog.value.map { it.title })
+
+        // Both on again («Усі») — the store normalizes, the surface follows.
+        store.setLanguages(setOf("uk", "en"))
+        catalog.refreshUnifiedCatalog()
+        assertEquals(setOf("Emma", "Кобзар"), catalog.unifiedCatalog.value.map { it.title }.toSet())
     }
 
     @Test

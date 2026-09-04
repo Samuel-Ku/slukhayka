@@ -53,6 +53,12 @@ internal enum class SettingsDestination(
         paneTag = "recommendations_screen_pane",
         headingTag = "recommendations_screen_heading"
     ),
+    // Spec-45 (#405) T6 (#494): the «Мови контенту» destination.
+    ContentLanguages(
+        titleRes = R.string.content_languages_title,
+        paneTag = "content_languages_screen_pane",
+        headingTag = "content_languages_screen_heading"
+    ),
     Storage(
         titleRes = R.string.storage_title,
         paneTag = "storage_destination_screen_pane",

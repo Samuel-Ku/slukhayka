@@ -32,6 +32,7 @@ import com.slukhayka.audiobooks.data.duration.ChapterDurationProbe
 import com.slukhayka.audiobooks.data.duration.DurationEnrichment
 import com.slukhayka.audiobooks.data.duration.HttpStreamProber
 import com.slukhayka.audiobooks.data.facets.SharedPreferencesFacetSyncCursorStore
+import com.slukhayka.audiobooks.data.facets.ContentLanguagePrefs
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
 import com.slukhayka.audiobooks.data.imports.LibraryImport
 import com.slukhayka.audiobooks.data.identity.FirebaseListenerIdentity
@@ -330,6 +331,12 @@ class App : Application() {
         )
     }
 
+    // Spec-45 (#405) T6 (#494): the persisted content-language preference —
+    // the ONE source every content surface reads. SourceCatalog filters its
+    // ephemeral surfaces on this flow, and the ViewModel feeds the persisted
+    // WorkFeed Pager with it (both react live to a change).
+    val contentLanguagePrefs: ContentLanguagePrefs by lazy { ContentLanguagePrefs(this) }
+
     /** Source Catalog: browse/sync/search + chapter materialisation. */
     val sourceCatalog: SourceCatalog by lazy {
         // Spec-16: the curated smart-collection lists ride the context seam —
@@ -382,7 +389,11 @@ class App : Application() {
             // Spec #462 ID6 (#467): the persisted feed snapshots — Огляд's
             // feeds read the database first and hit the network only after
             // the TTL (новинки 6 год, каталог 24 год) or an explicit refresh.
-            feedSnapshotStore = FeedSnapshotStore(database.audiobookDao())
+            feedSnapshotStore = FeedSnapshotStore(database.audiobookDao()),
+            // Spec-45 (#405) T5/T6: the ephemeral surfaces filter through the
+            // persisted content-language preference — an empty selection is
+            // inactive («Усі»); every change re-filters the next refresh/read.
+            contentLanguageSelection = contentLanguagePrefs.languages
         )
     }
 

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Spec-45 (#405) T6 (#494): the content-language preference surfaces —
+     the ⚙️ «Мови контенту» destination and the Огляд «Мова» chip (US6/8). -->
+<resources>
+    <string name="content_languages_title">Мови контенту</string>
+    <string name="content_languages_description">Показувати книжки лише обраними мовами озвучення. «Усі» — і українські, і англійські. Книжки з невідомою мовою завжди залишаються видимими.</string>
+    <string name="content_language_uk">Українська</string>
+    <string name="content_language_en">English</string>
+    <string name="content_language_all">Усі</string>
+    <string name="content_language_chip_label">Мова: %1$s</string>
+</resources>

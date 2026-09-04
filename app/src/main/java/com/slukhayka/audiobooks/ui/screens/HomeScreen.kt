@@ -146,6 +146,16 @@ fun HomeScreen(
     val feedGenreFilters by viewModel.feedGenreFilters.collectAsState()
     val feedDurationFilters by viewModel.feedDurationFilters.collectAsState()
     val feedSortByTitle by viewModel.feedSortByTitle.collectAsState()
+    // Spec-45 (#405) T6 (#494): the «Мова» chip state — both on = «Усі»;
+    // a single-language selection renders as that language and marks the
+    // chip selected (the filter is active).
+    val contentLanguages by viewModel.contentLanguages.collectAsState()
+    val contentLanguageLabel = when (contentLanguages) {
+        setOf("uk") -> stringResource(R.string.content_language_uk)
+        setOf("en") -> stringResource(R.string.content_language_en)
+        else -> stringResource(R.string.content_language_all)
+    }
+    val contentLanguageRestricted = contentLanguages.size == 1
     val catalogCardActionState by viewModel.catalogCardActionState.collectAsState()
     // Spec-19 Track A: the on-device «Рекомендовано для вас» row — semantic
     // similarity of catalogue descriptions to favourite/completed/recent
@@ -448,6 +458,11 @@ fun HomeScreen(
                 feedGenreFilters = feedGenreFilters,
                 feedDurationFilters = feedDurationFilters,
                 feedSortByTitle = feedSortByTitle,
+                // Spec-45 (#405) T6 (#494): the «Мова» chip mirrors the ONE
+                // persisted preference (both on = «Усі»); one tap cycles it.
+                contentLanguageLabel = contentLanguageLabel,
+                contentLanguageRestricted = contentLanguageRestricted,
+                onCycleContentLanguage = viewModel::cycleContentLanguages,
                 onRefreshCatalog = { scope.launch { sourceCatalog.fetchCatalogSections(forceRefresh = true) } },
                 onGoToLibrary = { viewModel.selectTab(com.slukhayka.audiobooks.ui.SelectedTab.LIBRARY) },
                 onOpenTop100 = { viewModel.openTop100() },
@@ -1863,7 +1878,12 @@ fun WorkFeedFilters(
     selectedDurationBucketIds: Set<String> = emptySet(),
     onDurationBucketsChange: (Set<String>) -> Unit = {},
     onOpenFilters: (() -> Unit)? = null,
-    filterTriggerModifier: Modifier = Modifier
+    filterTriggerModifier: Modifier = Modifier,
+    // Spec-45 (#405) T6 (#494): the «Мова» chip — one tap cycles the
+    // content-language preference (US8); the chip reads the current state.
+    contentLanguageLabel: String = "",
+    contentLanguageRestricted: Boolean = false,
+    onCycleContentLanguage: () -> Unit = {}
 ) {
     var sortExpanded by remember { mutableStateOf(false) }
     var showFilterSheet by rememberSaveable { mutableStateOf(false) }
@@ -1928,6 +1948,20 @@ fun WorkFeedFilters(
                     .heightIn(min = 48.dp)
                     .testTag("feed_filters")
             )
+            // Spec-45 (#405) T6 (#494): the quick content-language toggle —
+            // «Мова: Усі | Українська | English», one tap cycles (US8).
+            if (contentLanguageLabel.isNotBlank()) {
+                FilterChip(
+                    selected = contentLanguageRestricted,
+                    onClick = onCycleContentLanguage,
+                    label = {
+                        Text(stringResource(R.string.content_language_chip_label, contentLanguageLabel))
+                    },
+                    modifier = Modifier
+                        .heightIn(min = 48.dp)
+                        .testTag("feed_language")
+                )
+            }
         }
     }
 

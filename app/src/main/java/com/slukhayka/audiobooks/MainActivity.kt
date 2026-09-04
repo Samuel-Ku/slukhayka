@@ -53,6 +53,7 @@ import com.slukhayka.audiobooks.ui.screens.GenreScreen
 import com.slukhayka.audiobooks.ui.screens.HomeScreen
 import com.slukhayka.audiobooks.ui.screens.LibraryScreen
 import com.slukhayka.audiobooks.ui.screens.ListenScreen
+import com.slukhayka.audiobooks.ui.screens.ContentLanguageScreen
 import com.slukhayka.audiobooks.ui.screens.NetworkPrivacyScreen
 import com.slukhayka.audiobooks.ui.screens.PeopleScreen
 import com.slukhayka.audiobooks.ui.screens.PersonBooksScreen
@@ -277,6 +278,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     val storageDestinationOpen by viewModel.storageDestinationOpen.collectAsState()
     val privacySettingsOpen by viewModel.privacySettingsOpen.collectAsState()
     val recommendationSettingsOpen by viewModel.recommendationSettingsOpen.collectAsState()
+    val contentLanguagesOpen by viewModel.contentLanguagesOpen.collectAsState()
     val profileOpen by viewModel.profileOpen.collectAsState()
     val selectedGenre by viewModel.selectedGenre.collectAsState()
     val selectedTop100 by viewModel.selectedTop100.collectAsState()
@@ -362,7 +364,8 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     // Handle system back press
     BackHandler(enabled = showFullPlayer || selectedBookId != null ||
         selectedWebSource != null || selectedSeries != null || seriesIndexOpen || collectionsIndexOpen ||
-        storageDestinationOpen || privacySettingsOpen || recommendationSettingsOpen || profileOpen || selectedGenre != null ||
+        storageDestinationOpen || privacySettingsOpen || recommendationSettingsOpen || contentLanguagesOpen ||
+        profileOpen || selectedGenre != null ||
         selectedTop100 || selectedPeopleKind != null || selectedPerson != null ||
         authorsIndexOpen || selectedCanonicalAuthor != null) {
         if (showFullPlayer) {
@@ -394,6 +397,9 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
         } else if (recommendationSettingsOpen) {
             libraryOverflowFocusReturnPending = true
             viewModel.closeRecommendationSettings()
+        } else if (contentLanguagesOpen) {
+            libraryOverflowFocusReturnPending = true
+            viewModel.closeContentLanguages()
         } else if (profileOpen) {
             libraryOverflowFocusReturnPending = true
             viewModel.closeProfileSettings()
@@ -648,6 +654,16 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                         onBackClick = {
                             libraryOverflowFocusReturnPending = true
                             viewModel.closeRecommendationSettings()
+                        }
+                    )
+
+                    // Spec-45 (#405) T6 (#494): the «Мови контенту»
+                    // destination — same ⚙️ overflow surface.
+                    contentLanguagesOpen -> ContentLanguageScreen(
+                        viewModel = viewModel,
+                        onBackClick = {
+                            libraryOverflowFocusReturnPending = true
+                            viewModel.closeContentLanguages()
                         }
                     )
 

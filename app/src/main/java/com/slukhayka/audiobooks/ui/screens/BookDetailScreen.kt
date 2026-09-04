@@ -2693,13 +2693,22 @@ fun NarrationRowCard(
             )
             Spacer(modifier = Modifier.width(10.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = narrator,
-                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = narrator,
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    // Spec-45 (#405) T7 (#495): this rendition's language — one
+                    // EN/UA badge next to the narrator; unknown renders nothing.
+                    if (sibling.language.isNotBlank()) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        LanguageBadge(language = sibling.language)
+                    }
+                }
                 Text(
                     text = sourceName,
                     style = MaterialTheme.typography.labelSmall,

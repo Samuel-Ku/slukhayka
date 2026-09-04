@@ -124,13 +124,22 @@ fun GlobalSearchResultCard(
         }
         Spacer(modifier = Modifier.width(AppDimens.SpaceMd))
         Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = result.title,
-                style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold),
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
+            // Spec-45 (#405) T7 (#495): the card's rendition language — one
+            // EN/UA badge; unknown renders nothing (US3).
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = result.title,
+                    style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+                if (result.language.isNotBlank()) {
+                    Spacer(modifier = Modifier.width(AppDimens.SpaceXs))
+                    LanguageBadge(language = result.language)
+                }
+            }
             if (result.author.isNotBlank()) {
                 Text(
                     text = result.author,

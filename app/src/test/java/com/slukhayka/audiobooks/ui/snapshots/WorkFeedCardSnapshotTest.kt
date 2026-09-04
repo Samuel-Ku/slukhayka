@@ -106,6 +106,69 @@ class WorkFeedCardSnapshotTest {
         )
     }
 
+    // Spec-45 (#405) T7 (#495): a known rendition language renders its EN/UA
+    // badge; unknown renders NO badge — honest absence.
+    @Test
+    fun feed_card_known_english_renders_en_badge() {
+        setContent {
+            WorkFeedCard(
+                row = row("Pride and Prejudice", "Jane Austen", editionCount = 1)
+                    .copy(languages = "en"),
+                onClick = {}
+            )
+        }
+        composeTestRule.onNodeWithText("EN").assertExists()
+        composeTestRule.onNodeWithContentDescription("English").assertExists()
+        composeTestRule.onRoot().captureRoboImage(
+            filePath = "src/test/snapshots/work_feed_en_badge.png"
+        )
+    }
+
+    @Test
+    fun feed_card_known_ukrainian_renders_ua_badge() {
+        setContent {
+            WorkFeedCard(
+                row = row("Кобзар", "Тарас Шевченко", editionCount = 1)
+                    .copy(languages = "uk"),
+                onClick = {}
+            )
+        }
+        composeTestRule.onNodeWithText("UA").assertExists()
+        composeTestRule.onNodeWithContentDescription("Українська").assertExists()
+        composeTestRule.onRoot().captureRoboImage(
+            filePath = "src/test/snapshots/work_feed_ua_badge.png"
+        )
+    }
+
+    @Test
+    fun feed_card_unknown_language_renders_no_badge() {
+        setContent {
+            WorkFeedCard(
+                row = row("Пасажир", "Жан-Крістоф Гранже", editionCount = 1)
+                    .copy(languages = ""),
+                onClick = {}
+            )
+        }
+        composeTestRule.onNodeWithText("EN").assertDoesNotExist()
+        composeTestRule.onNodeWithText("UA").assertDoesNotExist()
+    }
+
+    @Test
+    fun feed_card_multi_language_work_renders_both_badges() {
+        setContent {
+            WorkFeedCard(
+                row = row("Pride and Prejudice", "Jane Austen", editionCount = 2)
+                    .copy(languages = "en,uk"),
+                onClick = {}
+            )
+        }
+        composeTestRule.onNodeWithText("EN").assertExists()
+        composeTestRule.onNodeWithText("UA").assertExists()
+        composeTestRule.onRoot().captureRoboImage(
+            filePath = "src/test/snapshots/work_feed_both_badges.png"
+        )
+    }
+
     // Spec-24 T1: the feed card shows the full book duration (Ч:ММ:СС) under
     // the author, and only when the duration is really known — never «0:00».
     @Test

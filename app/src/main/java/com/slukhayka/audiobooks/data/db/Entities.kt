@@ -75,6 +75,9 @@ data class AudiobookEntity(
      *  `library_entries.workId`. */
     @Ignore var mergeKey: String = ""
     @Ignore var workId: String? = null
+    /** The rendition's known content language (BCP-47) — read from its
+     *  `editions` row (spec-45 T7); "" = unknown, renders no badge. */
+    @Ignore var language: String = ""
 }
 
 /**
@@ -622,6 +625,11 @@ data class WorkFeedRow(
     val sourceCount: Int,
     // One display genre from the local facet dictionary; null when unknown.
     val genre: String? = null,
+    // Spec-45 (#405) T7 (#495): the Work's KNOWN rendition languages — BCP-47
+    // primary tags, comma-joined, deduplicated ("uk,en"). "" = unknown, which
+    // renders no badge. Mirrors the T4 filter's signal sources: edition facets
+    // lead, linked library Editions fall back.
+    val languages: String = "",
     // Spec-24 T1 / spec-42: the shortest eligible Edition duration. Local
     // facet projections lead; a linked library Edition is the fallback.
     // Null renders nothing on the card (unknown until known).

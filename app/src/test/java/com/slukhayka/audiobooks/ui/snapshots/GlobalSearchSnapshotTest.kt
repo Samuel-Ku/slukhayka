@@ -10,6 +10,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
@@ -58,6 +60,37 @@ class GlobalSearchSnapshotTest {
             GlobalSearchSource("audiobookmp3", "audiobook-mp3", "https://audiobook-mp3.com/uk-audio-kobzar")
         )
     )
+
+    // Spec-45 (#405) T7 (#495): the card's rendition language renders the
+    // EN badge; unknown languages render nothing.
+    @Test
+    fun result_card_known_language_renders_badge() {
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                GlobalSearchSurface {
+                    GlobalSearchResultCard(result = singleSource.copy(language = "en"), onClick = {})
+                }
+            }
+        }
+        composeTestRule.onNodeWithText("EN").assertExists()
+        composeTestRule.onNodeWithContentDescription("English").assertExists()
+        composeTestRule.onRoot().captureRoboImage(
+            filePath = "src/test/snapshots/global_search_result_en_badge.png"
+        )
+    }
+
+    @Test
+    fun result_card_unknown_language_renders_no_badge() {
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                GlobalSearchSurface {
+                    GlobalSearchResultCard(result = singleSource, onClick = {})
+                }
+            }
+        }
+        composeTestRule.onNodeWithText("EN").assertDoesNotExist()
+        composeTestRule.onNodeWithText("UA").assertDoesNotExist()
+    }
 
     @Test
     fun result_card_single_source() {

@@ -235,6 +235,10 @@ fun HomeScreen(
         // pass, same detached idiom — fills unknown chapter durations from
         // the provider streams (HEAD + ranged GET, CBR only, never a guess).
         chapterDurationProbe.probeUnknownChapters()
+        // Spec-45 (#405) T8 (#496): this sync may have written the first
+        // English rendition — re-evaluate the one-time bilingual prompt
+        // (idempotent; fires at most once ever).
+        viewModel.onCatalogueSynced()
     }
 
     // spec-18 T3: the «За тривалістю» rows, derived live from the library

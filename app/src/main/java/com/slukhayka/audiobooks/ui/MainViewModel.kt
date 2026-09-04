@@ -422,6 +422,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // #394 — notification button actions are handled by the App-scoped
         // DownloadNotificationActionCoordinator (works with no Activity);
         // the VM-side collect was removed with that change.
+        // Spec-45 (#405) T8 (#496): re-evaluate the one-time bilingual prompt
+        // on every process start — a previous session may have synced the
+        // first English books before the listener ever saw the question
+        // (idempotent: the persisted marker lets it fire at most once ever).
+        viewModelScope.launch(Dispatchers.IO) {
+            delay(1_500)
+            App.instance.bilingualPrompt.evaluate()
+        }
+    }
+
+    /**
+     * Spec-45 (#405) T8 (#496): called when a catalogue sync completes — the
+     * sync may have written the first known-English rendition, so the
+     * one-time bilingual prompt re-evaluates (idempotent, fires at most once
+     * ever; [BilingualPromptEngine.evaluate] never re-asks after an answer).
+     */
+    fun onCatalogueSynced() {
+        viewModelScope.launch(Dispatchers.IO) {
+            App.instance.bilingualPrompt.evaluate()
+        }
     }
 
     fun refreshCacheSize() {

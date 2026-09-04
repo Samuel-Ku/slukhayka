@@ -36,6 +36,21 @@ class ContentLanguagePrefs(context: Context) {
         _languages.value = normalized
     }
 
+    /**
+     * Spec-45 (#405) T8 (#496): whether the one-time bilingual prompt was
+     * already answered (either branch). Persisted, so the prompt never
+     * returns across restarts once the listener chose (US9). Not a language
+     * selection — the marker lives here only because it shares this
+     * preference file with the store's content-language keys.
+     */
+    val promptAnswered: Boolean
+        get() = prefs.getBoolean(KEY_PROMPT_ANSWERED, false)
+
+    /** Records that the listener answered the one-time bilingual prompt. */
+    fun markPromptAnswered() {
+        prefs.edit().putBoolean(KEY_PROMPT_ANSWERED, true).apply()
+    }
+
     private fun read(): Set<String> {
         val stored = prefs.getStringSet(KEY_LANGUAGES, null)
         return normalize(stored?.toSet().orEmpty())
@@ -49,6 +64,8 @@ class ContentLanguagePrefs(context: Context) {
         val DEFAULT_LANGUAGES: Set<String> = setOf("uk", "en")
 
         private const val KEY_LANGUAGES = "content_languages"
+
+        private const val KEY_PROMPT_ANSWERED = "bilingual_prompt_answered"
 
         /** Intersects with the known languages; never empty (both off is not a state). */
         fun normalize(languages: Set<String>): Set<String> =

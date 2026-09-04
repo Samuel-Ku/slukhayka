@@ -219,6 +219,8 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     val playerState by viewModel.playerState.collectAsState()
     val crashReporting = App.instance.crashReporting
     val crashReportingState by crashReporting.state.collectAsState()
+    val bilingualPrompt = App.instance.bilingualPrompt
+    val bilingualPromptVisible by bilingualPrompt.visible.collectAsState()
     var appVisibility by remember { mutableStateOf(AppVisibility.FOREGROUND) }
     val lifecycleOwner = LocalLifecycleOwner.current
 
@@ -241,6 +243,16 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
         CrashReportConsentPrompt(
             onAllow = crashReporting::allowTriggeringReport,
             onDeny = crashReporting::denyTriggeringReport
+        )
+    }
+
+    // Spec-45 (#405) T8 (#496): the one-time bilingual prompt (US9) — shown
+    // after the first sync that found English books; either action dismisses
+    // it permanently (the engine's persisted marker).
+    if (bilingualPromptVisible) {
+        BilingualContentPrompt(
+            onKeepEnglish = bilingualPrompt::keepEnglish,
+            onUkrainianOnly = bilingualPrompt::ukrainianOnly
         )
     }
 
@@ -428,7 +440,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
             modifier = Modifier
                 .testTag("app_background")
                 .accessibilityModalBackground(
-                    modalVisible = fullPlayerModalActive || crashReportingState.shouldShowPrompt
+                    modalVisible = fullPlayerModalActive || crashReportingState.shouldShowPrompt || bilingualPromptVisible
                 ),
             bottomBar = {
                 Column {
@@ -997,6 +1009,35 @@ internal fun CrashReportConsentPrompt(
         dismissButton = {
             TextButton(onClick = onDeny) {
                 Text(stringResource(R.string.crash_reports_deny))
+            }
+        }
+    )
+}
+
+/**
+ * Spec-45 (#405) T8 (#496) — the one-time bilingual prompt (US9): after the
+ * first sync that found English books, ask once whether to keep or hide them.
+ * No neutral dismissal (system back is inert) — the listener answers, and the
+ * choice is terminal. The AlertDialog surfaces the full sentence plus both
+ * actions to TalkBack.
+ */
+@Composable
+internal fun BilingualContentPrompt(
+    onKeepEnglish: () -> Unit,
+    onUkrainianOnly: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = { },
+        title = { Text(stringResource(R.string.bilingual_prompt_title)) },
+        text = { Text(stringResource(R.string.bilingual_prompt_body)) },
+        confirmButton = {
+            TextButton(onClick = onKeepEnglish) {
+                Text(stringResource(R.string.bilingual_prompt_keep))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onUkrainianOnly) {
+                Text(stringResource(R.string.bilingual_prompt_uk_only))
             }
         }
     )

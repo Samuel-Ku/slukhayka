@@ -911,22 +911,40 @@ class SourceCatalog(
             ?: playbackOrder
                 .firstOrNull { tracksBySource[it].orEmpty().isNotEmpty() }
             ?: sources.firstOrNull()
-        val tracks = if (localReadySource != null) {
-            // Only chapters with a real local copy are playable; the rest
-            // surface honest per-chapter unavailability (PlayableChapter.track
-            // = null — the player reports the absence instead of fabricating
-            // audio or knocking on the remote).
-            tracksBySource[localReadySource].orEmpty()
-                .filter { SmartRetryPolicy.localFileReady(it.localFilePath) }
-        } else {
-            selectedSource?.let { tracksBySource[it].orEmpty() }.orEmpty()
+        // #505 (parent #397 — revises #472): a partially downloaded Edition
+        // plays BOTH sides. Chapters with a real local copy pair with their
+        // local track; chapters without one stream from a remote track of the
+        // SAME locked source (its own http URL — the presence of local files
+        // must not block streaming). Only a chapter with no http track
+        // anywhere in this Edition stays honestly unavailable (track = null),
+        // never an empty URI to the engine, never another narration or
+        // source. The DOWNLOAD queue still opts out (applyLocalLock = false).
+        val lockedTracks = localReadySource?.let { tracksBySource[it].orEmpty() }.orEmpty()
+        val fallbackTracks = playbackOrder.flatMap { source ->
+            tracksBySource[source].orEmpty().map { source to it }
+        }
+        fun resolveTrack(index: Int): Pair<SourceEntity?, SourceTrackEntity?> {
+            lockedTracks.firstOrNull { it.trackIndex == index && SmartRetryPolicy.localFileReady(it.localFilePath) }
+                ?.let { return localReadySource to it }
+            lockedTracks.firstOrNull { it.trackIndex == index && it.url?.startsWith("http") == true }
+                ?.let { return localReadySource to it }
+            fallbackTracks.firstOrNull { (_, track) -> track.trackIndex == index && track.url?.startsWith("http") == true }
+                ?.let { return it }
+            return null to null
         }
         return chapters.mapIndexed { index, chapter ->
+            val (owner, track) = if (localReadySource != null) {
+                resolveTrack(index)
+            } else {
+                val t = selectedSource?.let { tracksBySource[it].orEmpty() }
+                    ?.firstOrNull { it.trackIndex == index }
+                selectedSource to t
+            }
             PlayableChapter(
                 chapter = chapter,
-                track = tracks.firstOrNull { it.trackIndex == index },
-                sourceId = selectedSource?.type,
-                sourceUrl = selectedSource?.url
+                track = track,
+                sourceId = owner?.type ?: selectedSource?.type,
+                sourceUrl = owner?.url ?: selectedSource?.url
             )
         }
     }

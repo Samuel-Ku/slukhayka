@@ -338,6 +338,11 @@ class App : Application() {
     // WorkFeed Pager with it (both react live to a change).
     val contentLanguagePrefs: ContentLanguagePrefs by lazy { ContentLanguagePrefs(this) }
 
+    // Spec-45 (#405) R7 (#514): the persisted App Locale (interface language)
+    // — read in MainActivity.attachBaseContext, written by the settings
+    // toggle through [AppLocaleApplier]. Default = system.
+    val appLocalePrefs: AppLocalePrefs by lazy { AppLocalePrefs(this) }
+
     /**
      * Spec-45 (#405) T8 (#496): the one-time bilingual prompt — after the
      * first sync that writes an `en` Edition, the listener answers once

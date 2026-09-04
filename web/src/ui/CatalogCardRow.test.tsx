@@ -87,6 +87,28 @@ describe('CatalogCardRow accessibility and actions', () => {
     expect(book).not.toHaveBeenCalled()
   })
 
+  it('badges a known edition language and stays silent for unknown', () => {
+    const { rerender } = render(<CatalogCardRow
+      card={{ ...card, language: 'en' }}
+      editionId="edition-a"
+      sources={sources}
+      onOpenBook={vi.fn()}
+      onPlay={vi.fn(async () => true)}
+    />)
+    const badge = screen.getByText('EN')
+    expect(badge.getAttribute('aria-label')).toBe('English')
+
+    rerender(<CatalogCardRow
+      card={card}
+      editionId="edition-a"
+      sources={sources}
+      onOpenBook={vi.fn()}
+      onPlay={vi.fn(async () => true)}
+    />)
+    expect(screen.queryByText('EN')).toBeNull()
+    expect(screen.queryByText('UA')).toBeNull()
+  })
+
   it('links to the session-gated fallback Source that actually needs recovery', async () => {
     vi.spyOn(api, 'book').mockResolvedValue(null)
     render(<CatalogCardRow

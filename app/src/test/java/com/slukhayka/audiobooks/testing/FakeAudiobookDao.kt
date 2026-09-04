@@ -470,6 +470,12 @@ class FakeAudiobookDao(
     override suspend fun getEditionForWork(bookId: String): EditionEntity? =
         editionsState.value.firstOrNull { it.workId == bookId }
 
+    // Spec-45 (#405) T8 (#496): mirror of the DAO probe — the bilingual
+    // prompt fires only when a known-English rendition exists.
+    override suspend fun hasEnglishEditions(): Boolean =
+        editionsState.value.any { it.language == "en" } ||
+            editionFacetsState.value.any { it.language == "en" }
+
     // --- Bookmarks --------------------------------------------------------
 
     override fun getBookmarksForBook(bookId: String): Flow<List<BookmarkEntity>> =

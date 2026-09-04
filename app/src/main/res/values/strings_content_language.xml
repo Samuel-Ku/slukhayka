@@ -8,4 +8,9 @@
     <string name="content_language_en">English</string>
     <string name="content_language_all">Усі</string>
     <string name="content_language_chip_label">Мова: %1$s</string>
+    <!-- Spec-45 (#405) T8 (#496): the one-time bilingual prompt (US9). -->
+    <string name="bilingual_prompt_title">Англомовні книжки</string>
+    <string name="bilingual_prompt_body">Знайдено англомовні книжки — залишити чи сховати?</string>
+    <string name="bilingual_prompt_keep">Залишити</string>
+    <string name="bilingual_prompt_uk_only">Лише українські</string>
 </resources>

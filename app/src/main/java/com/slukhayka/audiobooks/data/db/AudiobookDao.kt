@@ -333,6 +333,23 @@ interface AudiobookDao {
     @Query("SELECT * FROM editions WHERE workId = :bookId LIMIT 1")
     suspend fun getEditionForWork(bookId: String): EditionEntity?
 
+    /**
+     * Spec-45 (#405) T8 (#496): whether the catalogue holds any known-English
+     * rendition (Edition row or facet row) — the one-time bilingual prompt
+     * fires only after the first sync that actually wrote an `en` Edition
+     * (US9). Codes are stored normalized (BCP-47) by the T1 write-through.
+     */
+    @Query(
+        """
+        SELECT EXISTS(
+            SELECT 1 FROM edition_facets WHERE language = 'en'
+            UNION
+            SELECT 1 FROM editions WHERE language = 'en'
+        )
+        """
+    )
+    suspend fun hasEnglishEditions(): Boolean
+
     // --- Spec-24 T1: the one-time stored-title scrub -----------------------
     // The startup pass reads every stored title (audiobooks + works), applies
     // the pure normalizeTitle rule in Kotlin, and rewrites only the rows that

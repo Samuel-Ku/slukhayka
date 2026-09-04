@@ -32,6 +32,7 @@ import com.slukhayka.audiobooks.data.duration.ChapterDurationProbe
 import com.slukhayka.audiobooks.data.duration.DurationEnrichment
 import com.slukhayka.audiobooks.data.duration.HttpStreamProber
 import com.slukhayka.audiobooks.data.facets.SharedPreferencesFacetSyncCursorStore
+import com.slukhayka.audiobooks.data.facets.BilingualPromptEngine
 import com.slukhayka.audiobooks.data.facets.ContentLanguagePrefs
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
 import com.slukhayka.audiobooks.data.imports.LibraryImport
@@ -336,6 +337,16 @@ class App : Application() {
     // ephemeral surfaces on this flow, and the ViewModel feeds the persisted
     // WorkFeed Pager with it (both react live to a change).
     val contentLanguagePrefs: ContentLanguagePrefs by lazy { ContentLanguagePrefs(this) }
+
+    /**
+     * Spec-45 (#405) T8 (#496): the one-time bilingual prompt — after the
+     * first sync that writes an `en` Edition, the listener answers once
+     * whether to keep or hide English (US9). One app-scoped owner; sync
+     * call sites run [BilingualPromptEngine.evaluate] when they complete.
+     */
+    val bilingualPrompt: BilingualPromptEngine by lazy {
+        BilingualPromptEngine(contentLanguagePrefs) { audiobookDao.hasEnglishEditions() }
+    }
 
     /** Source Catalog: browse/sync/search + chapter materialisation. */
     val sourceCatalog: SourceCatalog by lazy {

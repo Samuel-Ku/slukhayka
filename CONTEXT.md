@@ -12,6 +12,10 @@ _Avoid_: Book, audiobook, copy
 A specific audiobook rendition of one Work, distinguished by language, narrator, audio content, and logical chapter structure; it owns the logical Chapter list and the listening totals (chapter count, duration). Sources with materially different narration or chapter topology belong to different Editions, and every Listening State row anchors to exactly one Edition.
 _Avoid_: Version, copy, source
 
+**Language**:
+The BCP-47 primary tag (`uk`, `en`, `de`, …) of one Edition's narration. The Work stays language-free — `mergeKey` is title|author — while the Edition id hashes `mergeKey|narrator|language`, so two languages of one Work are two Editions, never two cards (ADR-0029). Only a KNOWN claim yields a tag (`LanguageCode.normalize` / web `normalizeLanguage`: «English»→en, `eng`→en, `en-US`→en); unknown = absent, never guessed, and rows without a language are never hidden by any Content Language Preference (US17). A whole-language source declares one `contentLanguage`; a card may override it per book.
+_Avoid_: language on the Work, guessed language from text/URL heuristics
+
 **Source**:
 A provenance-bearing origin or copy through which one Edition may be played, such as a local folder, an M4B file, a 4read stream, or a downloaded copy. A Source can exist in the library even when it is not currently available on a device. A Source owns the physical tracks of its Edition — stream URLs, local file copies, content hashes, download state — aligned with logical Chapters one-to-one by index.
 _Avoid_: Edition, book
@@ -105,6 +109,10 @@ _Avoid_: per-source cover claims, rehosting covers, fabricated URLs
 **Release**:
 A published build of the app itself, tagged `v<versionName>` on GitHub Releases — the single source of truth for the in-app update banner. Not a book concept: never use «version» for an Edition or narration (that word is reserved here).
 _Avoid_: version (for an Edition), update feed
+
+**App Locale**:
+The language of the interface chrome — a dimension fully separate from the content Language that NEVER filters content (US12, ADR-0029). Android: `AppLocale` (Ukrainian default, `en` pins the context) with the full `values-en` resource set (381 keys of parity, incl. the hardcoded-literal migration). Web: the typed uk/en dictionary `i18n/strings.ts` (key parity at compile time) with `locale.ts` device resolution — English on English-speaking devices (US15) — and a persisted manual override in the header. EN/UA badges on cards show the rendition's Language, not the App Locale.
+_Avoid_: UI language filtering content, locale stored in sync, UI strings mixed with content metadata
 
 ## Listener relationship
 
@@ -232,6 +240,10 @@ _Avoid_: inline-only series row, new series data source
 **«Колекції» index screen**:
 A pushed screen listing every matched smart collection (Нобелівські лауреати, Шевченківська премія, Букер, live lists); tapping a book resolves-and-plays it exactly like the inline collection cards — the move changes location, not behaviour (spec-28 #190).
 _Avoid_: duplicated collection behaviour, new collection data source
+
+**Content Language Preference**:
+The local-only set of content languages shown in discovery: «обидві ввімкнені» by default, an empty selection means ALL, and a card is hidden only when every Edition of its Work carries a known language outside the selection. Rows with an unknown language stay visible under any selection (US17, ADR-0029). Android: `ContentLanguagePrefs` → `SourceCatalog.contentLanguageSelection` plus the «Мови контенту» destination and the «Мова» chip. Web: `contentLanguagePrefs.filterWorksByLanguage` plus chips that offer only languages with actual content. It never syncs and never touches Listening State.
+_Avoid_: server-side preference, hiding unknown-language rows, an all-off state
 
 ## UX principles (spec-27)
 

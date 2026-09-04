@@ -357,6 +357,16 @@ fun LibraryScreen(
                             },
                             modifier = Modifier.testTag("library_content_languages_menu_item")
                         )
+                        // Spec-45 (#405) R7 (#514): the App Locale (interface
+                        // language) — the same ⚙️ overflow.
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.app_locale_title)) },
+                            onClick = {
+                                showOverflowMenu = false
+                                viewModel.openAppLocale()
+                            },
+                            modifier = Modifier.testTag("library_app_locale_menu_item")
+                        )
                     }
                 }
             }

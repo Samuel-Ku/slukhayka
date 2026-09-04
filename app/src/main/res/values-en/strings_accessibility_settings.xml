@@ -70,6 +70,13 @@
     <string name="profile_source_session_clear_dialog_body">For %1$s you will need to verify or sign in again. Other sources\' sessions stay.</string>
     <string name="profile_source_session_clear_confirm">Clear</string>
 
+    <!-- Spec-45 (#405) R7 (#514): the App Locale (interface language) destination. -->
+    <string name="app_locale_title">Interface language</string>
+    <string name="app_locale_description">The language of the app\'s menus and screens. The language of books is chosen separately in "Content languages".</string>
+    <string name="app_locale_system">Same as system</string>
+    <string name="app_locale_ukrainian">Ukrainian</string>
+    <string name="app_locale_english">English</string>
+
     <string name="storage_title">Downloads and storage</string>
     <string name="storage_device_heading">Device storage</string>
     <string name="storage_rescan_action">Rescan local files</string>

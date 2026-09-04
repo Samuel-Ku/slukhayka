@@ -28,6 +28,46 @@ describe('mergeWorkFeed', () => {
     expect(page.works[0].editions[0].id).not.toBe(page.works[0].editions[1].id)
   })
 
+  it('normalizes English en and en-US claims into ONE Edition language (R8)', () => {
+    // Spec-45 (#405) R8 (#515): the identity is built from the NORMALIZED
+    // tag — raw "English" (a parser claim), "en" and "en-US" (regional
+    // variants) of one Work + one narrator are one Edition, never three.
+    const page = mergeWorkFeed([
+      { sourceId: 'librivox', cards: [{ url: 'https://archive.org/details/a1', title: 'Emma', author: 'Jane Austen', narrator: 'Karen Savage', language: 'English' }] },
+      { sourceId: 'librivox', cards: [{ url: 'https://archive.org/details/a2', title: 'Emma', author: 'Jane Austen', narrator: 'Karen Savage', language: 'en' }] },
+      { sourceId: 'librivox', cards: [{ url: 'https://archive.org/details/a3', title: 'Emma', author: 'Jane Austen', narrator: 'Karen Savage', language: 'en-US' }] },
+    ])
+
+    expect(page.works).toHaveLength(1)
+    expect(page.works[0].editions).toHaveLength(1)
+    const edition = page.works[0].editions[0]
+    expect(edition.language).toBe('en')
+    expect(edition.sources).toHaveLength(3)
+    // The bibliographic merge key never carries the language.
+    expect(page.works[0].mergeKey).toMatch(/^emma\|jane austen$/)
+  })
+
+  it('keeps uk and en as distinct Editions after normalization (R8)', () => {
+    const page = mergeWorkFeed([
+      { sourceId: 'sound-books', cards: [{ url: 'https://sound-books.net/a', title: 'Книга', author: 'Автор', narrator: 'Читець' }] },
+      { sourceId: 'librivox', cards: [{ url: 'https://archive.org/details/a-en', title: 'Книга', author: 'Автор', narrator: 'Читець', language: 'English' }] },
+    ])
+
+    expect(page.works).toHaveLength(1)
+    expect(page.works[0].editions).toHaveLength(2)
+    expect(page.works[0].editions.map((edition) => edition.language)).toEqual(['uk', 'en'])
+  })
+
+  it('an unparseable per-card claim falls back to the source language (R8)', () => {
+    const page = mergeWorkFeed([
+      { sourceId: 'sound-books', cards: [{ url: 'https://sound-books.net/a', title: 'Книга', author: 'Автор', narrator: 'Читець', language: '  ' }] },
+    ])
+
+    // Blank claim → the source's declared uk applies; never a fabricated tag.
+    expect(page.works[0].editions[0].language).toBe('uk')
+    expect(page.works[0].editions[0].id).toContain('|uk')
+  })
+
   it('uses a bounded cursor and keeps the remainder for the next page', () => {
     const input = Array.from({ length: 31 }, (_, n) => ({
       sourceId: 'fourread' as const,

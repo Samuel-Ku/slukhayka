@@ -826,6 +826,28 @@ class SourceCatalog(
                             totalDurationSeconds = detail.totalDurationSeconds ?: 0L
                         )
                     )
+                    // R1 (#508): the fallback-created Edition's facet projection
+                    // lands through the same shared seam — the feed's language
+                    // dimension sees a page-materialized rendition too.
+                    facetWriter.applyEditionFacet(
+                        editionId = editionId,
+                        domainWorkId = book?.workId?.takeIf { it.isNotBlank() } ?: bookId,
+                        narrator = book?.narrator ?: "",
+                        language = detail.language,
+                        chapterCount = detail.chapters.size
+                    )
+                } else if (edition.language.isBlank() && detail.language.isNotBlank()) {
+                    // R1 (#508): the Edition row predates the language claim —
+                    // the page's per-book claim back-fills it through the same
+                    // delta shape the shared sync lane materializes (the id
+                    // stays the stored one; a re-import never relabels).
+                    facetWriter.applyEditionFacet(
+                        editionId = edition.id,
+                        domainWorkId = book?.workId?.takeIf { it.isNotBlank() } ?: bookId,
+                        narrator = edition.narrator,
+                        language = detail.language,
+                        chapterCount = detail.chapters.size
+                    )
                 }
                 val source = dao.getSourcesForBookSync(bookId).firstOrNull { it.type == "4read" }
                     ?: SourceEntity(

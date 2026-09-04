@@ -26,15 +26,15 @@ import org.robolectric.annotation.Config
 import java.io.File
 
 /**
- * #472 (spec #462, Implementation Decision 9) — часткове завантаження.
+ * #472 (spec #462, Implementation Decision 9) — часткове завантаження,
+ * as revised by #505 (parent #397).
  *
  * `getPlayableChapters` must not require FULL chapter coverage before the
- * local source wins: a book with partial download coverage (say 2 of 5
- * chapters on disk) plays those chapters from LOCAL and honestly marks the
- * rest unavailable (per-chapter `track = null`) — never a silent switch to
- * the remote source, which may be dead (User Story 18 regression: «офлайн-
- * скачана книга з частковим покриттям розділів усе одно грає скачані
- * розділи»).
+ * local source wins, AND the presence of local files must not block
+ * streaming: ready chapters play from LOCAL, chapters without a copy stream
+ * from the SAME source's remote tracks. Only a chapter with no http track
+ * anywhere stays honestly unavailable (`track = null`) — never an empty
+ * URI to the engine, never another narration or source.
  *
  * The local verdict rides the ONE threshold (#471) —
  * [SmartRetryPolicy.localFileReady] — so a stub file (< [SmartRetryPolicy.LOCAL_MIN_BYTES])
@@ -163,12 +163,14 @@ class PlayableChaptersPartialDownloadTest {
     }
 
     // ------------------------------------------------------------------
-    // (a) Partial coverage → local chapters play from LOCAL, the rest are
-    //     honestly unavailable; NO silent fallback to the remote source.
+    // (a) Partial coverage → local chapters play from LOCAL; chapters
+    //     without a copy STREAM from the same source's remote tracks (#505
+    //     revises #472: presence of local files must not block streaming).
+    //     Only a chapter with no http track anywhere stays unavailable.
     // ------------------------------------------------------------------
 
     @Test
-    fun partialCoverage_playsLocalChaptersAndMarksTheRestUnavailable() = runBlocking {
+    fun partialCoverage_playsLocalAndStreamsTheRestFromTheSameSource() = runBlocking {
         // 5 chapters, only 2 real files on disk; chapter 2 has a stub file.
         seedBook("partial", chapterCount = 5, localReadyIndices = setOf(0, 1), localStubIndices = setOf(2))
 
@@ -184,16 +186,17 @@ class PlayableChaptersPartialDownloadTest {
             )
         }
         // The stub (< LOCAL_MIN_BYTES) is NOT a copy — the same threshold the
-        // player applies, never a second «file exists» definition.
-        assertNull("стаб-файл не рахується локальною копією", playable[2].track)
-        // Chapters 3-4 are honestly unavailable — NOT silently re-pointed at
-        // the (possibly dead) remote tracks.
-        assertNull("розділ 3 чесно недоступний", playable[3].track)
-        assertNull("розділ 4 чесно недоступний", playable[4].track)
-        assertTrue(
-            "жоден розділ не впав назад на remote",
-            playable.none { it.sourceId == "4read" }
-        )
+        // player applies — so the stub chapter streams like any other
+        // chapter without a local file.
+        playable.drop(2).forEachIndexed { offset, pair ->
+            val index = offset + 2
+            assertNotNull("розділ $index стрімить з того самого джерела", pair.track)
+            assertEquals("4read", pair.sourceId)
+            assertEquals(
+                "https://4read.org/audio/partial/$index.mp3",
+                pair.track?.url
+            )
+        }
     }
 
     // ------------------------------------------------------------------

@@ -914,6 +914,21 @@ class AudioPlayerManager(
         val durationMs = chapter.durationSeconds * 1000L
         val track = playableChapters.getOrNull(chapterIndex)?.track
 
+        // #505 — a chapter with no playable locator (no ready local copy
+        // AND no remote URL) never reaches the engine: an empty URI loops
+        // ExoPlayer on FILE_NOT_FOUND. Surface the honest UNAVAILABLE card
+        // (with its recovery action) instead.
+        val hasLocal = SmartRetryPolicy.localFileReady(track?.localFilePath)
+        if (track == null || (!hasLocal && track.url.isNullOrBlank())) {
+            Log.w("AudioPlayer", "No playable locator for chapter $chapterIndex")
+            reportPlaybackFailure(
+                errorCodeName = "EMPTY_TRACK",
+                detail = context.getString(R.string.a11y_player_error_book_unavailable),
+                kind = PlaybackErrorKind.UNAVAILABLE
+            )
+            return
+        }
+
         currentChapter = chapter
         currentTrack = track
         shouldAutoPlay = autoPlay || _playerState.value.isPlaying

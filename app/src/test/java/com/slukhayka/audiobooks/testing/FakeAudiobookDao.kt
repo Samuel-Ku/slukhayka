@@ -205,7 +205,6 @@ class FakeAudiobookDao(
         progress: Float,
         state: String
     ) {
-        println("DIAG-FAKE withState book=$bookId progress=$progress state=$state")
         updateBookDownloadState(bookId, isDownloaded)
         upsertEntryDownloadProgress(bookId, progress)
         updateDownloadStateValue(bookId, state)

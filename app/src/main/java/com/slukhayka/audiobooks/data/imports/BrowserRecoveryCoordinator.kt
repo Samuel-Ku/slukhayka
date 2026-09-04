@@ -111,7 +111,15 @@ class BrowserRecoveryCoordinator(
     ): Outcome = withContext(Dispatchers.IO) {
         // 1. Capture → parse is inside LibraryImport (which also handles capturedAudioUrls).
         // For new import we use importWebSourcePage, for recovery we use recoverWebSourcePage.
-        val isNewImport = bookId.isNullOrBlank() || dao.getAudiobookById(bookId) == null
+        // #476 — a catalog ghost (stored row without any Source of this type)
+        // has nothing to recover: guard #1 inside recoverWebSourcePage would
+        // refuse it unconditionally, so route it to the import door, which
+        // upserts onto the same id (no duplicate) and builds Source/Edition
+        // from scratch.
+        val storedBookRow = if (bookId.isNullOrBlank()) null else dao.getAudiobookById(bookId)
+        val hasRecoverableSource = storedBookRow != null &&
+            dao.getSourcesForBookSync(storedBookRow.id).any { it.type == sourceId }
+        val isNewImport = storedBookRow == null || !hasRecoverableSource
         if (!isNewImport) {
             val captured = libraryImport.inspectWebSourcePage(sourceId, url, html, capturedAudioUrls)
             val storedSource = dao.getSourcesForBookSync(bookId!!)

@@ -19,10 +19,17 @@ import { sluhayAdapter, parsePlayerjsPlaylist as sluhayPlaylist, playlistUrlOf a
 import { audiobookMp3Adapter, parsePlayerjsPlaylist as abMp3Playlist, playlistUrlOf as abMp3PlaylistUrl } from './adapters/audiobookmp3'
 import { lihtarAdapter, parsePlayerPage as lihtarPlayer, playerUrlOf as lihtarPlayerUrl } from './adapters/lihtar'
 import { sluhayuaAdapter, chapterCountOf, chaptersFromPlayResponses } from './adapters/sluhayua'
+import { archiveSearchUrl, buildBookDetail as buildLibrivoxDetail, catalogUrlOf, identifierOf as librivoxIdentifierOf, librivoxAdapter } from './adapters/librivox'
 
 export interface SourceEntry {
   readonly adapter: SourceAdapter
   readonly allowedHosts: readonly string[]
+  /**
+   * The catalogue feed's starting URL. Defaults to the adapter's baseUrl;
+   * a source whose feed is a JSON API endpoint (librivox) declares it here
+   * so the work-feed route never parses its HTML homepage.
+   */
+  readonly catalogUrl?: string
   /**
    * Builds the FULL book detail (with enriched chapters) from an already
    * fetched page body. `fetchText` is the guarded transport; it may return
@@ -149,6 +156,21 @@ export const REGISTRY: Record<SourceId, SourceEntry> = {
       }
       const chapters = chaptersFromPlayResponses(responses)
       return chapters.length ? { ...detail, chapters } : detail
+    },
+  },
+  librivox: {
+    adapter: librivoxAdapter,
+    // archive.org is the SAME source's mirror transport (search + metadata
+    // + audio), never a second catalogue row.
+    allowedHosts: ['librivox.org', 'archive.org'],
+    catalogUrl: catalogUrlOf(),
+    searchUrl: (query) => archiveSearchUrl(query),
+    buildBook: async (_html, pageUrl, fetchText) => {
+      const identifier = librivoxIdentifierOf(pageUrl)
+      if (identifier === null) return null
+      const body = await fetchText(`https://archive.org/metadata/${identifier}`)
+      if (body === null) return null
+      return buildLibrivoxDetail(body, pageUrl)
     },
   },
 }

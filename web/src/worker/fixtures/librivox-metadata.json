@@ -1,0 +1,163 @@
+{
+  "metadata": {
+    "identifier": "jacko_and_jumpo_2007_librivox",
+    "title": "Jacko and Jumpo Kinkytail",
+    "creator": "Howard R. Garis",
+    "language": "eng",
+    "description": "<p>Jacko and Jumpo Kinkytail — the funny monkeys — do the funniest things in this little book for little folks.</p>"
+  },
+  "files": [
+    {
+      "name": "__ia_thumb.jpg",
+      "source": "original",
+      "mtime": "1775175153",
+      "size": "18363",
+      "format": "Item Tile"
+    },
+    {
+      "name": "jacko_and_jumpo_2007_librivox_128kb.m3u",
+      "source": "derivative",
+      "mtime": "1595426788",
+      "size": "1200",
+      "format": "128kbps M3U"
+    },
+    {
+      "name": "jackoandjumpo_02_garis.mp3",
+      "source": "derivative",
+      "creator": "Howard R. Garis",
+      "title": "02 - Jumpo and the Cocoanut",
+      "track": "2",
+      "album": "Jacko and Jumpo Kinkytail",
+      "genre": "speech",
+      "bitrate": "103",
+      "format": "VBR MP3",
+      "original": "jackoandjumpo_02_garis_128kb.mp3",
+      "mtime": "1595278294",
+      "size": "10136122",
+      "length": "788.11"
+    },
+    {
+      "name": "jackoandjumpo_01_garis.mp3",
+      "source": "derivative",
+      "creator": "Howard R. Garis",
+      "title": "01 - The Kinkytails Go To School",
+      "track": "1",
+      "album": "Jacko and Jumpo Kinkytail",
+      "genre": "speech",
+      "bitrate": "102",
+      "format": "VBR MP3",
+      "original": "jackoandjumpo_01_garis_128kb.mp3",
+      "mtime": "1595279519",
+      "size": "9354252",
+      "length": "736.37"
+    },
+    {
+      "name": "jackoandjumpo_03_garis.mp3",
+      "source": "derivative",
+      "creator": "Howard R. Garis",
+      "title": "03 - The Kinkytails Make a Pudding",
+      "track": "3",
+      "album": "Jacko and Jumpo Kinkytail",
+      "genre": "speech",
+      "bitrate": "104",
+      "format": "VBR MP3",
+      "original": "jackoandjumpo_03_garis_128kb.mp3",
+      "mtime": "1595279741",
+      "size": "9040444",
+      "length": "697"
+    },
+    {
+      "name": "jackoandjumpo_01_garis_64kb.mp3",
+      "source": "derivative",
+      "creator": "Howard R. Garis",
+      "title": "01 - The Kinkytails Go To School",
+      "track": "1",
+      "album": "Jacko and Jumpo Kinkytail",
+      "genre": "speech",
+      "bitrate": "64",
+      "format": "64Kbps MP3",
+      "original": "jackoandjumpo_01_garis_128kb.mp3",
+      "mtime": "1595280275",
+      "size": "5898497",
+      "length": "736.39"
+    },
+    {
+      "name": "jackoandjumpo_04_garis.mp3",
+      "source": "derivative",
+      "creator": "Howard R. Garis",
+      "title": "04 - Jacko and the Peanuts",
+      "track": "4",
+      "album": "Jacko and Jumpo Kinkytail",
+      "genre": "speech",
+      "bitrate": "105",
+      "format": "VBR MP3",
+      "original": "jackoandjumpo_04_garis_128kb.mp3",
+      "mtime": "1595278355",
+      "size": "10406693",
+      "length": "792.22"
+    },
+    {
+      "name": "jackoandjumpo_01_garis.png",
+      "source": "derivative",
+      "format": "PNG",
+      "original": "jackoandjumpo_01_garis_128kb.mp3",
+      "mtime": "1595280848",
+      "size": "33851"
+    },
+    {
+      "name": "jackoandjumpo_05_garis.mp3",
+      "source": "derivative",
+      "creator": "Howard R. Garis",
+      "title": "05 - Jumpo and the Ice Cream",
+      "album": "Jacko and Jumpo Kinkytail",
+      "genre": "speech",
+      "bitrate": "101",
+      "format": "VBR MP3",
+      "original": "jackoandjumpo_05_garis_128kb.mp3",
+      "mtime": "1595279683",
+      "size": "8760425",
+      "track": "5",
+      "length": "19:39"
+    },
+    {
+      "name": "jackoandjumpo_05_garis_128kb.mp3",
+      "source": "original",
+      "mtime": "1595278165",
+      "size": "11133686",
+      "format": "128Kbps MP3",
+      "length": "695.56",
+      "title": "05 - Jumpo and the Ice Cream",
+      "creator": "Howard R. Garis",
+      "album": "Jacko and Jumpo Kinkytail",
+      "track": "5"
+    },
+    {
+      "name": "jackoandjumpo_06_garis.mp3",
+      "source": "derivative",
+      "creator": "Howard R. Garis",
+      "title": "06 - Jacko and the Paper Bag",
+      "album": "Jacko and Jumpo Kinkytail",
+      "genre": "speech",
+      "bitrate": "103",
+      "format": "VBR MP3",
+      "original": "jackoandjumpo_06_garis_128kb.mp3",
+      "mtime": "1595279709",
+      "size": "9060800",
+      "track": "6",
+      "length": "1:02:33"
+    },
+    {
+      "name": "jacko and jumpo 07.mp3",
+      "source": "derivative",
+      "creator": "Howard R. Garis",
+      "album": "Jacko and Jumpo Kinkytail",
+      "genre": "speech",
+      "bitrate": "101",
+      "format": "VBR MP3",
+      "original": "jacko_and_jumpo_07_garis_128kb.mp3",
+      "mtime": "1595279683",
+      "size": "8760425",
+      "length": "600"
+    }
+  ]
+}

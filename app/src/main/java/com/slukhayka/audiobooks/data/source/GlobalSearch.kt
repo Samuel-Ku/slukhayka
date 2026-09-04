@@ -200,7 +200,14 @@ fun mergeGlobalSearchResults(results: List<SourceBook>): List<GlobalSearchResult
                         sourceId = candidate.sourceId,
                         sourceName = candidate.sourceName,
                         url = candidate.url,
-                        editionId = EditionId.forBook(MergeKey.keyFor(book.title, book.author), "", narrator),
+                        // R1 (#508): the id carries the rendition language —
+                        // the stored Edition id is `hash(mergeKey|narrator|language)`
+                        // now, so a language-less card id can never match the
+                        // local row and two languages of one Work would collapse
+                        // into one rendition identity.
+                        editionId = EditionId.forBook(
+                            MergeKey.keyFor(book.title, book.author), "", narrator, book.language
+                        ),
                         // R5 (#512): the member's effective language rides the
                         // source so cached cards keep filtering correctly.
                         language = book.language

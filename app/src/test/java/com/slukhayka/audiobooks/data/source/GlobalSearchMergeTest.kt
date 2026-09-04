@@ -27,6 +27,40 @@ class GlobalSearchMergeTest {
         assertTrue(merged.sources[0].editionId != merged.sources[2].editionId)
     }
 
+    @Test
+    fun `member edition ids carry the rendition language - languages never collide`() {
+        // R1 (#508): the stored Edition id is `hash(mergeKey|narrator|language)`
+        // now — a card id computed without the language can never match the
+        // local row, and two languages of one Work would collapse into one
+        // rendition identity. The member's language rides the id.
+        val merged = mergeGlobalSearchResults(
+            listOf(
+                book("Книга", "Автор", "soundbooks").copy(narrator = "Читець", language = "uk"),
+                book("Книга", "Автор", "librivox").copy(narrator = "Читець", language = "en")
+            )
+        ).single()
+
+        val ukId = merged.sources.first { it.sourceId == "soundbooks" }.editionId
+        val enId = merged.sources.first { it.sourceId == "librivox" }.editionId
+        assertTrue(ukId != enId)
+        assertEquals(
+            com.slukhayka.audiobooks.data.EditionId.forBook(
+                com.slukhayka.audiobooks.data.merge.MergeKey.keyFor("Книга", "Автор"), "", "Читець", "uk"
+            ),
+            ukId
+        )
+        // A language-less member keeps the legacy "" id — the legacy anchor.
+        val legacy = mergeGlobalSearchResults(
+            listOf(book("Книга", "Автор", "soundbooks").copy(narrator = "Читець"))
+        ).single().sources.single()
+        assertEquals(
+            com.slukhayka.audiobooks.data.EditionId.forBook(
+                com.slukhayka.audiobooks.data.merge.MergeKey.keyFor("Книга", "Автор"), "", "Читець", ""
+            ),
+            legacy.editionId
+        )
+    }
+
     private fun book(
         title: String,
         author: String,

@@ -17,7 +17,7 @@ import java.io.InputStream
  * [HttpFetcher.getStream] transport — the offline download path consumes it,
  * so download-path tests exercise the real loop with no network.
  */
-class FakeFetcher(
+open class FakeFetcher(
     private val responses: Map<String, String> = emptyMap(),
     private val fallback: String = "",
     private val streamResponses: Map<String, ByteArray> = emptyMap(),
@@ -84,7 +84,11 @@ class FakeFetcher(
         return streamResponses[url]?.let { wrappingStream(it) }
     }
 
+    /** URLs requested through [getSizedStream], in call order (test observability). */
+    val sizedStreamRequests = java.util.concurrent.CopyOnWriteArrayList<String>()
+
     override fun getSizedStream(url: String, extraHeaders: Map<String, String>): SizedStream? {
+        sizedStreamRequests += url
         recordedHeaders += extraHeaders
         sizedStreamResponses[url]?.let { (bytes, declaredLength) ->
             val stream = wrappingStream(bytes)

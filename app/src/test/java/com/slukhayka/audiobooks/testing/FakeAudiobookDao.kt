@@ -198,6 +198,28 @@ class FakeAudiobookDao(
         }
     }
 
+    /** Mirrors the @Transaction: book flag + entry progress + state enum. */
+    override suspend fun updateDownloadStateWithState(
+        bookId: String,
+        isDownloaded: Boolean,
+        progress: Float,
+        state: String
+    ) {
+        println("DIAG-FAKE withState book=$bookId progress=$progress state=$state")
+        updateBookDownloadState(bookId, isDownloaded)
+        upsertEntryDownloadProgress(bookId, progress)
+        updateDownloadStateValue(bookId, state)
+        // The JOINed read serves downloadProgress from the entry; the
+        // in-memory entity keeps its @Ignore projection in sync (same as
+        // updateDownloadState above).
+        // NB: mutate in place like updateDownloadStateValue — copy()
+        // demonstrably loses @Ignore body vars on this toolchain.
+        booksState.update { current ->
+            current.forEach { if (it.id == bookId) it.downloadProgress = progress }
+            current
+        }
+    }
+
     override suspend fun updateDownloadStateValue(bookId: String, state: String) {
         booksState.update { current ->
             current.map { book ->

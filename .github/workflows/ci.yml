@@ -3,9 +3,9 @@ name: CI
 on:
   workflow_dispatch:
   push:
-    branches: [main, release/v1.3.7-stability, release/v1.3.8]
+    branches: [main, "release/**"]
   pull_request:
-    branches: [main, release/v1.3.7-stability, release/v1.3.8]
+    branches: [main, "release/**"]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -19,31 +19,31 @@ jobs:
     name: Release branch lineage guard
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout full history
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          fetch-tags: true
-
-      - name: Keep v1.3.7 from being wholesale-merged into main
+      # Env-only guard: no checkout needed since the merge-base and
+      # no-merge-commits checks were dropped.
+      - name: Keep release lanes from being wholesale-merged into main
         env:
           EVENT_NAME: ${{ github.event_name }}
           BASE_REF: ${{ github.base_ref }}
           HEAD_REF: ${{ github.head_ref }}
         run: |
           set -eu
-          if [ "$EVENT_NAME" = "pull_request" ] && \
-             [ "$BASE_REF" = "main" ] && \
-             [ "$HEAD_REF" = "release/v1.3.7-stability" ]; then
-            echo "release/v1.3.7-stability is never merged wholesale into main."
-            echo "Forward-port individual fixes through a separate cherry-pick PR."
-            exit 1
+          if [ "$EVENT_NAME" = "pull_request" ] && [ "$BASE_REF" = "main" ]; then
+            case "$HEAD_REF" in
+              release/*)
+                echo "$HEAD_REF is never merged wholesale into main."
+                echo "Forward-port individual fixes through a separate cherry-pick PR (RELEASE-BRANCH.md)."
+                exit 1
+                ;;
+            esac
           fi
 
           # The merge-base==v1.3.6 and no-merge-commits checks were dropped:
           # main fast-forwarded over the release line, and the release line
           # itself carries legitimate lane-merge commits. The remaining
-          # invariant is the wholesale-merge block above.
+          # invariant is the wholesale-merge block above, matching any release
+          # lane since v1.3.8 (2026-09: triggers and this guard are
+          # version-agnostic — a new release branch needs no ci.yml edits).
 
   timing-start:
     name: Start workflow timer
@@ -54,6 +54,12 @@ jobs:
       - id: timer
         run: echo "epoch=$(date +%s)" >> "$GITHUB_OUTPUT"
 
+  # Six parallel legs over the three public JVM partitions (#423): pure JVM,
+  # four Room cohorts, Compose+Roborazzi. Until 2026-09 the four Room cohorts
+  # ran sequentially inside one job — a failure in an early cohort hid the
+  # remaining cohorts, and four cold --no-daemon Gradle starts dominated the
+  # critical path (~23 of the ~30 end-to-end minutes). One cohort per runner
+  # pins the wall clock at the slowest cohort and always reports every cohort.
   jvm-partitions:
     name: ${{ matrix.name }}
     runs-on: ubuntu-latest
@@ -65,16 +71,36 @@ jobs:
         include:
           - id: pure-jvm
             name: Pure JVM
-            task: :app:testPureJvm
+            tasks: ":app:validateTestPartitions :app:testPureJvm"
+            ic: pure-jvm.ic
             needs-model: true
-          - id: room-robolectric
-            name: Room + Robolectric
-            task: :app:testRoomRobolectric
-            needs-model: false
+          - id: room-native-sdk35
+            name: Room native SDK 35
+            tasks: ":app:validateTestPartitions :app:testRoomNativeSdk35"
+            ic: native-sdk35.ic
+            needs-robolectric: true
+            uploads-worker-id: true
+          - id: room-native-sdk36
+            name: Room native SDK 36
+            tasks: ":app:validateTestPartitions :app:testRoomNativeSdk36"
+            ic: native-sdk36.ic
+            needs-robolectric: true
+            uploads-worker-id: true
+          - id: room-native-default
+            name: Room native default SDK
+            tasks: ":app:validateTestPartitions :app:testRoomNativeDefault"
+            ic: native-default.ic
+            needs-robolectric: true
+          - id: room-robolectric-only
+            name: Room Robolectric-only
+            tasks: ":app:validateTestPartitions :app:testRoomRobolectricOnly"
+            ic: robolectric-only.ic
+            needs-robolectric: true
           - id: compose-roborazzi
             name: Compose + Roborazzi
-            task: :app:testComposeRoborazzi
-            needs-model: false
+            tasks: ":app:validateTestPartitions :app:testComposeRoborazzi"
+            ic: compose-roborazzi.ic
+            needs-robolectric: true
 
     steps:
       - name: Checkout
@@ -90,11 +116,17 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: wrapper
+          # PR legs only read caches written by push runs; otherwise every
+          # parallel leg saves its own multi-hundred-MB near-duplicate into
+          # the 10 GB cache pool and evicts useful entries.
+          cache-read-only: ${{ github.event_name == 'pull_request' }}
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
         with:
-          packages: 'platforms;android-36 build-tools;36.0.0 platform-tools'
+          # compileSdk is 36.1 — install it explicitly everywhere so AGP
+          # never pays an implicit sdkmanager download per job.
+          packages: 'platforms;android-36.1 build-tools;36.0.0 platform-tools'
 
       - name: Make gradlew executable
         run: chmod +x ./gradlew
@@ -106,35 +138,34 @@ jobs:
           path: app/src/main/assets/models/e5
           key: e5-model-v1
 
-      - name: Download e5 model for production embedder tests
-        if: matrix.needs-model
-        run: ./gradlew :app:downloadE5Model --no-daemon
+      - name: Cache Robolectric android-all jars
+        if: matrix.needs-robolectric
+        uses: actions/cache@v4
+        with:
+          # Robolectric resolves its ~100 MB-per-SDK android-all jars at test
+          # runtime into the local Maven repo, which setup-gradle does not
+          # cache. Without this every Robolectric leg re-downloads ~0.5 GB.
+          path: ~/.m2/repository/org/robolectric
+          key: robolectric-androidall-v1-${{ hashFiles('gradle/libs.versions.toml') }}
+          restore-keys: robolectric-androidall-v1-
 
-      - name: Validate classification and run ${{ matrix.name }}
+      - name: Run ${{ matrix.name }}
         run: |
           started_at=$(date +%s)
-          mkdir -p app/build/kover/partition app/build/test-results/partition
-          if [ "${{ matrix.id }}" = "room-robolectric" ]; then
-            rm -f app/build/test-worker-identities.tsv
-            ./gradlew :app:validateTestPartitions :app:testRoomNativeSdk35 --no-daemon --stacktrace
-            cp app/build/kover/bin-reports/testDebugUnitTest.ic app/build/kover/partition/native-sdk35.ic
-            cp -R app/build/test-results/testDebugUnitTest app/build/test-results/partition/native-sdk35
-            ./gradlew :app:testRoomNativeSdk36 --no-daemon --stacktrace
-            cp app/build/kover/bin-reports/testDebugUnitTest.ic app/build/kover/partition/native-sdk36.ic
-            cp -R app/build/test-results/testDebugUnitTest app/build/test-results/partition/native-sdk36
-            ./gradlew :app:testRoomNativeDefault --no-daemon --stacktrace
-            cp app/build/kover/bin-reports/testDebugUnitTest.ic app/build/kover/partition/native-default.ic
-            cp -R app/build/test-results/testDebugUnitTest app/build/test-results/partition/native-default
-            ./gradlew :app:testRoomRobolectricOnly --no-daemon --stacktrace
-            cp app/build/kover/bin-reports/testDebugUnitTest.ic app/build/kover/partition/robolectric-only.ic
-            test "$(cut -f1 app/build/test-worker-identities.tsv | sort -u | wc -l)" -eq 2
-            test "$(cut -f2 app/build/test-worker-identities.tsv | sort -u | wc -l)" -eq 2
-          else
-            ./gradlew :app:validateTestPartitions ${{ matrix.task }} --no-daemon --stacktrace
-            cp app/build/kover/bin-reports/testDebugUnitTest.ic app/build/kover/partition/${{ matrix.id }}.ic
-          fi
+          mkdir -p app/build/kover/partition
+          ./gradlew ${{ matrix.tasks }} --no-daemon --stacktrace
+          cp app/build/kover/bin-reports/testDebugUnitTest.ic "app/build/kover/partition/${{ matrix.ic }}"
           elapsed=$(( $(date +%s) - started_at ))
           echo "${{ matrix.name }}: ${elapsed}s" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload worker-identity fragment
+        if: matrix.uploads-worker-id
+        uses: actions/upload-artifact@v4
+        with:
+          name: worker-ids-${{ matrix.id }}
+          path: app/build/test-worker-identities.tsv
+          if-no-files-found: error
+          retention-days: 2
 
       - name: Upload partition coverage
         uses: actions/upload-artifact@v4
@@ -184,11 +215,12 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: wrapper
+          cache-read-only: ${{ github.event_name == 'pull_request' }}
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
         with:
-          packages: 'platforms;android-36 build-tools;36.0.0 platform-tools'
+          packages: 'platforms;android-36.1 build-tools;36.0.0 platform-tools'
 
       - name: Download all partition coverage
         uses: actions/download-artifact@v4
@@ -196,8 +228,30 @@ jobs:
           pattern: kover-*
           path: app/build/kover/ci
 
+      - name: Download worker-identity fragments
+        uses: actions/download-artifact@v4
+        with:
+          pattern: worker-ids-*
+          path: app/build/worker-ids
+
       - name: Require all partition reports
         run: test "$(find app/build/kover/ci -name '*.ic' | wc -l)" -eq 6
+
+      - name: Require both native worker probes
+        run: |
+          # NativeRoomWorkerIdentity appends one "pid<TAB>sdk=NN;sqlite=framework"
+          # row per probe test (@AfterClass): RecommendationPreferencesRoomTest
+          # (sdk 35, room-native-sdk35 leg) and StoredMetadataScrubRoomTest
+          # (sdk 36, room-native-sdk36 leg). The union over both legs must show
+          # two probes in two distinct JVMs — evidence that incompatible
+          # native SQLite cohorts stayed isolated. room-native-default carries
+          # no probe. (Before the 2026-09 split this assertion ran at the end
+          # of the single Room job over the same union of rows.)
+          union="$RUNNER_TEMP/worker-identities.tsv"
+          find app/build/worker-ids -type f -name 'test-worker-identities.tsv' -exec cat {} + > "$union"
+          test "$(wc -l < "$union")" -eq 2
+          test "$(cut -f1 "$union" | sort -u | wc -l)" -eq 2
+          test "$(cut -f2 "$union" | sort -u | wc -l)" -eq 2
 
       - name: Generate merged reports and enforce thresholds
         run: |
@@ -246,11 +300,12 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: wrapper
+          cache-read-only: ${{ github.event_name == 'pull_request' }}
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
         with:
-          packages: 'platforms;android-36 build-tools;36.0.0 platform-tools'
+          packages: 'platforms;android-36.1 build-tools;36.0.0 platform-tools'
 
       - name: Cache e5 model
         uses: actions/cache@v4
@@ -266,9 +321,14 @@ jobs:
         env:
           FAIL_ON_NO_GO: "true"
 
+  # Push/manual only since 2026-09: the journey is report-only and failed
+  # 6/6 recent runs, so pull requests paid ~8 minutes of runner time for a
+  # constant red mark. Push lanes and workflow_dispatch still produce the
+  # report.
   accessibility-api35:
     name: Accessibility journey (API 35)
     needs: [release-lineage, timing-start]
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 50
     # Release decision (v1.3.7): the journey reports but does not block. The
@@ -291,12 +351,12 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: wrapper
+          cache-read-only: ${{ github.event_name == 'pull_request' }}
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
-
-      - name: Install compile SDK 36.1
-        run: sdkmanager "platforms;android-36.1" "build-tools;36.0.0" "platform-tools"
+        with:
+          packages: 'platforms;android-36.1 build-tools;36.0.0 platform-tools'
 
       - name: Make gradlew executable
         run: chmod +x ./gradlew
@@ -337,10 +397,13 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+  # Any release lane on push. The artifact name is derived from the built
+  # APK's own versionName (renameReleaseApk), so a new release branch needs
+  # no edits here.
   signed-smoke-apk:
-    name: Signed v1.3.7 smoke APK
+    name: Signed smoke APK
     needs: [jvm-partitions, accessibility-api35]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/release/v1.3.7-stability'
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/release/')
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -358,12 +421,12 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: wrapper
+          cache-read-only: ${{ github.event_name == 'pull_request' }}
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
-
-      - name: Install compile SDK 36.1
-        run: sdkmanager "platforms;android-36.1" "build-tools;36.0.0" "platform-tools"
+        with:
+          packages: 'platforms;android-36.1 build-tools;36.0.0 platform-tools'
 
       - name: Restore release credentials
         env:
@@ -381,15 +444,26 @@ jobs:
       - name: Build signed release APK
         env:
           KEYSTORE_PATH: "${{ runner.temp }}/upload.jks"
-          STORE_PASSWORD: "${{ secrets.STORE_PASSWORD }}"
-          KEY_PASSWORD: "${{ secrets.KEY_PASSWORD }}"
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: ./gradlew :app:assembleRelease --no-daemon
+
+      # assembleRelease emits app/build/outputs/renamed_apks/release/
+      # slukhayka-v<versionName>.apk (the renameReleaseApk task), so the
+      # name can never drift from what is inside the file.
+      - name: Locate the versioned APK
+        id: apk
+        run: |
+          apk=$(find app/build/outputs/renamed_apks/release -name '*.apk' | head -n 1)
+          test -n "$apk"
+          echo "path=$apk" >> "$GITHUB_OUTPUT"
+          echo "artifact-name=$(basename "$apk" .apk)-signed-smoke" >> "$GITHUB_OUTPUT"
 
       - name: Upload signed smoke APK
         uses: actions/upload-artifact@v4
         with:
-          name: slukhayka-v1.3.7-signed-smoke
-          path: app/build/outputs/renamed_apks/release/slukhayka-v1.3.7.apk
+          name: ${{ steps.apk.outputs.artifact-name }}
+          path: ${{ steps.apk.outputs.path }}
           if-no-files-found: error
           retention-days: 3
 

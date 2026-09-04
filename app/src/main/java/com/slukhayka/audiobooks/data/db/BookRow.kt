@@ -39,7 +39,10 @@ data class BookRow(
     val downloadState: String = DownloadState.IDLE,
     // Nullable: the LEFT JOIN yields NULL for a book without a Works row.
     val mergeKey: String? = null,
-    val workId: String? = null
+    val workId: String? = null,
+    // Spec-45 (#405) T7 (#495): the rendition's known content language
+    // (BCP-47), read from its `editions` row; "" = unknown.
+    val language: String = ""
 ) {
     /** Maps the JOINed row onto the [AudiobookEntity] projection carrier. */
     fun toAudiobookEntity(): AudiobookEntity = AudiobookEntity(
@@ -68,6 +71,7 @@ data class BookRow(
         it.downloadState = downloadState
         it.mergeKey = mergeKey ?: ""
         it.workId = workId
+        it.language = language
     }
 }
 
@@ -96,5 +100,6 @@ fun AudiobookEntity.toBookRow(): BookRow = BookRow(
     downloadProgress = downloadProgress,
     downloadState = downloadState,
     mergeKey = mergeKey,
-    workId = workId
+    workId = workId,
+    language = language
 )

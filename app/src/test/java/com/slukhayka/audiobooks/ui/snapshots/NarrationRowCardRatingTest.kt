@@ -3,7 +3,9 @@ package com.slukhayka.audiobooks.ui.snapshots
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.ui.screens.NarrationRowCard
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
@@ -65,5 +67,31 @@ class NarrationRowCardRatingTest {
         setContent(average = null, voteCount = 0)
 
         composeTestRule.onNodeWithTag("narration_rating_average_sibling-book", useUnmergedTree = true).assertDoesNotExist()
+    }
+
+    // Spec-45 (#405) T7 (#495): the rendition's known language renders an
+    // EN/UA badge next to the narrator; unknown renders nothing (US3).
+    @Test
+    fun known_language_renders_badge() {
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                Surface(color = MaterialTheme.colorScheme.background) {
+                    NarrationRowCard(
+                        sibling = sibling.copy(narrator = "Reader A").also { it.language = "en" },
+                        onClick = {}
+                    )
+                }
+            }
+        }
+        composeTestRule.onNodeWithText("EN").assertExists()
+        composeTestRule.onNodeWithContentDescription("English").assertExists()
+    }
+
+    @Test
+    fun unknown_language_renders_no_badge() {
+        setContent(average = null, voteCount = 0)
+
+        composeTestRule.onNodeWithText("EN").assertDoesNotExist()
+        composeTestRule.onNodeWithText("UA").assertDoesNotExist()
     }
 }

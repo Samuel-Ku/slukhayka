@@ -25,7 +25,8 @@ interface AudiobookDao {
                    COALESCE(le.downloadState, 'IDLE') AS downloadState,
                    (SELECT pp.preferredSpeed FROM playback_progress pp
                       JOIN editions e ON e.id = pp.editionId
-                     WHERE e.workId = a.id LIMIT 1) AS preferredSpeed
+                     WHERE e.workId = a.id LIMIT 1) AS preferredSpeed,
+                   COALESCE((SELECT e.language FROM editions e WHERE e.workId = a.id AND e.language IS NOT NULL AND e.language != '' LIMIT 1), '') AS language
             FROM audiobooks a
             LEFT JOIN library_entries le ON le.id = a.id
             LEFT JOIN works w ON w.id = le.workId
@@ -485,6 +486,11 @@ interface AudiobookDao {
                w.coverImageUrl, w.addedAt,
                (SELECT COUNT(*) FROM work_sources ws WHERE ws.workId = w.id) AS sourceCount,
                (SELECT gf.displayName FROM work_genres wg JOIN genre_facets gf ON gf.id=wg.genreId WHERE wg.workId=w.id ORDER BY gf.displayName ASC LIMIT 1) AS genre,
+               COALESCE((SELECT GROUP_CONCAT(DISTINCT lang) FROM (
+                   SELECT ef.language AS lang FROM edition_facets ef WHERE ef.workId=w.id AND ef.language IS NOT NULL AND ef.language != ''
+                   UNION
+                   SELECT e.language AS lang FROM editions e JOIN library_entries le ON le.id=e.workId WHERE le.workId=w.id AND e.language IS NOT NULL AND e.language != ''
+               )), '') AS languages,
                COALESCE(
                    (SELECT MIN(ef.durationSeconds) FROM edition_facets ef WHERE ef.workId=w.id AND ef.durationSeconds IS NOT NULL),
                    (SELECT MIN(e.totalDurationSeconds) FROM editions e JOIN library_entries le2 ON le2.id=e.workId WHERE le2.workId=w.id AND e.totalDurationSeconds > 0)
@@ -532,6 +538,11 @@ interface AudiobookDao {
                w.coverImageUrl, w.addedAt,
                (SELECT COUNT(*) FROM work_sources ws WHERE ws.workId = w.id) AS sourceCount,
                (SELECT gf.displayName FROM work_genres wg JOIN genre_facets gf ON gf.id=wg.genreId WHERE wg.workId=w.id ORDER BY gf.displayName ASC LIMIT 1) AS genre,
+               COALESCE((SELECT GROUP_CONCAT(DISTINCT lang) FROM (
+                   SELECT ef.language AS lang FROM edition_facets ef WHERE ef.workId=w.id AND ef.language IS NOT NULL AND ef.language != ''
+                   UNION
+                   SELECT e.language AS lang FROM editions e JOIN library_entries le ON le.id=e.workId WHERE le.workId=w.id AND e.language IS NOT NULL AND e.language != ''
+               )), '') AS languages,
                COALESCE(
                    (SELECT MIN(ef.durationSeconds) FROM edition_facets ef WHERE ef.workId=w.id AND ef.durationSeconds IS NOT NULL),
                    (SELECT MIN(e.totalDurationSeconds) FROM editions e JOIN library_entries le2 ON le2.id=e.workId WHERE le2.workId=w.id AND e.totalDurationSeconds > 0)

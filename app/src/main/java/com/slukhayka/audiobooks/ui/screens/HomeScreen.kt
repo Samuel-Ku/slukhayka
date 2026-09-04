@@ -65,6 +65,7 @@ import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.catalog.CatalogBook
 import com.slukhayka.audiobooks.data.catalog.CatalogSeries
 import com.slukhayka.audiobooks.data.catalog.SourceCatalog
+import com.slukhayka.audiobooks.data.LanguageCode
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.GenreFacetOption
 import com.slukhayka.audiobooks.data.duration.ChapterDurationProbe
@@ -1756,13 +1757,31 @@ fun WorkFeedCard(
                 )
                 Spacer(modifier = Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = row.title,
-                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
+                    // Spec-45 (#405) T7 (#495): the rendition's known
+                    // languages — one EN/UA badge per language, sorted;
+                    // unknown renders nothing (US3).
+                    val languages = row.languages
+                        .split(',')
+                        .mapNotNull { LanguageCode.normalize(it.trim()) }
+                        .distinct()
+                        .sorted()
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = row.title,
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.weight(1f)
+                        )
+                        if (languages.isNotEmpty()) {
+                            Spacer(modifier = Modifier.width(8.dp))
+                            languages.forEach { lang ->
+                                LanguageBadge(language = lang)
+                                Spacer(modifier = Modifier.width(4.dp))
+                            }
+                        }
+                    }
                     if (row.author.isNotBlank()) {
                         Text(
                             text = row.author,

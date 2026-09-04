@@ -180,8 +180,6 @@ class CancelDownloadTest {
 
         assertEquals(3, result.totalChapters)
         assertEquals(setOf("$base/1.mp3", "$base/2.mp3"), fetcher.sizedStreamRequests.toSet() - fetchedBefore)
-        println("DIAG dir=" + (audioDir().listFiles()?.map { it.name + ":" + it.length() } ?: "null"))
-        println("DIAG tracks=" + dao.getTracksForBookSync("b1").map { it.trackIndex to (it.localFilePath ?: "null") })
         (0..2).forEach { assertTrue(java.io.File(audioDir(), "b1-ch$it.mp3").exists()) }
         assertEquals(DownloadState.IDLE, dao.getAudiobookById("b1")?.downloadState)
         assertTrue(dao.getAudiobookById("b1")?.isDownloaded == true)

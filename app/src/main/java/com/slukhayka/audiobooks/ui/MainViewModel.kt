@@ -1236,6 +1236,40 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun openRecommendationSettings() { _recommendationSettingsOpen.value = true }
     fun closeRecommendationSettings() { _recommendationSettingsOpen.value = false }
 
+    // Spec-45 (#405) T6 (#494): the «Мови контенту» destination (⚙️ overflow)
+    // and the Огляд «Мова» chip both write the SAME persisted store whose
+    // flow the feed Pager and every SourceCatalog surface already read — one
+    // preference source (US6/US7/US8).
+    private val _contentLanguagesOpen = MutableStateFlow(false)
+    val contentLanguagesOpen: StateFlow<Boolean> = _contentLanguagesOpen.asStateFlow()
+
+    /** The checked content languages — the store's live flow (both on = «Усі»). */
+    val contentLanguages: StateFlow<Set<String>> = App.instance.contentLanguagePrefs.languages
+
+    fun openContentLanguages() {
+        _contentLanguagesOpen.value = true
+    }
+
+    fun closeContentLanguages() {
+        _contentLanguagesOpen.value = false
+    }
+
+    fun setContentLanguages(languages: Set<String>) {
+        App.instance.contentLanguagePrefs.setLanguages(languages)
+    }
+
+    /** Огляд chip (US8): Усі → Українська → English → Усі. */
+    fun cycleContentLanguages() {
+        val current = App.instance.contentLanguagePrefs.languages.value
+        App.instance.contentLanguagePrefs.setLanguages(
+            when {
+                current == setOf("uk", "en") -> setOf("uk")
+                current == setOf("uk") -> setOf("en")
+                else -> setOf("uk", "en")
+            }
+        )
+    }
+
     fun savePrivacyPrefs(prefs: PrivacyPrefs) {
         when (val resolution = NetworkPrivacy.resolve(prefs)) {
             is RouteResolution.Invalid -> _privacyError.value = resolution.reason
@@ -1724,16 +1758,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val feedSortByTitle: StateFlow<Boolean> = _feedSortByTitle.asStateFlow()
 
     val workFeed: Flow<PagingData<WorkFeedRow>> =
-        combine(_feedGenreFilters, _feedDurationFilters, _feedSortByTitle) { genres, durations, byTitle ->
-            Triple(genres, durations, byTitle)
+        // Spec-45 (#405) T4/T6: the content-language dimension rides the
+        // SAME persisted preference flow as every other surface — a change
+        // (⚙️ destination or the Огляд chip) rebuilds the Pager live, no
+        // restart. Both on = «Усі» behaves exactly like an inactive filter.
+        combine(
+            _feedGenreFilters,
+            _feedDurationFilters,
+            _feedSortByTitle,
+            App.instance.contentLanguagePrefs.languages
+        ) { genres, durations, byTitle, languages ->
+            FilterKey(genres, durations, byTitle, languages)
         }
         .distinctUntilChanged()
-        .flatMapLatest { (genres, durations, byTitle) ->
-            val filter = WorkFacetFilter(genreIds = genres, durationBucketIds = durations)
+        .flatMapLatest { key ->
+            val filter = WorkFacetFilter(
+                genreIds = key.genres,
+                durationBucketIds = key.durations,
+                languages = key.languages
+            )
             Pager(
                 config = PagingConfig(pageSize = 30, prefetchDistance = 15, enablePlaceholders = false)
             ) {
-                if (byTitle) {
+                if (key.byTitle) {
                     sourceCatalog.pagedWorkFeedByTitle(filter)
                 } else {
                     sourceCatalog.pagedWorkFeedRecent(filter)
@@ -1744,6 +1791,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun setFeedGenreFilters(genres: Set<String>) {
         _feedGenreFilters.value = genres
     }
+
+    /** Immutable combine key so flatMapLatest restarts only on a real change. */
+    private data class FilterKey(
+        val genres: Set<String>,
+        val durations: Set<String>,
+        val byTitle: Boolean,
+        val languages: Set<String>
+    )
 
     fun setFeedDurationFilters(durationBucketIds: Set<String>) {
         _feedDurationFilters.value = durationBucketIds

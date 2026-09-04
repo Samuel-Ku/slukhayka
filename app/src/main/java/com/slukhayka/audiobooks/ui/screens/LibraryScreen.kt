@@ -347,6 +347,16 @@ fun LibraryScreen(
                             },
                             modifier = Modifier.testTag("library_recommendations_menu_item")
                         )
+                        // Spec-45 (#405) T6 (#494): the content-language
+                        // preference — same rare-surface overflow (ADR-0018).
+                        DropdownMenuItem(
+                            text = { Text("Мови контенту") },
+                            onClick = {
+                                showOverflowMenu = false
+                                viewModel.openContentLanguages()
+                            },
+                            modifier = Modifier.testTag("library_content_languages_menu_item")
+                        )
                     }
                 }
             }

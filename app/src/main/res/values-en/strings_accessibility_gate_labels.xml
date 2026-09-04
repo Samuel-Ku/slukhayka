@@ -1,0 +1,25 @@
+<resources>
+    <string name="a11y_debug_collapse">Collapse playback diagnostics</string>
+    <string name="a11y_debug_expand">Expand playback diagnostics</string>
+    <string name="a11y_debug_close">Close playback diagnostics</string>
+    <string name="a11y_debug_copy_stream">Copy the stream address for “%1$s”</string>
+    <string name="a11y_debug_copy_journal">Copy the playback journal for “%1$s”</string>
+    <string name="a11y_debug_retry_audio">Retry loading audio for “%1$s”</string>
+    <string name="debug_overlay_title">Playback diagnostics</string>
+    <string name="debug_retry_audio">Retry loading</string>
+    <string name="debug_stream_copied">Stream address copied</string>
+    <string name="debug_journal_copied">Playback journal copied</string>
+    <string name="a11y_browser_close_source">Close the browser for source “%1$s”</string>
+    <string name="a11y_browser_back">Back in the browser for source “%1$s”</string>
+    <string name="a11y_browser_forward">Forward in the browser for source “%1$s”</string>
+    <string name="a11y_browser_reload">Reload the source page “%1$s”</string>
+    <string name="a11y_browser_home">Open the source home page “%1$s”</string>
+    <string name="a11y_browser_open_external">Open the address %1$s in an external browser</string>
+    <string name="a11y_browser_go_to_address">Go to the address %1$s</string>
+    <string name="a11y_browser_close_route_message">Close the browser route message</string>
+    <string name="a11y_browser_close_network_error">Close the network error message</string>
+    <string name="a11y_widget_rewind_work">Rewind “%1$s” 15 seconds back</string>
+    <string name="a11y_widget_play_work">Play “%1$s”</string>
+    <string name="a11y_widget_pause_work">Pause “%1$s”</string>
+    <string name="a11y_widget_forward_work">Forward “%1$s” 15 seconds</string>
+</resources>

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="a11y_library_pane">Library</string>
+    <string name="a11y_library_more_actions">More library actions</string>
+    <string name="a11y_library_search">Search the library</string>
+    <string name="a11y_library_entry_description">%1$s, %2$s</string>
+    <string name="a11y_library_progress">Listened %1$d percent, %2$s remaining</string>
+    <string name="a11y_library_progress_unknown">Duration unknown</string>
+    <string name="a11y_library_local">Local book</string>
+    <string name="a11y_library_offline">Downloaded for listening without the internet</string>
+    <string name="a11y_library_online">Available online</string>
+    <string name="a11y_library_source">Source: %1$s</string>
+    <string name="a11y_library_open_book">Open book %1$s</string>
+    <string name="a11y_library_jump_bookmark">Go to the bookmark in book %1$s, %2$s, %3$s</string>
+    <string name="a11y_library_delete_bookmark">Delete the bookmark from book %1$s, %2$s, %3$s</string>
+    <string name="a11y_library_filter_pane">Library filter and sorting</string>
+    <string name="a11y_library_import_pane">Add audio to the library</string>
+</resources>

@@ -827,7 +827,7 @@ fun PlayerScreenContent(
                     ) {
                         Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = null)
                         Spacer(Modifier.width(AppDimens.SpaceSm))
-                        Text("Повернутися до ${MainViewModel.formatTime(playerState.undoFromPositionMs / 1000L)}")
+                        Text(stringResource(R.string.player_return_to, MainViewModel.formatTime(playerState.undoFromPositionMs / 1000L)))
                     }
                 }
 
@@ -892,7 +892,7 @@ private fun PlayerTopBar(
                 color = MaterialTheme.colorScheme.onBackground
             )
             if (isOffline) {
-                Text("Офлайн", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(stringResource(R.string.book_detail_offline_short), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
         Box {
@@ -913,7 +913,7 @@ private fun PlayerTopBar(
                 )
                 if (BuildConfig.DEBUG) {
                     DropdownMenuItem(
-                        text = { Text("Діагностика відтворення") },
+                        text = { Text(stringResource(R.string.debug_overlay_title)) },
                         leadingIcon = { Icon(Icons.Default.BugReport, null) },
                         onClick = { onToggleDebug(); showMenu = false }
                     )
@@ -966,7 +966,7 @@ private fun DualProgress(
                 .semantics { hideFromAccessibility() },
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text("Книга", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(stringResource(R.string.listen_book), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(
                 if (progress.bookDurationSeconds > 0L) {
                     "${MainViewModel.formatTime(progress.bookPositionSeconds)}  /  ${MainViewModel.formatTime(progress.bookDurationSeconds)}"
@@ -994,7 +994,7 @@ private fun DualProgress(
                 .semantics { hideFromAccessibility() },
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text("Розділ", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(stringResource(R.string.listen_chapter), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             // Spec-22 T2: tabular (monospace) digits — the timer ticks without
             // shifting its advance width, so the layout never jitters.
             Text(
@@ -1678,7 +1678,7 @@ internal fun BookmarkBottomSheet(
             OutlinedTextField(
                 value = note,
                 onValueChange = { note = it },
-                label = { Text("Нотатка (необов’язково)") },
+                label = { Text(stringResource(R.string.listen_note_optional)) },
                 modifier = Modifier.fillMaxWidth().testTag("bookmark_note_input"),
                 minLines = 2,
                 maxLines = 3
@@ -1687,7 +1687,7 @@ internal fun BookmarkBottomSheet(
             Button(
                 onClick = { onSave(note); onDismiss() },
                 modifier = Modifier.fillMaxWidth().heightIn(min = AppDimens.TouchTarget).testTag("save_bookmark_button")
-            ) { Text("Зберегти закладку") }
+            ) { Text(stringResource(R.string.book_detail_bookmark_save)) }
             Spacer(Modifier.height(AppDimens.SpaceLg))
         }
     }

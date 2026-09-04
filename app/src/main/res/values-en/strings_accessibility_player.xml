@@ -1,0 +1,82 @@
+<resources>
+    <string name="a11y_player_close">Collapse the player</string>
+    <string name="a11y_player_actions">Actions for the audiobook %1$s</string>
+    <string name="a11y_player_context">%1$s. Author: %2$s. %3$s Current chapter: %4$s</string>
+    <string name="a11y_player_edition">Narration: %1$s.</string>
+    <string name="a11y_player_edition_unknown">Narration: narrator not specified.</string>
+
+    <string name="a11y_player_previous_chapter">Previous chapter before “%2$s”. %1$s</string>
+    <string name="a11y_player_next_chapter">Next chapter after “%2$s”. %1$s</string>
+    <string name="a11y_player_seek_back">Back 15 seconds. %1$s, %2$s</string>
+    <string name="a11y_player_seek_forward">Forward 30 seconds. %1$s, %2$s</string>
+    <string name="a11y_player_pause">Pause. %1$s, %2$s</string>
+    <string name="a11y_player_play">Play. %1$s, %2$s</string>
+    <string name="a11y_player_state_playing">Playing</string>
+    <string name="a11y_player_state_paused">Paused</string>
+    <!-- Issue #381: the third play/pause state — stream resolution
+         (isBuffering) is no longer voiced as the stale «Paused». -->
+    <string name="a11y_player_state_loading">Loading</string>
+
+    <string name="a11y_player_tool_speed">Playback speed</string>
+    <string name="a11y_player_tool_timer">Sleep timer</string>
+    <string name="a11y_player_tool_bookmark">Add bookmark</string>
+    <string name="a11y_player_tool_chapters">Choose chapter</string>
+    <string name="a11y_player_speed_value">%1$s times</string>
+    <plurals name="a11y_player_timer_minutes">
+        <item quantity="one">%1$d minute</item>
+        <item quantity="other">%1$d minutes</item>
+    </plurals>
+    <string name="a11y_player_timer_end_of_chapter">until the end of the chapter</string>
+    <string name="a11y_player_timer_off">off</string>
+    <string name="player_tool_speed_label">Speed</string>
+    <string name="player_tool_timer_label">Timer</string>
+    <string name="player_tool_bookmark_label">Bookmark</string>
+    <string name="player_tool_chapters_label">Chapters</string>
+    <string name="player_speed_value">%1$s×</string>
+    <string name="player_timer_minutes_value">%1$d min</string>
+    <string name="player_timer_end_value">End of chapter</string>
+
+    <string name="a11y_player_chapter_position">Position in the current chapter</string>
+    <string name="a11y_player_book_position">Position in the book</string>
+    <string name="a11y_player_time_of">%1$s of %2$s</string>
+    <string name="a11y_player_duration_unknown">Duration unknown</string>
+
+    <string name="a11y_player_error_title">Book unavailable</string>
+    <string name="a11y_player_retry">Retry playing %1$s</string>
+
+    <!-- Issue #381: player error texts are voiced in the UI language.
+         The UNAVAILABLE category keeps the word «unavailable» in the text —
+         the card title shows no detail; TRANSIENT (stream/timeout/prepare
+         exception) shows the detail with the technical code in brackets. -->
+    <string name="a11y_player_error_stream">Stream playback error (%1$s)</string>
+    <string name="a11y_player_error_timeout">Stream timed out (%1$d s)</string>
+    <string name="a11y_player_error_prepare_exception">Couldn\'t prepare the chapter (%1$s)</string>
+    <string name="a11y_player_error_heal_failed">The book is currently unavailable: the source file moved or is blocked, and it couldn\'t be refreshed.</string>
+    <string name="a11y_player_error_book_unavailable">The book is currently unavailable: no audio for this book was found at the source.</string>
+    <string name="a11y_player_error_resolve_failed">The book is currently unavailable: audio could not be fetched from YouTube.</string>
+
+    <string name="a11y_speed_pane">Playback speed</string>
+    <string name="a11y_speed_close">Close speed settings</string>
+    <string name="a11y_speed_preset">Speed %1$s times</string>
+    <string name="a11y_speed_exact">Exact playback speed</string>
+
+    <string name="a11y_timer_pane">Sleep timer</string>
+    <string name="a11y_timer_close">Close the sleep timer</string>
+    <string name="a11y_timer_extend">Add 15 minutes to the timer</string>
+    <string name="a11y_timer_fade_warning">Sleep timer: last 30 seconds. Add 15 minutes if needed.</string>
+    <string name="a11y_timer_extended">Added 15 minutes. %1$s remaining.</string>
+
+    <string name="a11y_chapter_pane">Chapter selection</string>
+    <string name="a11y_chapter_close">Close chapter selection</string>
+    <string name="a11y_chapter_option">%1$s. Duration %2$s.%3$s</string>
+    <string name="a11y_chapter_current"> Current chapter</string>
+
+    <string name="a11y_bookmark_pane">Add a bookmark</string>
+    <string name="a11y_player_bookmarks_pane">Book bookmarks</string>
+    <string name="a11y_player_bookmarks_close">Close book bookmarks</string>
+    <string name="a11y_player_bookmark_jump">Return to the bookmark at %1$s</string>
+    <string name="a11y_player_bookmark_delete">Delete the bookmark “%1$s” at %2$s</string>
+    <string name="a11y_cast_unavailable">Casting is unavailable for this book</string>
+    <string name="a11y_bookmark_close">Close adding a bookmark</string>
+    <string name="a11y_bookmark_context">Bookmark in chapter “%1$s” at position %2$s</string>
+</resources>

@@ -311,7 +311,7 @@ fun LibraryScreen(
                         onDismissRequest = { showOverflowMenu = false }
                     ) {
                         DropdownMenuItem(
-                            text = { Text("Завантаження та пам'ять") },
+                            text = { Text(stringResource(R.string.storage_title)) },
                             onClick = {
                                 showOverflowMenu = false
                                 viewModel.openStorageDestination()
@@ -322,7 +322,7 @@ fun LibraryScreen(
                         // ⚙️ Профіль lives in the same overflow (a rare
                         // surface, off the main screen, ADR-0018).
                         DropdownMenuItem(
-                            text = { Text("Профіль") },
+                            text = { Text(stringResource(R.string.profile_title)) },
                             onClick = {
                                 showOverflowMenu = false
                                 viewModel.openProfileSettings()
@@ -332,7 +332,7 @@ fun LibraryScreen(
                         // spec-38 T2 (#254): the network privacy route lives in
                         // the same overflow — a rare surface, off the main screen.
                         DropdownMenuItem(
-                            text = { Text("Приватність мережі") },
+                            text = { Text(stringResource(R.string.privacy_title)) },
                             onClick = {
                                 showOverflowMenu = false
                                 viewModel.openPrivacySettings()
@@ -340,7 +340,7 @@ fun LibraryScreen(
                             modifier = Modifier.testTag("library_privacy_menu_item")
                         )
                         DropdownMenuItem(
-                            text = { Text("Персональні рекомендації") },
+                            text = { Text(stringResource(R.string.recommendations_title)) },
                             onClick = {
                                 showOverflowMenu = false
                                 viewModel.openRecommendationSettings()
@@ -350,7 +350,7 @@ fun LibraryScreen(
                         // Spec-45 (#405) T6 (#494): the content-language
                         // preference — same rare-surface overflow (ADR-0018).
                         DropdownMenuItem(
-                            text = { Text("Мови контенту") },
+                            text = { Text(stringResource(R.string.content_languages_title)) },
                             onClick = {
                                 showOverflowMenu = false
                                 viewModel.openContentLanguages()
@@ -372,17 +372,17 @@ fun LibraryScreen(
                 Tab(
                     selected = activeTab == 0,
                     onClick = { activeTab = 0 },
-                    text = { Text("Книги (${libraryBooks.size})", fontWeight = FontWeight.Bold) }
+                    text = { Text(stringResource(R.string.lib_books_count, libraryBooks.size), fontWeight = FontWeight.Bold) }
                 )
                 Tab(
                     selected = activeTab == 1,
                     onClick = { activeTab = 1 },
-                    text = { Text("Закладки (${allBookmarks.size})", fontWeight = FontWeight.Bold) }
+                    text = { Text(stringResource(R.string.lib_bookmarks_count, allBookmarks.size), fontWeight = FontWeight.Bold) }
                 )
                 Tab(
                     selected = activeTab == 2,
                     onClick = { activeTab = 2 },
-                    text = { Text("Статистика", fontWeight = FontWeight.Bold) }
+                    text = { Text(stringResource(R.string.lib_statistics), fontWeight = FontWeight.Bold) }
                 )
             }
 
@@ -396,7 +396,7 @@ fun LibraryScreen(
                         .padding(horizontal = 16.dp, vertical = 8.dp)
                         .testTag("library_search"),
                     label = { Text(stringResource(com.slukhayka.audiobooks.R.string.a11y_library_search)) },
-                    placeholder = { Text("Назва, автор або серія") },
+                    placeholder = { Text(stringResource(R.string.lib_search_placeholder)) },
                     leadingIcon = { Icon(imageVector = Icons.Default.Search, contentDescription = null) },
                     trailingIcon = if (query.isNotEmpty()) {
                         {
@@ -623,7 +623,7 @@ fun LibraryEmptyState(
                 .heightIn(min = 48.dp)
                 .testTag("library_empty_import")
         ) {
-            Text("Додати свої файли")
+            Text(stringResource(R.string.lib_add_own_files))
         }
         Spacer(modifier = Modifier.height(8.dp))
         OutlinedButton(
@@ -633,7 +633,7 @@ fun LibraryEmptyState(
                 .heightIn(min = 48.dp)
                 .testTag("library_empty_browse")
         ) {
-            Text("Знайти книгу")
+            Text(stringResource(R.string.lib_find_book))
         }
     }
 }
@@ -1229,10 +1229,10 @@ fun ImportPreviewDialog(
                                 )
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     TextButton(onClick = { onAcceptMerge(book.id) }) {
-                                        Text("З'єднати")
+                                        Text(stringResource(R.string.lib_import_connect))
                                     }
                                     TextButton(onClick = { onRejectMerge(book.id) }) {
-                                        Text("Не це")
+                                        Text(stringResource(R.string.lib_import_not_this))
                                     }
                                 }
                             } else if (book.mergedIntoBookId != null) {
@@ -1268,7 +1268,7 @@ fun ImportPreviewDialog(
                 onClick = onDismiss,
                 modifier = Modifier.heightIn(min = 48.dp)
             ) {
-                Text("Скасувати")
+                Text(stringResource(R.string.action_cancel))
             }
         }
     )

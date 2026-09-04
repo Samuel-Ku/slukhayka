@@ -106,7 +106,7 @@ fun Top100Screen(
                             OutlinedButton(
                                 onClick = { viewModel.openTop100InBrowser() },
                                 modifier = Modifier.testTag("top100_open_browser")
-                            ) { Text("Відкрити рейтинг у 4read") }
+                            ) { Text(stringResource(R.string.top100_open_chart)) }
                         }
                     }
                 }

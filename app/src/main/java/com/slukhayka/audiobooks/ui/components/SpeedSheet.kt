@@ -191,13 +191,13 @@ fun SpeedSheet(
                     onClick = onSetDefault,
                     modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
                 ) {
-                    Text("Стандарт для всіх")
+                    Text(stringResource(R.string.speed_default_for_all))
                 }
                 Button(
                     onClick = onSaveForBook,
                     modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
                 ) {
-                    Text("Запам'ятати для цієї книги")
+                    Text(stringResource(R.string.speed_remember_for_book))
                 }
             }
         }

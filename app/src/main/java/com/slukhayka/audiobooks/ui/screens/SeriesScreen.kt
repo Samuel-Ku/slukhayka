@@ -102,7 +102,7 @@ fun SeriesScreen(
                             OutlinedButton(
                                 onClick = { viewModel.openSeriesInBrowser() },
                                 modifier = Modifier.testTag("series_open_browser")
-                            ) { Text("Відкрити цикл у 4read") }
+                            ) { Text(stringResource(R.string.bookdetail_open_cycle)) }
                         }
                     }
                 }
@@ -206,14 +206,14 @@ fun SeriesUniverseHeader(
                 context.precedes?.let { ref ->
                     AssistChip(
                         onClick = { onOpenSeries(ref) },
-                        label = { Text("Передує: «${ref.title}»") },
+                        label = { Text(stringResource(R.string.bookdetail_precedes, ref.title)) },
                         modifier = Modifier.heightIn(min = 48.dp)
                     )
                 }
                 context.follows?.let { ref ->
                     AssistChip(
                         onClick = { onOpenSeries(ref) },
-                        label = { Text("Продовжує: «${ref.title}»") },
+                        label = { Text(stringResource(R.string.bookdetail_continues, ref.title)) },
                         modifier = Modifier.heightIn(min = 48.dp)
                     )
                 }

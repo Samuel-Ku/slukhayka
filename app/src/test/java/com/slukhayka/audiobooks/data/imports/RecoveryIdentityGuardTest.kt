@@ -27,4 +27,9 @@ class RecoveryIdentityGuardTest {
         assertFalse(RecoveryIdentityGuard.matches("Книга", "Автор", "Читець", "uk", listOf("1", "2"), detail()))
         assertTrue(RecoveryIdentityGuard.matches("Книга", "Автор", "Читець", "uk", listOf("1", "2"), detail(), capturedLanguage = "uk"))
     }
+
+    @Test fun `legacy catalogue narrator is absent rather than another narration`() {
+        assertTrue(RecoveryIdentityGuard.matches("Книга", "Автор", "4read Voice Narrator", "", listOf("1", "2"), detail()))
+        assertFalse(RecoveryIdentityGuard.matches("Книга", "Автор", "Інший читець", "", listOf("1", "2"), detail()))
+    }
 }

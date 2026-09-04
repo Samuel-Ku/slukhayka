@@ -114,7 +114,8 @@ data class SearchCacheEntry(
  * ```
  * fetchedAt: Long                   (provenance — when the result was fetched)
  * results:   [ { title, author, narrator, mergeKey, coverImageUrl?,
- *                durationSeconds?, sources: [ {sourceId, sourceName, url} ] } ]
+ *                durationSeconds?, sources: [ {sourceId, sourceName, url,
+ *                                              editionId?, language?} ] } ]
  * ```
  *
  * [toMap] is the WRITE-path sanitation (spec-33 T3 #228): a card without a
@@ -189,6 +190,10 @@ object SearchResultCodec {
                         put("sourceName", source.sourceName)
                         put("url", source.url)
                         if (source.editionId.isNotBlank()) put("editionId", source.editionId)
+                        // Spec-45 (#405) R5 (#512): the member's content
+                        // language rides the source so a cached mixed card
+                        // keeps re-filtering under any selection.
+                        if (source.language.isNotBlank()) put("language", source.language)
                     }
                 }
         ) + optionalFields(result)
@@ -235,7 +240,10 @@ object SearchResultCodec {
             sourceId = sourceId,
             sourceName = map["sourceName"] as? String ?: "",
             url = url,
-            editionId = map["editionId"] as? String ?: ""
+            editionId = map["editionId"] as? String ?: "",
+            // Old documents carry no per-source language — it decodes to ""
+            // (unknown), which no selection ever hides (US17).
+            language = map["language"] as? String ?: ""
         )
     }
 }

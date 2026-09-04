@@ -16,6 +16,11 @@ import org.junit.Test
  *   `"pride and prejudice"` over collection:librivoxaudio (8 docs)
  * - `librivox-archive-new.json` — archive.org advanced-search sorted by
  *   addeddate desc (8 docs)
+ * - `librivox-archive-metadata-escaped.json` — crafted archive metadata whose
+ *   chapter titles carry escaped quotes, braces, a backslash and a `\uXXXX`
+ *   escape (R2 #509 regression), and whose description has no narrator claim
+ * - `librivox-api-feed-escaped.json` — crafted API feed with an escaped
+ *   quote/brace title plus a German record (R2 #509 regression)
  */
 class LibriVoxAdapterTest {
 
@@ -189,6 +194,88 @@ class LibriVoxAdapterTest {
         assertEquals(1, sources.size)
         assertEquals("librivox", sources.single().sourceId)
         assertEquals("LibriVox", sources.single().sourceName)
+    }
+
+    @Test
+    fun `fetchBookPage decodes escaped quotes braces and unicode escapes in chapter titles`() = runBlocking {
+        val adapter = LibriVoxAdapter(
+            FakeFetcher(fallback = fixture("librivox-archive-metadata-escaped.json"))
+        )
+
+        val detail = adapter.fetchBookPage("https://archive.org/details/escaped_0000_librivox")
+
+        // R2 (#509): an escaped quote before a brace in a title must never
+        // end the object early — all three VBR chapters survive, the 128Kbps
+        // duplicate and the cover never become chapters.
+        assertEquals(3, detail.chapters.size)
+        assertEquals("01 - Chapter with \"quoted\" {braces} inside", detail.chapters[0].title)
+        assertEquals("02 - Backslash \\ path and \u2665 heart", detail.chapters[1].title)
+        assertEquals("03 - No track number, ordered by name", detail.chapters[2].title)
+        assertEquals(
+            "https://archive.org/download/escaped_0000_librivox/escaped_02_test.mp3",
+            detail.chapters[1].streamUrl
+        )
+        assertEquals(330L, detail.chapters[0].durationSeconds)
+        assertEquals("escaped_0000_librivox", detail.coverImageUrl!!.substringAfter("download/").substringBefore('/'))
+    }
+
+    @Test
+    fun `fetchCatalog parses escaped titles without truncating records`() = runBlocking {
+        val adapter = LibriVoxAdapter(
+            FakeFetcher(
+                mapOf(
+                    "https://librivox.org/api/feed/audiobooks/?format=json&limit=5&offset=0" to
+                        fixture("librivox-api-feed-escaped.json")
+                )
+            )
+        )
+
+        val cards = adapter.fetchCatalog(5)
+
+        // The escaped-quote-brace record survives whole; the German one drops.
+        assertEquals(1, cards.size)
+        assertEquals("A \"Quoted\" {Title} with braces", cards.single().title)
+        assertEquals("Quoted Author", cards.single().author)
+        assertEquals(36000L, cards.single().totalDurationSeconds)
+        assertEquals("en", cards.single().language)
+    }
+
+    @Test
+    fun `fetchBookPage extracts the confirmed narrator from the LibriVox description`() = runBlocking {
+        val adapter = LibriVoxAdapter(
+            FakeFetcher(fallback = fixture("librivox-archive-metadata-socialism.json"))
+        )
+
+        val detail = adapter.fetchBookPage("https://archive.org/details/socialism_2609_librivox")
+
+        // R3 (#510): the standard "Read in English by <name>" phrase is the
+        // confirmed claim — the fixture names Ted Lienhart.
+        assertEquals("Ted Lienhart", detail.narrator)
+    }
+
+    @Test
+    fun `fetchBookPage leaves the narrator empty when no reliable claim exists`() = runBlocking {
+        val adapter = LibriVoxAdapter(
+            FakeFetcher(fallback = fixture("librivox-archive-metadata-escaped.json"))
+        )
+
+        val detail = adapter.fetchBookPage("https://archive.org/details/escaped_0000_librivox")
+
+        // No narrator phrase in the description: no name, and the author's
+        // text must never become the narrator.
+        assertEquals("", detail.narrator)
+        assertTrue(detail.chapters.isNotEmpty())
+    }
+
+    @Test
+    fun `corrupted json degrades to empty without fabricated tracks`() = runBlocking {
+        val corrupted = "{\"books\":[{\"title\":\"truncated\""
+        val adapter = LibriVoxAdapter(FakeFetcher(fallback = corrupted))
+
+        assertTrue(adapter.fetchCatalog(5).isEmpty())
+        assertTrue(adapter.search("anything").isEmpty())
+        val page = adapter.fetchBookPage("https://archive.org/details/socialism_2609_librivox")
+        assertTrue(page.chapters.isEmpty())
     }
 
     @Test

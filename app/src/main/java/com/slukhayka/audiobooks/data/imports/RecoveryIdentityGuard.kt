@@ -1,6 +1,7 @@
 package com.slukhayka.audiobooks.data.imports
 
 import com.slukhayka.audiobooks.data.merge.MergeKey
+import com.slukhayka.audiobooks.data.metadata.MetadataAssertions
 import com.slukhayka.audiobooks.data.source.SourceBookDetail
 
 /**
@@ -21,8 +22,12 @@ internal object RecoveryIdentityGuard {
         capturedLanguage: String = ""
     ): Boolean {
         if (MergeKey.keyFor(storedTitle, storedAuthor) != MergeKey.keyFor(captured.title, captured.author)) return false
-        if (storedNarrator.isNotBlank() && captured.narrator.isNotBlank() &&
-            !storedNarrator.trim().equals(captured.narrator.trim(), ignoreCase = true)
+        // Legacy catalogue rows may predate the write-time brand scrub.
+        // A placeholder is an absent claim, never evidence of another voice.
+        val knownNarrator = MetadataAssertions.normalizeClaimedText(storedNarrator)
+        val capturedNarrator = MetadataAssertions.normalizeClaimedText(captured.narrator)
+        if (knownNarrator != null && capturedNarrator != null &&
+            !knownNarrator.equals(capturedNarrator, ignoreCase = true)
         ) return false
         // A source which declares a language must prove the captured page has
         // the same one.  4read currently leaves it blank, so legacy blank rows

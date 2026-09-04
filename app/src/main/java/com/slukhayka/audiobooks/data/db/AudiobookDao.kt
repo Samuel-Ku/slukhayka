@@ -527,14 +527,15 @@ interface AudiobookDao {
           AND (:authorActive = 0 OR EXISTS (SELECT 1 FROM work_facets wf WHERE wf.workId=w.id AND wf.canonicalAuthorId IN (:authorIds)))
           AND (
               :langActive = 0
-              -- Spec-45 (#405) T4 (#492): a Work is hidden only when it has at
-              -- least one KNOWN language signal and none of them is selected.
-              -- Unknown signals ("" / no row) are neutral — they never hide a
-              -- Work and never match one (US17).
-              OR (
-                  NOT EXISTS (SELECT 1 FROM edition_facets ef WHERE ef.workId=w.id AND ef.language IS NOT NULL AND ef.language != '')
-                  AND NOT EXISTS (SELECT 1 FROM editions e JOIN library_entries le ON le.id=e.workId WHERE le.workId=w.id AND e.language IS NOT NULL AND e.language != '')
-              )
+              -- Spec-45 (#405) R4 (#511): a Work is hidden only when it has
+              -- KNOWN language signals, none of them is selected, AND no
+              -- unknown-language signal either. Unknown signals ("" / no row)
+              -- are neutral but never hide a Work (US17): a Work with an en
+              -- Edition and a language-less Edition stays visible under a
+              -- uk-only selection. The ORs inside this dimension compose with
+              -- AND against the genre/duration/author dimensions above.
+              OR EXISTS (SELECT 1 FROM edition_facets ef WHERE ef.workId=w.id AND (ef.language IS NULL OR ef.language = ''))
+              OR EXISTS (SELECT 1 FROM editions e JOIN library_entries le ON le.id=e.workId WHERE le.workId=w.id AND (e.language IS NULL OR e.language = ''))
               OR EXISTS (SELECT 1 FROM edition_facets ef WHERE ef.workId=w.id AND ef.language IN (:languages))
               OR EXISTS (SELECT 1 FROM editions e JOIN library_entries le ON le.id=e.workId WHERE le.workId=w.id AND e.language IN (:languages))
           )
@@ -579,14 +580,15 @@ interface AudiobookDao {
           AND (:authorActive = 0 OR EXISTS (SELECT 1 FROM work_facets wf WHERE wf.workId=w.id AND wf.canonicalAuthorId IN (:authorIds)))
           AND (
               :langActive = 0
-              -- Spec-45 (#405) T4 (#492): a Work is hidden only when it has at
-              -- least one KNOWN language signal and none of them is selected.
-              -- Unknown signals ("" / no row) are neutral — they never hide a
-              -- Work and never match one (US17).
-              OR (
-                  NOT EXISTS (SELECT 1 FROM edition_facets ef WHERE ef.workId=w.id AND ef.language IS NOT NULL AND ef.language != '')
-                  AND NOT EXISTS (SELECT 1 FROM editions e JOIN library_entries le ON le.id=e.workId WHERE le.workId=w.id AND e.language IS NOT NULL AND e.language != '')
-              )
+              -- Spec-45 (#405) R4 (#511): a Work is hidden only when it has
+              -- KNOWN language signals, none of them is selected, AND no
+              -- unknown-language signal either. Unknown signals ("" / no row)
+              -- are neutral but never hide a Work (US17): a Work with an en
+              -- Edition and a language-less Edition stays visible under a
+              -- uk-only selection. The ORs inside this dimension compose with
+              -- AND against the genre/duration/author dimensions above.
+              OR EXISTS (SELECT 1 FROM edition_facets ef WHERE ef.workId=w.id AND (ef.language IS NULL OR ef.language = ''))
+              OR EXISTS (SELECT 1 FROM editions e JOIN library_entries le ON le.id=e.workId WHERE le.workId=w.id AND (e.language IS NULL OR e.language = ''))
               OR EXISTS (SELECT 1 FROM edition_facets ef WHERE ef.workId=w.id AND ef.language IN (:languages))
               OR EXISTS (SELECT 1 FROM editions e JOIN library_entries le ON le.id=e.workId WHERE le.workId=w.id AND e.language IN (:languages))
           )

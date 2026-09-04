@@ -19,6 +19,9 @@ import com.slukhayka.audiobooks.data.db.SourceEntity
 import com.slukhayka.audiobooks.data.db.SourceTrackEntity
 import com.slukhayka.audiobooks.data.db.WorkEntity
 import com.slukhayka.audiobooks.data.db.WorkSourceEntity
+import com.slukhayka.audiobooks.data.facets.LocalFacetWriter
+import com.slukhayka.audiobooks.data.facets.RoomLocalFacetWriter
+import com.slukhayka.audiobooks.data.facets.applyEditionFacet
 import com.slukhayka.audiobooks.data.merge.MergeKey
 import com.slukhayka.audiobooks.data.metadata.BookProfile
 import com.slukhayka.audiobooks.data.metadata.BookProfileLimits
@@ -84,6 +87,31 @@ class LibraryImport(
 ) {
     private val authorIndex: AuthorIndex = RoomAuthorIndex(dao)
 
+    // Spec-45 (#405) R1 (#508): the shared facet-projection seam — the SAME
+    // writer SourceCatalog and the shared delta lane use, so an Edition's
+    // content language (and the rest of its projection) lands in
+    // edition_facets the moment the Edition row is written.
+    private val facetWriter: LocalFacetWriter = RoomLocalFacetWriter(dao)
+
+    /**
+     * Writes the edition_facets projection of an Edition just inserted by an
+     * import/cataloguing write (R1 #508) — one shared helper (the same seam
+     * SourceCatalog and the shared delta lane use).
+     */
+    private suspend fun writeEditionFacet(
+        editionId: String,
+        domainWorkId: String,
+        narrator: String,
+        language: String,
+        chapterCount: Int
+    ) = facetWriter.applyEditionFacet(
+        editionId = editionId,
+        domainWorkId = domainWorkId,
+        narrator = narrator,
+        language = language,
+        chapterCount = chapterCount
+    )
+
     // ---------------------------------------------------------------------
     // Door 1 + 2 core: the shared import path (explicit + captured pages)
     // ---------------------------------------------------------------------
@@ -111,19 +139,29 @@ class LibraryImport(
             // narrator is an Edition property, never part of the Work.
             val mergeKey = MergeKey.keyFor(detail.title, detail.author)
             val narrator = MetadataAssertions.normalizeClaimedText(detail.narrator) ?: "$sourceId narrator"
+            // Spec-45 (#405) — the rendition's content language: a per-book
+            // claim on the detail wins; otherwise the source declares its
+            // catalogue language (one owner per source). Empty = unknown.
+            val contentLanguage = detail.language.ifBlank {
+                sourceAdapters.firstOrNull { it.sourceId == sourceId }?.contentLanguage.orEmpty()
+            }
             // ADR-0011: the Edition id is the rendition identity and is
             // deterministic for mergeable books (the bookId fallback applies
             // only to blank keys), so the same narration resolves to its card
             // and a different narration of the same Work resolves to nothing.
             val existing = if (mergeKey.isNotBlank()) {
-                dao.findBookByEditionId(EditionId.forBook(mergeKey, "", narrator, ""))
+                // Spec-45 (#405) — books imported before the language facet
+                // were written with ""-language ids; a legacy lookup keeps a
+                // re-import from duplicating the card.
+                dao.findBookByEditionId(EditionId.forBook(mergeKey, "", narrator, contentLanguage))
+                    ?: dao.findBookByEditionId(EditionId.forBook(mergeKey, "", narrator, ""))
             } else {
                 null
             }
             val bookId = existing?.id ?: adapterBookId(sourceId, detail.url)
             // The canonical Edition id the stored rows use (the same formula
             // as the Edition insert below) — the shared profile is keyed by it.
-            val editionId = EditionId.forBook(mergeKey, bookId, narrator)
+            val editionId = EditionId.forBook(mergeKey, bookId, narrator, contentLanguage)
 
             // Spec-32 T2 (#232): a resolved page contributes its full profile
             // to the shared base, best-effort — the next listener skips the
@@ -221,16 +259,29 @@ class LibraryImport(
                     runCatching { onWorkImported?.invoke(workId) }
                 }
                 // ADR-0010: the Edition id carries the narrator — two
-                // narrations of the same Work keep distinct listening state.
-                val editionId = EditionId.forBook(mergeKey, bookId, book.narrator)
+                // narrations of the same Work keep distinct listening state;
+                // spec-45 (#405) adds the content language the same way, so an
+                // en and a uk rendition of one Work are two Editions.
+                val editionId = EditionId.forBook(mergeKey, bookId, book.narrator, contentLanguage)
                 dao.insertEdition(
                     EditionEntity(
                         id = editionId,
                         workId = bookId,
                         narrator = book.narrator,
+                        language = contentLanguage,
                         totalChapters = detail.chapters.size,
                         totalDurationSeconds = book.totalDurationSeconds
                     )
+                )
+                // R1 (#508): the Edition's facet projection (language +
+                // narrator) lands in the same transactional write seam the
+                // shared lane and the catalogue use.
+                writeEditionFacet(
+                    editionId = editionId,
+                    domainWorkId = workId,
+                    narrator = book.narrator,
+                    language = contentLanguage,
+                    chapterCount = detail.chapters.size
                 )
                 val materialized = MetadataAssertions.materializeChaptersAndTracks(
                     editionId = editionId,
@@ -259,16 +310,30 @@ class LibraryImport(
                 val known = dao.getSourcesForBookSync(existing.id).any { it.url == detail.url }
                 if (!known) {
                     val storedEdition = dao.getEditionForWork(existing.id)
-                    val editionId = storedEdition?.id ?: EditionId.forBook(mergeKey, existing.id, existing.narrator)
+                    val editionId = storedEdition?.id ?: EditionId.forBook(mergeKey, existing.id, existing.narrator, contentLanguage)
                     if (storedEdition == null) {
                         dao.insertEdition(
                             EditionEntity(
                                 id = editionId,
                                 workId = existing.id,
                                 narrator = existing.narrator,
+                                language = contentLanguage,
                                 totalChapters = existing.totalChapters,
                                 totalDurationSeconds = existing.totalDurationSeconds
                             )
+                        )
+                        // R1 (#508): the Edition's facet projection — the
+                        // domain Work id anchors the facet row (the same
+                        // anchor the feed and the shared sync read).
+                        val domainWorkId = existing.workId
+                            ?.takeIf { it.isNotBlank() }
+                            ?: existing.id
+                        writeEditionFacet(
+                            editionId = editionId,
+                            domainWorkId = domainWorkId,
+                            narrator = existing.narrator,
+                            language = contentLanguage,
+                            chapterCount = existing.totalChapters
                         )
                     }
                     val source = sourceRow(sourceId, existing.id, editionId, detail.url)

@@ -23,6 +23,9 @@ class FourReadAdapter(
     }
 ) : SourceAdapter {
 
+    /** Spec-45 (#405) — the catalogue speaks Ukrainian. */
+    override val contentLanguage = "uk"
+
     override val sourceId: String = "4read"
     override val accessMode: SourceAccessMode = SourceAccessMode.BROWSER
 

@@ -29,7 +29,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Language
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.facets.ContentLanguagePrefs
-import com.slukhayka.audiobooks.ui.MainViewModel
 
 /**
  * Spec-45 (#405) T6 (#494) — the «Мови контенту» destination: one checkbox
@@ -39,20 +38,25 @@ import com.slukhayka.audiobooks.ui.MainViewModel
  * chip writes the identical preference (US7/US8). "Both off" is impossible:
  * the last checked language cannot be unchecked (the store enforces the same
  * invariant on any direct write).
+ *
+ * Spec-45 (#405) R6 (#513): the screen receives the PREFERENCE MODULE itself
+ * (ADR-0008 — screens read module flows and call module actions directly;
+ * no ViewModel forwarders). Navigation to the destination stays in the
+ * ViewModel ([MainViewModel.contentLanguagesOpen]).
  */
 @Composable
 fun ContentLanguageScreen(
-    viewModel: MainViewModel,
+    prefs: ContentLanguagePrefs,
     onBackClick: () -> Unit
 ) {
-    val contentLanguages by viewModel.contentLanguages.collectAsState()
+    val contentLanguages by prefs.languages.collectAsState()
 
     fun toggle(language: String, checked: Boolean) {
         val current = contentLanguages
         val next = if (checked) current + language else current - language
         // Guard against the impossible state rather than letting the store
         // snap both back on underneath a one-checkbox-off click.
-        if (next.isNotEmpty()) viewModel.setContentLanguages(next)
+        if (next.isNotEmpty()) prefs.setLanguages(next)
     }
 
     SettingsDestinationScaffold(

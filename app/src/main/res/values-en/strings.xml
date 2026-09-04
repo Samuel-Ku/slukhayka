@@ -1,0 +1,87 @@
+<resources>
+    <string name="app_name">Слухайка</string>
+    <string name="nav_listen">Listen</string>
+    <string name="nav_explore">Explore</string>
+    <string name="nav_library">Library</string>
+    <string name="pane_player">Player</string>
+    <string name="empty_tag"></string>
+    <!-- Spec-45 (#405): Material3 overrides voiced in the UI language. -->
+    <string name="m3c_bottom_sheet_collapse_description">Collapse sheet</string>
+    <string name="m3c_bottom_sheet_dismiss_description">Close sheet</string>
+    <string name="m3c_bottom_sheet_drag_handle_description">Drag handle</string>
+    <string name="m3c_bottom_sheet_expand_description">Expand sheet</string>
+    <string name="m3c_bottom_sheet_pane_title">Sheet</string>
+    <!-- #393 — Download notification -->
+    <string name="download_notification_channel_name">Downloads</string>
+    <string name="download_notification_channel_description">Audiobook download progress</string>
+    <string name="download_notification_title">Downloading: %1$s</string>
+    <string name="download_notification_chapters">Chapter %1$d/%2$d</string>
+    <string name="download_notification_size">%1$s%2$d / %3$d MB (%4$d%%)</string>
+    <string name="download_notification_preparing">Preparing…</string>
+    <!-- #392 — Book detail size display -->
+    <string name="book_detail_size_format">%1$d MB</string>
+    <string name="book_detail_size_approximate">~%1$d MB</string>
+    <string name="book_detail_size_unknown">unknown</string>
+    <string name="book_detail_download_progress">%1$d/%2$d • %3$d / %4$d MB (%5$d%%)</string>
+    <!-- #394 — Download controls -->
+    <string name="download_notification_paused">Paused</string>
+    <string name="download_action_pause">Pause</string>
+    <string name="download_action_continue">Continue</string>
+    <string name="download_action_cancel">Cancel</string>
+    <!-- #433 — the browser-required badge in the book page's «Джерела» block -->
+    <string name="book_detail_browser_needed">Browser required</string>
+    <!-- Spec-45 (#405) T10 (#498): visible UI literals (English). -->
+    <string name="home_search_placeholder">Search for a book or author…</string>
+    <string name="home_not_recommend">Don\'t recommend…</string>
+    <string name="home_import_file">Import file</string>
+    <string name="feed_sort_newest">Newest first</string>
+    <string name="feed_sort_title">By title</string>
+    <string name="feed_filters">Filters</string>
+    <string name="feed_all_genres">All genres</string>
+    <string name="feed_reset_all">Reset all</string>
+    <string name="feed_done">Done</string>
+    <string name="lib_books_count">Books (%1$d)</string>
+    <string name="lib_bookmarks_count">Bookmarks (%1$d)</string>
+    <string name="lib_statistics">Statistics</string>
+    <string name="lib_search_placeholder">Title, author, or series</string>
+    <string name="lib_add_own_files">Add your own files</string>
+    <string name="lib_find_book">Find a book</string>
+    <string name="lib_import_connect">Connect</string>
+    <string name="lib_import_not_this">Not this</string>
+    <string name="browser_fix_structure">Fix book structure</string>
+    <string name="browser_clear_session">Clear session %1$s</string>
+    <string name="browser_clear_session_question">Clear session %1$s?</string>
+    <string name="browser_clear_session_consequence">You will need to sign in or verify again for this source only. Other sources\' sessions stay.</string>
+    <string name="browser_fix_structure_question">Fix book structure?</string>
+    <string name="browser_fix">Fix</string>
+    <string name="browser_address_hint">Enter an address…</string>
+    <string name="browser_got_it">Got it</string>
+    <string name="browser_in_browser">In browser</string>
+    <string name="browser_refresh">Refresh</string>
+    <string name="player_return_to">Return to %1$s</string>
+    <string name="listen_book">Book</string>
+    <string name="listen_chapter">Chapter</string>
+    <string name="listen_note_optional">Note (optional)</string>
+    <string name="profile_unhide_blocks">Restore hidden blocks</string>
+    <string name="profile_move_up">Move up</string>
+    <string name="profile_move_down">Move down</string>
+    <string name="profile_hide_block">Hide this block</string>
+    <string name="profile_view_catalogue">View catalogue</string>
+    <string name="profile_import_from_device">Import from device</string>
+    <string name="profile_nickname_label">How to show you</string>
+    <string name="profile_nickname_hint">Up to 40 characters. The profile exists without any sign-in.</string>
+    <string name="profile_save_nick">Save nickname</string>
+    <string name="profile_unmute">Unmute</string>
+    <string name="profile_write_review">Write a review</string>
+    <string name="bookdetail_wrong_universe">Wrong universe?</string>
+    <string name="bookdetail_open_cycle">Open the cycle in 4read</string>
+    <string name="bookdetail_precedes">Precedes: “%1$s”</string>
+    <string name="bookdetail_continues">Continues: “%1$s”</string>
+    <string name="feed_help_recommendations">Help recommendations get better?</string>
+    <string name="feed_more">Learn more</string>
+    <string name="update_hide">Hide</string>
+    <string name="speed_default_for_all">Default for all</string>
+    <string name="speed_remember_for_book">Remember for this book</string>
+    <string name="top100_open_chart">Open the chart in 4read</string>
+    <string name="author_all_found">All found authors</string>
+</resources>

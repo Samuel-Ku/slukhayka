@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="a11y_duration_unknown_value">unknown</string>
+    <string name="a11y_player_tool_state">%1$s: %2$s</string>
+    <string name="a11y_book_detail_open_site">Open “%1$s” on the website</string>
+    <string name="a11y_book_detail_open_sluhay">Open “%1$s” in Sluhay</string>
+    <string name="a11y_book_detail_delete_work">Delete “%1$s”</string>
+    <string name="a11y_book_detail_delete_options_pane">Deleting “%1$s”</string>
+    <string name="a11y_book_detail_delete_options_title">Delete “%1$s”</string>
+    <string name="a11y_book_detail_delete_options_hint">Choose what exactly to delete</string>
+    <string name="a11y_book_detail_remove_library">Remove “%1$s” from the library</string>
+    <string name="a11y_book_detail_remove_library_consequence">The book will disappear from the list; files on the device stay</string>
+    <string name="a11y_book_detail_delete_download">Delete the downloaded copy of “%1$s”</string>
+    <string name="a11y_book_detail_delete_download_consequence">The book stays in the library but without the offline copy</string>
+    <string name="a11y_book_detail_delete_everything">Delete “%1$s” and its files from the device</string>
+    <string name="a11y_book_detail_delete_everything_consequence">Completely deletes the book and audio files. This cannot be undone.</string>
+    <string name="a11y_book_detail_delete_confirm_pane">Confirm deleting “%1$s”</string>
+    <string name="a11y_book_detail_delete_confirm_title">Delete “%1$s”?</string>
+    <string name="a11y_book_detail_delete_confirm_consequence">“%1$s” will be deleted along with its chapters, bookmarks, progress, and downloaded files. This cannot be undone.</string>
+    <string name="a11y_library_clear_search">Clear search in the library</string>
+    <string name="a11y_library_filter_close">Close filter and sorting</string>
+    <string name="a11y_library_import_close">Close adding audio</string>
+    <string name="a11y_library_import_preview_pane">Import preview</string>
+    <string name="a11y_library_import_preview_title">Before importing</string>
+    <string name="a11y_work_feed_filter_pane">Catalogue filters</string>
+</resources>

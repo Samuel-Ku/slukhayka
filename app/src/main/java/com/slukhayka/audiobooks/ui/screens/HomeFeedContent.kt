@@ -249,18 +249,18 @@ fun LazyListScope.homeFeedContent(
         item(key = "recommendation_consent_card") {
             ElevatedCard(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
                 Column(Modifier.padding(16.dp)) {
-                    Text("Допомогти рекомендаціям ставати кращими?", style = MaterialTheme.typography.titleSmall)
+                    Text(stringResource(R.string.feed_help_recommendations), style = MaterialTheme.typography.titleSmall)
                     Text(
                         "Локальні рекомендації вже працюють приватно. За окремою згодою майбутнє спільне навчання використовуватиме лише тижневе оновлення п’яти ваг — без книг та історії.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                        TextButton(onClick = onDeclineRecommendationConsent) { Text("Не зараз") }
+                        TextButton(onClick = onDeclineRecommendationConsent) { Text(stringResource(R.string.recommendation_disclosure_decline)) }
                         TextButton(
                             onClick = onOpenRecommendationConsent,
                             modifier = recommendationDisclosureTriggerModifier
-                        ) { Text("Докладніше") }
+                        ) { Text(stringResource(R.string.feed_more)) }
                     }
                 }
             }

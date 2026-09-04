@@ -28,6 +28,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -520,7 +521,7 @@ fun WebSourceBrowserScreen(
                         }
                     )
                     if (structureMismatch != null) {
-                        TextButton(onClick = { showRepairConfirmation = true }) { Text("Виправити структуру книги") }
+                        TextButton(onClick = { showRepairConfirmation = true }) { Text(stringResource(R.string.browser_fix_structure)) }
                     }
                 }
                 if (blockedNavMessage.isNotBlank()) {
@@ -547,15 +548,15 @@ fun WebSourceBrowserScreen(
                     onClick = { showClearSessionConfirmation = true },
                     modifier = Modifier.align(Alignment.End)
                 ) {
-                    Text("Очистити сесію $displayName")
+                    Text(stringResource(R.string.browser_clear_session, displayName))
                 }
 
                 if (showClearSessionConfirmation) {
                     AlertDialog(
                         onDismissRequest = { showClearSessionConfirmation = false },
-                        title = { Text("Очистити сесію $displayName?") },
+                        title = { Text(stringResource(R.string.browser_clear_session_question, displayName)) },
                         text = {
-                            Text("Потрібно буде знову увійти або пройти перевірку лише для цього джерела. Сесії інших джерел залишаться.")
+                            Text(stringResource(R.string.browser_clear_session_consequence))
                         },
                         confirmButton = {
                             TextButton(onClick = {
@@ -563,10 +564,10 @@ fun WebSourceBrowserScreen(
                                 showClearSessionConfirmation = false
                                 webViewInstance?.clearHistory()
                                 webViewInstance?.loadUrl(homeUrl)
-                            }) { Text("Очистити") }
+                            }) { Text(stringResource(R.string.profile_source_session_clear_confirm)) }
                         },
                         dismissButton = {
-                            TextButton(onClick = { showClearSessionConfirmation = false }) { Text("Скасувати") }
+                            TextButton(onClick = { showClearSessionConfirmation = false }) { Text(stringResource(R.string.action_cancel)) }
                         }
                     )
                 }
@@ -575,7 +576,7 @@ fun WebSourceBrowserScreen(
                     val mismatch = requireNotNull(structureMismatch)
                     AlertDialog(
                         onDismissRequest = { showRepairConfirmation = false },
-                        title = { Text("Виправити структуру книги?") },
+                        title = { Text(stringResource(R.string.browser_fix_structure_question)) },
                         text = {
                             Text(
                                 "Розділів було ${mismatch.storedChapterCount}, стане ${mismatch.capturedChapterCount}. " +
@@ -602,10 +603,10 @@ fun WebSourceBrowserScreen(
                                     }
                                     isImporting = false
                                 }
-                            }) { Text("Виправити") }
+                            }) { Text(stringResource(R.string.browser_fix)) }
                         },
                         dismissButton = {
-                            TextButton(onClick = { showRepairConfirmation = false }) { Text("Скасувати") }
+                            TextButton(onClick = { showRepairConfirmation = false }) { Text(stringResource(R.string.action_cancel)) }
                         }
                     )
                 }
@@ -615,7 +616,7 @@ fun WebSourceBrowserScreen(
                 OutlinedTextField(
                     value = urlInput,
                     onValueChange = { urlInput = it },
-                    placeholder = { Text("Введіть адресу…") },
+                    placeholder = { Text(stringResource(R.string.browser_address_hint)) },
                     leadingIcon = {
                         Icon(
                             imageVector = Icons.Default.Link,
@@ -696,7 +697,7 @@ fun WebSourceBrowserScreen(
                         showMethodNotice = false
                         sessionPrefs.edit().putBoolean("4read_method_notice_seen", true).apply()
                     }) {
-                        Text("Зрозуміло")
+                        Text(stringResource(R.string.browser_got_it))
                     }
                 }
             }
@@ -1017,7 +1018,7 @@ fun WebSourceBrowserScreen(
                             ) {
                                 Icon(imageVector = Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(14.dp))
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text("В браузері", style = MaterialTheme.typography.labelMedium)
+                                Text(stringResource(R.string.browser_in_browser), style = MaterialTheme.typography.labelMedium)
                             }
                             OutlinedButton(
                                 onClick = {
@@ -1032,7 +1033,7 @@ fun WebSourceBrowserScreen(
                                 },
                                 shape = RoundedCornerShape(AppDimens.RadiusInner)
                             ) {
-                                Text("Оновити", style = MaterialTheme.typography.labelMedium)
+                                Text(stringResource(R.string.browser_refresh), style = MaterialTheme.typography.labelMedium)
                             }
                         }
                     }

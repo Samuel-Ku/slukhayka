@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.ui.res.stringResource
+import com.slukhayka.audiobooks.R
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Person
@@ -162,7 +164,7 @@ fun AuthorSearchResults(
         }
         if (authors.size > INLINE_AUTHOR_LIMIT) {
             TextButton(onClick = onShowAll, modifier = Modifier.padding(horizontal = 8.dp)) {
-                Text("Усі знайдені автори")
+                Text(stringResource(R.string.author_all_found))
             }
         }
     }

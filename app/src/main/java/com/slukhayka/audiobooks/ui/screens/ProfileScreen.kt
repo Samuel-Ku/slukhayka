@@ -174,9 +174,9 @@ fun ProfileScreen(
                     nicknameDraft = it
                     savedNotice = null
                 },
-                label = { Text("Як вас показувати") },
+                label = { Text(stringResource(R.string.profile_nickname_label)) },
                 supportingText = {
-                    Text("До 40 символів. Профіль існує без жодного входу.")
+                    Text(stringResource(R.string.profile_nickname_hint))
                 },
                 singleLine = true,
                 isError = nicknameDraft.isBlank(),
@@ -202,7 +202,7 @@ fun ProfileScreen(
                     .heightIn(min = 48.dp)
                     .testTag("profile_nickname_save")
             ) {
-                Text("Зберегти нік")
+                Text(stringResource(R.string.profile_save_nick))
             }
             if (savedNotice != null) {
                 Spacer(modifier = Modifier.height(8.dp))
@@ -255,7 +255,7 @@ fun ProfileScreen(
                                     contentDescription = unhideDescription
                                 }
                         ) {
-                            Text("Розмютити")
+                            Text(stringResource(R.string.profile_unmute))
                         }
                     }
                 }

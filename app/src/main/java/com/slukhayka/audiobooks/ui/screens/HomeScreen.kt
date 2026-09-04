@@ -766,7 +766,7 @@ fun HomeHeader(
                     value = searchQuery,
                     onValueChange = onSearchQueryChange,
                     label = { Text(searchFieldLabel) },
-                    placeholder = { Text("Пошук книги або автора...") },
+                    placeholder = { Text(stringResource(R.string.home_search_placeholder)) },
                     leadingIcon = {
                         Icon(
                             imageVector = Icons.Default.Search,
@@ -1146,7 +1146,7 @@ fun RecommendedBookCard(
                     }
                     DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
                         DropdownMenuItem(
-                            text = { Text("Не рекомендувати…") },
+                            text = { Text(stringResource(R.string.home_not_recommend)) },
                             onClick = {
                                 menuExpanded = false
                                 feedbackExpanded = true
@@ -1553,7 +1553,7 @@ fun EmptyCatalogState(
             ) {
                 Icon(imageVector = Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(modifier = Modifier.width(6.dp))
-                Text("Оновити каталог", fontWeight = FontWeight.Bold)
+                Text(stringResource(R.string.a11y_refresh_catalogue), fontWeight = FontWeight.Bold)
             }
             OutlinedButton(
                 onClick = onImportClick,
@@ -1562,7 +1562,7 @@ fun EmptyCatalogState(
             ) {
                 Icon(imageVector = Icons.Default.FileUpload, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
                 Spacer(modifier = Modifier.width(6.dp))
-                Text("Імпортувати файл", color = MaterialTheme.colorScheme.onSurface)
+                Text(stringResource(R.string.home_import_file), color = MaterialTheme.colorScheme.onSurface)
             }
         }
     }
@@ -1939,14 +1939,14 @@ fun WorkFeedFilters(
                     onDismissRequest = { sortExpanded = false }
                 ) {
                     DropdownMenuItem(
-                        text = { Text("Спочатку нові") },
+                        text = { Text(stringResource(R.string.feed_sort_newest)) },
                         onClick = {
                             if (sortByTitle) onSortChange(false)
                             sortExpanded = false
                         }
                     )
                     DropdownMenuItem(
-                        text = { Text("За назвою") },
+                        text = { Text(stringResource(R.string.feed_sort_title)) },
                         onClick = {
                             if (!sortByTitle) onSortChange(true)
                             sortExpanded = false
@@ -1959,7 +1959,7 @@ fun WorkFeedFilters(
                 onClick = {
                     if (onOpenFilters != null) onOpenFilters() else showFilterSheet = true
                 },
-                label = { Text("Фільтри") },
+                label = { Text(stringResource(R.string.feed_filters)) },
                 leadingIcon = {
                     Icon(
                         imageVector = Icons.Default.Tune,
@@ -2060,7 +2060,7 @@ fun WorkFeedFilterSheet(
                     FilterChip(
                         selected = selectedGenreIds.isEmpty(),
                         onClick = { onGenresChange(emptySet()) },
-                        label = { Text("Усі жанри") },
+                        label = { Text(stringResource(R.string.feed_all_genres)) },
                         modifier = Modifier
                             .heightIn(min = 48.dp)
                             .testTag("feed_genre_all")
@@ -2121,13 +2121,13 @@ fun WorkFeedFilterSheet(
                         modifier = Modifier
                             .heightIn(min = 48.dp)
                             .testTag("feed_filter_reset")
-                    ) { Text("Скинути все") }
+                    ) { Text(stringResource(R.string.feed_reset_all)) }
                     Button(
                         onClick = onDismiss,
                         modifier = Modifier
                             .heightIn(min = 48.dp)
                             .testTag("feed_filter_done")
-                    ) { Text("Готово") }
+                    ) { Text(stringResource(R.string.feed_done)) }
                 }
                 Spacer(modifier = Modifier.height(12.dp))
             }

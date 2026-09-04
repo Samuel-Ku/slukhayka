@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Spec-45 (#405) T6 (#494): the content-language preference surfaces —
+     the ⚙️ «Мови контенту» destination and the Огляд «Мова» chip (US6/8). -->
+<resources>
+    <string name="content_languages_title">Content languages</string>
+    <string name="content_languages_description">Show books only in the chosen narration languages. «All» means both Ukrainian and English. Books with an unknown language always stay visible.</string>
+    <string name="content_language_uk">Ukrainian</string>
+    <string name="content_language_en">English</string>
+    <string name="content_language_all">All</string>
+    <string name="content_language_chip_label">Language: %1$s</string>
+    <!-- Spec-45 (#405) T8 (#496): the one-time bilingual prompt (US9). -->
+    <string name="bilingual_prompt_title">English books</string>
+    <string name="bilingual_prompt_body">English audiobooks were found — keep or hide them?</string>
+    <string name="bilingual_prompt_keep">Keep</string>
+    <string name="bilingual_prompt_uk_only">Ukrainian only</string>
+</resources>

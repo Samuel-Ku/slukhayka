@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="crash_reports_prompt_title">Help with crashes</string>
+    <string name="crash_reports_prompt_body">I build Слухайка on my own. If you\'d like to help me make the app more stable, allow sending technical crash reports. They contain no book titles, source addresses, listening history, or profile data. You can always change the decision in Settings.</string>
+    <string name="crash_reports_allow">Send reports</string>
+    <string name="crash_reports_deny">Don\'t send</string>
+    <string name="crash_reports_setting_title">Send crash reports</string>
+    <string name="crash_reports_setting_description">Without book titles, source addresses, or listening history.</string>
+</resources>

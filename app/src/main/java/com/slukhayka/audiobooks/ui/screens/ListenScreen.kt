@@ -178,7 +178,7 @@ fun ListenScreen(
                 ) {
                     Icon(Icons.Default.SettingsBackupRestore, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Повернути приховані блоки")
+                    Text(stringResource(R.string.profile_unhide_blocks))
                 }
             }
         }
@@ -244,7 +244,7 @@ fun ListenBlockHeader(
             }
             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                 DropdownMenuItem(
-                    text = { Text("Перемістити вище") },
+                    text = { Text(stringResource(R.string.profile_move_up)) },
                     onClick = {
                         menuOpen = false
                         onMoveUp()
@@ -252,7 +252,7 @@ fun ListenBlockHeader(
                     leadingIcon = { Icon(Icons.Default.ArrowUpward, contentDescription = null) }
                 )
                 DropdownMenuItem(
-                    text = { Text("Перемістити нижче") },
+                    text = { Text(stringResource(R.string.profile_move_down)) },
                     onClick = {
                         menuOpen = false
                         onMoveDown()
@@ -261,7 +261,7 @@ fun ListenBlockHeader(
                 )
                 HorizontalDivider()
                 DropdownMenuItem(
-                    text = { Text("Сховати цей блок") },
+                    text = { Text(stringResource(R.string.profile_hide_block)) },
                     onClick = {
                         menuOpen = false
                         onHide()
@@ -569,7 +569,7 @@ fun ListenEmptyState(
         ) {
             Icon(imageVector = Icons.Default.Explore, contentDescription = null, modifier = Modifier.size(18.dp))
             Spacer(modifier = Modifier.width(8.dp))
-            Text("Переглянути каталог", fontWeight = FontWeight.Bold)
+            Text(stringResource(R.string.profile_view_catalogue), fontWeight = FontWeight.Bold)
         }
 
         Spacer(modifier = Modifier.height(10.dp))
@@ -589,7 +589,7 @@ fun ListenEmptyState(
                 modifier = Modifier.size(18.dp)
             )
             Spacer(modifier = Modifier.width(8.dp))
-            Text("Імпортувати з пристрою", color = MaterialTheme.colorScheme.onSurface)
+            Text(stringResource(R.string.profile_import_from_device), color = MaterialTheme.colorScheme.onSurface)
         }
     }
 }

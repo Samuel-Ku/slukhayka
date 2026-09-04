@@ -308,14 +308,14 @@ fun BookDetailScreen(
                     viewModel.deleteOwnNarrationRating(reviewsWorkId, editionId)
                     showNarrationRatingDeleteConfirm = false
                 }, modifier = Modifier.sizeIn(minHeight = 48.dp)) {
-                    Text("Видалити", color = MaterialTheme.colorScheme.error)
+                    Text(stringResource(R.string.action_delete), color = MaterialTheme.colorScheme.error)
                 }
             },
             dismissButton = {
                 TextButton(
                     onClick = { showNarrationRatingDeleteConfirm = false },
                     modifier = Modifier.sizeIn(minHeight = 48.dp)
-                ) { Text("Скасувати") }
+                ) { Text(stringResource(R.string.action_cancel)) }
             }
         )
     }
@@ -1056,7 +1056,7 @@ fun BookDetailScreen(
                                 },
                                 shape = RoundedCornerShape(AppDimens.RadiusCard)
                             ) {
-                                Text("Написати відгук")
+                                Text(stringResource(R.string.profile_write_review))
                             }
                         }
                     }
@@ -2464,7 +2464,7 @@ fun BookDetailCanonicalSummary(
                     contentPadding = PaddingValues(horizontal = 6.dp),
                     modifier = Modifier.testTag("book_detail_report_wrong_universe")
                 ) {
-                    Text("Всесвіт неправильний?", style = MaterialTheme.typography.labelSmall)
+                    Text(stringResource(R.string.bookdetail_wrong_universe), style = MaterialTheme.typography.labelSmall)
                 }
             }
         }

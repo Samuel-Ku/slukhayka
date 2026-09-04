@@ -10,6 +10,8 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.ui.res.stringResource
+import com.slukhayka.audiobooks.R
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -54,10 +56,10 @@ fun UpdateBanner(
                 )
             }
             TextButton(onClick = onDismiss) {
-                Text("Приховати")
+                Text(stringResource(R.string.update_hide))
             }
             TextButton(onClick = onDownload) {
-                Text("Завантажити")
+                Text(stringResource(R.string.book_detail_download_short))
             }
         }
     }

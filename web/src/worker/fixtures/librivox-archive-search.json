@@ -1,0 +1,38 @@
+{
+  "responseHeader": {
+    "status": 0,
+    "QTime": 49,
+    "params": {
+      "query": "collection:librivoxaudio AND language:eng",
+      "qin": "collection:librivoxaudio AND language:eng",
+      "fields": "identifier,title,creator,language",
+      "wt": "json",
+      "rows": 3,
+      "start": 0
+    }
+  },
+  "response": {
+    "numFound": 19046,
+    "start": 0,
+    "docs": [
+      {
+        "creator": "Henry Charles Lea",
+        "identifier": "inquisitionofspain4_1707_librivox",
+        "language": "eng",
+        "title": "History of the Inquisition of Spain, Vol. 4"
+      },
+      {
+        "creator": "Howard R. Garis",
+        "identifier": "jacko_and_jumpo_2007_librivox",
+        "language": "eng",
+        "title": "Jacko and Jumpo Kinkytail"
+      },
+      {
+        "creator": "David Cory",
+        "identifier": "jackrabbit_wickedwolf_2212_librivox",
+        "language": "eng",
+        "title": "Little Jack Rabbit and Mr. Wicked Wolf"
+      }
+    ]
+  }
+}

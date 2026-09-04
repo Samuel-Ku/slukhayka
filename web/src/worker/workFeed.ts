@@ -13,6 +13,7 @@ const SOURCE_PRIORITY: Record<SourceId, number> = {
   lihtar: 3,
   sluhay: 4,
   fourread: 5,
+  librivox: 6,
 }
 
 function isDirect(source: UnifiedSource): boolean {

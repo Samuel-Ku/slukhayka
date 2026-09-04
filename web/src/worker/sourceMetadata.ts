@@ -7,6 +7,7 @@ export const SOURCE_ORDER: readonly SourceId[] = [
   'sluhay',
   'audiobook-mp3',
   'lihtar',
+  'librivox',
 ]
 
 export const SOURCE_METADATA: Record<SourceId, {
@@ -27,6 +28,7 @@ export const SOURCE_METADATA: Record<SourceId, {
   sluhay: { label: 'Sluhay', homeUrl: 'https://sluhay.com', browserSessionRequired: false, contentLanguage: 'uk' },
   'audiobook-mp3': { label: 'Audio-MP3', homeUrl: 'https://audiobook-mp3.com', browserSessionRequired: false, contentLanguage: 'uk' },
   lihtar: { label: 'Lihtar', homeUrl: 'https://lihtar.in.ua', browserSessionRequired: false, contentLanguage: 'uk' },
+  librivox: { label: 'LibriVox', homeUrl: 'https://librivox.org', browserSessionRequired: false, contentLanguage: 'en' },
 }
 
 /** The content language a source's cards default to when a card carries none. */

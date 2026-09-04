@@ -1,0 +1,54 @@
+{
+  "books": [
+    {
+      "id": "99991",
+      "title": "Treasure Island",
+      "description": "Treasure Island is an adventure novel by Scottish author Robert Louis Stevenson.",
+      "url_text_source": "https://www.gutenberg.org/etext/120",
+      "language": "English",
+      "copyright_year": "1883",
+      "num_sections": "34",
+      "url_rss": "https://librivox.org/rss/99991",
+      "url_zip_file": "https://archive.org/compress/treasure_island_2212_librivox/formats=64KBPS MP3&file=/treasure_island_2212_librivox.zip",
+      "url_project": "",
+      "url_librivox": "https://librivox.org/treasure-island-by-robert-louis-stevenson/",
+      "url_other": "",
+      "totaltime": "7:03:10",
+      "totaltimesecs": 25390,
+      "authors": [
+        {
+          "id": "999",
+          "first_name": "Robert Louis",
+          "last_name": "Stevenson",
+          "dob": "1850",
+          "dod": "1894"
+        }
+      ]
+    },
+    {
+      "id": "99992",
+      "title": "Die Schatzinsel",
+      "description": "Die Schatzinsel ist ein Roman des schottischen Schriftstellers Robert Louis Stevenson.",
+      "url_text_source": "https://www.gutenberg.org/etext/120",
+      "language": "German",
+      "copyright_year": "1883",
+      "num_sections": "34",
+      "url_rss": "https://librivox.org/rss/99992",
+      "url_zip_file": "https://archive.org/compress/die_schatzinsel_2212_librivox/formats=64KBPS MP3&file=/die_schatzinsel_2212_librivox.zip",
+      "url_project": "",
+      "url_librivox": "https://librivox.org/die-schatzinsel-by-robert-louis-stevenson/",
+      "url_other": "",
+      "totaltime": "7:10:00",
+      "totaltimesecs": 25800,
+      "authors": [
+        {
+          "id": "998",
+          "first_name": "Robert Louis",
+          "last_name": "Stevenson",
+          "dob": "1850",
+          "dod": "1894"
+        }
+      ]
+    }
+  ]
+}

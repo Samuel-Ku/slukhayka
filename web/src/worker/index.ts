@@ -98,7 +98,7 @@ export default {
       const cursor = rawCursor ? decodeWorkFeedCursor(rawCursor) : null
       if (rawCursor && cursor === null) return fail('invalid work-feed cursor')
       const entries = Object.entries(REGISTRY).filter(([id]) => !requestedSource || id === requestedSource)
-      const currentPages = cursor?.pages ?? Object.fromEntries(entries.map(([id, entry]) => [id, entry.adapter.baseUrl]))
+      const currentPages = cursor?.pages ?? Object.fromEntries(entries.map(([id, entry]) => [id, entry.catalogUrl ?? entry.adapter.baseUrl]))
       const settled = await Promise.allSettled(entries.map(async ([id, entry]) => {
         const pageUrl = currentPages[id as SourceId]
         if (!pageUrl) return { sourceId: id as SourceId, cards: [] as CatalogCard[], nextPageUrl: undefined }

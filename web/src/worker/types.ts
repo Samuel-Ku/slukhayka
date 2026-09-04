@@ -12,7 +12,7 @@ import type { Document, AnyNode, Element } from 'domhandler'
 import { selectAll, selectOne } from 'css-select'
 import { getText, getAttributeValue } from 'domutils'
 
-export type SourceId = 'fourread' | 'sound-books' | 'audiobook-mp3' | 'lihtar' | 'sluhayua' | 'sluhay'
+export type SourceId = 'fourread' | 'sound-books' | 'audiobook-mp3' | 'lihtar' | 'sluhayua' | 'sluhay' | 'librivox'
 
 export interface CatalogCard {
   /** Stable page URL of this Work on its Source. */

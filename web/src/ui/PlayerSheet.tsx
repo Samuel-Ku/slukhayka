@@ -1,17 +1,19 @@
 import { useEffect, useState } from 'react'
 import type { AudioEngine } from '../player/audioEngine'
 import type { EngineState } from '../player/engine'
+import { useTranslate } from '../i18n/locale'
 
 export function PlayerSheet({ engine, onClose }: { engine: AudioEngine; onClose: () => void }) {
+  const t = useTranslate()
   const [state, setState] = useState<EngineState>(engine.getState())
   useEffect(() => engine.subscribe(setState), [engine])
 
   const isPlaying = state.status === 'playing'
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'var(--bg)', zIndex: 50, display: 'flex', flexDirection: 'column', padding: '16px' }}>
-      <button onClick={onClose} style={{ alignSelf: 'flex-start', background: 'none', border: 'none', color: 'var(--accent)', fontSize: 16 }}>✕ Закрити</button>
-      <h2 style={{ marginTop: 16 }}>{state.isCompleted ? 'Завершено' : `Розділ ${state.chapterIndex + 1}`}</h2>
-      <p style={{ color: 'var(--fg-dim)', fontSize: 14 }}>Позиція: {Math.floor(state.positionSeconds / 60)}:{String(Math.floor(state.positionSeconds % 60)).padStart(2, '0')}</p>
+      <button onClick={onClose} style={{ alignSelf: 'flex-start', background: 'none', border: 'none', color: 'var(--accent)', fontSize: 16 }}>{t('close')}</button>
+      <h2 style={{ marginTop: 16 }}>{state.isCompleted ? t('completed') : t('chapter', { n: state.chapterIndex + 1 })}</h2>
+      <p style={{ color: 'var(--fg-dim)', fontSize: 14 }}>{t('position', { time: `${Math.floor(state.positionSeconds / 60)}:${String(Math.floor(state.positionSeconds % 60)).padStart(2, '0')}` })}</p>
       <input
         type="range"
         min={0}
@@ -28,11 +30,11 @@ export function PlayerSheet({ engine, onClose }: { engine: AudioEngine; onClose:
         <button onClick={() => engine.skip(15)}>15s ⏩</button>
       </div>
       <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
-        <button onClick={() => engine.prevChapter()}>‹ Попередній</button>
-        <button onClick={() => engine.nextChapter()}>Наступний ›</button>
+        <button onClick={() => engine.prevChapter()}>{t('prev')}</button>
+        <button onClick={() => engine.nextChapter()}>{t('next')}</button>
       </div>
       <label style={{ marginTop: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
-        Швидкість:
+        {t('speed')}
         <select value={state.speed} onChange={(e) => engine.setSpeed(Number(e.target.value))}>
           {[0.75, 1, 1.25, 1.5, 1.75, 2].map((s) => (
             <option key={s} value={s}>
@@ -41,7 +43,7 @@ export function PlayerSheet({ engine, onClose }: { engine: AudioEngine; onClose:
           ))}
         </select>
       </label>
-      {state.status === 'unavailable' && <p style={{ color: 'var(--bad)', marginTop: 12 }}>Книга недоступна</p>}
+      {state.status === 'unavailable' && <p style={{ color: 'var(--bad)', marginTop: 12 }}>{t('bookUnavailable')}</p>}
     </div>
   )
 }

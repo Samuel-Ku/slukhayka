@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from '../api/client'
 import type { BookDetail, CatalogCard, UnifiedSource } from '../worker/types'
 import { CatalogCardRow } from './Catalog'
@@ -29,10 +29,16 @@ class PlayingAudio extends EventTarget {
   removeAttribute = vi.fn()
 }
 
+beforeEach(() => {
+  // These flows assert the Ukrainian UI; pin the locale explicitly.
+  localStorage.setItem('slukhayka.ui_language', 'uk')
+})
+
 afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
+  localStorage.removeItem('slukhayka.ui_language')
 })
 
 describe('CatalogCardRow accessibility and actions', () => {

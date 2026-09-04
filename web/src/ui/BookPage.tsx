@@ -3,6 +3,7 @@ import { api } from '../api/client'
 import { readWarm, WARM_CACHE_TTL_MS, warmKey, writeWarm } from '../api/warmCache'
 import type { BookDetail } from '../worker/types'
 import { canPlayBookFromDisplayedDetail, sourceNeedsBrowserSession } from './bookPlaybackAvailability'
+import { useTranslate } from '../i18n/locale'
 
 /**
  * spec-43/T3+T5 — сторінка книги: метадані, розділи й «Інші начитки».
@@ -19,6 +20,7 @@ export function BookPage({
   onOpenBook: (next: string, source: import('../worker/types').SourceId) => void
   onPlay?: (detail: BookDetail, chapterIndex: number) => Promise<boolean>
 }) {
+  const t = useTranslate()
   const [detail, setDetail] = useState<BookDetail | null>(null)
   const [failed, setFailed] = useState(false)
   const [showingCachedBook, setShowingCachedBook] = useState(false)
@@ -55,8 +57,8 @@ export function BookPage({
     }
   }, [url, source])
 
-  if (failed) return <div className="placeholder">Книга недоступна — джерело не відповіло.</div>
-  if (detail === null) return <div className="placeholder">Завантажуємо книгу…</div>
+  if (failed) return <div className="placeholder">{t('bookFailed')}</div>
+  if (detail === null) return <div className="placeholder">{t('loadingBook')}</div>
 
   const canPlay = canPlayBookFromDisplayedDetail(source, showingCachedBook)
   const requiresFreshSession = !canPlay && sourceNeedsBrowserSession(source)
@@ -64,16 +66,16 @@ export function BookPage({
   return (
     <article>
       <h1>{detail.title}</h1>
-      {showingCachedBook && <p className="notice" role="status" aria-live="polite">Показуємо збережені дані книги. Оновлення каталогу тимчасово недоступне.</p>}
+      {showingCachedBook && <p className="notice" role="status" aria-live="polite">{t('cachedBookNotice')}</p>}
       {requiresFreshSession && (
         <p className="notice" role="status" aria-live="polite">
-          Щоб перевірити доступ до аудіо, відкрийте джерело у браузері й пройдіть перевірку, якщо воно її попросить.{' '}
-          <a href={url} target="_blank" rel="noreferrer">Відкрити сторінку джерела</a>
+          {t('sessionCheckHint')}{' '}
+          <a href={url} target="_blank" rel="noreferrer">{t('openSourcePage')}</a>
         </p>
       )}
       <p className="byline">
         {detail.author}
-        {detail.narrator ? ` · читає ${detail.narrator}` : ''}
+        {detail.narrator ? t('readBy', { narrator: detail.narrator }) : ''}
       </p>
       {detail.coverImageUrl && <img className="cover" src={detail.coverImageUrl} alt="" loading="lazy" />}
       {detail.genres.length > 0 && <p className="genres">{detail.genres.join(' · ')}</p>}
@@ -85,9 +87,9 @@ export function BookPage({
         </div>
       )}
 
-      <h2>Розділи</h2>
+      <h2>{t('chapters')}</h2>
       {detail.chapters.length === 0 ? (
-        <p className="notice">Розділів не знайшли — джерело не віддає аудіо для цієї книги.</p>
+        <p className="notice">{t('noChapters')}</p>
       ) : (
         <ol className="chapters">
           {detail.chapters.map((chapter, idx) => (
@@ -96,7 +98,7 @@ export function BookPage({
               {onPlay && canPlay && (
                 <button
                   onClick={() => { void onPlay(detail, idx) }}
-                  aria-label={`Слухати розділ ${idx + 1}`}
+                  aria-label={t('listenChapterAria', { n: idx + 1 })}
                   style={{ background: 'var(--accent)', color: 'var(--accent-contrast)', border: 'none', borderRadius: 999, padding: '4px 12px' }}
                 >
                   ▶
@@ -109,7 +111,7 @@ export function BookPage({
 
       {detail.otherNarrations.length > 0 && (
         <>
-          <h2>Інші начитки</h2>
+          <h2>{t('otherNarrations')}</h2>
           <ul className="narrations">
             {detail.otherNarrations.map((card) => (
               <li key={card.url}>

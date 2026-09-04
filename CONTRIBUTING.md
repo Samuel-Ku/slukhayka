@@ -11,8 +11,10 @@
   тимчасовому каталозі
 - якщо JDK 21 не знаходиться автоматично, задай стабільний шлях через
   `SLUKHAYKA_JAVA_HOME`; сам шлях у репозиторії не зберігається
-- CI запускає паралельно чисті JVM-тести, Room/Robolectric і Compose/Roborazzi;
-  Kover збирає один звіт із трьох частин
+- CI запускає паралельно шість частин: чистий JVM, чотири когорти
+  Room/Robolectric (native SDK 35, native SDK 36, default SDK,
+  Robolectric-only) і Compose/Roborazzi; Kover збирає один звіт зі всіх
+  частин
 - Коміти українською, стиль: `feat(scope): опис`, `fix(scope): опис`, `docs: …`
   (історично також `spec-N TX` для спек-тікетів)
 

@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import type { AudioEngine } from '../player/audioEngine'
 import type { EngineState } from '../player/engine'
+import { useTranslate } from '../i18n/locale'
 
 export function MiniPlayer({ engine, onExpand }: { engine: AudioEngine; onExpand: () => void }) {
+  const t = useTranslate()
   const [state, setState] = useState<EngineState>(engine.getState())
   useEffect(() => engine.subscribe(setState), [engine])
   if (state.status === 'idle') return null
@@ -27,7 +29,7 @@ export function MiniPlayer({ engine, onExpand }: { engine: AudioEngine; onExpand
       }}
     >
       <span style={{ flex: 1, fontSize: 14, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-        Розділ {state.chapterIndex + 1} · {Math.floor(state.positionSeconds / 60)}:{String(Math.floor(state.positionSeconds % 60)).padStart(2, '0')}
+        {t('miniChapter', { n: state.chapterIndex + 1, time: `${Math.floor(state.positionSeconds / 60)}:${String(Math.floor(state.positionSeconds % 60)).padStart(2, '0')}` })}
       </span>
       <button
         onClick={(e) => {

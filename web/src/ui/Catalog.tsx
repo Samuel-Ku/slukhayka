@@ -15,6 +15,7 @@ import {
 import { sourceNeedsBrowserSession } from './bookPlaybackAvailability'
 import { SOURCE_METADATA, SOURCE_ORDER } from '../worker/sourceMetadata'
 import { rankEditionsForPlayback } from '../worker/workFeed'
+import { useTranslate } from '../i18n/locale'
 import {
   availableLanguagesOf,
   badgeLabel,
@@ -26,7 +27,7 @@ import {
 } from './contentLanguagePrefs'
 
 const SOURCES: Array<{ id: 'all' | SourceId; label: string }> = [
-  { id: 'all', label: 'Усі джерела' },
+  { id: 'all', label: 'all' },
   ...SOURCE_ORDER.map((id) => ({ id, label: SOURCE_METADATA[id].label })),
 ]
 
@@ -35,6 +36,7 @@ export function Catalog({ onOpenBook, onPlay }: {
   onOpenBook: (url: string, source: SourceId) => void
   onPlay: (detail: BookDetail, chapterIndex: number) => Promise<boolean>
 }) {
+  const t = useTranslate()
   const [source, setSource] = useState<'all' | SourceId>('all')
   const [works, setWorks] = useState<UnifiedWork[] | null>(null)
   const [nextPageUrl, setNextPageUrl] = useState<string | null>(null)
@@ -146,7 +148,7 @@ export function Catalog({ onOpenBook, onPlay }: {
   return (
     <div>
       <input
-        placeholder="Пошук…"
+        placeholder={t('searchPlaceholder')}
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         style={{ width: '100%', padding: '8px', borderRadius: '8px', border: '1px solid var(--line)', background: 'var(--surface)', color: 'var(--fg)' }}
@@ -161,19 +163,19 @@ export function Catalog({ onOpenBook, onPlay }: {
             }}
             style={pillStyle(source === s.id)}
           >
-            {s.label}
+            {s.id === 'all' ? t('allSources') : s.label}
           </button>
         ))}
       </div>
       {languageOptions.length > 0 && (
         <div style={{ display: 'flex', gap: 6, margin: '8px 0', flexWrap: 'wrap', alignItems: 'center' }}>
-          <span style={{ color: 'var(--fg-dim)', fontSize: 13 }}>Мова:</span>
+          <span style={{ color: 'var(--fg-dim)', fontSize: 13 }}>{t('languageFilterLabel')}</span>
           <button
             onClick={() => applyLanguages([])}
             style={pillStyle(contentLanguages.length === 0)}
             aria-pressed={contentLanguages.length === 0}
           >
-            Усі
+            {t('all')}
           </button>
           {languageOptions.map((code) => (
             <button
@@ -190,24 +192,24 @@ export function Catalog({ onOpenBook, onPlay }: {
 
       {query.trim().length >= 2 ? (
         searching ? (
-          <div className="placeholder">Шукаємо…</div>
+          <div className="placeholder">{t('searching')}</div>
         ) : searchWorks === null || visibleSearch.length === 0 ? (
-          <div className="placeholder">Нічого не знайшли.</div>
+          <div className="placeholder">{t('nothingFound')}</div>
         ) : (
           <section>
-            <h2>Результати пошуку</h2>
+            <h2>{t('allSources')}</h2>
             <ul className="card-list">
               {visibleSearch.map((work) => <UnifiedWorkRow key={work.id} work={work} onOpenBook={onOpenBook} onPlay={onPlay} />)}
             </ul>
           </section>
-        )
-      ) : failed ? (
-        <div className="placeholder">Джерело не відповіло спробуйте пізніше.</div>
+        )      ) : failed ? (
+        <div className="placeholder">{t('sourceFailed')}</div>
       ) : works === null ? (
-        <div className="placeholder">Завантажуємо об’єднаний каталог…</div>
-      ) : (          <section>
-            <h2>{source === 'all' ? 'Усі джерела' : SOURCES.find((item) => item.id === source)?.label}</h2>
-            {showingCachedCatalog && <p className="notice" role="status" aria-live="polite">Показуємо останній збережений каталог{cachedAt ? ` від ${new Date(cachedAt).toLocaleString('uk-UA')}` : ''}. Оновлення тимчасово недоступне.</p>}
+        <div className="placeholder">{t('loadingCatalog')}</div>
+      ) : (
+        <section>
+          <h2>{source === 'all' ? t('allSources') : SOURCES.find((item) => item.id === source)?.label}</h2>
+          {showingCachedCatalog && <p className="notice" role="status" aria-live="polite">{t('cachedCatalogNotice', { date: cachedAt ? ` від ${new Date(cachedAt).toLocaleString('uk-UA')}` : '' })}</p>}
             <ul className="card-list">
               {visibleWorks.map((work) => <UnifiedWorkRow key={work.id} work={work} onOpenBook={onOpenBook} onPlay={onPlay} />)}
             </ul>
@@ -215,9 +217,9 @@ export function Catalog({ onOpenBook, onPlay }: {
       )}
       {query.trim().length < 2 && nextPageUrl && (
         <div ref={loadMoreMarker} style={{ padding: '16px 0', textAlign: 'center' }}>
-          {appendError && <p className="notice" role="status">Не вдалося оновити каталог. Уже завантажені книги залишилися тут.</p>}
+          {appendError && <p className="notice" role="status">{t('appendFailed')}</p>}
           <button onClick={loadMore} disabled={loadingMore}>
-            {loadingMore ? 'Завантажуємо…' : appendError ? 'Спробувати ще раз' : 'Показати більше'}
+            {loadingMore ? t('loading') : appendError ? t('retry') : t('showMore')}
           </button>
         </div>
       )}
@@ -236,6 +238,7 @@ function UnifiedWorkRow({ work, onOpenBook, onPlay }: {
   onOpenBook: (url: string, source: SourceId) => void
   onPlay: (detail: BookDetail, chapterIndex: number) => Promise<boolean>
 }) {
+  const t = useTranslate()
   const [editionIndex, setEditionIndex] = useState(0)
   const [editions, setEditions] = useState(() => rankEditionsForPlayback(work.editions))
   useEffect(() => {
@@ -284,9 +287,9 @@ function UnifiedWorkRow({ work, onOpenBook, onPlay }: {
       {editions.length > 1 && (
         <li style={{ padding: '0 8px 8px' }}>
           <label>
-            Начитка{' '}
-            <select value={editionIndex} onChange={(event) => setEditionIndex(Number(event.target.value))} aria-label={`Обрати начитку: ${work.title}`}>
-              {editions.map((candidate, index) => <option key={candidate.id} value={index}>{candidate.narrator || 'Невідомий диктор'}</option>)}
+            {t('narrationSelect')}{' '}
+            <select value={editionIndex} onChange={(event) => setEditionIndex(Number(event.target.value))} aria-label={t('chooseNarrationAria', { title: work.title })}>
+              {editions.map((candidate, index) => <option key={candidate.id} value={index}>{candidate.narrator || t('unknownNarrator')}</option>)}
             </select>
           </label>
         </li>
@@ -330,6 +333,7 @@ export function CatalogCardRow({ card, editionId, sources, onOpenBook, onPlay }:
   onOpenBook: (url: string, source: SourceId) => void
   onPlay: (detail: BookDetail, chapterIndex: number) => Promise<boolean>
 }) {
+  const t = useTranslate()
   const [state, setState] = useState<CardActionState>('idle')
   const [rankedSources, setRankedSources] = useState(sources)
   const [sessionSource, setSessionSource] = useState<SourceId | null>(null)
@@ -486,7 +490,7 @@ export function CatalogCardRow({ card, editionId, sources, onOpenBook, onPlay }:
   return (
     <li ref={rowRef}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <button style={{ flex: 1, textAlign: 'left' }} onClick={() => onOpenBook(primarySource.url, source)} aria-label={`Відкрити книгу: ${card.title}`}>
+        <button style={{ flex: 1, textAlign: 'left' }} onClick={() => onOpenBook(primarySource.url, source)} aria-label={t('openBookAria', { title: card.title })}>
           {card.coverImageUrl && <img src={card.coverImageUrl} alt="" loading="lazy" />}
           <span className="card-title">{card.title}</span>
           <span className="card-author">{card.author}{card.narrator ? ` · ${card.narrator}` : ''}</span>
@@ -494,21 +498,21 @@ export function CatalogCardRow({ card, editionId, sources, onOpenBook, onPlay }:
         </button>
         <button
           onClick={state === 'checking' ? cancel : play}
-          aria-label={state === 'checking' ? `Скасувати перевірку: ${card.title}` : `Слухати: ${card.title}`}
+          aria-label={state === 'checking' ? t('cancelCheckAria', { title: card.title }) : t('listenAria', { title: card.title })}
           aria-live="polite"
           style={{ background: 'var(--accent)', color: 'var(--accent-contrast)', border: 'none', borderRadius: 999, padding: '8px 12px' }}
         >
-          {state === 'checking' ? 'Скасувати' : '▶'}
+          {state === 'checking' ? t('cancel') : '▶'}
         </button>
       </div>
-      {state === 'checking' && <p className="notice" aria-live="polite">Перевіряємо доступність…</p>}
-      {state === 'no-network' && <p className="notice" role="status">Немає мережі. Перевірте з’єднання та повторіть.</p>}
-      {state === 'temporary-failure' && <p className="notice" role="status">Джерело тимчасово не відповідає. Спробуйте пізніше.</p>}
-      {state === 'audio-missing' && <p className="notice" role="status">Джерело не віддає аудіо для цієї книги.</p>}
+      {state === 'checking' && <p className="notice" aria-live="polite">{t('checking')}</p>}
+      {state === 'no-network' && <p className="notice" role="status">{t('noNetwork')}</p>}
+      {state === 'temporary-failure' && <p className="notice" role="status">{t('temporaryFailure')}</p>}
+      {state === 'audio-missing' && <p className="notice" role="status">{t('audioMissing')}</p>}
       {state === 'browser-required' && (
         <p className="notice" role="status">
-          Це джерело потребує сесії на своєму сайті.{' '}
-          <a href={sourceHome(sessionSource ?? source)} target="_blank" rel="noreferrer">Відкрити {SOURCES.find((item) => item.id === (sessionSource ?? source))?.label}</a>
+          {t('sessionRequired')}{' '}
+          <a href={sourceHome(sessionSource ?? source)} target="_blank" rel="noreferrer">{t('openSourceLabel', { label: SOURCES.find((item) => item.id === (sessionSource ?? source))?.label ?? '' })}</a>
         </p>
       )}
     </li>

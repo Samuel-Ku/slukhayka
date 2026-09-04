@@ -13,19 +13,16 @@ import { FirestoreProgressSyncStore } from './sync/store'
 import { ProgressSyncController } from './sync/controller'
 import { getFirestoreForEnv } from './firebase/firestore'
 import { editionIdFor, mergeKeyFor } from './sync/edition'
+import { setUiLocale, useTranslate, useUiLocale } from './i18n/locale'
+import { translate } from './i18n/strings'
 
 type Tab = 'listen' | 'catalog' | 'profile'
 
-const TABS: Array<{ id: Tab; label: string }> = [
-  { id: 'listen', label: 'Слухати' },
-  { id: 'catalog', label: 'Огляд' },
-  { id: 'profile', label: 'Профіль' },
-]
-
 function Stub({ title, what }: { title: string; what: string }) {
+  const t = useTranslate()
   return (
     <div className="placeholder">
-      {title} ще в роботі.
+      {t('stubInProgress', { title })}
       <br />
       {what}
     </div>
@@ -39,6 +36,7 @@ function Profile({
   profile: ListenerProfile | null
   onProfileChange?: (p: ListenerProfile) => void
 }) {
+  const t = useTranslate()
   const [profile, setProfile] = useState(initialProfile)
   const [code, setCode] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -72,12 +70,12 @@ function Profile({
       const { restoreFromCode } = await import('./identity/listenerIdentity')
       const gateway = await createAuthGateway(import.meta.env)
       if (!gateway) {
-        setError('Firebase не налаштовано на цьому деплої')
+        setError(t('firebaseNotConfigured'))
         return
       }
       const store = new BrowserCredentialStore(window.localStorage)
       const restored = await restoreFromCode(gateway, code, (pair) => store.save(pair))
-      if (!restored) setError('Не вдалося відновити — перевірте код і з’єднання')
+      if (!restored) setError(t('restoreFailed'))
       else {
         setProfile(restored)
         // Also persist as current parent profile
@@ -98,18 +96,18 @@ function Profile({
     // Dispatch storage event for controller's isEnabled check if needed
   }
 
-  if (profile === null) return <Stub title="Профіль" what="Профіль з’явиться разом із першим запуском." />
+  if (profile === null) return <Stub title={t('tabProfile')} what={t('profileStubWhat')} />
 
   return (
     <div>
       <div className="profile-card">
-        <span className="label">Нік</span>
+        <span className="label">{t('nickLabel')}</span>
         <span className="value">{profile.nickname}</span>
-        <span className="label">Профіль</span>
+        <span className="label">{t('profileLabel')}</span>
         <span className="value">{profile.uid}</span>
       </div>
       <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <label style={{ fontSize: 14, fontWeight: 600 }}>Код відновлення з телефону</label>
+        <label style={{ fontSize: 14, fontWeight: 600 }}>{t('restoreCodeLabel')}</label>
         <input
           value={code}
           onChange={(e) => setCode(e.target.value)}
@@ -121,11 +119,11 @@ function Profile({
           disabled={code.trim().length < 10 || restoring}
           style={{ padding: '8px 12px', borderRadius: 8, border: 'none', background: 'var(--accent)', color: '#000', opacity: code.trim().length < 10 ? 0.5 : 1 }}
         >
-          {restoring ? 'Відновлюємо…' : 'Відновити профіль'}
+          {restoring ? t('restoring') : t('restoreProfile')}
         </button>
         {error && <span style={{ color: 'var(--bad)', fontSize: 13 }}>{error}</span>}
-        {!error && profile.uid.startsWith('local-') && <span style={{ color: 'var(--fg-dim)', fontSize: 13 }}>Введіть код з ⚙️ Профіль на телефоні, щоб побачити свій нік і відгуки тут.</span>}
-        {!error && isBound && <span style={{ color: 'var(--fg-dim)', fontSize: 13 }}>Профіль прив’язано — ваш нік і відгуки тепер тут.</span>}
+        {!error && profile.uid.startsWith('local-') && <span style={{ color: 'var(--fg-dim)', fontSize: 13 }}>{t('enterCodeHint')}</span>}
+        {!error && isBound && <span style={{ color: 'var(--fg-dim)', fontSize: 13 }}>{t('boundHint')}</span>}
       </div>
       {isBound && (
         <div style={{ marginTop: 20, padding: 12, border: '1px solid var(--line)', borderRadius: 8, background: 'var(--surface)' }}>
@@ -135,16 +133,16 @@ function Profile({
               checked={syncEnabled}
               onChange={(e) => handleSyncToggle(e.target.checked)}
             />
-            <span style={{ fontSize: 14, fontWeight: 600 }}>Синхронізація прогресу</span>
+            <span style={{ fontSize: 14, fontWeight: 600 }}>{t('syncTitle')}</span>
           </label>
           <p style={{ margin: '8px 0 0', fontSize: 13, color: 'var(--fg-dim)' }}>
-            Коли ввімкнено, позиція дзеркалиться між телефоном і браузером (останній запис виграє). Вимкніть — дзеркалення зупиниться одразу, локальний прогрес лишиться.
+            {t('syncDescription')}
           </p>
         </div>
       )}
       {!isBound && (
         <p style={{ marginTop: 16, fontSize: 13, color: 'var(--fg-dim)' }}>
-          Поки профіль не прив’язано, браузер не надсилає нічого особистого — прогрес лишається лише тут.
+          {t('unboundHint')}
         </p>
       )}
     </div>
@@ -152,8 +150,16 @@ function Profile({
 }
 
 export function App({ profile: initialProfile }: { profile: ListenerProfile | null }) {
+  const t = useTranslate()
+  const locale = useUiLocale()
   const [profile, setProfile] = useState(initialProfile)
   useEffect(() => setProfile(initialProfile), [initialProfile])
+
+  const TABS: Array<{ id: Tab; label: string }> = [
+    { id: 'listen', label: t('tabListen') },
+    { id: 'catalog', label: t('tabCatalog') },
+    { id: 'profile', label: t('tabProfile') },
+  ]
 
   const [tab, setTab] = useState<Tab>('catalog')
   const [book, setBook] = useState<{ url: string; source: SourceId } | null>(null)
@@ -228,10 +234,10 @@ export function App({ profile: initialProfile }: { profile: ListenerProfile | nu
   engine.setSyncController(syncController)
 
   useEffect(() => {
-    document.title = 'Слухайка — аудіокниги українською'
+    document.title = translate(locale, 'docTitle')
     const unsub = engine.subscribe(() => forceUpdate((n) => n + 1))
     return unsub
-  }, [engine])
+  }, [engine, locale])
 
   useEffect(() => {
     if (audioRef.current) engine.attachAudio(audioRef.current)
@@ -253,20 +259,27 @@ export function App({ profile: initialProfile }: { profile: ListenerProfile | nu
       <header className="app-header">
         {bookUrl !== null ? (
           <button className="back" onClick={() => setBook(null)}>
-            ← Назад
+            {t('back')}
           </button>
         ) : (
           <>
             <h1 className="app-title">Слухайка</h1>
-            <p className="app-subtitle">аудіокниги українською · веб</p>
+            <p className="app-subtitle">{t('appSubtitle')}</p>
           </>
         )}
+        <button
+          onClick={() => setUiLocale(locale === 'uk' ? 'en' : 'uk')}
+          aria-label={t('langSwitchAria')}
+          style={{ marginLeft: 'auto', background: 'none', border: '1px solid var(--line)', borderRadius: 999, padding: '4px 10px', color: 'var(--fg)' }}
+        >
+          {locale === 'uk' ? 'EN' : 'UA'}
+        </button>
       </header>
       <main className="surface">
         {book !== null ? (
           <BookPage url={book.url} source={book.source} onOpenBook={(url, source) => setBook({ url, source })} onPlay={handlePlay} />
         ) : tab === 'listen' ? (
-          <Stub title="Продовження слухання" what="Оберіть книгу в Огляді й натисніть ▶ на розділі." />
+          <Stub title={t('listenStubTitle')} what={t('listenStubWhat')} />
         ) : tab === 'catalog' ? (
           <Catalog onOpenBook={(url, source) => setBook({ url, source })} onPlay={handlePlay} />
         ) : (

@@ -430,6 +430,35 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             delay(1_500)
             App.instance.bilingualPrompt.evaluate()
         }
+        // Spec-45 (#405) R6 (#513): a content-language change re-filters the
+        // ALREADY SHOWN global-search results — the listener never re-enters
+        // the query and never refreshes. The re-run reads the shared cache
+        // when fresh (cheap); SourceCatalog filters at publish time, so a slow
+        // old load never lands under a stale selection. The delayed start is
+        // the same post-construction idiom as the bilingual re-eval above (the
+        // collector reads fields declared later in this class).
+        viewModelScope.launch(Dispatchers.IO) {
+            delay(1_500)
+            App.instance.contentLanguagePrefs.languages.collect {
+                val query = _searchQuery.value.trim()
+                if (query.length >= 2 && _globalSearchResults.value.isNotEmpty()) {
+                    globalSearchJob?.cancel()
+                    globalSearchJob = viewModelScope.launch(Dispatchers.IO) {
+                        try {
+                            val results = sourceCatalog.searchAllSources(query)
+                            if (_searchQuery.value.trim() == query) {
+                                _globalSearchResults.value = results
+                                _globalSearchError.value = false
+                            }
+                        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                            throw cancelled
+                        } catch (e: Exception) {
+                            // A failing re-filter keeps the current results.
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /**
@@ -1289,6 +1318,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         )
     }
+
+    // Spec-45 (#405) R7 (#514): the «Мова інтерфейсу» destination (⚙️
+    // overflow) — navigation only; the screen reads/writes the App Locale
+    // module directly and applies through the platform applier (ADR-0008).
+    private val _appLocaleOpen = MutableStateFlow(false)
+    val appLocaleOpen: StateFlow<Boolean> = _appLocaleOpen.asStateFlow()
+
+    fun openAppLocale() { _appLocaleOpen.value = true }
+
+    fun closeAppLocale() { _appLocaleOpen.value = false }
 
     fun savePrivacyPrefs(prefs: PrivacyPrefs) {
         when (val resolution = NetworkPrivacy.resolve(prefs)) {

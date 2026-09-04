@@ -1,5 +1,6 @@
 import type { CatalogCard, SourceId, UnifiedEdition, UnifiedSource, UnifiedWork, UnifiedWorkPage } from './types'
 import { sourceContentLanguage } from './sourceMetadata'
+import { normalizeLanguage } from './language'
 
 export type SourceCards = { sourceId: SourceId; cards: CatalogCard[] }
 
@@ -67,7 +68,13 @@ export function mergeWorkFeed(inputs: SourceCards[], offset = 0, limit = 30): Un
     // One source = one content language (a per-card claim may still override).
     const sourceLanguage = sourceContentLanguage(sourceId)
     for (const card of cards) {
-      const language = card.language?.trim() || sourceLanguage || ''
+      // Spec-45 (#405) R8 (#515): the language is normalized to its canonical
+      // BCP-47 tag BEFORE identity construction and before anything is
+      // returned downstream — English, en and en-US are one Edition language;
+      // uk and en stay distinct Editions of one Work; an unparseable claim
+      // falls back to the (already canonical) source language, and unknown
+      // stays absent. mergeKeyOf remains purely bibliographic.
+      const language = (normalizeLanguage(card.language) ?? sourceLanguage) || ''
       const mergeKey = mergeKeyOf(card)
       const work = works.get(mergeKey) ?? {
         id: mergeKey,

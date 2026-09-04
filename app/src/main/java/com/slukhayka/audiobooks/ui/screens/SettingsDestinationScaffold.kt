@@ -59,6 +59,12 @@ internal enum class SettingsDestination(
         paneTag = "content_languages_screen_pane",
         headingTag = "content_languages_screen_heading"
     ),
+    // Spec-45 (#405) R7 (#514): the «Мова інтерфейсу» destination.
+    AppLocale(
+        titleRes = R.string.app_locale_title,
+        paneTag = "app_locale_screen_pane",
+        headingTag = "app_locale_screen_heading"
+    ),
     Storage(
         titleRes = R.string.storage_title,
         paneTag = "storage_destination_screen_pane",

@@ -53,6 +53,7 @@ import com.slukhayka.audiobooks.ui.screens.GenreScreen
 import com.slukhayka.audiobooks.ui.screens.HomeScreen
 import com.slukhayka.audiobooks.ui.screens.LibraryScreen
 import com.slukhayka.audiobooks.ui.screens.ListenScreen
+import com.slukhayka.audiobooks.ui.screens.AppLocaleScreen
 import com.slukhayka.audiobooks.ui.screens.ContentLanguageScreen
 import com.slukhayka.audiobooks.ui.screens.NetworkPrivacyScreen
 import com.slukhayka.audiobooks.ui.screens.PeopleScreen
@@ -291,6 +292,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     val privacySettingsOpen by viewModel.privacySettingsOpen.collectAsState()
     val recommendationSettingsOpen by viewModel.recommendationSettingsOpen.collectAsState()
     val contentLanguagesOpen by viewModel.contentLanguagesOpen.collectAsState()
+    val appLocaleOpen by viewModel.appLocaleOpen.collectAsState()
     val profileOpen by viewModel.profileOpen.collectAsState()
     val selectedGenre by viewModel.selectedGenre.collectAsState()
     val selectedTop100 by viewModel.selectedTop100.collectAsState()
@@ -377,7 +379,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     BackHandler(enabled = showFullPlayer || selectedBookId != null ||
         selectedWebSource != null || selectedSeries != null || seriesIndexOpen || collectionsIndexOpen ||
         storageDestinationOpen || privacySettingsOpen || recommendationSettingsOpen || contentLanguagesOpen ||
-        profileOpen || selectedGenre != null ||
+        appLocaleOpen || profileOpen || selectedGenre != null ||
         selectedTop100 || selectedPeopleKind != null || selectedPerson != null ||
         authorsIndexOpen || selectedCanonicalAuthor != null) {
         if (showFullPlayer) {
@@ -412,6 +414,9 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
         } else if (contentLanguagesOpen) {
             libraryOverflowFocusReturnPending = true
             viewModel.closeContentLanguages()
+        } else if (appLocaleOpen) {
+            libraryOverflowFocusReturnPending = true
+            viewModel.closeAppLocale()
         } else if (profileOpen) {
             libraryOverflowFocusReturnPending = true
             viewModel.closeProfileSettings()
@@ -670,12 +675,32 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                     )
 
                     // Spec-45 (#405) T6 (#494): the «Мови контенту»
-                    // destination — same ⚙️ overflow surface.
+                    // destination — same ⚙️ overflow surface. R6 (#513): the
+                    // screen reads the PREFERENCE MODULE directly (ADR-0008);
+                    // the ViewModel only owns navigation.
                     contentLanguagesOpen -> ContentLanguageScreen(
-                        viewModel = viewModel,
+                        prefs = App.instance.contentLanguagePrefs,
                         onBackClick = {
                             libraryOverflowFocusReturnPending = true
                             viewModel.closeContentLanguages()
+                        }
+                    )
+
+                    // Spec-45 (#405) R7 (#514): the «Мова інтерфейсу»
+                    // destination — same ⚙️ overflow surface. The choice
+                    // applies immediately through the platform applier.
+                    appLocaleOpen -> AppLocaleScreen(
+                        localePrefs = App.instance.appLocalePrefs,
+                        // The choice applies immediately through the platform
+                        // applier — the Activity comes from the composition
+                        // context (the same idiom as the notification-tap
+                        // handler above).
+                        onApply = { locale ->
+                            (context as? MainActivity)?.let { AppLocaleApplier.apply(it, locale) }
+                        },
+                        onBackClick = {
+                            libraryOverflowFocusReturnPending = true
+                            viewModel.closeAppLocale()
                         }
                     )
 

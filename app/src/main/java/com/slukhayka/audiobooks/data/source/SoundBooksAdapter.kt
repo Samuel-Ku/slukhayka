@@ -2,6 +2,7 @@ package com.slukhayka.audiobooks.data.source
 
 import com.slukhayka.audiobooks.data.privacy.PacingPolicy
 import kotlinx.coroutines.delay
+import java.net.URLDecoder
 
 /**
  * sound-books.net [SourceAdapter] (spec-10 T1 verdict: PASS, server-fetch).
@@ -47,6 +48,31 @@ class SoundBooksAdapter(
     override val sourceId: String = "soundbooks"
 
     override suspend fun search(query: String): List<SourceBook> = emptyList()
+
+    /**
+     * #449 — the displayed Chapter title from one playlist line. The live m3u
+     * serves SIGNED track URLs whose filenames are percent-encoded UTF-8
+     * (`%D0%96…%20…-01.mp3?expires=…&md5=…`), so the raw slice is unreadable
+     * and carries the signed query. The decode is DISPLAY-ONLY: the Source
+     * track URL stays byte-for-byte as served (the signed link keeps its
+     * exact bytes; nothing re-encodes it on the way to the player).
+     *
+     * Steps: strip the signed query first (it must never appear in a title),
+     * take the filename, decode the percent-escapes as UTF-8, then drop the
+     * extension. A malformed percent sequence never throws — the raw
+     * filename is the safe fallback ([URLDecoder] throws, [runCatching]
+     * keeps it verbatim); a blank result falls back to the chapter number.
+     */
+    private fun chapterTitleFrom(stream: String, index: Int): String {
+        val fallback = { "Глава ${index + 1}" }
+        val withoutQuery = stream.substringBefore('?')
+        val rawName = withoutQuery.substringAfterLast('/').substringBeforeLast('.')
+        if (rawName.isBlank()) return fallback()
+        if (!rawName.contains('%')) return rawName
+        val decoded = runCatching { URLDecoder.decode(rawName, Charsets.UTF_8) }
+            .getOrDefault(rawName)
+        return decoded.ifBlank { fallback() }
+    }
 
     override suspend fun fetchBookPage(url: String): SourceBookDetail {
         val html = fetcher.getText(url)
@@ -100,7 +126,7 @@ class SoundBooksAdapter(
             .filter { it.startsWith("http") }
             .mapIndexed { index, stream ->
                 SourceChapter(
-                    title = stream.substringAfterLast('/').substringBeforeLast('.').ifBlank { "Глава ${index + 1}" },
+                    title = chapterTitleFrom(stream, index),
                     streamUrl = stream
                 )
             }

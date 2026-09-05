@@ -66,8 +66,7 @@ fun LazyListScope.homeFeedContent(
     workFeedItems: LazyPagingItems<WorkFeedRow>,
     feedGenreFilters: Set<String>,
     feedSortByTitle: Boolean,
-    contentLanguageLabel: String = "",
-    contentLanguageRestricted: Boolean = false,
+    contentLanguages: Set<String>? = null,
     onCycleContentLanguage: () -> Unit = {},
     onRefreshCatalog: () -> Unit,
     onGoToLibrary: () -> Unit,
@@ -445,8 +444,7 @@ fun LazyListScope.homeFeedContent(
             onSortChange = onSetFeedSortByTitle,
             onOpenFilters = onOpenFeedFilters,
             filterTriggerModifier = feedFilterTriggerModifier,
-            contentLanguageLabel = contentLanguageLabel,
-            contentLanguageRestricted = contentLanguageRestricted,
+            contentLanguages = contentLanguages,
             onCycleContentLanguage = onCycleContentLanguage
         )
     }

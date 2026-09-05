@@ -7,6 +7,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.performClick
@@ -436,11 +437,6 @@ class WorkFeedFilterWiringTest {
                 // Match the ViewModel: one stable flow, reactive filter values.
                 feed = remember { feedChain(genreFilters, sortByTitle, scope, languages) }.collectAsLazyPagingItems()
                 val langs by languages.collectAsState()
-                val label = when (langs) {
-                    setOf("uk") -> "Українська"
-                    setOf("en") -> "English"
-                    else -> "Усі"
-                }
                 LazyColumn {
                     homeFeedContent(
                         isCatalogLoading = false,
@@ -456,8 +452,7 @@ class WorkFeedFilterWiringTest {
                         workFeedItems = feed,
                         feedGenreFilters = genreFilters.value,
                         feedSortByTitle = sortByTitle.value,
-                        contentLanguageLabel = label,
-                        contentLanguageRestricted = langs.size == 1,
+                        contentLanguages = langs,
                         onCycleContentLanguage = { languages.value = cycle(languages.value) },
                         onRefreshCatalog = {},
                         onGoToLibrary = {},
@@ -501,8 +496,9 @@ class WorkFeedFilterWiringTest {
         assertTrue(compose.onAllNodesWithText("Pride and Prejudice").fetchSemanticsNodes().isEmpty())
         assertTrue(compose.onAllNodesWithText("Кобзар").fetchSemanticsNodes().isNotEmpty())
         // The UI language is independent of the selected content language.
-        compose.onNodeWithText(context.getString(
-            com.slukhayka.audiobooks.R.string.content_language_chip_label, "Українська"
+        compose.onNodeWithContentDescription(context.getString(
+            com.slukhayka.audiobooks.R.string.content_language_chip_label,
+            context.getString(com.slukhayka.audiobooks.R.string.content_language_uk)
         )).assertExists()
 
         // Українська → English: the opposite world, again without restart.

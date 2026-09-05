@@ -2,6 +2,7 @@ package com.slukhayka.audiobooks.player
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import com.slukhayka.audiobooks.data.catalog.SourceCatalog
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.ChapterEntity
 import com.slukhayka.audiobooks.data.listening.ListeningStateStore
@@ -47,6 +48,16 @@ class SleepTimerTest {
 
     private val book: AudiobookEntity = TestDataFactory.dataBooks()[0]
     private val chapters: List<ChapterEntity> = TestDataFactory.chaptersFor(book)
+
+    // #505 guard: prepare refuses chapters without a playable locator, so the
+    // fixture pairs every chapter with its real stream track.
+    private val playable: List<SourceCatalog.PlayableChapter> =
+        chapters.mapIndexed { index, chapter ->
+            SourceCatalog.PlayableChapter(
+                chapter = chapter,
+                track = TestDataFactory.tracksFor(book, "4read")[index]
+            )
+        }
 
     private lateinit var playerManager: AudioPlayerManager
 
@@ -118,7 +129,7 @@ class SleepTimerTest {
     fun `extension converts end-of-chapter mode into an exact timed remainder`() = testScope.runTest {
         playerManager.loadAndPlayBook(
             book = book,
-            chapters = chapters,
+            chapters = chapters, playable = playable,
             initialChapterIndex = 0,
             initialPositionSeconds = 300,
             autoPlay = false
@@ -166,7 +177,7 @@ class SleepTimerTest {
             val shortChapter = chapters.first().copy(durationSeconds = 31)
             playerManager.loadAndPlayBook(
                 book = book,
-                chapters = listOf(shortChapter),
+                chapters = listOf(shortChapter), playable = playable,
                 initialChapterIndex = 0,
                 autoPlay = false
             )
@@ -185,7 +196,7 @@ class SleepTimerTest {
     fun `end-of-chapter mode computes remaining from the current chapter`() = testScope.runTest {
         playerManager.loadAndPlayBook(
             book = book,
-            chapters = chapters,
+            chapters = chapters, playable = playable,
             initialChapterIndex = 0,
             initialPositionSeconds = 300L, // 5 minutes in
             autoPlay = false
@@ -203,7 +214,7 @@ class SleepTimerTest {
     fun `end-of-chapter re-arms to the new chapter on a manual switch`() = testScope.runTest {
         playerManager.loadAndPlayBook(
             book = book,
-            chapters = chapters,
+            chapters = chapters, playable = playable,
             initialChapterIndex = 0,
             autoPlay = false
         )
@@ -221,7 +232,7 @@ class SleepTimerTest {
     fun `end-of-chapter remaining never drops below one second`() = testScope.runTest {
         playerManager.loadAndPlayBook(
             book = book,
-            chapters = chapters,
+            chapters = chapters, playable = playable,
             initialChapterIndex = 0,
             initialPositionSeconds = chapters[0].durationSeconds - 1L, // 1s from the end
             autoPlay = false
@@ -234,7 +245,7 @@ class SleepTimerTest {
     fun `loading a new book clears the active sleep timer`() = testScope.runTest {
         playerManager.loadAndPlayBook(
             book = book,
-            chapters = chapters,
+            chapters = chapters, playable = playable,
             initialChapterIndex = 0,
             autoPlay = false
         )
@@ -244,7 +255,7 @@ class SleepTimerTest {
         val other = TestDataFactory.dataBooks()[1]
         playerManager.loadAndPlayBook(
             book = other,
-            chapters = TestDataFactory.chaptersFor(other),
+            chapters = TestDataFactory.chaptersFor(other), playable = playable,
             initialChapterIndex = 0,
             autoPlay = false
         )

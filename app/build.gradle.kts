@@ -213,6 +213,10 @@ dependencies {
   // Spec-40 #276 (t2): the BiometricPrompt gate for «Код відновлення профілю».
   implementation(libs.androidx.biometric)
   implementation(libs.androidx.media3.exoplayer)
+  // #516 — playback data source on the shared OkHttp engine (app DNS/DoH,
+  // privacy route, one identity). The DefaultHttpDataSource resolved names
+  // through the system resolver and could not ride the route.
+  implementation(libs.androidx.media3.datasource.okhttp)
   implementation(libs.androidx.media3.session)
   // ADR-0024: CastPlayer swaps in behind the MediaSession player seam while
   // casting; the receiver itself never touches the network (phone proxy).

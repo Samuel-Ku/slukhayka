@@ -44,16 +44,36 @@ class DohPolicyTest {
         assertEquals(DnsStrategy.SystemOnly, strategy)
     }
 
-    // --- route independence (AC3, pure side) ---
+    // --- route awareness (#516) ---
 
     @Test
-    fun `the dns decision ignores the route mode`() {
-        for (mode in listOf(RouteMode.DIRECT, RouteMode.CUSTOM_PROXY, RouteMode.MAX_PRIVACY)) {
+    fun `direct keeps the transparent system fallback`() {
+        // #516: без обраного приватного маршруту доступність важливіша за
+        // прихованість — відмова DoH прозоро деградує на системний резолвер.
+        assertEquals(
+            DnsStrategy.DohFirst(NetworkPrivacy.DOH_URL, allowSystemFallback = true),
+            NetworkPrivacy.resolveDns(PrivacyPrefs(routeMode = RouteMode.DIRECT))
+        )
+    }
+
+    @Test
+    fun `a chosen privacy route forbids the system-resolver fallback`() {
+        // #516: явний Tor/проксі/реле — обов'язковий маршрут БЕЗ прямого
+        // fallback, включно з DNS-запитами. Системний резолвер міг би іти
+        // повз Tor — тому під обраним маршрутом DoH суворий: відмова =
+        // відмова запиту, а не тихий витік імені через систему.
+        for (mode in listOf(RouteMode.MAX_PRIVACY, RouteMode.CUSTOM_PROXY, RouteMode.RELAY)) {
             assertEquals(
-                "DoH must stay on for route $mode",
-                DnsStrategy.DohFirst(NetworkPrivacy.DOH_URL),
+                "DoH must be strict under route $mode",
+                DnsStrategy.DohFirst(NetworkPrivacy.DOH_URL, allowSystemFallback = false),
                 NetworkPrivacy.resolveDns(PrivacyPrefs(routeMode = mode))
             )
+        }
+    }
+
+    @Test
+    fun `the dns opt-out holds for every route mode`() {
+        for (mode in listOf(RouteMode.DIRECT, RouteMode.MAX_PRIVACY, RouteMode.CUSTOM_PROXY, RouteMode.RELAY)) {
             assertEquals(
                 "DoH opt-out must hold for route $mode",
                 DnsStrategy.SystemOnly,

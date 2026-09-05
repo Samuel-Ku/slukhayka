@@ -125,7 +125,7 @@ class AudioPlayerManagerTest {
     @Test
     fun `playback timeout flips audioEngineMode to the error state`() = playerTest { manager, factory ->
         // Arrange -- a stream that buffers forever and never reaches READY
-        manager.loadAndPlayBook(book, chapters, initialChapterIndex = 0, autoPlay = true)
+        manager.loadAndPlayBook(book, chapters, playable = playable, initialChapterIndex = 0, autoPlay = true)
         val engine = factory.current
         engine.simulateTimeout()
         assertTrue(manager.playerState.value.isBuffering)
@@ -194,7 +194,7 @@ class AudioPlayerManagerTest {
         playerTest { manager, factory ->
             // Arrange -- resume a book at chapter 2, 452s in.
             manager.loadAndPlayBook(
-                book, chapters,
+                book, chapters, playable = playable,
                 initialChapterIndex = 1,
                 initialPositionSeconds = 452L,
                 autoPlay = true
@@ -225,7 +225,7 @@ class AudioPlayerManagerTest {
     fun `seekTo while buffering arms the one-shot seek for the next READY`() =
         playerTest { manager, factory ->
             // Arrange -- prepare starts, engine stays BUFFERING (slow stream).
-            manager.loadAndPlayBook(book, chapters, initialChapterIndex = 0, autoPlay = true)
+            manager.loadAndPlayBook(book, chapters, playable = playable, initialChapterIndex = 0, autoPlay = true)
             val engine = factory.current
             assertTrue(manager.playerState.value.isBuffering)
 
@@ -246,7 +246,7 @@ class AudioPlayerManagerTest {
     @Test
     fun `pause then play resumes from the same position`() = playerTest { manager, factory ->
         // Arrange
-        manager.loadAndPlayBook(book, chapters, initialChapterIndex = 0, autoPlay = true)
+        manager.loadAndPlayBook(book, chapters, playable = playable, initialChapterIndex = 0, autoPlay = true)
         val engine = factory.current
         engine.simulateReady(chapters[0].durationSeconds * MILLIS_PER_SECOND)
         assertTrue(manager.playerState.value.isPlaying)
@@ -397,7 +397,7 @@ class AudioPlayerManagerTest {
     fun `completion on the final chapter stops instead of wrapping around`() = playerTest { manager, factory ->
         // Arrange
         val lastIndex = chapters.lastIndex
-        manager.loadAndPlayBook(book, chapters, initialChapterIndex = lastIndex, autoPlay = true)
+        manager.loadAndPlayBook(book, chapters, playable = playable, initialChapterIndex = lastIndex, autoPlay = true)
         val engine = factory.current
         val durationMs = chapters[lastIndex].durationSeconds * MILLIS_PER_SECOND
         engine.simulateReady(durationMs)
@@ -416,7 +416,7 @@ class AudioPlayerManagerTest {
     @Test
     fun `stopAndClear stops playback and resets the state`() = playerTest { manager, factory ->
         // Arrange -- a playing book
-        manager.loadAndPlayBook(book, chapters, initialChapterIndex = 0, autoPlay = true)
+        manager.loadAndPlayBook(book, chapters, playable = playable, initialChapterIndex = 0, autoPlay = true)
         val engine = factory.current
         engine.simulateReady(chapters[0].durationSeconds * MILLIS_PER_SECOND)
         assertTrue(manager.playerState.value.isPlaying)
@@ -451,7 +451,7 @@ class AudioPlayerManagerTest {
         )
 
         // Act
-        manager.loadAndPlayBook(sluhayBook, chapters, initialChapterIndex = 0, autoPlay = false)
+        manager.loadAndPlayBook(sluhayBook, chapters, playable = playable, initialChapterIndex = 0, autoPlay = false)
 
         // Assert — the shared CDN gate is met per book, never globally.
         assertEquals(
@@ -466,7 +466,7 @@ class AudioPlayerManagerTest {
             sourceUrl = "https://audiobook-mp3.com/uk/1/2/3.html"
         )
 
-        manager.loadAndPlayBook(mp3Book, chapters, initialChapterIndex = 0, autoPlay = false)
+        manager.loadAndPlayBook(mp3Book, chapters, playable = playable, initialChapterIndex = 0, autoPlay = false)
 
         assertEquals(
             mapOf("Referer" to "https://audiobook-mp3.com/uk"),
@@ -496,7 +496,7 @@ class AudioPlayerManagerTest {
     @Test
     fun `playback speed reaches the engine`() = playerTest { manager, factory ->
         // Arrange
-        manager.loadAndPlayBook(book, chapters, initialChapterIndex = 0, autoPlay = false)
+        manager.loadAndPlayBook(book, chapters, playable = playable, initialChapterIndex = 0, autoPlay = false)
         val engine = factory.current
         engine.simulateReady(chapters[0].durationSeconds * MILLIS_PER_SECOND)
 
@@ -519,7 +519,7 @@ class AudioPlayerManagerTest {
         val clock = TestClock()
         playerTest(clock = clock) { manager, factory ->
             // Fresh autoplay start → RESUME at the beginning.
-            manager.loadAndPlayBook(book, chapters, initialChapterIndex = 0, autoPlay = true)
+            manager.loadAndPlayBook(book, chapters, playable = playable, initialChapterIndex = 0, autoPlay = true)
             factory.current.simulateReady(chapters[0].durationSeconds * MILLIS_PER_SECOND)
             awaitEvents(1)
             assertEquals(listOf(PlaybackEventKind.RESUME), dao.savedPlaybackEvents.map { it.kind })
@@ -572,7 +572,7 @@ class AudioPlayerManagerTest {
     fun `sub-threshold seeks never land in the log`() {
         val clock = TestClock()
         playerTest(clock = clock) { manager, factory ->
-            manager.loadAndPlayBook(book, chapters, initialChapterIndex = 0, autoPlay = true)
+            manager.loadAndPlayBook(book, chapters, playable = playable, initialChapterIndex = 0, autoPlay = true)
             factory.current.simulateReady(chapters[0].durationSeconds * MILLIS_PER_SECOND)
             awaitEvents(1)
 
@@ -588,7 +588,7 @@ class AudioPlayerManagerTest {
     fun `quick pause and resume toggles are noise`() {
         val clock = TestClock()
         playerTest(clock = clock) { manager, factory ->
-            manager.loadAndPlayBook(book, chapters, initialChapterIndex = 0, autoPlay = true)
+            manager.loadAndPlayBook(book, chapters, playable = playable, initialChapterIndex = 0, autoPlay = true)
             factory.current.simulateReady(chapters[0].durationSeconds * MILLIS_PER_SECOND)
             awaitEvents(1)
 
@@ -606,12 +606,12 @@ class AudioPlayerManagerTest {
     fun `loading the same book from another source keeps one listening identity`() {
         val clock = TestClock()
         playerTest(clock = clock) { manager, _ ->
-            manager.loadAndPlayBook(book, chapters, initialChapterIndex = 0, autoPlay = true)
+            manager.loadAndPlayBook(book, chapters, playable = playable, initialChapterIndex = 0, autoPlay = true)
             awaitEvents(1)
             assertEquals(listOf(PlaybackEventKind.RESUME), dao.savedPlaybackEvents.map { it.kind })
 
             val soundBooksBook = book.copy(sourceUrl = "https://sound-books.net/books/kobzar.html")
-            manager.loadAndPlayBook(soundBooksBook, chapters, initialChapterIndex = 0, autoPlay = true)
+            manager.loadAndPlayBook(soundBooksBook, chapters, playable = playable, initialChapterIndex = 0, autoPlay = true)
             awaitEvents(2)
 
             // ADR-0007: switching the source is NOT a listening-state
@@ -635,7 +635,7 @@ class AudioPlayerManagerTest {
     fun `reaching the end of the book records completion exactly once`() {
         val clock = TestClock()
         playerTest(clock = clock) { manager, factory ->
-            manager.loadAndPlayBook(book, chapters, initialChapterIndex = chapters.lastIndex, autoPlay = true)
+            manager.loadAndPlayBook(book, chapters, playable = playable, initialChapterIndex = chapters.lastIndex, autoPlay = true)
             factory.current.simulateReady(chapters.last().durationSeconds * MILLIS_PER_SECOND)
             awaitEvents(1)
 
@@ -666,7 +666,7 @@ class AudioPlayerManagerTest {
         // Session 1: a 9-minute seek leaves a SEEK candidate in the log
         // (a non-autoplay load records no RESUME).
         playerTest(clock = clock) { manager, factory ->
-            manager.loadAndPlayBook(book, chapters, initialChapterIndex = 0, initialPositionSeconds = 60L, autoPlay = false)
+            manager.loadAndPlayBook(book, chapters, playable = playable, initialChapterIndex = 0, initialPositionSeconds = 60L, autoPlay = false)
             factory.current.simulateReady(chapters[0].durationSeconds * MILLIS_PER_SECOND)
             manager.seekTo(600_000L)
             awaitEvents(1) // the SEEK
@@ -678,7 +678,7 @@ class AudioPlayerManagerTest {
         // runs on the injected test scheduler (#101), so runCurrent() drains
         // it deterministically — no wall-clock budget to flake under load.
         playerTest(clock = clock) { manager, factory ->
-            manager.loadAndPlayBook(book, chapters, initialChapterIndex = 0, initialPositionSeconds = 600L, autoPlay = false)
+            manager.loadAndPlayBook(book, chapters, playable = playable, initialChapterIndex = 0, initialPositionSeconds = 600L, autoPlay = false)
             factory.current.simulateReady(chapters[0].durationSeconds * MILLIS_PER_SECOND)
             runCurrent()
             assertTrue("restart must re-offer the pre-jump position", manager.playerState.value.canUndoSeek)
@@ -690,7 +690,7 @@ class AudioPlayerManagerTest {
     fun `undo logs the jump back and a restart never re-offers it`() {
         val clock = TestClock()
         playerTest(clock = clock) { manager, factory ->
-            manager.loadAndPlayBook(book, chapters, initialChapterIndex = 0, initialPositionSeconds = 60L, autoPlay = false)
+            manager.loadAndPlayBook(book, chapters, playable = playable, initialChapterIndex = 0, initialPositionSeconds = 60L, autoPlay = false)
             factory.current.simulateReady(chapters[0].durationSeconds * MILLIS_PER_SECOND)
             manager.seekTo(600_000L)
             awaitEvents(1)
@@ -708,7 +708,7 @@ class AudioPlayerManagerTest {
         }
         // A restart at the undone position must NOT re-offer the consumed jump.
         playerTest(clock = clock) { manager, factory ->
-            manager.loadAndPlayBook(book, chapters, initialChapterIndex = 0, initialPositionSeconds = 60L, autoPlay = false)
+            manager.loadAndPlayBook(book, chapters, playable = playable, initialChapterIndex = 0, initialPositionSeconds = 60L, autoPlay = false)
             factory.current.simulateReady(chapters[0].durationSeconds * MILLIS_PER_SECOND)
             runCurrent()
             assertFalse("a consumed undo must never re-offer", manager.playerState.value.canUndoSeek)
@@ -719,7 +719,7 @@ class AudioPlayerManagerTest {
     fun `restart away from the landing position does not re-offer`() {
         val clock = TestClock()
         playerTest(clock = clock) { manager, factory ->
-            manager.loadAndPlayBook(book, chapters, initialChapterIndex = 0, initialPositionSeconds = 60L, autoPlay = false)
+            manager.loadAndPlayBook(book, chapters, playable = playable, initialChapterIndex = 0, initialPositionSeconds = 60L, autoPlay = false)
             factory.current.simulateReady(chapters[0].durationSeconds * MILLIS_PER_SECOND)
             manager.seekTo(600_000L)
             awaitEvents(1)
@@ -727,7 +727,7 @@ class AudioPlayerManagerTest {
         // The listener has moved on — far from the landing point, so the stale
         // candidate must stay silent.
         playerTest(clock = clock) { manager, factory ->
-            manager.loadAndPlayBook(book, chapters, initialChapterIndex = 0, initialPositionSeconds = 1_800L, autoPlay = false)
+            manager.loadAndPlayBook(book, chapters, playable = playable, initialChapterIndex = 0, initialPositionSeconds = 1_800L, autoPlay = false)
             factory.current.simulateReady(chapters[0].durationSeconds * MILLIS_PER_SECOND)
             runCurrent()
             assertFalse(manager.playerState.value.canUndoSeek)
@@ -744,7 +744,7 @@ class AudioPlayerManagerTest {
         val clock = TestClock()
         // Session 1: play the last chapter to the very end → COMPLETED.
         playerTest(clock = clock) { manager, factory ->
-            manager.loadAndPlayBook(book, chapters, initialChapterIndex = chapters.lastIndex, autoPlay = true)
+            manager.loadAndPlayBook(book, chapters, playable = playable, initialChapterIndex = chapters.lastIndex, autoPlay = true)
             factory.current.simulateReady(chapters.last().durationSeconds * MILLIS_PER_SECOND)
             awaitEvents(1) // RESUME
             factory.current.simulateEnded()
@@ -787,7 +787,7 @@ class AudioPlayerManagerTest {
             // Deliberate navigation: an explicit chapter at position 0, even
             // though the book may be finished — the rule only fires for a
             // start at/after the very end of the book.
-            manager.loadAndPlayBook(book, chapters, initialChapterIndex = 2, initialPositionSeconds = 0L, autoPlay = true)
+            manager.loadAndPlayBook(book, chapters, playable = playable, initialChapterIndex = 2, initialPositionSeconds = 0L, autoPlay = true)
             factory.current.simulateReady(chapters[2].durationSeconds * MILLIS_PER_SECOND)
             awaitEvents(1)
 
@@ -806,7 +806,7 @@ class AudioPlayerManagerTest {
             // READY must seek there instead of resetting to 0 / RELISTEN.
             val resumePosition = chapters.last().durationSeconds - 60L
             manager.loadAndPlayBook(
-                book, chapters,
+                book, chapters, playable = playable,
                 initialChapterIndex = chapters.lastIndex,
                 initialPositionSeconds = resumePosition,
                 autoPlay = true
@@ -826,7 +826,7 @@ class AudioPlayerManagerTest {
         playerTest(clock = clock) { manager, factory ->
             val totalSeconds = chapters.sumOf { it.durationSeconds }
             manager.loadAndPlayBook(
-                book, chapters,
+                book, chapters, playable = playable,
                 initialChapterIndex = chapters.lastIndex,
                 initialPositionSeconds = totalSeconds,
                 autoPlay = false
@@ -850,7 +850,7 @@ class AudioPlayerManagerTest {
             // must deterministically restart.
             val totalSeconds = chapters.sumOf { it.durationSeconds }
             manager.loadAndPlayBook(
-                book, chapters,
+                book, chapters, playable = playable,
                 initialChapterIndex = chapters.lastIndex,
                 initialPositionSeconds = totalSeconds - 60L,
                 autoPlay = true,

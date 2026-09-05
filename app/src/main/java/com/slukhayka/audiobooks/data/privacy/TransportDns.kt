@@ -17,9 +17,11 @@ import java.net.InetAddress
  * pure ([NetworkPrivacy.resolveDns], [FallbackDns]); this object only builds
  * the real RFC-8484 resolver (OkHttp `DnsOverHttps`, pinned to
  * [NetworkPrivacy.DOH_BOOTSTRAP_IPS] — the DoH server is reached WITHOUT any
- * DNS query, so nothing leaks) and logs the transparent fallback. A failed
- * DoH lookup never fails the request — the system resolver answers instead,
- * silently for the user, loudly in the log (repo rule: silent degradations
+ * DNS query, so nothing leaks) and logs the transparent fallback. #516: the
+ * fallback runs only while the listener is on DIRECT — under a CHOSEN
+ * privacy route the strict DoH resolver fails the lookup (and with it the
+ * request) instead of leaking the name through the system resolver. A failed
+ * lookup is still logged loudly either way (repo rule: silent degradations
  * must stay diagnosable).
  */
 object TransportDns : Dns {
@@ -40,25 +42,46 @@ object TransportDns : Dns {
     }
 
     /**
-     * DoH first, system resolver as the transparent fallback. Built once,
-     * lazily — the first lookup happens off the main thread. The DoH client
-     * rides the SAME route as traffic ([TransportClients.okHttp]'s proxy
-     * selector), which is exactly the route-independence criterion; its own
-     * hostname resolves via the pinned bootstrap IPs inside DnsOverHttps, so
-     * the trampoline below is never re-entered (no recursion).
+     * DoH first. Built once, lazily — the first lookup happens off the main
+     * thread. The DoH client rides the SAME route as traffic
+     * ([TransportClients.okHttp]'s proxy selector), which is exactly the
+     * route-independence criterion; its own hostname resolves via the pinned
+     * bootstrap IPs inside DnsOverHttps, so the trampoline below is never
+     * re-entered (no recursion).
+     *
+     * #516 — the fallback half is honoured per the CURRENT strategy at
+     * lookup time: DIRECT keeps the transparent system fallback, a chosen
+     * Tor/проксі/реле keeps lookups strictly inside the route.
      */
     private val dohFirst: Dns by lazy {
-        FallbackDns(
-            primary = DnsOverHttps.Builder()
-                .client(TransportClients.okHttp)
-                .url(NetworkPrivacy.DOH_URL.toHttpUrl())
-                .bootstrapDnsHosts(NetworkPrivacy.DOH_BOOTSTRAP_IPS.map { InetAddress.getByName(it) })
-                .build(),
-            fallback = systemResolver(),
-            onFallback = { hostname, failure ->
-                Log.w(TAG, "DoH недоступний ($hostname) — прозорий фолбек на системний резолвер", failure)
+        val doh = DnsOverHttps.Builder()
+            .client(TransportClients.okHttp)
+            .url(NetworkPrivacy.DOH_URL.toHttpUrl())
+            .bootstrapDnsHosts(NetworkPrivacy.DOH_BOOTSTRAP_IPS.map { InetAddress.getByName(it) })
+            .build()
+        object : Dns {
+            override fun lookup(hostname: String): List<InetAddress> {
+                val allowFallback = (strategy as? DnsStrategy.DohFirst)?.allowSystemFallback ?: true
+                val primary = try {
+                    doh.lookup(hostname)
+                } catch (primaryFailure: Exception) {
+                    Log.w(TAG, "DoH недоступний ($hostname)", primaryFailure)
+                    if (!allowFallback) {
+                        // #516 — the chosen route is mandatory: no system
+                        // resolver, the failure rides the ordinary transport
+                        // degrade path.
+                        throw primaryFailure
+                    }
+                    Log.w(
+                        TAG,
+                        "DoH недоступний ($hostname) — прозорий фолбек на системний резолвер",
+                        primaryFailure
+                    )
+                    return systemResolver().lookup(hostname)
+                }
+                return primary
             }
-        )
+        }
     }
 
     /**

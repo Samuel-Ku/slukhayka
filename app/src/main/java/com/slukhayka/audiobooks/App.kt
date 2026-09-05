@@ -78,6 +78,7 @@ import com.slukhayka.audiobooks.data.source.SluhayuaAdapter
 import com.slukhayka.audiobooks.data.source.SoundBooksAdapter
 import com.slukhayka.audiobooks.data.source.HttpFetcher
 import com.slukhayka.audiobooks.data.source.SourceAdapter
+import com.slukhayka.audiobooks.data.source.headersFor
 
 import com.slukhayka.audiobooks.data.update.SharedPreferencesUpdateCheckStore
 import com.slukhayka.audiobooks.data.update.UpdateChecker
@@ -516,7 +517,9 @@ class App : Application() {
         ChapterDurationProbe(
             database.audiobookDao(),
             sourceCatalog::getPlayableChapters,
-            HttpStreamProber(),
+            // #516 — the probe rides the shared transport AND the per-source
+            // header seam, so gated CDNs are provable under the app's own DNS.
+            HttpStreamProber(extraHeadersProvider = ::headersFor),
             sharedStore = sharedMetaStore
         )
     }

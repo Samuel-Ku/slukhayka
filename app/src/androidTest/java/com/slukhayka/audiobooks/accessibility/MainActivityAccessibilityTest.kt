@@ -51,6 +51,9 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.junit.rules.ExternalResource
+import com.slukhayka.audiobooks.AppLocale
+import com.slukhayka.audiobooks.AppLocalePrefs
 import java.io.File
 import java.io.OutputStream
 import java.nio.charset.StandardCharsets
@@ -64,11 +67,24 @@ import java.nio.charset.StandardCharsets
 @SdkSuppress(minSdkVersion = 34)
 class MainActivityAccessibilityTest {
 
-    @get:Rule
+    // This journey asserts Ukrainian labels. A fresh install now follows
+    // the device language, so select the test locale before Activity launch.
+    @get:Rule(order = 0)
+    val locale = object : ExternalResource() {
+        private var previous = AppLocale.SYSTEM
+        override fun before() {
+            val prefs = AppLocalePrefs(app)
+            previous = prefs.locale
+            prefs.locale = AppLocale.UKRAINIAN
+        }
+        override fun after() { AppLocalePrefs(app).locale = previous }
+    }
+
+    @get:Rule(order = 1)
     val notificationPermission: GrantPermissionRule =
         GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
 
-    @get:Rule
+    @get:Rule(order = 2)
     val composeTestRule = createAndroidComposeRule<MainActivity>()
 
     private val fixtureBookId = "accessibility-fixture-book"

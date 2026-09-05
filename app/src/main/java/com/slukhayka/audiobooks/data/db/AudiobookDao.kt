@@ -350,6 +350,10 @@ interface AudiobookDao {
     )
     suspend fun hasEnglishEditions(): Boolean
 
+    /** Every known rendition, for local projections such as person-bookmark news. */
+    @Query("SELECT * FROM editions ORDER BY addedAt DESC")
+    fun observeEditions(): Flow<List<EditionEntity>>
+
     // --- Spec-24 T1: the one-time stored-title scrub -----------------------
     // The startup pass reads every stored title (audiobooks + works), applies
     // the pure normalizeTitle rule in Kotlin, and rewrites only the rows that
@@ -1180,9 +1184,8 @@ interface AudiobookDao {
     @Query("UPDATE person_bookmarks SET lastSeenAt = :lastSeenAt, updatedAt = :updatedAt WHERE kind = :kind AND id = :id")
     suspend fun updatePersonBookmarkLastSeen(kind: String, id: String, lastSeenAt: Long, updatedAt: Long)
 
-    @Query("UPDATE person_bookmarks SET lastNotifiedAt = :lastNotifiedAt WHERE kind = :kind AND id = :id")
-    suspend fun updatePersonBookmarkLastNotified(kind: String, id: String, lastNotifiedAt: Long)
-
+    @Query("UPDATE person_bookmarks SET lastNotifiedAt = :lastNotifiedAt, lastNotifiedCount = :lastNotifiedCount, updatedAt = :lastNotifiedAt WHERE kind = :kind AND id = :id")
+    suspend fun updatePersonBookmarkLastNotified(kind: String, id: String, lastNotifiedAt: Long, lastNotifiedCount: Int)
     // --- Feed snapshots (spec #462 ID6, #467) ------------------------------
 
     /** Upserts one feed snapshot row (REPLACE by sourceId + feedKey + pageCursor). */

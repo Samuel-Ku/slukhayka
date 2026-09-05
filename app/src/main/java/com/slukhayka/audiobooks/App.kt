@@ -21,13 +21,16 @@ import com.slukhayka.audiobooks.data.downloads.OfflineDownloads
 import com.slukhayka.audiobooks.data.diagnostics.AndroidProcessExitHistory
 import com.slukhayka.audiobooks.data.diagnostics.CrashDiagnosticLedger
 import com.slukhayka.audiobooks.data.diagnostics.CrashContextTracker
+import com.slukhayka.audiobooks.data.diagnostics.AndroidHistoricalProcessExitSource
 import com.slukhayka.audiobooks.data.diagnostics.CrashReporting
 import com.slukhayka.audiobooks.data.diagnostics.DiagnosticAudioOrigin
 import com.slukhayka.audiobooks.data.diagnostics.DiagnosticPlaybackState
 import com.slukhayka.audiobooks.data.diagnostics.FirebaseCrashReportSink
 import com.slukhayka.audiobooks.data.diagnostics.PlaybackDiagnosticSnapshot
-import com.slukhayka.audiobooks.data.diagnostics.SharedPreferencesCrashConsentStore
 import com.slukhayka.audiobooks.data.diagnostics.UnexpectedPlaybackExitDetector
+import com.slukhayka.audiobooks.data.diagnostics.SharedPreferencesCrashConsentStore
+import com.slukhayka.audiobooks.data.diagnostics.SharedPreferencesProcessExitCursorStore
+import com.slukhayka.audiobooks.data.diagnostics.UnexpectedExitReporter
 import com.slukhayka.audiobooks.data.duration.ChapterDurationProbe
 import com.slukhayka.audiobooks.data.duration.DurationEnrichment
 import com.slukhayka.audiobooks.data.duration.HttpStreamProber
@@ -57,6 +60,11 @@ import com.slukhayka.audiobooks.data.metadata.CleanProfileProber
 import com.slukhayka.audiobooks.data.metadata.VerifiedSourceProfilePublisher
 import com.slukhayka.audiobooks.data.metadata.VerifiedSourceProfileReader
 import com.slukhayka.audiobooks.data.personbookmarks.PersonBookmarks
+import com.slukhayka.audiobooks.data.personbookmarks.PersonBookmarkSyncMutation
+import com.slukhayka.audiobooks.data.personbookmarks.PeopleNewArrivalWorker
+import com.slukhayka.audiobooks.data.personbookmarks.FirestorePersonBookmarksSyncStore
+import com.slukhayka.audiobooks.data.personbookmarks.PersonBookmarksSyncController
+import com.slukhayka.audiobooks.data.personbookmarks.SharedPreferencesPendingPersonBookmarkDeletes
 import com.slukhayka.audiobooks.data.reviews.FirestoreListenerReviewsStore
 import com.slukhayka.audiobooks.data.reviews.FirestoreNarrationRatingsStore
 import com.slukhayka.audiobooks.data.recommend.RecommendationSettingsStore
@@ -99,6 +107,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 
 /**
@@ -126,17 +135,28 @@ import kotlinx.coroutines.launch
 class App : Application() {
 
     private val database by lazy { AudiobookDatabase.getDatabase(this) }
+    private val processExitHistory by lazy { AndroidHistoricalProcessExitSource(this) }
 
-    private val crashConsentStore by lazy { SharedPreferencesCrashConsentStore(this) }
-    private val crashReportSink by lazy { FirebaseCrashReportSink.create(this) }
-    val crashDiagnosticLedger by lazy { CrashDiagnosticLedger(this) }
-    val crashReporting by lazy {
+    /** #411 — the only process-wide door to anonymous crash reporting. */
+    val crashReporting: CrashReporting by lazy {
         CrashReporting(
-            consentStore = crashConsentStore,
-            sink = crashReportSink,
-            enabledForBuild = !BuildConfig.DEBUG
+            consentStore = SharedPreferencesCrashConsentStore(this),
+            sink = FirebaseCrashReportSink.createOrNoOp(),
+            enabledForBuild = BuildConfig.CRASH_REPORTING_ENABLED,
+            processStateSummarySink = processExitHistory
         )
     }
+
+    private val unexpectedExitReporter by lazy {
+        UnexpectedExitReporter(
+            source = processExitHistory,
+            cursorStore = SharedPreferencesProcessExitCursorStore(this),
+            crashReporting = crashReporting,
+            enabledForBuild = BuildConfig.CRASH_REPORTING_ENABLED
+        )
+    }
+
+    val crashDiagnosticLedger by lazy { CrashDiagnosticLedger(this) }
     val crashContextTracker by lazy { CrashContextTracker(crashReporting, crashDiagnosticLedger) }
     private val diagnosticScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
@@ -144,7 +164,24 @@ class App : Application() {
     val audiobookDao: AudiobookDao get() = database.audiobookDao()
 
     /** #399 — process-scoped local person-bookmark module. */
-    val personBookmarks: PersonBookmarks by lazy { PersonBookmarks(audiobookDao) }
+    val personBookmarks: PersonBookmarks by lazy {
+        PersonBookmarks(audiobookDao) { mutation ->
+            when (mutation) {
+                PersonBookmarkSyncMutation.Sync -> personBookmarksSync.sync()
+                is PersonBookmarkSyncMutation.Remove ->
+                    personBookmarksSync.remove(mutation.kind, mutation.personId)
+            }
+        }
+    }
+
+    private val personBookmarksSync by lazy {
+        PersonBookmarksSyncController(
+            personBookmarks,
+            listenerIdentity,
+            FirestorePersonBookmarksSyncStore.create(this),
+            SharedPreferencesPendingPersonBookmarkDeletes(this)
+        )
+    }
 
     /** #290 — local personalization controls; shared upload is not part of this graph. */
     val recommendationSettings: RecommendationSettingsStore by lazy {
@@ -683,11 +720,13 @@ class App : Application() {
     override fun onCreate() {
         super.onCreate()
         instance = this
-        UnexpectedPlaybackExitDetector(
-            AndroidProcessExitHistory(this),
-            crashDiagnosticLedger
-        ).inspect(crashReporting)
         crashReporting.start()
+        unexpectedExitReporter.inspectLatest()
+        PeopleNewArrivalWorker.schedule(this)
+        // Install the attestation provider before any background module may
+        // open Firestore; bookmark sync starts immediately below.
+        installAppCheckIfConfigured()
+        CoroutineScope(Dispatchers.IO).launch { personBookmarksSync.sync() }
         // Spec-38 T1 (#253): install the persisted privacy route BEFORE any
         // module can touch the network, and warm the real system WebView
         // User-Agent off the main thread (it initialises the WebView engine;
@@ -698,10 +737,6 @@ class App : Application() {
                 android.webkit.WebSettings.getDefaultUserAgent(this@App)
             }.onSuccess { BrowserIdentity.reportSystemUserAgent(it) }
         }
-        // Spec-30 T1 (#216): attach the App Check attestation provider BEFORE
-        // any Firestore use, so every request to the shared metadata base
-        // carries a token and the security rules accept the app's writes.
-        installAppCheckIfConfigured()
         // ADR-0002 (#138): cold start performs no network I/O during module
         // construction — the catalogue sync is an explicit composition-root
         // call, kicked off here (best-effort, never blocks startup).

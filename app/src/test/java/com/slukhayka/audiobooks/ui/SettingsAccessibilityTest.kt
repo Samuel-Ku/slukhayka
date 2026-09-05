@@ -180,7 +180,7 @@ class SettingsAccessibilityTest {
     fun networkPrivacyDestinationChromeReflowsAndFocusesItsHeadingAtTwoHundredPercentText() {
         assertSettingsDestinationChrome(
             destination = SettingsDestination.NetworkPrivacy,
-            title = "Приватність мережі",
+            title = "Приватність",
             headingTag = "network_privacy_screen_heading"
         )
     }

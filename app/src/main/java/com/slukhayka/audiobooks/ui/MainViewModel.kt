@@ -268,6 +268,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // Spec-42 #431: shared metadata store for verified profile publish
     val sharedMetaStore: FirestoreBookMetaStore? = App.instance.sharedMetaStore
     val playerManager: AudioPlayerManager = App.instance.playerManager
+    val crashReportingModule get() = App.instance.crashReporting
     val recommendationPersonalization = App.instance.recommendationPreferences
 
     // #399/#400 — person bookmarks module (ADR-0008: screens read Flows directly).

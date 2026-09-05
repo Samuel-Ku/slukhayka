@@ -49,6 +49,7 @@ import com.slukhayka.audiobooks.ui.screens.AuthorsIndexScreen
 import com.slukhayka.audiobooks.ui.screens.CanonicalAuthorScreen
 import com.slukhayka.audiobooks.ui.screens.BookDetailLinkOrigin
 import com.slukhayka.audiobooks.ui.screens.CollectionsIndexScreen
+import com.slukhayka.audiobooks.ui.screens.CrashReportingConsentDialog
 import com.slukhayka.audiobooks.ui.screens.GenreScreen
 import com.slukhayka.audiobooks.ui.screens.HomeScreen
 import com.slukhayka.audiobooks.ui.screens.LibraryScreen
@@ -136,7 +137,9 @@ private val SecondaryBookRouteFrameSaver = listSaver<SecondaryBookRouteFrame, St
 // androidx.biometric's BiometricPrompt attaches to a FragmentActivity, and
 // the recovery-code gate in ⚙️ Профіль needs it. Compose is unaffected.
 class MainActivity : FragmentActivity() {
+    companion object { const val EXTRA_OPEN_PEOPLE_NEW = "openPeopleNew" }
     internal var pendingBookId: String? = null
+    internal var pendingPeopleNew: Boolean = false
 
     override fun onNewIntent(intent: android.content.Intent) {
         super.onNewIntent(intent)
@@ -144,6 +147,7 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun handleDownloadIntent(intent: android.content.Intent) {
+        if (intent.getBooleanExtra(EXTRA_OPEN_PEOPLE_NEW, false)) pendingPeopleNew = true
         if (intent.getBooleanExtra("openBookDetail", false)) {
             intent.getStringExtra("bookId")?.let { pendingBookId = it }
         }
@@ -182,6 +186,16 @@ class MainActivity : FragmentActivity() {
                 AudiobookApp()
             }
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        App.instance.crashReporting.setAppVisibility(AppVisibility.FOREGROUND)
+    }
+
+    override fun onStop() {
+        App.instance.crashReporting.setAppVisibility(AppVisibility.BACKGROUND)
+        super.onStop()
     }
 }
 
@@ -288,6 +302,13 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
         if (bookId != null) {
             activity.pendingBookId = null
             viewModel.selectBook(bookId)
+        }
+    }
+    LaunchedEffect(Unit) {
+        val activity = context as? MainActivity
+        if (activity?.pendingPeopleNew == true) {
+            activity.pendingPeopleNew = false
+            viewModel.selectTab(SelectedTab.EXPLORE)
         }
     }
 
@@ -684,6 +705,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                     // the route choice, reached from the same ⋮ overflow menu.
                     privacySettingsOpen -> NetworkPrivacyScreen(
                         viewModel = viewModel,
+                        crashReporting = viewModel.crashReportingModule,
                         onBackClick = {
                             libraryOverflowFocusReturnPending = true
                             viewModel.closePrivacySettings()
@@ -917,6 +939,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                             // composition root.
                             libraryEntries = viewModel.libraryEntries,
                             sourceCatalog = viewModel.sourceCatalog,
+                            personBookmarks = App.instance.personBookmarks,
                             onBookClick = { id -> viewModel.selectBook(id) },
                             onPlayClick = { book ->
                                 viewModel.playAudiobook(book)
@@ -958,6 +981,8 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                             // module fields — the playerManager precedent).
                             libraryEntries = viewModel.libraryEntries,
                             listeningState = viewModel.listeningState,
+                            // #401: person bookmarks module (ADR-0008).
+                            personBookmarks = App.instance.personBookmarks,
                             onBookClick = { id ->
                                 libraryBookFocusReturnId = id
                                 viewModel.selectBook(id)
@@ -967,6 +992,9 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                                 viewModel.setShowFullPlayer(true)
                             },
                             onBrowseClick = { viewModel.selectTab(SelectedTab.EXPLORE) },
+                            onPersonClick = { person ->
+                                viewModel.openPersonBooks(person)
+                            },
                             restoreFocusBookId = libraryBookFocusReturnId,
                             onBookFocusRestored = { restoredId ->
                                 if (libraryBookFocusReturnId == restoredId) {
@@ -988,6 +1016,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                             // composition root.
                             libraryEntries = viewModel.libraryEntries,
                             sourceCatalog = viewModel.sourceCatalog,
+                            personBookmarks = App.instance.personBookmarks,
                             onBookClick = { id -> viewModel.selectBook(id) },
                             onPlayClick = { book ->
                                 viewModel.playAudiobook(book)
@@ -1021,6 +1050,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
             }
         )
     }
+
     }
 }
 

@@ -8,6 +8,7 @@ import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
@@ -19,6 +20,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.slukhayka.audiobooks.App
 import com.slukhayka.audiobooks.MainActivity
 import com.slukhayka.audiobooks.ui.MainViewModel
+import com.slukhayka.audiobooks.ui.SelectedTab
 import kotlinx.coroutines.runBlocking
 import org.junit.Assume.assumeTrue
 import org.junit.Rule
@@ -64,4 +66,24 @@ class LiveChapterFocusTest {
             rule.runOnUiThread { vm.playerManager.pause(); vm.setShowFullPlayer(false) }
         }
     }
+
+    @OptIn(ExperimentalTestApi::class)
+    @Test fun closing_profile_returns_focus_to_library_menu() {
+        assumeTrue(!InstrumentationRegistry.getArguments().getString("liveBookId").isNullOrBlank())
+        rule.runOnUiThread {
+            rule.activity.window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            ViewModelProvider(rule.activity)[MainViewModel::class.java].selectTab(SelectedTab.LIBRARY)
+        }
+        rule.waitUntilExactlyOneExists(hasTestTag("library_screen"), 20_000)
+        rule.onNodeWithTag("library_overflow_button").performClick()
+        rule.onNodeWithTag("library_profile_menu_item").performClick()
+        rule.waitUntilExactlyOneExists(hasTestTag("profile_screen_heading"), 20_000)
+        rule.onNodeWithContentDescription("Назад").performClick()
+        rule.waitUntil(20_000) {
+            rule.onAllNodesWithTag("library_overflow_button").fetchSemanticsNodes().singleOrNull()
+                ?.config?.getOrNull(SemanticsProperties.Focused) == true
+        }
+        rule.onNodeWithTag("library_overflow_button").assertIsFocused()
+    }
+
 }

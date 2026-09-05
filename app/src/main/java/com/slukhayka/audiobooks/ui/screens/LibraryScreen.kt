@@ -4,10 +4,13 @@ import android.content.Intent
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -49,10 +52,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.data.catalog.CatalogPerson
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.BookmarkEntity
+import com.slukhayka.audiobooks.data.db.PersonBookmarkKey
+import com.slukhayka.audiobooks.data.db.PersonRole
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
 import com.slukhayka.audiobooks.data.listening.ListeningStateStore
+import com.slukhayka.audiobooks.data.personbookmarks.PersonBookmarks
+import com.slukhayka.audiobooks.ui.bookPersonPath
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.components.BookCoverSemantics
 import com.slukhayka.audiobooks.ui.components.BookCoverImage
@@ -90,9 +98,12 @@ fun LibraryScreen(
     // (import, cache) and navigation stay on the ViewModel.
     libraryEntries: LibraryEntries,
     listeningState: ListeningStateStore,
+    // #401: person bookmarks — Flows read directly (ADR-0008).
+    personBookmarks: PersonBookmarks,
     onBookClick: (String) -> Unit,
     onPlayClick: (AudiobookEntity) -> Unit,
     onBrowseClick: () -> Unit,
+    onPersonClick: (CatalogPerson) -> Unit = {},
     restoreFocusBookId: String? = null,
     onBookFocusRestored: (String) -> Unit = {},
     restoreOverflowFocus: Boolean = false,
@@ -106,6 +117,16 @@ fun LibraryScreen(
     val allBooks by libraryEntries.allBooks.collectAsState(initial = emptyList())
     val listeningStats by remember { listeningState.getAllListeningStats() }
         .collectAsState(initial = emptyList())
+    // #401: bookmarked people Flows collected directly (ADR-0008).
+    val bookmarkedAuthors by personBookmarks.bookmarkedAuthors()
+        .collectAsState(initial = emptyList())
+    val bookmarkedNarrators by personBookmarks.bookmarkedNarrators()
+        .collectAsState(initial = emptyList())
+    val bookmarkedPeople = remember(bookmarkedAuthors, bookmarkedNarrators) {
+        (bookmarkedAuthors.map { it to PersonRole.AUTHOR } +
+            bookmarkedNarrators.map { it to PersonRole.NARRATOR })
+            .sortedByDescending { it.first.createdAt }
+    }
     val context = LocalContext.current
     // ADR-0008: suspend module calls from user actions run on the composition
     // scope (same pattern as playerManager's call-through).
@@ -153,7 +174,7 @@ fun LibraryScreen(
     // The plan is pure data; confirming calls apply, dismissing leaves zero
     // trace. Merge suggestions render as review rows, never silent merges.
     val importPreview by viewModel.importPreview.collectAsState()
-    var activeTab by remember { mutableStateOf(0) } // 0 = Книги, 1 = Закладки, 2 = Статистика
+    var activeTab by remember { mutableStateOf(0) } // 0 = Книги, 1 = Закладки, 2 = Статистика, 3 = Люди
     var filter by remember { mutableStateOf(LibraryFilter.ALL) }
     var sort by remember { mutableStateOf(LibrarySort.RECENTLY_LISTENED) }
     var query by remember { mutableStateOf("") }
@@ -300,6 +321,7 @@ fun LibraryScreen(
                         modifier = Modifier
                             .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
                             .focusRequester(overflowFocusRequester)
+                            .focusProperties { canFocus = true }
                             .testTag("library_overflow_button")
                     ) {
                         Icon(
@@ -384,6 +406,12 @@ fun LibraryScreen(
                     selected = activeTab == 2,
                     onClick = { activeTab = 2 },
                     text = { Text(stringResource(R.string.lib_statistics), fontWeight = FontWeight.Bold) }
+                )
+                // #401: bookmarked people tab.
+                Tab(
+                    selected = activeTab == 3,
+                    onClick = { activeTab = 3 },
+                    text = { Text("Люди (${bookmarkedPeople.size})", fontWeight = FontWeight.Bold) }
                 )
             }
 
@@ -535,6 +563,53 @@ fun LibraryScreen(
                     ) {
                         item {
                             ListeningStatsCard(listeningStats = listeningStats, totalBooks = libraryBooks.size)
+                        }
+                    }
+                }
+
+                // #401: bookmarked people tab — authors and narrators the
+                // listener follows. Each row opens the person's books page.
+                3 -> {
+                    if (bookmarkedPeople.isEmpty()) {
+                        EmptyState(
+                            icon = Icons.Default.People,
+                            title = "Закладок на людей немає",
+                            body = "Додавайте закладки на авторів або виконавців зі сторінки книги."
+                        )
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(bottom = 120.dp, top = 8.dp)
+                        ) {
+                            items(
+                                bookmarkedPeople,
+                                key = { "${it.second.storageValue}_${it.first.id}" }
+                            ) { (entity, role) ->
+                                BookmarkedPersonRow(
+                                    displayName = entity.displayName,
+                                    role = role,
+                                    notifyEnabled = entity.notifyEnabled,
+                                    onClick = {
+                                        onPersonClick(
+                                            CatalogPerson(
+                                                name = entity.displayName,
+                                                path = bookPersonPath(
+                                                    if (role == PersonRole.AUTHOR) "avtor" else "chitaet",
+                                                    entity.displayName
+                                                ),
+                                                bookCount = 0,
+                                                role = role
+                                            )
+                                        )
+                                    },
+                                    onToggleNotify = { enabled ->
+                                        val key = PersonBookmarkKey(role, entity.id)
+                                        scope.launch {
+                                            personBookmarks.setNotifyEnabled(key, enabled)
+                                        }
+                                    }
+                                )
+                            }
                         }
                     }
                 }
@@ -1275,4 +1350,107 @@ fun ImportPreviewDialog(
             }
         }
     )
+}
+
+/**
+ * #401 — one bookmarked person row in the Медіатека "Люди" tab.
+ * Always bookmarked (this list only shows bookmarked people);
+ * long-press toggles notifyEnabled without deleting the bookmark.
+ */
+@Composable
+fun BookmarkedPersonRow(
+    displayName: String,
+    role: PersonRole,
+    notifyEnabled: Boolean,
+    onClick: () -> Unit,
+    onToggleNotify: (Boolean) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var showContextMenu by remember { mutableStateOf(false) }
+    var currentNotifyEnabled by remember(notifyEnabled) { mutableStateOf(notifyEnabled) }
+
+    Box(modifier = modifier) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 4.dp)
+                .defaultMinSize(minHeight = 48.dp)
+                .clip(RoundedCornerShape(AppDimens.RadiusCardLg))
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(AppDimens.RadiusCardLg))
+                .combinedClickable(
+                    onClick = onClick,
+                    onLongClick = { showContextMenu = true }
+                )
+                .semantics(mergeDescendants = true) {
+                    stateDescription = if (currentNotifyEnabled) "Закладка, повідомлення увімкнені" else "Закладка, повідомлення вимкнені"
+                }
+                .testTag("bookmarked_person_${displayName.hashCode()}"),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Person,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(12.dp))
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = displayName,
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = if (role == PersonRole.AUTHOR) "Автор" else "Виконавець",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = if (currentNotifyEnabled) "Повідомлення увімкнені" else "Повідомлення вимкнені",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (currentNotifyEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                Icon(
+                    imageVector = Icons.Default.Bookmark,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        }
+
+        DropdownMenu(
+            expanded = showContextMenu,
+            onDismissRequest = { showContextMenu = false }
+        ) {
+            DropdownMenuItem(
+                text = { Text(if (currentNotifyEnabled) "Вимкнути повідомлення" else "Увімкнути повідомлення") },
+                onClick = {
+                    currentNotifyEnabled = !currentNotifyEnabled
+                    onToggleNotify(currentNotifyEnabled)
+                    showContextMenu = false
+                }
+            )
+        }
+    }
 }

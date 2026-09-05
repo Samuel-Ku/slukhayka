@@ -11,6 +11,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import com.google.android.gms.cast.framework.CastContext
+import com.slukhayka.audiobooks.App
 import com.google.android.gms.cast.framework.CastSession
 import com.google.android.gms.cast.framework.SessionManagerListener
 import com.google.android.gms.common.ConnectionResult

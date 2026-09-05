@@ -1,0 +1,354 @@
+name: Crash diagnostics collect
+
+on:
+  schedule:
+    # #417: one controlled weekly entry point; manual dispatch remains for
+    # urgent validation of the same read-only collection boundary.
+    - cron: '0 6 * * 5'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Verify OIDC read path only; never publish an Issue'
+        required: false
+        default: true
+        type: boolean
+      implement:
+        description: 'Allow one proven crash Issue to propose a PR (requires dry_run=false)'
+        required: false
+        default: false
+        type: boolean
+      issue_number:
+        description: 'The one ready-for-agent crash Issue to implement'
+        required: false
+        type: string
+
+# #415 trust zone: the collector can read repository contents and mint an OIDC
+# token, but never gets GitHub Issues/PR write access or a model credential.
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: crash-collect
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require configured OIDC federation
+        env:
+          PROVIDER: ${{ vars.CRASHLYTICS_WIF_PROVIDER }}
+          SERVICE_ACCOUNT: ${{ vars.CRASHLYTICS_READER_SERVICE_ACCOUNT }}
+        run: |
+          test -n "$PROVIDER" && test -n "$SERVICE_ACCOUNT" || {
+            echo "needs-triage: missing Crashlytics read-only OIDC configuration" >&2
+            exit 2
+          }
+      - name: Authenticate read-only to Google through OIDC
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.CRASHLYTICS_WIF_PROVIDER }}
+          service_account: ${{ vars.CRASHLYTICS_READER_SERVICE_ACCOUNT }}
+          token_format: access_token
+      - name: Collect only sanitized groups
+        env:
+          ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
+          PROJECT: ${{ vars.CRASHLYTICS_PROJECT_ID }}
+          APP: ${{ vars.CRASHLYTICS_ANDROID_APP_ID }}
+        run: |
+          test -n "$PROJECT" && test -n "$APP" || {
+            echo "needs-triage: missing Crashlytics project/app configuration" >&2
+            exit 2
+          }
+          # This adapter issues GET only. It keeps the REST response in
+          # memory and writes one allowlisted projection for downstream jobs.
+          python3 scripts/crash_collect.py --project "$PROJECT" --app "$APP" --output crash-groups.json
+      - name: Upload sanitized handoff only
+        uses: actions/upload-artifact@v4
+        with:
+          name: crash-sanitized-groups
+          path: crash-groups.json
+          if-no-files-found: error
+
+  queue:
+    needs: collect
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # The queue receives only an allowlisted artifact. It cannot read
+    # Crashlytics, mint OIDC tokens, or mutate GitHub state.
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: crash-sanitized-groups
+      - name: Prioritize at most three proven diagnosis candidates
+        run: python3 scripts/crash_queue.py --input crash-groups.json --output crash-queue.json
+      - name: Upload bounded queue handoff
+        uses: actions/upload-artifact@v4
+        with:
+          name: crash-priority-queue
+          path: crash-queue.json
+          if-no-files-found: error
+
+  diagnose:
+    needs: queue
+    # The default manual dispatch proves only the read path. A maintainer must
+    # opt out of dry_run before any model call can occur.
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.dry_run != true }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # #414 trust zone: sanitized queue + public checkout + short-lived OIDC
+    # token only. This job cannot read Crashlytics or write GitHub state.
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install the pinned non-interactive OpenCode CLI
+        run: npm install --global opencode-ai@1.18.25
+      - uses: actions/download-artifact@v4
+        with:
+          name: crash-priority-queue
+      - name: Detect the dedicated diagnosis proxy
+        env:
+          PROXY_URL: ${{ vars.CRASH_DIAGNOSIS_PROXY_URL }}
+        run: |
+          if test -z "$PROXY_URL"; then
+            echo "DIAGNOSIS_UNAVAILABLE=diagnosis proxy unavailable" >> "$GITHUB_ENV"
+          fi
+      - name: Mint an OIDC token only when diagnosis is available
+        if: ${{ env.DIAGNOSIS_UNAVAILABLE == '' }}
+        env:
+          AUDIENCE: crash-diagnosis-proxy
+        run: |
+          token="$(curl --fail --silent --show-error \
+            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${AUDIENCE}" | jq --raw-output '.value' || true)"
+          if test -n "$token" && test "$token" != "null"; then
+            echo "CRASH_DIAGNOSIS_OIDC_TOKEN=$token" >> "$GITHUB_ENV"
+          else
+            echo "DIAGNOSIS_UNAVAILABLE=diagnosis OIDC token unavailable" >> "$GITHUB_ENV"
+          fi
+      - name: Run at most three diagnoses or retain visible triage
+        env:
+          CRASH_DIAGNOSIS_PROXY_URL: ${{ vars.CRASH_DIAGNOSIS_PROXY_URL }}
+        run: |
+          if test -n "$DIAGNOSIS_UNAVAILABLE"; then
+            python3 scripts/crash_diagnose_batch.py --input crash-queue.json --output crash-diagnoses.json \
+              --unavailable-reason "$DIAGNOSIS_UNAVAILABLE"
+          else
+            python3 scripts/crash_diagnose_batch.py --input crash-queue.json --output crash-diagnoses.json
+          fi
+      - name: Upload bounded diagnosis statuses
+        uses: actions/upload-artifact@v4
+        with:
+          name: crash-diagnoses
+          path: crash-diagnoses.json
+          if-no-files-found: error
+
+  publish:
+    needs: [queue, diagnose]
+    # A manually dispatched dry run exercises collection and queue validation
+    # without granting the run a publication step. Scheduled runs publish.
+    # Queue success is enough to publish. A failed diagnosis zone must not
+    # hide all groups; it gets a bounded needs-triage fallback below.
+    if: ${{ always() && needs.queue.result == 'success' && (github.event_name != 'workflow_dispatch' || inputs.dry_run != true) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # This is the only group-publication boundary. It receives neither the
+    # OIDC/Firebase credential nor a model credential.
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: crash-priority-queue
+      - uses: actions/download-artifact@v4
+        id: download-diagnoses
+        continue-on-error: true
+        with:
+          name: crash-diagnoses
+      - name: Retain visible triage when diagnosis did not publish an artifact
+        run: |
+          if ! test -f crash-diagnoses.json; then
+            python3 scripts/crash_diagnose_batch.py --input crash-queue.json --output crash-diagnoses.json \
+              --unavailable-reason "diagnosis job unavailable"
+          fi
+      - name: Create or update every sanitized crash issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/crash_publish.py --input crash-queue.json --diagnoses crash-diagnoses.json --repo "${{ github.repository }}" --output crash-issues.json
+      - name: Upload public Issue mapping
+        uses: actions/upload-artifact@v4
+        with:
+          name: crash-public-issues
+          path: crash-issues.json
+          if-no-files-found: error
+
+  implementation:
+    needs: [publish, diagnose]
+    # #416 is deliberately opt-in. Scheduled collection/diagnosis can never
+    # create a branch or PR, and the requested issue must be ready in this run.
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run != true && inputs.implement == true && inputs.issue_number != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install the pinned non-interactive OpenCode CLI
+        run: npm install --global opencode-ai@1.18.25
+      - uses: actions/download-artifact@v4
+        with:
+          name: crash-priority-queue
+          path: ${{ runner.temp }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: crash-diagnoses
+          path: ${{ runner.temp }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: crash-public-issues
+          path: ${{ runner.temp }}
+      - name: Select one verified implementation contract
+        run: |
+          python3 scripts/crash_implementation.py \
+            --queue "$RUNNER_TEMP/crash-queue.json" --diagnoses "$RUNNER_TEMP/crash-diagnoses.json" \
+            --issues "$RUNNER_TEMP/crash-issues.json" --issue "${{ inputs.issue_number }}" \
+            --output "$RUNNER_TEMP/implementation-plan.json"
+      - name: Require that the recorded red loop still fails
+        run: |
+          PLAN="$RUNNER_TEMP/implementation-plan.json" python3 - <<'PY'
+          import json
+          import os
+          import subprocess
+          from scripts.crash_implementation import gate_contract
+
+          plan = json.load(open(os.environ["PLAN"], encoding="utf-8"))
+          verdict = gate_contract(plan["issue_number"], plan["contract"], False, subprocess.run)
+          if not verdict.allowed:
+              raise SystemExit("needs-triage: " + verdict.reason)
+          PY
+      - name: Refuse a duplicate crash branch or pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: codex/crash-${{ inputs.issue_number }}
+        run: |
+          test -z "$(gh pr list --repo "${{ github.repository }}" --head "$BRANCH" --state open --json number --jq '.[].number')" || exit 2
+          ! git ls-remote --exit-code --heads origin "refs/heads/$BRANCH"
+      - name: Require the dedicated implementation proxy
+        env:
+          PROXY_URL: ${{ vars.CRASH_DIAGNOSIS_PROXY_URL }}
+        run: test -n "$PROXY_URL"
+      - name: Freeze the verified implementation contract
+        run: sha256sum "$RUNNER_TEMP/implementation-plan.json" > "$RUNNER_TEMP/implementation-plan.sha256"
+      - name: Mint an implementation-only OIDC token
+        env:
+          AUDIENCE: crash-implementation-proxy
+        run: |
+          token="$(curl --fail --silent --show-error \
+            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${AUDIENCE}" | jq --raw-output '.value')"
+          test -n "$token" && test "$token" != "null" || exit 2
+          echo "CRASH_DIAGNOSIS_OIDC_TOKEN=$token" >> "$GITHUB_ENV"
+      - name: Ask the isolated agent for the minimal fix only
+        env:
+          CRASH_DIAGNOSIS_PROXY_URL: ${{ vars.CRASH_DIAGNOSIS_PROXY_URL }}
+        run: |
+          opencode run --agent crash-implementation \
+            --model crash-diagnosis-proxy/glm-5.3-flash --format default \
+            --file "$RUNNER_TEMP/implementation-plan.json" \
+            "Implement only the verified crash contract supplied in the attached file. Make the smallest fix and regression test. Do not modify workflow, OpenCode configuration, GitHub metadata, or scripts/crash*. Do not commit, push, create branches, or create a PR."
+      - name: Reject automation edits and unremoved diagnostic instrumentation
+        run: |
+          sha256sum --check "$RUNNER_TEMP/implementation-plan.sha256"
+          changed="$( { git diff --name-only; git ls-files --others --exclude-standard; } | sort -u)"
+          if test -z "$changed"; then
+            echo "needs-triage: implementation agent produced no fix" >&2
+            exit 2
+          fi
+          forbidden="$(printf '%s\n' "$changed" | grep -E '^(\.github/|opencode\.json$|scripts/crash)' || true)"
+          test -z "$forbidden" || {
+            echo "needs-triage: implementation agent modified protected automation" >&2
+            exit 2
+          }
+          # The agent may use temporary local instrumentation while proving a
+          # hypothesis, but it may not leave an explicit removal marker or a
+          # noisy debug print in the submitted source diff.
+          lingering="$(git diff -- . ':!app/src/test/**' | grep -Ei '^[+].*(TODO.*(remove|instrument)|Log\.(d|v)\(|println\()' || true)"
+          test -z "$lingering" || {
+            echo "needs-triage: temporary diagnostic instrumentation remains" >&2
+            exit 2
+          }
+      - name: Require the recorded regression and relevant changed-code tests
+        run: |
+          PLAN="$RUNNER_TEMP/implementation-plan.json" python3 - <<'PY'
+          import json
+          import os
+          import shlex
+          import subprocess
+
+          plan = json.load(open(os.environ["PLAN"], encoding="utf-8"))
+          result = subprocess.run(shlex.split(plan["contract"]["red_command"]), shell=False, check=False)
+          if result.returncode != 0:
+              raise SystemExit("needs-triage: regression test is not green after the fix")
+          PY
+          # This selector maps the actual uncommitted diff to the repository's
+          # isolated Android cohorts, including an added regression test.
+          scripts/test-changed.sh --base HEAD
+      - name: Create exactly one reviewable pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: codex/crash-${{ inputs.issue_number }}
+          ISSUE_NUMBER: ${{ inputs.issue_number }}
+        run: |
+          fixed_version="$(sed -nE 's/^[[:space:]]*versionName = "([0-9]+(\.[0-9]+){1,3})"/\1/p' app/build.gradle.kts)"
+          test -n "$fixed_version" || exit 2
+          git switch -c "$BRANCH"
+          git config user.name "slukhayka crash diagnostics"
+          git config user.email "noreply@github.com"
+          git add -A
+          git commit -m "fix(crash): #${{ inputs.issue_number }} proven regression"
+          git push origin "HEAD:$BRANCH"
+          FIXED_VERSION="$fixed_version" PLAN="$RUNNER_TEMP/implementation-plan.json" PR_BODY="$RUNNER_TEMP/crash-pr-body.md" python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          plan = json.loads(Path(os.environ["PLAN"]).read_text(encoding="utf-8"))
+          contract = plan["contract"]
+          Path(os.environ["PR_BODY"]).write_text(
+              f"Fixes #{os.environ['ISSUE_NUMBER']}\n\n"
+              f"<!-- crash-fix-version:{os.environ['FIXED_VERSION']} -->\n\n"
+              "## Evidence-backed postmortem\n"
+              f"- Recorded regression: `{contract['regression_test']}`.\n"
+              "- The exact recorded command failed before editing and is green after the fix.\n"
+              f"- Verified evidence: {contract['evidence'][0]}\n\n"
+              "No auto-merge, release, or deployment is requested.",
+              encoding="utf-8",
+          )
+          PY
+          gh pr create --repo "${{ github.repository }}" --base main --head "$BRANCH" \
+            --title "fix(crash): #${{ inputs.issue_number }} proven regression" \
+            --body-file "$RUNNER_TEMP/crash-pr-body.md"

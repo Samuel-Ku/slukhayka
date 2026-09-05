@@ -31,6 +31,12 @@ class PersonIdentity private constructor(
     }
 }
 
+/** Explicit local changes that must be reflected by the optional cloud mirror. */
+sealed interface PersonBookmarkSyncMutation {
+    data object Sync : PersonBookmarkSyncMutation
+    data class Remove(val kind: String, val personId: String) : PersonBookmarkSyncMutation
+}
+
 /**
  * #399 — the deep module that owns person bookmarks (author / narrator).
  *
@@ -45,7 +51,8 @@ class PersonIdentity private constructor(
  */
 class PersonBookmarks(
     private val dao: AudiobookDao,
-    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val onSyncMutation: (suspend (PersonBookmarkSyncMutation) -> Unit)? = null
 ) {
     // --- Deterministic person identity (shared normaliser) ----------------
 
@@ -79,6 +86,13 @@ class PersonBookmarks(
     fun bookmarkedNarrators(): Flow<List<PersonBookmarkEntity>> =
         dao.getPersonBookmarksByKind(PersonRole.NARRATOR.storageValue)
 
+    /** Every bookmarked person; consumers keep the role boundary in [PersonIdentity]. */
+    fun allBookmarks(): Flow<List<PersonBookmarkEntity>> = dao.getAllPersonBookmarks()
+
+    internal suspend fun upsertRemote(bookmark: PersonBookmarkEntity) = withContext(ioDispatcher) {
+        dao.upsertPersonBookmark(bookmark)
+    }
+
     /** Total bookmark count per kind: {AUTHOR → N, NARRATOR → M}. */
     fun counts(): Flow<Map<PersonRole, Int>> =
         dao.getAllPersonBookmarks().map { bookmarks ->
@@ -101,7 +115,7 @@ class PersonBookmarks(
         person: PersonIdentity,
         nowMs: Long = System.currentTimeMillis()
     ): Boolean = withContext(ioDispatcher) {
-        dao.togglePersonBookmark(
+        val added = dao.togglePersonBookmark(
             PersonBookmarkEntity(
                 kind = person.role.storageValue,
                 id = person.id,
@@ -111,6 +125,11 @@ class PersonBookmarks(
                 updatedAt = nowMs
             )
         )
+        reportSyncMutation(
+            if (added) PersonBookmarkSyncMutation.Sync
+            else PersonBookmarkSyncMutation.Remove(person.role.storageValue, person.id)
+        )
+        added
     }
 
     /** Convenience overload for author bookmark toggle. */
@@ -139,6 +158,7 @@ class PersonBookmarks(
         nowMs: Long = System.currentTimeMillis()
     ) = withContext(ioDispatcher) {
         dao.updatePersonBookmarkNotifyEnabled(key.role.storageValue, key.id, enabled, nowMs)
+        reportSyncMutation(PersonBookmarkSyncMutation.Sync)
     }
 
     /**
@@ -151,5 +171,23 @@ class PersonBookmarks(
         nowMs: Long = System.currentTimeMillis()
     ) = withContext(ioDispatcher) {
         dao.updatePersonBookmarkLastSeen(key.role.storageValue, key.id, nowMs, nowMs)
+    }
+
+    /** Records each person's own displayed aggregate for notification dedupe. */
+    suspend fun markNotified(
+        counts: Map<PersonBookmarkKey, Int>,
+        nowMs: Long = System.currentTimeMillis()
+    ) = withContext(ioDispatcher) {
+        counts.forEach { (key, count) ->
+            dao.updatePersonBookmarkLastNotified(key.role.storageValue, key.id, nowMs, count)
+        }
+    }
+
+    private suspend fun reportSyncMutation(mutation: PersonBookmarkSyncMutation) {
+        try {
+            onSyncMutation?.invoke(mutation)
+        } catch (_: Throwable) {
+            // The local bookmark is already committed; cloud sync is best-effort.
+        }
     }
 }

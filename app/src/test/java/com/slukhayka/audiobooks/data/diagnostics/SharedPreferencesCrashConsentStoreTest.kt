@@ -1,35 +1,46 @@
 package com.slukhayka.audiobooks.data.diagnostics
 
-import android.app.Application
-import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
-private class BareCrashConsentApp : Application()
-
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [36], application = BareCrashConsentApp::class)
+@Config(sdk = [36], application = android.app.Application::class)
 class SharedPreferencesCrashConsentStoreTest {
-    private lateinit var context: Context
+
+    private val context = ApplicationProvider.getApplicationContext<android.content.Context>()
 
     @Before
-    fun setUp() {
-        context = ApplicationProvider.getApplicationContext()
-        context.getSharedPreferences("crash_reporting_consent", Context.MODE_PRIVATE)
-            .edit().clear().commit()
+    fun clearStoredChoice() {
+        context.getSharedPreferences("crash_reporting_consent", android.content.Context.MODE_PRIVATE)
+            .edit()
+            .clear()
+            .commit()
     }
 
     @Test
-    fun `choice survives a new store instance`() {
-        assertEquals(CrashConsent.UNDECIDED, SharedPreferencesCrashConsentStore(context).load())
+    fun `new install is undecided and each explicit choice survives restart`() {
+        val first = SharedPreferencesCrashConsentStore(context)
+        assertEquals(CrashConsent.UNDECIDED, first.load())
 
-        SharedPreferencesCrashConsentStore(context).save(CrashConsent.DENIED)
-
+        first.save(CrashConsent.DENIED)
         assertEquals(CrashConsent.DENIED, SharedPreferencesCrashConsentStore(context).load())
+
+        first.save(CrashConsent.ALLOWED)
+        assertEquals(CrashConsent.ALLOWED, SharedPreferencesCrashConsentStore(context).load())
+    }
+
+    @Test
+    fun `pending failure prompt survives restart and is consumed once`() {
+        SharedPreferencesCrashConsentStore(context).markFailurePromptPending()
+
+        assertTrue(SharedPreferencesCrashConsentStore(context).consumeFailurePromptPending())
+        assertFalse(SharedPreferencesCrashConsentStore(context).consumeFailurePromptPending())
     }
 }

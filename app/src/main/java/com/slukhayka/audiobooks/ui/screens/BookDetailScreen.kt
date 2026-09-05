@@ -33,7 +33,6 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -49,7 +48,6 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.slukhayka.audiobooks.data.catalog.CatalogBook
@@ -2337,21 +2335,6 @@ data class PersonBookmarkControl(
     val onToggleNotify: (Boolean) -> Unit = {}
 )
 
-/**
- * Keeps the full 48dp Material touch target for the bookmark star without
- * letting it inflate the text line's height: the button still measures and
- * draws 48×48dp, but reports zero height to the row, so the surrounding
- * vertical rhythm stays at the natural line height. Safe because the rows
- * themselves never clip — only the scroll viewport does.
- */
-private fun Modifier.personBookmarkTouchTarget(): Modifier = layout { measurable, _ ->
-    val side = 48.dp.roundToPx()
-    val placeable = measurable.measure(Constraints.fixed(side, side))
-    layout(placeable.width, 0) {
-        placeable.placeRelative(0, -placeable.height / 2)
-    }
-}
-
 /** The production Work/Edition summary consumed by both the page and snapshots. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -2434,15 +2417,16 @@ fun BookDetailCanonicalSummary(
                     .widthIn(max = textMaxWidth)
                     .focusRequester(authorFocusRequester)
                     .testTag("book_detail_author_link")
+                    .heightIn(min = 48.dp)
                     .clickable {
                         onChildRouteOpened(BookDetailLinkOrigin.AUTHOR)
                         onAuthorClick(presentation.author)
                     }
+                    .wrapContentHeight(Alignment.CenterVertically)
             )
             PersonBookmarkButton(
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
-                    .personBookmarkTouchTarget()
                     .offset(x = (-4).dp),
                 isBookmarked = authorBookmark.isBookmarked,
                 notifyEnabled = authorBookmark.notifyEnabled,
@@ -2474,16 +2458,17 @@ fun BookDetailCanonicalSummary(
                     .widthIn(max = textMaxWidth)
                     .focusRequester(narratorFocusRequester)
                     .testTag("book_detail_narrator_link")
+                    .heightIn(min = 48.dp)
                     .clickable {
                         onChildRouteOpened(BookDetailLinkOrigin.NARRATOR)
                         onNarratorClick(presentation.narrator)
                     }
+                    .wrapContentHeight(Alignment.CenterVertically)
                     .semantics { stateDescription = currentEditionState }
             )
             PersonBookmarkButton(
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
-                    .personBookmarkTouchTarget()
                     .offset(x = (-4).dp),
                 isBookmarked = narratorBookmark.isBookmarked,
                 notifyEnabled = narratorBookmark.notifyEnabled,

@@ -316,6 +316,58 @@ class SoundBooksAdapterTest {
         assertTrue(adapter.fetchBookPage("https://sound-books.net/x.html").chapters.isEmpty())
     }
 
+    // #449 — the live September 2026 playlist serves SIGNED track URLs with
+    // percent-encoded Cyrillic filenames; the Chapter title must be readable
+    // Ukrainian while the Source track URL stays byte-for-byte as served.
+    private val signedM3u = """
+        https://arch.sound-books.net/4111/%D0%96%D0%B5%D1%80%D1%82%D0%B2%D0%B0%20%D0%B7%20%D0%BA%D0%BE%D1%81%D0%BC%D0%BE%D1%81%D1%83-01.mp3?expires=1788000000&md5=abc123def456abc123def456abc12345
+        https://arch.sound-books.net/4111/%D0%96%D0%B5%D1%80%D1%82%D0%B2%D0%B0%20%D0%B7%20%D0%BA%D0%BE%D1%81%D0%BC%D0%BE%D1%81%D1%83-02.mp3?expires=1788000000&md5=abc123def456abc123def456abc12346
+    """.trimIndent()
+
+    @Test
+    fun `percent-encoded signed playlist yields readable titles and byte-stable urls`() = runBlocking {
+        val adapter = SoundBooksAdapter(
+            FakeFetcher(
+                mapOf(
+                    "https://sound-books.net/x.html" to bookPage,
+                    "https://sound-books.net/uploads/public_files/2026-07/4111-krauch-bleik-temna-materiia.m3u" to signedM3u
+                )
+            )
+        )
+
+        val detail = adapter.fetchBookPage("https://sound-books.net/x.html")
+
+        assertEquals(2, detail.chapters.size)
+        // AC1+AC2: readable Ukrainian title, no extension, no signed query.
+        assertEquals("Жертва з космосу-01", detail.chapters[0].title)
+        assertEquals("Жертва з космосу-02", detail.chapters[1].title)
+        // AC3: the Source track URL remains byte-for-byte as the playlist served it.
+        assertEquals(
+            "https://arch.sound-books.net/4111/%D0%96%D0%B5%D1%80%D1%82%D0%B2%D0%B0%20%D0%B7%20%D0%BA%D0%BE%D1%81%D0%BC%D0%BE%D1%81%D1%83-01.mp3?expires=1788000000&md5=abc123def456abc123def456abc12345",
+            detail.chapters[0].streamUrl
+        )
+    }
+
+    @Test
+    fun `a malformed percent sequence falls back to a safe readable title`() = runBlocking {
+        val broken = "https://arch.sound-books.net/4111/100%%D0broken-Chapter.mp3"
+        val adapter = SoundBooksAdapter(
+            FakeFetcher(
+                mapOf(
+                    "https://sound-books.net/x.html" to bookPage,
+                    "https://sound-books.net/uploads/public_files/2026-07/4111-krauch-bleik-temna-materiia.m3u" to broken
+                )
+            )
+        )
+
+        val detail = adapter.fetchBookPage("https://sound-books.net/x.html")
+
+        // AC4: the import must not fail and the title must stay readable —
+        // the raw filename with its invalid escapes kept verbatim.
+        assertEquals(1, detail.chapters.size)
+        assertEquals("100%%D0broken-Chapter", detail.chapters[0].title)
+    }
+
     // Spec-24 T9 (#170): a page without og:image keeps a null cover — never
     // fabricated. (The relative-path form is resolved against the site origin,
     // mirroring the tile covers.)

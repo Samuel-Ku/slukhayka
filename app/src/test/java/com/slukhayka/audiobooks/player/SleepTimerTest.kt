@@ -204,6 +204,9 @@ class SleepTimerTest {
         playerManager.loadAndPlayBook(
             book = book,
             chapters = chapters,
+            playable = chapters.zip(TestDataFactory.tracksFor(book, "timer-fixture")) { chapter, track ->
+                com.slukhayka.audiobooks.data.catalog.SourceCatalog.PlayableChapter(chapter, track)
+            },
             initialChapterIndex = 0,
             autoPlay = false
         )

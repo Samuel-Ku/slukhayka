@@ -42,6 +42,10 @@ class SpeedAndRewindManagerTest {
 
     private val book: AudiobookEntity = TestDataFactory.dataBooks()[STREAMING_BOOK_INDEX]
     private val chapters: List<ChapterEntity> = TestDataFactory.chaptersFor(book)
+    // A playable fixture is required: missing audio correctly stops before engine creation.
+    private val playable = chapters.zip(TestDataFactory.tracksFor(book, "speed-fixture")) { chapter, track ->
+        com.slukhayka.audiobooks.data.catalog.SourceCatalog.PlayableChapter(chapter, track)
+    }
 
     /** Injectable wall clock; tests advance it to simulate real time passing. */
     private var clockMs: Long = 1_000_000_000L
@@ -92,13 +96,13 @@ class SpeedAndRewindManagerTest {
     @Test
     fun `load applies the book's preferred speed`() = managerTest { manager, _ ->
         val fastBook = book.copy().also { it.preferredSpeed = 1.5f }
-        manager.loadAndPlayBook(fastBook, chapters, initialChapterIndex = 0, autoPlay = false)
+        manager.loadAndPlayBook(fastBook, chapters, playable = playable, initialChapterIndex = 0, autoPlay = false)
         assertEquals(1.5f, manager.playerState.value.playbackSpeed, SPEED_TOLERANCE)
     }
 
     @Test
     fun `load uses 1x when neither book nor default has a speed`() = managerTest { manager, _ ->
-        manager.loadAndPlayBook(book, chapters, initialChapterIndex = 0, autoPlay = false)
+        manager.loadAndPlayBook(book, chapters, playable = playable, initialChapterIndex = 0, autoPlay = false)
         assertEquals(1.0f, manager.playerState.value.playbackSpeed, SPEED_TOLERANCE)
     }
 
@@ -107,7 +111,7 @@ class SpeedAndRewindManagerTest {
         settings = PlaybackSettings(context)
     ) { manager, _ ->
         manager.setDefaultSpeed(1.5f)
-        manager.loadAndPlayBook(book, chapters, initialChapterIndex = 0, autoPlay = false)
+        manager.loadAndPlayBook(book, chapters, playable = playable, initialChapterIndex = 0, autoPlay = false)
         assertEquals(1.5f, manager.playerState.value.playbackSpeed, SPEED_TOLERANCE)
     }
 
@@ -117,7 +121,7 @@ class SpeedAndRewindManagerTest {
 
     @Test
     fun `resume after a long pause rewinds by the medium tier`() = managerTest { manager, factory ->
-        manager.loadAndPlayBook(book, chapters, initialChapterIndex = 0, initialPositionSeconds = 600L, autoPlay = false)
+        manager.loadAndPlayBook(book, chapters, playable = playable, initialChapterIndex = 0, initialPositionSeconds = 600L, autoPlay = false)
         factory.current.simulateReady(1_800_000L)
 
         manager.pause()
@@ -129,7 +133,7 @@ class SpeedAndRewindManagerTest {
 
     @Test
     fun `quick play pause toggle does not rewind`() = managerTest { manager, factory ->
-        manager.loadAndPlayBook(book, chapters, initialChapterIndex = 0, initialPositionSeconds = 600L, autoPlay = false)
+        manager.loadAndPlayBook(book, chapters, playable = playable, initialChapterIndex = 0, initialPositionSeconds = 600L, autoPlay = false)
         factory.current.simulateReady(1_800_000L)
 
         manager.pause()
@@ -141,7 +145,7 @@ class SpeedAndRewindManagerTest {
 
     @Test
     fun `an overnight pause rewinds the most`() = managerTest { manager, factory ->
-        manager.loadAndPlayBook(book, chapters, initialChapterIndex = 0, initialPositionSeconds = 600L, autoPlay = false)
+        manager.loadAndPlayBook(book, chapters, playable = playable, initialChapterIndex = 0, initialPositionSeconds = 600L, autoPlay = false)
         factory.current.simulateReady(1_800_000L)
 
         manager.pause()
@@ -153,7 +157,7 @@ class SpeedAndRewindManagerTest {
 
     @Test
     fun `resume at the very start does not rewind below zero`() = managerTest { manager, factory ->
-        manager.loadAndPlayBook(book, chapters, initialChapterIndex = 0, initialPositionSeconds = 2L, autoPlay = false)
+        manager.loadAndPlayBook(book, chapters, playable = playable, initialChapterIndex = 0, initialPositionSeconds = 2L, autoPlay = false)
         factory.current.simulateReady(1_800_000L)
 
         manager.pause()
@@ -169,7 +173,7 @@ class SpeedAndRewindManagerTest {
 
     @Test
     fun `a big seek becomes undoable and undo restores the position`() = managerTest { manager, factory ->
-        manager.loadAndPlayBook(book, chapters, initialChapterIndex = 0, initialPositionSeconds = 60L, autoPlay = false)
+        manager.loadAndPlayBook(book, chapters, playable = playable, initialChapterIndex = 0, initialPositionSeconds = 60L, autoPlay = false)
         factory.current.simulateReady(1_800_000L)
 
         manager.seekTo(600_000L) // a 9-minute jump
@@ -185,7 +189,7 @@ class SpeedAndRewindManagerTest {
 
     @Test
     fun `a small seek is not undoable`() = managerTest { manager, factory ->
-        manager.loadAndPlayBook(book, chapters, initialChapterIndex = 0, initialPositionSeconds = 60L, autoPlay = false)
+        manager.loadAndPlayBook(book, chapters, playable = playable, initialChapterIndex = 0, initialPositionSeconds = 60L, autoPlay = false)
         factory.current.simulateReady(1_800_000L)
 
         manager.seekTo(90_000L) // 30-second nudge
@@ -195,12 +199,12 @@ class SpeedAndRewindManagerTest {
 
     @Test
     fun `loading a new book clears the undo state`() = managerTest { manager, factory ->
-        manager.loadAndPlayBook(book, chapters, initialChapterIndex = 0, initialPositionSeconds = 60L, autoPlay = false)
+        manager.loadAndPlayBook(book, chapters, playable = playable, initialChapterIndex = 0, initialPositionSeconds = 60L, autoPlay = false)
         factory.current.simulateReady(1_800_000L)
         manager.seekTo(600_000L)
         assertTrue(manager.playerState.value.canUndoSeek)
 
-        manager.loadAndPlayBook(book.copy().also { it.preferredSpeed = 1.25f }, chapters, initialChapterIndex = 0, autoPlay = false)
+        manager.loadAndPlayBook(book.copy().also { it.preferredSpeed = 1.25f }, chapters, playable = playable, initialChapterIndex = 0, autoPlay = false)
 
         assertFalse(manager.playerState.value.canUndoSeek)
     }

@@ -1187,18 +1187,37 @@ fun RecommendedBookCard(
                 )
             }
             Spacer(modifier = Modifier.height(6.dp))
-            Surface(
-                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
-                shape = RoundedCornerShape(8.dp)
-            ) {
-                Text(
-                    text = "Схоже на «${rec.reasonTitle}»",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                )
+            // #486: a «джерело радить» slot wears its per-Source badge instead
+            // of the reason chip — the pick comes from the source's top, not
+            // from the listener's profile. Personal picks keep «схоже на X».
+            if (rec.isExploration && rec.sourceLabel != null) {
+                Surface(
+                    color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.12f),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text(
+                        text = stringResource(R.string.home_recommendation_source_badge, rec.sourceLabel),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.secondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
+            } else {
+                Surface(
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text(
+                        text = "Схоже на «${rec.reasonTitle}»",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
             }
             CatalogCardStatus(rec.candidate.id, actionState, onOpenBrowser)
         }

@@ -27,15 +27,35 @@ object RecommendationPersonalization {
     )
 
     data class ScoreWeights(
-        val semantic: Double = .60,
+        val semantic: Double = .55,
         val author: Double = .15,
         val genre: Double = .10,
         val series: Double = .05,
-        val freshness: Double = .10
+        val freshness: Double = .05,
+        // #486 — the ONE normalized source-popularity/rating component. Small
+        // by contract: community-approved books rise but never twist the
+        // personal profile. Funded by redistributing part of the freshness
+        // weight (and a slice of the semantic share) — the total stays 1.00.
+        val popularity: Double = .10
     )
 
     /** The same Unicode/punctuation normalization used for Work-side identity keys. */
     fun identityKey(value: String): String = normalize(value)
+
+    /**
+     * #486 — the ONE normalized popularity component from the source
+     * assertions (#485): the strongest of the two claims wins — a position in
+     * a source top (the 1..10 window tapers from the ceiling to zero) or the
+     * claimed rating (its 1..5 scale). Rank and rating never stack: one
+     * component, one weight, one source of lift.
+     */
+    fun normalizedPopularity(rank: Int?, rating: Double?): Double {
+        // Only the visible top-10 window lifts: deeper positions of a long
+        // list carry no scoring signal (the tail is noise, not approval).
+        val rankScore = rank?.takeIf { it in 1..10 }?.let { r -> (11.0 - r) / 10.0 } ?: 0.0
+        val ratingScore = rating?.let { r -> (r.coerceIn(1.0, 5.0) - 1.0) / 4.0 } ?: 0.0
+        return maxOf(rankScore, ratingScore)
+    }
 
     fun signalsFor(behaviors: List<WorkBehavior>, nowEpochMs: Long): List<RecommendationEngine.Signal> =
         behaviors.groupBy { it.workId }
@@ -89,7 +109,13 @@ object RecommendationPersonalization {
         weights: ScoreWeights = ScoreWeights(),
         nowEpochMs: Long = System.currentTimeMillis(),
         topN: Int = 10,
-        explorationCount: Int = 2
+        explorationCount: Int = 2,
+        // #486 — the persisted source signals (#485), pre-normalized per Work
+        // ([normalizedPopularity]): the ONE small popularity component.
+        popularityByWorkId: Map<String, Double> = emptyMap(),
+        // #486 — the source display name per Work (e.g. «sound-books»); only
+        // the «джерело радить» slots carry it as their per-Source badge.
+        sourceLabelsByWorkId: Map<String, String> = emptyMap()
     ): List<RecommendationEngine.Recommendation> {
         if (topN <= 0) return emptyList()
         val positives = signals.filter { it.weight > 0.0 && vectors[it.id] != null }
@@ -105,7 +131,13 @@ object RecommendationPersonalization {
             .mapNotNull { candidate ->
                 val vector = vectors[candidate.id] ?: return@mapNotNull null
                 val positiveSimilarity = RecommendationEngine.cosine(vector, positiveCentroid)
-                if (positiveSimilarity <= 0.0) return@mapNotNull null
+                // #486: a «джерело радить» candidate is eligible even with no
+                // personal overlap — its lift comes from the source's
+                // celebration, not from the profile. Everyone else still
+                // needs a positive similarity to be scored at all.
+                if (positiveSimilarity <= 0.0 && !sourceLabelsByWorkId.containsKey(candidate.id)) {
+                    return@mapNotNull null
+                }
                 val negativeSimilarity = negativeCentroid?.let {
                     RecommendationEngine.cosine(vector, it)
                 } ?: 0.0
@@ -117,7 +149,11 @@ object RecommendationPersonalization {
                     weights.author * affinity(candidate.author, positives) { it.author } +
                     weights.genre * affinity(candidate.genre, positives) { it.genre } +
                     weights.series * affinity(candidate.series, positives) { it.series } +
-                    weights.freshness * freshness(candidate.publishedAtEpochMs, nowEpochMs)
+                    weights.freshness * freshness(candidate.publishedAtEpochMs, nowEpochMs) +
+                    // #486: the one small source-popularity component — books
+                    // the community approves rise, the personal profile is
+                    // never twisted (the component is capped by its weight).
+                    weights.popularity * (popularityByWorkId[candidate.id] ?: 0.0).coerceIn(0.0, 1.0)
                 RecommendationEngine.Recommendation(
                     candidate = candidate,
                     score = score,
@@ -151,13 +187,36 @@ object RecommendationPersonalization {
             addIfDiverse(item, exploration = false)
         }
         val selectedIds = selected.mapTo(mutableSetOf()) { it.candidate.id }
+        // #486 — «джерело радить»: the exploration slots go to books from the
+        // sources' tops FIRST (popularity-ordered, per-Source badge carried on
+        // the card). Diversity caps still apply. Slots without source
+        // coverage keep the semantic exploration fallback — the mechanism
+        // never regresses when no assertions are persisted yet.
+        val sourceSuggested = scored.asSequence()
+            .filter { it.candidate.id !in selectedIds && sourceLabelsByWorkId.containsKey(it.candidate.id) }
+            // The source's celebration lifts, but never against the profile:
+            // a book the negative signals push against is not suggested even
+            // from a top (orthogonal — no overlap — is fine).
+            .filter { it.semanticScore >= 0.0 }
+            .sortedByDescending { popularityByWorkId[it.candidate.id] ?: 0.0 }
+            .toList()
+        var addedExploration = 0
+        for (item in sourceSuggested) {
+            if (addedExploration >= exploreSlots) break
+            if (addIfDiverse(item.copy(sourceLabel = sourceLabelsByWorkId[item.candidate.id]), exploration = true)) {
+                addedExploration++
+                selectedIds += item.candidate.id
+            }
+        }
         val explorationPool = scored.asSequence()
             .filter { it.candidate.id !in selectedIds && it.semanticScore > 0.0 }
             .sortedBy { stableExplorationKey(it.candidate.id) }
-        var addedExploration = 0
         for (item in explorationPool) {
             if (addedExploration >= exploreSlots) break
-            if (addIfDiverse(item, exploration = true)) addedExploration++
+            if (addIfDiverse(item, exploration = true)) {
+                addedExploration++
+                selectedIds += item.candidate.id
+            }
         }
         if (selected.size < topN) {
             val nowSelected = selected.mapTo(mutableSetOf()) { it.candidate.id }

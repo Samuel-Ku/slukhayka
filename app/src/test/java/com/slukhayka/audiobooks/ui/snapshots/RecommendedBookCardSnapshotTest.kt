@@ -58,6 +58,38 @@ class RecommendedBookCardSnapshotTest {
             filePath = "src/test/snapshots/recommended_book_card.png"
         )
     }
+
+    /**
+     * #486 — a «джерело радить» slot: the card wears the per-Source badge
+     * (Джерело радить · sound-books) instead of the reason chip — the pick
+     * comes from the source's top, not from the listener's profile.
+     */
+    @Test
+    fun source_badge_on_exploration_slot() {
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                RecommendedSurface {
+                    RecommendedBookCard(
+                        rec = RecommendationEngine.Recommendation(
+                            candidate = RecommendationEngine.Candidate(
+                                id = "soundbooks-77-tini-zabutyh-predkiv",
+                                title = "Тіні забутих предків",
+                                author = "Михайло Коцюбинський"
+                            ),
+                            score = 0.31,
+                            reasonTitle = "Лісова пісня",
+                            isExploration = true,
+                            sourceLabel = "sound-books"
+                        ),
+                        onClick = {}
+                    )
+                }
+            }
+        }
+        composeTestRule.onRoot().captureRoboImage(
+            filePath = "src/test/snapshots/recommended_book_card_source_badge.png"
+        )
+    }
 }
 
 /** Same chrome as the other row snapshots: scheme background, full size. */

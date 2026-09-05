@@ -33,6 +33,8 @@
     <!-- Spec-45 (#405) T10 (#498): visible UI literals (English). -->
     <string name="home_search_placeholder">Search for a book or author…</string>
     <string name="home_not_recommend">Don\'t recommend…</string>
+    <!-- #486 — the per-Source badge on a source-suggested recommendation card. -->
+    <string name="home_recommendation_source_badge">Source suggests · %1$s</string>
     <string name="home_import_file">Import file</string>
     <string name="feed_sort_newest">Newest first</string>
     <string name="feed_sort_title">By title</string>

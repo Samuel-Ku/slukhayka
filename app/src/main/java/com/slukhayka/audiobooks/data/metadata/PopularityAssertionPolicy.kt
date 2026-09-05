@@ -99,4 +99,16 @@ object PopularityAssertionPolicy {
 
     /** Parses a stored rating claim back to its double; null for anything else. */
     fun ratingValue(rawValue: String): Double? = rawValue.toDoubleOrNull()
+
+    /**
+     * #486 — the human-facing source name behind a rank assertion's stored
+     * list id (the badge on a «джерело радить» card). Known live collections
+     * get their short names; anything else shows the raw id — never a guess.
+     */
+    fun sourceLabel(sourceId: String): String = when (sourceId) {
+        "soundbooks-top" -> "sound-books"
+        "sluhayua-popular" -> "sluhay"
+        "live-trending" -> "openlibrary"
+        else -> sourceId
+    }
 }

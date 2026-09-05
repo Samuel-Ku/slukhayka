@@ -50,7 +50,7 @@ fun bookDetailPresentation(
     ).orEmpty()
     val canonicalNarrator = MetadataAssertions.normalizeClaimedText(book.displayNarrator).orEmpty()
     val canonicalGenres = genreTokens(book.genre)
-    val sources = playableSources.map { source ->
+    val sources = playableSources.distinctBy { it.sourceId to it.url }.map { source ->
         val isCurrent = source.url == book.sourceUrl
         val profile = sourceProfiles.firstOrNull { it.url == source.url }
         val profileDescription = MetadataAssertions.normalizeDescription(profile?.description)

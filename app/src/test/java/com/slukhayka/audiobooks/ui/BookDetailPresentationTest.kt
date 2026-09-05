@@ -43,6 +43,13 @@ class BookDetailPresentationTest {
     )
 
     @Test
+    fun `repeated source rows appear once while another address stays visible`() {
+        val other = fourReadSource.copy(url = "https://4read.org/other-narration")
+        val result = bookDetailPresentation(book, listOf(fourReadProfile), listOf(fourReadSource, fourReadSource, other))
+        assertEquals(listOf(book.sourceUrl, other.url), result.sources.map { it.url })
+    }
+
+    @Test
     fun `single source presentation promotes the real blurb and exposes metadata once`() {
         val presentation = bookDetailPresentation(
             book = book,

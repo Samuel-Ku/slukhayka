@@ -36,6 +36,8 @@
          strings, grouped by screen. values/ stays the fallback. -->
     <string name="home_search_placeholder">Пошук книги або автора…</string>
     <string name="home_not_recommend">Не рекомендувати…</string>
+    <!-- #486 — the per-Source badge on a «джерело радить» recommendation card. -->
+    <string name="home_recommendation_source_badge">Джерело радить · %1$s</string>
     <string name="home_import_file">Імпортувати файл</string>
     <string name="feed_sort_newest">Спочатку нові</string>
     <string name="feed_sort_title">За назвою</string>

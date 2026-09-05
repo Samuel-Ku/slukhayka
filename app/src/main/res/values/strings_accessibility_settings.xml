@@ -77,6 +77,13 @@
     <string name="profile_source_session_clear_dialog_body">Для %1$s доведеться знову пройти перевірку або увійти. Сесії інших джерел залишаться.</string>
     <string name="profile_source_session_clear_confirm">Очистити</string>
 
+    <!-- Spec-45 (#405) R7 (#514): the App Locale (interface language) destination. -->
+    <string name="app_locale_title">Мова інтерфейсу</string>
+    <string name="app_locale_description">Мова меню й екранів застосунку. Мова книжок обирається окремо у «Мовах контенту».</string>
+    <string name="app_locale_system">Як у системі</string>
+    <string name="app_locale_ukrainian">Українська</string>
+    <string name="app_locale_english">English</string>
+
     <string name="storage_title">Завантаження та пам\'ять</string>
     <string name="storage_device_heading">Пам\'ять пристрою</string>
     <string name="storage_rescan_action">Пересканувати локальні файли</string>

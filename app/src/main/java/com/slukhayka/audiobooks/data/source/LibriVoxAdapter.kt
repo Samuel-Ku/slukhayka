@@ -1,6 +1,7 @@
 package com.slukhayka.audiobooks.data.source
 
 import com.slukhayka.audiobooks.data.LanguageCode
+import com.slukhayka.audiobooks.data.collections.MiniJson
 
 /**
  * Spec-45 (#405) T2 (#490) — librivox.org joins the adapter seam as the
@@ -93,13 +94,21 @@ class LibriVoxAdapter(
      * The archive identifier of a `url_zip_file` record (the api's only
      * archive.org handle): `…/compress/<identifier>/…`. Cards carry the
      * archive details page, so [fetchBookPage] serves ONE page shape for both
-     * transports. Parsed from the UNESCAPED field value — the api JSON escapes
-     * every slash (`https:\/\/…`) and no raw-text regex survives that.
+     * transports. Read from the DECODED field value — [MiniJson] unescapes
+     * every slash (`https:\/\/…`) before the field read.
      */
-    private fun archiveIdentifierOf(raw: String): String {
-        val zipUrl = field(raw, "url_zip_file")
+    private fun archiveIdentifierOf(raw: Map<*, *>): String {
+        val zipUrl = string(raw, "url_zip_file")
         if (zipUrl.isBlank()) return ""
         return zipUrl.substringAfter("archive.org/compress/", "").substringBefore('/')
+    }
+
+    /** The API's first author record — `first_name last_name`. */
+    private fun firstAuthor(raw: Map<*, *>): String {
+        val author = (raw["authors"] as? List<*>)?.firstOrNull() as? Map<*, *> ?: return ""
+        val first = string(author, "first_name")
+        val last = string(author, "last_name")
+        return listOf(first, last).filter { it.isNotBlank() }.joinToString(" ")
     }
 
     /** The archive identifier when [url] is an `archive.org/details/` page. */
@@ -108,11 +117,11 @@ class LibriVoxAdapter(
             ?.substringBefore('?')
 
     /** One parsed archive advanced-search document (the mirror card source). */
-    private inner class ArchiveDoc(val raw: String) {
-        val identifier: String = field(raw, "identifier")
-        val title: String = field(raw, "title")
-        val creator: String = field(raw, "creator")
-        val language: String = field(raw, "language")
+    private inner class ArchiveDoc(val raw: Map<*, *>) {
+        val identifier: String = string(raw, "identifier")
+        val title: String = string(raw, "title")
+        val creator: String = string(raw, "creator")
+        val language: String = string(raw, "language")
 
         fun toSourceBook(): SourceBook? {
             if (title.isBlank() || identifier.isBlank()) return null
@@ -130,13 +139,12 @@ class LibriVoxAdapter(
     }
 
     /** One parsed librivox.org API feed record. */
-    private inner class ApiBook(val raw: String) {
-        val title: String = field(raw, "title")
-        val language: String = field(raw, "language")
-        val librivoxUrl: String = field(raw, "url_librivox")
+    private inner class ApiBook(val raw: Map<*, *>) {
+        val title: String = string(raw, "title")
+        val language: String = string(raw, "language")
+        val librivoxUrl: String = string(raw, "url_librivox")
         val author: String = firstAuthor(raw)
-        val durationSeconds: Long = Regex("\"totaltimesecs\"\\s*:\\s*(\\d+)")
-            .find(raw)?.groupValues?.get(1)?.toLongOrNull() ?: 0L
+        val durationSeconds: Long = (raw["totaltimesecs"] as? Double)?.toLong() ?: 0L
         val archiveIdentifier: String = archiveIdentifierOf(raw)
 
         /**
@@ -163,12 +171,12 @@ class LibriVoxAdapter(
     // --- book page (T3 #491) ------------------------------------------------
 
     /** One audio file of the metadata response (a book section). */
-    private inner class MetadataFile(val raw: String) {
-        val format: String = field(raw, "format")
-        val name: String = field(raw, "name")
-        val title: String = field(raw, "title")
-        val track: String = field(raw, "track")
-        val length: String = field(raw, "length")
+    private inner class MetadataFile(val raw: Map<*, *>) {
+        val format: String = string(raw, "format")
+        val name: String = string(raw, "name")
+        val title: String = string(raw, "title")
+        val track: String = string(raw, "track")
+        val length: String = string(raw, "length")
     }
 
     /**
@@ -180,14 +188,21 @@ class LibriVoxAdapter(
      */
     private fun metadataDetail(json: String, url: String): SourceBookDetail {
         val identifier = identifierOf(url) ?: return SourceBookDetail("", "", url = url, chapters = emptyList())
-        val metaObj = topLevelValue(json, "metadata")
-        val title = metaObj?.let { field(it, "title") }.orEmpty()
-        val author = metaObj?.let { field(it, "creator") }.orEmpty()
-        val language = metaObj?.let { field(it, "language") }.orEmpty()
-        val description = metaObj?.let { field(it, "description") }.orEmpty()
-        // The archive has no narrator field: the aggregate record is the
-        // edition, so narrator stays absent (ADR-0014: never fabricated).
-        val chapters = arrayObjects(topLevelValue(json, "files") ?: "")
+        val root = root(json) ?: return SourceBookDetail("", "", url = url, chapters = emptyList())
+        val metaObj = root["metadata"] as? Map<*, *>
+        val title = metaObj?.let { string(it, "title") }.orEmpty()
+        val author = metaObj?.let { string(it, "creator") }.orEmpty()
+        val language = metaObj?.let { string(it, "language") }.orEmpty()
+        val description = metaObj?.let { string(it, "description") }.orEmpty()
+        // Spec-45 (#405) R3 (#510): the archive item carries no narrator
+        // field — the CONFIRMED claim lives in the standard LibriVox
+        // description phrase ("Read in English by <name>"). Absent claim →
+        // no name (ADR-0014: never fabricated, the author never becomes the
+        // narrator).
+        val decodedDescription = decodeEntities(stripTags(description)).trim()
+        val narrator = narratorFromDescription(decodedDescription)
+        val chapters = (root["files"] as? List<*>).orEmpty()
+            .mapNotNull { it as? Map<*, *> }
             .map(::MetadataFile)
             .filter { it.format == "VBR MP3" && it.name.isNotBlank() }
             .sortedWith(compareBy({ it.track.toIntOrNull() ?: Int.MAX_VALUE }, { it.name }))
@@ -204,169 +219,54 @@ class LibriVoxAdapter(
             url = url,
             coverImageUrl = "https://archive.org/download/$identifier/__ia_thumb.jpg",
             language = LanguageCode.normalize(language).orEmpty(),
+            narrator = narrator,
             chapters = chapters,
-            description = decodeEntities(stripTags(description)).trim(),
+            description = decodedDescription,
             totalDurationSeconds = null
         )
     }
 
+    // --- JSON extraction (the repo's ONE pure decoder, MiniJson) ----------
+    // Spec-45 (#405) R2 (#509): catalogue, search and the metadata page share
+    // the repo's single recursive-descent JSON parser ([MiniJson]) — escaped
+    // quotes, backslashes, \uXXXX escapes and braces inside strings are
+    // decoded ONCE, correctly; a malformed response parses to null and every
+    // read degrades to EMPTY (never a crash, never fabricated tracks).
+
+    /** The decoded root object, or null for any malformed/blank response. */
+    private fun root(json: String): Map<*, *>? =
+        MiniJson.parse(json) as? Map<*, *>
+
+    /** One string field of a decoded object ("" for absent/non-string). */
+    private fun string(obj: Map<*, *>, key: String): String =
+        (obj[key] as? String).orEmpty()
+
+    /** The archive search envelope nests the docs under `response.docs`. */
+    private fun archiveDocsFrom(json: String): List<ArchiveDoc> =
+        ((root(json)?.get("response") as? Map<*, *>)?.get("docs") as? List<*>)
+            .orEmpty()
+            .mapNotNull { it as? Map<*, *> }
+            .map(::ArchiveDoc)
+
+    private fun apiBooksFrom(json: String): List<ApiBook> =
+        (root(json)?.get("books") as? List<*>)
+            .orEmpty()
+            .mapNotNull { it as? Map<*, *> }
+            .map(::ApiBook)
+
     /**
-     * The raw JSON value of the top-level [key] of the root object — depth
-     * aware, because server records inside the response carry their own
-     * `"metadata"`/`"files"` keys that a plain `indexOf` would hit first.
+     * Spec-45 (#405) R3 (#510) — the confirmed narrator claim from the
+     * standard LibriVox description phrases; "" when none matches (a name is
+     * never invented and the author's text never becomes the narrator).
      */
-    private fun topLevelValue(json: String, key: String): String? {
-        val target = "\"$key\""
-        var depth = 0
-        var inString = false
-        var i = 0
-        while (i < json.length) {
-            val c = json[i]
-            when {
-                // Strings are walked char-by-char (escapes included): jumping to
-                // the next quote would end a string at an ESCAPED quote inside
-                // the download-server records and mis-count every brace after it.
-                inString && c == '\\' -> i++
-                inString && c == '"' -> inString = false
-                !inString && c == '"' -> {
-                    // A top-level key of the root object: `"key":` followed by
-                    // an object or array value.
-                    if (depth == 1 && json.regionMatches(i, target, 0, target.length)) {
-                        var j = i + target.length
-                        while (j < json.length && json[j].isWhitespace()) j++
-                        if (j < json.length && json[j] == ':') {
-                            j++
-                            while (j < json.length && json[j].isWhitespace()) j++
-                            if (j < json.length) {
-                                return when (json[j]) {
-                                    '{' -> balancedObject(json, j)
-                                    '[' -> balancedArray(json, j)
-                                    else -> null
-                                }
-                            }
-                        }
-                    }
-                    inString = true
-                }
-                !inString && c == '{' -> depth++
-                !inString && c == '}' -> depth--
-            }
-            i++
-        }
-        return null
-    }
-
-    /** Every object inside a raw JSON array body ("[ … ]"). */
-    private fun arrayObjects(body: String): List<String> {
-        if (body.isEmpty()) return emptyList()
-        val out = mutableListOf<String>()
-        var pos = 0
-        while (pos < body.length) {
-            val start = body.indexOf('{', pos)
-            if (start < 0) break
-            val obj = balancedObject(body, start) ?: break
-            out += obj
-            pos = start + obj.length
-        }
-        return out
-    }
-
-    private fun balancedArray(s: String, start: Int): String? {
-        var depth = 0
-        var inString = false
-        for (i in start until s.length) {
-            val c = s[i]
-            when {
-                inString && c == '\\' -> { }
-                inString && c == '"' -> inString = false
-                !inString && c == '"' -> inString = true
-                !inString && c == '[' -> depth++
-                !inString && c == ']' -> {
-                    depth--
-                    if (depth == 0) return s.substring(start, i + 1)
-                }
-            }
-        }
-        return null
-    }
-
-    /** The API's word value for English. The filter above only admits it. */
-    private fun firstAuthor(raw: String): String {
-        val first = Regex("\"first_name\"\\s*:\\s*\"([^\"]*)\"").find(raw)?.groupValues?.get(1).orEmpty()
-        val last = Regex("\"last_name\"\\s*:\\s*\"([^\"]*)\"").find(raw)?.groupValues?.get(1).orEmpty()
-        return listOf(first, last).filter { it.isNotBlank() }.joinToString(" ")
-    }
-
-    // --- JSON extraction (the repo's hand-rolled source-adapter style) ------
-
-    /** The balanced string of every object inside `"key": [ … ]`. */
-    private fun objectsIn(json: String, key: String): List<String> {
-        val keyIndex = json.indexOf("\"$key\"")
-        if (keyIndex < 0) return emptyList()
-        val arrayStart = json.indexOf('[', keyIndex)
-        if (arrayStart < 0) return emptyList()
-        val out = mutableListOf<String>()
-        var pos = arrayStart + 1
-        while (pos < json.length) {
-            val objStart = json.indexOf('{', pos)
-            if (objStart < 0) break
-            val obj = balancedObject(json, objStart) ?: break
-            out += obj
-            pos = objStart + obj.length
-        }
-        return out
-    }
-
-    private fun balancedObject(s: String, start: Int): String? {
-        var depth = 0
-        var inString = false
-        for (i in start until s.length) {
-            val c = s[i]
-            when {
-                inString && c == '\\' -> { /* skip escaped char */ }
-                inString && c == '"' -> inString = false
-                !inString && c == '"' -> inString = true
-                !inString && c == '{' -> depth++
-                !inString && c == '}' -> {
-                    depth--
-                    if (depth == 0) return s.substring(start, i + 1)
-                }
-            }
-        }
-        return null
-    }
-
-    /** `"key":"value"` — the raw string value ("" for null/number/absent). */
-    private fun field(obj: String, key: String): String {
-        val keyIndex = obj.indexOf("\"$key\"")
-        if (keyIndex < 0) return ""
-        val colon = obj.indexOf(':', keyIndex)
-        if (colon < 0) return ""
-        var i = colon + 1
-        while (i < obj.length && obj[i].isWhitespace()) i++
-        if (i >= obj.length || obj[i] != '"') return ""
-        val sb = StringBuilder()
-        i++
-        while (i < obj.length) {
-            val c = obj[i]
-            when {
-                c == '\\' && i + 1 < obj.length -> {
-                    sb.append(obj[i + 1]); i += 2
-                }
-                c == '"' -> return sb.toString()
-                else -> {
-                    sb.append(c); i++
-                }
-            }
+    private fun narratorFromDescription(description: String): String {
+        for (pattern in NARRATOR_PATTERNS) {
+            pattern.find(description)?.groupValues?.get(1)?.trim()
+                ?.takeIf { it.isNotBlank() }
+                ?.let { return it }
         }
         return ""
     }
-
-    private fun archiveDocsFrom(json: String): List<ArchiveDoc> =
-        objectsIn(json, "docs").map(::ArchiveDoc)
-
-    private fun apiBooksFrom(json: String): List<ApiBook> =
-        objectsIn(json, "books").map(::ApiBook)
 
     /** Advanced-search URL over the librivoxaudio mirror collection. */
     private fun archiveSearchUrl(phrase: String, newestFirst: Boolean, limit: Int = DEFAULT_LIMIT): String {
@@ -383,6 +283,13 @@ class LibriVoxAdapter(
         java.net.URLEncoder.encode(s, "UTF-8").replace("+", "%20")
 
     private companion object {
+        /** R3 (#510): LibriVox's standard narrator-claim phrases. */
+        val NARRATOR_PATTERNS = listOf(
+            Regex("""[Rr]ead in English by ([^.<>]+)"""),
+            Regex("""[Rr]ead by ([^.<>]+)"""),
+            Regex("""[Nn]arrated by ([^.<>]+)""")
+        )
+
         const val DEFAULT_LIMIT = 20
         /** The API's language words → BCP-47 tags (only "English" is admitted today). */
         val API_LANGUAGE_TAGS = mapOf(

@@ -27,6 +27,7 @@ import com.slukhayka.audiobooks.data.facets.LocalFacetWriter
 import com.slukhayka.audiobooks.data.facets.RoomLocalFacetWriter
 import com.slukhayka.audiobooks.data.facets.WorkFacetDelta
 import com.slukhayka.audiobooks.data.facets.WorkFacetFilter
+import com.slukhayka.audiobooks.data.facets.applyEditionFacet
 import com.slukhayka.audiobooks.data.imports.LibraryImport
 import com.slukhayka.audiobooks.data.merge.MergeKey
 import com.slukhayka.audiobooks.player.SmartRetryPolicy
@@ -38,6 +39,7 @@ import com.slukhayka.audiobooks.data.search.SearchCache
 import com.slukhayka.audiobooks.data.source.FourReadAdapter
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.data.source.HttpFetcher
+import com.slukhayka.audiobooks.data.source.headersFor
 import com.slukhayka.audiobooks.data.source.SourceAdapter
 import com.slukhayka.audiobooks.data.source.SourceBook
 import com.slukhayka.audiobooks.data.source.SourceIds
@@ -50,11 +52,15 @@ import com.slukhayka.audiobooks.data.source.SourceSelectionCoordinator
 import com.slukhayka.audiobooks.data.source.contentLanguageVisible
 import com.slukhayka.audiobooks.data.source.streamOnlyFor
 import com.slukhayka.audiobooks.data.source.visibleInContentLanguages
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
@@ -80,6 +86,11 @@ class SourceCatalog(
     // HTTP client of its own. Injectable so the hydration tests serve canned
     // pages without network.
     private val fourReadFetcher: HttpFetcher = HttpFetcher(referer = "https://4read.org/"),
+    // #516 — availability probes of ANY source ride a NEUTRAL fetcher: the
+    // per-source Referer comes from the headersFor seam per probe, and a
+    // constructor default (like fourReadFetcher's) must never leak onto
+    // foreign hosts (SEC-004).
+    private val probeFetcher: HttpFetcher = HttpFetcher(),
     // Spec-16: the curated smart-collection lists, loaded at the composition
     // root through the context seam (CollectionAssets). Empty in tests that
     // don't exercise collections; a list asset is pure data — adding one is
@@ -123,6 +134,11 @@ class SourceCatalog(
     // explicit user refresh. Null keeps the pre-#467 behaviour (network on
     // every cache miss); tests inject a store over an in-memory database.
     private val feedSnapshotStore: FeedSnapshotStore? = null,
+    // #485 — the persistent source-signal store: every live-collection fetch
+    // records provenance-bearing popularity assertions beneath the shelves.
+    // Null in tests that don't exercise the layer — the shelves then behave
+    // exactly as before.
+    private val popularityAssertionStore: PopularityAssertionStore? = null,
     // Spec-45 (#405) T5 (#493): the VISIBLE content languages (BCP-47); an
     // EMPTY selection = «Усі» (both on) = inactive — every card shows (US6).
     // The ⚙️ «Мови контенту» destination and the Огляд chip (T6) write the
@@ -205,6 +221,12 @@ class SourceCatalog(
     // merges their catalogue enumeration into Work cards via MergeKey.
     private val catalogueAdapters: List<SourceAdapter> = feedAdapters
 
+    // Spec-45 (#405) R6 (#513): the union keeps BOTH the selection-independent
+    // merged corpus (what a later re-filter needs, so re-enabling a language
+    // restores its cards) and the published visible projection. The injected
+    // preference flow is collected below — an already-open Огляд re-filters
+    // the moment the preference changes, no restart and no manual refresh.
+    private val _unifiedCatalogMerged = MutableStateFlow<List<GlobalSearchResult>>(emptyList())
     private val _unifiedCatalog = MutableStateFlow<List<GlobalSearchResult>>(emptyList())
     val unifiedCatalog: StateFlow<List<GlobalSearchResult>> = _unifiedCatalog.asStateFlow()
 
@@ -224,6 +246,8 @@ class SourceCatalog(
     val allWorks: kotlinx.coroutines.flow.Flow<List<WorkEntity>> = dao.observeWorks()
 
     /** The local Edition projection paired with [allWorks]. */
+    val allLibraryEntries = dao.observeLibraryEntries()
+
     val allEditions: kotlinx.coroutines.flow.Flow<List<EditionEntity>> = dao.observeEditions()
 
     // Spec-16 follow-up: the last fetched LIVE collections (static + live are
@@ -269,8 +293,12 @@ class SourceCatalog(
                 // Spec-45 (#405) T5 (#493): the content-language filter cuts
                 // the union at publish — a hidden-language card never reaches
                 // the flow, the collections (matched over the visible corpus),
-                // or the recommendation row (candidates = the union).
-                val visible = mergeGlobalSearchResults(books).visibleInContentLanguages(contentLanguageSelection.value)
+                // or the recommendation row (candidates = the union). The
+                // MERGED corpus is retained so a later selection change
+                // re-filters live (R6 #513) without re-fetching.
+                val merged = mergeGlobalSearchResults(books)
+                _unifiedCatalogMerged.value = merged
+                val visible = merged.visibleInContentLanguages(contentLanguageSelection.value)
                 _unifiedCatalog.value = visible
                 // Spec-16 T2 + follow-up: the collections ride the same
                 // recompute — the union is the match corpus, so a changed
@@ -336,6 +364,12 @@ class SourceCatalog(
                 emptyList()
             }
             liveCollectionCache[source.sourceId] = CachedLiveList(now, fetched)
+            // #485: the fetch itself is the observation — each entry becomes
+            // a provenance-bearing popularity assertion beneath the shelves
+            // (best-effort; the shelves and this loop are untouched).
+            if (fetched.isNotEmpty()) {
+                popularityAssertionStore?.recordRankSignals(fetched, now)
+            }
             lists += fetched
         }
         return lists
@@ -351,8 +385,51 @@ class SourceCatalog(
     // джерела» rows; published on the SAME triggers as its inputs
     // ([refreshSourceFeeds] and [fetchCatalogSections]), so the rail always
     // reflects the freshest of the two.
+    // Spec-45 (#405) R6 (#513): the rail retains the selection-independent
+    // merged corpus next to the published visible projection, so an already
+    // published rail re-filters live on a preference change (see
+    // [reprojectContentLanguageSurfaces]).
+    private val _newArrivalsMerged = MutableStateFlow<List<GlobalSearchResult>>(emptyList())
     private val _newArrivals = MutableStateFlow<List<GlobalSearchResult>>(emptyList())
     val newArrivals: StateFlow<List<GlobalSearchResult>> = _newArrivals.asStateFlow()
+
+    // Spec-45 (#405) R6 (#513): the already-published ephemeral surfaces
+    // re-project under the CURRENT selection on every preference change — an
+    // open Огляд (union, collections, new-arrivals rail, the recommendation
+    // row over the union) updates with no restart, no manual refresh and no
+    // re-entered search. Search filters at READ time on every call (R5), so it
+    // needs no re-run here; the persisted feed Pager already rebuilds on the
+    // same flow (the ViewModel's combine).
+    private val surfaceProjectionScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    init {
+        surfaceProjectionScope.launch {
+            contentLanguageSelection.collect { reprojectContentLanguageSurfaces() }
+        }
+    }
+
+    /**
+     * Re-projects every already-published ephemeral surface under the current
+     * selection from the retained merged corpora. Public as the deterministic
+     * seam tests use; the flow collector above is the live wiring.
+     */
+    fun reprojectContentLanguageSurfaces() {
+        val selection = contentLanguageSelection.value
+        _unifiedCatalog.value = _unifiedCatalogMerged.value.visibleInContentLanguages(selection)
+        _newArrivals.value = _newArrivalsMerged.value.visibleInContentLanguages(selection)
+        recomputeCollections()
+    }
+
+    private fun recomputeCollections() {
+        // Spec-16 T2: collections match over the VISIBLE union corpus — a
+        // hidden-language card never renders inside a collection. Empty
+        // collections are absent from the flow.
+        _smartCollections.value =
+            com.slukhayka.audiobooks.data.collections.CollectionMatcher.matchAll(
+                collectionLists + _liveCollections.value,
+                _unifiedCatalog.value
+            )
+    }
 
     private val _isFeedsLoading = MutableStateFlow(false)
     val isFeedsLoading: StateFlow<Boolean> = _isFeedsLoading.asStateFlow()
@@ -423,9 +500,11 @@ class SourceCatalog(
             .map { it.toSourceBook() }
         val otherBooks = feeds.flatMap { it.books }
         // Spec-45 (#405) T5 (#493): the rail drops hidden-language cards at
-        // publish, like the union.
-        _newArrivals.value =
-            mergeGlobalSearchResults(fourReadBooks + otherBooks).visibleInContentLanguages(contentLanguageSelection.value)
+        // publish, like the union; the merged corpus is retained for the R6
+        // live re-filter.
+        val merged = mergeGlobalSearchResults(fourReadBooks + otherBooks)
+        _newArrivalsMerged.value = merged
+        _newArrivals.value = merged.visibleInContentLanguages(contentLanguageSelection.value)
     }
 
     private fun CatalogBook.toSourceBook(): SourceBook = SourceBook(
@@ -500,7 +579,13 @@ class SourceCatalog(
             // included — the exact shape the UI renders) without touching any
             // source adapter; a miss or a stale entry falls through to the
             // live resolution below, whose result is written back.
-            searchCache?.getResults(cleanQuery)?.let { return@withContext it }
+            // Spec-45 (#405) R5 (#512): the cache stores the selection-independent
+            // result (per-source languages included); EVERY read re-filters — a
+            // hidden language never leaks back through a fresh cache hit, and a
+            // preference change re-filters search with no cache invalidation.
+            searchCache?.getResults(cleanQuery)?.let { cached ->
+                return@withContext cached.visibleInContentLanguages(contentLanguageSelection.value)
+            }
 
             val matched = mutableListOf<SourceBook>()
             for (adapter in sourceAdapters) {
@@ -763,6 +848,28 @@ class SourceCatalog(
                             totalDurationSeconds = detail.totalDurationSeconds ?: 0L
                         )
                     )
+                    // R1 (#508): the fallback-created Edition's facet projection
+                    // lands through the same shared seam — the feed's language
+                    // dimension sees a page-materialized rendition too.
+                    facetWriter.applyEditionFacet(
+                        editionId = editionId,
+                        domainWorkId = book?.workId?.takeIf { it.isNotBlank() } ?: bookId,
+                        narrator = book?.narrator ?: "",
+                        language = detail.language,
+                        chapterCount = detail.chapters.size
+                    )
+                } else if (edition.language.isBlank() && detail.language.isNotBlank()) {
+                    // R1 (#508): the Edition row predates the language claim —
+                    // the page's per-book claim back-fills it through the same
+                    // delta shape the shared sync lane materializes (the id
+                    // stays the stored one; a re-import never relabels).
+                    facetWriter.applyEditionFacet(
+                        editionId = edition.id,
+                        domainWorkId = book?.workId?.takeIf { it.isNotBlank() } ?: bookId,
+                        narrator = edition.narrator,
+                        language = detail.language,
+                        chapterCount = detail.chapters.size
+                    )
                 }
                 val source = dao.getSourcesForBookSync(bookId).firstOrNull { it.type == "4read" }
                     ?: SourceEntity(
@@ -987,20 +1094,15 @@ class SourceCatalog(
                 if (source.type == "local") {
                     SourceSelectionCoordinator.ProbeResult.Success
                 } else {
-                    try {
-                        val conn = java.net.URL(source.url).openConnection() as java.net.HttpURLConnection
-                        conn.requestMethod = "HEAD"
-                        conn.connectTimeout = 3_000
-                        conn.readTimeout = 3_000
-                        conn.instanceFollowRedirects = true
-                        try {
-                            val code = conn.responseCode
-                            if (code in 200..399) SourceSelectionCoordinator.ProbeResult.Success
-                            else SourceSelectionCoordinator.ProbeResult.Failure
-                        } finally {
-                            conn.disconnect()
-                        }
-                    } catch (_: Exception) {
+                    // #516 — availability rides the SHARED transport (app DNS /
+                    // DoH / privacy route / per-source Referer), not a raw
+                    // HttpURLConnection on the system resolver. Browser cookies
+                    // stay out of availability probes, exactly as before.
+                    val headers = headersFor(source.type, source.url)
+                    val reachable = probeFetcher.isReachable(source.url, headers)
+                    if (reachable) {
+                        SourceSelectionCoordinator.ProbeResult.Success
+                    } else {
                         SourceSelectionCoordinator.ProbeResult.Failure
                     }
                 }
@@ -1065,7 +1167,12 @@ class SourceCatalog(
         durationSeconds: Long? = null,
         seriesTitle: String? = null,
         seriesIndex: Int? = null,
-        genreTexts: List<String>? = null
+        genreTexts: List<String>? = null,
+        // Spec-45 (#405) R1 (#508): the catalogue write's Edition language —
+        // the source's declared catalogue language (4read → uk) when the
+        // crawl row has no per-book claim; blank = catalogue-only row with no
+        // Edition yet (a book page fetch materializes it later).
+        language: String = ""
     ): WorkWriteResult {
         // ADR-0010: the Work key is bibliographic (title|author) — the
         // narrator is a rendition (Edition) property, never part of the Work.
@@ -1142,6 +1249,31 @@ class SourceCatalog(
                 )
             )
         }
+        // R1 (#508): a catalogue write that KNOWS its rendition language
+        // lands the Edition row (narrator unknown at catalogue depth) and its
+        // facet projection through the shared seam, so the Work participates
+        // in the feed's language dimension from the moment it is written.
+        if (language.isNotBlank()) {
+            val editionId = EditionId.forBook(mergeKey, work.id, narrator, language)
+            if (dao.getEditionById(editionId) == null) {
+                dao.insertEdition(
+                    EditionEntity(
+                        id = editionId,
+                        workId = work.id,
+                        narrator = narrator,
+                        language = language,
+                        totalChapters = 0,
+                        totalDurationSeconds = durationSeconds ?: 0L
+                    )
+                )
+                facetWriter.applyEditionFacet(
+                    editionId = editionId,
+                    domainWorkId = work.id,
+                    narrator = narrator,
+                    language = language
+                )
+            }
+        }
         return WorkWriteResult(work = work, workCreated = existing == null, editionCreated = !sourceAlreadyKnown)
     }
 
@@ -1215,7 +1347,12 @@ class SourceCatalog(
                     streamOnly = false,
                     coverImageUrl = book.coverImageUrl,
                     seriesTitle = book.seriesTitle,
-                    seriesIndex = book.seriesIndex
+                    seriesIndex = book.seriesIndex,
+                    // R1 (#508): the crawl row claims no per-book language —
+                    // the source's declared catalogue language applies.
+                    language = sourceAdapters
+                        .firstOrNull { it.sourceId == sourceId }
+                        ?.contentLanguage.orEmpty()
                 )
                 if (result.workCreated) imported++ else merged++
             } catch (e: Exception) {

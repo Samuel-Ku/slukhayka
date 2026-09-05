@@ -103,8 +103,9 @@ class RecommendationEngineTest {
             excludeIds = emptySet()
         )
         assertEquals(1, recommendations.size)
-        // Personalized score = semantic .60 + matching author .15.
-        assertEquals(.75, recommendations.first().score, 1e-6)
+        // Personalized score = semantic .55 + matching author .15 (#486
+        // redistributed the popularity component out of the old shares).
+        assertEquals(.70, recommendations.first().score, 1e-6)
     }
 
     @Test

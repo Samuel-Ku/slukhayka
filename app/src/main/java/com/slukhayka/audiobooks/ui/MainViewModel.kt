@@ -57,6 +57,7 @@ import com.slukhayka.audiobooks.data.source.cookieHeadersFor
 import com.slukhayka.audiobooks.data.source.headersFor
 import com.slukhayka.audiobooks.data.metadata.FirestoreBookMetaStore
 import com.slukhayka.audiobooks.data.metadata.BookProfile
+import com.slukhayka.audiobooks.data.metadata.PopularityAssertionPolicy
 import com.slukhayka.audiobooks.data.metadata.ProfileChapter
 import com.slukhayka.audiobooks.data.metadata.VerifiedSourceProfile
 import com.slukhayka.audiobooks.player.AudioPlayerManager
@@ -501,6 +502,35 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) {
             delay(1_500)
             App.instance.bilingualPrompt.evaluate()
+        }
+        // Spec-45 (#405) R6 (#513): a content-language change re-filters the
+        // ALREADY SHOWN global-search results — the listener never re-enters
+        // the query and never refreshes. The re-run reads the shared cache
+        // when fresh (cheap); SourceCatalog filters at publish time, so a slow
+        // old load never lands under a stale selection. The delayed start is
+        // the same post-construction idiom as the bilingual re-eval above (the
+        // collector reads fields declared later in this class).
+        viewModelScope.launch(Dispatchers.IO) {
+            delay(1_500)
+            App.instance.contentLanguagePrefs.languages.collect {
+                val query = _searchQuery.value.trim()
+                if (query.length >= 2 && _globalSearchResults.value.isNotEmpty()) {
+                    globalSearchJob?.cancel()
+                    globalSearchJob = viewModelScope.launch(Dispatchers.IO) {
+                        try {
+                            val results = sourceCatalog.searchAllSources(query)
+                            if (_searchQuery.value.trim() == query) {
+                                _globalSearchResults.value = results
+                                _globalSearchError.value = false
+                            }
+                        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                            throw cancelled
+                        } catch (e: Exception) {
+                            // A failing re-filter keeps the current results.
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -1437,6 +1467,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         )
     }
+
+    // Spec-45 (#405) R7 (#514): the «Мова інтерфейсу» destination (⚙️
+    // overflow) — navigation only; the screen reads/writes the App Locale
+    // module directly and applies through the platform applier (ADR-0008).
+    private val _appLocaleOpen = MutableStateFlow(false)
+    val appLocaleOpen: StateFlow<Boolean> = _appLocaleOpen.asStateFlow()
+
+    fun openAppLocale() { _appLocaleOpen.value = true }
+
+    fun closeAppLocale() { _appLocaleOpen.value = false }
 
     fun savePrivacyPrefs(prefs: PrivacyPrefs) {
         when (val resolution = NetworkPrivacy.resolve(prefs)) {
@@ -2529,6 +2569,45 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 for (signal in missing) merged[signal.id] = embedder.embed(signal.text)
             }
         }
+        // #486 — the persisted source signals (#485): fresh rank positions and
+        // claimed ratings feed the ONE small popularity component, and the
+        // sources' tops name the «джерело радить» slots. Best-effort: a read
+        // failure leaves the maps empty and the row behaves exactly as before
+        // #486.
+        val sourceAssertions = runCatching {
+            val now = System.currentTimeMillis()
+            val isFreshRank: (PopularityAssertionEntity) -> Boolean = {
+                PopularityAssertionPolicy.isFresh(it.observedAt, now, PopularityAssertionPolicy.POPULARITY_TTL_MS)
+            }
+            val rankRows = App.instance.audiobookDao
+                .popularityAssertions(PopularityAssertionEntity.KIND_RANK)
+                .filter(isFreshRank)
+            val ratingRows = App.instance.audiobookDao
+                .popularityAssertions(PopularityAssertionEntity.KIND_RATING)
+                .filter {
+                    PopularityAssertionPolicy.isFresh(it.observedAt, now, PopularityAssertionPolicy.RATING_TTL_MS)
+                }
+            val rankByWork = rankRows.groupBy { it.mergeKey }
+                .mapValues { (_, rows) -> rows.mapNotNull { r -> r.rawValue.toIntOrNull() }.minOrNull() }
+            val ratingByWork = ratingRows.groupBy { it.mergeKey }
+                .mapValues { (_, rows) -> rows.mapNotNull { r -> PopularityAssertionPolicy.ratingValue(r.rawValue) }.maxOrNull() }
+            Triple(rankRows, rankByWork, ratingByWork)
+        }.getOrElse { Triple(emptyList(), emptyMap(), emptyMap()) }
+        val (_, rankByWork, ratingByWork) = sourceAssertions
+        val popularityByWorkId = (rankByWork.keys + ratingByWork.keys).associateWith { key ->
+            com.slukhayka.audiobooks.data.recommend.RecommendationPersonalization.normalizedPopularity(
+                rank = rankByWork[key],
+                rating = ratingByWork[key]
+            )
+        }
+        val sourceLabelsByWorkId = sourceAssertions.first
+            .groupBy { it.mergeKey }
+            .mapValues { (_, rows) ->
+                rows.minByOrNull { it.rawValue.toIntOrNull() ?: Int.MAX_VALUE }
+                    ?.let { PopularityAssertionPolicy.sourceLabel(it.sourceId) }
+            }
+            .filterValues { it != null }
+            .mapValues { it.value!! }
         com.slukhayka.audiobooks.data.recommend.RecommendationPersonalization.rank(
             candidates = candidates,
             signals = allSignals,
@@ -2536,7 +2615,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             excludedWorkIds = knownIds,
             excludedAuthors = hiddenAuthors,
             weights = settings.weights,
-            topN = 10
+            topN = 10,
+            popularityByWorkId = popularityByWorkId,
+            sourceLabelsByWorkId = sourceLabelsByWorkId
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 

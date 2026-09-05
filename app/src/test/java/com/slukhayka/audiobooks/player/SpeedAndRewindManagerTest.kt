@@ -2,6 +2,7 @@ package com.slukhayka.audiobooks.player
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import com.slukhayka.audiobooks.data.catalog.SourceCatalog
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.ChapterEntity
 import com.slukhayka.audiobooks.data.listening.ListeningStateStore

@@ -1,0 +1,44 @@
+{
+  "books": [
+    {
+      "id": "1000",
+      "title": "A \"Quoted\" {Title} with braces",
+      "description": "",
+      "language": "English",
+      "num_sections": 3,
+      "totaltime": "10:00:00",
+      "totaltimesecs": 36000,
+      "url_librivox": "https://librivox.org/a-quoted-title-with-braces/",
+      "url_zip_file": "https://www.archive.org/compress/quoted_0000_librivox",
+      "authors": [
+        {
+          "id": "10",
+          "first_name": "Quoted",
+          "last_name": "Author",
+          "dob": "1800",
+          "dod": "1890"
+        }
+      ]
+    },
+    {
+      "id": "1001",
+      "title": "Gem\u00fcthsruhe",
+      "description": "",
+      "language": "German",
+      "num_sections": 1,
+      "totaltime": "1:00:00",
+      "totaltimesecs": 3600,
+      "url_librivox": "https://librivox.org/gemuthsruhe/",
+      "url_zip_file": "https://www.archive.org/compress/gemuthsruhe_0000_librivox",
+      "authors": [
+        {
+          "id": "11",
+          "first_name": "Test",
+          "last_name": "German",
+          "dob": "1800",
+          "dod": "1890"
+        }
+      ]
+    }
+  ]
+}

@@ -135,6 +135,188 @@ class RecommendationPersonalizationTest {
         assertTrue(ranked.filter { it.isExploration }.all { it.semanticScore > 0.0 })
     }
 
+    // --- #486: the small source-popularity component ------------------------
+
+    @Test
+    fun `default weights give popularity a small share and freshness loses part of its own`() {
+        val weights = RecommendationPersonalization.ScoreWeights()
+        assertEquals(.10, weights.popularity, 1e-9)
+        assertTrue("freshness must give up part of its weight", weights.freshness < .10)
+    }
+
+    @Test
+    fun `popularity lifts an equal-vector candidate only by the small capped component`() {
+        val candidates = listOf(
+            candidate("plain", "Звичайна книга", "Автор A", "S1"),
+            candidate("popular", "Народна книга", "Автор B", "S2")
+        )
+        val signal = RecommendationEngine.Signal("liked", "Улюблена", weight = 1.0)
+        val vectors = mapOf(
+            "liked" to floatArrayOf(1f, 0f),
+            "plain" to floatArrayOf(1f, 0f),
+            "popular" to floatArrayOf(1f, 0f)
+        )
+
+        val ranked = RecommendationPersonalization.rank(
+            candidates = candidates,
+            signals = listOf(signal),
+            vectors = vectors,
+            popularityByWorkId = mapOf("popular" to 1.0),
+            topN = 10,
+            explorationCount = 0
+        )
+
+        assertEquals("popular", ranked.first().candidate.id)
+        // The component can never twist the profile: the whole gap between two
+        // otherwise-equal candidates is at most the one popularity weight.
+        val gap = ranked[0].score - ranked[1].score
+        assertTrue("gap $gap must be within the popularity weight", gap <= RecommendationPersonalization.ScoreWeights().popularity + 1e-9)
+        // Semantic similarity itself is untouched by popularity.
+        assertEquals(ranked[0].semanticScore, ranked[1].semanticScore, 1e-9)
+    }
+
+    @Test
+    fun `rank and rating collapse into one normalized component`() {
+        // Rank 1 in a source top = the component's ceiling.
+        assertEquals(1.0, RecommendationPersonalization.normalizedPopularity(rank = 1, rating = null), 1e-9)
+        // Lower positions taper toward zero.
+        assertTrue(
+            RecommendationPersonalization.normalizedPopularity(1, null) >
+                RecommendationPersonalization.normalizedPopularity(7, null)
+        )
+        // Positions beyond the top-10 window contribute nothing on their own.
+        assertEquals(0.0, RecommendationPersonalization.normalizedPopularity(rank = 40, rating = null), 1e-9)
+        // A claimed rating scales on its own scale (1..5).
+        assertTrue(
+            RecommendationPersonalization.normalizedPopularity(null, 4.8) >
+                RecommendationPersonalization.normalizedPopularity(null, 3.2)
+        )
+        // The strongest of the two claims wins; nothing claimed = zero.
+        assertEquals(
+            RecommendationPersonalization.normalizedPopularity(rank = 1, rating = null),
+            RecommendationPersonalization.normalizedPopularity(rank = 1, rating = 3.0),
+            1e-9
+        )
+        assertEquals(0.0, RecommendationPersonalization.normalizedPopularity(rank = null, rating = null), 1e-9)
+    }
+
+    @Test
+    fun `popularity alone never ranks - personal signals stay the gate`() {
+        val candidates = listOf(candidate("p1", "Народна книга", "Автор", "S"))
+        val ranked = RecommendationPersonalization.rank(
+            candidates = candidates,
+            signals = emptyList(),
+            vectors = mapOf("p1" to floatArrayOf(1f, 0f)),
+            popularityByWorkId = mapOf("p1" to 1.0),
+            topN = 10,
+            explorationCount = 0
+        )
+        assertTrue(ranked.isEmpty())
+    }
+
+    // --- #486: «джерело радить» exploration slots ---------------------------
+
+    @Test
+    fun `two exploration slots become source-suggested picks with per-source badges`() {
+        // Ten candidates aligned with the listener's profile, plus two books
+        // the sources' tops celebrate but the profile says nothing about.
+        val personal = (1..10).map { candidate("p$it", "Книга $it", "Автор $it", "S$it") }
+        val topped = listOf(
+            candidate("top1", "Топ один", "Інший автор 1", "X1"),
+            candidate("top2", "Топ два", "Інший автор 2", "X2")
+        )
+        val signal = RecommendationEngine.Signal("liked", "Улюблена", weight = 1.0)
+        val vectors = buildMap {
+            put("liked", floatArrayOf(1f, 0f))
+            personal.forEachIndexed { index, item -> put(item.id, floatArrayOf(1f, index / 100f)) }
+            topped.forEachIndexed { index, item -> put(item.id, floatArrayOf(0f, 1f + index / 100f)) }
+        }
+
+        val ranked = RecommendationPersonalization.rank(
+            candidates = personal + topped,
+            signals = listOf(signal),
+            vectors = vectors,
+            popularityByWorkId = mapOf("top1" to 1.0, "top2" to 0.9),
+            sourceLabelsByWorkId = mapOf("top1" to "sound-books", "top2" to "sluhay"),
+            topN = 10,
+            explorationCount = 2
+        )
+
+        assertEquals(10, ranked.size)
+        val explored = ranked.filter { it.isExploration }
+        assertEquals(listOf("top1", "top2"), explored.map { it.candidate.id })
+        assertEquals(listOf("sound-books", "sluhay"), explored.map { it.sourceLabel })
+        // Personal slots keep the reason chip and never carry a source badge.
+        val personalPicks = ranked.filter { !it.isExploration }
+        assertTrue(personalPicks.all { it.reasonTitle.isNotBlank() })
+        assertTrue(personalPicks.all { it.sourceLabel == null })
+    }
+
+    @Test
+    fun `a source top never suggests a book the profile pushes against`() {
+        // top1 sits at the TOP of a source list but is close to the listener's
+        // NEGATIVE centroid — the source's celebration must not surface it.
+        val personal = (1..10).map { candidate("p$it", "Книга $it", "Автор $it", "S$it") }
+        val topped = listOf(
+            candidate("top1", "Топ один", "Інший автор 1", "X1"),
+            candidate("top2", "Топ два", "Інший автор 2", "X2")
+        )
+        val vectors = buildMap {
+            put("liked", floatArrayOf(1f, 0f, 0f))
+            put("disliked", floatArrayOf(0f, 1f, 0f))
+            personal.forEachIndexed { index, item -> put(item.id, floatArrayOf(1f, 0f, index / 100f)) }
+            put("top1", floatArrayOf(0.1f, 1f, 0f)) // negative-aligned
+            put("top2", floatArrayOf(0f, 0f, 1f)) // orthogonal to both, source-only
+        }
+
+        val ranked = RecommendationPersonalization.rank(
+            candidates = personal + topped,
+            signals = listOf(
+                RecommendationEngine.Signal("liked", "Улюблена", weight = 1.0),
+                RecommendationEngine.Signal("disliked", "Не люблю", weight = -1.0)
+            ),
+            vectors = vectors,
+            popularityByWorkId = mapOf("top1" to 1.0, "top2" to 0.9),
+            sourceLabelsByWorkId = mapOf("top1" to "sound-books", "top2" to "sluhay"),
+            topN = 10,
+            explorationCount = 2
+        )
+
+        assertTrue(ranked.none { it.candidate.id == "top1" })
+        // top2 takes a source slot; the second slot falls back to the
+        // semantic pool (only one eligible source candidate remained).
+        val explored = ranked.filter { it.isExploration }
+        assertEquals(2, explored.size)
+        val sourcePicks = explored.filter { it.sourceLabel != null }
+        assertEquals(listOf("top2"), sourcePicks.map { it.candidate.id })
+        assertEquals(listOf("sluhay"), sourcePicks.map { it.sourceLabel })
+    }
+
+    @Test
+    fun `without source coverage the exploration slots stay semantic`() {
+        val candidates = (1..15).map { candidate("c$it", "Книга $it", "Автор $it", "S$it") }
+        val signal = RecommendationEngine.Signal("liked", "Улюблена", weight = 1.0)
+        val vectors = buildMap {
+            put("liked", floatArrayOf(1f, 0f))
+            candidates.forEachIndexed { index, item -> put(item.id, floatArrayOf(1f, index / 100f)) }
+        }
+
+        val ranked = RecommendationPersonalization.rank(
+            candidates = candidates,
+            signals = listOf(signal),
+            vectors = vectors,
+            popularityByWorkId = emptyMap(),
+            sourceLabelsByWorkId = emptyMap(),
+            topN = 10,
+            explorationCount = 2
+        )
+
+        val explored = ranked.filter { it.isExploration }
+        assertEquals(2, explored.size)
+        assertTrue(explored.all { it.sourceLabel == null })
+        assertTrue(explored.all { it.semanticScore > 0.0 })
+    }
+
     private fun candidate(id: String, title: String, author: String, series: String) =
         RecommendationEngine.Candidate(id = id, title = title, author = author, series = series)
 }

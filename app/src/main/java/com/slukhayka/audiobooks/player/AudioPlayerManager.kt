@@ -258,6 +258,15 @@ class AudioPlayerManager(
      * Referer is impossible (and would leak a Referer onto hosts that need
      * none — SEC-004). Tests inject their own PlayerFactory and never touch
      * this one.
+     *
+     * #516 — the engine underneath is the shared privacy stack
+     * ([TransportClients.playbackOkHttp]): app DNS / DoH, the chosen privacy
+     * route, the shared browser identity and the bounded same-scheme-only
+     * redirect rule ([PlaybackRedirects]). The former `DefaultHttpDataSource`
+     * resolved names with the system resolver — under a broken system DNS
+     * playback failed even while the app itself could resolve names. Range/
+     * seek semantics ride OkHttp's standard streaming; per-chapter headers
+     * keep the identical `setDefaultRequestProperties` contract.
      */
     private val httpDataSourceFactory = OkHttpDataSource.Factory(TransportClients.playbackCalls)
         .setUserAgent("Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36")

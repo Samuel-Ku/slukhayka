@@ -19,6 +19,9 @@ import com.slukhayka.audiobooks.data.db.SourceEntity
 import com.slukhayka.audiobooks.data.db.SourceTrackEntity
 import com.slukhayka.audiobooks.data.db.WorkEntity
 import com.slukhayka.audiobooks.data.db.WorkSourceEntity
+import com.slukhayka.audiobooks.data.facets.LocalFacetWriter
+import com.slukhayka.audiobooks.data.facets.RoomLocalFacetWriter
+import com.slukhayka.audiobooks.data.facets.applyEditionFacet
 import com.slukhayka.audiobooks.data.merge.MergeKey
 import com.slukhayka.audiobooks.data.metadata.BookProfile
 import com.slukhayka.audiobooks.data.metadata.BookProfileLimits
@@ -80,9 +83,39 @@ class LibraryImport(
     // #431 — 4read cache entries may shortcut browser recovery only after a
     // fresh cookie-free probe. Generic source profiles retain their existing
     // best-effort read-skip contract.
-    private val verifiedProfileReader: VerifiedSourceProfileReader? = null
+    private val verifiedProfileReader: VerifiedSourceProfileReader? = null,
+    // #485 — the persistent source-signal store: a resolved page records the
+    // source's claimed rating as a provenance-bearing assertion. Null in
+    // tests that don't exercise the layer — imports then behave exactly as
+    // before.
+    private val popularityAssertionStore: com.slukhayka.audiobooks.data.catalog.PopularityAssertionStore? = null
 ) {
     private val authorIndex: AuthorIndex = RoomAuthorIndex(dao)
+
+    // Spec-45 (#405) R1 (#508): the shared facet-projection seam — the SAME
+    // writer SourceCatalog and the shared delta lane use, so an Edition's
+    // content language (and the rest of its projection) lands in
+    // edition_facets the moment the Edition row is written.
+    private val facetWriter: LocalFacetWriter = RoomLocalFacetWriter(dao)
+
+    /**
+     * Writes the edition_facets projection of an Edition just inserted by an
+     * import/cataloguing write (R1 #508) — one shared helper (the same seam
+     * SourceCatalog and the shared delta lane use).
+     */
+    private suspend fun writeEditionFacet(
+        editionId: String,
+        domainWorkId: String,
+        narrator: String,
+        language: String,
+        chapterCount: Int
+    ) = facetWriter.applyEditionFacet(
+        editionId = editionId,
+        domainWorkId = domainWorkId,
+        narrator = narrator,
+        language = language,
+        chapterCount = chapterCount
+    )
 
     // ---------------------------------------------------------------------
     // Door 1 + 2 core: the shared import path (explicit + captured pages)
@@ -110,6 +143,15 @@ class LibraryImport(
             // ADR-0010: the Work key is bibliographic (title|author) — the
             // narrator is an Edition property, never part of the Work.
             val mergeKey = MergeKey.keyFor(detail.title, detail.author)
+            // #485: the resolved page is an observation — the source's
+            // claimed rating persists as a provenance-bearing assertion
+            // (best-effort; a failing write never breaks the import).
+            popularityAssertionStore?.recordRatingSignal(
+                mergeKey = mergeKey,
+                sourceId = sourceId,
+                rating = detail.rating,
+                observedAt = System.currentTimeMillis()
+            )
             val narrator = MetadataAssertions.normalizeClaimedText(detail.narrator) ?: "$sourceId narrator"
             val language = com.slukhayka.audiobooks.data.LanguageCode.normalize(
                 detail.language.ifBlank { sourceAdapters.firstOrNull { it.sourceId == sourceId }?.contentLanguage.orEmpty() }
@@ -240,6 +282,16 @@ class LibraryImport(
                         totalDurationSeconds = book.totalDurationSeconds
                     )
                 )
+                // R1 (#508): the Edition's facet projection (language +
+                // narrator) lands in the same transactional write seam the
+                // shared lane and the catalogue use.
+                writeEditionFacet(
+                    editionId = editionId,
+                    domainWorkId = workId,
+                    narrator = book.narrator,
+                    language = language,
+                    chapterCount = detail.chapters.size
+                )
                 val materialized = MetadataAssertions.materializeChaptersAndTracks(
                     editionId = editionId,
                     sourceId = sourceId,
@@ -278,6 +330,19 @@ class LibraryImport(
                                 totalChapters = existing.totalChapters,
                                 totalDurationSeconds = existing.totalDurationSeconds
                             )
+                        )
+                        // R1 (#508): the Edition's facet projection — the
+                        // domain Work id anchors the facet row (the same
+                        // anchor the feed and the shared sync read).
+                        val domainWorkId = existing.workId
+                            ?.takeIf { it.isNotBlank() }
+                            ?: existing.id
+                        writeEditionFacet(
+                            editionId = editionId,
+                            domainWorkId = domainWorkId,
+                            narrator = existing.narrator,
+                            language = language,
+                            chapterCount = existing.totalChapters
                         )
                     }
                     val source = sourceRow(sourceId, existing.id, editionId, detail.url)

@@ -17,9 +17,11 @@ import java.net.InetAddress
  * pure ([NetworkPrivacy.resolveDns], [FallbackDns]); this object only builds
  * the real RFC-8484 resolver (OkHttp `DnsOverHttps`, pinned to
  * [NetworkPrivacy.DOH_BOOTSTRAP_IPS] — the DoH server is reached WITHOUT any
- * DNS query, so nothing leaks) and logs the transparent fallback. A failed
- * DoH lookup never fails the request — the system resolver answers instead,
- * silently for the user, loudly in the log (repo rule: silent degradations
+ * DNS query, so nothing leaks) and logs the transparent fallback. #516: the
+ * fallback runs only while the listener is on DIRECT — under a CHOSEN
+ * privacy route the strict DoH resolver fails the lookup (and with it the
+ * request) instead of leaking the name through the system resolver. A failed
+ * lookup is still logged loudly either way (repo rule: silent degradations
  * must stay diagnosable).
  */
 object TransportDns : Dns {
@@ -55,6 +57,7 @@ object TransportDns : Dns {
                 .build(),
             fallback = systemResolver(),
             onFallback = { hostname, failure ->
+                if ((strategy as? DnsStrategy.DohFirst)?.allowSystemFallback == false) throw failure
                 Log.w(TAG, "DoH недоступний ($hostname) — прозорий фолбек на системний резолвер", failure)
             }
         )

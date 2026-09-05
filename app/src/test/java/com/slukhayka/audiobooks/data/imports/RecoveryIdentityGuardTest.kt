@@ -45,4 +45,6 @@ class RecoveryIdentityGuardTest {
         assertTrue(RecoveryIdentityGuard.matches("Книга", "Автор", "4read Voice Narrator", "", listOf("1", "2"), detail()))
         assertFalse(RecoveryIdentityGuard.matches("Книга", "Автор", "Інший читець", "", listOf("1", "2"), detail()))
     }
+
+
 }

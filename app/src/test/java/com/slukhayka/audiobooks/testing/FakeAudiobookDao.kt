@@ -6,6 +6,7 @@ import com.slukhayka.audiobooks.data.db.BookRow
 import com.slukhayka.audiobooks.data.db.BookmarkEntity
 import com.slukhayka.audiobooks.data.db.ChapterEntity
 import com.slukhayka.audiobooks.data.db.CorrectionEntity
+import com.slukhayka.audiobooks.data.db.PopularityAssertionEntity
 import com.slukhayka.audiobooks.data.db.EditionEntity
 import com.slukhayka.audiobooks.data.db.HiddenReviewerEntity
 import com.slukhayka.audiobooks.data.db.RecommendationPreferenceEntity
@@ -68,6 +69,7 @@ class FakeAudiobookDao(
     chapters: List<ChapterEntity> = emptyList()
 ) : AudiobookDao {
 
+    private val popularityState = MutableStateFlow(emptyList<PopularityAssertionEntity>())
     private val booksState = MutableStateFlow(books)
     private val chaptersState = MutableStateFlow(chapters)
     private val tracksState = MutableStateFlow(emptyList<SourceTrackEntity>())
@@ -655,6 +657,8 @@ class FakeAudiobookDao(
     override suspend fun deleteLibraryEntry(bookId: String) {
         libraryEntriesState.update { current -> current.filterNot { it.id == bookId } }
     }
+
+    override fun observeLibraryEntries(): Flow<List<LibraryEntryEntity>> = libraryEntriesState
 
     override suspend fun countLibraryEntries(): Int = libraryEntriesState.value.size
 
@@ -1259,4 +1263,13 @@ class FakeAudiobookDao(
             current.filterNot { it.sourceId == sourceId && it.feedKey == feedKey }
         }
     }
+
+    override suspend fun upsertPopularityAssertions(assertions: List<PopularityAssertionEntity>) {
+        popularityState.update { current ->
+            (current.associateBy { it.id } + assertions.associateBy { it.id }).values.toList()
+        }
+    }
+
+    override suspend fun popularityAssertions(kind: String): List<PopularityAssertionEntity> =
+        popularityState.value.filter { it.kind == kind }
 }

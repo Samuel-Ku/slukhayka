@@ -148,7 +148,11 @@ class ChapterDurationProbe(
                 launch {
                     try {
                         limiter.withPermit {
-                            val result = prober.probe(track.url) ?: return@withPermit
+                            // #516 — the source identity rides the probe so the
+                            // per-source header seam (Referer-gated CDNs) applies.
+                            val sourceId = pair.sourceId
+                                ?: com.slukhayka.audiobooks.data.source.sourceIdForUrl(book.sourceUrl)
+                            val result = prober.probe(sourceId, track.url) ?: return@withPermit
                             val durationSeconds =
                                 result.contentLength * 8L / (result.frame.bitrateKbps * 1000L)
                             if (durationSeconds <= 0L) return@withPermit

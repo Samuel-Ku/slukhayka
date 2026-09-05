@@ -1,5 +1,6 @@
 package com.slukhayka.audiobooks.data.personbookmarks
 
+import com.slukhayka.audiobooks.data.db.LibraryEntryEntity
 import com.slukhayka.audiobooks.data.db.EditionEntity
 import com.slukhayka.audiobooks.data.db.PersonBookmarkEntity
 import com.slukhayka.audiobooks.data.db.PersonRole
@@ -53,10 +54,12 @@ object PersonNewArrivals {
         bookmarks: List<PersonBookmarkEntity>,
         works: List<WorkEntity>,
         editions: List<EditionEntity>,
-        unifiedCatalog: List<GlobalSearchResult>
+        unifiedCatalog: List<GlobalSearchResult>,
+        libraryEntries: List<LibraryEntryEntity>
     ): CatalogProjection {
         val detected = detect(bookmarks, works, editions)
         val worksById = works.associateBy { it.id }
+        val workIdByBookId = libraryEntries.associate { it.id to it.workId }
         val keysByWorkMergeKey = linkedMapOf<String, MutableSet<PersonBookmarkKey>>()
 
         fun add(key: String, bookmarkKey: PersonBookmarkKey) {
@@ -73,7 +76,7 @@ object PersonNewArrivals {
         }
         detected.editionIds.forEach { editionId ->
             editions.firstOrNull { it.id == editionId }?.let { edition ->
-                worksById[edition.workId]?.let { work ->
+                worksById[workIdByBookId[edition.workId]]?.let { work ->
                     add(work.mergeKey.ifBlank { work.id }, PersonBookmarkKey(
                         PersonRole.NARRATOR,
                         PersonIdentity.from(PersonRole.NARRATOR, edition.narrator).id

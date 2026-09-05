@@ -27,7 +27,14 @@ data class GlobalSearchSource(
     val sourceName: String,
     val url: String,
     /** Explicit rendition ownership; automatic fallback never crosses it. */
-    val editionId: String = ""
+    val editionId: String = "",
+    /**
+     * Spec-45 (#405) R5 (#512): the member's effective content language
+     * (BCP-47, own claim else the source's declared catalogue language; ""
+     * = unknown). Kept PER SOURCE so the shared search cache holds enough
+     * data to re-filter a mixed card under any selection.
+     */
+    val language: String = ""
 )
 
 /** One search-result card: a Work with all matching sources. */
@@ -62,15 +69,35 @@ data class GlobalSearchResult(
  * content-language [selection] (US6/US21). An EMPTY selection = «Усі» (both
  * content languages on) = inactive — everything shows. A card whose language
  * is unknown ("") is never hidden by any selection (US17). The SAME rule the
- * persisted WorkFeed DAO applies per Edition row (T4) — one semantics across
- * every surface.
+ * persisted WorkFeed DAO applies per Edition row (T4/R4) and the merged-card
+ * filter applies per Source member (R5) — one semantics across every surface.
  */
 fun contentLanguageVisible(language: String, selection: Set<String>): Boolean =
     selection.isEmpty() || language.isBlank() || language in selection
 
-/** [contentLanguageVisible] over a merged card list. */
+/**
+ * Spec-45 (#405) R5 (#512) — [contentLanguageVisible] applied at the
+ * SOURCE-member level of a merged card, the shape the shared search cache
+ * stores and every published surface re-reads. A mixed uk/en card under a
+ * uk selection keeps only its uk source; en+unknown keeps the unknown
+ * member; a card whose every member is hidden disappears. The card language
+ * is re-derived from the SURVIVING members (uk+en under uk → "uk";
+ * en+unknown → "" — never "en", so the unknown member never hides). An
+ * empty selection stays inactive («Усі»).
+ */
 fun List<GlobalSearchResult>.visibleInContentLanguages(selection: Set<String>): List<GlobalSearchResult> =
-    filter { contentLanguageVisible(it.language, selection) }
+    mapNotNull { result ->
+        val kept = result.sources.filter { contentLanguageVisible(it.language, selection) }
+        if (kept.isEmpty()) {
+            null
+        } else {
+            result.copy(
+                sources = kept,
+                language = kept.mapNotNull { it.language.ifBlank { null } }
+                    .distinct().singleOrNull().orEmpty()
+            )
+        }
+    }
 
 /**
  * Spec-15 T4/#426 — whether a catalogue card may offer one-tap download: any
@@ -170,10 +197,20 @@ fun mergeGlobalSearchResults(results: List<SourceBook>): List<GlobalSearchResult
                     val narrator = MetadataAssertions.normalizeClaimedText(book.narrator)
                         ?: "${book.sourceId} narrator"
                     GlobalSearchSource(
-                        candidate.sourceId,
-                        candidate.sourceName,
-                        candidate.url,
-                        EditionId.forBook(MergeKey.keyFor(book.title, book.author), "", narrator)
+                        sourceId = candidate.sourceId,
+                        sourceName = candidate.sourceName,
+                        url = candidate.url,
+                        // R1 (#508): the id carries the rendition language —
+                        // the stored Edition id is `hash(mergeKey|narrator|language)`
+                        // now, so a language-less card id can never match the
+                        // local row and two languages of one Work would collapse
+                        // into one rendition identity.
+                        editionId = EditionId.forBook(
+                            MergeKey.keyFor(book.title, book.author), "", narrator, book.language
+                        ),
+                        // R5 (#512): the member's effective language rides the
+                        // source so cached cards keep filtering correctly.
+                        language = book.language
                     )
                 }
             )

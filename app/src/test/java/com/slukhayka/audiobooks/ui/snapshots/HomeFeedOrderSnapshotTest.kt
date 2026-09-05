@@ -12,6 +12,10 @@ import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.test.core.app.ApplicationProvider
+import android.content.Context
+import com.slukhayka.audiobooks.R
 import androidx.compose.ui.test.onRoot
 import androidx.paging.PagingData
 import androidx.paging.compose.collectAsLazyPagingItems
@@ -194,10 +198,11 @@ class HomeFeedOrderSnapshotTest {
         assertTrue(topOf("Цикли") < topOf("Нобелівські лауреати"))
         assertTrue(topOf("Нобелівські лауреати") < topOf("Букер"))
         assertTrue(topOf("Букер") < topOf("Більше книг на Sluhay"))
-        assertTrue(topOf("Більше книг на Sluhay") < topOf("Спочатку нові"))
+        val sortTop = composeTestRule.onNodeWithTag("feed_sort").getBoundsInRoot().top
+        assertTrue(topOf("Більше книг на Sluhay") < sortTop)
         // The sticky controls introduce the final unbounded layer directly:
         // there is no redundant feed heading between controls and cards.
-        assertTrue(topOf("Спочатку нові") < topOf("Місто"))
+        assertTrue(sortTop < topOf("Місто"))
         assertTrue(topOf("Місто") < topOf("Тигролови"))
 
         composeTestRule.onNodeWithText("Жанри", ignoreCase = true).assertDoesNotExist()
@@ -297,8 +302,9 @@ class HomeFeedOrderSnapshotTest {
         // the own card shows real numbers once; the similar card carries the
         // engine's reason chip instead of progress.
         assertEquals(0, composeTestRule.onAllNodesWithText("Цикли", useUnmergedTree = true).fetchSemanticsNodes().size)
-        assertEquals(1, composeTestRule.onAllNodesWithText("Прослухано 2 із 8").fetchSemanticsNodes().size)
-        assertEquals(1, composeTestRule.onAllNodesWithText("Схоже на «Тигролови»").fetchSemanticsNodes().size)
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        assertEquals(1, composeTestRule.onAllNodesWithText(context.getString(R.string.home_cycle_progress, 2, 8)).fetchSemanticsNodes().size)
+        assertEquals(1, composeTestRule.onAllNodesWithText(context.getString(R.string.home_cycle_similar, "Тигролови")).fetchSemanticsNodes().size)
 
         // Own tier precedes the similar one inside the rail (a horizontal
         // row — order is along x, unlike the vertical block checks above).

@@ -840,18 +840,16 @@ private fun LibraryBookGridContent(book: LibraryBook) {
                 trackColor = MaterialTheme.colorScheme.outlineVariant
             )
             Spacer(modifier = Modifier.height(4.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
                 if (book.totalDurationSeconds > 0L) {
                     Text(
                         text = formatRemainingTime(book.remainingSeconds),
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f)
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                } else {
-                    Spacer(modifier = Modifier.weight(1f))
                 }
                 SourceBadge(book)
                 if (book.book.isDownloaded) {

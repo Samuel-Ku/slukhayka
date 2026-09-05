@@ -266,7 +266,9 @@ class OfflineDownloads(
         url
     }
 
-    /** #392 — estimate total bytes via HEAD before download (for UI). */
+    private val estimatedSizes = ConcurrentHashMap<String, EstimatedSize>()
+
+    /** #392 — optional size preview; never a prerequisite for downloading audio. */
     suspend fun estimateOfflineSize(bookId: String): EstimatedSize = withContext(downloadDispatcher) {
         val book = dao.getAudiobookById(bookId)
         val sourceId = book?.let { sourceIdForUrl(it.sourceUrl) } ?: "unknown"
@@ -287,8 +289,10 @@ class OfflineDownloads(
                 known++
             }
         }
-        return@withContext if (known == 0) EstimatedSize(null, isApproximate = false, knownCount = 0, totalCount = playable.size)
+        val estimate = if (known == 0) EstimatedSize(null, isApproximate = false, knownCount = 0, totalCount = playable.size)
         else EstimatedSize(total, isApproximate = known < playable.size, knownCount = known, totalCount = playable.size)
+        estimatedSizes[bookId] = estimate
+        return@withContext estimate
     }
 
     suspend fun downloadAudiobookOffline(bookId: String): OfflineDownloadResult =
@@ -372,9 +376,10 @@ class OfflineDownloads(
         // retry. Direct sources keep the existing bounded parallelism.
         val semaphore = Semaphore(if (sourceId == "4read") 1 else 3)
 
-        // #392 — estimate total bytes via HEAD for MB display (uses same
-        // HttpFetcher + headers + privacy route as the download loop)
-        val estimated = try { estimateOfflineSize(bookId) } catch (_: Exception) { EstimatedSize(null, false, 0, total) }
+        // The card may already have a size preview. Do not block audio on a
+        // serial HEAD sweep: one slow request per chapter can delay start for minutes.
+        val estimated = estimatedSizes[bookId]?.takeIf { it.totalCount == total }
+            ?: EstimatedSize(null, false, 0, total)
         ensureCurrentRun()
         val estimatedTotalBytes = estimated.totalBytes
         val isApproximate = estimated.isApproximate

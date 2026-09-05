@@ -12,6 +12,27 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class PersonNewArrivalsTest {
+    @Test fun `missing author and narrator metadata never crashes discovery or notifications`() {
+        val person = PersonIdentity.from(PersonRole.AUTHOR, "Леся Українка")
+        val bookmarks = listOf(PersonBookmarkEntity(
+            person.role.storageValue, person.id, person.displayName, person.normalizedName,
+            lastSeenAt = 10
+        ))
+        val works = listOf(
+            WorkEntity("unknown", "unknown", "Без автора", "", addedAt = 11),
+            WorkEntity("space", "space", "Порожнє ім'я", "\u00a0 ", addedAt = 11),
+            WorkEntity("known", "known", "Лісова пісня", person.displayName, addedAt = 11)
+        )
+        val editions = listOf(EditionEntity("unknown-narrator", "card", narrator = "", addedAt = 11))
+        assertEquals(setOf("known"), PersonNewArrivals.detect(bookmarks, works, editions).workIds)
+        assertEquals(emptySet<String>(), PersonNewArrivals.detect(bookmarks, works, editions).editionIds)
+        assertEquals(0, PersonNewArrivals.projectCatalog(
+            bookmarks, works, editions, emptyList(), emptyList()
+        ).count)
+        assertEquals(1, PeopleNewArrivalNotification.decide(bookmarks, works, editions)!!.count)
+        assertEquals(0, PersonNewArrivals.detect(emptyList(), works, editions).count)
+    }
+
     @Test fun `role scoped normalized identities detect new works and editions`() {
         val author = PersonIdentity.from(PersonRole.AUTHOR, "Ігор Петренко")
         val narrator = PersonIdentity.from(PersonRole.NARRATOR, "Ігор Петренко")

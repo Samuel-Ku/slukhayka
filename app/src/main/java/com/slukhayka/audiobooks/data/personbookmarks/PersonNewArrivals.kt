@@ -40,11 +40,11 @@ object PersonNewArrivals {
         val narrators = bookmarks.filter { it.kind == PersonRole.NARRATOR.storageValue }
             .associateBy { it.id }
         val workIds = works.filter { work ->
-            authors[PersonIdentity.from(PersonRole.AUTHOR, work.author).id]
+            work.author.isNotBlank() && authors[PersonIdentity.from(PersonRole.AUTHOR, work.author).id]
                 ?.let { work.addedAt > it.lastSeenAt } == true
         }.mapTo(linkedSetOf()) { it.id }
         val editionIds = editions.filter { edition ->
-            narrators[PersonIdentity.from(PersonRole.NARRATOR, edition.narrator).id]
+            edition.narrator.isNotBlank() && narrators[PersonIdentity.from(PersonRole.NARRATOR, edition.narrator).id]
                 ?.let { edition.addedAt > it.lastSeenAt } == true
         }.mapTo(linkedSetOf()) { it.id }
         return Result(workIds, editionIds)

@@ -803,6 +803,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * явна людська втеча ніколи не є циклом.
      */
     fun smartRetryPlayback(bookId: String, chapterIndex: Int, positionMs: Long) {
+        // #519: нова спроба скидає підсумок попереднього пошуку альтернативи.
+        _alternativeSourceState.value = AlternativeSourceState.Idle
         viewModelScope.launch(Dispatchers.IO) {
             val playable = runCatching { sourceCatalog.getPlayableChapters(bookId) }.getOrDefault(emptyList())
             val track = playable.getOrNull(chapterIndex)?.track
@@ -903,6 +905,143 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 autoPlay = true
             )
             _showFullPlayer.value = true
+        }
+    }
+
+    // #519 — явний пошук альтернативного джерела після невдалого відновлення.
+    // Нічого не шукає і не перемикає до натискання; одна дія = один пошук;
+    // успіх = реальний старт відтворення тієї самої начитки з поточної позиції.
+
+    /** Стан явного пошуку альтернативи (#519): Idle → Searching → Verdict. */
+    sealed interface AlternativeSourceState {
+        data object Idle : AlternativeSourceState
+
+        /** Пошук триває — одна дія не запускає іншу, кнопка показує прогрес. */
+        data object Searching : AlternativeSourceState
+
+        /** Та сама начитка знайдена й запущена з поточної позиції. */
+        data class Continued(val sourceName: String) : AlternativeSourceState
+
+        /** Чесний підсумок без запуску; текст підбирає UI за [AlternativeFailure]. */
+        data class Failed(
+            val reason: AlternativeFailure,
+            /** Підказки знайдених ІНШИХ начиток (тільки текст для слухача). */
+            val hints: List<String> = emptyList()
+        ) : AlternativeSourceState
+    }
+
+    enum class AlternativeFailure {
+        BOOK_MISSING,
+        NO_RESULTS,
+        DIFFERENT_NARRATION,
+        SOURCE_UNRESPONSIVE,
+        CHAPTERS_UNAVAILABLE
+    }
+
+    private val _alternativeSourceState = MutableStateFlow<AlternativeSourceState>(AlternativeSourceState.Idle)
+    val alternativeSourceState: StateFlow<AlternativeSourceState> = _alternativeSourceState.asStateFlow()
+
+    /**
+     * #519 — явна дія «Знайти в іншому джерелі» після невдалого відновлення.
+     * Один виклик = один пошук через [SourceCatalog.searchAllSources] (той самий
+     * транспорт, що й скрізь: privacy-маршрут і правила джерел не обходяться).
+     * Верифікована ТА САМА начитка (твердження джерела збігається з локальною)
+     * продовжує відтворення з поточного Chapter/позиції; інша чи невідома
+     * начитка чесно звітується — ніколи не запускається мовчки.
+     */
+    fun findAlternativeSource(bookId: String, chapterIndex: Int, positionMs: Long) {
+        val current = _alternativeSourceState.value
+        if (current is AlternativeSourceState.Searching) return
+        _alternativeSourceState.value = AlternativeSourceState.Searching
+        viewModelScope.launch(Dispatchers.IO) {
+            val settle: suspend (AlternativeSourceState) -> Unit = { state ->
+                withContext(Dispatchers.Main) { _alternativeSourceState.value = state }
+            }
+            val book = runCatching { libraryEntries.getBookSync(bookId) }.getOrNull()
+            if (book == null) {
+                settle(AlternativeSourceState.Failed(AlternativeFailure.BOOK_MISSING))
+                return@launch
+            }
+            val mergeKey = book.mergeKey.ifBlank { MergeKey.keyFor(book.title, book.author) }
+            val results = runCatching {
+                withTimeoutOrNull(smartRetryResolveTimeoutMs) {
+                    sourceCatalog.searchAllSources(book.title)
+                } ?: emptyList()
+            }.getOrDefault(emptyList())
+            val own = results.filter { candidate ->
+                candidate.mergeKey == mergeKey ||
+                    MergeKey.keyFor(candidate.title, candidate.author) == mergeKey
+            }
+            if (own.isEmpty()) {
+                settle(AlternativeSourceState.Failed(AlternativeFailure.NO_RESULTS))
+                return@launch
+            }
+            val storedEdition = runCatching {
+                App.instance.audiobookDao.getEditionForWork(bookId)
+            }.getOrNull()
+            val storedNarrator = storedEdition?.narrator ?: book.narrator
+            // #520-сумісність: граємо ТІЛЬКИ верифіковану ту саму начитку. Якщо
+            // перший результат — інша чи невідома начитка, він не запускається
+            // мовчки; чесна підказка замість тихого старту чужої начитки.
+            val candidate = own.firstOrNull { match ->
+                SmartRetryPolicy.isSameNarration(storedNarrator, match.narrator)
+            }
+            if (candidate == null) {
+                val hints = own.map { result ->
+                    val sourceNames = result.sources.map { it.sourceName }.distinct()
+                        .joinToString(", ")
+                    "${result.title} — $sourceNames"
+                }
+                settle(
+                    AlternativeSourceState.Failed(
+                        AlternativeFailure.DIFFERENT_NARRATION,
+                        hints
+                    )
+                )
+                return@launch
+            }
+            val source = candidate.sources.firstOrNull { it.url.isNotBlank() } ?: run {
+                settle(AlternativeSourceState.Failed(AlternativeFailure.NO_RESULTS))
+                return@launch
+            }
+            val identity = KnownBookIdentity(
+                title = book.title,
+                author = book.author,
+                narrator = book.narrator,
+                coverImageUrl = book.coverImageUrl
+            )
+            val resolved = runCatching {
+                withTimeoutOrNull(smartRetryResolveTimeoutMs) {
+                    libraryImport.importFromSourceUrl(source.sourceId, source.url, identity)
+                }
+            }.getOrNull()
+            if (resolved == null) {
+                smartRetryMemo.recordFailure(bookId)
+                settle(AlternativeSourceState.Failed(AlternativeFailure.SOURCE_UNRESPONSIVE))
+                return@launch
+            }
+            val freshPlayable = runCatching {
+                sourceCatalog.getPlayableChapters(bookId)
+            }.getOrDefault(emptyList())
+            if (freshPlayable.isEmpty()) {
+                smartRetryMemo.recordFailure(bookId)
+                settle(AlternativeSourceState.Failed(AlternativeFailure.CHAPTERS_UNAVAILABLE))
+                return@launch
+            }
+            // Реальний старт відтворення з ПОТОЧНОЇ позиції; Listening State
+            // належить тій самій Edition (джерело перемикається, прогрес ні).
+            withContext(Dispatchers.Main) {
+                playerManager.loadAndPlayBook(
+                    book = resolved,
+                    chapters = freshPlayable.map { it.chapter },
+                    playable = freshPlayable,
+                    initialChapterIndex = chapterIndex.coerceIn(0, (freshPlayable.size - 1).coerceAtLeast(0)),
+                    initialPositionSeconds = positionMs / 1000L,
+                    autoPlay = true
+                )
+                _showFullPlayer.value = true
+                _alternativeSourceState.value = AlternativeSourceState.Continued(source.sourceName)
+            }
         }
     }
 

@@ -29,6 +29,16 @@
     <string name="a11y_player_timer_end_of_chapter">until the end of the chapter</string>
     <string name="a11y_player_timer_off">off</string>
     <string name="player_tool_speed_label">Speed</string>
+
+    <!-- #519 — explicit alternative-source search after failed recovery -->
+    <string name="player_find_alternative">Find in another source</string>
+    <string name="player_find_alternative_searching">Searching other sources…</string>
+    <string name="player_find_alternative_found">Playing from another source (%1$s)</string>
+    <string name="player_alternative_no_results">Not found in any other source</string>
+    <string name="player_alternative_book_missing">Book not found in the library</string>
+    <string name="player_alternative_different_narration">A different narration was found — confirmation needed</string>
+    <string name="player_alternative_source_unresponsive">The source did not respond — try again</string>
+    <string name="player_alternative_chapters_unavailable">The source chapters did not open</string>
     <string name="player_tool_timer_label">Timer</string>
     <string name="player_tool_bookmark_label">Bookmark</string>
     <string name="player_tool_chapters_label">Chapters</string>

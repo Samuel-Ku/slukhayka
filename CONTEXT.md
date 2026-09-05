@@ -225,9 +225,53 @@ _Avoid_: raw connections in live sources, live lists persisted to Room
 
 ## Discovery surfaces (spec-28)
 
+**Personal Recommendation**:
+Твір, запропонований слухачеві для наступного прослуховування з урахуванням його смаку, зокрема вже доданий у медіатеку, але ще не розпочатий. Персональні рекомендації допомагають швидко обрати цікаву книгу й залишають місце для відкриття незнайомих авторів.
+_Avoid_: загальна популярність як доказ особистого смаку, рекомендація як гарантія вподобання
+
+**Recommendation Set**:
+Упорядкована добірка персональних рекомендацій, яку слухач переглядає в «Огляді» зі стабільним порядком карток. Повернення зі сторінки книги продовжує той самий перегляд зі збереженням добірки та місця.
+_Avoid_: Feed Snapshot, безперервне перемішування видимих карток
+
+**Successful Recommendation**:
+Вибір із рекомендацій, після якого слухач реально почав твір і продовжив його слухати в інший день або завершив. Явна низька оцінка твору переважає це поведінкове свідчення вдалого підбору.
+_Avoid_: відкриття картки як успіх, непідтверджений успіх як негативне вподобання
+
+**Exploration Recommendation**:
+Персональна рекомендація, яка знайомить слухача з твором поза найочевиднішим продовженням його звичного смаку. Має підставу очікувати інтерес слухача, зокрема змістовий зв’язок або спільні вподобання інших слухачів.
+_Avoid_: випадкова книга заради квоти, гарантія нового вподобання
+
+**Collective Preference Pattern**:
+Закономірність у вподобаннях кількох слухачів, що допомагає пропонувати твори за їхнім спільним досвідом. Доповнює власні вподобання слухача та змістову схожість творів; внесок у спільне навчання є добровільним.
+_Avoid_: загальна популярність, змістова схожість, гарантія вподобання
+
+**Collective Work Graph**:
+Сукупність підтверджених спільними вподобаннями зв’язків між творами, що доповнює особистий підбір слухача. Містить зв’язки творів, а особисті історії належать Recommendation Profile.
+_Avoid_: список схожих людей, персональна історія, граф джерел
+
+**Recommendation Profile**:
+Добровільно створений серверний профіль власних оцінок, початкових вподобань і досвіду прослуховування для поліпшення рекомендацій. Слухач може видалити цей профіль; відмова від нього зберігає локальні персональні рекомендації.
+_Avoid_: публічна медіатека, Listening State, повністю анонімний список
+
+**Recommendation Participation**:
+Окрема добровільна згода слухача на передавання визначених власних сигналів і результатів підбору для поліпшення рекомендацій. Її відкликання припиняє внески й видаляє серверний профіль, зберігаючи локальні рекомендації та бібліотеку.
+_Avoid_: Progress Sync, реєстрація, мовчазна згода через користування
+
+**Recommendation Signal**:
+Відомість про оцінку твору слухачем або про його прослуховування, яка впливає на персональні рекомендації. Явна оцінка твору переважає факт завершення та прогрес при визначенні вподобання.
+_Avoid_: прослухано означає сподобалося, оцінка озвучення як оцінка твору
+
+**Initial Taste Preference**:
+Твір або жанр, який слухач сам позначив як такий, що йому подобається, під час необов’язкового початкового налаштування рекомендацій. Дає початкове уявлення про смак до появи історії в застосунку й впливає на порядок рекомендацій.
+_Avoid_: Listener Review, Listening State, позначка «прослухано», жанровий фільтр каталогу
+
+**Recommendation Outcome**:
+Спостережений результат одного показу персональної добірки: вибір, реальне слухання, продовження, завершення або явна оцінка. Дозволяє перевіряти користь підбору; непідтверджений успіх сам по собі не означає несхвалення твору.
+_Avoid_: клік як доказ задоволення, Recommendation Signal за будь-якої відсутності дії
+
 **Private recommendation adaptation**:
-The bundled E5 encoder remains frozen and local; `RecommendationPersonalization` adapts the transparent positive/negative profile and five ranking coefficients over Work-level vectors. Weak 30%/70% progress fades only after day 30 and reaches zero at day 180, while deliberate durable signals do not decay. Explicit preferences live in their own Room table. Shared weekly learning has a pure validation/aggregation contract but no production upload path; `PRODUCTION_UPLOAD_ENABLED` remains false until the privacy, legal and security gates in #290 pass.
-_Avoid_: fine-tuning E5 on-device, treating pauses/non-completion as dislike, uploading Works or history, calling weekly IDs anonymous
+Локальне уточнення персональних рекомендацій за власними вподобаннями й досвідом слухача. Працює незалежно від його участі у спільному навчанні та від наявності серверного Recommendation Profile.
+_Avoid_: Recommendation Profile, пауза або незавершення як явне несхвалення
 
 **Cross-source «Новинки» rail**:
 One Огляд rail merging the new-arrival books of every Source — 4read's «Новинки» section plus the other sources' new feeds — into a single Work-deduplicated list with a per-Source badge on each card (`SourceCatalog.newArrivals`). It is published on both union triggers (`refreshSourceFeeds` + `fetchCatalogSections`) so it always reflects the fresher input, and the 4read «Новинки» catalogue section row is skipped on Огляд so 4read's new arrivals appear exactly once (spec-28 #192).

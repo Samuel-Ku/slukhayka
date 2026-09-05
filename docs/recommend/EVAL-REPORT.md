@@ -1,5 +1,13 @@
 # spec-19 T3 — Recommendation eval gate
 
+> Перевірка 2026-09-05: наведений нижче історичний GO не є чинним
+> доказом для нового дизайну. Поле `semanticRecallAtK` у
+> `RecommendationEval.evaluate` ділить влучання лише на число fold;
+> значення понад 1 є середнім числом влучань, помилково названим Recall.
+> Новий протокол і пакет виправлення R1 наведені в
+> [дизайні рекомендацій](../specs/2026-09-05-personal-recommendations-design.md).
+> Історичні числа збережено; повторного запуску оцінювання в цій сесії не було.
+
 **Date:** 2026-08-14
 **Decision:** GO
 **Model:** multilingual-e5-small (384-dim, int8 ONNX, mean-pooled, L2-normalized)

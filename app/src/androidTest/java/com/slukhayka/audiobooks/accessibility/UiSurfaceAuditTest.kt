@@ -3,6 +3,8 @@ package com.slukhayka.audiobooks.accessibility
 import android.content.res.Configuration
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.material3.MaterialTheme
@@ -12,12 +14,20 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.test.platform.app.InstrumentationRegistry
 import com.slukhayka.audiobooks.MainActivity
+import com.slukhayka.audiobooks.AppBottomBar
+import com.slukhayka.audiobooks.ui.SelectedTab
+import com.slukhayka.audiobooks.data.catalog.SourceCatalog
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.ChapterEntity
@@ -58,6 +68,7 @@ class UiSurfaceAuditTest {
         var gridSelected = false
         var retries = 0
         var alternatives = 0
+        val openedSettings = mutableListOf<SettingsDestination>()
         val arguments = InstrumentationRegistry.getArguments()
         val locale = arguments.getString("auditLocale") ?: "uk"
         rule.runOnUiThread {
@@ -105,6 +116,24 @@ class UiSurfaceAuditTest {
                                     "timer" -> SleepTimerSheet(currentTimerMinutes = 15, onSelectTimer = {}, onDismiss = {})
                                     "chapters" -> ChapterBottomSheet(chapters, 1, {}, {})
                                     "bookmark" -> BookmarkBottomSheet(120, chapters[1].title, {}, {})
+                                    "settings" -> Box(Modifier.fillMaxSize()) { Box(Modifier.width(320.dp)) { SettingsScreen { openedSettings += it } } }
+                                    "navigation" -> Box(Modifier.fillMaxSize()) { Box(Modifier.width(320.dp).testTag("navigation_fixture")) { AppBottomBar(SelectedTab.SETTINGS) {} } }
+                                    "book" -> Box(Modifier.fillMaxSize()) { Column(
+                                        Modifier.width(320.dp).testTag("book_fixture").verticalScroll(rememberScrollState()).padding(16.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        val presentation = bookDetailPresentation(book, emptyList(), listOf(
+                                            SourceCatalog.WorkSourceRow("4read", "4read", "https://4read.org/audit", false)
+                                        ))
+                                        BookDetailIdentityHeader(book, presentation, universeName = "Перший закон")
+                                        BookDetailPrimaryActions(
+                                            workTitle = book.title,
+                                            playLabel = stringResource(R.string.book_detail_continue_short) + " 01:23:45",
+                                            streamOnly = false, downloadAction = BookDetailDownloadAction.Continue,
+                                            downloadProgress = 0.5f, onPlay = {}, onDownload = {}, onAddBookmark = {}
+                                        )
+                                        BookDetailSourceSection(presentation)
+                                    } }
                                 }
                             }
                         }
@@ -112,10 +141,10 @@ class UiSurfaceAuditTest {
                 }
             }
         }
-        val phase = arguments.getString("auditPhase") ?: "before"
+        val phase = arguments.getString("auditPhase") ?: "verified"
         val scenes = listOf("player_normal", "player_loading", "player_error", "search_loading", "search_empty", "search_error",
             "search_result", "catalog_empty", "cycle", "library_empty", "library_row", "library_grid", "library_filters",
-            "delete_dialog", "speed", "timer", "chapters", "bookmark")
+            "delete_dialog", "speed", "timer", "chapters", "bookmark", "book", "settings", "navigation")
         for (fontScale in listOf(1f, 2f)) {
             for (name in arguments.getString("auditScenes")?.split(",") ?: scenes) {
                 rule.runOnUiThread { scene = name; scale = fontScale }
@@ -125,11 +154,7 @@ class UiSurfaceAuditTest {
                 // Android dialog windows also have platform enter/exit animations.
                 // Compose idleness alone can capture the previous window fading out.
                 android.os.SystemClock.sleep(500)
-                val bitmap = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
-                File(rule.activity.getExternalFilesDir(null), "549-$phase-$locale-$name-$fontScale.png").outputStream().use {
-                    bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
-                }
-                bitmap.recycle()
+                screenshot("549-$phase-$locale-$name-$fontScale.png")
                 if (name.startsWith("player_")) {
                     val cover = rule.onAllNodesWithTag("player_cover").fetchSemanticsNodes().singleOrNull()?.boundsInRoot
                     val title = rule.onNodeWithTag("player_context").fetchSemanticsNode().boundsInRoot
@@ -138,6 +163,49 @@ class UiSurfaceAuditTest {
                     if (fontScale == 2f) rule.onNodeWithTag("player_play_pause_button").performScrollTo().assertIsDisplayed()
                 }
                 if (phase != "before") {
+                    if (name == "settings") {
+                        rule.onNodeWithTag("settings_screen").assertWidthIsEqualTo(320.dp)
+                        openedSettings.clear()
+                        val routes = listOf(SettingsDestination.Profile, SettingsDestination.Storage,
+                            SettingsDestination.NetworkPrivacy, SettingsDestination.Recommendations,
+                            SettingsDestination.ContentLanguages, SettingsDestination.AppLocale)
+                        for (route in routes) {
+                            rule.onNodeWithTag("settings_${route.name}").performScrollTo()
+                                .assertIsDisplayed().assertHeightIsAtLeast(48.dp).performTouchInput { click() }
+                        }
+                        rule.waitForIdle()
+                        assertEquals(routes, openedSettings)
+                    }
+                    if (name == "navigation") {
+                        rule.onNodeWithTag("navigation_fixture").assertWidthIsEqualTo(320.dp)
+                        val context = rule.activity.createConfigurationContext(Configuration(rule.activity.resources.configuration).apply {
+                            setLocale(Locale.forLanguageTag(locale))
+                        })
+                        for (res in listOf(R.string.nav_listen, R.string.nav_explore, R.string.nav_library, R.string.nav_settings)) {
+                            val layouts = mutableListOf<TextLayoutResult>()
+                            rule.onNodeWithText(context.getString(res), useUnmergedTree = true)
+                                .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+                            assertTrue("Clipped navigation label", !layouts.single().hasVisualOverflow)
+                        }
+                    }
+                    if (name == "book") {
+                        rule.onNodeWithTag("book_fixture").assertWidthIsEqualTo(320.dp)
+                        for (role in listOf("author", "narrator")) {
+                            rule.onNodeWithTag("book_detail_${role}_link").performScrollTo().assertIsDisplayed()
+                            val person = rule.onNodeWithTag("book_detail_${role}_link").fetchSemanticsNode().boundsInRoot
+                            val star = rule.onNodeWithTag("book_detail_${role}_bookmark").fetchSemanticsNode().boundsInRoot
+                            assertEquals("Detached bookmark", person.right, star.left, 1f)
+                            val layouts = mutableListOf<TextLayoutResult>()
+                            rule.onNodeWithTag("book_detail_${role}_link")
+                                .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+                            assertTrue("Clipped person name", !layouts.single().hasVisualOverflow)
+                        }
+                        for (tag in listOf("play_book_button", "download_offline_button", "bookmark_button")) {
+                            rule.onNodeWithTag(tag).performScrollTo().assertIsDisplayed().assertHeightIsAtLeast(48.dp)
+                        }
+                        rule.onAllNodesWithText("4read").assertCountEquals(1)
+                        screenshot("550-$locale-book-actions-$fontScale.png")
+                    }
                     if (name == "catalog_empty") {
                         for (tag in listOf("catalog_empty_refresh", "catalog_empty_import")) {
                             val node = rule.onNodeWithTag(tag).assertIsDisplayed().assertHeightIsAtLeast(48.dp)
@@ -166,6 +234,14 @@ class UiSurfaceAuditTest {
                 }
             }
         }
+    }
+
+    private fun screenshot(name: String) {
+        val bitmap = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
+        File(rule.activity.getExternalFilesDir(null), name).outputStream().use {
+            bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
+        }
+        bitmap.recycle()
     }
 
     @Composable private fun Player(scene: String, onRetry: () -> Unit, onAlternative: () -> Unit) {

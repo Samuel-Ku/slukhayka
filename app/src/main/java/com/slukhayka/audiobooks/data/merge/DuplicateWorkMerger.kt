@@ -1,5 +1,7 @@
 package com.slukhayka.audiobooks.data.merge
 
+import com.slukhayka.audiobooks.data.LanguageCode
+import com.slukhayka.audiobooks.data.db.DownloadState
 import com.slukhayka.audiobooks.data.db.AudiobookDao
 import com.slukhayka.audiobooks.data.db.BookRow
 import com.slukhayka.audiobooks.data.metadata.MetadataAssertions
@@ -26,7 +28,10 @@ import kotlinx.coroutines.flow.first
  * run finds nothing. The pass is best-effort — [mergeOnce] returns how many
  * duplicate rows were removed, and a failing group never aborts the others.
  */
-class DuplicateWorkMerger(private val dao: AudiobookDao) {
+class DuplicateWorkMerger(
+    private val dao: AudiobookDao,
+    private val writeBatchRunner: suspend (suspend () -> Unit) -> Unit = { it() }
+) {
 
     /** Merges every duplicate group; returns the number of loser rows removed. */
     suspend fun mergeOnce(): Int {
@@ -42,11 +47,65 @@ class DuplicateWorkMerger(private val dao: AudiobookDao) {
         for (group in groups) {
             val survivor = pickSurvivor(group)
             for (loser in group.filter { it.id != survivor.id }) {
-                mergeInto(survivor, loser)
-                removed++
+                writeBatchRunner {
+                    // Candidate grouping is only a hint. Re-read every proof in
+                    // the same transaction as the merge, including download state.
+                    val currentSurvivor = dao.getAudiobookById(survivor.id) ?: return@writeBatchRunner
+                    val currentLoser = dao.getAudiobookById(loser.id) ?: return@writeBatchRunner
+                    if (!canAutoMerge(currentSurvivor, currentLoser)) return@writeBatchRunner
+                    mergeInto(currentSurvivor, currentLoser)
+                    removed++
+                }
             }
         }
         return removed
+    }
+
+    /** Only proven remote SEO duplicates may be merged without listener consent. */
+    private suspend fun canAutoMerge(survivor: BookRow, loser: BookRow): Boolean {
+        if (survivor.sourceUrl.isBlank() || loser.sourceUrl.isBlank()) return false
+        if (MergeKey.keyFor(survivor.title, survivor.author) != MergeKey.keyFor(loser.title, loser.author)) return false
+        if (listOf(survivor, loser).any {
+                it.isDownloaded || it.downloadProgress > 0f || it.downloadState != DownloadState.IDLE
+            }) return false
+        val first = dao.getEditionForWork(survivor.id) ?: return false
+        val second = dao.getEditionForWork(loser.id) ?: return false
+        val narrator = MetadataAssertions.normalizeClaimedText(first.narrator) ?: return false
+        val otherNarrator = MetadataAssertions.normalizeClaimedText(second.narrator) ?: return false
+        if (!narrator.equals(otherNarrator, ignoreCase = true)) return false
+        val language = LanguageCode.normalize(first.language)
+        val otherLanguage = LanguageCode.normalize(second.language)
+        if (first.language.isNotBlank() && language == null || second.language.isNotBlank() && otherLanguage == null) return false
+        if (language != otherLanguage) return false
+
+        val firstSources = dao.getSourcesForBookSync(survivor.id)
+        val secondSources = dao.getSourcesForBookSync(loser.id)
+        if (firstSources.isEmpty() || secondSources.isEmpty()) return false
+        if (firstSources.any { it.editionId != first.id || it.url.isBlank() } ||
+            secondSources.any { it.editionId != second.id || it.url.isBlank() }) return false
+        if (firstSources.map { it.type to it.url }.toSet() != secondSources.map { it.type to it.url }.toSet()) return false
+
+        val firstChapters = dao.getChaptersListForBook(survivor.id).sortedBy { it.chapterIndex }
+        val secondChapters = dao.getChaptersListForBook(loser.id).sortedBy { it.chapterIndex }
+        if (firstChapters.isEmpty() || firstChapters.size != secondChapters.size) return false
+        if (firstChapters.indices.any { index ->
+                val a = firstChapters[index]
+                val b = secondChapters[index]
+                a.chapterIndex != index || b.chapterIndex != index || a.title.isBlank() ||
+                    !a.title.trim().equals(b.title.trim(), ignoreCase = true) || a.durationSeconds != b.durationSeconds
+            }) return false
+        for (source in firstSources + secondSources) {
+            val tracks = dao.getTracksForSourceSync(source.id)
+            if (tracks.map { it.trackIndex }.sorted() != firstChapters.indices.toList()) return false
+            // Even a stale false flag must not orphan a retained local file/hash.
+            if (tracks.any { it.isDownloaded || !it.localFilePath.isNullOrBlank() || !it.contentHash.isNullOrBlank() }) return false
+        }
+        val loserWork = loser.workId ?: loser.id
+        val survivorWork = survivor.workId ?: survivor.id
+        if (loserWork != survivorWork && dao.getAllAudiobooksOnce().any {
+                it.id != loser.id && (it.workId ?: it.id) == loserWork
+            }) return false
+        return true
     }
 
     /**
@@ -129,6 +188,9 @@ class DuplicateWorkMerger(private val dao: AudiobookDao) {
                 )
             }
         }
+        // Exact duplicate remote Sources are now redundant. Local state was
+        // excluded by the transactional guard, so no retained file is orphaned.
+        dao.getSourcesForBookSync(loser.id).forEach { dao.deleteTracksForSource(it.id) }
         dao.deleteSourcesForBook(loser.id)
 
         // The loser's logical chapters duplicate the survivor's list — drop them.

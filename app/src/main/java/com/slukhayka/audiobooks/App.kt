@@ -586,7 +586,9 @@ class App : Application() {
      * surviving card. Idempotent by construction and best-effort.
      */
     val duplicateWorkMerger: DuplicateWorkMerger by lazy {
-        DuplicateWorkMerger(database.audiobookDao())
+        DuplicateWorkMerger(database.audiobookDao()) { block ->
+            database.withTransaction { block() }
+        }
     }
 
     /**

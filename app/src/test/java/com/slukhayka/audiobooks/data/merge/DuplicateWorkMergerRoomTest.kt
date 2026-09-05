@@ -2,6 +2,7 @@ package com.slukhayka.audiobooks.data.merge
 
 import android.content.Context
 import androidx.room.Room
+import androidx.room.withTransaction
 import androidx.test.core.app.ApplicationProvider
 import com.slukhayka.audiobooks.data.db.AudiobookDao
 import com.slukhayka.audiobooks.data.db.AudiobookDatabase
@@ -112,6 +113,94 @@ class DuplicateWorkMergerRoomTest {
         dao.insertPlaybackEvent(PlaybackEventEntity(bookId = RAW_ID, kind = "RESUME", timestamp = 1L))
     }
 
+    private fun merger() = DuplicateWorkMerger(dao) { block -> db.withTransaction { block() } }
+
+    private suspend fun assertPairPreserved() {
+        val ids = dao.getAllAudiobooksOnce().map { it.id }.toSet()
+        assertTrue(ids.containsAll(setOf(CLEAN_ID, RAW_ID)))
+        assertEquals(1, dao.getTracksForBookSync(RAW_ID).size)
+        assertEquals(1, dao.getChaptersListForBook(RAW_ID).size)
+    }
+
+    @Test
+    fun `different narrations retain their own progress and bookmarks`() = runBlocking {
+        seedDuplicatePair()
+        val raw = requireNotNull(dao.getEditionForWork(RAW_ID))
+        dao.insertEdition(raw.copy(narrator = "Інша начитка"))
+        seedProgress(RAW_ID, RAW_EDITION, 900L, 20L)
+        seedBookmark(RAW_ID, RAW_EDITION, 12L)
+        assertEquals(0, merger().mergeOnce())
+        assertPairPreserved()
+        assertEquals(RAW_ID, dao.getAllPlaybackProgress().first().single().bookId)
+        assertEquals(RAW_ID, dao.getAllBookmarks().first().single().bookId)
+    }
+
+    @Test
+    fun `different languages remain different editions`() = runBlocking {
+        seedDuplicatePair()
+        dao.insertEdition(requireNotNull(dao.getEditionForWork(CLEAN_ID)).copy(language = "uk"))
+        dao.insertEdition(requireNotNull(dao.getEditionForWork(RAW_ID)).copy(language = "en"))
+        assertEquals(0, merger().mergeOnce())
+        assertPairPreserved()
+        assertEquals("en", dao.getEditionForWork(RAW_ID)!!.language)
+    }
+
+    @Test
+    fun `different source pages do not prove a duplicate narration`() = runBlocking {
+        seedDuplicatePair()
+        val source = dao.getSourcesForBookSync(RAW_ID).single()
+        dao.insertSources(listOf(source.copy(url = "https://4read.org/other-rendition.html")))
+        assertEquals(0, merger().mergeOnce())
+        assertPairPreserved()
+    }
+
+    @Test
+    fun `different chapter topology is not merged`() = runBlocking {
+        seedDuplicatePair()
+        val chapter = dao.getChaptersListForBook(RAW_ID).single()
+        dao.insertChapters(listOf(chapter.copy(title = "Інший розділ")))
+        assertEquals(0, merger().mergeOnce())
+        assertPairPreserved()
+    }
+
+    @Test
+    fun `downloaded track stays reachable even when its downloaded flag is stale`() = runBlocking {
+        seedDuplicatePair()
+        val saved = dao.getTracksForBookSync(RAW_ID).single().copy(
+            localFilePath = "/retained/chapter.mp3", contentHash = "retained-hash", isDownloaded = false
+        )
+        dao.insertTracks(listOf(saved))
+        assertEquals(0, merger().mergeOnce())
+        assertPairPreserved()
+        assertEquals(saved, dao.getTracksForBookSync(RAW_ID).single())
+    }
+
+    @Test
+    fun `a work still used by another edition is never deleted`() = runBlocking {
+        seedDuplicatePair()
+        val other = requireNotNull(dao.getAudiobookById(RAW_ID)).toAudiobookEntity().copy(id = "third")
+        dao.insertAudiobooks(listOf(other))
+        dao.upsertLibraryEntry("third", RAW_OLD_KEY, isFavorite = false, createdAt = 3L, downloadProgress = 0f)
+        dao.insertEdition(EditionEntity(id = "third-en", workId = "third", narrator = "Читець", language = "en"))
+        assertEquals(0, merger().mergeOnce())
+        assertPairPreserved()
+        assertEquals(RAW_OLD_KEY, dao.getAudiobookById("third")!!.workId)
+        assertEquals(2, dao.countWorks())
+    }
+
+    @Test
+    fun `download proof is reread inside the merge transaction`() = runBlocking {
+        seedDuplicatePair()
+        val saved = dao.getTracksForBookSync(RAW_ID).single().copy(localFilePath = "/late/chapter.mp3")
+        val guarded = DuplicateWorkMerger(dao) { block ->
+            dao.insertTracks(listOf(saved))
+            db.withTransaction { block() }
+        }
+        assertEquals(0, guarded.mergeOnce())
+        assertPairPreserved()
+        assertEquals(saved, dao.getTracksForBookSync(RAW_ID).single())
+    }
+
     private suspend fun seedProgress(bookId: String, editionId: String, positionSeconds: Long, lastListenedAt: Long) {
         dao.savePlaybackProgress(
             PlaybackProgressEntity(
@@ -147,7 +236,7 @@ class DuplicateWorkMergerRoomTest {
         seedBookmark(CLEAN_ID, CLEAN_EDITION, id = 1L)
         seedBookmark(RAW_ID, RAW_EDITION, id = 2L)
 
-        val removed = DuplicateWorkMerger(dao).mergeOnce()
+        val removed = merger().mergeOnce()
 
         assertEquals(1, removed)
         // One card, the clean-titled row survives.
@@ -187,7 +276,7 @@ class DuplicateWorkMergerRoomTest {
         seedProgress(CLEAN_ID, CLEAN_EDITION, 100L, lastListenedAt = 1_000L)
         seedProgress(RAW_ID, RAW_EDITION, 2500L, lastListenedAt = 2_000L)
 
-        DuplicateWorkMerger(dao).mergeOnce()
+        merger().mergeOnce()
 
         val progress = dao.getAllPlaybackProgress().first()
         assertEquals(1, progress.size)
@@ -202,9 +291,9 @@ class DuplicateWorkMergerRoomTest {
         seedProgress(CLEAN_ID, CLEAN_EDITION, 100L, lastListenedAt = 1_000L)
         seedProgress(RAW_ID, RAW_EDITION, 300L, lastListenedAt = 2_000L)
 
-        assertEquals(1, DuplicateWorkMerger(dao).mergeOnce())
+        assertEquals(1, merger().mergeOnce())
         // A second run finds no group and changes nothing.
-        assertEquals(0, DuplicateWorkMerger(dao).mergeOnce())
+        assertEquals(0, merger().mergeOnce())
         assertEquals(1, dao.getAllAudiobooksOnce().size)
         assertEquals(1, dao.getAllPlaybackProgress().first().size)
     }
@@ -241,7 +330,7 @@ class DuplicateWorkMergerRoomTest {
             dao.upsertLibraryEntry(id, mergeKey, isFavorite = false, createdAt = 0L, downloadProgress = 0f)
         }
 
-        assertEquals(0, DuplicateWorkMerger(dao).mergeOnce())
+        assertEquals(0, merger().mergeOnce())
         assertEquals(2, dao.getAllAudiobooksOnce().size)
         assertTrue(dao.getAllAudiobooksOnce().map { it.id }.containsAll(listOf("local-1", "local-2")))
     }

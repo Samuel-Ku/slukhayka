@@ -10,6 +10,10 @@ adb shell cmd overlay enable-exclusive --category com.android.internal.systemui.
 adb shell cmd overlay list | grep -F "[x] com.android.internal.systemui.navbar.threebutton"
 adb logcat -c
 
+# #424: the APKs are prebuilt before the emulator starts; wait until Android
+# package service answers instead of racing it (the #424 readiness contract).
+scripts/wait-for-android-package-service.sh
+
 test_status=0
 ./gradlew \
   :app:connectedDebugAndroidTest \

@@ -301,6 +301,12 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
+      # #424: build both APKs before the emulator starts so a 15-minute AVD
+      # boot never hides a compile failure, and the readiness script inside
+      # the journey sees the packages already installed.
+      - name: Prebuild accessibility APKs
+        run: ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon --max-workers=1 --stacktrace
+
       # GitHub's Linux runner exposes /dev/kvm, but the default permissions do
       # not let the emulator use it. Without KVM the API 35 device can become
       # unresponsive while installing the APK and turn a short journey into a
@@ -315,7 +321,7 @@ jobs:
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
-          target: google_apis
+          target: google_atd
           arch: x86_64
           profile: pixel_6
           disable-animations: true

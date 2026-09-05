@@ -5,6 +5,8 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.slukhayka.audiobooks.data.db.AudiobookDao
 import com.slukhayka.audiobooks.data.db.AudiobookDatabase
+import com.slukhayka.audiobooks.data.source.FourReadAdapter
+import com.slukhayka.audiobooks.data.source.HttpFetcher
 import com.slukhayka.audiobooks.data.source.SourceAdapter
 import com.slukhayka.audiobooks.data.source.SourceBook
 import com.slukhayka.audiobooks.data.source.SourceBookDetail
@@ -82,6 +84,33 @@ class FourReadRecoveryIdentityTest {
         val book = imports.importWebSourcePage("4read", detail.url, "seed")
             ?: error("seed import failed for ${detail.title}")
         return book.id
+    }
+
+    @Test
+    fun `new language scoped fourread import recovers through real captured parser`() = runBlocking {
+        val url = "https://4read.org/123-kobzar.html"
+        val html = """
+            <html><head><meta property="og:title" content="Кобзар"></head><body>
+            <ul><li><span>Автор:</span> Тарас Шевченко</li>
+            <li><span>Читає:</span> Іван Петров</li></ul>
+            <script>var player = new Playerjs({file:[{"title":"Глава 1","file":"https://s1.reasd.org/kobzar/old.mp3"}]});</script>
+            </body></html>
+        """.trimIndent()
+        val adapter = FourReadAdapter(object : HttpFetcher() {
+            override fun getText(url: String): String = error("Fixture must not use network")
+            override fun getText(url: String, extraHeaders: Map<String, String>): String =
+                error("Fixture must not use network")
+        })
+        val imports = LibraryImport(dao, context, listOf(adapter))
+        val book = requireNotNull(imports.importWebSourcePage("4read", url, html))
+        assertEquals("uk", dao.getEditionForWork(book.id)!!.language)
+        val refreshed = html.replace("old.mp3", "new.mp3")
+        assertEquals("uk", imports.inspectWebSourcePage("4read", url, refreshed)!!.language)
+        val recovered = imports.recoverWebSourcePage(book.id, "4read", url, refreshed)
+        assertNotNull(recovered)
+        assertEquals(book.id, recovered!!.id)
+        assertEquals(1, dao.getAllAudiobooksOnce().size)
+        assertEquals("https://s1.reasd.org/kobzar/new.mp3", dao.getTracksForBookSync(book.id).single().url)
     }
 
     @Test

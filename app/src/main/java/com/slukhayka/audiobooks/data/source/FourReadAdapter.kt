@@ -24,6 +24,7 @@ class FourReadAdapter(
 ) : SourceAdapter {
 
     override val sourceId: String = "4read"
+    override val contentLanguage: String = "uk"
     override val accessMode: SourceAccessMode = SourceAccessMode.BROWSER
 
     /** The "4read-slug" id scheme — in exactly this one place (spec-14 T5). */
@@ -99,7 +100,7 @@ class FourReadAdapter(
             val c = cookieProvider.cookieFor(urlToResolve).trim()
             if (c.isBlank()) fetcher.getText(urlToResolve) else fetcher.getText(urlToResolve, mapOf("Cookie" to c))
         })
-            .copy(visitorComments = parseComments(html))
+            .let { it.copy(visitorComments = parseComments(html), language = it.language.ifBlank { contentLanguage }) }
     }
 
     /**
@@ -147,7 +148,7 @@ class FourReadAdapter(
                     fetcher.getText(toResolve)
                 }
             }
-        })
+        }).let { it.copy(language = it.language.ifBlank { contentLanguage }) }
 
     /** A playlist resolve carries chapter topology when it names tracks. */
     private fun String.hasPlaylistEvidence(): Boolean =

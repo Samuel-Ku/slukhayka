@@ -352,6 +352,84 @@ class LiveBrowserRecoveryTest {
         }
     }
 
+    @Test fun local_chapter_automatically_advances_to_stream(): Unit = runBlocking {
+        val id = InstrumentationRegistry.getArguments().getString("liveBookId")
+        assumeTrue(!id.isNullOrBlank())
+        requireNotNull(id)
+        val app = App.instance
+        val book = requireNotNull(app.audiobookDao.getAudiobookById(id)).toAudiobookEntity()
+        val playable = app.sourceCatalog.getPlayableChapters(id)
+        fun local(index: Int) = playable[index].track?.localFilePath?.let { File(it).isFile } == true
+        val from = (0 until playable.lastIndex).first { local(it) && !local(it + 1) }
+        val intent = Intent(InstrumentationRegistry.getInstrumentation().targetContext, MainActivity::class.java)
+        ActivityScenario.launch<MainActivity>(intent).use { scenario ->
+            lateinit var vm: MainViewModel
+            scenario.onActivity {
+                it.window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                vm = ViewModelProvider(it)[MainViewModel::class.java]
+                vm.playerManager.loadAndPlayBook(book, playable.map { it.chapter }, playable,
+                    initialChapterIndex = from, initialPositionSeconds = 42)
+                vm.setShowFullPlayer(true)
+            }
+            try {
+                awaitState("Local chapter plays") { vm.playerState.value.isPlaying }
+                val duration = vm.playerState.value.durationMs
+                assertTrue("Real local chapter duration", duration > 5_000)
+                scenario.onActivity { vm.playerManager.seekTo(duration - 1_500) }
+                awaitState("Completion automatically starts the streamed chapter", 45_000) {
+                    vm.playerState.value.let { it.isPlaying && it.currentChapterIndex == from + 1 }
+                }
+                assertEquals(id, vm.playerState.value.currentBook?.id)
+                assertTrue(vm.playerState.value.currentPositionMs in 0..15_000)
+                val start = vm.playerState.value.currentPositionMs
+                awaitState("Stream after boundary advances") { vm.playerState.value.currentPositionMs > start + 1_000 }
+                Log.i("LiveRecoveryTest", "automaticBoundary=passed from=$from to=${from + 1}")
+            } finally { scenario.onActivity { vm.playerManager.pause() } }
+        }
+    }
+
+    /** Run seed, force-stop the target package, then run verify in a new process. */
+    @Test fun position_survives_process_restart(): Unit = runBlocking {
+        val args = InstrumentationRegistry.getArguments()
+        val id = args.getString("liveBookId")
+        val phase = args.getString("liveRestartPhase")
+        assumeTrue(!id.isNullOrBlank() && phase in listOf("seed", "verify"))
+        requireNotNull(id)
+        val app = App.instance
+        val book = requireNotNull(app.audiobookDao.getAudiobookById(id)).toAudiobookEntity()
+        val playable = app.sourceCatalog.getPlayableChapters(id)
+        assertTrue("Pinned restart chapter is local", playable[0].track?.localFilePath?.let { File(it).isFile } == true)
+        if (phase == "verify") {
+            val saved = requireNotNull(app.listeningState.getProgressSync(id))
+            assertEquals(0, saved.currentChapterIndex)
+            assertTrue("Persisted position before any playback: $saved", saved.currentPositionSeconds in 89..95)
+        }
+        val intent = Intent(InstrumentationRegistry.getInstrumentation().targetContext, MainActivity::class.java)
+        ActivityScenario.launch<MainActivity>(intent).use { scenario ->
+            lateinit var vm: MainViewModel
+            scenario.onActivity {
+                it.window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                vm = ViewModelProvider(it)[MainViewModel::class.java]
+                if (phase == "seed") vm.playerManager.loadAndPlayBook(book, playable.map { it.chapter }, playable,
+                    initialChapterIndex = 0, initialPositionSeconds = 90)
+                else vm.playAudiobook(book)
+                vm.setShowFullPlayer(true)
+            }
+            try {
+                awaitState("Restart phase plays", 45_000) { vm.playerState.value.isPlaying }
+                assertEquals(id, vm.playerState.value.currentBook?.id)
+                assertEquals(0, vm.playerState.value.currentChapterIndex)
+                // Allow the documented smart rewind after the inter-process pause.
+                assertTrue("Resume position", vm.playerState.value.currentPositionMs in 75_000..95_000)
+                scenario.onActivity { vm.playerManager.pause() }
+                if (phase == "seed") withTimeout(10_000) {
+                    while ((app.listeningState.getProgressSync(id)?.currentPositionSeconds ?: -1L) !in 89L..95L) delay(100)
+                }
+                Log.i("LiveRecoveryTest", "restart=$phase passed pid=${android.os.Process.myPid()} position=${vm.playerState.value.currentPositionMs}")
+            } finally { scenario.onActivity { vm.playerManager.pause() } }
+        }
+    }
+
     private fun hash(file: File): String {
         val digest = MessageDigest.getInstance("SHA-256")
         file.inputStream().use { input ->

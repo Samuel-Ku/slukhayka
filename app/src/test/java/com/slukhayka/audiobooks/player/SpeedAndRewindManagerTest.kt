@@ -132,6 +132,20 @@ class SpeedAndRewindManagerTest {
     }
 
     @Test
+    fun `explicit reload position does not inherit the previous pause rewind`() = managerTest { manager, factory ->
+        manager.loadAndPlayBook(book, chapters, playable = playable, initialPositionSeconds = 600L, autoPlay = false)
+        factory.current.simulateReady(1_800_000L)
+        manager.pause()
+        clockMs += 30 * 60 * 1000L
+
+        manager.loadAndPlayBook(book, chapters, playable = playable, initialPositionSeconds = 42L, autoPlay = false)
+        factory.current.simulateReady(1_800_000L)
+        manager.play()
+
+        assertEquals(42_000L, manager.playerState.value.currentPositionMs)
+    }
+
+    @Test
     fun `quick play pause toggle does not rewind`() = managerTest { manager, factory ->
         manager.loadAndPlayBook(book, chapters, playable = playable, initialChapterIndex = 0, initialPositionSeconds = 600L, autoPlay = false)
         factory.current.simulateReady(1_800_000L)

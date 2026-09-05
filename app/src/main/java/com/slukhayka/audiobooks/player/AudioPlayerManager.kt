@@ -827,6 +827,11 @@ class AudioPlayerManager(
             canUndoSeek = false,
             undoFromPositionMs = 0L
         )
+        // The caller already chose this load's start (including any resume
+        // rewind). A pause from the previous item must not shift it again.
+        // Clear the incoming book's marker; another book keeps its own history.
+        pausedAtEpochMs = null
+        persistPausedAt(null)
         // A fresh load starts a new listening cycle: the sleep timer belongs to
         // the previous listening session and does not follow the new book.
         sleepTimer?.cancel()

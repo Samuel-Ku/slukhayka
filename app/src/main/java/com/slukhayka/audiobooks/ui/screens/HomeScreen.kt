@@ -1183,6 +1183,17 @@ fun RecommendedBookCard(
         )
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
+            CatalogCoverImage(
+                coverImageUrl = rec.candidate.coverImageUrl,
+                title = rec.candidate.title,
+                semantics = BookCoverSemantics.Decorative,
+                genre = rec.candidate.genre,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(224.dp)
+                    .clip(RoundedCornerShape(AppDimens.RadiusCardLg))
+            )
+            Spacer(modifier = Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.Top) {
                 Text(
                     text = rec.candidate.title,

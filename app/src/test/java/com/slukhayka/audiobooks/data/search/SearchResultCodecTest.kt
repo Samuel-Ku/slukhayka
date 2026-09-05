@@ -16,6 +16,16 @@ import org.junit.Test
  */
 class SearchResultCodecTest {
 
+    @Test
+    fun `old search cache receives LibriVox thumbnail before a detail fetch`() {
+        val card = GlobalSearchResult(
+            title = "Socialism", author = "Edwin Clyde Robbins", mergeKey = "socialism|edwin clyde robbins",
+            sources = listOf(GlobalSearchSource("librivox", "LibriVox", "https://archive.org/details/socialism_2609_librivox"))
+        )
+        val decoded = SearchResultCodec.fromMap(SearchResultCodec.toMap(1L, listOf(card)))!!
+        assertEquals("https://archive.org/download/socialism_2609_librivox/__ia_thumb.jpg", decoded.results.single().coverImageUrl)
+    }
+
     private val fetchedAt = 1_000_000L
 
     /** One rich card — covers, narrator and duration included (spec-33 US-4). */

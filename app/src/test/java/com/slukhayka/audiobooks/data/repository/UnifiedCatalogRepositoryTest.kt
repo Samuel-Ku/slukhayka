@@ -78,6 +78,19 @@ class UnifiedCatalogRepositoryTest {
         SourceBook(title = title, author = author, url = "https://$sourceId.example/$title", sourceId = sourceId)
 
     @Test
+    fun `saved Work cover wins over catalogue thumbnail before the book is opened`() = runBlocking {
+        val candidate = book("Кобзар", "Тарас Шевченко", "soundbooks")
+            .copy(coverImageUrl = "https://source.example/thumbnail.jpg")
+        val repository = repo(FakeAdapter("soundbooks", listOf(candidate)))
+        repository.writeWorkEdition(
+            sourceId = "soundbooks", title = candidate.title, author = candidate.author,
+            narrator = "", sourceUrl = candidate.url,
+            coverImageUrl = "https://covers.example/saved.jpg"
+        )
+        assertEquals("https://covers.example/saved.jpg", repository.refreshUnifiedCatalog().single().coverImageUrl)
+    }
+
+    @Test
     fun `union collects every source's catalogue and merges one card per Work`() = runBlocking {
         val repository = repo(
             FakeAdapter("soundbooks", listOf(book("КОБЗАР", "Тарас Шевченко", "soundbooks"))),

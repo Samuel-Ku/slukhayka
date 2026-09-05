@@ -22,7 +22,8 @@ object RecommendationEngine {
         val genre: String = "",
         val series: String = "",
         val description: String = "",
-        val publishedAtEpochMs: Long? = null
+        val publishedAtEpochMs: Long? = null,
+        val coverImageUrl: String? = null
     ) {
         /** The text embeddings are computed over (Q3: descriptions/fields). */
         val text: String get() = BookRecommendationText.build(title, author, genre, series, description)

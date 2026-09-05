@@ -52,7 +52,9 @@ object FeedSnapshotCodec {
                 author = map["author"] as? String ?: "",
                 narrator = map["narrator"] as? String ?: "",
                 url = url,
-                coverImageUrl = map["coverImageUrl"] as? String,
+                coverImageUrl = com.slukhayka.audiobooks.data.source.LibriVoxCover.resolve(
+                    map["coverImageUrl"] as? String, sourceId, url
+                ),
                 seriesTitle = map["seriesTitle"] as? String,
                 seriesIndex = (map["seriesIndex"] as? Double)?.toInt(),
                 genre = map["genre"] as? String ?: "",

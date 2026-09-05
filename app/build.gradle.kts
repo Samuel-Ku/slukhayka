@@ -61,8 +61,8 @@ android {
     targetSdk = 36
     // spec-29 T1 (#210): first release under the permanent applicationId.
     // versionCode grows monotonically across the Слухайка line (v1.0 was 1).
-    versionCode = 8
-    versionName = "1.3.8"
+    versionCode = 9
+    versionName = "1.3.9"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -214,6 +214,7 @@ dependencies {
   implementation(libs.androidx.biometric)
   implementation(libs.androidx.media3.exoplayer)
   implementation(libs.androidx.media3.session)
+  implementation(libs.androidx.media3.datasource.okhttp)
   // ADR-0024: CastPlayer swaps in behind the MediaSession player seam while
   // casting; the receiver itself never touches the network (phone proxy).
   implementation(libs.androidx.media3.cast)

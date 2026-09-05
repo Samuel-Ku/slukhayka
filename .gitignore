@@ -29,6 +29,11 @@ google-services.json
 .audit/
 .freebuff/
 .superpowers/
+.kilo/
+.mimosa/
+/.scratch/
+/.phone-screen*.png
+/web/.wrangler/
 
 # spec-19 T3: the ONNX embedding model + its 250k-piece tokenizer are
 # fetched at build time by the `downloadE5Model` Gradle task (118 MB int8

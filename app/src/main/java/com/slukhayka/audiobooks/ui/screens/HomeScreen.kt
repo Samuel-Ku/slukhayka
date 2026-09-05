@@ -288,7 +288,10 @@ fun HomeScreen(
     // resets the filter to «Усі».
     val haptic = LocalHapticFeedback.current
     val context = androidx.compose.ui.platform.LocalContext.current
-    var searchExpanded by rememberSaveable { mutableStateOf(false) }
+    // A query always keeps its field visible, including when Android restores
+    // an older collapsed header state. The flag only opens an empty field.
+    var searchRequested by rememberSaveable { mutableStateOf(false) }
+    val searchExpanded = searchRequested || searchQuery.isNotBlank()
 
     val filteredBooks = allBooks.filter { book ->
         searchQuery.isBlank() ||
@@ -317,15 +320,18 @@ fun HomeScreen(
                 searchQuery = searchQuery,
                 onToggleSearch = {
                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    searchExpanded = !searchExpanded
-                    if (!searchExpanded) {
+                    searchRequested = !searchExpanded
+                    if (!searchRequested) {
                         if (searchQuery.isNotBlank()) viewModel.updateSearchQuery("")
                     }
                 },
                 onRefresh = { scope.launch { sourceCatalog.fetchCatalogSections(forceRefresh = true) } },
-                onSearchQueryChange = viewModel::updateSearchQuery,
+                onSearchQueryChange = { query ->
+                    searchRequested = true
+                    viewModel.updateSearchQuery(query)
+                },
                 onCloseSearch = {
-                    searchExpanded = false
+                    searchRequested = false
                     if (searchQuery.isNotBlank()) viewModel.updateSearchQuery("")
                 }
             )

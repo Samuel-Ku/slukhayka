@@ -105,9 +105,7 @@ fun LibraryScreen(
     onBrowseClick: () -> Unit,
     onPersonClick: (CatalogPerson) -> Unit = {},
     restoreFocusBookId: String? = null,
-    onBookFocusRestored: (String) -> Unit = {},
-    restoreOverflowFocus: Boolean = false,
-    onOverflowFocusRestored: () -> Unit = {}
+    onBookFocusRestored: (String) -> Unit = {}
 ) {
     val libraryBooks by viewModel.libraryBooks.collectAsState()
     // ADR-0008: module flows are read directly — no forwarding StateFlow on
@@ -182,14 +180,12 @@ fun LibraryScreen(
     // Spec-28 #193: the rare filters, sort and view toggle live in the sheet.
     var showFilterSheet by remember { mutableStateOf(false) }
     // Spec-28 #194: import is one «+ Додати» action opening a sheet; the
-    // storage destination is reached from the ⋮ overflow menu.
+    // storage destination is reached from Settings.
     var showImportSheet by remember { mutableStateOf(false) }
-    var showOverflowMenu by remember { mutableStateOf(false) }
     val filterFocusRequester = remember { FocusRequester() }
     val importFocusRequester = remember { FocusRequester() }
     val libraryHeadingFocusRequester = remember { FocusRequester() }
     val bookReturnFocusRequester = remember { FocusRequester() }
-    val overflowFocusRequester = remember { FocusRequester() }
     val libraryGridState = rememberLazyGridState()
     val modalVisible = showFilterSheet || showImportSheet || importPreview != null
 
@@ -233,13 +229,6 @@ fun LibraryScreen(
                 onBookFocusRestored(bookId)
             }
         }
-    }
-
-    LaunchedEffect(restoreOverflowFocus, modalVisible) {
-        if (!restoreOverflowFocus || modalVisible) return@LaunchedEffect
-        withFrameNanos { }
-        overflowFocusRequester.requestFocus()
-        onOverflowFocusRestored()
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -312,86 +301,7 @@ fun LibraryScreen(
                 }
                 Spacer(modifier = Modifier.width(4.dp))
 
-                // ⋮ overflow — the «Завантаження та пам'ять» destination
-                // (spec-28 #194): storage info and the destructive delete,
-                // off the main screen.
-                Box {
-                    IconButton(
-                        onClick = { showOverflowMenu = true },
-                        modifier = Modifier
-                            .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
-                            .focusRequester(overflowFocusRequester)
-                            .focusProperties { canFocus = true }
-                            .testTag("library_overflow_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.MoreVert,
-                            contentDescription = stringResource(com.slukhayka.audiobooks.R.string.a11y_library_more_actions)
-                        )
-                    }
-                    DropdownMenu(
-                        expanded = showOverflowMenu,
-                        onDismissRequest = { showOverflowMenu = false }
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.storage_title)) },
-                            onClick = {
-                                showOverflowMenu = false
-                                viewModel.openStorageDestination()
-                            },
-                            modifier = Modifier.testTag("library_storage_menu_item")
-                        )
-                        // spec-40 #275 (t1): the silent listener profile —
-                        // ⚙️ Профіль lives in the same overflow (a rare
-                        // surface, off the main screen, ADR-0018).
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.profile_title)) },
-                            onClick = {
-                                showOverflowMenu = false
-                                viewModel.openProfileSettings()
-                            },
-                            modifier = Modifier.testTag("library_profile_menu_item")
-                        )
-                        // spec-38 T2 (#254): the network privacy route lives in
-                        // the same overflow — a rare surface, off the main screen.
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.privacy_title)) },
-                            onClick = {
-                                showOverflowMenu = false
-                                viewModel.openPrivacySettings()
-                            },
-                            modifier = Modifier.testTag("library_privacy_menu_item")
-                        )
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.recommendations_title)) },
-                            onClick = {
-                                showOverflowMenu = false
-                                viewModel.openRecommendationSettings()
-                            },
-                            modifier = Modifier.testTag("library_recommendations_menu_item")
-                        )
-                        // Spec-45 (#405) T6 (#494): the content-language
-                        // preference — same rare-surface overflow (ADR-0018).
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.content_languages_title)) },
-                            onClick = {
-                                showOverflowMenu = false
-                                viewModel.openContentLanguages()
-                            },
-                            modifier = Modifier.testTag("library_content_languages_menu_item")
-                        )
-                        // Spec-45 (#405) R7 (#514): the App Locale (interface
-                        // language) — the same ⚙️ overflow.
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.app_locale_title)) },
-                            onClick = {
-                                showOverflowMenu = false
-                                viewModel.openAppLocale()
-                            },
-                            modifier = Modifier.testTag("library_app_locale_menu_item")
-                        )
-                    }
-                }
+
             }
 
             // Sub-tabs: the unified book list, bookmarks, listening stats.

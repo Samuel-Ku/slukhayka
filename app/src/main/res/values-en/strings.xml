@@ -87,4 +87,5 @@
     <string name="speed_remember_for_book">Remember for this book</string>
     <string name="top100_open_chart">Open the chart in 4read</string>
     <string name="author_all_found">All found authors</string>
+    <string name="nav_settings">Settings</string>
 </resources>

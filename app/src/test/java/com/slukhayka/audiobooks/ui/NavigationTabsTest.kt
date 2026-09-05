@@ -15,6 +15,10 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.AppBottomBar
@@ -90,6 +94,8 @@ class NavigationTabsTest {
         composeTestRule.onNodeWithTag("tab_listen").assertExists().assertIsDisplayed()
         composeTestRule.onNodeWithTag("tab_explore").assertExists().assertIsDisplayed()
         composeTestRule.onNodeWithTag("tab_library").assertExists().assertIsDisplayed()
+        composeTestRule.onNodeWithTag("tab_settings").assertIsDisplayed().performClick()
+        assertEquals(SelectedTab.SETTINGS, selected)
         // Removed tabs: the WebView and the standalone Bookmarks tab.
         composeTestRule.onNodeWithTag("tab_4read_web").assertDoesNotExist()
         composeTestRule.onNodeWithTag("tab_bookmarks").assertDoesNotExist()
@@ -112,6 +118,7 @@ class NavigationTabsTest {
             .assertTextEquals("Слухати")
         composeTestRule.onNodeWithTag("tab_explore").assertTextEquals("Огляд")
         composeTestRule.onNodeWithTag("tab_library").assertTextEquals("Медіатека")
+        composeTestRule.onNodeWithTag("tab_settings").assertTextEquals("Налаштування")
 
         composeTestRule.onNodeWithContentDescription("Listen", useUnmergedTree = true)
             .assertDoesNotExist()
@@ -202,5 +209,16 @@ class NavigationTabsTest {
             .assertIsDisplayed()
             .assertHeightIsAtLeast(48.dp)
             .assertTextEquals("Медіатека")
+        composeTestRule.onNodeWithTag("tab_settings")
+            .assertIsDisplayed()
+            .assertHeightIsAtLeast(48.dp)
+            .assertTextEquals("Налаштування")
+        listOf("Слухати", "Огляд", "Медіатека", "Налаштування").forEach { label ->
+            val layouts = mutableListOf<TextLayoutResult>()
+            composeTestRule.onNodeWithText(label, useUnmergedTree = true)
+                .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+            val layout = layouts.single()
+            assertFalse("Clipped label: $label size=${layout.size}, lines=${layout.lineCount}, width=${layout.didOverflowWidth}, height=${layout.didOverflowHeight}", layout.hasVisualOverflow)
+        }
     }
 }

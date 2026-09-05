@@ -107,7 +107,7 @@ import java.util.concurrent.atomic.AtomicLong
 //
 // Spec-9 (listen-first IA): the bottom bar is Слухати · Огляд · Медіатека;
 // the app always lands on Слухати (the listening panel, not the storefront).
-// Enum order defines the bottom-bar order; SETTINGS has no bar entry.
+// Enum order defines the four bottom-bar destinations.
 enum class SelectedTab {
     LISTEN,
     EXPLORE,
@@ -1745,6 +1745,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun selectTab(tab: SelectedTab) {
+        if (_selectedWebSource.value != null) closeWebSource()
+        selectBook(null)
+        closeSeries()
+        closeSeriesIndex()
+        closeCollectionsIndex()
+        closeGenre()
+        closeTop100()
+        closeCanonicalAuthor()
+        closeAuthorsIndex()
+        closePersonBooks()
+        closePeople()
+        closeProfileSettings()
+        closeStorageDestination()
+        closePrivacySettings()
+        closeRecommendationSettings()
+        closeContentLanguages()
+        closeAppLocale()
         _selectedTab.value = tab
     }
 

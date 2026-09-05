@@ -68,22 +68,21 @@ class LiveChapterFocusTest {
     }
 
     @OptIn(ExperimentalTestApi::class)
-    @Test fun closing_profile_returns_focus_to_library_menu() {
+    @Test fun closing_profile_returns_focus_to_settings_row() {
         assumeTrue(!InstrumentationRegistry.getArguments().getString("liveBookId").isNullOrBlank())
         rule.runOnUiThread {
             rule.activity.window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-            ViewModelProvider(rule.activity)[MainViewModel::class.java].selectTab(SelectedTab.LIBRARY)
+            ViewModelProvider(rule.activity)[MainViewModel::class.java].selectTab(SelectedTab.SETTINGS)
         }
-        rule.waitUntilExactlyOneExists(hasTestTag("library_screen"), 20_000)
-        rule.onNodeWithTag("library_overflow_button").performClick()
-        rule.onNodeWithTag("library_profile_menu_item").performClick()
+        rule.waitUntilExactlyOneExists(hasTestTag("settings_screen"), 20_000)
+        rule.onNodeWithTag("settings_Profile").performClick()
         rule.waitUntilExactlyOneExists(hasTestTag("profile_screen_heading"), 20_000)
         rule.onNodeWithContentDescription("Назад").performClick()
         rule.waitUntil(20_000) {
-            rule.onAllNodesWithTag("library_overflow_button").fetchSemanticsNodes().singleOrNull()
+            rule.onAllNodesWithTag("settings_Profile").fetchSemanticsNodes().singleOrNull()
                 ?.config?.getOrNull(SemanticsProperties.Focused) == true
         }
-        rule.onNodeWithTag("library_overflow_button").assertIsFocused()
+        rule.onNodeWithTag("settings_Profile").assertIsFocused()
     }
 
 }

@@ -7,6 +7,7 @@ import com.google.firebase.FirebaseApp
 import com.google.firebase.appcheck.FirebaseAppCheck
 import com.google.firebase.appcheck.recaptcha.RecaptchaAppCheckProviderFactory
 import com.slukhayka.audiobooks.data.catalog.FeedSnapshotStore
+import com.slukhayka.audiobooks.data.catalog.PopularityAssertionStore
 import com.slukhayka.audiobooks.data.catalog.SourceCatalog
 import com.slukhayka.audiobooks.data.collections.CollectionAssets
 import com.slukhayka.audiobooks.data.collections.OpenLibraryTrendingSource
@@ -318,6 +319,7 @@ class App : Application() {
             database.audiobookDao(),
             this,
             sourceAdapters,
+            popularityAssertionStore = PopularityAssertionStore(database.audiobookDao()),
             // Spec-26 T8 (#182): a new imported book whose series belongs to
             // a cached universe immediately re-validates that universe's
             // chain (cheap — one resolve) and spreads the update through the
@@ -365,6 +367,7 @@ class App : Application() {
             database.audiobookDao(),
             sourceAdapters,
             libraryImport,
+            popularityAssertionStore = PopularityAssertionStore(database.audiobookDao()),
             collectionLists = CollectionAssets.load(this),
             liveCollectionSources = listOf(
                 OpenLibraryTrendingSource(),

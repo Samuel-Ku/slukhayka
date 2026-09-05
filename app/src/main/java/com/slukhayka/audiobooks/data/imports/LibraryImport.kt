@@ -83,7 +83,12 @@ class LibraryImport(
     // #431 — 4read cache entries may shortcut browser recovery only after a
     // fresh cookie-free probe. Generic source profiles retain their existing
     // best-effort read-skip contract.
-    private val verifiedProfileReader: VerifiedSourceProfileReader? = null
+    private val verifiedProfileReader: VerifiedSourceProfileReader? = null,
+    // #485 — the persistent source-signal store: a resolved page records the
+    // source's claimed rating as a provenance-bearing assertion. Null in
+    // tests that don't exercise the layer — imports then behave exactly as
+    // before.
+    private val popularityAssertionStore: com.slukhayka.audiobooks.data.catalog.PopularityAssertionStore? = null
 ) {
     private val authorIndex: AuthorIndex = RoomAuthorIndex(dao)
 
@@ -138,6 +143,15 @@ class LibraryImport(
             // ADR-0010: the Work key is bibliographic (title|author) — the
             // narrator is an Edition property, never part of the Work.
             val mergeKey = MergeKey.keyFor(detail.title, detail.author)
+            // #485: the resolved page is an observation — the source's
+            // claimed rating persists as a provenance-bearing assertion
+            // (best-effort; a failing write never breaks the import).
+            popularityAssertionStore?.recordRatingSignal(
+                mergeKey = mergeKey,
+                sourceId = sourceId,
+                rating = detail.rating,
+                observedAt = System.currentTimeMillis()
+            )
             val narrator = MetadataAssertions.normalizeClaimedText(detail.narrator) ?: "$sourceId narrator"
             // Spec-45 (#405) — the rendition's content language: a per-book
             // claim on the detail wins; otherwise the source declares its

@@ -1204,4 +1204,14 @@ interface AudiobookDao {
     /** Drops one feed's snapshots (a changed page-cursor shape invalidates the old rows). */
     @Query("DELETE FROM feed_snapshots WHERE sourceId = :sourceId AND feedKey = :feedKey")
     suspend fun clearFeedSnapshots(sourceId: String, feedKey: String)
+
+    // --- Popularity assertions (#485) ---------------------------------------
+
+    /** Upserts source-signal assertions (REPLACE by id — a re-observation refreshes its row, never accumulates). */
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertPopularityAssertions(assertions: List<PopularityAssertionEntity>)
+
+    /** Every assertion of one kind — expiry is the caller's ([com.slukhayka.audiobooks.data.metadata.PopularityAssertionPolicy.isFresh]). */
+    @Query("SELECT * FROM popularity_assertions WHERE kind = :kind")
+    suspend fun popularityAssertions(kind: String): List<PopularityAssertionEntity>
 }

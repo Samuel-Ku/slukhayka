@@ -2,6 +2,7 @@ package com.slukhayka.audiobooks.ui
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -20,6 +21,8 @@ import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsFocused
+import androidx.compose.ui.test.assertContentDescriptionEquals
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -143,6 +146,24 @@ class WorkFeedFilterAccessibilityTest {
             .assertHeightIsAtLeast(48.dp)
         compose.onNodeWithTag("feed_filter_done")
             .assertIsDisplayed()
+            .assertHeightIsAtLeast(48.dp)
+    }
+
+    @Test
+    fun languageFilterShowsFlagAndAnnouncesFullName() {
+        compose.setContent {
+            AudiobookTheme(darkTheme = true) {
+                Box(Modifier.width(320.dp)) {
+                    WorkFeedFilters(
+                        selectedGenreIds = setOf("fantasy"), sortByTitle = true,
+                        genres = genres, onGenresChange = {}, onSortChange = {},
+                        contentLanguages = setOf("uk")
+                    )
+                }
+            }
+        }
+        compose.onNodeWithTag("feed_language")
+            .assertContentDescriptionEquals("Мова: Українська")
             .assertHeightIsAtLeast(48.dp)
     }
 

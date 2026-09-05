@@ -19,7 +19,8 @@ import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
-import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.okhttp.OkHttpDataSource
+import com.slukhayka.audiobooks.data.privacy.TransportClients
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaController
@@ -68,7 +69,8 @@ sealed interface SleepTimerNotice {
  * next to [PlayerState.lastErrorMsg]. The UI used to substring-match the
  * human text («недоступна») to decide whether a detail line may render — a
  * fragile coupling that breaks the moment the wording changes or a non-
- * Ukrainian string slips in ([reportPlaybackFailure] appends «(host: …)»).
+ * Ukrainian string slips in; technical codes and hosts stay in the failure
+ * ledger and event log rather than leaking into listener-facing copy.
  * The manager classifies every failure itself:
  * - [TRANSIENT] — recoverable in principle (stream error, 45 s prepare
  *   timeout, generic prepare exceptions): the detail text is shown as-is;
@@ -107,6 +109,13 @@ data class PlayerState(
     // can be undone back to [undoFromPositionMs].
     val canUndoSeek: Boolean = false,
     val undoFromPositionMs: Long = 0L
+)
+
+/** A factual engine callback, used where optimistic transport state is unsafe. */
+data class PlaybackStarted(
+    val bookId: String,
+    val chapterIndex: Int,
+    val mediaUrl: String
 )
 
 /**
@@ -250,11 +259,8 @@ class AudioPlayerManager(
      * none — SEC-004). Tests inject their own PlayerFactory and never touch
      * this one.
      */
-    private val httpDataSourceFactory: DefaultHttpDataSource.Factory = DefaultHttpDataSource.Factory()
+    private val httpDataSourceFactory = OkHttpDataSource.Factory(TransportClients.playbackCalls)
         .setUserAgent("Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36")
-        .setAllowCrossProtocolRedirects(false)
-        .setConnectTimeoutMs(15000)
-        .setReadTimeoutMs(30000)
         // Device-session evidence (spec-13 S04 / spec-14 T6): log the HTTP
         // status and the per-source Referer actually applied for EVERY stream
         // request. This is what proves the redirectto.cc gate on the phone —
@@ -463,6 +469,8 @@ class AudioPlayerManager(
     private var fadeWarningEmitted = false
     private val _sleepTimerNotices = MutableSharedFlow<SleepTimerNotice>(extraBufferCapacity = 2)
     val sleepTimerNotices: SharedFlow<SleepTimerNotice> = _sleepTimerNotices.asSharedFlow()
+    private val _playbackStarted = MutableSharedFlow<PlaybackStarted>(extraBufferCapacity = 1)
+    val playbackStarted: SharedFlow<PlaybackStarted> = _playbackStarted.asSharedFlow()
     private var prepareTimeoutJob: Job? = null
 
     /** Global playback preferences (wayfinder #26): default speed etc. */
@@ -515,6 +523,24 @@ class AudioPlayerManager(
      * of closing over a chapter local.
      */
     private val playerListener = object : Player.Listener {
+        override fun onIsPlayingChanged(isPlaying: Boolean) {
+            if (!isPlaying) return
+            val bookId = _playerState.value.currentBook?.id ?: return
+            val mediaUrl = mediaPlayer?.currentMediaItem
+                ?.localConfiguration
+                ?.uri
+                ?.toString()
+                .orEmpty()
+            if (mediaUrl.isBlank()) return
+            _playbackStarted.tryEmit(
+                PlaybackStarted(
+                    bookId = bookId,
+                    chapterIndex = _playerState.value.currentChapterIndex,
+                    mediaUrl = mediaUrl
+                )
+            )
+        }
+
         override fun onPlaybackStateChanged(playbackState: Int) {
             if (playbackState == Player.STATE_READY) {
                 prepareTimeoutJob?.cancel()
@@ -583,7 +609,7 @@ class AudioPlayerManager(
             }
             // Issue #381: Ukrainian-first wording (string resource) + the
             // TRANSIENT category — this failure may recover on a retry.
-            val errorMessage = context.getString(R.string.a11y_player_error_stream, error.errorCodeName)
+            val errorMessage = context.getString(R.string.a11y_player_error_stream)
             _playerState.value = _playerState.value.copy(
                 lastErrorMsg = errorMessage,
                 errorKind = PlaybackErrorKind.TRANSIENT
@@ -611,17 +637,45 @@ class AudioPlayerManager(
 
     /**
      * #471 (spec #462, Implementation Decision 8) — the honest terminal
-     * state of a bounded smart retry: the local copy is gone, the re-resolve
-     * chain found nothing (or the memo blocked a further attempt — ADR-0019).
-     * The UNAVAILABLE card renders title-only, and PlayerScreen offers the
-     * explicit browser doors for any BROWSER source of the book. No
-     * fabricated retry, no substitute audio (the CR-002 contract stands).
+     * state of a bounded diagnostic retry: the local copy is gone, the
+     * re-resolve chain found nothing (or the memo blocked a further attempt —
+     * ADR-0019). Listener-facing Play uses the automatic browser/search door;
+     * this remains for diagnostic callers. No fabricated retry and no
+     * substitute audio (the CR-002 contract stands).
      */
     fun reportRetryUnavailable() {
         reportPlaybackFailure(
             errorCodeName = "SMART_RETRY_UNAVAILABLE",
             detail = unavailableBookDetail(),
             kind = PlaybackErrorKind.UNAVAILABLE
+        )
+    }
+
+    /**
+     * Listener-facing recovery state: keep the exact book/chapter/position,
+     * remove the technical failure copy, and let the player show its ordinary
+     * bounded loading indicator while the ViewModel resolves the next route.
+     */
+    fun beginAutomaticRecovery() {
+        prepareTimeoutJob?.cancel()
+        _playerState.value = _playerState.value.copy(
+            isPlaying = false,
+            isBuffering = true,
+            audioEngineMode = "Recovering playback",
+            lastErrorMsg = "",
+            errorKind = PlaybackErrorKind.NONE
+        )
+    }
+
+    /**
+     * Clears a failure owned by the previous session before a newly resolved
+     * Play attempt is armed. Unlike [beginAutomaticRecovery], this is not a
+     * loading state: source resolution is still owned by the ViewModel.
+     */
+    fun clearPlaybackFailureForNewAttempt() {
+        _playerState.value = _playerState.value.copy(
+            lastErrorMsg = "",
+            errorKind = PlaybackErrorKind.NONE
         )
     }
 
@@ -645,6 +699,7 @@ class AudioPlayerManager(
      * yields nothing surfaces the honest unavailable state.
      */
     private fun attemptSelfHeal() {
+        val requestId = prepareRequestId
         val state = _playerState.value
         val failedUrl = currentTrack?.url
         val bookId = state.currentBook?.id
@@ -660,6 +715,7 @@ class AudioPlayerManager(
             errorKind = PlaybackErrorKind.NONE
         )
         scope.launch {
+            if (requestId != prepareRequestId) return@launch
             // Spec 2026-08-26: a YouTube track's persisted URL never changes —
             // the watch URL IS the identity, and the heal IS the
             // re-resolution (a fresh signed stream URL). The page re-fetch
@@ -670,7 +726,7 @@ class AudioPlayerManager(
                 prepareChapter(
                     chapterIndex,
                     startPositionMs = _playerState.value.currentPositionMs,
-                    autoPlay = true,
+                    autoPlay = shouldAutoPlay,
                     resetHealBudget = false
                 )
                 return@launch
@@ -680,6 +736,7 @@ class AudioPlayerManager(
             val freshUrl = runCatching {
                 streamUrlHealer.invoke(bookId, chapterIndex, failedUrl)
             }.getOrNull()
+            if (requestId != prepareRequestId) return@launch
             if (freshUrl == null || freshUrl == failedUrl) {
                 reportHealFailed()
                 return@launch
@@ -698,7 +755,7 @@ class AudioPlayerManager(
             prepareChapter(
                 chapterIndex,
                 startPositionMs = _playerState.value.currentPositionMs,
-                autoPlay = true,
+                autoPlay = shouldAutoPlay,
                 resetHealBudget = false
             )
         }
@@ -842,10 +899,11 @@ class AudioPlayerManager(
      *
      * Stops the engine (the same stop path as [stopAndClear], minus the full
      * state reset) so the screen keeps showing THIS book with the
-     * [unavailableBookDetail] message ([PlaybackErrorKind.UNAVAILABLE]) and
-     * the standard retry affordance.
+     * [unavailableBookDetail] state ([PlaybackErrorKind.UNAVAILABLE]); the UI
+     * consumes it to start the one bounded recovery pass armed by Play.
      */
     private fun stopEngineForUnavailableBook(book: AudiobookEntity) {
+        prepareRequestId++
         sleepTimer?.cancel()
         prepareTimeoutJob?.cancel()
         mediaPlayer?.let { mp ->
@@ -877,11 +935,13 @@ class AudioPlayerManager(
             isBuffering = false,
             currentStreamUrl = "",
             lastErrorMsg = unavailableBookDetail(),
-            // Issue #381: permanent state — PlayerScreen renders the card
-            // title-only instead of substring-matching the message.
+            // Issue #381: typed permanent state; listener-facing recovery
+            // consumes it without exposing the raw failure in the player.
             errorKind = PlaybackErrorKind.UNAVAILABLE
         )
     }
+
+    private var prepareRequestId = 0L
 
     fun prepareChapter(
         chapterIndex: Int,
@@ -894,6 +954,7 @@ class AudioPlayerManager(
     ) {
         val chapters = _playerState.value.chapters
         if (chapters.isEmpty() || chapterIndex !in chapters.indices) return
+        val requestId = ++prepareRequestId
         if (resetHealBudget) healAttemptsForChapter = 0
 
         // Spec-16 T2: a deliberate chapter change (next/previous/select or the
@@ -914,21 +975,6 @@ class AudioPlayerManager(
         val durationMs = chapter.durationSeconds * 1000L
         val track = playableChapters.getOrNull(chapterIndex)?.track
 
-        // #505 — a chapter with no playable locator (no ready local copy
-        // AND no remote URL) never reaches the engine: an empty URI loops
-        // ExoPlayer on FILE_NOT_FOUND. Surface the honest UNAVAILABLE card
-        // (with its recovery action) instead.
-        val hasLocal = SmartRetryPolicy.localFileReady(track?.localFilePath)
-        if (track == null || (!hasLocal && track.url.isNullOrBlank())) {
-            Log.w("AudioPlayer", "No playable locator for chapter $chapterIndex")
-            reportPlaybackFailure(
-                errorCodeName = "EMPTY_TRACK",
-                detail = context.getString(R.string.a11y_player_error_book_unavailable),
-                kind = PlaybackErrorKind.UNAVAILABLE
-            )
-            return
-        }
-
         currentChapter = chapter
         currentTrack = track
         shouldAutoPlay = autoPlay || _playerState.value.isPlaying
@@ -947,6 +993,21 @@ class AudioPlayerManager(
             canUndoSeek = false,
             undoFromPositionMs = 0L
         )
+
+        // #505 — a chapter with no playable locator (no ready local copy
+        // AND no remote URL) never reaches the engine: an empty URI loops
+        // ExoPlayer on FILE_NOT_FOUND. Publish an honest UNAVAILABLE state;
+        // an explicit Play has already armed one bounded recovery pass.
+        val hasLocal = SmartRetryPolicy.localFileReady(track?.localFilePath)
+        if (track == null || (!hasLocal && track.url.isNullOrBlank())) {
+            Log.w("AudioPlayer", "No playable locator for chapter $chapterIndex")
+            reportPlaybackFailure(
+                errorCodeName = "EMPTY_TRACK",
+                detail = context.getString(R.string.a11y_player_error_book_unavailable),
+                kind = PlaybackErrorKind.UNAVAILABLE
+            )
+            return
+        }
 
         // Spec-22 T5: «до кінця розділу» follows manual chapter switches.
         rearmEndOfChapterTimerIfActive(chapterIndex, startPositionMs)
@@ -1022,6 +1083,8 @@ class AudioPlayerManager(
             // thread; isBuffering (set above) stays honest and the prepare
             // timeout armed above still bounds the wait.
             if (YouTubeTracks.isYouTubeWatchUrl(persistedUrl)) {
+                mp.pause()
+                mp.stop()
                 // Launch on the player's main scope; only the resolution
                 // itself hops to IO — setMediaItem/prepare must stay on the
                 // engine's application looper.
@@ -1031,6 +1094,7 @@ class AudioPlayerManager(
                             .onFailure { Log.w("AudioPlayer", "stream resolution failed for $persistedUrl", it) }
                             .getOrNull()
                     }
+                    if (requestId != prepareRequestId) return@launch
                     if (resolved == null) {
                         reportPlaybackFailure(
                             errorCodeName = "RESOLVE_FAILED",
@@ -1066,7 +1130,7 @@ class AudioPlayerManager(
     private fun reportPrepareException(e: Exception) {
         reportPlaybackFailure(
             errorCodeName = e::class.java.simpleName,
-            detail = context.getString(R.string.a11y_player_error_prepare_exception, e::class.java.simpleName),
+            detail = context.getString(R.string.a11y_player_error_prepare_exception),
             kind = PlaybackErrorKind.TRANSIENT
         )
     }
@@ -1099,20 +1163,22 @@ class AudioPlayerManager(
     ) {
         prepareTimeoutJob?.cancel()
         val state = _playerState.value
+        prepareRequestId++
+        shouldAutoPlay = false
+        pendingResumeSeekMs = -1L
+        mediaPlayer?.let { player ->
+            runCatching { player.pause(); player.stop() }
+        }
+        castEngineHook?.takeIf { it.isActive }?.let { runCatching { it.pause() } }
         val failedUrl = currentTrack?.url ?: state.currentStreamUrl
         playbackMetrics.recordFailure(errorCodeName)
         playbackEventLog.record("FAIL $errorCodeName ${failedUrl}")
-        // The host part turns an opaque error into an actionable one ("which
-        // server refused the stream"), without leaking credentials: stream
-        // URLs never carry secrets.
-        val host = failedUrl.toUri().host
-        val enriched = if (host != null) "$detail (host: $host)" else detail
         _playerState.value = state.copy(
             isBuffering = false,
             isPlaying = false,
             currentStreamUrl = "",
             audioEngineMode = "Playback error",
-            lastErrorMsg = enriched,
+            lastErrorMsg = detail,
             errorKind = kind
         )
         val chapter = currentChapter
@@ -1244,6 +1310,9 @@ class AudioPlayerManager(
 
     fun play() {
         val wasPlaying = _playerState.value.isPlaying
+        // The user's latest transport action owns the pending READY result.
+        // In particular, play while BUFFERING must still start once ready.
+        shouldAutoPlay = true
         // Spec-16 T2: the resume is recorded only when playback actually
         // starts again, and only after a break long enough to matter (or with
         // no break at all — a fresh start). Read the gap before the smart
@@ -1290,6 +1359,10 @@ class AudioPlayerManager(
     }
 
     fun pause() {
+        // Cancel a prepare-time play request before the buffering early return.
+        // Otherwise a later READY callback resurrects playback after the user
+        // has already pressed pause.
+        shouldAutoPlay = false
         _playerState.value = _playerState.value.copy(isPlaying = false)
         // Record the pause moment (wayfinder #25): the resume rewind depends on
         // how long the listener has been away. Also persisted so a later app
@@ -1859,6 +1932,7 @@ class AudioPlayerManager(
      * next book the user picks.
      */
     fun stopAndClear() {
+        prepareRequestId++
         sleepTimer?.cancel()
         sleepTimer = null
         prepareTimeoutJob?.cancel()

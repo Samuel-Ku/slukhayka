@@ -1,0 +1,8 @@
+<resources>
+    <string name="narration_switch_title">Change narration?</string>
+    <string name="narration_switch_body">The current narration is %1$s. “%3$s” uses a different one — %2$s. Its listening position is kept separately.</string>
+    <string name="narration_switch_confirm">Switch</string>
+    <string name="narration_switch_cancel">Keep current</string>
+    <string name="narration_switch_unknown_current">The current narration</string>
+    <string name="narration_switch_unknown_target">another narration</string>
+</resources>

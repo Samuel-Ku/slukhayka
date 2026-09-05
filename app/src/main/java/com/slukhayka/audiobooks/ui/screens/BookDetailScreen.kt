@@ -111,7 +111,8 @@ fun BookDetailScreen(
     onChildRouteOpened: (BookDetailLinkOrigin) -> Unit = {},
     onReturnFocusRestored: (BookDetailLinkOrigin) -> Unit = {}
 ) {
-    val book by viewModel.selectedBook.collectAsState()
+    val bookRow by viewModel.selectedBook.collectAsState()
+    val book = bookRow?.toAudiobookEntity()
     val chapters by viewModel.selectedBookChapters.collectAsState()
     val bookmarks by viewModel.selectedBookBookmarks.collectAsState()
     val relatedBooks by viewModel.relatedBooks.collectAsState()
@@ -167,6 +168,12 @@ fun BookDetailScreen(
     val currentBook = book ?: return
     var initialTitleFocusPending by remember(currentBook.id) { mutableStateOf(true) }
     val isDownloadingThis = downloadingBookId == currentBook.id
+    val isDownloadPaused = currentBook.downloadState == DownloadState.PAUSED
+    val downloadAction = bookDetailDownloadAction(
+        isDownloading = isDownloadingThis,
+        isPaused = isDownloadPaused,
+        isDownloaded = currentBook.isDownloaded
+    )
     // #392 — estimated size and live download progress
     var estimatedSize by remember(currentBook.id) {
         mutableStateOf<OfflineDownloads.EstimatedSize?>(null)
@@ -423,25 +430,44 @@ fun BookDetailScreen(
         totalDurationSeconds = totalDuration
     )
     val paneTitle = stringResource(R.string.book_detail_pane_title, detailPresentation.title)
-    val downloadActionDescription = when {
-        isDownloadingThis -> stringResource(
+    val downloadActionDescription = when (downloadAction) {
+        BookDetailDownloadAction.Cancel -> stringResource(
             R.string.book_detail_download_in_progress,
             currentBook.title,
             (currentBook.downloadProgress.coerceIn(0f, 1f) * 100).toInt()
         )
-        currentBook.isDownloaded -> stringResource(
+        BookDetailDownloadAction.Continue -> stringResource(
+            R.string.book_detail_download_continue,
+            currentBook.title,
+            (currentBook.downloadProgress.coerceIn(0f, 1f) * 100).toInt()
+        )
+        BookDetailDownloadAction.Remove -> stringResource(
             R.string.book_detail_download_remove,
             currentBook.title
         )
-        else -> stringResource(R.string.book_detail_download_add, currentBook.title)
+        BookDetailDownloadAction.Start -> stringResource(
+            R.string.book_detail_download_add,
+            currentBook.title
+        )
     }
     val downloadStateDescription = stringResource(
-        when {
-            isDownloadingThis -> R.string.book_detail_downloading
-            currentBook.isDownloaded -> R.string.book_detail_downloaded
-            else -> R.string.book_detail_streaming
+        when (downloadAction) {
+            BookDetailDownloadAction.Cancel -> R.string.book_detail_downloading
+            BookDetailDownloadAction.Continue -> R.string.book_detail_download_paused
+            BookDetailDownloadAction.Remove -> R.string.book_detail_downloaded
+            BookDetailDownloadAction.Start -> R.string.book_detail_streaming
         }
     )
+    val onDownloadClick: () -> Unit = {
+        when (downloadAction) {
+            BookDetailDownloadAction.Cancel -> viewModel.cancelDownload(currentBook.id)
+            BookDetailDownloadAction.Continue -> viewModel.continueDownload(currentBook.id)
+            BookDetailDownloadAction.Remove -> scope.launch {
+                offlineDownloads.removeOfflineDownload(currentBook.id)
+            }
+            BookDetailDownloadAction.Start -> viewModel.downloadBookOffline(currentBook.id)
+        }
+    }
 
     Scaffold(
         modifier = Modifier.accessibilityModalBackground(
@@ -537,29 +563,37 @@ fun BookDetailScreen(
                     }
                     if (!streamOnly) {
                         IconButton(
-                            onClick = {
-                                if (currentBook.isDownloaded) {
-                                    scope.launch { offlineDownloads.removeOfflineDownload(currentBook.id) }
-                                } else {
-                                    viewModel.downloadBookOffline(currentBook.id)
-                                }
-                            },
-                            enabled = !isDownloadingThis,
+                            onClick = onDownloadClick,
                             modifier = Modifier.semantics {
                                 contentDescription = downloadActionDescription
                                 stateDescription = downloadStateDescription
                             }
                         ) {
-                            if (isDownloadingThis) {
-                                CircularProgressIndicator(
-                                    progress = { currentBook.downloadProgress.coerceIn(0.05f, 0.95f) },
-                                    modifier = Modifier.size(22.dp),
-                                    strokeWidth = 2.dp,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
+                            if (downloadAction == BookDetailDownloadAction.Cancel) {
+                                Box(
+                                    modifier = Modifier.size(24.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    CircularProgressIndicator(
+                                        progress = { currentBook.downloadProgress.coerceIn(0.05f, 0.95f) },
+                                        modifier = Modifier.fillMaxSize(),
+                                        strokeWidth = 2.dp,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(14.dp),
+                                        tint = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
                             } else {
                                 Icon(
-                                    imageVector = if (currentBook.isDownloaded) Icons.Default.CloudDone else Icons.Default.CloudDownload,
+                                    imageVector = if (downloadAction == BookDetailDownloadAction.Remove) {
+                                        Icons.Default.CloudDone
+                                    } else {
+                                        Icons.Default.CloudDownload
+                                    },
                                     contentDescription = null,
                                     tint = if (currentBook.isDownloaded) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurface
                                 )
@@ -571,16 +605,26 @@ fun BookDetailScreen(
                         val sizeText = when {
                             bytesProgress != null -> {
                                 val dl = bytesProgress!!.downloadedBytes / (1024 * 1024)
-                                val tot = bytesProgress!!.totalBytes?.let { it / (1024 * 1024) } ?: 0L
-                                val pct = if (tot > 0) (dl * 100 / tot).toInt() else 0
-                                stringResource(
-                                    R.string.book_detail_download_progress,
-                                    bytesProgress!!.completedChapters,
-                                    bytesProgress!!.totalChapters,
-                                    dl,
-                                    tot,
-                                    pct
-                                )
+                                val totalBytes = bytesProgress!!.totalBytes
+                                if (totalBytes != null && totalBytes > 0) {
+                                    val tot = totalBytes / (1024 * 1024)
+                                    val pct = (bytesProgress!!.downloadedBytes * 100 / totalBytes).toInt()
+                                    stringResource(
+                                        R.string.book_detail_download_progress,
+                                        bytesProgress!!.completedChapters,
+                                        bytesProgress!!.totalChapters,
+                                        dl,
+                                        tot,
+                                        pct
+                                    )
+                                } else {
+                                    stringResource(
+                                        R.string.book_detail_download_progress_unknown_total,
+                                        bytesProgress!!.completedChapters,
+                                        bytesProgress!!.totalChapters,
+                                        dl
+                                    )
+                                }
                             }
                             estimatedSize != null -> {
                                 val es = estimatedSize!!
@@ -601,17 +645,26 @@ fun BookDetailScreen(
                     } else if (!streamOnly && isDownloadingThis && bytesProgress != null) {
                         val bp = bytesProgress!!
                         val dl = bp.downloadedBytes / (1024 * 1024)
-                        val tot = bp.totalBytes?.let { it / (1024 * 1024) } ?: 0L
-                        val pct = if (tot > 0) (dl * 100 / tot).toInt() else 0
                         Text(
-                            text = stringResource(
-                                R.string.book_detail_download_progress,
-                                bp.completedChapters,
-                                bp.totalChapters,
-                                dl,
-                                tot,
-                                pct
-                            ),
+                            text = if (bp.totalBytes != null && bp.totalBytes > 0) {
+                                val tot = bp.totalBytes / (1024 * 1024)
+                                val pct = (bp.downloadedBytes * 100 / bp.totalBytes).toInt()
+                                stringResource(
+                                    R.string.book_detail_download_progress,
+                                    bp.completedChapters,
+                                    bp.totalChapters,
+                                    dl,
+                                    tot,
+                                    pct
+                                )
+                            } else {
+                                stringResource(
+                                    R.string.book_detail_download_progress_unknown_total,
+                                    bp.completedChapters,
+                                    bp.totalChapters,
+                                    dl
+                                )
+                            },
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(start = 4.dp)
@@ -809,7 +862,7 @@ fun BookDetailScreen(
                                 sibling = sibling,
                                 average = siblingStats?.first,
                                 voteCount = siblingStats?.second ?: 0,
-                                onClick = { viewModel.selectBook(sibling.id) }
+                                onClick = { viewModel.openNarration(sibling) }
                             )
                         }
                     }
@@ -825,8 +878,7 @@ fun BookDetailScreen(
                         workTitle = currentBook.title,
                         playLabel = bookPlayLabel(playState) { MainViewModel.formatTime(it) },
                         streamOnly = streamOnly,
-                        isDownloaded = currentBook.isDownloaded,
-                        isDownloading = isDownloadingThis,
+                        downloadAction = downloadAction,
                         downloadProgress = currentBook.downloadProgress,
                         onPlay = {
                             when (playState) {
@@ -838,13 +890,7 @@ fun BookDetailScreen(
                                 viewModel.setShowFullPlayer(true)
                             }
                         },
-                        onDownload = {
-                            if (currentBook.isDownloaded) {
-                                scope.launch { offlineDownloads.removeOfflineDownload(currentBook.id) }
-                            } else {
-                                viewModel.downloadBookOffline(currentBook.id)
-                            }
-                        },
+                        onDownload = onDownloadClick,
                         onAddBookmark = { showAddBookmarkDialog = true }
                     )
                 }
@@ -1290,6 +1336,24 @@ internal fun reviewFailureNeedsSnackbar(formVisible: Boolean): Boolean = !formVi
 // не влазять в один рядок дій без розриву посередині слова («Продовж/ити»).
 private const val PLAY_LABEL_ROW_LIMIT = 12
 
+internal enum class BookDetailDownloadAction {
+    Start,
+    Cancel,
+    Continue,
+    Remove
+}
+
+internal fun bookDetailDownloadAction(
+    isDownloading: Boolean,
+    isPaused: Boolean,
+    isDownloaded: Boolean
+): BookDetailDownloadAction = when {
+    isDownloading -> BookDetailDownloadAction.Cancel
+    isPaused -> BookDetailDownloadAction.Continue
+    isDownloaded -> BookDetailDownloadAction.Remove
+    else -> BookDetailDownloadAction.Start
+}
+
 /**
  * Primary book actions reflow into a vertical stack at accessibility font
  * scale or when the play label alone is too long for one row (#382). The
@@ -1297,12 +1361,11 @@ private const val PLAY_LABEL_ROW_LIMIT = 12
  * nothing is hidden behind a TalkBack-only branch.
  */
 @Composable
-fun BookDetailPrimaryActions(
+internal fun BookDetailPrimaryActions(
     workTitle: String,
     playLabel: String,
     streamOnly: Boolean,
-    isDownloaded: Boolean,
-    isDownloading: Boolean,
+    downloadAction: BookDetailDownloadAction,
     downloadProgress: Float,
     onPlay: () -> Unit,
     onDownload: () -> Unit,
@@ -1311,20 +1374,32 @@ fun BookDetailPrimaryActions(
 ) {
     val fontScale = androidx.compose.ui.platform.LocalDensity.current.fontScale
     val progressPercent = (downloadProgress.coerceIn(0f, 1f) * 100).toInt()
-    val downloadAction = when {
-        isDownloading -> stringResource(
+    val downloadActionDescription = when (downloadAction) {
+        BookDetailDownloadAction.Cancel -> stringResource(
             R.string.book_detail_download_in_progress,
             workTitle,
             progressPercent
         )
-        isDownloaded -> stringResource(R.string.book_detail_download_remove, workTitle)
-        else -> stringResource(R.string.book_detail_download_add, workTitle)
+        BookDetailDownloadAction.Continue -> stringResource(
+            R.string.book_detail_download_continue,
+            workTitle,
+            progressPercent
+        )
+        BookDetailDownloadAction.Remove -> stringResource(
+            R.string.book_detail_download_remove,
+            workTitle
+        )
+        BookDetailDownloadAction.Start -> stringResource(
+            R.string.book_detail_download_add,
+            workTitle
+        )
     }
     val downloadState = stringResource(
-        when {
-            isDownloading -> R.string.book_detail_downloading
-            isDownloaded -> R.string.book_detail_downloaded
-            else -> R.string.book_detail_streaming
+        when (downloadAction) {
+            BookDetailDownloadAction.Cancel -> R.string.book_detail_downloading
+            BookDetailDownloadAction.Continue -> R.string.book_detail_download_paused
+            BookDetailDownloadAction.Remove -> R.string.book_detail_downloaded
+            BookDetailDownloadAction.Start -> R.string.book_detail_streaming
         }
     )
     val playAction = stringResource(R.string.book_detail_play_action, playLabel, workTitle)
@@ -1347,10 +1422,9 @@ fun BookDetailPrimaryActions(
                 )
                 if (!streamOnly) {
                     BookDetailDownloadButton(
-                        isDownloaded = isDownloaded,
-                        isDownloading = isDownloading,
+                        action = downloadAction,
                         downloadProgress = downloadProgress,
-                        actionDescription = downloadAction,
+                        actionDescription = downloadActionDescription,
                         state = downloadState,
                         onClick = onDownload,
                         modifier = Modifier.fillMaxWidth()
@@ -1373,10 +1447,9 @@ fun BookDetailPrimaryActions(
                 )
                 if (!streamOnly) {
                     BookDetailDownloadButton(
-                        isDownloaded = isDownloaded,
-                        isDownloading = isDownloading,
+                        action = downloadAction,
                         downloadProgress = downloadProgress,
-                        actionDescription = downloadAction,
+                        actionDescription = downloadActionDescription,
                         state = downloadState,
                         onClick = onDownload,
                         modifier = Modifier.weight(1f)
@@ -1431,8 +1504,7 @@ private fun BookDetailPlayButton(
 
 @Composable
 private fun BookDetailDownloadButton(
-    isDownloaded: Boolean,
-    isDownloading: Boolean,
+    action: BookDetailDownloadAction,
     downloadProgress: Float,
     actionDescription: String,
     state: String,
@@ -1441,15 +1513,14 @@ private fun BookDetailDownloadButton(
 ) {
     OutlinedButton(
         onClick = onClick,
-        enabled = !isDownloading,
         shape = RoundedCornerShape(AppDimens.RadiusPanel),
         border = androidx.compose.foundation.BorderStroke(
             1.dp,
-            if (isDownloaded) MaterialTheme.colorScheme.secondary
+            if (action == BookDetailDownloadAction.Remove) MaterialTheme.colorScheme.secondary
             else MaterialTheme.colorScheme.outlineVariant
         ),
         colors = ButtonDefaults.outlinedButtonColors(
-            contentColor = if (isDownloaded) MaterialTheme.colorScheme.secondary
+            contentColor = if (action == BookDetailDownloadAction.Remove) MaterialTheme.colorScheme.secondary
             else MaterialTheme.colorScheme.onSurface
         ),
         // #382: спільний паддінг із play-кнопкою — жодних per-button налаштувань.
@@ -1462,7 +1533,7 @@ private fun BookDetailDownloadButton(
                 stateDescription = state
             }
     ) {
-        if (isDownloading) {
+        if (action == BookDetailDownloadAction.Cancel) {
             CircularProgressIndicator(
                 progress = { downloadProgress.coerceIn(0.05f, 0.95f) },
                 modifier = Modifier.size(18.dp),
@@ -1470,12 +1541,21 @@ private fun BookDetailDownloadButton(
                 color = MaterialTheme.colorScheme.primary
             )
             Spacer(modifier = Modifier.width(6.dp))
-            Text("${(downloadProgress.coerceIn(0f, 1f) * 100).toInt()}%")
+            Text(
+                stringResource(
+                    R.string.book_detail_cancel_progress_short,
+                    (downloadProgress.coerceIn(0f, 1f) * 100).toInt()
+                )
+            )
         } else {
             Text(
                 text = stringResource(
-                    if (isDownloaded) R.string.book_detail_offline_short
-                    else R.string.book_detail_download_short
+                    when (action) {
+                        BookDetailDownloadAction.Continue -> R.string.book_detail_continue_short
+                        BookDetailDownloadAction.Remove -> R.string.book_detail_offline_short
+                        BookDetailDownloadAction.Start -> R.string.book_detail_download_short
+                        BookDetailDownloadAction.Cancel -> error("handled above")
+                    }
                 ),
                 style = MaterialTheme.typography.labelMedium,
                 maxLines = 2,
@@ -1483,7 +1563,11 @@ private fun BookDetailDownloadButton(
             )
             Spacer(modifier = Modifier.width(4.dp))
             Icon(
-                imageVector = if (isDownloaded) Icons.Default.CloudDone else Icons.Default.CloudDownload,
+                imageVector = if (action == BookDetailDownloadAction.Remove) {
+                    Icons.Default.CloudDone
+                } else {
+                    Icons.Default.CloudDownload
+                },
                 contentDescription = null,
                 modifier = Modifier.size(16.dp)
             )

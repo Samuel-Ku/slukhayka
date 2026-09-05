@@ -8,12 +8,16 @@
     <string name="book_detail_favorite_off">Не в улюблених</string>
     <string name="book_detail_download_add">Завантажити «%1$s» для прослуховування офлайн</string>
     <string name="book_detail_download_remove">Видалити офлайн-копію «%1$s»</string>
-    <string name="book_detail_download_in_progress">Завантажується «%1$s»: %2$d відсотків</string>
+    <string name="book_detail_download_in_progress">Скасувати завантаження «%1$s»: %2$d%%</string>
+    <string name="book_detail_download_continue">Продовжити завантаження «%1$s»: %2$d%% готово</string>
     <string name="book_detail_downloaded">Доступна офлайн</string>
     <string name="book_detail_downloading">Завантажується</string>
+    <string name="book_detail_download_paused">Завантаження призупинено</string>
     <string name="book_detail_streaming">Потрібне підключення до мережі</string>
     <string name="book_detail_offline_short">Офлайн</string>
     <string name="book_detail_download_short">Завантажити</string>
+    <string name="book_detail_continue_short">Продовжити</string>
+    <string name="book_detail_cancel_progress_short">Скасувати · %1$d%%</string>
     <string name="book_detail_play_action">%1$s: «%2$s»</string>
     <string name="book_detail_add_bookmark">Додати закладку для «%1$s»</string>
     <string name="book_detail_add_bookmark_short">Додати закладку</string>

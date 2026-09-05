@@ -3,6 +3,7 @@ package com.slukhayka.audiobooks.data.entries
 import android.util.Log
 import com.slukhayka.audiobooks.data.db.AudiobookDao
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
+import com.slukhayka.audiobooks.data.db.BookRow
 import com.slukhayka.audiobooks.data.db.BookmarkEntity
 import com.slukhayka.audiobooks.data.db.ChapterEntity
 import com.slukhayka.audiobooks.data.db.PlaybackProgressEntity
@@ -63,8 +64,11 @@ class LibraryEntries(
     // Book reads
     // ---------------------------------------------------------------------
 
+    /** Keep joined fields in equality until UI StateFlow/Compose has observed them. */
+    fun observeBookRow(bookId: String): Flow<BookRow?> = dao.observeAudiobookById(bookId)
+
     fun observeBook(bookId: String): Flow<AudiobookEntity?> =
-        dao.observeAudiobookById(bookId).map { it?.toAudiobookEntity() }
+        observeBookRow(bookId).map { it?.toAudiobookEntity() }
     suspend fun getBookSync(bookId: String): AudiobookEntity? =
         dao.getAudiobookById(bookId)?.toAudiobookEntity()
 

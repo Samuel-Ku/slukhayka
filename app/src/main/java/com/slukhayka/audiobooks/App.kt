@@ -477,8 +477,9 @@ class App : Application() {
                 ?: offlineDownloads.continueDownload(bookId)
         } finally {
             progressJob.cancel()
-            offlineDownloads.unregisterDownloadJob(bookId)
-            DownloadNotificationService.stop(this@App)
+            if (offlineDownloads.unregisterDownloadJob(bookId, downloadJob)) {
+                DownloadNotificationService.stop(this@App)
+            }
         }
     }
 

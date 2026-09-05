@@ -26,6 +26,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -40,9 +41,58 @@ import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.privacy.WebViewSessionPrivacy
+import com.slukhayka.audiobooks.data.privacy.BrowserDnsProxy
+import com.slukhayka.audiobooks.data.privacy.WebViewRouteApplyOutcome
+import com.slukhayka.audiobooks.data.privacy.awaitWebViewRouteApplied
 import com.slukhayka.audiobooks.data.source.SourceBrowserPolicy
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.theme.*
+
+/**
+ * A failed top-level document always gets the app's recovery UI. WebView's
+ * error-code mapping varies by provider (notably for proxy failures), so a
+ * code allowlist would leak Chromium's raw ERR_* page for valid failures.
+ */
+@Suppress("UNUSED_PARAMETER")
+internal fun shouldReplaceWebViewErrorPage(
+    isForMainFrame: Boolean,
+    errorCode: Int
+): Boolean = isForMainFrame
+
+/** What the listener may see while a browser-backed playback recovery runs. */
+internal enum class BrowserRecoverySurface {
+    HIDDEN,
+    CLOUDFLARE_ONLY,
+    FULL_BROWSER
+}
+
+/**
+ * Automatic recovery stays behind the player. The browser surface is exposed
+ * only for a Cloudflare step that cannot be completed without the listener.
+ * Explicit “open on site” actions keep the ordinary browser.
+ */
+internal fun browserRecoverySurface(
+    automaticRecovery: Boolean,
+    cloudflareChallenge: Boolean
+): BrowserRecoverySurface = when {
+    !automaticRecovery -> BrowserRecoverySurface.FULL_BROWSER
+    cloudflareChallenge -> BrowserRecoverySurface.CLOUDFLARE_ONLY
+    else -> BrowserRecoverySurface.HIDDEN
+}
+
+/** Conservative Cloudflare challenge recognition from WebView-owned signals. */
+internal fun isCloudflareChallenge(
+    url: String?,
+    title: String?,
+    hasDomMarker: Boolean
+): Boolean {
+    if (hasDomMarker) return true
+    if (url.orEmpty().contains("/cdn-cgi/challenge", ignoreCase = true)) return true
+    val normalizedTitle = title.orEmpty().trim().lowercase()
+    return normalizedTitle == "just a moment..." ||
+        normalizedTitle == "just a moment" ||
+        normalizedTitle.contains("security verification")
+}
 
 /**
  * Spec-13 T3 — the browser surface for a WebView-pattern source (sluhay.com
@@ -82,6 +132,10 @@ fun WebSourceBrowserScreen(
     recoveryPositionMs: Long = 0L,
     captureTop100: Boolean = false,
     captureSeriesUrl: String? = null,
+    automaticRecovery: Boolean = false,
+    cloudflareChallenge: Boolean = false,
+    onCloudflareChallengeChanged: (Boolean) -> Unit = {},
+    onAutomaticRecoveryFailed: () -> Unit = {},
     onClose: () -> Unit
 ) {
     val context = LocalContext.current
@@ -138,27 +192,58 @@ fun WebSourceBrowserScreen(
     val sessionRoute = remember(proxyOverrideSupported) {
         WebViewSessionPrivacy.resolve(proxyOverrideSupported = proxyOverrideSupported)
     }
+    val externalBrowserAllowed =
+        (sessionRoute as? WebViewSessionPrivacy.RouteResolution.Ok)?.route ==
+            WebViewSessionPrivacy.SessionRoute.SystemDefault
     val lockdownScript = remember { WebViewSessionPrivacy.lockdownScript() }
+    var routeInstallAttempt by remember(sessionRoute) { mutableIntStateOf(0) }
+    var routeApplyOutcome by remember(sessionRoute) {
+        mutableStateOf<WebViewRouteApplyOutcome?>(null)
+    }
+    var browserDnsProxy by remember { mutableStateOf<BrowserDnsProxy?>(null) }
 
     // Install / clear the webkit proxy override to match the transport's exit.
     // No addDirect() fallback rule exists in the config: a chosen proxy that
     // cannot connect fails navigation honestly, like the shared fetcher.
-    LaunchedEffect(sessionRoute) {
-        if (!proxyOverrideSupported) return@LaunchedEffect
-        val resolution = sessionRoute as? WebViewSessionPrivacy.RouteResolution.Ok ?: return@LaunchedEffect
-        runCatching {
+    LaunchedEffect(sessionRoute, routeInstallAttempt) {
+        val resolution = sessionRoute as? WebViewSessionPrivacy.RouteResolution.Ok
+            ?: return@LaunchedEffect
+        if (!proxyOverrideSupported) {
+            // Without a proxy override WebView cannot use the app resolver.
+            routeApplyOutcome = WebViewRouteApplyOutcome.Failed()
+            return@LaunchedEffect
+        }
+        routeApplyOutcome = null
+        routeApplyOutcome = try {
             val controller = ProxyController.getInstance()
             val executor = java.util.concurrent.Executor { it.run() }
-            when (val route = resolution.route) {
-                is WebViewSessionPrivacy.SessionRoute.SystemDefault ->
-                    controller.clearProxyOverride(executor) {}
-                is WebViewSessionPrivacy.SessionRoute.Routed ->
+            browserDnsProxy?.close()
+            browserDnsProxy = null
+            val effectiveRoute = if (resolution.route == WebViewSessionPrivacy.SessionRoute.SystemDefault) {
+                val proxy = BrowserDnsProxy()
+                browserDnsProxy = proxy
+                WebViewSessionPrivacy.SessionRoute.Routed(proxy.proxyRule)
+            } else resolution.route
+            awaitWebViewRouteApplied(
+                route = effectiveRoute,
+                timeoutMs = 5_000,
+                clearOverride = { onComplete ->
+                    controller.clearProxyOverride(executor, onComplete)
+                },
+                setOverride = { proxyRule, onComplete ->
                     controller.setProxyOverride(
-                        ProxyConfig.Builder().addProxyRule(route.proxyRule).build(),
-                        executor
-                    ) {}
-            }
-        }.onFailure { Log.w("WebSource", "WebView privacy-route override failed", it) }
+                        ProxyConfig.Builder().addProxyRule(proxyRule).build(),
+                        executor,
+                        onComplete
+                    )
+                }
+            )
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (failure: Throwable) {
+            Log.w("WebSource", "WebView privacy-route override failed", failure)
+            WebViewRouteApplyOutcome.Failed(failure)
+        }
     }
 
     // Spec-13 T3: intercepted audio URLs of the session, in order. The adapter
@@ -169,6 +254,47 @@ fun WebSourceBrowserScreen(
     var lastCapturedAudioCount by remember { mutableStateOf(0) }
     val capturedAudioUrls = remember {
         java.util.Collections.synchronizedList(mutableListOf<String>())
+    }
+    val recoverySurface = browserRecoverySurface(automaticRecovery, cloudflareChallenge)
+
+    // Cloudflare widgets can appear after the top-level page has finished.
+    // Keep observing while automatic recovery owns the WebView so the only
+    // human-required step is revealed promptly and then hidden again.
+    LaunchedEffect(automaticRecovery, webViewInstance) {
+        if (!automaticRecovery) return@LaunchedEffect
+        while (true) {
+            val instance = webViewInstance
+            instance?.evaluateJavascript(CLOUDFLARE_CHALLENGE_PROBE_JS) { raw ->
+                val hasDomMarker = raw?.trim()?.trim('"') == "1"
+                onCloudflareChallengeChanged(
+                    isCloudflareChallenge(
+                        url = instance.url,
+                        title = instance.title,
+                        hasDomMarker = hasDomMarker
+                    )
+                )
+            }
+            kotlinx.coroutines.delay(CLOUDFLARE_OBSERVE_INTERVAL_MS)
+        }
+    }
+
+    // Hidden recovery is a bounded attempt. A challenge suspends this clock;
+    // after the listener passes it, the app gets one fresh bounded window.
+    LaunchedEffect(recoverySurface) {
+        if (recoverySurface != BrowserRecoverySurface.HIDDEN) return@LaunchedEffect
+        kotlinx.coroutines.delay(HIDDEN_RECOVERY_TIMEOUT_MS)
+        onAutomaticRecoveryFailed()
+    }
+
+    // A selected Tor/proxy route is never bypassed. If WebView cannot carry
+    // it, automatic recovery returns to honest Player actions immediately.
+    LaunchedEffect(automaticRecovery, sessionRoute, routeApplyOutcome) {
+        if (!automaticRecovery) return@LaunchedEffect
+        if (sessionRoute is WebViewSessionPrivacy.RouteResolution.Refused ||
+            routeApplyOutcome is WebViewRouteApplyOutcome.Failed
+        ) {
+            onAutomaticRecoveryFailed()
+        }
     }
 
     // Spec-42 #427 — source-scoped boundary: the user cannot leave the
@@ -253,6 +379,7 @@ fun WebSourceBrowserScreen(
             if (decoded.isBlank() || decoded.length < 200) {
                 importResult = "Сторінку не вдалося прочитати"
                 isImporting = false
+                if (automaticRecovery) onAutomaticRecoveryFailed()
                 return@evaluateJavascript
             }
             if (recoveryBookId != null && recoveryChapterIndex != null) {
@@ -274,15 +401,20 @@ fun WebSourceBrowserScreen(
                         onClose()
                     } else {
                         importResult = "Аудіо ще не знайдено. Відкрийте книгу та запустіть її на сайті, потім спробуйте ще раз."
+                        if (automaticRecovery) onAutomaticRecoveryFailed()
                     }
                     isImporting = false
                     },
                     onStructureMismatch = { mismatch ->
-                        importResult = mismatch.message
-                        structureMismatch = mismatch
-                        repairHtml = decoded
-                        repairUrl = pageUrl
-                        repairAudioUrls = audioCandidates
+                        if (automaticRecovery) {
+                            onAutomaticRecoveryFailed()
+                        } else {
+                            importResult = mismatch.message
+                            structureMismatch = mismatch
+                            repairHtml = decoded
+                            repairUrl = pageUrl
+                            repairAudioUrls = audioCandidates
+                        }
                         isImporting = false
                     }
                 )
@@ -387,8 +519,16 @@ fun WebSourceBrowserScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .testTag("web_source_browser")
+            .alpha(if (recoverySurface == BrowserRecoverySurface.HIDDEN) 0f else 1f)
+            .testTag(
+                if (recoverySurface == BrowserRecoverySurface.CLOUDFLARE_ONLY) {
+                    "cloudflare_verification"
+                } else {
+                    "web_source_browser"
+                }
+            )
     ) {
+        if (recoverySurface == BrowserRecoverySurface.FULL_BROWSER) {
         Surface(
             color = MaterialTheme.colorScheme.surface,
             tonalElevation = 4.dp,
@@ -626,18 +766,23 @@ fun WebSourceBrowserScreen(
                     },
                     trailingIcon = {
                         Row {
-                            IconButton(
-                                onClick = {
-                                    try {
-                                        val intent = Intent(Intent.ACTION_VIEW, currentWebUrl.toUri())
-                                        context.startActivity(intent)
-                                    } catch (_: Exception) {}
-                                },
-                                modifier = Modifier
-                                    .size(AppDimens.TouchTarget)
-                                    .semantics { contentDescription = actionLabels.openExternal }
-                            ) {
-                                Icon(imageVector = Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
+                            // An external browser does not inherit the app's
+                            // explicit proxy/Tor route. Never offer this exit
+                            // while a routed session is selected.
+                            if (externalBrowserAllowed) {
+                                IconButton(
+                                    onClick = {
+                                        try {
+                                            val intent = Intent(Intent.ACTION_VIEW, currentWebUrl.toUri())
+                                            context.startActivity(intent)
+                                        } catch (_: Exception) {}
+                                    },
+                                    modifier = Modifier
+                                        .size(AppDimens.TouchTarget)
+                                        .semantics { contentDescription = actionLabels.openExternal }
+                                ) {
+                                    Icon(imageVector = Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
+                                }
                             }
                             if (urlInput.isNotBlank()) {
                                 IconButton(
@@ -676,8 +821,9 @@ fun WebSourceBrowserScreen(
                 )
             }
         }
+        }
 
-        if (showMethodNotice) {
+        if (showMethodNotice && recoverySurface == BrowserRecoverySurface.FULL_BROWSER) {
             Card(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
                 modifier = Modifier
@@ -758,7 +904,20 @@ fun WebSourceBrowserScreen(
                         }
                     }
                 }
-                else -> Box(modifier = Modifier.fillMaxSize()) {
+                else -> when (routeApplyOutcome) {
+                    null -> WebViewRouteGateCard(
+                        failed = false,
+                        onRetry = {},
+                        onClose = onClose,
+                        modifier = Modifier.align(Alignment.TopCenter)
+                    )
+                    is WebViewRouteApplyOutcome.Failed -> WebViewRouteGateCard(
+                        failed = true,
+                        onRetry = { routeInstallAttempt++ },
+                        onClose = onClose,
+                        modifier = Modifier.align(Alignment.TopCenter)
+                    )
+                    WebViewRouteApplyOutcome.Ready -> Box(modifier = Modifier.fillMaxSize()) {
             AndroidView(
                 factory = { ctx ->
                     WebView(ctx).apply {
@@ -818,6 +977,32 @@ fun WebSourceBrowserScreen(
                             injectLockdownOnPageStart = true
                         }
                         webViewClient = object : WebViewClient() {
+                            private var replacingTechnicalErrorPage = false
+
+                            private fun showFriendlyMainFrameFailure(
+                                view: WebView?,
+                                isForMainFrame: Boolean,
+                                errorCode: Int
+                            ) {
+                                if (!shouldReplaceWebViewErrorPage(isForMainFrame, errorCode)) return
+                                if (automaticRecovery) {
+                                    onAutomaticRecoveryFailed()
+                                    return
+                                }
+                                isLoading = false
+                                hasWebError = true
+                                webErrorMsg = "Сторінка не завантажилася"
+                                // Chromium otherwise paints chrome-error:// with a
+                                // localized ERR_* token underneath our Compose UI.
+                                // Hide it immediately and replace it with a neutral
+                                // blank document; retry makes the WebView visible
+                                // again only for the listener's requested URL.
+                                replacingTechnicalErrorPage = true
+                                view?.visibility = android.view.View.INVISIBLE
+                                view?.stopLoading()
+                                view?.loadUrl("about:blank")
+                            }
+
                             override fun shouldOverrideUrlLoading(view: WebView?, request: android.webkit.WebResourceRequest?): Boolean {
                                 val url = request?.url?.toString() ?: return false
                                 val scheme = request?.url?.scheme?.lowercase() ?: ""
@@ -844,6 +1029,12 @@ fun WebSourceBrowserScreen(
 
                             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                                 super.onPageStarted(view, url, favicon)
+                                if (replacingTechnicalErrorPage && url == "about:blank") {
+                                    isLoading = false
+                                    return
+                                }
+                                replacingTechnicalErrorPage = false
+                                view?.visibility = android.view.View.VISIBLE
                                 // Spec-38 T3 lockdown fallback for WebViews
                                 // without document-start injection.
                                 if (injectLockdownOnPageStart) {
@@ -897,6 +1088,10 @@ fun WebSourceBrowserScreen(
 
                             override fun onPageFinished(view: WebView?, url: String?) {
                                 super.onPageFinished(view, url)
+                                if (replacingTechnicalErrorPage && url == "about:blank") {
+                                    isLoading = false
+                                    return
+                                }
                                 isLoading = false
                                 url?.let {
                                     currentWebUrl = it
@@ -907,6 +1102,18 @@ fun WebSourceBrowserScreen(
                                 view?.evaluateJavascript(
                                     sourceBrowserAdCleanupScript(), null
                                 )
+                                if (automaticRecovery) {
+                                    view?.evaluateJavascript(CLOUDFLARE_CHALLENGE_PROBE_JS) { raw ->
+                                        val hasDomMarker = raw?.trim()?.trim('"') == "1"
+                                        onCloudflareChallengeChanged(
+                                            isCloudflareChallenge(
+                                                url = url,
+                                                title = view.title,
+                                                hasDomMarker = hasDomMarker
+                                            )
+                                        )
+                                    }
+                                }
                                 // #478 — DOM-side half of the first signal: a
                                 // cheap reference probe (no manifest fetch —
                                 // the import does that). The audio-intercept
@@ -930,8 +1137,11 @@ fun WebSourceBrowserScreen(
                             ) {
                                 Log.w("WebSource", "SSL error: ${error?.toString()}")
                                 handler?.cancel()
-                                hasWebError = true
-                                webErrorMsg = "SSL помилка: ${error?.primaryError ?: 0}"
+                                showFriendlyMainFrameFailure(
+                                    view = view,
+                                    isForMainFrame = true,
+                                    errorCode = error?.primaryError ?: WebViewClient.ERROR_UNKNOWN
+                                )
                             }
 
                             override fun onReceivedError(
@@ -939,15 +1149,28 @@ fun WebSourceBrowserScreen(
                                 request: android.webkit.WebResourceRequest?,
                                 error: android.webkit.WebResourceError?
                             ) {
-                                super.onReceivedError(view, request, error)
-                                if (request?.isForMainFrame == true) {
-                                    isLoading = false
-                                    val errCode = error?.errorCode ?: 0
-                                    if (errCode == WebViewClient.ERROR_HOST_LOOKUP || errCode == WebViewClient.ERROR_CONNECT || errCode == WebViewClient.ERROR_TIMEOUT) {
-                                        hasWebError = true
-                                        webErrorMsg = error?.description?.toString() ?: "ERR_NAME_NOT_RESOLVED"
-                                    }
-                                }
+                                showFriendlyMainFrameFailure(
+                                    view = view,
+                                    isForMainFrame = request?.isForMainFrame == true,
+                                    errorCode = error?.errorCode ?: WebViewClient.ERROR_UNKNOWN
+                                )
+                            }
+
+                            @Suppress("DEPRECATION")
+                            override fun onReceivedError(
+                                view: WebView?,
+                                errorCode: Int,
+                                description: String?,
+                                failingUrl: String?
+                            ) {
+                                // API < 23 has no WebResourceRequest and invokes
+                                // this callback only for the loaded document in
+                                // the WebViews supported by the app.
+                                showFriendlyMainFrameFailure(
+                                    view = view,
+                                    isForMainFrame = true,
+                                    errorCode = errorCode
+                                )
                             }
                         }
                         // Spec-42 #427 — programmatic open also through the same allowlist.
@@ -985,7 +1208,7 @@ fun WebSourceBrowserScreen(
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "Мережева помилка (${webErrorMsg.ifBlank { "ERR_NAME_NOT_RESOLVED" }})",
+                                text = "Сторінка не завантажилася",
                                 style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                                 color = MaterialTheme.colorScheme.onSurface,
                                 modifier = Modifier.weight(1f)
@@ -1000,26 +1223,12 @@ fun WebSourceBrowserScreen(
                             }
                         }
                         Text(
-                            text = "Якщо сторінка не завантажується, перевірте з'єднання або відкрийте в браузері.",
+                            text = "Перевірте з'єднання й повторіть. Обраний мережевий маршрут не буде змінено.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(
-                                onClick = {
-                                    try {
-                                        val intent = Intent(Intent.ACTION_VIEW, currentWebUrl.toUri())
-                                        context.startActivity(intent)
-                                    } catch (_: Exception) {}
-                                },
-                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                                shape = RoundedCornerShape(AppDimens.RadiusInner)
-                            ) {
-                                Icon(imageVector = Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(14.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(stringResource(R.string.browser_in_browser), style = MaterialTheme.typography.labelMedium)
-                            }
                             OutlinedButton(
                                 onClick = {
                                     // Spec-42 #427 — retry also through allowlist.
@@ -1029,6 +1238,7 @@ fun WebSourceBrowserScreen(
                                     }
                                     hasWebError = false
                                     isLoading = true
+                                    webViewInstance?.visibility = android.view.View.VISIBLE
                                     webViewInstance?.loadUrl(currentWebUrl)
                                 },
                                 shape = RoundedCornerShape(AppDimens.RadiusInner)
@@ -1039,6 +1249,7 @@ fun WebSourceBrowserScreen(
                     }
                 }
             }
+                }
                 }
             }
         }
@@ -1053,6 +1264,8 @@ fun WebSourceBrowserScreen(
                 } catch (_: Exception) {}
             }
             webViewInstance = null
+            browserDnsProxy?.close()
+            browserDnsProxy = null
             // Persist WebView's own first-party jar. Cookie values never
             // leave CookieManager for preferences, Room, diagnostics, logs,
             // shared metadata, backup or sync payloads.
@@ -1060,6 +1273,68 @@ fun WebSourceBrowserScreen(
                 val cookieManager = android.webkit.CookieManager.getInstance()
                 cookieManager.flush()
                 sessionPrefs.edit().putBoolean("4read_method_notice_seen", true).apply()
+            }
+        }
+    }
+}
+
+@Composable
+private fun WebViewRouteGateCard(
+    failed: Boolean,
+    onRetry: () -> Unit,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.secondary),
+        shape = RoundedCornerShape(AppDimens.RadiusCard),
+        modifier = modifier.fillMaxWidth().padding(12.dp)
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (failed) {
+                    Icon(
+                        imageVector = Icons.Default.Warning,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.secondary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                } else {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        strokeWidth = 2.dp
+                    )
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = if (failed) {
+                        "Не вдалося підготувати мережевий маршрут"
+                    } else {
+                        "Готуємо захищене з'єднання…"
+                    },
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                    modifier = Modifier.weight(1f)
+                )
+                IconButton(
+                    onClick = onClose,
+                    modifier = Modifier.semantics {
+                        contentDescription = "Закрити браузер джерела"
+                    }
+                ) {
+                    Icon(Icons.Default.Close, contentDescription = null)
+                }
+            }
+            if (failed) {
+                Text(
+                    text = "Жоден запит не було надіслано повз обраний проксі або Tor.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedButton(onClick = onRetry) {
+                    Text("Повторити")
+                }
             }
         }
     }
@@ -1179,6 +1454,11 @@ private val PLAYLIST_REF_REGEX =
     Regex("""file\s*:\s*["'][^"']*(?:\{v1\}|\.(?:m3u|txt|json))[^"']*["']""", RegexOption.IGNORE_CASE)
 private val INLINE_JSON_REF_REGEX =
     Regex("""file\s*:\s*["']\[\s*\{""", RegexOption.IGNORE_CASE)
+
+private const val CLOUDFLARE_CHALLENGE_PROBE_JS =
+    """(function(){return document.querySelector('#challenge-form,.cf-turnstile,[name=\"cf-turnstile-response\"],[class*=\"cf-chl\"]')?'1':'0';})()"""
+private const val CLOUDFLARE_OBSERVE_INTERVAL_MS = 500L
+private const val HIDDEN_RECOVERY_TIMEOUT_MS = 20_000L
 
 /**
  * #478 — first-signal auto-import gate, pure for JVM tests. Fires at most

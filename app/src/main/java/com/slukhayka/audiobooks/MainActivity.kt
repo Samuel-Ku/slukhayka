@@ -166,13 +166,13 @@ class MainActivity : FragmentActivity() {
         // the same browser identity (real WebView UA) and the same privacy route
         // as the shared fetcher.
         // Spec-38 T4 (#256): that one client is now the shared
-        // [TransportClients.okHttp] — same pool, same route trampoline, and
+        // [TransportClients.okHttp] — same pool, current route, and
         // domain names resolved through the DoH door, so cover lookups no
         // longer leak to the system resolver either.
         val imageLoader = coil.ImageLoader.Builder(this)
             .allowHardware(false)
-            .okHttpClient {
-                com.slukhayka.audiobooks.data.privacy.TransportClients.okHttp
+            .callFactory {
+                com.slukhayka.audiobooks.data.privacy.TransportClients.calls
             }
             .build()
         coil.Coil.setImageLoader(imageLoader)
@@ -217,6 +217,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     )
     var fullPlayerContentPresent by remember { mutableStateOf(false) }
     val playerState by viewModel.playerState.collectAsState()
+    val narrationSwitchPrompt by viewModel.narrationSwitchPrompt.collectAsState()
     val crashReporting = App.instance.crashReporting
     val crashReportingState by crashReporting.state.collectAsState()
     val bilingualPrompt = App.instance.bilingualPrompt
@@ -256,6 +257,14 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
         )
     }
 
+    narrationSwitchPrompt?.let { prompt ->
+        NarrationSwitchConfirmationPrompt(
+            prompt = prompt,
+            onConfirm = viewModel::confirmNarrationSwitch,
+            onDismiss = viewModel::dismissNarrationSwitch
+        )
+    }
+
     // Android 13+ requires a runtime POST_NOTIFICATIONS grant for the media
     // playback notification to be visible (background audio itself still works
     // without it, but the transport controls would be hidden).
@@ -283,6 +292,9 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     }
 
     val selectedWebSource by viewModel.selectedWebSource.collectAsState()
+    val hiddenAutomaticRecovery = selectedWebSource?.let {
+        it.automaticRecovery && !it.cloudflareChallenge
+    } == true
     val hiddenAuthors by viewModel.hiddenAuthors.collectAsState()
     val selectedSeries by viewModel.selectedSeries.collectAsState()
     val seriesIndexOpen by viewModel.seriesIndexOpen.collectAsState()
@@ -381,6 +393,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
         selectedTop100 || selectedPeopleKind != null || selectedPerson != null ||
         authorsIndexOpen || selectedCanonicalAuthor != null) {
         if (showFullPlayer) {
+            if (hiddenAutomaticRecovery) viewModel.closeWebSource()
             viewModel.setShowFullPlayer(false)
         } else if (selectedWebSource != null) {
             viewModel.closeWebSource()
@@ -440,14 +453,24 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
             modifier = Modifier
                 .testTag("app_background")
                 .accessibilityModalBackground(
-                    modalVisible = fullPlayerModalActive || crashReportingState.shouldShowPrompt || bilingualPromptVisible
+                    modalVisible = fullPlayerModalActive || crashReportingState.shouldShowPrompt ||
+                        bilingualPromptVisible || narrationSwitchPrompt != null
                 ),
             bottomBar = {
                 Column {
                     // Floating Persistent Mini Player
                     MiniPlayerBar(
                         playerState = playerState,
-                        onPlayPauseClick = { viewModel.playerManager.togglePlayPause() },
+                        onPlayPauseClick = {
+                            val current = viewModel.playerManager.playerState.value
+                            current.currentBook?.let { book ->
+                                viewModel.togglePlaybackFromPlayer(
+                                    book.id,
+                                    current.currentChapterIndex,
+                                    current.currentPositionMs
+                                )
+                            }
+                        },
                         onSkipNextClick = { viewModel.playerManager.nextChapter() },
                         onBarClick = { viewModel.setShowFullPlayer(true) },
                         // ADR-0024 (#362): ready when this device can cast and
@@ -488,6 +511,12 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                         recoveryPositionMs = selectedWebSource!!.recoveryPositionMs,
                         captureTop100 = selectedWebSource!!.captureTop100,
                         captureSeriesUrl = selectedWebSource!!.captureSeriesUrl,
+                        automaticRecovery = selectedWebSource!!.automaticRecovery,
+                        cloudflareChallenge = selectedWebSource!!.cloudflareChallenge,
+                        onCloudflareChallengeChanged = { required ->
+                            viewModel.setRecoveryCloudflareChallenge(required)
+                        },
+                        onAutomaticRecoveryFailed = viewModel::failAutomaticBrowserRecovery,
                         onClose = { viewModel.closeWebSource() }
                     )
 
@@ -986,7 +1015,10 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
             // ADR-0008 batch 4 (#159): the module comes in as a parameter from
             // the composition root.
             libraryEntries = viewModel.libraryEntries,
-            onDismiss = { viewModel.setShowFullPlayer(false) }
+            onDismiss = {
+                if (hiddenAutomaticRecovery) viewModel.closeWebSource()
+                viewModel.setShowFullPlayer(false)
+            }
         )
     }
     }
@@ -1009,6 +1041,37 @@ internal fun CrashReportConsentPrompt(
         dismissButton = {
             TextButton(onClick = onDeny) {
                 Text(stringResource(R.string.crash_reports_deny))
+            }
+        }
+    )
+}
+
+@Composable
+internal fun NarrationSwitchConfirmationPrompt(
+    prompt: com.slukhayka.audiobooks.ui.NarrationSwitchPrompt,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val current = prompt.currentNarrator.ifBlank {
+        stringResource(R.string.narration_switch_unknown_current)
+    }
+    val target = prompt.targetNarrator.ifBlank {
+        stringResource(R.string.narration_switch_unknown_target)
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.narration_switch_title)) },
+        text = {
+            Text(stringResource(R.string.narration_switch_body, current, target, prompt.title))
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text(stringResource(R.string.narration_switch_confirm))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.narration_switch_cancel))
             }
         }
     )

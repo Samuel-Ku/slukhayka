@@ -44,6 +44,23 @@ import org.robolectric.annotation.Config
 @Config(sdk = [36])
 class TombstoneCatalogGuardTest {
 
+    @Test
+    fun `catalog refresh preserves paused download progress`() = runBlocking {
+        val imports = LibraryImport(dao, context, emptyList())
+        val card = CatalogBook(
+            id = "partial-refresh", title = "Книга", author = "Автор",
+            url = "https://4read.org/partial.html", coverImageUrl = null
+        )
+        imports.upsertCatalogBook(card)
+        dao.updateDownloadStateWithState(card.id, false, 0.4375f, "PAUSED")
+
+        imports.upsertCatalogBook(card)
+
+        val after = dao.getAudiobookById(card.id)!!
+        assertEquals("PAUSED", after.downloadState)
+        assertEquals(0.4375f, after.downloadProgress, 0.0001f)
+    }
+
     private lateinit var context: Context
     private lateinit var db: AudiobookDatabase
     private lateinit var dao: AudiobookDao

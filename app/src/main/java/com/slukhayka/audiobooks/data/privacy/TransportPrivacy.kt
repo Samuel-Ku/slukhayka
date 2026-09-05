@@ -25,7 +25,9 @@ object TransportPrivacy {
      */
     fun install(prefs: PrivacyPrefs): RouteResolution = when (val resolution = NetworkPrivacy.resolve(prefs)) {
         is RouteResolution.Ok -> {
+            val changed = route != resolution.route
             route = resolution.route
+            if (changed) TransportClients.routeChanged()
             TransportDns.install(prefs)
             resolution
         }

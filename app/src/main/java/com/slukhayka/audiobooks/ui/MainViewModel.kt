@@ -129,7 +129,9 @@ data class SelectedWebSource(
     val recoveryChapterIndex: Int? = null,
     val recoveryPositionMs: Long = 0L,
     val captureTop100: Boolean = false,
-    val captureSeriesUrl: String? = null
+    val captureSeriesUrl: String? = null,
+    val automaticRecovery: Boolean = false,
+    val cloudflareChallenge: Boolean = false
 )
 
 /** A genre (category) opened from the Explore "Жанри" chips row. */
@@ -277,6 +279,45 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val updateChecker: UpdateChecker = App.instance.updateChecker
 
     val playerState: StateFlow<PlayerState> = playerManager.playerState
+    private val automaticPlaybackRecoveryGate = AutomaticPlaybackRecoveryGate()
+
+    private val _narrationSwitchPrompt = MutableStateFlow<NarrationSwitchPrompt?>(null)
+    val narrationSwitchPrompt: StateFlow<NarrationSwitchPrompt?> =
+        _narrationSwitchPrompt.asStateFlow()
+    private var pendingNarrationSwitchAction: (() -> Unit)? = null
+    private var approvedNarrationEditionKey: String? = null
+
+    private fun withNarrationSwitchConfirmation(
+        target: NarrationSwitchIdentity,
+        action: () -> Unit
+    ) {
+        val current = playerState.value.currentBook?.let(::narrationSwitchIdentity)
+        if (!requiresNarrationSwitchConfirmation(current, target, approvedNarrationEditionKey)) {
+            action()
+            return
+        }
+        pendingNarrationSwitchAction = action
+        _narrationSwitchPrompt.value = NarrationSwitchPrompt(
+            currentNarrator = current?.narrator.orEmpty(),
+            targetNarrator = target.narrator,
+            title = target.title,
+            targetEditionKey = target.editionKey
+        )
+    }
+
+    fun confirmNarrationSwitch() {
+        val prompt = _narrationSwitchPrompt.value ?: return
+        val action = pendingNarrationSwitchAction ?: return
+        approvedNarrationEditionKey = prompt.targetEditionKey
+        pendingNarrationSwitchAction = null
+        _narrationSwitchPrompt.value = null
+        action()
+    }
+
+    fun dismissNarrationSwitch() {
+        pendingNarrationSwitchAction = null
+        _narrationSwitchPrompt.value = null
+    }
 
     private val catalogCardCoordinator = CatalogCardActionCoordinator(
         scope = viewModelScope,
@@ -329,6 +370,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
             override suspend fun play(book: AudiobookEntity, source: SourceEntity?): Boolean {
                 val playing = startCatalogPlaybackAndAwait(book, source)
+                if (!playing) {
+                    val failed = playerState.value
+                    recoverPlaybackAutomatically(
+                        book.id,
+                        failed.currentChapterIndex.takeIf { failed.currentBook?.id == book.id } ?: 0,
+                        failed.currentPositionMs.takeIf { failed.currentBook?.id == book.id } ?: 0L
+                    )
+                }
                 if (playing && source != null) {
                     publishVerifiedCatalogProfile(book, source)
                 }
@@ -415,6 +464,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         refreshCacheSize()
+        // A real engine start, not an optimistic prepare, permits one future
+        // automatic recovery if this playing session later loses its media.
+        viewModelScope.launch {
+            playerManager.playbackStarted.collect { started ->
+                automaticPlaybackRecoveryGate.arm(started.bookId)
+            }
+        }
+        // Recovery belongs to the playback workflow, not to one screen. This
+        // also covers mini-player and catalogue Play actions while the full
+        // player is closed. The gate makes repeated StateFlow emissions inert.
+        viewModelScope.launch {
+            playerState.collect { failed ->
+                val failedBook = failed.currentBook ?: return@collect
+                if (failed.lastErrorMsg.isNotBlank()) {
+                    recoverPlaybackAutomatically(
+                        failedBook.id,
+                        failed.currentChapterIndex,
+                        failed.currentPositionMs
+                    )
+                }
+            }
+        }
         // Spec-40 integration — lane-a's identity module feeds lane-b's
         // resolved-profile state; the reviews block unlocks for writing the
         // moment ensure() answers (or degrades to local-only, its contract).
@@ -553,10 +624,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _selectedBookId = MutableStateFlow<String?>(null)
     val selectedBookId: StateFlow<String?> = _selectedBookId.asStateFlow()
 
-    val selectedBook: StateFlow<AudiobookEntity?> = _selectedBookId
+    // AudiobookEntity excludes joined fields from equality. Keep the immutable
+    // read row here so pause/progress-only changes reach the open detail screen.
+    val selectedBook: StateFlow<com.slukhayka.audiobooks.data.db.BookRow?> = _selectedBookId
         .flatMapLatest { id ->
             if (id == null) flowOf(null)
-            else libraryEntries.observeBook(id)
+            else libraryEntries.observeBookRow(id)
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
@@ -716,12 +789,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 
-    /** Opens 4read's in-app browser as an explicit recovery action — “Оновити через браузер”. */
-    fun open4ReadRecovery(bookId: String, chapterIndex: Int, positionMs: Long) {
-        // The full player is an overlay above the app destination tree.  Leave
-        // it before publishing the browser route; otherwise recovery did open
-        // the WebView, but it remained invisible and untappable behind Player.
-        _showFullPlayer.value = false
+    /** Opens 4read recovery hidden behind Player unless explicitly requested. */
+    fun open4ReadRecovery(
+        bookId: String,
+        chapterIndex: Int,
+        positionMs: Long,
+        automatic: Boolean = false
+    ) {
+        // Automatic recovery keeps the ordinary player in front. An explicit
+        // browser action still opens the full source surface.
+        _showFullPlayer.value = automatic
         viewModelScope.launch(Dispatchers.IO) {
             val book = libraryEntries.getBookSync(bookId)
             val sourceUrl = try {
@@ -739,7 +816,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     displayName = "4read",
                     recoveryBookId = bookId,
                     recoveryChapterIndex = chapterIndex,
-                    recoveryPositionMs = positionMs
+                    recoveryPositionMs = positionMs,
+                    automaticRecovery = automatic
                 )
             }
         }
@@ -761,19 +839,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      *      книга грає після смерті remote»);
      *  (b) **інакше один обмежений ре-резолв джерел книги** через
      *      LOCAL → DIRECT → UNKNOWN ([SourceAccessPolicy.order]) з
-     *      cross-source пошуком sluhayua (#469) перед відмовою; BROWSER
-     *      джерело ніколи не відкривається неявно (ADR-0026);
-     *  (c) **нічого не знайдено → чесне «Книга недоступна»**
-     *      ([AudioPlayerManager.reportRetryUnavailable]); явні браузерні
-     *      двері для будь-якого BROWSER джерела рендерить PlayerScreen
-     *      ([browserRecoverySources]).
+     *      без пошуку нових джерел до явної дії слухача;
+     *  (c) **нічого не знайдено** — явне Play дозволяє один автоматичний
+     *      перехід у browser recovery, а без browser Source — пошук іншого
+     *      джерела. Ручний діагностичний retry лишає чесний unavailable state.
      *
      * Послідовність спроб обмежена [SmartRetryMemo] (ADR-0019): невдача
      * блокує автоматичний ре-резолв на негативне вікно, успіх не повторюється
-     * у позитивному. Локальний файл і браузерні двері memo не читають —
-     * явна людська втеча ніколи не є циклом.
+     * у позитивному. Окремий [AutomaticPlaybackRecoveryGate] не дає помилці
+     * самого recovery відкрити браузер повторно.
      */
-    fun smartRetryPlayback(bookId: String, chapterIndex: Int, positionMs: Long) {
+    fun smartRetryPlayback(
+        bookId: String,
+        chapterIndex: Int,
+        positionMs: Long,
+        automatic: Boolean = false
+    ) {
         viewModelScope.launch(Dispatchers.IO) {
             val playable = runCatching { sourceCatalog.getPlayableChapters(bookId) }.getOrDefault(emptyList())
             val track = playable.getOrNull(chapterIndex)?.track
@@ -790,22 +871,49 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
 
                 SmartRetryPolicy.Decision.Unavailable -> withContext(Dispatchers.Main) {
-                    // Bounded: спроба вже витрачена — чесна відмова одразу,
-                    // без повторного обходу джерел.
-                    playerManager.reportRetryUnavailable()
+                    finishUnavailableRecovery(bookId, chapterIndex, positionMs, automatic)
                 }
 
-                SmartRetryPolicy.Decision.ReResolve -> resolveAndReplay(bookId, chapterIndex, positionMs)
+                SmartRetryPolicy.Decision.ReResolve ->
+                    resolveAndReplay(bookId, chapterIndex, positionMs, automatic)
             }
         }
     }
 
+    /** Called by the player once its armed Play attempt reports a real error. */
+    fun recoverPlaybackAutomatically(bookId: String, chapterIndex: Int, positionMs: Long) {
+        if (!automaticPlaybackRecoveryGate.claimFailure(bookId)) return
+        playerManager.beginAutomaticRecovery()
+        smartRetryPlayback(bookId, chapterIndex, positionMs, automatic = true)
+    }
+
+    /** Player transport action: pauses normally; Play arms automatic recovery. */
+    fun togglePlaybackFromPlayer(bookId: String, chapterIndex: Int, positionMs: Long) {
+        if (playerState.value.isPlaying) {
+            playerManager.pause()
+            return
+        }
+        automaticPlaybackRecoveryGate.arm(bookId)
+        if (playerState.value.lastErrorMsg.isNotBlank()) {
+            recoverPlaybackAutomatically(bookId, chapterIndex, positionMs)
+        } else {
+            playerManager.togglePlayPause()
+        }
+    }
+
     /** (b) — один обмежений прохід ре-резолву, потім чесна відмова. */
-    private suspend fun resolveAndReplay(bookId: String, chapterIndex: Int, positionMs: Long) {
+    private suspend fun resolveAndReplay(
+        bookId: String,
+        chapterIndex: Int,
+        positionMs: Long,
+        automatic: Boolean
+    ) {
         val book = runCatching { libraryEntries.getBookSync(bookId) }.getOrNull()
         if (book == null) {
             smartRetryMemo.recordFailure(bookId)
-            withContext(Dispatchers.Main) { playerManager.reportRetryUnavailable() }
+            withContext(Dispatchers.Main) {
+                finishUnavailableRecovery(bookId, chapterIndex, positionMs, automatic)
+            }
             return
         }
         val identity = KnownBookIdentity(
@@ -830,38 +938,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }.getOrNull()
             if (resolved != null) break
         }
-        // Cross-source search (#469): один sluhayua-запит перед відмовою —
-        // той самий резолвер, що й перед браузерними дверима картки.
-        if (resolved == null) {
-            val mergeKey = book.mergeKey.ifBlank { MergeKey.keyFor(book.title, book.author) }
-            val match = runCatching {
-                App.instance.sluhayuaCrossResolve.resolve(
-                    title = book.title,
-                    author = book.author,
-                    mergeKey = mergeKey
-                )
-            }.getOrNull()
-            if (match != null) {
-                resolved = runCatching {
-                    withTimeoutOrNull(smartRetryResolveTimeoutMs) {
-                        libraryImport.importFromSourceUrl(
-                            com.slukhayka.audiobooks.data.source.SourceIds.SLUHAYUA,
-                            match.url,
-                            identity
-                        )
-                    }
-                }.getOrNull()
-            }
-        }
+        // Alternative discovery belongs to the explicit Find another source action.
+        // Retry only revisits sources already saved for this book.
         if (resolved == null) {
             smartRetryMemo.recordFailure(bookId)
-            withContext(Dispatchers.Main) { playerManager.reportRetryUnavailable() }
+            withContext(Dispatchers.Main) {
+                finishUnavailableRecovery(bookId, chapterIndex, positionMs, automatic)
+            }
             return
         }
         smartRetryMemo.recordSuccess(bookId)
         val freshPlayable = runCatching { sourceCatalog.getPlayableChapters(bookId) }.getOrDefault(emptyList())
         if (freshPlayable.isEmpty()) {
-            withContext(Dispatchers.Main) { playerManager.reportRetryUnavailable() }
+            withContext(Dispatchers.Main) {
+                finishUnavailableRecovery(bookId, chapterIndex, positionMs, automatic)
+            }
             return
         }
         withContext(Dispatchers.Main) {
@@ -875,6 +966,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             )
             _showFullPlayer.value = true
         }
+    }
+
+    /**
+     * The Play gesture authorizes recovery through a saved browser source.
+     * Without one, show retry and the explicit alternative-search action.
+     */
+    private suspend fun finishUnavailableRecovery(
+        bookId: String,
+        chapterIndex: Int,
+        positionMs: Long,
+        automatic: Boolean
+    ) {
+        if (!automatic) {
+            playerManager.reportRetryUnavailable()
+            return
+        }
+        val browserSource = browserRecoverySources(bookId).firstOrNull()
+        if (browserSource != null) {
+            openBrowserRecovery(bookId, browserSource, chapterIndex, positionMs, automatic = true)
+            return
+        }
+        // Stay in Player. The listener decides whether to retry or start the
+        // alternate-source search; automatic recovery never navigates away or
+        // claims success on their behalf.
+        playerManager.reportRetryUnavailable()
     }
 
     /**
@@ -898,14 +1014,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * #471 — відкриває браузер ЛЮБОГО BROWSER джерела як явну дію
      * відновлення (узагальнює [open4ReadRecovery] beyond 4read).
      */
-    fun openBrowserRecovery(bookId: String, sourceId: String, chapterIndex: Int, positionMs: Long) {
+    fun openBrowserRecovery(
+        bookId: String,
+        sourceId: String,
+        chapterIndex: Int,
+        positionMs: Long,
+        automatic: Boolean = false
+    ) {
         if (sourceId == SourceIds.FOUR_READ) {
-            open4ReadRecovery(bookId, chapterIndex, positionMs)
+            open4ReadRecovery(bookId, chapterIndex, positionMs, automatic)
             return
         }
-        // The full player is an overlay above the app destination tree — the
-        // browser route must be visible (same reason as open4ReadRecovery).
-        _showFullPlayer.value = false
+        _showFullPlayer.value = automatic
         viewModelScope.launch(Dispatchers.IO) {
             val entry = runCatching {
                 com.slukhayka.audiobooks.data.imports.BrowserRecoveryCoordinator.recoveryEntryUrl(
@@ -914,7 +1034,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     sourceId
                 )
             }.getOrDefault("")
-            if (entry.isBlank()) return@launch
+            if (entry.isBlank()) {
+                withContext(Dispatchers.Main) {
+                    if (automatic) playerManager.reportRetryUnavailable()
+                }
+                return@launch
+            }
             withContext(Dispatchers.Main) {
                 _selectedWebSource.value = SelectedWebSource(
                     sourceId = sourceId,
@@ -922,10 +1047,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     displayName = sourceDisplayName(sourceId),
                     recoveryBookId = bookId,
                     recoveryChapterIndex = chapterIndex,
-                    recoveryPositionMs = positionMs
+                    recoveryPositionMs = positionMs,
+                    automaticRecovery = automatic
                 )
             }
         }
+    }
+
+    /** Reveal only the site's Cloudflare document when human input is required. */
+    fun setRecoveryCloudflareChallenge(required: Boolean) {
+        val selected = _selectedWebSource.value ?: return
+        if (!selected.automaticRecovery) return
+        if (selected.cloudflareChallenge == required) return
+        _selectedWebSource.value = selected.copy(cloudflareChallenge = required)
+        _showFullPlayer.value = !required
+    }
+
+    /** Terminal outcome for hidden browser recovery: return to Player actions. */
+    fun failAutomaticBrowserRecovery() {
+        val selected = _selectedWebSource.value ?: return
+        if (!selected.automaticRecovery) return
+        _selectedWebSource.value = null
+        _showFullPlayer.value = true
+        playerManager.reportRetryUnavailable()
     }
 
     fun recoverWebSourcePage(
@@ -943,11 +1087,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val coordinator = com.slukhayka.audiobooks.data.imports.BrowserRecoveryCoordinator(
                 dao = App.instance.audiobookDao,
                 libraryImport = libraryImport,
-                profileStore = sharedMetaStore,
-                playbackVerifier = com.slukhayka.audiobooks.data.imports.BrowserRecoveryCoordinator.PlaybackVerifier { _, trackUrl ->
-                    val fetcher = HttpFetcher()
-                    val len = try { fetcher.headContentLength(trackUrl, headersFor(sourceId, trackUrl)) } catch (_: Exception) { null }
-                    len != null
+                // Verified publication runs separately after the playback verdict.
+                // A slow shared store must not keep the recovery browser open.
+                profileStore = null,
+                playbackVerifier = com.slukhayka.audiobooks.data.imports.BrowserRecoveryCoordinator.PlaybackVerifier { recoveredBookId, trackUrl ->
+                    startRecoveredPlaybackAndAwait(
+                        bookId = recoveredBookId,
+                        trackUrl = trackUrl,
+                        sourceId = sourceId,
+                        sourceUrl = url,
+                        positionMs = positionMs
+                    )
                 },
                 cleanProbe = com.slukhayka.audiobooks.data.imports.BrowserRecoveryCoordinator.CleanProbe { trackUrl ->
                     val fetcher = HttpFetcher()
@@ -965,57 +1115,54 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             withContext(Dispatchers.Main) {
                 when (outcome) {
                     is com.slukhayka.audiobooks.data.imports.BrowserRecoveryCoordinator.Outcome.Success -> {
-                        val playable = sourceCatalog.getPlayableChapters(outcome.book.id)
-                        val ch = playable.getOrNull(outcome.resumeChapterIndex)
-                        if (ch?.track?.url?.startsWith("http", ignoreCase = true) == true) {
-                            playerManager.loadAndPlayBook(
-                                book = outcome.book,
-                                chapters = playable.map { it.chapter },
-                                playable = playable,
-                                initialChapterIndex = outcome.resumeChapterIndex,
-                                initialPositionSeconds = outcome.resumePositionMs / 1000L,
-                                autoPlay = true
-                            )
-                            _showFullPlayer.value = true
-                        }
-                        // #431 — publishing is strictly post-verdict and
-                        // best-effort. The publisher repeats a clean,
-                        // cookie-free transport probe, so the private WebView
-                        // session never becomes shared metadata.
-                        val editionId = editionIdForBook(outcome.book.id)
-                        val recoveredSource = App.instance.audiobookDao.getSourcesForBookSync(outcome.book.id)
-                            .firstOrNull { it.type == sourceId && it.url == url }
-                        if (editionId != null && recoveredSource != null) {
-                            val profile = BookProfile(
-                                title = outcome.book.title,
-                                author = outcome.book.author,
-                                narrator = outcome.book.narrator,
-                                description = outcome.book.description,
-                                chapters = playable.mapNotNull { chapter ->
-                                    chapter.track?.url
-                                        ?.takeIf { it.startsWith("http", ignoreCase = true) }
-                                        ?.let { trackUrl ->
-                                            ProfileChapter(chapter.chapter.title, trackUrl, chapter.chapter.durationSeconds)
-                                        }
-                                },
-                                totalDurationSeconds = outcome.book.totalDurationSeconds.takeIf { it > 0L }
-                            )
-                            runCatching {
-                                App.instance.verifiedSourceProfilePublisher.publish(
-                                    VerifiedSourceProfile(
-                                        sourceId = sourceId,
-                                        editionId = editionId,
-                                        playerOpened = true,
-                                        source = SourceAccessCandidate(sourceId, url = url),
-                                        profile = profile
-                                    )
-                                )
-                            }
-                        }
+                        // The verifier already started this exact media item
+                        // and observed Player.onIsPlayingChanged(true). Do not
+                        // prepare it a second time: that could close the
+                        // browser before the replacement prepare really plays.
+                        _showFullPlayer.value = true
                         if (sourceId == "4read") {
                             offlineDownloads.confirmBrowserRefresh(outcome.book.id)
                         }
                         onComplete(true)
+                        viewModelScope.launch(Dispatchers.IO) {
+                            val playable = sourceCatalog.getPlayableChapters(
+                                outcome.book.id, preferredSourceType = sourceId, preferredSourceUrl = url
+                            )
+                            // #431 — publishing is strictly post-verdict and
+                            // best-effort. The publisher repeats a clean,
+                            // cookie-free transport probe, so the private WebView
+                            // session never becomes shared metadata.
+                            val editionId = editionIdForBook(outcome.book.id)
+                            val recoveredSource = App.instance.audiobookDao.getSourcesForBookSync(outcome.book.id)
+                                .firstOrNull { it.type == sourceId && it.url == url }
+                            if (editionId != null && recoveredSource != null) {
+                                val profile = BookProfile(
+                                    title = outcome.book.title,
+                                    author = outcome.book.author,
+                                    narrator = outcome.book.narrator,
+                                    description = outcome.book.description,
+                                    chapters = playable.mapNotNull { chapter ->
+                                        chapter.track?.url
+                                            ?.takeIf { it.startsWith("http", ignoreCase = true) }
+                                            ?.let { trackUrl ->
+                                                ProfileChapter(chapter.chapter.title, trackUrl, chapter.chapter.durationSeconds)
+                                            }
+                                    },
+                                    totalDurationSeconds = outcome.book.totalDurationSeconds.takeIf { it > 0L }
+                                )
+                                runCatching {
+                                    App.instance.verifiedSourceProfilePublisher.publish(
+                                        VerifiedSourceProfile(
+                                            sourceId = sourceId,
+                                            editionId = editionId,
+                                            playerOpened = true,
+                                            source = SourceAccessCandidate(sourceId, url = url),
+                                            profile = profile
+                                        )
+                                    )
+                                }
+                            }
+                        }
                     }
                     is com.slukhayka.audiobooks.data.imports.BrowserRecoveryCoordinator.Outcome.Failure -> onComplete(false)
                     is com.slukhayka.audiobooks.data.imports.BrowserRecoveryCoordinator.Outcome.StructureMismatch -> onStructureMismatch(outcome)
@@ -1571,6 +1718,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _selectedTab.value = tab
     }
 
+    /**
+     * Explicit player escape hatch after a source fails. Search starts only
+     * from the listener's tap; the loaded player and its persisted position
+     * stay intact until they choose another result.
+     */
+    fun findAnotherSource(workTitle: String) {
+        _showFullPlayer.value = false
+        selectBook(null)
+        _selectedTab.value = SelectedTab.EXPLORE
+        updateSearchQuery(workTitle)
+    }
+
     // Spec-10 T4: aggregated search results across all verified sources
     // (ephemeral — nothing is imported until the user taps a result).
     private val _globalSearchResults = MutableStateFlow<List<GlobalSearchResult>>(emptyList())
@@ -1635,11 +1794,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     /** #454 — global search uses the same explicit Open/Play coordinator as the feed. */
     fun openGlobalSearchResult(result: GlobalSearchResult) {
-        catalogCardCoordinator.start(result.asCatalogCardTarget(), CatalogCardAction.OPEN)
+        withNarrationSwitchConfirmation(narrationSwitchIdentity(result)) {
+            catalogCardCoordinator.start(result.asCatalogCardTarget(), CatalogCardAction.OPEN)
+        }
     }
 
     fun playGlobalSearchResult(result: GlobalSearchResult) {
-        catalogCardCoordinator.start(result.asCatalogCardTarget(), CatalogCardAction.PLAY)
+        withNarrationSwitchConfirmation(narrationSwitchIdentity(result)) {
+            catalogCardCoordinator.start(result.asCatalogCardTarget(), CatalogCardAction.PLAY)
+        }
     }
 
     fun preflightGlobalSearchResult(result: GlobalSearchResult) {
@@ -1665,11 +1828,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     )
 
     fun openCatalogBook(book: CatalogBook) {
-        catalogCardCoordinator.start(book.asCatalogCardTarget(), CatalogCardAction.OPEN)
+        withNarrationSwitchConfirmation(narrationSwitchIdentity(book)) {
+            catalogCardCoordinator.start(book.asCatalogCardTarget(), CatalogCardAction.OPEN)
+        }
     }
 
     fun playCatalogBook(book: CatalogBook) {
-        catalogCardCoordinator.start(book.asCatalogCardTarget(), CatalogCardAction.PLAY)
+        withNarrationSwitchConfirmation(narrationSwitchIdentity(book)) {
+            catalogCardCoordinator.start(book.asCatalogCardTarget(), CatalogCardAction.PLAY)
+        }
     }
 
     fun preflightCatalogBook(book: CatalogBook) {
@@ -1971,6 +2138,61 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 preferredSource = preferredSource
             )
             verdict.await()?.isPlaying == true
+    }
+
+    /**
+     * Browser recovery may close only after the native engine reports that
+     * the exact captured media item is actually playing. HTTP reachability and
+     * optimistic [PlayerState.isPlaying] are deliberately insufficient.
+     */
+    private suspend fun startRecoveredPlaybackAndAwait(
+        bookId: String,
+        trackUrl: String,
+        sourceId: String,
+        sourceUrl: String,
+        positionMs: Long
+    ): Boolean {
+        val book = App.instance.audiobookDao.getAudiobookById(bookId)
+            ?.toAudiobookEntity()
+            ?: return false
+        val playable = sourceCatalog.getPlayableChapters(
+            bookId, preferredSourceType = sourceId, preferredSourceUrl = sourceUrl
+        )
+        val chapterIndex = playable.indexOfFirst { it.track?.url == trackUrl }
+        if (chapterIndex < 0) return false
+        val localPath = playable[chapterIndex].track?.localFilePath
+        val expectedMediaUrl = if (SmartRetryPolicy.localFileReady(localPath)) {
+            android.net.Uri.fromFile(java.io.File(localPath!!)).toString()
+        } else trackUrl
+
+        return withContext(Dispatchers.Main) {
+            coroutineScope {
+                val verdict = async(start = CoroutineStart.UNDISPATCHED) {
+                    withTimeoutOrNull(CatalogAvailabilityPolicy.SOURCE_BUDGET_MS) {
+                        playerManager.playbackStarted.first { started ->
+                            started.bookId == bookId &&
+                                started.chapterIndex == chapterIndex &&
+                                started.mediaUrl == expectedMediaUrl
+                        }
+                    } != null
+                }
+                playerManager.loadAndPlayBook(
+                    book = book,
+                    chapters = playable.map { it.chapter },
+                    playable = playable,
+                    initialChapterIndex = chapterIndex,
+                    initialPositionSeconds = positionMs / 1000L,
+                    autoPlay = true
+                )
+                verdict.await().also { started ->
+                    if (!started && playerState.value.currentBook?.id == bookId) {
+                        // Cancels pending autoplay too, so a late READY cannot
+                        // begin playing after recovery already reported failure.
+                        playerManager.pause()
+                    }
+                }
+            }
+        }
     }
 
     private suspend fun preflightCatalogMedia(
@@ -2330,12 +2552,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun openRecommendedBook(candidateId: String) {
         val result = sourceCatalog.unifiedCatalog.value.firstOrNull { it.key == candidateId } ?: return
         recommendationPersonalization.recordDetailOpen()
-        catalogCardCoordinator.start(result.asCatalogCardTarget(), CatalogCardAction.OPEN)
+        openGlobalSearchResult(result)
     }
 
     fun playRecommendedBook(candidateId: String) {
         val result = sourceCatalog.unifiedCatalog.value.firstOrNull { it.key == candidateId } ?: return
-        catalogCardCoordinator.start(result.asCatalogCardTarget(), CatalogCardAction.PLAY)
+        playGlobalSearchResult(result)
     }
 
     fun preflightRecommendedBook(candidateId: String) {
@@ -2399,6 +2621,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         } else {
             _relatedBooks.value = emptyList()
             _selectedBookUniverse.value = null
+        }
+    }
+
+    /** Opens an explicitly different rendition only after the shared Edition gate. */
+    fun openNarration(book: AudiobookEntity) {
+        withNarrationSwitchConfirmation(narrationSwitchIdentity(book)) {
+            selectBook(book.id)
         }
     }
 
@@ -2753,22 +2982,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         autoPlay: Boolean = true,
         preferredSource: SourceEntity? = null
     ) {
-        if (autoPlay && pendingRecommendationBookId.compareAndSet(book.id, null)) {
-            recommendationPersonalization.recordPlaybackStart()
+        withNarrationSwitchConfirmation(narrationSwitchIdentity(book)) {
+            if (autoPlay && pendingRecommendationBookId.compareAndSet(book.id, null)) {
+                recommendationPersonalization.recordPlaybackStart()
+            }
+            startAudiobookPlayback(
+                book,
+                chapterIndex = chapterIndex,
+                autoPlay = autoPlay,
+                forceRelisten = false,
+                preferredSource = preferredSource
+            )
         }
-        startAudiobookPlayback(
-            book,
-            chapterIndex = chapterIndex,
-            autoPlay = autoPlay,
-            forceRelisten = false,
-            preferredSource = preferredSource
-        )
     }
 
     // #40 decision 1: the book page's «Почати спочатку» — always chapter 0 /
     // position 0, logged as RELISTEN, no smart-rewind of a stale pause marker.
     fun relistenBook(book: AudiobookEntity) {
-        startAudiobookPlayback(book, chapterIndex = null, autoPlay = true, forceRelisten = true)
+        withNarrationSwitchConfirmation(narrationSwitchIdentity(book)) {
+            automaticPlaybackRecoveryGate.arm(book.id)
+            startAudiobookPlayback(book, chapterIndex = null, autoPlay = true, forceRelisten = true)
+        }
     }
 
     private fun startAudiobookPlayback(
@@ -2796,6 +3030,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         forceRelisten: Boolean,
         preferredSource: SourceEntity? = null
     ) {
+            if (autoPlay) automaticPlaybackRecoveryGate.beginAttempt(book.id)
             val updatedBook = libraryEntries.getBookSync(book.id) ?: book
             // ADR-0007: the chapter→track pairing rides the same fetch — the
             // player resolves chapter → track 1:1 by index.
@@ -2838,6 +3073,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
 
             withContext(Dispatchers.Main) {
+                if (autoPlay) {
+                    // The Play gesture may have started while the previous
+                    // session still held an error. Clear that stale emission,
+                    // then arm recovery only for the attempt installed below.
+                    playerManager.clearPlaybackFailureForNewAttempt()
+                    automaticPlaybackRecoveryGate.arm(updatedBook.id)
+                }
                 playerManager.loadAndPlayBook(
                     book = updatedBook,
                     chapters = chapters,
@@ -3025,9 +3267,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     _downloadRecoveryBookId.value = null
                 }
             } finally {
-                offlineDownloads.unregisterDownloadJob(bookId)
-                _downloadingBookId.value = null
-                stopDownloadNotification()
+                if (offlineDownloads.unregisterDownloadJob(bookId, kotlinx.coroutines.currentCoroutineContext()[kotlinx.coroutines.Job]!!)) {
+                    _downloadingBookId.value = null
+                    stopDownloadNotification()
+                }
                 refreshCacheSize()
             }
         }
@@ -3038,8 +3281,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun pauseDownload(bookId: String) {
         viewModelScope.launch(Dispatchers.IO) {
             offlineDownloads.pauseDownload(bookId)
-            _downloadingBookId.value = null
-            com.slukhayka.audiobooks.data.downloads.DownloadNotificationService.notifyPaused(getApplication(), bookId)
+            if (!offlineDownloads.hasActiveDownload()) {
+                _downloadingBookId.value = null
+                com.slukhayka.audiobooks.data.downloads.DownloadNotificationService.notifyPaused(getApplication(), bookId)
+            }
             refreshCacheSize()
         }
     }
@@ -3065,9 +3310,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: Exception) {
                 android.util.Log.w("MainViewModel", "Offline continue failed", e)
             } finally {
-                offlineDownloads.unregisterDownloadJob(bookId)
-                _downloadingBookId.value = null
-                stopDownloadNotification()
+                if (offlineDownloads.unregisterDownloadJob(bookId, kotlinx.coroutines.currentCoroutineContext()[kotlinx.coroutines.Job]!!)) {
+                    _downloadingBookId.value = null
+                    stopDownloadNotification()
+                }
                 refreshCacheSize()
             }
         }
@@ -3077,8 +3323,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun cancelDownload(bookId: String) {
         viewModelScope.launch(Dispatchers.IO) {
             offlineDownloads.cancelDownload(bookId)
-            _downloadingBookId.value = null
-            stopDownloadNotification()
+            if (!offlineDownloads.hasActiveDownload()) {
+                _downloadingBookId.value = null
+                stopDownloadNotification()
+            }
             refreshCacheSize()
         }
     }

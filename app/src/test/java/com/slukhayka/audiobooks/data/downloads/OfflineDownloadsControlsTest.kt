@@ -22,7 +22,6 @@ import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -218,7 +217,7 @@ class OfflineDownloadsControlsTest {
     // =====================================================================
 
     @Test
-    fun `cancelDownload deletes all downloaded files for the edition`() = runBlocking {
+    fun `cancelDownload preserves all completed files for later continuation`() = runBlocking {
         val h = setupHarness(numChapters = 2)
         val file0 = File(h.audioDir, "ch-0.mp3")
         file0.writeBytes(ByteArray(1024))
@@ -229,12 +228,12 @@ class OfflineDownloadsControlsTest {
 
         h.downloads.cancelDownload(h.bookId)
 
-        assertFalse("File 0 should be deleted", file0.exists())
-        assertFalse("File 1 should be deleted", file1.exists())
+        assertTrue("File 0 should survive cancellation", file0.exists())
+        assertTrue("File 1 should survive cancellation", file1.exists())
     }
 
     @Test
-    fun `cancelDownload clears track localFilePath and contentHash`() = runBlocking {
+    fun `cancelDownload preserves track localFilePath and contentHash`() = runBlocking {
         val h = setupHarness(numChapters = 2)
         val file0 = File(h.audioDir, "ch-0.mp3")
         file0.writeBytes(ByteArray(1024))
@@ -244,31 +243,32 @@ class OfflineDownloadsControlsTest {
         h.downloads.cancelDownload(h.bookId)
 
         val track0 = dao.getTracksForBookSync(h.bookId).first { it.id == "tr-0" }
-        assertFalse("Track should not be downloaded", track0.isDownloaded)
-        assertNull("Track localFilePath should be null", track0.localFilePath)
+        assertTrue("Completed track should remain downloaded", track0.isDownloaded)
+        assertEquals(file0.absolutePath, track0.localFilePath)
+        assertEquals("abc123", track0.contentHash)
     }
 
     @Test
-    fun `cancelDownload resets downloadProgress to 0 and state to IDLE`() = runBlocking {
+    fun `cancelDownload keeps progress and changes state to PAUSED`() = runBlocking {
         val h = setupHarness()
         dao.updateDownloadStateWithState(h.bookId, false, 0.75f, DownloadState.DOWNLOADING)
 
         h.downloads.cancelDownload(h.bookId)
 
         val entry = dao.getAudiobookById(h.bookId)
-        assertEquals(0f, entry?.downloadProgress ?: -1f)
-        assertEquals(DownloadState.IDLE, entry?.downloadState)
+        assertEquals(0.75f, entry?.downloadProgress ?: -1f)
+        assertEquals(DownloadState.PAUSED, entry?.downloadState)
     }
 
     @Test
-    fun `cancelDownload clears content hashes for the book`() = runBlocking {
+    fun `cancelDownload preserves content hashes for completed deduplication`() = runBlocking {
         val h = setupHarness()
         dao.updateTrackContentHash("tr-0", "abc123")
 
         h.downloads.cancelDownload(h.bookId)
 
         val tracks = dao.getTracksForBookSync(h.bookId)
-        assertTrue("All content hashes should be cleared", tracks.all { it.contentHash == null })
+        assertEquals("abc123", tracks.first { it.id == "tr-0" }.contentHash)
     }
 
     @Test

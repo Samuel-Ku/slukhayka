@@ -278,7 +278,6 @@ class PlayerScreenSnapshotTest {
             onTimer = {},
             onBookmark = {},
             onChapters = {},
-            onRetryPlayback = {},
             lastBookmarkTarget = lastCreatedBookmark(bookmarks),
             onJumpToBookmark = onJumpToBookmark,
             onShowAllBookmarks = onShowAllBookmarks

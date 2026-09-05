@@ -1428,9 +1428,9 @@ fun PersonalCycleCard(
         )
         val subtitle = when {
             // Similar tier: the engine's reason explains the pick.
-            cycle.reasonTitle != null -> "Схоже на «${cycle.reasonTitle}»"
+            cycle.reasonTitle != null -> stringResource(R.string.home_cycle_similar, cycle.reasonTitle)
             // The honest progress magnet — only when both numbers are real.
-            cycle.totalCount > 0 -> "Прослухано ${cycle.listenedCount} із ${cycle.totalCount}"
+            cycle.totalCount > 0 -> stringResource(R.string.home_cycle_progress, cycle.listenedCount, cycle.totalCount)
             else -> null
         }
         if (subtitle != null) {
@@ -1451,7 +1451,7 @@ fun PersonalCycleCard(
                     } else {
                         MaterialTheme.colorScheme.onSurfaceVariant
                     },
-                    maxLines = 1,
+                    maxLines = if (cycle.reasonTitle != null) 2 else Int.MAX_VALUE,
                     overflow = TextOverflow.Ellipsis,
                     textAlign = TextAlign.Center,
                     modifier = Modifier
@@ -1618,22 +1618,26 @@ fun EmptyCatalogState(
         }
         Spacer(modifier = Modifier.height(14.dp))
         Text(
-            text = "Знайдіть свою першу книгу",
+            text = stringResource(R.string.home_empty_catalog_title),
             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
             color = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.semantics { heading() }
         )
         Spacer(modifier = Modifier.height(6.dp))
         Text(
-            text = "Каталог українських аудіокниг ще завантажується. Оновіть, або додайте власний аудіофайл.",
+            text = stringResource(R.string.home_empty_catalog_body),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center
         )
         Spacer(modifier = Modifier.height(18.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
             Button(
                 onClick = onRefreshClick,
+                modifier = Modifier.heightIn(min = 48.dp).testTag("catalog_empty_refresh"),
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                 shape = RoundedCornerShape(AppDimens.RadiusCardLg)
             ) {
@@ -1643,6 +1647,7 @@ fun EmptyCatalogState(
             }
             OutlinedButton(
                 onClick = onImportClick,
+                modifier = Modifier.heightIn(min = 48.dp).testTag("catalog_empty_import"),
                 shape = RoundedCornerShape(AppDimens.RadiusCardLg),
                 border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
             ) {

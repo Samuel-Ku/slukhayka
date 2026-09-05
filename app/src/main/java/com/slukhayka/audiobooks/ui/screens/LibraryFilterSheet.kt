@@ -1,6 +1,8 @@
 package com.slukhayka.audiobooks.ui.screens
 
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
@@ -28,6 +30,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.IconButton
@@ -136,6 +139,7 @@ fun LibraryFilterSheet(
     val headingFocusRequester = remember { FocusRequester() }
     ModalBottomSheet(
         onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         // fix(accessibility): #371 — decorative drag handle must not create an extra
         // TalkBack focus stop and must never be voiced in Polish on a Polish-system
         // device. Hiding it from accessibility keeps the visual cue but removes the
@@ -188,6 +192,7 @@ fun LibraryFilterSheetContent(
                     Modifier.accessibilityPane(stringResource(R.string.a11y_library_filter_pane))
                 } else Modifier
             )
+            .verticalScroll(rememberScrollState())
             .padding(horizontal = 24.dp)
             .padding(bottom = 32.dp)
             .testTag("library_filter_sheet_content")
@@ -214,7 +219,7 @@ fun LibraryFilterSheetContent(
         Spacer(modifier = Modifier.height(16.dp))
         SheetSectionLabel("Фільтр")
         Spacer(modifier = Modifier.height(8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             SHEET_FILTERS.forEach { f ->
                 FilterChip(
                     selected = filter == f,
@@ -275,7 +280,7 @@ fun LibraryFilterSheetContent(
         Spacer(modifier = Modifier.height(16.dp))
         SheetSectionLabel("Вигляд")
         Spacer(modifier = Modifier.height(8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             ViewModeChip(
                 selected = !gridMode,
                 label = "Список",

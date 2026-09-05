@@ -715,7 +715,7 @@ fun PlayerScreenContent(
                     // real narrator lands once the book page fetch back-fills it.
                     if (playerNarrator.isNotBlank()) {
                         Text(
-                            text = "Читає $playerNarrator",
+                            text = stringResource(R.string.player_narrated_by, playerNarrator),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = if (largeFont) 2 else 1,
@@ -776,11 +776,13 @@ fun PlayerScreenContent(
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                TextButton(onClick = onRetryPlayback) {
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)
+                            ) {
+                                TextButton(onClick = onRetryPlayback, modifier = Modifier.heightIn(min = 48.dp).testTag("player_retry")) {
                                     Text(stringResource(R.string.player_retry))
                                 }
-                                TextButton(onClick = onFindAnotherSource) {
+                                TextButton(onClick = onFindAnotherSource, modifier = Modifier.heightIn(min = 48.dp).testTag("player_find_another_source")) {
                                     Text(stringResource(R.string.player_find_another_source))
                                 }
                             }

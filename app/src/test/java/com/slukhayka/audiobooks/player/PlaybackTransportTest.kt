@@ -104,6 +104,22 @@ class PlaybackTransportTest {
     }
 
     @Test
+    fun `redirect to another port does not forward authorization`() {
+        val redirector = RedirectStub(url())
+        redirector.start(NanoHTTPD.SOCKET_READ_TIMEOUT, false)
+        try {
+            val spec = DataSpec.Builder()
+                .setUri(Uri.parse("http://127.0.0.1:${redirector.listeningPort}/go"))
+                .setHttpRequestHeaders(mapOf("Authorization" to "Bearer test-token"))
+                .build()
+            assertArrayEquals(PAYLOAD, readAll(factory.createDataSource(), spec))
+            assertEquals(null, server.lastAuthorization)
+        } finally {
+            redirector.stop()
+        }
+    }
+
+    @Test
     fun `the redirect policy refuses a cleartext downgrade and allows the same scheme`() {
         // The pure SEC-018 rule the playback engine enforces on every hop.
         assertFalse("https→http is a cleartext downgrade — refused", PlaybackRedirects.follow("https://cdn.example/a.mp3", "http://cdn.example/a.mp3"))
@@ -129,6 +145,8 @@ class PlaybackTransportTest {
 
     /** Minimal controllable origin; honors Range and records what hit the wire. */
     private class TransportStub : NanoHTTPD("127.0.0.1", 0) {
+        var lastAuthorization: String? = null
+            private set
         var lastReferer: String? = null
             private set
         var lastUserAgent: String? = null
@@ -142,6 +160,7 @@ class PlaybackTransportTest {
 
         override fun serve(session: IHTTPSession): Response {
             audioRequests++
+            lastAuthorization = session.headers["authorization"]
             lastReferer = session.headers["referer"]
             lastUserAgent = session.headers["user-agent"]
             lastRange = session.headers["range"]

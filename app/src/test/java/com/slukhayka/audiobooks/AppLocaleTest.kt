@@ -90,6 +90,25 @@ class AppLocaleTest {
         assertEquals(AppLocale.SYSTEM, AppLocalePrefs(deviceContext).locale)
     }
 
+    class RecreateTrackingActivity : androidx.fragment.app.FragmentActivity() {
+        var recreated = false
+        override fun recreate() { recreated = true }
+    }
+
+    @Test
+    fun legacyPinnedLocaleRecreatesWhenPlatformListIsAlreadySystem() {
+        val activity = org.robolectric.Robolectric
+            .buildActivity(RecreateTrackingActivity::class.java).setup().get()
+        AppLocalePrefs(activity).locale = AppLocale.UKRAINIAN
+        activity.getSystemService(android.app.LocaleManager::class.java).applicationLocales =
+            android.os.LocaleList.getEmptyLocaleList()
+
+        AppLocaleApplier.apply(activity, AppLocale.SYSTEM)
+
+        org.junit.Assert.assertTrue(activity.recreated)
+        assertEquals(AppLocale.SYSTEM, AppLocalePrefs(activity).locale)
+    }
+
     @Test
     fun theApplierPersistsTheChoiceBeforeApplyingIt() {
         // Robolectric runs sdk 34 (>= 33): the applier takes the LocaleManager

@@ -24,7 +24,7 @@ import java.util.Locale
  * the app pinned one.
  */
 enum class AppLocale(val tag: String) {
-    /** Follow the device locale — no pinning, no context recreation. */
+    /** Follow the device locale without pinning the context. */
     SYSTEM(""),
     UKRAINIAN("uk"),
     ENGLISH("en");
@@ -73,21 +73,24 @@ class AppLocalePrefs(context: Context) {
 object AppLocaleApplier {
 
     fun apply(activity: FragmentActivity, locale: AppLocale) {
-        AppLocalePrefs(activity).locale = locale
+        val prefs = AppLocalePrefs(activity)
+        val previous = prefs.locale
+        prefs.locale = locale
         if (Build.VERSION.SDK_INT >= 33) {
-            activity.getSystemService(android.app.LocaleManager::class.java)
-                ?.let { manager ->
-                    manager.applicationLocales =
-                        if (locale == AppLocale.SYSTEM) {
-                            LocaleList.getEmptyLocaleList()
-                        } else {
-                            LocaleList.forLanguageTags(locale.tag)
-                        }
-                }
-        } else {
-            @Suppress("DEPRECATION")
-            activity.recreate()
+            val manager = activity.getSystemService(android.app.LocaleManager::class.java)
+            val target = if (locale == AppLocale.SYSTEM) {
+                LocaleList.getEmptyLocaleList()
+            } else {
+                LocaleList.forLanguageTags(locale.tag)
+            }
+            if (manager != null && manager.applicationLocales != target) {
+                manager.applicationLocales = target
+                return // The platform recreates the Activity for this change.
+            }
         }
+        // Legacy preferences can pin attachBaseContext while LocaleManager
+        // still has an empty list. Empty → empty cannot trigger OS recreation.
+        if (previous != locale) activity.recreate()
     }
 }
 

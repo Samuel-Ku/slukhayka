@@ -514,21 +514,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             delay(1_500)
             App.instance.contentLanguagePrefs.languages.collect {
                 val query = _searchQuery.value.trim()
-                if (query.length >= 2 && _globalSearchResults.value.isNotEmpty()) {
-                    globalSearchJob?.cancel()
-                    globalSearchJob = viewModelScope.launch(Dispatchers.IO) {
-                        try {
-                            val results = sourceCatalog.searchAllSources(query)
-                            if (_searchQuery.value.trim() == query) {
-                                _globalSearchResults.value = results
-                                _globalSearchError.value = false
-                            }
-                        } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                            throw cancelled
-                        } catch (e: Exception) {
-                            // A failing re-filter keeps the current results.
-                        }
-                    }
+                if (query.length >= 2) {
+                    // An empty filtered result still belongs to this query.
+                    // Reuse the same cancellation/loading/error contract.
+                    updateSearchQuery(query)
                 }
             }
         }

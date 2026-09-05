@@ -126,7 +126,7 @@ object PlaybackRedirects {
                 val target = request.url.resolve(location)
                     ?: throw IOException("Не вдалося визначити адресу перенаправлення")
                 request = request.newBuilder().url(target).apply {
-                    if (target.host != request.url.host) {
+                    if (target.host != request.url.host || target.port != request.url.port) {
                         removeHeader("Referer")
                         removeHeader("Authorization")
                         removeHeader("Cookie")

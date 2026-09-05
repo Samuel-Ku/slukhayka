@@ -6,112 +6,135 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CrashReportingTest {
+
     @Test
-    fun `held failure asks once and approval sends it plus future reports`() {
+    fun `first held failure asks once and approval sends it plus future reports`() {
         val store = FakeConsentStore(CrashConsent.UNDECIDED)
         val sink = FakeCrashReportSink(hasUnsentReports = true)
         val reporting = CrashReporting(store, sink, enabledForBuild = true)
 
         reporting.start()
+
         assertFalse(sink.automaticCollectionEnabled)
         assertTrue(reporting.state.value.shouldShowPrompt)
 
         reporting.allowTriggeringReport()
+
         assertEquals(CrashConsent.ALLOWED, store.consent)
         assertTrue(sink.sentReports)
         assertTrue(sink.automaticCollectionEnabled)
+        assertFalse(reporting.state.value.shouldShowPrompt)
     }
 
     @Test
-    fun `denial deletes held evidence and is not asked again`() {
+    fun `denial deletes the held report and never asks again`() {
         val store = FakeConsentStore(CrashConsent.UNDECIDED)
         val firstSink = FakeCrashReportSink(hasUnsentReports = true)
-        CrashReporting(store, firstSink, enabledForBuild = true).apply {
-            start()
-            denyTriggeringReport()
-        }
+        val firstRun = CrashReporting(store, firstSink, enabledForBuild = true)
+        firstRun.start()
+
+        firstRun.denyTriggeringReport()
+
+        assertEquals(CrashConsent.DENIED, store.consent)
+        assertTrue(firstSink.deletedReports)
+        assertFalse(firstSink.automaticCollectionEnabled)
 
         val nextSink = FakeCrashReportSink(hasUnsentReports = true)
         val nextRun = CrashReporting(store, nextSink, enabledForBuild = true)
         nextRun.start()
 
-        assertEquals(CrashConsent.DENIED, store.consent)
         assertFalse(nextRun.state.value.shouldShowPrompt)
         assertTrue(nextSink.deletedReports)
         assertFalse(nextSink.sentReports)
     }
 
     @Test
-    fun `settings approval after denial is future-only`() {
+    fun `enabling in settings after denial deletes old reports and enables only the future`() {
         val store = FakeConsentStore(CrashConsent.DENIED)
         val sink = FakeCrashReportSink(hasUnsentReports = true)
         val reporting = CrashReporting(store, sink, enabledForBuild = true)
-
         reporting.start()
+
         reporting.setAllowedFromSettings(true)
 
+        assertEquals(CrashConsent.ALLOWED, store.consent)
         assertTrue(sink.deletedReports)
         assertFalse(sink.sentReports)
         assertTrue(sink.automaticCollectionEnabled)
+
+        reporting.setAllowedFromSettings(false)
+
+        assertEquals(CrashConsent.DENIED, store.consent)
+        assertFalse(sink.automaticCollectionEnabled)
     }
 
     @Test
-    fun `debug build never collects even with persisted approval`() {
+    fun `debug build never collects even when persisted consent is allowed`() {
+        val store = FakeConsentStore(CrashConsent.ALLOWED)
         val sink = FakeCrashReportSink(hasUnsentReports = true)
-        val reporting = CrashReporting(
-            FakeConsentStore(CrashConsent.ALLOWED),
-            sink,
-            enabledForBuild = false
-        )
+        val reporting = CrashReporting(store, sink, enabledForBuild = false)
 
         reporting.start()
+        reporting.setAppVisibility(AppVisibility.BACKGROUND)
+        reporting.setPlayback(DiagnosticPlaybackState.PLAYING, DiagnosticAudioOrigin.REMOTE)
 
         assertFalse(sink.automaticCollectionEnabled)
         assertFalse(sink.sentReports)
+        assertEquals(null, sink.reportedContext)
         assertFalse(reporting.state.value.shouldShowPrompt)
     }
 
     @Test
-    fun `denied listener retains no diagnostic context or controlled exit`() {
+    fun `bounded context exposes exactly the five approved Crashlytics keys`() {
         val sink = FakeCrashReportSink(hasUnsentReports = false)
         val reporting = CrashReporting(
-            FakeConsentStore(CrashConsent.DENIED),
-            sink,
+            consentStore = FakeConsentStore(CrashConsent.ALLOWED),
+            sink = sink,
             enabledForBuild = true
         )
-        reporting.start()
+        reporting.setAppVisibility(AppVisibility.BACKGROUND)
+        reporting.setPlayback(DiagnosticPlaybackState.BUFFERING, DiagnosticAudioOrigin.REMOTE)
+        reporting.setPlaybackService(DiagnosticPlaybackService.STARTED)
+        reporting.setCastActive(true)
 
-        reporting.updateContext(CrashContext(appVisibility = AppVisibility.BACKGROUND))
-        reporting.record(UnexpectedPlaybackExit(ExitReason.LOW_MEMORY))
-
-        assertTrue(sink.keys.isEmpty())
-        assertFalse(sink.recordedException)
-    }
-
-    @Test
-    fun `context exposes exactly the five approved bounded keys`() {
         assertEquals(
             mapOf(
                 "app_visibility" to "background",
                 "playback_state" to "buffering",
-                "playback_service" to "foreground",
+                "playback_service" to "started",
                 "audio_origin" to "remote",
                 "cast_active" to "true"
             ),
-            CrashContext(
-                appVisibility = AppVisibility.BACKGROUND,
-                playbackState = DiagnosticPlaybackState.BUFFERING,
-                playbackService = DiagnosticPlaybackService.FOREGROUND,
-                audioOrigin = DiagnosticAudioOrigin.REMOTE,
-                castActive = true
-            ).customKeys
+            sink.reportedContext?.customKeys
         )
+    }
+
+    @Test
+    fun `release context is also published as a bounded process state summary`() {
+        val summarySink = FakeProcessStateSummarySink()
+        val reporting = CrashReporting(
+            consentStore = FakeConsentStore(CrashConsent.DENIED),
+            sink = FakeCrashReportSink(hasUnsentReports = false),
+            enabledForBuild = true,
+            processStateSummarySink = summarySink
+        )
+
+        reporting.start()
+        reporting.setPlayback(DiagnosticPlaybackState.PLAYING, DiagnosticAudioOrigin.LOCAL)
+
+        assertEquals(DiagnosticPlaybackState.PLAYING, summarySink.context?.playbackState)
+        assertEquals(DiagnosticAudioOrigin.LOCAL, summarySink.context?.audioOrigin)
     }
 
     private class FakeConsentStore(initial: CrashConsent) : CrashConsentStore {
         var consent = initial
-        override fun load() = consent
-        override fun save(consent: CrashConsent) { this.consent = consent }
+            private set
+
+        override fun load(): CrashConsent = consent
+
+        override fun save(consent: CrashConsent) {
+            this.consent = consent
+        }
     }
 
     private class FakeCrashReportSink(
@@ -120,14 +143,35 @@ class CrashReportingTest {
         var automaticCollectionEnabled = false
         var sentReports = false
         var deletedReports = false
-        var keys: Map<String, String> = emptyMap()
-        var recordedException = false
+        var reportedContext: CrashContext? = null
 
-        override fun setCollectionEnabled(enabled: Boolean) { automaticCollectionEnabled = enabled }
-        override fun checkForUnsentReports(onResult: (Boolean) -> Unit) = onResult(hasUnsentReports)
-        override fun sendUnsentReports() { sentReports = true }
-        override fun deleteUnsentReports() { deletedReports = true }
-        override fun setCustomKeys(keys: Map<String, String>) { this.keys = keys }
-        override fun record(exception: Throwable) { recordedException = true }
+        override fun setCollectionEnabled(enabled: Boolean) {
+            automaticCollectionEnabled = enabled
+        }
+
+        override fun checkForUnsentReports(onResult: (Boolean) -> Unit) {
+            onResult(hasUnsentReports)
+        }
+
+        override fun sendUnsentReports() {
+            sentReports = true
+        }
+
+        override fun deleteUnsentReports() {
+            deletedReports = true
+        }
+
+        override fun setContext(context: CrashContext) {
+            reportedContext = context
+        }
+
+        override fun recordUnexpectedPlaybackExit(event: UnexpectedPlaybackExitEvent) = Unit
+    }
+
+    private class FakeProcessStateSummarySink : ProcessStateSummarySink {
+        var context: CrashContext? = null
+        override fun set(context: CrashContext) {
+            this.context = context
+        }
     }
 }

@@ -94,8 +94,10 @@ android {
       // Install developer builds next to the signed release app so on-device
       // testing never requires uninstalling (and losing) the listener's data.
       applicationIdSuffix = ".debug"
+      buildConfigField("boolean", "CRASH_REPORTING_ENABLED", "false")
     }
     release {
+      buildConfigField("boolean", "CRASH_REPORTING_ENABLED", "true")
       isCrunchPngs = false
       isMinifyEnabled = false
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
@@ -210,6 +212,7 @@ dependencies {
   // Spec-38 T3 (#255): the official webkit controller rides the privacy route
   // (ProxyController) and the document-start sensor lockdown (WebViewCompat).
   implementation(libs.androidx.webkit)
+  implementation(libs.androidx.work.runtime)
   // Spec-40 #276 (t2): the BiometricPrompt gate for «Код відновлення профілю».
   implementation(libs.androidx.biometric)
   implementation(libs.androidx.media3.exoplayer)
@@ -235,6 +238,7 @@ dependencies {
   implementation(libs.coil.compose)
   implementation(libs.converter.moshi)
   implementation(libs.firebase.ai)
+  implementation(libs.firebase.crashlytics)
   // Spec-26 T5: the shared universe-knowledge base (Firestore free tier).
   // Requires a local (gitignored) google-services.json — without it the
   // shared layer is simply absent and the app works as before.
@@ -242,7 +246,6 @@ dependencies {
   // immediately elevated with generated credentials. Without Firebase keys
   // the identity degrades to the local-only profile.
   implementation(libs.firebase.auth)
-  implementation(libs.firebase.crashlytics)
   implementation(libs.firebase.appcheck.recaptcha)
   implementation(libs.kotlinx.coroutines.android)
   implementation(libs.kotlinx.coroutines.core)
@@ -487,9 +490,9 @@ afterEvaluate {
       } else if (requestedAlias.startsWith("testRoomNative")) {
         // Native SQLite keeps process-wide state even inside one Robolectric
         // SDK cohort. Reuse can therefore contaminate the next Room class.
-        // Two fresh workers at a time retain isolation without serializing the
-        // entire SDK 36 cohort.
-        maxParallelForks = 2
+        // Four fresh workers at a time match GitHub's public Linux runner and
+        // retain isolation without serializing the entire SDK 36 cohort.
+        maxParallelForks = 4
         forkEvery = 1
       } else {
         if (requestedAlias == "testPureJvm") {

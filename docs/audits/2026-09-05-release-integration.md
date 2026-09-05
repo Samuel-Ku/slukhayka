@@ -1,0 +1,113 @@
+# Зведення всієї зробленої роботи в 1.3.9
+
+Користувач 5 вересня прямо попросив звести всю зроблену роботу в реліз.
+База: cdf458af. Попередні результати телефона стосуються цієї бази,
+а не нової інтегрованої збірки. Видалення remote-гілок зупинене.
+
+## Послідовність інтеграції
+
+1. Люди й діагностика: origin/codex/people-crash-wave (e9c80d1b).
+   Конфлікти поєднані, код компілюється. 80 із 81 тесту пройшли разом;
+   один SDK 35 після runtime-помилки змішаних SDK пройшов окремо.
+   Два переходи реальних схем (release26 і people25) пройшли повну
+   валідацію Room зі збереженням person_bookmarks. 38 Python-тестів пройшли.
+   Зберігаються обидва набори тестів consent; розширений typed exit reporter
+   стає єдиним підключеним детектором. Не дублювати діалоги згоди.
+   Старі схеми 25/26 збережені; lastNotifiedCount переходить у 26→27.
+2. Звірити й перенести WIP spec45/f4ec1049 і 282865f8: AppLocaleScreen,
+   escaped LibriVox metadata та наскрізний запис мови Edition.
+3. Перенести відсутні зміни pr-split: 808d121f популярність, 44a31caf
+   рекомендації, 6b5e6c7d двері 4read, 8e331d96 прямий імпорт, e3125de8
+   consent backup. 5c593a6a, c46e8ebb, bee2a9e7 звірити з новішими
+   реалізаціями recovery/transport у кандидатові, не відкотити їх.
+   Схема популярності також використовує 27: узгодити наступний номер.
+4. Звірити решту старих гілок і резервів за поведінкою/патчами.
+   Старий com/example пакет із backup не є відсутньою новою функцією.
+5. Адресні тести після кожного блоку; повні передрелізні перевірки, CI
+   та телефон після завершення інтеграції. Лише тоді новий кандидат.
+
+## Інвентаризація
+
+Кількість нижче — лише git cherry, а не число відсутніх функцій.
+Squash, редаговані cherry-pick і merge-коміти потребують звірки вмісту.
+Унікальних SHA серед усіх списків: 127. Main має нуль унікальних патчів
+відносно кандидата, хоча один SHA не входить в його історію.
+
+| Гілка | Патчі для звірки |
+|---|---:|
+| `codex/handoff-fix422-2026-08-29` | 3 |
+| `codex/handoff-local-root-2026-08-29` | 1 |
+| `codex/issue-394-download-controls-v2` | 2 |
+| `codex/issue-401-people-tab` | 10 |
+| `codex/issue-411-opt-in-crash-reports` | 1 |
+| `codex/issue-413-unexpected-playback-exit` | 2 |
+| `codex/issue-423-accessibility-emulator` | 5 |
+| `codex/people-crash-wave` | 44 |
+| `codex/rewiev-loading` | 45 |
+| `codex/spec-452-android` | 13 |
+| `main` | 0 |
+| `release/v1.3.7-stability` | 0 |
+| `release/v1.3.8` | 0 |
+| `wip/spec45-snapshot` | 1 |
+| `origin/backup-local-2026-08-27-before-sync` | 8 |
+| `origin/backup/lane-stack-main-2026-08-30` | 7 |
+| `origin/backup/pre-clean-2026-08-30` | 2 |
+| `origin/backup/wave0-broken-merge-2026-08-30` | 0 |
+| `origin/ci/parallel-room-legs` | 0 |
+| `origin/codex/fix-accessibility-ci` | 12 |
+| `origin/codex/handoff-fix422-2026-08-29` | 3 |
+| `origin/codex/handoff-issue394-2026-08-29` | 1 |
+| `origin/codex/handoff-local-root-2026-08-29` | 1 |
+| `origin/codex/issue-394-download-controls` | 2 |
+| `origin/codex/issue-401-people-tab` | 10 |
+| `origin/codex/issue-411-opt-in-crash-reports` | 1 |
+| `origin/codex/issue-413-unexpected-playback-exit` | 2 |
+| `origin/codex/issue-423-accessibility-emulator` | 5 |
+| `origin/codex/people-crash-wave` | 43 |
+| `origin/codex/rewiev-loading` | 45 |
+| `origin/codex/spec-452-android` | 13 |
+| `origin/codex/spec42-t305` | 1 |
+| `origin/codex/spec42-t307` | 1 |
+| `origin/codex/spec42-t308` | 1 |
+| `origin/fix/388-fk-crash` | 1 |
+| `origin/fix/4read-import-persistence` | 0 |
+| `origin/fix/507-cancel-stuck` | 0 |
+| `origin/fix/519-alternative-source` | 12 |
+| `origin/fix/jvm-flaky-baseline` | 0 |
+| `origin/main` | 0 |
+| `origin/pr-split/411-crash-consent` | 12 |
+| `origin/pr-split/435-ci-atd` | 12 |
+| `origin/pr-split/440-4read-search-doors` | 9 |
+| `origin/pr-split/449-chapter-names` | 6 |
+| `origin/pr-split/477-direct-import` | 10 |
+| `origin/pr-split/485-popularity-signals` | 7 |
+| `origin/pr-split/486-recommendations` | 8 |
+| `origin/pr-split/508-edition-language` | 3 |
+| `origin/pr-split/516-playback-without-dns` | 5 |
+| `origin/pr-split/519-alternative-source` | 4 |
+| `origin/pr-split/wip-base` | 2 |
+| `origin/release/v1.3.7-stability` | 0 |
+| `origin/release/v1.3.8` | 0 |
+| `origin/wip/spec45-snapshot` | 1 |
+
+## Незакриті умови релізу
+
+- Перевірена міграція всіх релевантних схем без втрати даних.
+- Уся зроблена функціональність або інтегрована, або доказово вже присутня.
+- Зелений CI та підписаний APK саме інтегрованого коміту.
+- Повтор основних сценаріїв на актуальній збірці телефона.
+- Фізичні Tor/proxy/повернення мережі ще потребують дозволу на тимчасовий тест.
+- Відновлення трьох карток на попередньому Xiaomi не підтверджено.
+
+## Додаткове виправлення доступності
+
+CI бази cdf458af: повернення фокуса до розділу та картки бібліотеки
+пройшли; падіння перемістилося до library_overflow_button після виходу
+з профілю (MainActivityAccessibilityTest:459). Кнопка отримала той самий
+canFocus=true для Touch mode. Додано opt-in LiveChapterFocusTest для
+цього точного маршруту; фізичний прогін потрібен на інтегрованому APK.
+
+Весь оригінальний ланцюжок мовних виправлень і популярності від
+f4ec1049 до e3125de8 входить в origin/pr-split/435-ci-atd (2d1210e9).
+Це наступна цілісна гілка для інтеграції; нові merge-вершини окремих
+pr-split не слід плутати з відсутньою функціональністю.

@@ -497,6 +497,8 @@ class FakeAudiobookDao(
         editionsState.value.any { it.language == "en" } ||
             editionFacetsState.value.any { it.language == "en" }
 
+    override fun observeEditions(): Flow<List<EditionEntity>> = editionsState
+
     // --- Bookmarks --------------------------------------------------------
 
     override fun getBookmarksForBook(bookId: String): Flow<List<BookmarkEntity>> =
@@ -1224,9 +1226,9 @@ class FakeAudiobookDao(
         }
     }
 
-    override suspend fun updatePersonBookmarkLastNotified(kind: String, id: String, lastNotifiedAt: Long) {
+    override suspend fun updatePersonBookmarkLastNotified(kind: String, id: String, lastNotifiedAt: Long, lastNotifiedCount: Int) {
         personBookmarksState.update { current ->
-            current.map { if (it.kind == kind && it.id == id) it.copy(lastNotifiedAt = lastNotifiedAt) else it }
+            current.map { if (it.kind == kind && it.id == id) it.copy(lastNotifiedAt = lastNotifiedAt, lastNotifiedCount = lastNotifiedCount, updatedAt = lastNotifiedAt) else it }
         }
     }
 

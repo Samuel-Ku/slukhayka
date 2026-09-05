@@ -457,9 +457,9 @@ class MainActivityAccessibilityTest {
             .assertIsFocused()
         composeTestRule.onRoot().tryPerformAccessibilityChecks()
 
-        composeTestRule.onNodeWithTag("library_overflow_button")
+        composeTestRule.onNodeWithTag("tab_settings")
             .performClick()
-        composeTestRule.onNodeWithTag("library_profile_menu_item")
+        composeTestRule.onNodeWithTag("settings_Profile")
             .performClick()
         composeTestRule.waitUntil(timeoutMillis = NAV_TIMEOUT_MS) {
             composeTestRule.onAllNodesWithTag("profile_screen_heading", useUnmergedTree = true)
@@ -473,13 +473,13 @@ class MainActivityAccessibilityTest {
         composeTestRule.onNodeWithContentDescription("Назад")
             .performClick()
         composeTestRule.waitUntil(timeoutMillis = NAV_TIMEOUT_MS) {
-            composeTestRule.onAllNodesWithTag("library_overflow_button")
+            composeTestRule.onAllNodesWithTag("settings_Profile")
                 .fetchSemanticsNodes()
                 .singleOrNull()
                 ?.config
                 ?.getOrNull(SemanticsProperties.Focused) == true
         }
-        composeTestRule.onNodeWithTag("library_overflow_button")
+        composeTestRule.onNodeWithTag("settings_Profile")
             .assertIsFocused()
         composeTestRule.onRoot().tryPerformAccessibilityChecks()
     }

@@ -89,4 +89,5 @@
     <string name="speed_remember_for_book">Запам\'ятати для цієї книги</string>
     <string name="top100_open_chart">Відкрити рейтинг у 4read</string>
     <string name="author_all_found">Усі знайдені автори</string>
+    <string name="nav_settings">Налаштування</string>
 </resources>

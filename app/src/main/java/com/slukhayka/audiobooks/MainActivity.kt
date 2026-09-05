@@ -20,6 +20,7 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Headphones
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -27,9 +28,11 @@ import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -52,6 +55,8 @@ import com.slukhayka.audiobooks.ui.screens.CollectionsIndexScreen
 import com.slukhayka.audiobooks.ui.screens.CrashReportingConsentDialog
 import com.slukhayka.audiobooks.ui.screens.GenreScreen
 import com.slukhayka.audiobooks.ui.screens.HomeScreen
+import com.slukhayka.audiobooks.ui.screens.SettingsScreen
+import com.slukhayka.audiobooks.ui.screens.SettingsDestination
 import com.slukhayka.audiobooks.ui.screens.LibraryScreen
 import com.slukhayka.audiobooks.ui.screens.ListenScreen
 import com.slukhayka.audiobooks.ui.screens.AppLocaleScreen
@@ -206,7 +211,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     val selectedTab by viewModel.selectedTab.collectAsState()
     val selectedBookId by viewModel.selectedBookId.collectAsState()
     var libraryBookFocusReturnId by rememberSaveable { mutableStateOf<String?>(null) }
-    var libraryOverflowFocusReturnPending by rememberSaveable { mutableStateOf(false) }
+    var settingsReturnDestination by rememberSaveable { mutableStateOf<SettingsDestination?>(null) }
     var bookDetailChildOrigin by rememberSaveable { mutableStateOf<String?>(null) }
     var bookDetailChildEditionId by rememberSaveable { mutableStateOf<String?>(null) }
     var bookDetailChildRouteOpen by rememberSaveable { mutableStateOf(false) }
@@ -437,22 +442,16 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
         } else if (collectionsIndexOpen) {
             viewModel.closeCollectionsIndex()
         } else if (storageDestinationOpen) {
-            libraryOverflowFocusReturnPending = true
             viewModel.closeStorageDestination()
         } else if (privacySettingsOpen) {
-            libraryOverflowFocusReturnPending = true
             viewModel.closePrivacySettings()
         } else if (recommendationSettingsOpen) {
-            libraryOverflowFocusReturnPending = true
             viewModel.closeRecommendationSettings()
         } else if (contentLanguagesOpen) {
-            libraryOverflowFocusReturnPending = true
             viewModel.closeContentLanguages()
         } else if (appLocaleOpen) {
-            libraryOverflowFocusReturnPending = true
             viewModel.closeAppLocale()
         } else if (profileOpen) {
-            libraryOverflowFocusReturnPending = true
             viewModel.closeProfileSettings()
         } else if (selectedGenre != null) {
             secondaryBookRoute = SecondaryBookRouteFrame()
@@ -506,12 +505,15 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                         }.getOrDefault(false) && playerState.currentStreamUrl.isNotEmpty()
                     )
 
-                    // Navigation Bar (spec #8 T4: exactly Explore · Library).
+                    // Four primary destinations, including the settings home (#547).
                     AppBottomBar(
                         selectedTab = selectedTab,
                         bookDetailOpen = selectedBookId != null,
                         onSelect = { tab ->
-                            viewModel.selectBook(null)
+                            secondaryBookRoute = SecondaryBookRouteFrame()
+                            bookDetailChildRouteOpen = false
+                            bookDetailChildOrigin = null
+                            bookDetailChildEditionId = null
                             viewModel.selectTab(tab)
                         }
                     )
@@ -697,22 +699,20 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
 
                     // spec-28 (#194): the «Завантаження та пам'ять»
                     // destination — the storage line and the destructive
-                    // delete, reached from the Медіатека ⋮ overflow menu.
+                    // delete, reached from Settings.
                     storageDestinationOpen -> StorageDestinationScreen(
                         viewModel = viewModel,
                         onBackClick = {
-                            libraryOverflowFocusReturnPending = true
                             viewModel.closeStorageDestination()
                         }
                     )
 
                     // spec-38 T2 (#254): the «Приватність мережі» destination —
-                    // the route choice, reached from the same ⋮ overflow menu.
+                    // the route choice, reached from Settings.
                     privacySettingsOpen -> NetworkPrivacyScreen(
                         viewModel = viewModel,
                         crashReporting = viewModel.crashReportingModule,
                         onBackClick = {
-                            libraryOverflowFocusReturnPending = true
                             viewModel.closePrivacySettings()
                         }
                     )
@@ -720,25 +720,23 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                     recommendationSettingsOpen -> RecommendationSettingsScreen(
                         viewModel = viewModel,
                         onBackClick = {
-                            libraryOverflowFocusReturnPending = true
                             viewModel.closeRecommendationSettings()
                         }
                     )
 
                     // Spec-45 (#405) T6 (#494): the «Мови контенту»
-                    // destination — same ⚙️ overflow surface. R6 (#513): the
+                    // destination — Settings. R6 (#513): the
                     // screen reads the PREFERENCE MODULE directly (ADR-0008);
                     // the ViewModel only owns navigation.
                     contentLanguagesOpen -> ContentLanguageScreen(
                         prefs = App.instance.contentLanguagePrefs,
                         onBackClick = {
-                            libraryOverflowFocusReturnPending = true
                             viewModel.closeContentLanguages()
                         }
                     )
 
                     // Spec-45 (#405) R7 (#514): the «Мова інтерфейсу»
-                    // destination — same ⚙️ overflow surface. The choice
+                    // destination — Settings. The choice
                     // applies immediately through the platform applier.
                     appLocaleOpen -> AppLocaleScreen(
                         localePrefs = App.instance.appLocalePrefs,
@@ -750,18 +748,16 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                             (context as? MainActivity)?.let { AppLocaleApplier.apply(it, locale) }
                         },
                         onBackClick = {
-                            libraryOverflowFocusReturnPending = true
                             viewModel.closeAppLocale()
                         }
                     )
 
                     // spec-40 #275 (t1): the «Профіль» destination — the
                     // silent listener identity's visible surface, reached
-                    // from the same ⋮ overflow menu.
+                    // from Settings.
                     profileOpen -> ProfileScreen(
                         identity = viewModel.listenerIdentityModule,
                         onBackClick = {
-                            libraryOverflowFocusReturnPending = true
                             viewModel.closeProfileSettings()
                         },
                         hiddenAuthors = hiddenAuthors,
@@ -1026,26 +1022,20 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                                     libraryBookFocusReturnId = null
                                 }
                             },
-                            restoreOverflowFocus = libraryOverflowFocusReturnPending,
-                            onOverflowFocusRestored = {
-                                libraryOverflowFocusReturnPending = false
-                            }
+
                         )
-                        else ->                        HomeScreen(
-                            durationEnrichment = viewModel.durationEnrichment,
-                            chapterDurationProbe = viewModel.chapterDurationProbe,
-                            updateChecker = viewModel.updateChecker,
-                            viewModel = viewModel,
-                            // ADR-0008 batches 2 + contract (#156, #160): the
-                            // modules come in as parameters from the
-                            // composition root.
-                            libraryEntries = viewModel.libraryEntries,
-                            sourceCatalog = viewModel.sourceCatalog,
-                            personBookmarks = App.instance.personBookmarks,
-                            onBookClick = { id -> viewModel.selectBook(id) },
-                            onPlayClick = { book ->
-                                viewModel.playAudiobook(book)
-                                viewModel.setShowFullPlayer(true)
+                        SelectedTab.SETTINGS -> SettingsScreen(
+                            returnDestination = settingsReturnDestination,
+                            onOpen = { destination ->
+                                settingsReturnDestination = destination
+                                when (destination) {
+                                    SettingsDestination.Profile -> viewModel.openProfileSettings()
+                                    SettingsDestination.Storage -> viewModel.openStorageDestination()
+                                    SettingsDestination.NetworkPrivacy -> viewModel.openPrivacySettings()
+                                    SettingsDestination.Recommendations -> viewModel.openRecommendationSettings()
+                                    SettingsDestination.ContentLanguages -> viewModel.openContentLanguages()
+                                    SettingsDestination.AppLocale -> viewModel.openAppLocale()
+                                }
                             }
                         )
                     }
@@ -1168,7 +1158,7 @@ internal fun shouldHideAppBackgroundForFullPlayerTransition(
 
 /**
  * Bottom navigation bar. Extracted from [AudiobookApp] so the spec #8 T4
- * acceptance (exactly two tabs, no WebView/Bookmarks tabs) is unit-testable
+ * acceptance (four named destinations) is unit-testable
  * without dragging in the whole app.
  */
 @Composable
@@ -1177,55 +1167,73 @@ fun AppBottomBar(
     bookDetailOpen: Boolean = false,
     onSelect: (SelectedTab) -> Unit
 ) {
-    NavigationBar(
-        // MD3: the navigation bar is a tonal container (surfaceContainer),
-        // one step above the screen surface.
-        containerColor = MaterialTheme.colorScheme.surfaceContainer,
-        contentColor = MaterialTheme.colorScheme.primary,
-        modifier = Modifier
-            .windowInsetsPadding(WindowInsets.navigationBars)
-            .testTag("bottom_navigation_bar")
-    ) {
-        // Spec-9: exactly Слухати · Огляд · Медіатека (the listening panel
-        // first). Test tags stay stable for the screens that moved (tab_explore
-        // / tab_library) so existing UI tests keep working.
-        NavigationBarItem(
-            selected = selectedTab == SelectedTab.LISTEN && !bookDetailOpen,
-            onClick = { onSelect(SelectedTab.LISTEN) },
-            icon = { Icon(imageVector = Icons.Default.Headphones, contentDescription = null) },
-            label = { Text(stringResource(R.string.nav_listen)) },
-            colors = NavigationBarItemDefaults.colors(
-                selectedIconColor = MaterialTheme.colorScheme.primary,
-                selectedTextColor = MaterialTheme.colorScheme.primary,
-                indicatorColor = MaterialTheme.colorScheme.outlineVariant
-            ),
-            modifier = Modifier.testTag("tab_listen")
-        )
+    BoxWithConstraints {
+        val labelWidth = (maxWidth / 4 - 4.dp).coerceAtLeast(1.dp)
+        val minimumHeight = (80 * LocalDensity.current.fontScale.coerceAtLeast(1f)).dp
+        NavigationBar(
+            // MD3: the navigation bar is a tonal container (surfaceContainer),
+            // one step above the screen surface.
+            containerColor = MaterialTheme.colorScheme.surfaceContainer,
+            contentColor = MaterialTheme.colorScheme.primary,
+            modifier = Modifier
+                .windowInsetsPadding(WindowInsets.navigationBars)
+                .heightIn(min = minimumHeight)
+                .testTag("bottom_navigation_bar")
+        ) {
+            // #547: Слухати · Огляд · Медіатека · Налаштування (listening
+            // first). Test tags stay stable for the screens that moved (tab_explore
+            // / tab_library) so existing UI tests keep working.
+            NavigationBarItem(
+                selected = selectedTab == SelectedTab.LISTEN && !bookDetailOpen,
+                onClick = { onSelect(SelectedTab.LISTEN) },
+                icon = { Icon(imageVector = Icons.Default.Headphones, contentDescription = null) },
+                label = { Text(stringResource(R.string.nav_listen), modifier = Modifier.requiredWidth(labelWidth), style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 0.sp, lineBreak = androidx.compose.ui.text.style.LineBreak.Heading), textAlign = androidx.compose.ui.text.style.TextAlign.Center) },
+                colors = NavigationBarItemDefaults.colors(
+                    selectedIconColor = MaterialTheme.colorScheme.primary,
+                    selectedTextColor = MaterialTheme.colorScheme.primary,
+                    indicatorColor = MaterialTheme.colorScheme.outlineVariant
+                ),
+                modifier = Modifier.testTag("tab_listen")
+            )
 
-        NavigationBarItem(
-            selected = selectedTab == SelectedTab.EXPLORE && !bookDetailOpen,
-            onClick = { onSelect(SelectedTab.EXPLORE) },
-            icon = { Icon(imageVector = Icons.Default.Explore, contentDescription = null) },
-            label = { Text(stringResource(R.string.nav_explore)) },
-            colors = NavigationBarItemDefaults.colors(
-                selectedIconColor = MaterialTheme.colorScheme.primary,
-                selectedTextColor = MaterialTheme.colorScheme.primary,
-                indicatorColor = MaterialTheme.colorScheme.outlineVariant
-            ),
-            modifier = Modifier.testTag("tab_explore")
-        )
+            NavigationBarItem(
+                selected = selectedTab == SelectedTab.EXPLORE && !bookDetailOpen,
+                onClick = { onSelect(SelectedTab.EXPLORE) },
+                icon = { Icon(imageVector = Icons.Default.Explore, contentDescription = null) },
+                label = { Text(stringResource(R.string.nav_explore), modifier = Modifier.requiredWidth(labelWidth), style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 0.sp, lineBreak = androidx.compose.ui.text.style.LineBreak.Heading), textAlign = androidx.compose.ui.text.style.TextAlign.Center) },
+                colors = NavigationBarItemDefaults.colors(
+                    selectedIconColor = MaterialTheme.colorScheme.primary,
+                    selectedTextColor = MaterialTheme.colorScheme.primary,
+                    indicatorColor = MaterialTheme.colorScheme.outlineVariant
+                ),
+                modifier = Modifier.testTag("tab_explore")
+            )
 
-        NavigationBarItem(
-            selected = selectedTab == SelectedTab.LIBRARY && !bookDetailOpen,
-            onClick = { onSelect(SelectedTab.LIBRARY) },
-            icon = { Icon(imageVector = Icons.Default.LibraryMusic, contentDescription = null) },
-            label = { Text(stringResource(R.string.nav_library)) },
-            colors = NavigationBarItemDefaults.colors(
-                selectedIconColor = MaterialTheme.colorScheme.primary,
-                selectedTextColor = MaterialTheme.colorScheme.primary,
-                indicatorColor = MaterialTheme.colorScheme.outlineVariant
-            ),
-            modifier = Modifier.testTag("tab_library")
-        )
+            NavigationBarItem(
+                selected = selectedTab == SelectedTab.LIBRARY && !bookDetailOpen,
+                onClick = { onSelect(SelectedTab.LIBRARY) },
+                icon = { Icon(imageVector = Icons.Default.LibraryMusic, contentDescription = null) },
+                label = { Text(stringResource(R.string.nav_library), modifier = Modifier.requiredWidth(labelWidth), style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 0.sp, lineBreak = androidx.compose.ui.text.style.LineBreak.Heading), textAlign = androidx.compose.ui.text.style.TextAlign.Center) },
+                colors = NavigationBarItemDefaults.colors(
+                    selectedIconColor = MaterialTheme.colorScheme.primary,
+                    selectedTextColor = MaterialTheme.colorScheme.primary,
+                    indicatorColor = MaterialTheme.colorScheme.outlineVariant
+                ),
+                modifier = Modifier.testTag("tab_library")
+            )
+
+            NavigationBarItem(
+                selected = selectedTab == SelectedTab.SETTINGS && !bookDetailOpen,
+                onClick = { onSelect(SelectedTab.SETTINGS) },
+                icon = { Icon(imageVector = Icons.Default.Settings, contentDescription = null) },
+                label = { Text(stringResource(R.string.nav_settings), modifier = Modifier.requiredWidth(labelWidth), style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 0.sp, lineBreak = androidx.compose.ui.text.style.LineBreak.Heading), textAlign = androidx.compose.ui.text.style.TextAlign.Center) },
+                colors = NavigationBarItemDefaults.colors(
+                    selectedIconColor = MaterialTheme.colorScheme.primary,
+                    selectedTextColor = MaterialTheme.colorScheme.primary,
+                    indicatorColor = MaterialTheme.colorScheme.outlineVariant
+                ),
+                modifier = Modifier.testTag("tab_settings")
+            )
+        }
     }
 }

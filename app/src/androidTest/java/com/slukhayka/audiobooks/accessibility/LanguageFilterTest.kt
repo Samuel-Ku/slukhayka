@@ -66,6 +66,9 @@ class LanguageFilterTest {
                 assertEquals(setOf("fantasy"), vm.feedGenreFilters.value)
                 assertEquals(setOf("under_5h"), vm.feedDurationFilters.value)
                 assertTrue(vm.feedSortByTitle.value)
+                // Language changes replace the live sections above these
+                // controls, so bring their stable key back into the viewport.
+                rule.onNodeWithTag("home_screen").performScrollToKey("work_feed_controls")
                 rule.onNodeWithTag("feed_language").assertIsDisplayed()
                 screenshot("548-live-$index.png")
             }

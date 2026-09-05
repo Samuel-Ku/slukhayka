@@ -28,6 +28,62 @@ import java.security.MessageDigest
 /** Opt-in physical-device check; pass -e liveBookId for an existing 4read book. */
 @RunWith(AndroidJUnit4::class)
 class LiveBrowserRecoveryTest {
+    /** Requires separate explicit approval; never writes PrivacySettingsStore. */
+    @Test fun unavailable_private_routes_fail_closed_and_streaming_returns(): Unit = runBlocking {
+        val args = InstrumentationRegistry.getArguments()
+        assumeTrue(args.getString("liveRouteTest") == "true")
+        val id = requireNotNull(args.getString("liveBookId"))
+        val app = App.instance
+        val prefs = app.privacySettings.load()
+        val originalRoute = com.slukhayka.audiobooks.data.privacy.TransportPrivacy.current()
+        assumeTrue(com.slukhayka.audiobooks.data.privacy.NetworkPrivacy.resolve(prefs) ==
+            com.slukhayka.audiobooks.data.privacy.RouteResolution.Ok(originalRoute))
+        val book = requireNotNull(app.audiobookDao.getAudiobookById(id)).toAudiobookEntity()
+        val playable = app.sourceCatalog.getPlayableChapters(id, applyLocalLock = false)
+        val local = playable.indexOfFirst { it.track?.localFilePath?.let { path -> File(path).isFile } == true }
+        val remote = playable.indexOfFirst { it.track?.let { track -> track.localFilePath.isNullOrBlank() } == true }
+        assumeTrue(local >= 0 && remote >= 0)
+        val intent = Intent(InstrumentationRegistry.getInstrumentation().targetContext, MainActivity::class.java)
+        ActivityScenario.launch<MainActivity>(intent).use { scenario ->
+            lateinit var vm: MainViewModel
+            scenario.onActivity {
+                it.window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                vm = ViewModelProvider(it)[MainViewModel::class.java]
+                vm.playerManager.loadAndPlayBook(book, playable.map { p -> p.chapter }, playable,
+                    initialChapterIndex = remote, initialPositionSeconds = 42)
+                vm.setShowFullPlayer(true)
+            }
+            try {
+                awaitState("Initial streamed chapter plays", 35_000) { vm.playerState.value.isPlaying }
+                for (mode in listOf(com.slukhayka.audiobooks.data.privacy.RouteMode.CUSTOM_PROXY,
+                    com.slukhayka.audiobooks.data.privacy.RouteMode.MAX_PRIVACY)) {
+                    com.slukhayka.audiobooks.data.privacy.TransportPrivacy.install(
+                        prefs.copy(routeMode = mode, proxyAddress = "127.0.0.1:1"))
+                    scenario.onActivity { vm.playerManager.prepareChapter(remote, 42_000, true) }
+                    awaitState("Unavailable $mode terminates honestly", 45_000) {
+                        val state = vm.playerState.value
+                        !state.isPlaying && !state.isBuffering && state.lastErrorMsg.isNotBlank()
+                    }
+                    scenario.onActivity { vm.playerManager.prepareChapter(local, 42_000, true) }
+                    awaitState("Local file plays while $mode is unavailable") { vm.playerState.value.isPlaying }
+                    assertEquals(local, vm.playerState.value.currentChapterIndex)
+                }
+                com.slukhayka.audiobooks.data.privacy.TransportPrivacy.install(prefs)
+                scenario.onActivity { vm.playerManager.prepareChapter(remote, 42_000, true) }
+                awaitState("Streaming returns on the restored route", 35_000) { vm.playerState.value.isPlaying }
+                assertEquals(remote, vm.playerState.value.currentChapterIndex)
+                assertTrue(vm.playerState.value.currentPositionMs in 40_000..55_000)
+                assertEquals(prefs, app.privacySettings.load())
+                Log.i("LiveRecoveryTest", "privateRoutes=passed localOffline=passed networkReturn=passed")
+            } finally {
+                com.slukhayka.audiobooks.data.privacy.TransportPrivacy.install(prefs)
+                scenario.onActivity { vm.playerManager.pause() }
+                assertEquals(originalRoute, com.slukhayka.audiobooks.data.privacy.TransportPrivacy.current())
+                assertEquals(prefs, app.privacySettings.load())
+            }
+        }
+    }
+
     @Test fun cancel_and_resume_preserve_completed_files_of_both_books(): Unit = runBlocking {
         val args = InstrumentationRegistry.getArguments()
         val id = args.getString("liveBookId")
@@ -45,15 +101,27 @@ class LiveBrowserRecoveryTest {
         val existing = dao.getTracksForBookSync(id).mapNotNull { it.localFilePath }
             .associateWith { hash(File(it)) }
         assertTrue(existing.isNotEmpty())
+        val initialState = dao.getAudiobookById(id)?.downloadState
+        Log.i("LiveRecoveryTest", "cancelResumeStart state=$initialState files=${existing.size}")
+        val outcome = java.util.concurrent.atomic.AtomicReference<String>("running")
         val job = launch(Dispatchers.IO) {
             downloads.registerDownloadJob(id, requireNotNull(currentCoroutineContext()[Job]))
-            try { downloads.continueDownload(id) }
-            finally { downloads.unregisterDownloadJob(id, requireNotNull(currentCoroutineContext()[Job])) }
+            try { outcome.set(downloads.continueDownload(id).toString()) }
+            finally {
+                Log.i("LiveRecoveryTest", "cancelResumeJob result=${outcome.get()} state=${dao.getAudiobookById(id)?.downloadState}")
+                downloads.unregisterDownloadJob(id, requireNotNull(currentCoroutineContext()[Job]))
+            }
         }
         try {
-            withTimeout(120_000) {
-                while (dao.getTracksForBookSync(id).count { !it.localFilePath.isNullOrBlank() } <= existing.size) delay(250)
+            val waitMs = args.getString("liveDownloadWaitMs")?.toLongOrNull()?.coerceIn(30_000, 600_000) ?: 120_000
+            withTimeout(waitMs) {
+                while (dao.getTracksForBookSync(id).count { !it.localFilePath.isNullOrBlank() } <= existing.size) {
+                    assertFalse("Queue ended without a new file: initial=$initialState result=${outcome.get()} state=${dao.getAudiobookById(id)?.downloadState}", job.isCompleted)
+                    delay(250)
+                }
             }
+        } catch (failure: kotlinx.coroutines.TimeoutCancellationException) {
+            throw AssertionError("Download timed out: initial=$initialState result=${outcome.get()} state=${dao.getAudiobookById(id)?.downloadState} bytes=${downloads.downloadBytesProgress.value[id]}", failure)
         } finally {
             downloads.cancelDownload(id)
             job.join()

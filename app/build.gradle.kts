@@ -515,10 +515,16 @@ afterEvaluate {
         }
       }
       if (requestedAlias.startsWith("testRoomNative")) {
+        val workerIdentityFile = layout.buildDirectory.file("test-worker-identities.tsv")
         systemProperty(
           "slukhayka.test.workerIdentityFile",
-          layout.buildDirectory.file("test-worker-identities.tsv").get().asFile.absolutePath,
+          workerIdentityFile.get().asFile.absolutePath,
         )
+        // The probe is part of the CI contract. Declaring it as task output
+        // makes Gradle restore it with a cached test result and rerun the task
+        // when the report is absent instead of leaving upload-artifact empty.
+        outputs.file(workerIdentityFile).withPropertyName("workerIdentityReport")
+        doFirst { workerIdentityFile.get().asFile.delete() }
       }
       filter {
         isFailOnNoMatchingTests = true

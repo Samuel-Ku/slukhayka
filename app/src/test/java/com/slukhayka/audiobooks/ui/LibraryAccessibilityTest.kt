@@ -18,6 +18,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.input.InputMode
+import androidx.compose.ui.input.InputModeManager
+import androidx.compose.ui.platform.LocalInputModeManager
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.testTag
@@ -80,13 +83,19 @@ class LibraryAccessibilityTest {
     fun libraryBookCardAcceptsExactRouteReturnFocus() {
         composeTestRule.setContent {
             val returnFocusRequester = remember { FocusRequester() }
-            AudiobookTheme {
-                LibraryBookCard(
-                    book = fixtureBook,
-                    grid = false,
-                    onClick = {},
-                    modifier = Modifier.focusRequester(returnFocusRequester)
-                )
+            val touchMode = object : InputModeManager {
+                override val inputMode = InputMode.Touch
+                override fun requestInputMode(inputMode: InputMode) = false
+            }
+            CompositionLocalProvider(LocalInputModeManager provides touchMode) {
+                AudiobookTheme {
+                    LibraryBookCard(
+                        book = fixtureBook,
+                        grid = false,
+                        onClick = {},
+                        modifier = Modifier.focusRequester(returnFocusRequester)
+                    )
+                }
             }
             LaunchedEffect(returnFocusRequester) {
                 withFrameNanos { }

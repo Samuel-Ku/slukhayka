@@ -14,6 +14,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.input.InputMode
+import androidx.compose.ui.input.InputModeManager
+import androidx.compose.ui.platform.LocalInputModeManager
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.testTag
@@ -167,6 +171,28 @@ class BookDetailChapterBookmarkAccessibilityTest {
         }
         composeTestRule.onNodeWithTag("book_detail_chapter_${chapter.id}")
             .assertIsFocused()
+    }
+
+    @Test
+    fun chapterFocusReturnWorksInTouchModeWithoutDuplicateClickTargets() {
+        lateinit var origin: FocusRequester
+        val touchMode = object : InputModeManager {
+            override val inputMode = InputMode.Touch
+            override fun requestInputMode(inputMode: InputMode) = false
+        }
+        composeTestRule.setContent {
+            origin = remember { FocusRequester() }
+            CompositionLocalProvider(LocalInputModeManager provides touchMode) {
+                AudiobookTheme(darkTheme = true) {
+                    ChapterRowItem(chapter = chapter, index = 3, isCurrent = true,
+                        isPlaying = false, focusRequester = origin,
+                        onPlayClick = {}, onPauseClick = {})
+                }
+            }
+        }
+        composeTestRule.runOnIdle { assertTrue("Chapter must accept modal-return focus in touch mode", origin.requestFocus()) }
+        composeTestRule.onNodeWithTag("book_detail_chapter_${chapter.id}").assertIsFocused()
+        composeTestRule.onAllNodes(hasClickAction(), useUnmergedTree = true).assertCountEquals(1)
     }
 
     @Test

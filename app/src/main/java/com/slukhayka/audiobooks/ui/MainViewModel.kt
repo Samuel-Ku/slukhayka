@@ -57,6 +57,7 @@ import com.slukhayka.audiobooks.data.source.cookieHeadersFor
 import com.slukhayka.audiobooks.data.source.headersFor
 import com.slukhayka.audiobooks.data.metadata.FirestoreBookMetaStore
 import com.slukhayka.audiobooks.data.metadata.BookProfile
+import com.slukhayka.audiobooks.data.metadata.PopularityAssertionPolicy
 import com.slukhayka.audiobooks.data.metadata.ProfileChapter
 import com.slukhayka.audiobooks.data.metadata.VerifiedSourceProfile
 import com.slukhayka.audiobooks.player.AudioPlayerManager
@@ -2484,6 +2485,45 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 for (signal in missing) merged[signal.id] = embedder.embed(signal.text)
             }
         }
+        // #486 — the persisted source signals (#485): fresh rank positions and
+        // claimed ratings feed the ONE small popularity component, and the
+        // sources' tops name the «джерело радить» slots. Best-effort: a read
+        // failure leaves the maps empty and the row behaves exactly as before
+        // #486.
+        val sourceAssertions = runCatching {
+            val now = System.currentTimeMillis()
+            val isFreshRank: (PopularityAssertionEntity) -> Boolean = {
+                PopularityAssertionPolicy.isFresh(it.observedAt, now, PopularityAssertionPolicy.POPULARITY_TTL_MS)
+            }
+            val rankRows = App.instance.audiobookDao
+                .popularityAssertions(PopularityAssertionEntity.KIND_RANK)
+                .filter(isFreshRank)
+            val ratingRows = App.instance.audiobookDao
+                .popularityAssertions(PopularityAssertionEntity.KIND_RATING)
+                .filter {
+                    PopularityAssertionPolicy.isFresh(it.observedAt, now, PopularityAssertionPolicy.RATING_TTL_MS)
+                }
+            val rankByWork = rankRows.groupBy { it.mergeKey }
+                .mapValues { (_, rows) -> rows.mapNotNull { r -> r.rawValue.toIntOrNull() }.minOrNull() }
+            val ratingByWork = ratingRows.groupBy { it.mergeKey }
+                .mapValues { (_, rows) -> rows.mapNotNull { r -> PopularityAssertionPolicy.ratingValue(r.rawValue) }.maxOrNull() }
+            Triple(rankRows, rankByWork, ratingByWork)
+        }.getOrElse { Triple(emptyList(), emptyMap(), emptyMap()) }
+        val (_, rankByWork, ratingByWork) = sourceAssertions
+        val popularityByWorkId = (rankByWork.keys + ratingByWork.keys).associateWith { key ->
+            com.slukhayka.audiobooks.data.recommend.RecommendationPersonalization.normalizedPopularity(
+                rank = rankByWork[key],
+                rating = ratingByWork[key]
+            )
+        }
+        val sourceLabelsByWorkId = sourceAssertions.first
+            .groupBy { it.mergeKey }
+            .mapValues { (_, rows) ->
+                rows.minByOrNull { it.rawValue.toIntOrNull() ?: Int.MAX_VALUE }
+                    ?.let { PopularityAssertionPolicy.sourceLabel(it.sourceId) }
+            }
+            .filterValues { it != null }
+            .mapValues { it.value!! }
         com.slukhayka.audiobooks.data.recommend.RecommendationPersonalization.rank(
             candidates = candidates,
             signals = allSignals,
@@ -2491,7 +2531,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             excludedWorkIds = knownIds,
             excludedAuthors = hiddenAuthors,
             weights = settings.weights,
-            topN = 10
+            topN = 10,
+            popularityByWorkId = popularityByWorkId,
+            sourceLabelsByWorkId = sourceLabelsByWorkId
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 

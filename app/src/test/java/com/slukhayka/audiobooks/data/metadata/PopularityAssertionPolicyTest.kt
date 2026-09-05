@@ -117,4 +117,13 @@ class PopularityAssertionPolicyTest {
         )
         assertNull(record)
     }
+
+    @Test
+    fun `a rank assertion's source gets a human label for the badge`() {
+        assertEquals("sound-books", PopularityAssertionPolicy.sourceLabel("soundbooks-top"))
+        assertEquals("sluhay", PopularityAssertionPolicy.sourceLabel("sluhayua-popular"))
+        assertEquals("openlibrary", PopularityAssertionPolicy.sourceLabel("live-trending"))
+        // An unknown list id shows itself — never a fabricated name.
+        assertEquals("mystery-list", PopularityAssertionPolicy.sourceLabel("mystery-list"))
+    }
 }

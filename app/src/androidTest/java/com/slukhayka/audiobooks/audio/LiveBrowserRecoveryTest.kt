@@ -227,17 +227,24 @@ class LiveBrowserRecoveryTest {
         val tracks = dao.getTracksForBookSync(id)
         val files = tracks.mapNotNull { it.localFilePath }.distinct().associateWith { hash(File(it)) }
         assertTrue("Requires a partially downloaded book", files.isNotEmpty())
-        val remote = tracks.first { it.localFilePath.isNullOrBlank() }
-        val chapter = remote.trackIndex
+        val playable = App.instance.sourceCatalog.getPlayableChapters(id)
+        val chapter = playable.indexOfFirst { item ->
+            item.track?.let { track ->
+                track.localFilePath.isNullOrBlank() && track.url?.startsWith("http") == true
+            } == true
+        }
+        assertTrue("Requires a streamed chapter in the player's selected source", chapter >= 0)
+        val remote = requireNotNull(playable[chapter].track)
         val position = 42_000L
         val book = requireNotNull(dao.getAudiobookById(id)).toAudiobookEntity()
         // Break only the in-memory media item. The saved source page, database
         // URLs and downloaded files remain untouched throughout the test.
-        val expired = App.instance.sourceCatalog.getPlayableChapters(id).map { item ->
+        val expired = playable.map { item ->
             if (item.track?.id == remote.id) item.copy(
                 track = remote.copy(url = "https://127.0.0.1:9/expired.mp3")
             ) else item
         }
+        assertEquals("https://127.0.0.1:9/expired.mp3", expired[chapter].track?.url)
         val intent = Intent(InstrumentationRegistry.getInstrumentation().targetContext, MainActivity::class.java)
             .putExtra("openBookDetail", true).putExtra("bookId", id)
         ActivityScenario.launch<MainActivity>(intent).use { scenario ->

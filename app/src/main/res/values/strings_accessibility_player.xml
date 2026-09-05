@@ -31,6 +31,16 @@
     <string name="a11y_player_timer_end_of_chapter">до кінця розділу</string>
     <string name="a11y_player_timer_off">вимкнено</string>
     <string name="player_tool_speed_label">Швидкість</string>
+
+    <!-- #519 — явний пошук альтернативного джерела після невдалого відновлення -->
+    <string name="player_find_alternative">Знайти в іншому джерелі</string>
+    <string name="player_find_alternative_searching">Шукаємо в інших джерелах…</string>
+    <string name="player_find_alternative_found">Граємо з іншого джерела (%1$s)</string>
+    <string name="player_alternative_no_results">В інших джерелах цієї книги не знайдено</string>
+    <string name="player_alternative_book_missing">Книгу не знайдено в бібліотеці</string>
+    <string name="player_alternative_different_narration">Знайдено іншу начитку — потрібне підтвердження</string>
+    <string name="player_alternative_source_unresponsive">Джерело не відповіло — спробуйте ще раз</string>
+    <string name="player_alternative_chapters_unavailable">Розділи джерела не відкрилися</string>
     <string name="player_tool_timer_label">Таймер</string>
     <string name="player_tool_bookmark_label">Закладка</string>
     <string name="player_tool_chapters_label">Розділи</string>

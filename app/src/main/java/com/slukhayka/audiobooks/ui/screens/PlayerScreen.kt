@@ -368,6 +368,17 @@ fun PlayerScreen(
                     playerState.currentPositionMs
                 )
             },
+            // #519 — явна дія «Знайти в іншому джерелі»: нічого не шукає
+            // до натискання; результат чесний (та сама начитка продовжує,
+            // інша потребує підтвердження).
+            alternativeState = viewModel.alternativeSourceState.collectAsState().value,
+            onFindAlternative = {
+                viewModel.findAlternativeSource(
+                    book.id,
+                    playerState.currentChapterIndex,
+                    playerState.currentPositionMs
+                )
+            },
             // #471 — явні браузерні двері для ЛЮБОГО BROWSER джерела книги
             // (узагальнення старих 4read-єдиних дверей).
             browserDoors = browserDoors,
@@ -523,6 +534,9 @@ fun PlayerScreenContent(
     onBookmark: () -> Unit,
     onChapters: () -> Unit,
     onRetryPlayback: () -> Unit,
+    // #519 — явний пошук альтернативного джерела: стан і дії
+    alternativeState: MainViewModel.AlternativeSourceState = MainViewModel.AlternativeSourceState.Idle,
+    onFindAlternative: () -> Unit = {},
     // #471 — явні браузерні двері (по одній на кожне BROWSER джерело книги)
     // замість старого 4read-єдиного прапорця.
     browserDoors: List<PlayerBrowserDoor> = emptyList(),
@@ -762,7 +776,9 @@ fun PlayerScreenContent(
                         // матчу «недоступна» у тексті помилки.
                         kind = playerState.errorKind,
                         onRetryPlayback = onRetryPlayback,
-                        browserDoors = browserDoors
+                        browserDoors = browserDoors,
+                        alternativeState = alternativeState,
+                        onFindAlternative = onFindAlternative
                     )
                 } else if (playerState.isBuffering) {
                     // Issue #381 (a11y/UX-аудит v1.3.6): під час резолюції
@@ -1423,7 +1439,10 @@ private fun PlayerPlaybackError(
     kind: PlaybackErrorKind,
     onRetryPlayback: () -> Unit,
     // #471 — двері для ЛЮБОГО BROWSER джерела книги, не тільки 4read.
-    browserDoors: List<PlayerBrowserDoor> = emptyList()
+    browserDoors: List<PlayerBrowserDoor> = emptyList(),
+    // #519 — явний пошук альтернативного джерела після невдалого відновлення.
+    alternativeState: MainViewModel.AlternativeSourceState = MainViewModel.AlternativeSourceState.Idle,
+    onFindAlternative: () -> Unit = {}
 ) {
     val errorTitle = stringResource(R.string.a11y_player_error_title)
     val retryLabel = stringResource(R.string.a11y_player_retry, bookTitle)
@@ -1479,6 +1498,78 @@ private fun PlayerPlaybackError(
                         modifier = Modifier.clearAndSetSemantics { }
                     )
                 }
+            }
+            // #519 — явна дія: нічого не шукає до натискання; під час пошуку
+            // кнопка показує прогрес і більше не запускає другий пошук.
+            val alternativeLabel = stringResource(R.string.player_find_alternative)
+            when (alternativeState) {
+                is MainViewModel.AlternativeSourceState.Searching -> OutlinedButton(
+                    onClick = {},
+                    enabled = false,
+                    modifier = Modifier
+                        .heightIn(min = AppDimens.TouchTarget)
+                        .testTag("player_alternative_searching")
+                ) {
+                    Text(stringResource(R.string.player_find_alternative_searching))
+                }
+
+                else -> OutlinedButton(
+                    onClick = onFindAlternative,
+                    modifier = Modifier
+                        .heightIn(min = AppDimens.TouchTarget)
+                        .testTag("player_find_alternative")
+                        .semantics {
+                            contentDescription = alternativeLabel
+                        }
+                ) {
+                    Text(
+                        stringResource(R.string.player_find_alternative),
+                        modifier = Modifier.clearAndSetSemantics { }
+                    )
+                }
+            }
+            // Чесний підсумок (показується, поки не почалася нова спроба).
+            when (alternativeState) {
+                is MainViewModel.AlternativeSourceState.Continued -> Text(
+                    text = stringResource(
+                        R.string.player_find_alternative_found,
+                        alternativeState.sourceName
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onErrorContainer
+                )
+
+                is MainViewModel.AlternativeSourceState.Failed -> {
+                    Text(
+                        text = stringResource(
+                            when (alternativeState.reason) {
+                                MainViewModel.AlternativeFailure.BOOK_MISSING ->
+                                    R.string.player_alternative_book_missing
+                                MainViewModel.AlternativeFailure.NO_RESULTS ->
+                                    R.string.player_alternative_no_results
+                                MainViewModel.AlternativeFailure.DIFFERENT_NARRATION ->
+                                    R.string.player_alternative_different_narration
+                                MainViewModel.AlternativeFailure.SOURCE_UNRESPONSIVE ->
+                                    R.string.player_alternative_source_unresponsive
+                                MainViewModel.AlternativeFailure.CHAPTERS_UNAVAILABLE ->
+                                    R.string.player_alternative_chapters_unavailable
+                            }
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                    alternativeState.hints.take(3).forEach { hint ->
+                        Text(
+                            text = hint,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+
+                else -> Unit
             }
         }
     }

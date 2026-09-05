@@ -55,7 +55,8 @@ class PeopleNewArrivalWorker(
             val decision = PeopleNewArrivalNotification.decide(
                 bookmarks = app.personBookmarks.allBookmarks().first(),
                 works = app.sourceCatalog.allWorks.first(),
-                editions = app.sourceCatalog.allEditions.first()
+                editions = app.sourceCatalog.allEditions.first(),
+                libraryEntries = app.sourceCatalog.allLibraryEntries.first()
             ) ?: return
             val context = app.applicationContext
             if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) return

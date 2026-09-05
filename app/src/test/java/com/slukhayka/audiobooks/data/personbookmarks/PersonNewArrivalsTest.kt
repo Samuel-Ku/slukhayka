@@ -1,5 +1,6 @@
 package com.slukhayka.audiobooks.data.personbookmarks
 
+import com.slukhayka.audiobooks.data.db.LibraryEntryEntity
 import com.slukhayka.audiobooks.data.db.EditionEntity
 import com.slukhayka.audiobooks.data.db.PersonBookmarkEntity
 import com.slukhayka.audiobooks.data.db.PersonBookmarkKey
@@ -30,7 +31,7 @@ class PersonNewArrivalsTest {
         val author = PersonIdentity.from(PersonRole.AUTHOR, "Ігор Петренко")
         val narrator = PersonIdentity.from(PersonRole.NARRATOR, "Ігор Петренко")
         val work = WorkEntity("work", "title|author", "Книга", "ігор петренко", addedAt = 11)
-        val edition = EditionEntity("edition", "work", narrator = "Ігор Петренко", addedAt = 11)
+        val edition = EditionEntity("edition", "4read-card", narrator = "Ігор Петренко", addedAt = 11)
         val card = GlobalSearchResult(
             title = "Книга",
             author = "Ігор Петренко",
@@ -46,6 +47,7 @@ class PersonNewArrivalsTest {
             ),
             works = listOf(work),
             editions = listOf(edition),
+            libraryEntries = listOf(LibraryEntryEntity("4read-card", work.id)),
             unifiedCatalog = listOf(card, card.copy(sources = listOf(GlobalSearchSource("source-b", "B", "https://b.example/book"))))
         )
 
@@ -70,7 +72,7 @@ class PersonNewArrivalsTest {
                 PersonBookmarkEntity(shown.role.storageValue, shown.id, shown.displayName, shown.normalizedName, lastSeenAt = 10),
                 PersonBookmarkEntity(absent.role.storageValue, absent.id, absent.displayName, absent.normalizedName, lastSeenAt = 10)
             ),
-            works = listOf(shownWork, absentWork), editions = emptyList(), unifiedCatalog = listOf(card)
+            works = listOf(shownWork, absentWork), editions = emptyList(), libraryEntries = emptyList(), unifiedCatalog = listOf(card)
         )
 
         assertEquals(setOf(shown.id), projection.bookmarkKeys.map { it.id }.toSet())
@@ -134,13 +136,13 @@ class PersonNewArrivalsTest {
         val author = PersonIdentity.from(PersonRole.AUTHOR, "Леся Українка")
         val narrator = PersonIdentity.from(PersonRole.NARRATOR, "Ігор Петренко")
         val work = WorkEntity("work", "key", "Книга", author.displayName, addedAt = 11)
-        val edition = EditionEntity("edition", work.id, narrator = narrator.displayName, addedAt = 11)
+        val edition = EditionEntity("edition", "4read-card", narrator = narrator.displayName, addedAt = 11)
         val bookmarks = listOf(
             PersonBookmarkEntity(author.role.storageValue, author.id, author.displayName, author.normalizedName, lastSeenAt = 10),
             PersonBookmarkEntity(narrator.role.storageValue, narrator.id, narrator.displayName, narrator.normalizedName, lastSeenAt = 10)
         )
 
-        val decision = PeopleNewArrivalNotification.decide(bookmarks, listOf(work), listOf(edition))!!
+        val decision = PeopleNewArrivalNotification.decide(bookmarks, listOf(work), listOf(edition), listOf(LibraryEntryEntity("4read-card", work.id)))!!
 
         assertEquals(1, decision.count)
         assertEquals(setOf(author.displayName, narrator.displayName), decision.people.toSet())

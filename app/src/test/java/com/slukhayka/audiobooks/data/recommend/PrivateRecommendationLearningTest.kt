@@ -75,10 +75,13 @@ class PrivateRecommendationLearningTest {
             RecommendationPersonalization.ScoreWeights(),
             listOf(100.0, -100.0, .5, -.5, 0.0)
         )
+        // #486: the learned simplex is the PERSONAL block; the popularity
+        // component stays fixed and outside the channel.
         val values = listOf(updated.semantic, updated.author, updated.genre, updated.series, updated.freshness)
-        assertEquals(1.0, values.sum(), 1e-9)
+        assertEquals(1.0 - updated.popularity, values.sum(), 1e-9)
         assertTrue(values.all { it in .02..0.80 })
-        val before = listOf(.60, .15, .10, .05, .10)
+        val before = listOf(.55, .15, .10, .05, .05)
         assertTrue(values.zip(before).all { (after, old) -> kotlin.math.abs(after - old) <= .0200001 })
+        assertEquals(.10, updated.popularity, 1e-9)
     }
 }

@@ -1,5 +1,6 @@
 package com.slukhayka.audiobooks.data.personbookmarks
 
+import com.slukhayka.audiobooks.data.db.LibraryEntryEntity
 import com.slukhayka.audiobooks.data.db.EditionEntity
 import com.slukhayka.audiobooks.data.db.PersonBookmarkEntity
 import com.slukhayka.audiobooks.data.db.PersonBookmarkKey
@@ -23,10 +24,12 @@ object PeopleNewArrivalNotification {
     fun decide(
         bookmarks: List<PersonBookmarkEntity>,
         works: List<WorkEntity>,
-        editions: List<EditionEntity>
+        editions: List<EditionEntity>,
+        libraryEntries: List<LibraryEntryEntity> = emptyList()
     ): Decision? {
         val detected = PersonNewArrivals.detect(bookmarks, works, editions)
         val workById = works.associateBy { it.id }
+        val workIdByBookId = libraryEntries.associate { it.id to it.workId }
         val editionById = editions.associateBy { it.id }
         val bookmarksByKey = bookmarks.mapNotNull { bookmark ->
             PersonRole.fromStorage(bookmark.kind)?.let { PersonBookmarkKey(it, bookmark.id) to bookmark }
@@ -53,7 +56,7 @@ object PeopleNewArrivalNotification {
                 val key = PersonBookmarkKey(PersonRole.NARRATOR, PersonIdentity.from(PersonRole.NARRATOR, edition.narrator).id)
                 // A new narration and the author's new Work project onto one
                 // catalogue card, so the grouped notification counts it once.
-                val itemId = edition.workId.takeIf(workById::containsKey)?.let { "work:$it" } ?: "edition:$id"
+                val itemId = workIdByBookId[edition.workId]?.takeIf(workById::containsKey)?.let { "work:$it" } ?: "edition:$id"
                 add(key, itemId, edition.addedAt)
             }
         }

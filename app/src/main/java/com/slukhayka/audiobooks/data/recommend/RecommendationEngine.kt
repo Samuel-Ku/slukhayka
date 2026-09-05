@@ -48,7 +48,13 @@ object RecommendationEngine {
         /** The strongest signal behind this pick («схоже на <title>»). */
         val reasonTitle: String,
         val semanticScore: Double = score,
-        val isExploration: Boolean = false
+        val isExploration: Boolean = false,
+        /**
+         * #486 — the source behind a «джерело радить» slot (e.g. «sound-books»).
+         * Null for personal picks: they keep the «схоже на X» reason chip and
+         * never wear a source badge.
+         */
+        val sourceLabel: String? = null
     )
 
     /**

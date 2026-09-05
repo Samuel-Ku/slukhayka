@@ -77,6 +77,44 @@ data class LocalFacetDelta(
     val authors: List<AuthorFacetDelta> = emptyList()
 )
 
+/**
+ * Spec-45 (#405) R1 (#508) — the shared helper every write path that
+ * persists an Edition (import, catalogue hydration, page materialization)
+ * uses to land the Edition's facet projection in the SAME transactional
+ * seam: the language + narrator claims ride exactly the delta shape the
+ * shared sync lane materializes, guarded to the writer's bounds. The facet
+ * row is keyed by the DOMAIN Work id (the Works row id) — the anchor the
+ * feed and the shared sync read. Blank language AND narrator writes nothing
+ * (an unknown Edition needs no projection row).
+ */
+suspend fun LocalFacetWriter.applyEditionFacet(
+    editionId: String,
+    domainWorkId: String,
+    narrator: String = "",
+    language: String = "",
+    chapterCount: Int = 0,
+    updatedAt: Long = System.currentTimeMillis()
+) {
+    if (language.isBlank() && narrator.isBlank()) return
+    apply(
+        listOf(
+            LocalFacetDelta(
+                work = WorkFacetDelta(workId = domainWorkId, updatedAt = updatedAt),
+                editions = listOf(
+                    EditionFacetDelta(
+                        editionId = editionId,
+                        workId = domainWorkId,
+                        narratorId = narrator.takeIf { it.isNotBlank() && it.length <= 80 },
+                        language = language.takeIf { it.isNotBlank() && it.length <= 24 },
+                        chapterCount = chapterCount.takeIf { it > 0 },
+                        updatedAt = updatedAt
+                    )
+                )
+            )
+        )
+    )
+}
+
 /** Frozen Wave-3 handoff: bounded facet batches commit through one Room transaction. */
 interface LocalFacetWriter {
     suspend fun apply(deltas: List<LocalFacetDelta>)

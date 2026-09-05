@@ -148,6 +148,98 @@ class WorkFeedPagingTest {
     }
 
     @Test
+    fun `a work mixing a known and an unknown edition stays visible under any selection (R4)`() = runBlocking {
+        val catalog = catalog()
+        catalog.writeWorkEdition("4read", "Mixed Facet", "Автор А", "", "https://4read/mf")
+        catalog.writeWorkEdition("4read", "English Only", "Автор Б", "", "https://4read/eo")
+        val works = dao.observeWorks().first().associateBy { it.title }
+        // FACET-signal mix: an en facet AND a blank facet on the SAME Work.
+        languageOf(catalog, works.getValue("Mixed Facet").id, "mf-en", "en")
+        languageOf(catalog, works.getValue("Mixed Facet").id, "mf-blank", "")
+        languageOf(catalog, works.getValue("English Only").id, "eo-en", "en")
+
+        // R4 (#511): a Work with ANY unknown-language Edition stays visible
+        // under a uk-only selection (US17) — the unknown member is neutral,
+        // never hidden by a known sibling and never hiding one.
+        assertEquals(
+            setOf("Mixed Facet"),
+            collectAll(catalog.pagedWorkFeedRecent(WorkFacetFilter(languages = setOf("uk")))).map { it.title }.toSet()
+        )
+        // The same rule on the title-sorted feed and on later pages (Refresh
+        // with a key beyond the first page exercises the paging cursor).
+        assertEquals(
+            setOf("Mixed Facet"),
+            collectAll(catalog.pagedWorkFeedByTitle(WorkFacetFilter(languages = setOf("uk")))).map { it.title }.toSet()
+        )
+        // Under an en selection BOTH works show: English Only has a known en
+        // signal, Mixed Facet has one too (plus its neutral blank member).
+        assertEquals(
+            setOf("English Only", "Mixed Facet"),
+            collectAll(catalog.pagedWorkFeedRecent(WorkFacetFilter(languages = setOf("en")))).map { it.title }.toSet()
+        )
+        // Empty selection stays inactive — everything returns.
+        assertEquals(2, collectAll(catalog.pagedWorkFeedRecent()).size)
+    }
+
+    @Test
+    fun `a work mixing known and unknown EDITION rows follows the same rule (R4)`() = runBlocking {
+        val catalog = catalog()
+        catalog.writeWorkEdition("4read", "Mixed Rows", "Автор В", "", "https://4read/mr")
+        val workId = dao.observeWorks().first().single { it.title == "Mixed Rows" }.id
+        // The import write path anchors editions on the library ENTRY; the
+        // feed bridges through library_entries.workId to the Works row.
+        dao.upsertLibraryEntry(
+            id = workId, workId = workId, isFavorite = false,
+            createdAt = System.currentTimeMillis(), downloadProgress = 0f
+        )
+        dao.insertEdition(
+            EditionEntity(
+                id = "mr-en", workId = workId, narrator = "Narrator A", language = "en",
+                totalChapters = 0, totalDurationSeconds = 0L
+            )
+        )
+        dao.insertEdition(
+            EditionEntity(
+                id = "mr-unknown", workId = workId, narrator = "Narrator A", language = "",
+                totalChapters = 0, totalDurationSeconds = 0L
+            )
+        )
+
+        // uk selection: the en row is hidden, the unknown row keeps the Work.
+        assertEquals(
+            listOf("Mixed Rows"),
+            collectAll(catalog.pagedWorkFeedRecent(WorkFacetFilter(languages = setOf("uk")))).map { it.title }
+        )
+        assertEquals(
+            listOf("Mixed Rows"),
+            collectAll(catalog.pagedWorkFeedByTitle(WorkFacetFilter(languages = setOf("uk")))).map { it.title }
+        )
+    }
+
+    @Test
+    fun `the unknown-stays rule composes AND with a genre dimension (R4)`() = runBlocking {
+        val catalog = catalog()
+        catalog.writeWorkEdition("4read", "Mixed Fantasy", "Автор А", "", "https://4read/xf", genreTexts = listOf("Фентезі"))
+        catalog.writeWorkEdition("4read", "English Fantasy", "Автор Б", "", "https://4read/ef", genreTexts = listOf("Фентезі"))
+        val works = dao.observeWorks().first().associateBy { it.title }
+        languageOf(catalog, works.getValue("Mixed Fantasy").id, "xf-en", "en")
+        languageOf(catalog, works.getValue("Mixed Fantasy").id, "xf-blank", "")
+        languageOf(catalog, works.getValue("English Fantasy").id, "ef-en", "en")
+
+        // Genre AND language: the ORs live INSIDE the language dimension and
+        // the genre dimension still composes with AND.
+        val filter = WorkFacetFilter(genreIds = setOf("fantasy"), languages = setOf("uk"))
+        assertEquals(
+            listOf("Mixed Fantasy"),
+            collectAll(catalog.pagedWorkFeedByTitle(filter)).map { it.title }
+        )
+        assertEquals(
+            listOf("Mixed Fantasy"),
+            collectAll(catalog.pagedWorkFeedRecent(filter)).map { it.title }
+        )
+    }
+
+    @Test
     fun `language filter composes AND with a genre dimension`() = runBlocking {
         val catalog = catalog()
         catalog.writeWorkEdition("4read", "English Fantasy", "Автор А", "", "https://4read/ef", genreTexts = listOf("Фентезі"))

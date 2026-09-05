@@ -97,6 +97,102 @@ class SmartRetryPolicyTest {
         )
     }
 
+    // --- #519: альтернативне джерело після невдалого відновлення ----------
+
+    @Test
+    fun `a verified same-narration candidate is confirmed automatically`() {
+        // The book's own narrator is a known claim and the candidate agrees —
+        // the same rendition: continue without a confirmation round-trip.
+        assertTrue(
+            SmartRetryPolicy.isSameNarration(
+                storedNarrator = "Валерій Завалко",
+                candidateNarrator = "валерій завалко"
+            )
+        )
+    }
+
+    @Test
+    fun `a blank stored narrator makes the candidate unknown - confirmation required`() {
+        // An unknown own narration is never automatically the same one; the
+        // listener confirms (AC: «Невідома або інша начитка не вважається
+        // автоматично тією самою»).
+        assertFalse(
+            SmartRetryPolicy.isSameNarration(
+                storedNarrator = "",
+                candidateNarrator = "Інший читець"
+            )
+        )
+        assertFalse(SmartRetryPolicy.isSameNarration(storedNarrator = "", candidateNarrator = ""))
+    }
+
+    @Test
+    fun `a placeholder narrator claim is an absent claim - confirmation required`() {
+        // The «4read…» placeholder is scrubbed to absent everywhere else; the
+        // same-narration verdict must not treat it as evidence of a voice.
+        assertFalse(
+            SmartRetryPolicy.isSameNarration(
+                storedNarrator = "4read narrator",
+                candidateNarrator = "4read narrator"
+            )
+        )
+    }
+
+    @Test
+    fun `a different narrator is a different narration`() {
+        assertFalse(
+            SmartRetryPolicy.isSameNarration(
+                storedNarrator = "Валерій Завалко",
+                candidateNarrator = "Інший читець"
+            )
+        )
+    }
+
+    @Test
+    fun `alternative candidates exclude the sources the book already has`() {
+        val candidates = SmartRetryPolicy.alternativeSourceCandidates(
+            bookSourceIds = listOf("4read", "soundbooks", "local"),
+            resultSourceIds = listOf("4read", "sluhayua", "soundbooks", "audiobookmp3"),
+            urlOf = { sourceId -> "https://$sourceId.example/book" }
+        )
+        // The book's own sources never become alternatives; remaining DIRECT
+        // candidates ride the shared capability order (sluhayua → audiobookmp3).
+        assertEquals(listOf("sluhayua", "audiobookmp3"), candidates)
+    }
+
+    @Test
+    fun `alternative candidates need a resolvable url`() {
+        val candidates = SmartRetryPolicy.alternativeSourceCandidates(
+            bookSourceIds = listOf("4read"),
+            resultSourceIds = listOf("soundbooks", "lihtar"),
+            urlOf = { sourceId -> if (sourceId == "lihtar") "" else "https://" + sourceId + ".example/book" }
+        )
+        assertEquals(listOf("soundbooks"), candidates)
+    }
+
+    @Test
+    fun `unknown-mode sources are never automatic candidates`() {
+        // An UNKNOWN source (not in the direct set) is never offered as an
+        // automatic candidate — the import door would guess its shape.
+        val candidates = SmartRetryPolicy.alternativeSourceCandidates(
+            bookSourceIds = listOf("soundbooks"),
+            resultSourceIds = listOf("mystery-source"),
+            urlOf = { "https://mystery.example/book" }
+        )
+        assertTrue(candidates.isEmpty())
+    }
+
+    @Test
+    fun `a full result still names candidates - the verdict stays manual`() {
+        // The candidate LIST is only a hint for the listener: nothing imports
+        // or switches until the explicit confirmation (no silent chains).
+        val candidates = SmartRetryPolicy.alternativeSourceCandidates(
+            bookSourceIds = listOf("4read"),
+            resultSourceIds = listOf("soundbooks"),
+            urlOf = { "https://sound-books.net/book.html" }
+        )
+        assertEquals(listOf("soundbooks"), candidates)
+    }
+
     // --- SmartRetryMemo: обмежена послідовність спроб (ADR-0019) ----------
 
     @Test

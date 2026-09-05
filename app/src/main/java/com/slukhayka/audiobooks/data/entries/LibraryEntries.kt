@@ -9,6 +9,7 @@ import com.slukhayka.audiobooks.data.db.ChapterEntity
 import com.slukhayka.audiobooks.data.db.PlaybackProgressEntity
 import com.slukhayka.audiobooks.data.db.SourceEntity
 import com.slukhayka.audiobooks.data.db.TombstoneEntity
+import com.slukhayka.audiobooks.data.facets.applyEditionFacet
 import kotlinx.coroutines.flow.map
 import com.slukhayka.audiobooks.data.metadata.MetadataAssertions
 import com.slukhayka.audiobooks.data.source.FourReadAdapter
@@ -42,6 +43,11 @@ class LibraryEntries(
     // metadata back-fill). Same adapter lookup the other modules use.
     private val fourReadAdapter: SourceAdapter =
         sourceAdapters.firstOrNull { it.sourceId == "4read" } ?: FourReadAdapter()
+
+    // Spec-45 (#405) R1 (#508): the shared facet-projection seam — the SAME
+    // writer the import door and the catalogue use — behind the Edition
+    // materialization below.
+    private val facetWriter = com.slukhayka.audiobooks.data.facets.RoomLocalFacetWriter(dao)
 
     // ---------------------------------------------------------------------
     // Library flows
@@ -343,8 +349,15 @@ class LibraryEntries(
             // `ch`/`ch_` format used to duplicate the whole chapter list).
             if (chapters.isEmpty() && detail.chapters.isNotEmpty()) {
                 val edition = dao.getEditionForWork(bookId)
+                // Spec-45 (#405) R1 (#508): the fallback-created Edition claims
+                // the source's declared content language (the page detail's
+                // per-book claim wins) — the same formula the import write
+                // path uses, so lookups match stored rows.
+                val contentLanguage = detail.language.ifBlank {
+                    sourceAdapters.firstOrNull { it.sourceId == sourceId }?.contentLanguage.orEmpty()
+                }
                 val editionId = edition?.id ?: com.slukhayka.audiobooks.data.EditionId.forBook(
-                    book.mergeKey ?: "", bookId, book.narrator
+                    book.mergeKey ?: "", bookId, book.narrator, contentLanguage
                 )
                 if (edition == null) {
                     dao.insertEdition(
@@ -352,9 +365,19 @@ class LibraryEntries(
                             id = editionId,
                             workId = bookId,
                             narrator = book.narrator,
+                            language = contentLanguage,
                             totalChapters = detail.chapters.size,
                             totalDurationSeconds = detail.totalDurationSeconds ?: 0L
                         )
+                    )
+                    // R1 (#508): the facet projection rides the same shared
+                    // seam — the language is visible to the feed dimension.
+                    facetWriter.applyEditionFacet(
+                        editionId = editionId,
+                        domainWorkId = book.workId?.takeIf { it.isNotBlank() } ?: bookId,
+                        narrator = book.narrator,
+                        language = contentLanguage,
+                        chapterCount = detail.chapters.size
                     )
                 }
                 val source = dao.getSourcesForBookSync(bookId).firstOrNull { it.type == sourceId }

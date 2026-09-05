@@ -30,9 +30,23 @@ class IntegratedPeopleMigrationTest {
         verifyUpgrade(JSONObject(text).getJSONObject("database"), 7)
     }
 
+    @Test fun people27PreservesNotificationCount() {
+        val relative = "schemas/com.slukhayka.audiobooks.data.db.AudiobookDatabase/27.json"
+        val file = listOf(File(relative), File("app/$relative")).first { it.isFile }
+        verifyUpgrade(JSONObject(file.readText()).getJSONObject("database"), 7)
+    }
+
+    @Test fun popularity27PreservesSourceSignals() {
+        val text = requireNotNull(javaClass.classLoader?.getResourceAsStream("migrations/popularity-branch-27.json"))
+            .bufferedReader().use { it.readText() }
+        verifyUpgrade(JSONObject(text).getJSONObject("database"), 0)
+    }
+
     private fun verifyUpgrade(schema: JSONObject, expectedCount: Int) {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val version = schema.getInt("version")
+        val hasCount = schema.toString().contains("lastNotifiedCount")
+        val hasSignals = schema.toString().contains("popularity_assertions")
         val name = "integrated-people-$version.db"
         context.deleteDatabase(name)
         val helper = FrameworkSQLiteOpenHelperFactory().create(
@@ -57,12 +71,15 @@ class IntegratedPeopleMigrationTest {
         )
         helper.writableDatabase.execSQL(
             "INSERT INTO person_bookmarks (kind,id,displayName,normalizedName,createdAt,lastSeenAt,lastNotifiedAt,notifyEnabled,updatedAt" +
-                (if (version == 25) ",lastNotifiedCount" else "") + ") VALUES ('AUTHOR','author:test','Автор','автор',11,22,33,1,44" +
-                (if (version == 25) ",7" else "") + ")"
+                (if (hasCount) ",lastNotifiedCount" else "") + ") VALUES ('AUTHOR','author:test','Автор','автор',11,22,33,1,44" +
+                (if (hasCount) ",7" else "") + ")"
+        )
+        if (hasSignals) helper.writableDatabase.execSQL(
+            "INSERT INTO popularity_assertions VALUES ('signal:test','rank','книга|автор','12','4read',123)"
         )
         helper.close()
         val migrated = Room.databaseBuilder(context, AudiobookDatabase::class.java, name)
-            .addMigrations(AudiobookDatabase.MIGRATION_25_26, AudiobookDatabase.MIGRATION_26_27)
+            .addMigrations(AudiobookDatabase.MIGRATION_25_26, AudiobookDatabase.MIGRATION_26_27, AudiobookDatabase.MIGRATION_27_28)
             .allowMainThreadQueries().build()
         try {
             // Opening through Room validates every entity and index, not only the added column.
@@ -72,6 +89,13 @@ class IntegratedPeopleMigrationTest {
                 check(row.moveToFirst())
                 assertEquals("Автор", row.getString(0))
                 assertEquals(listOf(11L,22L,33L,1L,44L,expectedCount.toLong()), (1..6).map { row.getLong(it) })
+            }
+            if (hasSignals) migrated.openHelper.writableDatabase.query(
+                "SELECT rawValue,observedAt FROM popularity_assertions WHERE id='signal:test'"
+            ).use { row ->
+                check(row.moveToFirst())
+                assertEquals("12", row.getString(0))
+                assertEquals(123L, row.getLong(1))
             }
         } finally {
             migrated.close()

@@ -78,6 +78,9 @@ class PersonBookmarksSyncControllerTest {
         val store = FakeStore()
         val person = bookmarks.identity(PersonRole.AUTHOR, "Леся Українка")
         bookmarks.toggle(person, nowMs = 100L)
+        bookmarks.upsertRemote(bookmarks.allBookmarks().first().single().copy(
+            lastSeenAt = 150L, lastNotifiedAt = 140L, lastNotifiedCount = 3
+        ))
         val uid = identity.ensure().uid
         store.remote[PersonBookmarksSyncCodec.documentId(uid, person.role.storageValue, person.id)] = mapOf(
             "uid" to uid, "kind" to person.role.storageValue, "personId" to person.id,
@@ -89,6 +92,9 @@ class PersonBookmarksSyncControllerTest {
         val merged = bookmarks.allBookmarks().first().single()
         assertFalse(merged.notifyEnabled)
         assertEquals(200L, merged.updatedAt)
+        assertEquals(150L, merged.lastSeenAt)
+        assertEquals(140L, merged.lastNotifiedAt)
+        assertEquals(3, merged.lastNotifiedCount)
         assertTrue(store.writes.isEmpty())
     }
 

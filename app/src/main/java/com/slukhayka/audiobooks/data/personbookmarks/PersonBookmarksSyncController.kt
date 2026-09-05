@@ -36,6 +36,9 @@ class PersonBookmarksSyncController(
                     kind = row.kind, id = row.personId, displayName = row.displayName,
                     normalizedName = bookmarks.identity(com.slukhayka.audiobooks.data.db.PersonRole.fromStorage(row.kind)!!, row.displayName).normalizedName,
                     createdAt = existing?.createdAt ?: row.updatedAtServerMs,
+                    lastSeenAt = existing?.lastSeenAt ?: 0L,
+                    lastNotifiedAt = existing?.lastNotifiedAt ?: 0L,
+                    lastNotifiedCount = existing?.lastNotifiedCount ?: 0,
                     notifyEnabled = row.notifyEnabled, updatedAt = row.updatedAtServerMs
                 ))
             }

@@ -7,6 +7,7 @@ import com.google.firebase.FirebaseApp
 import com.google.firebase.appcheck.FirebaseAppCheck
 import com.google.firebase.appcheck.recaptcha.RecaptchaAppCheckProviderFactory
 import com.slukhayka.audiobooks.data.catalog.FeedSnapshotStore
+import com.slukhayka.audiobooks.data.catalog.PopularityAssertionStore
 import com.slukhayka.audiobooks.data.catalog.SourceCatalog
 import com.slukhayka.audiobooks.data.collections.CollectionAssets
 import com.slukhayka.audiobooks.data.collections.OpenLibraryTrendingSource
@@ -86,6 +87,7 @@ import com.slukhayka.audiobooks.data.source.SluhayuaAdapter
 import com.slukhayka.audiobooks.data.source.SoundBooksAdapter
 import com.slukhayka.audiobooks.data.source.HttpFetcher
 import com.slukhayka.audiobooks.data.source.SourceAdapter
+import com.slukhayka.audiobooks.data.source.headersFor
 
 import com.slukhayka.audiobooks.data.update.SharedPreferencesUpdateCheckStore
 import com.slukhayka.audiobooks.data.update.UpdateChecker
@@ -354,6 +356,7 @@ class App : Application() {
             database.audiobookDao(),
             this,
             sourceAdapters,
+            popularityAssertionStore = PopularityAssertionStore(database.audiobookDao()),
             // Spec-26 T8 (#182): a new imported book whose series belongs to
             // a cached universe immediately re-validates that universe's
             // chain (cheap — one resolve) and spreads the update through the
@@ -374,6 +377,11 @@ class App : Application() {
     // ephemeral surfaces on this flow, and the ViewModel feeds the persisted
     // WorkFeed Pager with it (both react live to a change).
     val contentLanguagePrefs: ContentLanguagePrefs by lazy { ContentLanguagePrefs(this) }
+
+    // Spec-45 (#405) R7 (#514): the persisted App Locale (interface language)
+    // — read in MainActivity.attachBaseContext, written by the settings
+    // toggle through [AppLocaleApplier]. Default = system.
+    val appLocalePrefs: AppLocalePrefs by lazy { AppLocalePrefs(this) }
 
     /**
      * Spec-45 (#405) T8 (#496): the one-time bilingual prompt — after the
@@ -396,6 +404,7 @@ class App : Application() {
             database.audiobookDao(),
             sourceAdapters,
             libraryImport,
+            popularityAssertionStore = PopularityAssertionStore(database.audiobookDao()),
             collectionLists = CollectionAssets.load(this),
             liveCollectionSources = listOf(
                 OpenLibraryTrendingSource(),
@@ -549,7 +558,9 @@ class App : Application() {
         ChapterDurationProbe(
             database.audiobookDao(),
             sourceCatalog::getPlayableChapters,
-            HttpStreamProber(),
+            // #516 — the probe rides the shared transport AND the per-source
+            // header seam, so gated CDNs are provable under the app's own DNS.
+            HttpStreamProber(extraHeadersProvider = ::headersFor),
             sharedStore = sharedMetaStore
         )
     }

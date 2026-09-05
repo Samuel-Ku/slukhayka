@@ -88,6 +88,10 @@ object PrivateRecommendationLearning {
         gradient: List<Double>
     ): RecommendationPersonalization.ScoreWeights {
         require(gradient.size == 5)
+        // #486: the collective channel tunes the PERSONAL block only — the
+        // source-popularity component is a fixed structural weight, never
+        // learned, so the personal simplex sums to 1 − popularity.
+        val target = 1.0 - current.popularity
         val existing = listOf(current.semantic, current.author, current.genre, current.series, current.freshness)
         val lower = existing.map { (it - .02).coerceAtLeast(.02) }
         val upper = existing.map { (it + .02).coerceAtMost(.80) }
@@ -95,7 +99,7 @@ object PrivateRecommendationLearning {
             (existing[i] + (.02 * gradient[i]).coerceIn(-.02, .02)).coerceIn(lower[i], upper[i])
         }.toMutableList()
         repeat(10) {
-            val residual = 1.0 - final.sum()
+            val residual = target - final.sum()
             if (kotlin.math.abs(residual) < 1e-12) return@repeat
             val adjustable = final.indices.filter { i ->
                 if (residual > 0) final[i] < upper[i] else final[i] > lower[i]
@@ -104,7 +108,14 @@ object PrivateRecommendationLearning {
             val share = residual / adjustable.size
             adjustable.forEach { i -> final[i] = (final[i] + share).coerceIn(lower[i], upper[i]) }
         }
-        return RecommendationPersonalization.ScoreWeights(final[0], final[1], final[2], final[3], final[4])
+        return RecommendationPersonalization.ScoreWeights(
+            semantic = final[0],
+            author = final[1],
+            genre = final[2],
+            series = final[3],
+            freshness = final[4],
+            popularity = current.popularity
+        )
     }
 
     /** Both client and admission boundary use the same unit-L2 clipping rule. */

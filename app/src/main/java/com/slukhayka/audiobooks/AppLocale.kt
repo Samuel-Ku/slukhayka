@@ -3,6 +3,9 @@ package com.slukhayka.audiobooks
 import android.content.Context
 import android.content.SharedPreferences
 import android.content.res.Configuration
+import android.os.Build
+import android.os.LocaleList
+import androidx.fragment.app.FragmentActivity
 import java.util.Locale
 
 /**
@@ -14,9 +17,11 @@ import java.util.Locale
  * [AppLocale.SYSTEM] follows the device locale (the Activity context is left
  * unpinned); [AppLocale.UKRAINIAN]/[AppLocale.ENGLISH] pin the Activity
  * context so app strings AND Material/embedded library resources speak one
- * language. The default is [AppLocale.UKRAINIAN] — exactly the behavior the
- * app shipped with before this setting existed — so nothing changes until a
- * listener opts in.
+ * language. The default is [AppLocale.SYSTEM] (spec-45 #405 R7 #514): a new
+ * install follows the device, so an English-system device speaks English
+ * (US15) and a Ukrainian device speaks Ukrainian — the pre-setting behavior
+ * was Ukrainian-only because no English resources existed yet, not because
+ * the app pinned one.
  */
 enum class AppLocale(val tag: String) {
     /** Follow the device locale — no pinning, no context recreation. */
@@ -25,16 +30,21 @@ enum class AppLocale(val tag: String) {
     ENGLISH("en");
 
     companion object {
+        /**
+         * Unknown or absent stored values follow the system. An EXPLICITLY
+         * stored choice from any earlier store version is preserved — only
+         * the absent default changed, never a saved selection (R7 #514).
+         */
         fun fromStored(name: String?): AppLocale =
-            entries.firstOrNull { it.name == name } ?: UKRAINIAN
+            entries.firstOrNull { it.name == name } ?: SYSTEM
     }
 }
 
 /**
- * SharedPreferences-backed [AppLocale] store (spec-45 #405). Persisted
- * locally, never synced; read once per process start in
- * [MainActivity.attachBaseContext] and synchronously on change, so a locale
- * switch applies on the next Activity creation.
+ * SharedPreferences-backed [AppLocale] store (spec-45 #405; R7 #514 keeps
+ * the same file and key, so an already-saved explicit choice survives).
+ * Persisted locally, never synced; read in [MainActivity.attachBaseContext]
+ * and written synchronously by [AppLocaleApplier].
  */
 class AppLocalePrefs(context: Context) {
 
@@ -49,6 +59,35 @@ class AppLocalePrefs(context: Context) {
 
     private companion object {
         const val KEY_LOCALE = "app_locale"
+    }
+}
+
+/**
+ * Spec-45 (#405) R7 (#514) — applies a new App Locale choice immediately:
+ * persist it, then drive the platform mechanism. API 33+ sets the app's
+ * locales through [android.app.LocaleManager] (the OS re-creates the running
+ * Activity with the new language). Older Android has no per-app locales API,
+ * so the Activity recreates itself and [Context.withAppLocale] re-pins (or
+ * un-pins for SYSTEM) in `attachBaseContext` — the compat fallback.
+ */
+object AppLocaleApplier {
+
+    fun apply(activity: FragmentActivity, locale: AppLocale) {
+        AppLocalePrefs(activity).locale = locale
+        if (Build.VERSION.SDK_INT >= 33) {
+            activity.getSystemService(android.app.LocaleManager::class.java)
+                ?.let { manager ->
+                    manager.applicationLocales =
+                        if (locale == AppLocale.SYSTEM) {
+                            LocaleList.getEmptyLocaleList()
+                        } else {
+                            LocaleList.forLanguageTags(locale.tag)
+                        }
+                }
+        } else {
+            @Suppress("DEPRECATION")
+            activity.recreate()
+        }
     }
 }
 

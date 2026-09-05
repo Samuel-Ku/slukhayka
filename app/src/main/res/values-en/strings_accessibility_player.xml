@@ -43,14 +43,18 @@
 
     <string name="a11y_player_error_title">Book unavailable</string>
     <string name="a11y_player_retry">Retry playing %1$s</string>
+    <string name="a11y_player_find_alternative">Find “%1$s” in another source</string>
+    <string name="player_recovery_failed">Couldn’t restore playback</string>
+    <string name="player_retry">Retry</string>
+    <string name="player_find_another_source">Find in another source</string>
 
     <!-- Issue #381: player error texts are voiced in the UI language.
          The UNAVAILABLE category keeps the word «unavailable» in the text —
          the card title shows no detail; TRANSIENT (stream/timeout/prepare
-         exception) shows the detail with the technical code in brackets. -->
-    <string name="a11y_player_error_stream">Stream playback error (%1$s)</string>
+         exception) shows a plain-language detail without internal codes. -->
+    <string name="a11y_player_error_stream">Could not play audio from this source.</string>
     <string name="a11y_player_error_timeout">Stream timed out (%1$d s)</string>
-    <string name="a11y_player_error_prepare_exception">Couldn\'t prepare the chapter (%1$s)</string>
+    <string name="a11y_player_error_prepare_exception">Couldn\'t prepare this chapter.</string>
     <string name="a11y_player_error_heal_failed">The book is currently unavailable: the source file moved or is blocked, and it couldn\'t be refreshed.</string>
     <string name="a11y_player_error_book_unavailable">The book is currently unavailable: no audio for this book was found at the source.</string>
     <string name="a11y_player_error_resolve_failed">The book is currently unavailable: audio could not be fetched from YouTube.</string>

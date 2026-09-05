@@ -33,7 +33,7 @@ class BrowserRecoveryCoordinator(
     private val dao: AudiobookDao,
     private val libraryImport: LibraryImport,
     private val profileStore: SharedBookMetaStore? = null,
-    private val playbackVerifier: PlaybackVerifier = PlaybackVerifier { _, _ -> true },
+    private val playbackVerifier: PlaybackVerifier = PlaybackVerifier { _, _ -> false },
     private val cleanProbe: CleanProbe = CleanProbe { true },
     // #470 — the bounded attempt memo; process-wide by default because the
     // coordinator itself is constructed per recovery call.
@@ -188,8 +188,11 @@ class BrowserRecoveryCoordinator(
         val effectiveBookId = book.id
         // Determine which track to verify: for new import it's chapter 0, for recovery it's requested chapter.
         val verifyChapterIndex = if (isNewImport) 0 else requestedChapterIndex.coerceIn(0, (book.totalChapters - 1).coerceAtLeast(0))
-        val tracks = dao.getTracksForBookSync(effectiveBookId).sortedBy { it.trackIndex }
-        val track = tracks.getOrNull(verifyChapterIndex)
+        val recoveredSource = dao.getSourcesForBookSync(effectiveBookId)
+            .firstOrNull { it.type == sourceId && it.url == url }
+        val tracks = recoveredSource?.let { dao.getTracksForSourceSync(it.id) }
+            .orEmpty().sortedBy { it.trackIndex }
+        val track = tracks.firstOrNull { it.trackIndex == verifyChapterIndex }
         val trackUrl = track?.url.orEmpty()
 
         if (trackUrl.isBlank() || !trackUrl.startsWith("http", ignoreCase = true)) {
@@ -207,6 +210,8 @@ class BrowserRecoveryCoordinator(
 
         val canPlay = try {
             playbackVerifier.verify(effectiveBookId, trackUrl)
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
         } catch (_: Exception) {
             false
         }

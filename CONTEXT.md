@@ -62,8 +62,8 @@ A Source whose Adapter declares browser access — reachable only through the li
 _Avoid_: broken source, legacy source, system browser
 
 **4read Recovery**:
-The listener-initiated refresh of one existing Edition's Source tracks: the exact 4read book page opens in the in-app browser (a missing page falls back to pre-filled 4read search), the listener passes the site's check, and the app captures the real audio. It succeeds only on an actual playback verdict and never forks a duplicate Work, Edition, or Source.
-_Avoid_: automatic WebView, re-import as a new book, URL-prefix success
+The Play-initiated refresh of one existing Edition's Source tracks: the exact 4read book page loads silently behind the Player (a missing page falls back to pre-filled 4read search), and the app captures the real audio. Only a Cloudflare challenge that requires human input is revealed; after it passes, the Player returns automatically. Recovery succeeds only on an actual playback verdict and never forks a duplicate Work, Edition, or Source.
+_Avoid_: full browser chrome during automatic recovery, re-import as a new book, URL-prefix success
 
 **Verified Source×Edition Profile**:
 An anonymously shared, provenance-bearing claim that one Source URL actually started playback and passed a clean cookie-free probe. Read before recovery so the next listener may skip the browser; it never carries cookies, audio files, browser history, or listener identity, and unavailable shared storage removes only the shortcut, never the local flow.
@@ -189,19 +189,19 @@ Captured-page import is a [SourceAdapter] capability — `parseCapturedPage(html
 _Avoid_: per-adapter captured-page methods, raw HttpURLConnection in modules, app-named User-Agents, system-DNS lookups for transport hosts, special-cased relay branches outside the door, WebView sessions off-route
 
 **4read browser recovery**:
-When a 4read stream or offline chapter fails, the listener explicitly opens the
-4read in-app browser and imports the current page. Parsed chapter identity and
-order must match the stored Edition before Source tracks are updated; valid
-downloaded files and Listening State are retained. The failed download queue is
-paused and resumes on the next explicit download attempt. First-party browser
-cookies stay in WebView's durable first-party jar, so they can help later
-lists from the same source; they are never written to Room, shared profile
-metadata, logs, backup, sync or requests to another host. The listener can
-clear just that source's session explicitly. A short
-first-entry notice explains that 4read now needs the browser and is not shown
-again after the listener has opened that session.
-_Avoid_: browser auto-launch, track replacement by request-arrival order,
-cross-source cookies, resetting progress during recovery
+When Play cannot use a 4read stream or offline chapter, the exact stored book
+page loads silently behind the Player and the app captures its replacement
+audio. Only a Cloudflare challenge that needs human input is revealed; after
+it passes, the Player returns automatically. The hidden attempt is bounded and
+ends in neutral Player actions when no playable audio is verified. An explicit
+“open on site” action still opens the full source browser. Parsed chapter
+identity and order must match the stored Edition before Source tracks are
+updated; valid downloaded files and Listening State are retained. The failed
+download queue is paused and resumes on the next explicit download attempt.
+First-party cookies remain only in WebView's durable, host-bound cookie jar.
+_Avoid_: unbounded hidden recovery, full browser chrome during automatic
+recovery, track replacement by request-arrival order, cross-source cookies,
+resetting progress during recovery
 
 **Web Transport**:
 The web-side transport door for the Web Client: it resolves Source pages into structured catalog and book data server-side, and relays an audio stream only when the Source refuses direct playback. Direct-to-source audio is the default path; relaying everything is not this concept.

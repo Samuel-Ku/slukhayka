@@ -65,8 +65,6 @@ import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.BookmarkEntity
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
 import com.slukhayka.audiobooks.data.db.ChapterEntity
-import com.slukhayka.audiobooks.data.source.sourceDisplayName
-import com.slukhayka.audiobooks.player.PlaybackErrorKind
 import com.slukhayka.audiobooks.player.PlayerState
 import com.slukhayka.audiobooks.player.SleepTimerNotice
 import com.slukhayka.audiobooks.ui.MainViewModel
@@ -282,25 +280,6 @@ fun PlayerScreen(
     // above it), so LocalContentColor would otherwise stay at its framework
     // default (BLACK) and every IconButton/Icon without an explicit tint
     // would render near-invisible black glyphs on the dark backdrop.
-    // #471 — явні браузерні двері для кожного BROWSER джерела книги;
-    // читаються з бази один раз на книгу (не на кожну рекомпозицію).
-    val browserDoors by produceState(emptyList<PlayerBrowserDoor>(), book.id) {
-        value = viewModel.browserRecoverySources(book.id).map { sourceId ->
-            PlayerBrowserDoor(
-                sourceId = sourceId,
-                label = sourceDisplayName(sourceId),
-                onClick = {
-                    val current = viewModel.playerManager.playerState.value
-                    viewModel.openBrowserRecovery(
-                        bookId = book.id,
-                        sourceId = sourceId,
-                        chapterIndex = current.currentChapterIndex,
-                        positionMs = current.currentPositionMs
-                    )
-                }
-            )
-        }
-    }
     CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onBackground) {
         PlayerModalUnderlay(
             activeTool = activeTool,
@@ -350,7 +329,14 @@ fun PlayerScreen(
             },
             onPreviousChapter = viewModel.playerManager::previousChapter,
             onBack = { viewModel.playerManager.skipBackward(15) },
-            onPlayPause = viewModel.playerManager::togglePlayPause,
+            onPlayPause = {
+                val current = viewModel.playerManager.playerState.value
+                viewModel.togglePlaybackFromPlayer(
+                    book.id,
+                    current.currentChapterIndex,
+                    current.currentPositionMs
+                )
+            },
             onForward = { viewModel.playerManager.skipForward(30) },
             onNextChapter = viewModel.playerManager::nextChapter,
             onUndoSeek = viewModel.playerManager::undoLastSeek,
@@ -358,24 +344,20 @@ fun PlayerScreen(
             onTimer = { activeTool = PlayerQuickTool.Timer },
             onBookmark = { activeTool = PlayerQuickTool.Bookmark },
             onChapters = { activeTool = PlayerQuickTool.Chapters },
-            onRetryPlayback = {
-                // #471 — розумний retry: локальний файл → ре-резолв
-                // джерел (LOCAL → DIRECT → UNKNOWN + cross-source) →
-                // чесне «Книга недоступна» з браузерними дверима.
-                viewModel.smartRetryPlayback(
-                    book.id,
-                    playerState.currentChapterIndex,
-                    playerState.currentPositionMs
-                )
-            },
-            // #471 — явні браузерні двері для ЛЮБОГО BROWSER джерела книги
-            // (узагальнення старих 4read-єдиних дверей).
-            browserDoors = browserDoors,
             activeTool = activeTool,
             castReady = castReady,
             lastBookmarkTarget = lastBookmarkTarget,
             onJumpToBookmark = viewModel::jumpToBookmark,
-            onShowAllBookmarks = { activeTool = PlayerQuickTool.Bookmarks }
+            onShowAllBookmarks = { activeTool = PlayerQuickTool.Bookmarks },
+            onRetryPlayback = {
+                val current = viewModel.playerManager.playerState.value
+                viewModel.togglePlaybackFromPlayer(
+                    book.id,
+                    current.currentChapterIndex,
+                    current.currentPositionMs
+                )
+            },
+            onFindAnotherSource = { viewModel.findAnotherSource(book.title) }
         )
 
         SnackbarHost(
@@ -522,16 +504,14 @@ fun PlayerScreenContent(
     onTimer: () -> Unit,
     onBookmark: () -> Unit,
     onChapters: () -> Unit,
-    onRetryPlayback: () -> Unit,
-    // #471 — явні браузерні двері (по одній на кожне BROWSER джерело книги)
-    // замість старого 4read-єдиного прапорця.
-    browserDoors: List<PlayerBrowserDoor> = emptyList(),
     modifier: Modifier = Modifier,
     activeTool: PlayerQuickTool? = null,
     castReady: Boolean = false,
     lastBookmarkTarget: BookmarkEntity? = null,
     onJumpToBookmark: (BookmarkEntity) -> Unit = {},
-    onShowAllBookmarks: () -> Unit = {}
+    onShowAllBookmarks: () -> Unit = {},
+    onRetryPlayback: () -> Unit = {},
+    onFindAnotherSource: () -> Unit = {}
 ) {
     val background = MaterialTheme.colorScheme.background
     val tint = artworkAccent ?: MaterialTheme.colorScheme.primary
@@ -633,7 +613,7 @@ fun PlayerScreenContent(
                 // .aspectRatio() після fillMaxWidth — той вимірюється від
                 // ШИРИНИ і, коли жоден candidate не вміщується в обмеження,
                 // падає в fallback, який ігнорує і heightIn, і weight-частку:
-                // з'являється рядок «Завантаження» (#381) чи картка помилки →
+                // з'являється рядок «Завантаження» (#381) →
                 // слот стискається, а обкладинка лишається w/ratio заввишки й
                 // «випадає» за нижню межу слота поверх заголовка (Compose не
                 // кліпує сусідів). У спокійному стані виходить той самий
@@ -673,8 +653,8 @@ fun PlayerScreenContent(
                     )
                     // Cover width keeps the old widthIn(272.dp) + fillMaxWidth(0.76f)
                     // result; the height is w/ratio while it fits the slot and
-                    // clamps to the slot (ratio kept) when a status row or the
-                    // error card squeezes the column — so the artwork can never
+                    // clamps to the slot (ratio kept) when the loading status
+                    // squeezes the column — so the artwork can never
                     // outgrow its slot into the title.
                     val coverWidth = (272.dp).coerceAtMost(maxWidth) * 0.76f
                     val coverHeight = (coverWidth / coverAspect).coerceAtMost(maxHeight)
@@ -753,18 +733,7 @@ fun PlayerScreenContent(
                     )
                 }
 
-                if (playerState.lastErrorMsg.isNotBlank()) {
-                    Spacer(Modifier.height(AppDimens.SpaceMd))
-                    PlayerPlaybackError(
-                        bookTitle = book.title,
-                        detail = playerState.lastErrorMsg,
-                        // Issue #381: типізована категорія замість substring-
-                        // матчу «недоступна» у тексті помилки.
-                        kind = playerState.errorKind,
-                        onRetryPlayback = onRetryPlayback,
-                        browserDoors = browserDoors
-                    )
-                } else if (playerState.isBuffering) {
+                if (playerState.isBuffering) {
                     // Issue #381 (a11y/UX-аудит v1.3.6): під час резолюції
                     // YouTube-стріму TalkBack промовляв застаріле «Призупинено»
                     // — polite liveRegion оголошує «Завантаження» поки стрім
@@ -787,6 +756,35 @@ fun PlayerScreenContent(
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                    }
+                }
+
+                if (!playerState.isBuffering && playerState.lastErrorMsg.isNotBlank()) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceContainer,
+                        shape = RoundedCornerShape(AppDimens.RadiusCard),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("player_recovery_failed")
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = stringResource(R.string.player_recovery_failed),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                TextButton(onClick = onRetryPlayback) {
+                                    Text(stringResource(R.string.player_retry))
+                                }
+                                TextButton(onClick = onFindAnotherSource) {
+                                    Text(stringResource(R.string.player_find_another_source))
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -1399,87 +1397,6 @@ private fun RowScope.QuickTool(
                     .testTag("${testTag}_label")
                     .semantics { hideFromAccessibility() }
             )
-        }
-    }
-}
-
-/**
- * #471 — одна явна браузерна двері: BROWSER джерело книги, яке слухач може
- * відкрити свідомо після чесної «Книга недоступна» (браузер ніколи не
- * запускається неявно — ADR-0026).
- */
-data class PlayerBrowserDoor(
-    val sourceId: String,
-    val label: String,
-    val onClick: () -> Unit
-)
-
-@Composable
-private fun PlayerPlaybackError(
-    bookTitle: String,
-    detail: String,
-    // Issue #381: типізована категорія помилки — замінює substring-матч
-    // detail.contains(«недоступна»), який ламався від зміни формулювання.
-    kind: PlaybackErrorKind,
-    onRetryPlayback: () -> Unit,
-    // #471 — двері для ЛЮБОГО BROWSER джерела книги, не тільки 4read.
-    browserDoors: List<PlayerBrowserDoor> = emptyList()
-) {
-    val errorTitle = stringResource(R.string.a11y_player_error_title)
-    val retryLabel = stringResource(R.string.a11y_player_retry, bookTitle)
-    Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(Modifier.padding(AppDimens.SpaceMd)) {
-            Text(
-                text = errorTitle,
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onErrorContainer,
-                modifier = Modifier
-                    .testTag("player_playback_error")
-                    .semantics {
-                        liveRegion = LiveRegionMode.Polite
-                        heading()
-                    }
-            )
-            // TRANSIENT показує деталь (потік/таймаут/виняток підготовки);
-            // UNAVAILABLE — тільки заголовок карти, постійний стан.
-            if (kind == PlaybackErrorKind.TRANSIENT) {
-                Text(
-                    text = detail,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onErrorContainer,
-                    maxLines = 3,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-            OutlinedButton(
-                onClick = onRetryPlayback,
-                modifier = Modifier
-                    .heightIn(min = AppDimens.TouchTarget)
-                    .semantics {
-                        contentDescription = retryLabel
-                    }
-            ) {
-                Text(retryLabel, modifier = Modifier.clearAndSetSemantics { })
-            }
-            // #471 — по одній явній двері на кожне BROWSER джерело книги.
-            browserDoors.forEach { door ->
-                OutlinedButton(
-                    onClick = door.onClick,
-                    modifier = Modifier
-                        .heightIn(min = AppDimens.TouchTarget)
-                        .semantics {
-                            contentDescription = "Оновити ${door.label} через браузер для $bookTitle"
-                        }
-                ) {
-                    Text(
-                        "Оновити через браузер (${door.label})",
-                        modifier = Modifier.clearAndSetSemantics { }
-                    )
-                }
-            }
         }
     }
 }

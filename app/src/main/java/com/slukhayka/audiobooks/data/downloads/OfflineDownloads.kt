@@ -16,6 +16,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -99,10 +101,11 @@ class OfflineDownloads(
      * cancelled run must never overwrite the terminal state of a restarted
      * queue. Every start/pause/cancel bumps; terminal writes check currency.
      */
+    private val downloadSessionId = java.util.UUID.randomUUID().toString()
     private val downloadGenerations = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
     private fun nextGeneration(bookId: String): Long =
-        ((downloadGenerations[bookId] ?: 0L) + 1L).also { downloadGenerations[bookId] = it }
+        downloadGenerations.compute(bookId) { _, previous -> (previous ?: 0L) + 1L }!!
 
     private fun isCurrentGeneration(bookId: String, generation: Long): Boolean =
         downloadGenerations[bookId] == generation
@@ -233,12 +236,19 @@ class OfflineDownloads(
      * that [pauseDownload] and [cancelDownload] can cancel it.
      */
     fun registerDownloadJob(bookId: String, job: Job) {
-        _activeDownloadJobs.value = _activeDownloadJobs.value + (bookId to job)
+        while (true) {
+            val current = _activeDownloadJobs.value
+            if (_activeDownloadJobs.compareAndSet(current, current + (bookId to job))) return
+        }
     }
 
     /** #394 — Unregister a download job (called in the finally block). */
-    fun unregisterDownloadJob(bookId: String) {
-        _activeDownloadJobs.value = _activeDownloadJobs.value - bookId
+    fun unregisterDownloadJob(bookId: String, job: Job): Boolean {
+        while (true) {
+            val current = _activeDownloadJobs.value
+            if (current[bookId] !== job) return false
+            if (_activeDownloadJobs.compareAndSet(current, current - bookId)) return true
+        }
     }
 
     private suspend fun computeHash(file: File): String? = try {
@@ -257,7 +267,7 @@ class OfflineDownloads(
     }
 
     /** #392 — estimate total bytes via HEAD before download (for UI). */
-    suspend fun estimateOfflineSize(bookId: String): EstimatedSize = withContext(Dispatchers.IO) {
+    suspend fun estimateOfflineSize(bookId: String): EstimatedSize = withContext(downloadDispatcher) {
         val book = dao.getAudiobookById(bookId)
         val sourceId = book?.let { sourceIdForUrl(it.sourceUrl) } ?: "unknown"
         val playable = try {
@@ -340,9 +350,16 @@ class OfflineDownloads(
 
         // #507 — this run owns terminal state only while its generation is
         // current; pause/cancel/restart bump the counter first.
+        currentCoroutineContext().ensureActive()
         val generation = nextGeneration(bookId)
+        suspend fun ensureCurrentRun() {
+            currentCoroutineContext().ensureActive()
+            if (!isCurrentGeneration(bookId, generation)) throw CancellationException("Superseded download")
+        }
 
-        val completedCount = AtomicInteger(0)
+        deleteTemporaryFilesForBook(bookId, generation)
+        ensureCurrentRun()
+        val readyCount = AtomicInteger(0)
         val successCount = AtomicInteger(0)
         val sharedCount = AtomicInteger(0)
         val reusedCount = AtomicInteger(0)
@@ -358,12 +375,13 @@ class OfflineDownloads(
         // #392 — estimate total bytes via HEAD for MB display (uses same
         // HttpFetcher + headers + privacy route as the download loop)
         val estimated = try { estimateOfflineSize(bookId) } catch (_: Exception) { EstimatedSize(null, false, 0, total) }
+        ensureCurrentRun()
         val estimatedTotalBytes = estimated.totalBytes
         val isApproximate = estimated.isApproximate
         val downloadedBytes = AtomicLong(0)
         _downloadBytesProgress.value = _downloadBytesProgress.value + (bookId to DownloadBytesProgress(0, total, 0, estimatedTotalBytes, isApproximate))
 
-        dao.updateDownloadStateWithState(bookId, isDownloaded = false, progress = 0.05f, state = DownloadState.DOWNLOADING)
+        dao.updateDownloadStateWithState(bookId, isDownloaded = false, progress = 0f, state = DownloadState.DOWNLOADING)
 
         try {
             coroutineScope {
@@ -381,7 +399,8 @@ class OfflineDownloads(
                             val chapter = playableChapter.chapter
                             val track = playableChapter.track
                             val targetFile = File(audioDir, "${chapter.id}.mp3")
-                            val tempFile = File(audioDir, "${chapter.id}.mp3.tmp")
+                            ensureCurrentRun()
+                            val tempFile = File(audioDir, "${chapter.id}.mp3.${downloadSessionId}.${generation}.tmp")
                             var chapterOk = false
                             var isReused = false
                             var isShared = false
@@ -393,11 +412,11 @@ class OfflineDownloads(
                             // resumes from the first failed chapter.
                             if (sourceId == "4read" && browserRefreshRequired.get() == 1) {
                                 browserPendingChapterIds += chapter.id
-                                val finished = completedCount.incrementAndGet()
+                                ensureCurrentRun()
                                 dao.updateDownloadState(
                                     bookId,
                                     isDownloaded = false,
-                                    progress = finished.toFloat() / total
+                                    progress = readyCount.get().toFloat() / total
                                 )
                                 return@withPermit
                             }
@@ -418,6 +437,7 @@ class OfflineDownloads(
                                     if (track.contentHash == null) {
                                         computedHash = computeHash(targetFile)
                                         if (computedHash != null) {
+                                            ensureCurrentRun()
                                             dao.updateTrackContentHash(track.id, computedHash)
                                         }
                                     }
@@ -429,11 +449,14 @@ class OfflineDownloads(
                                         val existingFile = File(existingByUrl.localFilePath)
                                         if (existingFile.exists() && existingFile.length() > 100) {
                                             val existingHash = existingByUrl.contentHash ?: computeHash(existingFile)?.also {
+                                                ensureCurrentRun()
                                                 dao.updateTrackContentHash(existingByUrl.id, it)
                                             }
                                             // Share the file without network request.
+                                            ensureCurrentRun()
                                             dao.updateTrackDownloadState(track.id, true, existingFile.absolutePath)
                                             if (existingHash != null) {
+                                                ensureCurrentRun()
                                                 dao.updateTrackContentHash(track.id, existingHash)
                                             }
                                             chapterOk = true
@@ -488,7 +511,10 @@ class OfflineDownloads(
                                                         BufferedOutputStream(tempFile.outputStream(), 65536).use { output ->
                                                             val buffer = ByteArray(65536)
                                                             var read: Int
-                                                            while (input.read(buffer).also { read = it } != -1) {
+                                                            while (true) {
+                                                                read = input.read(buffer)
+                                                                ensureCurrentRun()
+                                                                if (read == -1) break
                                                                 output.write(buffer, 0, read)
                                                             }
                                                             output.flush()
@@ -496,6 +522,7 @@ class OfflineDownloads(
                                                     }
                                                     streamClosed = true
                                                     try { sized.stream.close() } catch (_: Exception) {}
+                                                    ensureCurrentRun()
                                                     val expected = sized.contentLength
                                                     val actual = tempFile.length()
                                                     val valid = if (expected != null && expected >= 0) {
@@ -529,6 +556,7 @@ class OfflineDownloads(
                                                             // Spec-37 T2: compute and store hash, then check for hash-based dedup.
                                                             computedHash = computeHash(targetFile)
                                                             if (computedHash != null) {
+                                                                ensureCurrentRun()
                                                                 dao.updateTrackContentHash(track.id, computedHash)
                                                                 // Check if another track already has same hash (different content address, same bytes).
                                                                 val duplicate = dao.getTrackByContentHash(computedHash)
@@ -536,6 +564,7 @@ class OfflineDownloads(
                                                                     val dupFile = File(duplicate.localFilePath)
                                                                     if (dupFile.exists() && dupFile.absolutePath != targetFile.absolutePath) {
                                                                         // Share the existing file, delete the duplicate we just created.
+                                                                        ensureCurrentRun()
                                                                         try { targetFile.delete() } catch (_: Exception) {}
                                                                         dao.updateTrackDownloadState(track.id, true, dupFile.absolutePath)
                                                                         // Keep hash already stored
@@ -553,6 +582,10 @@ class OfflineDownloads(
                                                         )
                                                         chapterOk = false
                                                     }
+                                                } catch (e: CancellationException) {
+                                                    tempFile.delete()
+                                                    runCatching { sized.stream.close() }
+                                                    throw e
                                                 } catch (e: Exception) {
                                                     Log.w("OfflineDownloads", "Download failed for chapter ${chapter.id}: ${e.message}")
                                                     try { tempFile.delete() } catch (_: Exception) {}
@@ -584,6 +617,7 @@ class OfflineDownloads(
                                 // Spec-38 T5 (#257): a cancel during a pacing pause
                                 // (or mid-stream) must stop the loop honestly, not
                                 // be miscounted as a failed chapter.
+                                tempFile.delete()
                                 throw e
                             } catch (e: Exception) {
                                 Log.w("OfflineDownloads", "Download failed for chapter ${chapter.id}: ${e.message}")
@@ -592,8 +626,7 @@ class OfflineDownloads(
                                 }
                             }
 
-                            val finished = completedCount.incrementAndGet()
-                            val currentProgress = finished.toFloat() / total
+                            ensureCurrentRun()
                             // #392 — MB progress: sum actual file lengths for completed chapters
                             if (chapterOk) {
                                 val bytesForChapter = try {
@@ -610,15 +643,32 @@ class OfflineDownloads(
                                 } catch (_: Exception) { 0L }
                                 if (bytesForChapter > 0) downloadedBytes.addAndGet(bytesForChapter)
                             }
+                            val ready = when {
+                                isShared -> {
+                                    sharedCount.incrementAndGet()
+                                    readyCount.incrementAndGet()
+                                }
+                                isReused -> {
+                                    reusedCount.incrementAndGet()
+                                    readyCount.incrementAndGet()
+                                }
+                                chapterOk -> {
+                                    successCount.incrementAndGet()
+                                    readyCount.incrementAndGet()
+                                }
+                                else -> readyCount.get()
+                            }
+                            val currentProgress = ready.toFloat() / total
                             _downloadBytesProgress.value = _downloadBytesProgress.value + (
                                 bookId to DownloadBytesProgress(
-                                    completedChapters = finished,
+                                    completedChapters = ready,
                                     totalChapters = total,
                                     downloadedBytes = downloadedBytes.get(),
                                     totalBytes = estimatedTotalBytes,
                                     isApproximate = isApproximate
                                 )
                                 )
+                            ensureCurrentRun()
                             dao.updateDownloadStateWithState(
                                 bookId,
                                 isDownloaded = false,
@@ -636,6 +686,7 @@ class OfflineDownloads(
                                 // To avoid overwriting the shared path, only update if not already shared.
                                 if (!isShared) {
                                     track?.let {
+                                        ensureCurrentRun()
                                         dao.updateTrackDownloadState(
                                             it.id,
                                             isDownloaded = chapterOk,
@@ -659,13 +710,9 @@ class OfflineDownloads(
                                 // Ensure track points to file if it was previously null (e.g., after clear but file remains? Not possible).
                                 val currentTrack = dao.getTracksForBookSync(bookId).firstOrNull { it.id == track.id }
                                 if (currentTrack?.localFilePath == null) {
+                                    ensureCurrentRun()
                                     dao.updateTrackDownloadState(track.id, true, targetFile.absolutePath)
                                 }
-                            }
-                            when {
-                                isShared -> sharedCount.incrementAndGet()
-                                isReused -> reusedCount.incrementAndGet()
-                                chapterOk -> successCount.incrementAndGet()
                             }
                         }
                     }
@@ -760,7 +807,7 @@ class OfflineDownloads(
                 dao.updateDownloadStateWithState(
                     bookId,
                     isDownloaded = false,
-                    progress = completedCount.get().toFloat() / total,
+                    progress = readyCount.get().toFloat() / total,
                     state = DownloadState.PAUSED
                 )
                 _downloadBytesProgress.value = _downloadBytesProgress.value - bookId
@@ -797,20 +844,12 @@ class OfflineDownloads(
             try {
                 kotlinx.coroutines.withTimeoutOrNull(5_000) { job.join() }
             } catch (_: Exception) {}
-            _activeDownloadJobs.value = _activeDownloadJobs.value - bookId
+            unregisterDownloadJob(bookId, job)
         }
 
         // Clean up temp files of in-progress chapters (always, even without
         // an active job — a previous crash may have left tmp files behind).
-        val baseDir = resolveBaseDir()
-        if (baseDir != null) {
-            val audioDir = File(baseDir, OFFLINE_AUDIO_DIR)
-            if (audioDir.exists()) {
-                audioDir.listFiles()?.filter { it.name.endsWith(".tmp") }?.forEach { tmp ->
-                    try { tmp.delete() } catch (_: Exception) {}
-                }
-            }
-        }
+        deleteTemporaryFilesForBook(bookId, generation)
 
         // Set PAUSED state — completed tracks keep their localFilePath + contentHash.
         // Only while no restarted queue took over during the join above.
@@ -866,35 +905,96 @@ class OfflineDownloads(
                 kotlinx.coroutines.withTimeoutOrNull(5_000) { job.join() }
             } catch (_: Exception) {}
         }
-        _activeDownloadJobs.value = _activeDownloadJobs.value - bookId
+        if (job != null) unregisterDownloadJob(bookId, job)
 
         // Delete only temp files of in-progress chapters; completed copies
         // stay so the next run downloads just the missing chapters.
-        val baseDir = resolveBaseDir()
-        if (baseDir != null) {
-            val audioDir = File(baseDir, OFFLINE_AUDIO_DIR)
-            if (audioDir.exists()) {
-                audioDir.listFiles()?.filter { it.name.endsWith(".tmp") }?.forEach { tmp ->
-                    try { tmp.delete() } catch (_: Exception) {}
-                }
-            }
-        }
+        deleteTemporaryFilesForBook(bookId, generation)
         // Keep honest progress; PAUSED resumes, IDLE restarts cleanly —
         // and only while no restarted queue took over during the join.
         val current = dao.getAudiobookById(bookId)
-        val progress = current?.downloadProgress ?: 0f
+        // The aggregate Library Entry can lag behind track writes when Cancel
+        // races the queue. Physical ready tracks are the authoritative source
+        // for resumability, so never collapse a partial download back to IDLE.
+        val tracks = dao.getTracksForBookSync(bookId)
+        val chapters = dao.getChaptersListForBook(bookId)
+        val trackIndexes = tracks.map { it.trackIndex }.toSet()
+        val readyTrackIndexes = tracks.asSequence()
+            .filter { track ->
+                track.localFilePath?.let { path ->
+                    val file = File(path)
+                    file.exists() && file.length() > 100L
+                } == true
+            }
+            .map { it.trackIndex }
+            .toSet()
+        // A cancelled generation may stop after counting existing chapter
+        // files but before healing their SourceTrack rows. The validated file
+        // is still playable and must keep the download resumable.
+        val readyFileCount = resolveBaseDir()?.let { baseDir ->
+            val audioDir = File(baseDir, OFFLINE_AUDIO_DIR)
+            val currentFileNames = chapters.mapTo(mutableSetOf()) { "${it.id}.mp3" }
+            val legacyBookPrefix = "${bookId}_ch_"
+            audioDir.listFiles()?.asSequence()
+                ?.filter { file ->
+                    file.isFile && file.length() > 100L && file.name.endsWith(".mp3") &&
+                        (file.name in currentFileNames || file.name.startsWith(legacyBookPrefix))
+                }
+                ?.map { it.name }
+                ?.distinct()
+                ?.count()
+                ?: 0
+        } ?: 0
+        val chapterIndexes = chapters.map { it.chapterIndex }.toSet()
+        val totalIndexes = chapterIndexes.ifEmpty { trackIndexes }
+        val readyTrackCount = readyTrackIndexes.count { it in totalIndexes }
+        // These two views normally describe the same files. Taking the larger
+        // count heals either stale Room rows or a migrated filename without
+        // double-counting the chapter.
+        val readyCountFromStorage = maxOf(readyTrackCount, readyFileCount)
+            .coerceAtMost(totalIndexes.size)
+        val trackProgress = if (totalIndexes.isEmpty()) {
+            0f
+        } else {
+            readyCountFromStorage.toFloat() / totalIndexes.size
+        }
+        val progress = maxOf(current?.downloadProgress ?: 0f, trackProgress)
         if (isCurrentGeneration(bookId, generation)) {
             dao.updateDownloadStateWithState(
                 bookId,
                 isDownloaded = false,
                 progress = progress,
-                state = if (progress > 0f || current?.downloadState == DownloadState.DOWNLOADING) {
+                state = if (readyCountFromStorage > 0 || progress > 0f ||
+                    current?.downloadState == DownloadState.DOWNLOADING
+                ) {
                     DownloadState.PAUSED
                 } else {
                     DownloadState.IDLE
                 }
             )
             _downloadBytesProgress.value = _downloadBytesProgress.value - bookId
+        }
+    }
+
+    /** Delete interrupted chapter copies for one book without touching other queues. */
+    private suspend fun deleteTemporaryFilesForBook(bookId: String, beforeGeneration: Long) {
+        // Offline filenames are derived from logical Chapter IDs, not SourceTrack IDs.
+        val chapterIds = dao.getChaptersListForBook(bookId).mapTo(mutableSetOf()) { it.id }
+        if (chapterIds.isEmpty()) return
+        val baseDir = resolveBaseDir() ?: return
+        val audioDir = File(baseDir, OFFLINE_AUDIO_DIR)
+        if (!audioDir.exists()) return
+
+        audioDir.listFiles()?.forEach { file ->
+            val legacy = file.name.endsWith(".mp3.tmp")
+            val chapterId = if (legacy) file.name.removeSuffix(".mp3.tmp") else file.name.substringBeforeLast(".mp3.", "")
+            val ownership = file.name.substringAfterLast(".mp3.", "").removeSuffix(".tmp").split('.')
+            val owner = ownership.lastOrNull()?.toLongOrNull()
+            val sameSession = ownership.size == 2 && ownership.first() == downloadSessionId
+            if (file.name.endsWith(".tmp") && chapterId in chapterIds &&
+                (legacy || !sameSession || (owner != null && owner < beforeGeneration))) {
+                try { file.delete() } catch (_: Exception) {}
+            }
         }
     }
 

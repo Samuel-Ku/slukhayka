@@ -15,6 +15,11 @@ import com.slukhayka.audiobooks.data.source.HttpFetcher
 import com.slukhayka.audiobooks.testing.FakeFetcher
 import java.io.ByteArrayInputStream
 import java.io.File
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.mapNotNull
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -377,6 +382,38 @@ class OfflineDownloadsReliabilityTest {
         assertTrue(tracks[0].isDownloaded)
         assertFalse(tracks[1].isDownloaded)
         assertNull(tracks[1].localFilePath)
+    }
+
+    @Test
+    fun `live progress counts ready files rather than failed attempts`() = runBlocking {
+        val failedUrl = "https://cdn.example.com/failed.mp3"
+        val slowSuccessUrl = "https://cdn.example.com/success.mp3"
+        val audio = ByteArray(2048) { 0x42 }
+        val fetcher = FakeFetcher(
+            sizedStreamResponses = mapOf(slowSuccessUrl to (audio to audio.size.toLong())),
+            delayMs = 500L
+        )
+        val (imports, _, downloads) = harness(
+            numChapters = 2,
+            streamUrl = { index -> if (index == 0) failedUrl else slowSuccessUrl },
+            fetcher = fetcher
+        )
+        val bookId = importBook(imports)
+        val observed = java.util.concurrent.CopyOnWriteArrayList<OfflineDownloads.DownloadBytesProgress>()
+        val collector = launch(start = CoroutineStart.UNDISPATCHED) {
+            downloads.downloadBytesProgress
+                .mapNotNull { it[bookId] }
+                .collect { observed += it }
+        }
+
+        downloads.downloadAudiobookOffline(bookId)
+        collector.cancelAndJoin()
+
+        assertTrue("test must observe live progress", observed.isNotEmpty())
+        assertTrue(
+            "a failed request must never advance the ready chapter counter: $observed",
+            observed.none { it.completedChapters > 0 && it.downloadedBytes == 0L }
+        )
     }
 
     @Test

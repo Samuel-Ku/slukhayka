@@ -45,15 +45,19 @@
 
     <string name="a11y_player_error_title">Книга недоступна</string>
     <string name="a11y_player_retry">Повторити відтворення %1$s</string>
+    <string name="a11y_player_find_alternative">Знайти «%1$s» в іншому джерелі</string>
+    <string name="player_recovery_failed">Не вдалося відновити відтворення</string>
+    <string name="player_retry">Повторити</string>
+    <string name="player_find_another_source">Знайти в іншому джерелі</string>
 
     <!-- Issue #381: тексти помилок плеєра українською (раніше були hardcoded в
          AudioPlayerManager, зокрема англійські, які TTS читав англійською).
          Категорія UNAVAILABLE тримає слово «недоступна» у тексті — назву карти
          показують без деталі; TRANSIENT (потік/таймаут/виняток підготовки)
-         показує деталь із технічним кодом у дужках. -->
-    <string name="a11y_player_error_stream">Помилка відтворення потоку (%1$s)</string>
+         показує зрозуміле пояснення без внутрішніх кодів. -->
+    <string name="a11y_player_error_stream">Не вдалося відтворити аудіо з цього джерела.</string>
     <string name="a11y_player_error_timeout">Перевищено час очікування потоку (%1$d с)</string>
-    <string name="a11y_player_error_prepare_exception">Не вдалося підготувати розділ (%1$s)</string>
+    <string name="a11y_player_error_prepare_exception">Не вдалося підготувати цей розділ.</string>
     <string name="a11y_player_error_heal_failed">Книга зараз недоступна: файл джерела переїхав або заблокований, і оновити його не вдалося.</string>
     <string name="a11y_player_error_book_unavailable">Книга зараз недоступна: аудіо цієї книги на джерелі не знайдено.</string>
     <string name="a11y_player_error_resolve_failed">Книга зараз недоступна: не вдалося отримати аудіо з YouTube.</string>

@@ -8,12 +8,16 @@
     <string name="book_detail_favorite_off">Not in favorites</string>
     <string name="book_detail_download_add">Download “%1$s” for offline listening</string>
     <string name="book_detail_download_remove">Delete the offline copy of “%1$s”</string>
-    <string name="book_detail_download_in_progress">Downloading “%1$s”: %2$d percent</string>
+    <string name="book_detail_download_in_progress">Cancel download of “%1$s”: %2$d%%</string>
+    <string name="book_detail_download_continue">Continue downloading “%1$s”: %2$d%% complete</string>
     <string name="book_detail_downloaded">Available offline</string>
     <string name="book_detail_downloading">Downloading</string>
+    <string name="book_detail_download_paused">Download paused</string>
     <string name="book_detail_streaming">Network connection required</string>
     <string name="book_detail_offline_short">Offline</string>
     <string name="book_detail_download_short">Download</string>
+    <string name="book_detail_continue_short">Continue</string>
+    <string name="book_detail_cancel_progress_short">Cancel · %1$d%%</string>
     <string name="book_detail_play_action">%1$s: “%2$s”</string>
     <string name="book_detail_add_bookmark">Add a bookmark to “%1$s”</string>
     <string name="book_detail_add_bookmark_short">Add bookmark</string>

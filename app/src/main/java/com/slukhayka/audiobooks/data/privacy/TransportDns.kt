@@ -36,21 +36,20 @@ object TransportDns : Dns {
 
     override fun lookup(hostname: String): List<InetAddress> = when (val current = strategy) {
         is DnsStrategy.SystemOnly -> systemResolver().lookup(hostname)
-        is DnsStrategy.DohFirst -> dohFirst.lookup(hostname)
+        is DnsStrategy.DohFirst -> dohFirst().lookup(hostname)
     }
 
-    /**
-     * DoH first, system resolver as the transparent fallback. Built once,
-     * lazily — the first lookup happens off the main thread. The DoH client
-     * rides the SAME route as traffic ([TransportClients.okHttp]'s proxy
-     * selector), which is exactly the route-independence criterion; its own
-     * hostname resolves via the pinned bootstrap IPs inside DnsOverHttps, so
-     * the trampoline below is never re-entered (no recursion).
-     */
-    private val dohFirst: Dns by lazy {
-        FallbackDns(
+    private var cachedClient: OkHttpClient? = null
+    private var cachedResolver: Dns? = null
+
+    /** Rebuild the bootstrap client when its immutable transport route changes. */
+    @Synchronized
+    private fun dohFirst(): Dns {
+        val client = TransportClients.okHttp
+        if (cachedClient === client) return checkNotNull(cachedResolver)
+        val resolver = FallbackDns(
             primary = DnsOverHttps.Builder()
-                .client(TransportClients.okHttp)
+                .client(client)
                 .url(NetworkPrivacy.DOH_URL.toHttpUrl())
                 .bootstrapDnsHosts(NetworkPrivacy.DOH_BOOTSTRAP_IPS.map { InetAddress.getByName(it) })
                 .build(),
@@ -59,6 +58,9 @@ object TransportDns : Dns {
                 Log.w(TAG, "DoH недоступний ($hostname) — прозорий фолбек на системний резолвер", failure)
             }
         )
+        cachedClient = client
+        cachedResolver = resolver
+        return resolver
     }
 
     /**

@@ -97,6 +97,8 @@ class FakePlayerEngine(
         recordedMediaItems.add(p0)
     }
 
+    override fun getCurrentMediaItem(): MediaItem? = recordedMediaItems.lastOrNull()
+
     override fun prepare() {
         prepareCount += 1
         playbackState = Player.STATE_BUFFERING

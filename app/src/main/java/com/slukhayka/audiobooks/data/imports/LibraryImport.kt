@@ -987,7 +987,8 @@ class LibraryImport(
             workId = workId,
             isFavorite = false,
             createdAt = System.currentTimeMillis(),
-            downloadProgress = 0f
+            downloadProgress = 0f,
+            preserveExistingDownloads = true
         )
         // #388 — blank-key books have no Works row (workId == bookId), so
         // a work_source would violate the FK (workId → works.id). Skip it.

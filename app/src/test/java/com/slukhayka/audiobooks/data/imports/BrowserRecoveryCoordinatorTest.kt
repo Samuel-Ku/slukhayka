@@ -37,6 +37,40 @@ import org.robolectric.annotation.Config
 @Config(sdk = [36])
 class BrowserRecoveryCoordinatorTest {
 
+    @Test
+    fun `recovery verifies requested chapter of the recovered source only`() = runBlocking {
+        val page = "https://4read.org/kobzar-multisource.html"
+        val original = detail(url = page, chapters = listOf(
+            "Глава 1" to "https://s1.reasd.org/kobzar/old1.mp3",
+            "Глава 2" to "https://s1.reasd.org/kobzar/old2.mp3"
+        ))
+        val bookId = seedBook(original)
+        val source = dao.getSourcesForBookSync(bookId).single()
+        val originalTracks = dao.getTracksForSourceSync(source.id)
+        dao.insertSources(listOf(source.copy(id = "alternative", type = "soundbooks", url = "https://sound-books.net/kobzar")))
+        dao.insertTracks(originalTracks.map {
+            it.copy(id = "alternative-${it.trackIndex}", sourceId = "alternative", url = "https://other.invalid/${it.trackIndex}.mp3")
+        })
+        val refreshed = detail(url = page, chapters = listOf(
+            "Глава 1" to "https://s1.reasd.org/kobzar/new1.mp3",
+            "Глава 2" to "https://s1.reasd.org/kobzar/new2.mp3"
+        ))
+        val imports = LibraryImport(dao, context, listOf(fakeAdapter(mapOf("cap" to refreshed))))
+        var verifiedUrl = ""
+        val coordinator = BrowserRecoveryCoordinator(
+            dao, imports,
+            playbackVerifier = BrowserRecoveryCoordinator.PlaybackVerifier { _, url -> verifiedUrl = url; true }
+        )
+
+        val outcome = coordinator.recover(bookId, "4read", page, "cap", requestedChapterIndex = 1, requestedPositionMs = 30_000)
+
+        assertEquals("https://s1.reasd.org/kobzar/new2.mp3", verifiedUrl)
+        val success = outcome as BrowserRecoveryCoordinator.Outcome.Success
+        assertEquals(1, success.resumeChapterIndex)
+        assertEquals(30_000L, success.resumePositionMs)
+        assertEquals("https://other.invalid/0.mp3", dao.getTracksForSourceSync("alternative").first().url)
+    }
+
     private lateinit var context: Context
     private lateinit var db: AudiobookDatabase
     private lateinit var dao: AudiobookDao

@@ -19,8 +19,10 @@ import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertHeightIsAtLeast
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -36,6 +38,8 @@ import com.slukhayka.audiobooks.ui.screens.BookDetailIdentityHeader
 import com.slukhayka.audiobooks.ui.screens.BookDetailCanonicalSummary
 import com.slukhayka.audiobooks.ui.screens.BookDetailLinkOrigin
 import com.slukhayka.audiobooks.ui.screens.BookDetailPrimaryActions
+import com.slukhayka.audiobooks.ui.screens.BookDetailDownloadAction
+import com.slukhayka.audiobooks.ui.screens.bookDetailDownloadAction
 import com.slukhayka.audiobooks.ui.screens.FavoriteButton
 import com.slukhayka.audiobooks.ui.screens.WorkSourceRowCard
 import com.slukhayka.audiobooks.ui.screens.bookDetailPresentation
@@ -350,8 +354,7 @@ class BookDetailAccessibilityTest {
                             workTitle = book.title,
                             playLabel = "Слухати",
                             streamOnly = false,
-                            isDownloaded = false,
-                            isDownloading = false,
+                            downloadAction = BookDetailDownloadAction.Start,
                             downloadProgress = 0f,
                             onPlay = {},
                             onDownload = {},
@@ -368,5 +371,87 @@ class BookDetailAccessibilityTest {
                 .assertExists()
                 .assertHeightIsAtLeast(48.dp)
         }
+    }
+
+    @Test
+    @Config(sdk = [35])
+    fun activeDownloadCanBeCancelledFromTheBookActions() {
+        var downloadClicks = 0
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                Surface {
+                    BookDetailPrimaryActions(
+                        workTitle = book.title,
+                        playLabel = "Слухати",
+                        streamOnly = false,
+                        downloadAction = BookDetailDownloadAction.Cancel,
+                        downloadProgress = 0.42f,
+                        onPlay = {},
+                        onDownload = { downloadClicks += 1 },
+                        onAddBookmark = {}
+                    )
+                }
+            }
+        }
+
+        composeTestRule.onNodeWithTag("download_offline_button")
+            .assertIsEnabled()
+            .assertContentDescriptionEquals(
+                "Скасувати завантаження «${book.title}»: 42%"
+            )
+            .assertTextContains("Скасувати · 42%")
+            .performClick()
+        composeTestRule.runOnIdle { assertEquals(1, downloadClicks) }
+    }
+
+    @Test
+    @Config(sdk = [35])
+    fun cancelledDownloadOffersAnExplicitContinueAction() {
+        var downloadClicks = 0
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                Surface {
+                    BookDetailPrimaryActions(
+                        workTitle = book.title,
+                        playLabel = "Слухати",
+                        streamOnly = false,
+                        downloadAction = BookDetailDownloadAction.Continue,
+                        downloadProgress = 0.42f,
+                        onPlay = {},
+                        onDownload = { downloadClicks += 1 },
+                        onAddBookmark = {}
+                    )
+                }
+            }
+        }
+
+        composeTestRule.onNodeWithTag("download_offline_button")
+            .assertIsEnabled()
+            .assertContentDescriptionEquals(
+                "Продовжити завантаження «${book.title}»: 42% готово"
+            )
+            .assertTextContains("Продовжити")
+            .performClick()
+        composeTestRule.runOnIdle { assertEquals(1, downloadClicks) }
+    }
+
+    @Test
+    fun downloadStateRoutesToExactlyOneUserAction() {
+        assertEquals(
+            BookDetailDownloadAction.Cancel,
+            bookDetailDownloadAction(isDownloading = true, isPaused = false, isDownloaded = false)
+        )
+        assertEquals(
+            BookDetailDownloadAction.Continue,
+            bookDetailDownloadAction(isDownloading = false, isPaused = true, isDownloaded = false)
+        )
+        assertEquals(
+            BookDetailDownloadAction.Remove,
+            bookDetailDownloadAction(isDownloading = false, isPaused = false, isDownloaded = true)
+        )
+        assertEquals(
+            BookDetailDownloadAction.Start,
+            bookDetailDownloadAction(isDownloading = false, isPaused = false, isDownloaded = false)
+        )
     }
 }

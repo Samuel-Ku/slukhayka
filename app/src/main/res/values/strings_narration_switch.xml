@@ -1,0 +1,8 @@
+<resources>
+    <string name="narration_switch_title">Змінити начитку?</string>
+    <string name="narration_switch_body">Поточна начитка — %1$s. Для «%3$s» вибрано іншу — %2$s. Її позиція прослуховування зберігається окремо.</string>
+    <string name="narration_switch_confirm">Перемкнути</string>
+    <string name="narration_switch_cancel">Залишити поточну</string>
+    <string name="narration_switch_unknown_current">поточна начитка</string>
+    <string name="narration_switch_unknown_target">інша начитка</string>
+</resources>

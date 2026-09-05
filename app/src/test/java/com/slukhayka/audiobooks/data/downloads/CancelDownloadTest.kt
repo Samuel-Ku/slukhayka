@@ -36,6 +36,83 @@ class CancelDownloadTest {
     @get:Rule
     val tempFolder = TemporaryFolder()
 
+    @Test fun `cancel removes orphan temps from a previous process regardless of generation`() = runTest {
+        val dao = FakeAudiobookDao()
+        seedBook(dao, "b1", 1, "https://sound-books.net/b1")
+        audioDir().mkdirs()
+        val orphans = listOf("b1-ch0.mp3.100.tmp", "b1-ch0.mp3.previous-session.500.tmp")
+            .map { File(audioDir(), it).also { file -> file.writeBytes(ByteArray(200)) } }
+        val otherBook = File(audioDir(), "other-ch0.mp3.previous-session.500.tmp").also { it.writeBytes(ByteArray(200)) }
+        val downloads = downloader(dao, CountingFetcher(emptyMap()), CompletableDeferred(Unit), mutableListOf())
+        downloads.cancelDownload("b1")
+        orphans.forEach { assertFalse(it.exists()) }
+        assertTrue(otherBook.exists())
+    }
+
+    @Test(timeout = 45_000)
+    fun `late blocking stream cannot overwrite resumed files or unregister replacement`() : Unit = kotlinx.coroutines.runBlocking {
+        val dao = FakeAudiobookDao()
+        val base = "https://sound-books.net/overlap"
+        seedBook(dao, "b1", 2, base)
+        audioDir().mkdirs()
+        File(audioDir(), "b1-ch0.mp3").writeBytes(ByteArray(1024) { 7 })
+        dao.updateTrackDownloadState("sb-b1-tr0", true, File(audioDir(), "b1-ch0.mp3").absolutePath)
+        val entered = Array(2) { java.util.concurrent.CountDownLatch(1) }
+        val release = Array(2) { java.util.concurrent.CountDownLatch(1) }
+        val calls = java.util.concurrent.atomic.AtomicInteger()
+        val fetcher = object : FakeFetcher() {
+            override fun headContentLength(url: String, extraHeaders: Map<String, String>): Long = 1024L
+            override fun getSizedStreamResult(url: String, extraHeaders: Map<String, String>): com.slukhayka.audiobooks.data.source.HttpFetcher.SizedStreamResult {
+                val attempt = calls.getAndIncrement()
+                val bytes = ByteArray(1024) { (attempt + 20).toByte() }
+                val delegate = bytes.inputStream()
+                val input = object : java.io.InputStream() {
+                    override fun read(): Int = error("Buffered read expected")
+                    override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+                        entered[attempt].countDown()
+                        check(release[attempt].await(30, java.util.concurrent.TimeUnit.SECONDS))
+                        return delegate.read(buffer, offset, length)
+                    }
+                }
+                return com.slukhayka.audiobooks.data.source.HttpFetcher.SizedStreamResult(
+                    200, com.slukhayka.audiobooks.data.source.HttpFetcher.SizedStream(input, 1024L)
+                )
+            }
+        }
+        val downloads = OfflineDownloads(
+            dao, sourceCatalog = SourceCatalog(dao, emptyList(), LibraryImport(dao, null, emptyList())),
+            fetcher = fetcher,
+            pacing = PacingPolicy(PacingParams(0, 0, 1000, 60_000), kotlin.random.Random(0)),
+            pauseFor = {}, downloadDispatcher = Dispatchers.IO, filesDirOverride = tempFolder.root
+        )
+        fun start() = async(Dispatchers.IO) {
+            val owner = kotlinx.coroutines.currentCoroutineContext()[kotlinx.coroutines.Job]!!
+            downloads.registerDownloadJob("b1", owner)
+            try { downloads.downloadAudiobookOffline("b1") }
+            finally { downloads.unregisterDownloadJob("b1", owner) }
+        }
+        val old = start()
+        try {
+            assertTrue(entered[0].await(10, java.util.concurrent.TimeUnit.SECONDS))
+            downloads.cancelDownload("b1") // Returns after the bounded join, while read remains blocked.
+            assertFalse(old.isCompleted)
+            val replacement = start()
+            try {
+                assertTrue(entered[1].await(10, java.util.concurrent.TimeUnit.SECONDS))
+                val replacementTemp = audioDir().listFiles()!!.single { it.name.endsWith(".tmp") }
+                release[0].countDown()
+                old.join()
+                assertTrue("Old finally must not unregister replacement", downloads.isDownloading("b1"))
+                assertTrue("Old cleanup must not delete replacement temp", replacementTemp.exists())
+                assertEquals(DownloadState.DOWNLOADING, dao.getAudiobookById("b1")?.downloadState)
+                release[1].countDown()
+                replacement.await()
+                assertTrue(File(audioDir(), "b1-ch1.mp3").readBytes().contentEquals(ByteArray(1024) { 21 }))
+                assertTrue(File(audioDir(), "b1-ch0.mp3").readBytes().contentEquals(ByteArray(1024) { 7 }))
+            } finally { release[1].countDown(); replacement.cancel(); replacement.join() }
+        } finally { release[0].countDown(); old.cancel(); old.join() }
+    }
+
     private class CountingFetcher(
         streams: Map<String, Pair<ByteArray, Long?>>
     ) : FakeFetcher(emptyMap(), "", emptyMap(), streams) {
@@ -176,7 +253,7 @@ class CancelDownloadTest {
         downloads.registerDownloadJob("b1", job2)
         advanceUntilIdle()
         val result = job2.await()
-        downloads.unregisterDownloadJob("b1")
+        downloads.unregisterDownloadJob("b1", job2)
 
         assertEquals(3, result.totalChapters)
         assertEquals(setOf("$base/1.mp3", "$base/2.mp3"), fetcher.sizedStreamRequests.toSet() - fetchedBefore)
@@ -198,5 +275,83 @@ class CancelDownloadTest {
         downloads.cancelDownload("b2")
         assertEquals(DownloadState.IDLE, dao.getAudiobookById("b2")?.downloadState)
         assertFalse(downloads.hasActiveDownload())
+    }
+
+    @Test
+    fun `cancel derives resumable progress from files when aggregate and track state are stale`() = runTest {
+        val dao = FakeAudiobookDao()
+        seedBook(dao, "b3", 2, "https://sound-books.net/b3")
+        val downloads = downloader(
+            dao,
+            CountingFetcher(emptyMap()),
+            CompletableDeferred(),
+            mutableListOf()
+        )
+        // Existing installs can carry the older stable bookId_ch_N filename
+        // even when the current logical Chapter ID has since been rehydrated.
+        val readyFile = File(audioDir(), "b3_ch_1.mp3").apply {
+            parentFile?.mkdirs()
+            writeBytes(ByteArray(2048) { 7 })
+        }
+        // Reproduces the device state: the physical chapter is ready while
+        // both its track row and the aggregate Library Entry are still stale.
+        dao.updateDownloadStateWithState("b3", false, 0f, DownloadState.IDLE)
+
+        downloads.cancelDownload("b3")
+
+        assertEquals(DownloadState.PAUSED, dao.getAudiobookById("b3")?.downloadState)
+        assertEquals(0.5f, dao.getAudiobookById("b3")?.downloadProgress ?: -1f, 0.001f)
+        assertTrue(readyFile.exists())
+    }
+
+    @Test
+    fun `cancel trusts a valid track file even when its downloaded flag is stale`() = runTest {
+        val dao = FakeAudiobookDao()
+        seedBook(dao, "b6", 2, "https://sound-books.net/b6")
+        val downloads = downloader(
+            dao,
+            CountingFetcher(emptyMap()),
+            CompletableDeferred(),
+            mutableListOf()
+        )
+        val readyFile = File(audioDir(), "migrated-name.mp3").apply {
+            parentFile?.mkdirs()
+            writeBytes(ByteArray(2048) { 6 })
+        }
+        // Cancellation can land after the durable path write but before the
+        // boolean/aggregate state catches up. The playable file is the truth.
+        dao.updateTrackDownloadState("sb-b6-tr0", false, readyFile.absolutePath)
+        dao.updateDownloadStateWithState("b6", false, 0f, DownloadState.IDLE)
+
+        downloads.cancelDownload("b6")
+
+        assertEquals(DownloadState.PAUSED, dao.getAudiobookById("b6")?.downloadState)
+        assertEquals(0.5f, dao.getAudiobookById("b6")?.downloadProgress ?: -1f, 0.001f)
+        assertTrue(readyFile.exists())
+    }
+
+    @Test
+    fun `cancel deletes only the target books temporary files`() = runTest {
+        val dao = FakeAudiobookDao()
+        seedBook(dao, "b4", 2, "https://sound-books.net/b4")
+        seedBook(dao, "b5", 2, "https://sound-books.net/b5")
+        val downloads = downloader(
+            dao,
+            CountingFetcher(emptyMap()),
+            CompletableDeferred(),
+            mutableListOf()
+        )
+        val targetTemp = File(audioDir(), "b4-ch0.mp3.tmp").apply {
+            parentFile?.mkdirs()
+            writeBytes(ByteArray(128) { 4 })
+        }
+        val otherBookTemp = File(audioDir(), "b5-ch0.mp3.tmp").apply {
+            writeBytes(ByteArray(128) { 5 })
+        }
+
+        downloads.cancelDownload("b4")
+
+        assertFalse(targetTemp.exists())
+        assertTrue(otherBookTemp.exists())
     }
 }

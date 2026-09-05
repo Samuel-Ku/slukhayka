@@ -1,51 +1,75 @@
 package com.slukhayka.audiobooks.data.privacy
 
+import okhttp3.Call
+import okhttp3.EventListener
 import okhttp3.OkHttpClient
 import java.io.IOException
+import java.net.InetSocketAddress
 import java.net.Proxy
-import java.net.ProxySelector
-import java.net.SocketAddress
-import java.net.URI
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
-/**
- * Spec-38 T4 (#256) — the ONE OkHttp client of the transport stack: the
- * shared fetcher and the Coil image loader ride the same connection pool,
- * the same browser identity ([BrowserIdentity]), the same privacy route
- * (per-request via a trampoline [ProxySelector] — an empty selection IS the
- * honest «прямо», a chosen proxy that fails is NOT retried direct) and the
- * same encrypted name resolution ([TransportDns]).
- *
- * Consolidates the client MainActivity previously built inline for Coil
- * (spec-38 T1+T2); nothing else in the process should build its own.
- */
+/** Connections belong to one immutable privacy route, including streamed response bodies. */
 object TransportClients {
-
-    /** The fetcher's former per-connection budgets, now shared stack-wide. */
-    private const val CONNECT_TIMEOUT_SECONDS = 12L
-    private const val READ_TIMEOUT_SECONDS = 18L
-
-    val okHttp: OkHttpClient by lazy {
-        OkHttpClient.Builder()
-            .connectTimeout(CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-            .readTimeout(READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-            .proxySelector(object : ProxySelector() {
-                override fun select(uri: URI?): List<Proxy> =
-                    listOfNotNull(TransportPrivacy.currentJavaProxy())
-
-                override fun connectFailed(uri: URI?, sa: SocketAddress?, ioe: IOException?) {
-                    // Honest failure: OkHttp surfaces the exception; no
-                    // direct fallback is attempted here.
-                }
+    private class Clients(val route: NetworkRoute) {
+        private val active = ConcurrentHashMap.newKeySet<Call>()
+        val http = OkHttpClient.Builder()
+            .connectTimeout(12, TimeUnit.SECONDS)
+            .readTimeout(18, TimeUnit.SECONDS)
+            .proxy(when (route) {
+                is NetworkRoute.Proxy -> Proxy(
+                    if (route.type == RouteProxyType.HTTP) Proxy.Type.HTTP else Proxy.Type.SOCKS,
+                    InetSocketAddress.createUnresolved(route.host, route.port)
+                )
+                else -> Proxy.NO_PROXY
+            })
+            .eventListener(object : EventListener() {
+                override fun callStart(call: Call) { active.add(call) }
+                override fun callEnd(call: Call) { active.remove(call) }
+                override fun callFailed(call: Call, ioe: IOException) { active.remove(call) }
             })
             .addInterceptor { chain ->
-                chain.proceed(
-                    chain.request().newBuilder()
-                        .header("User-Agent", BrowserIdentity.currentUserAgent())
-                        .build()
-                )
+                // Retained clients and calls created just before a settings change fail closed.
+                if (TransportPrivacy.current() != route) throw IOException("Network route changed")
+                chain.proceed(chain.request().newBuilder()
+                    .header("User-Agent", BrowserIdentity.currentUserAgent()).build())
             }
             .dns(TransportDns)
             .build()
+        val playback = http.newBuilder()
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .followSslRedirects(false)
+            .build()
+
+        fun close() {
+            // Dispatcher alone no longer owns synchronous calls after response headers arrive.
+            active.forEach { it.cancel() }
+            http.connectionPool.evictAll()
+        }
     }
+
+    private var clients: Clients? = null
+
+    @Synchronized
+    private fun currentClients(): Clients {
+        val route = TransportPrivacy.current()
+        val previous = clients
+        if (previous != null && previous.route == route) return previous
+        previous?.close()
+        return Clients(route).also { clients = it }
+    }
+
+    @Synchronized
+    internal fun routeChanged() {
+        clients?.close()
+        clients = null
+    }
+
+    val okHttp: OkHttpClient get() = currentClients().http
+    val playbackHttp: OkHttpClient get() = currentClients().playback
+
+    /** Long-lived Coil and Media3 factories select the current route for every new call. */
+    val calls = Call.Factory { request -> okHttp.newCall(request) }
+    val playbackCalls = Call.Factory { request -> playbackHttp.newCall(request) }
 }

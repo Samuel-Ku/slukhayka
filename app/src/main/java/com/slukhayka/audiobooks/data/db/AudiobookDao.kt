@@ -705,12 +705,15 @@ interface AudiobookDao {
     /**
      * True upsert: on a fresh row everything lands; on an existing row only
      * the link and the download progress update — the user's isFavorite and
-     * the original createdAt never reset on a re-sync.
+     * the original createdAt never reset on a re-sync. Catalogue enrichment
+     * preserves download state atomically, including concurrent queue writes.
      */
     @Query(
         "INSERT INTO library_entries (id, workId, isFavorite, createdAt, downloadProgress, downloadState) " +
             "VALUES (:id, :workId, :isFavorite, :createdAt, :downloadProgress, :downloadState) " +
-            "ON CONFLICT(id) DO UPDATE SET workId = excluded.workId, downloadProgress = excluded.downloadProgress, downloadState = excluded.downloadState"
+            "ON CONFLICT(id) DO UPDATE SET workId = excluded.workId, " +
+            "downloadProgress = CASE WHEN :preserveExistingDownloads THEN library_entries.downloadProgress ELSE excluded.downloadProgress END, " +
+            "downloadState = CASE WHEN :preserveExistingDownloads THEN library_entries.downloadState ELSE excluded.downloadState END"
     )
     suspend fun upsertLibraryEntry(
         id: String,
@@ -718,7 +721,8 @@ interface AudiobookDao {
         isFavorite: Boolean,
         createdAt: Long,
         downloadProgress: Float,
-        downloadState: String = com.slukhayka.audiobooks.data.db.DownloadState.IDLE
+        downloadState: String = com.slukhayka.audiobooks.data.db.DownloadState.IDLE,
+        preserveExistingDownloads: Boolean = false
     )
 
     @Query("DELETE FROM library_entries WHERE id = :bookId")

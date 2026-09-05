@@ -31,6 +31,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasTestTag
@@ -382,25 +383,24 @@ class PlayerAccessibilityTest {
     }
 
     @Test
-    fun playbackErrorOffersOnePoliteRetry() {
-        var retryClicks = 0
-        setPlayerContent(
-            playerState = state.copy(lastErrorMsg = "Книга недоступна"),
-            onRetryPlayback = { retryClicks++ }
-        )
+    @Config(sdk = [35])
+    fun playbackErrorDoesNotRenderTechnicalCard() {
+        setPlayerContent(playerState = state.copy(lastErrorMsg = "Книга недоступна"))
 
-        composeTestRule.onNodeWithTag("player_playback_error")
-            .assert(
-                SemanticsMatcher.expectValue(
-                    SemanticsProperties.LiveRegion,
-                    LiveRegionMode.Polite
-                )
-            )
-        composeTestRule.onNodeWithContentDescription("Повторити відтворення Нейромант")
-            .assertHeightIsAtLeast(48.dp)
-            .performClick()
+        composeTestRule.onNodeWithTag("player_playback_error").assertDoesNotExist()
+        composeTestRule.onNodeWithText("Книга недоступна").assertDoesNotExist()
+    }
 
-        assertEquals(1, retryClicks)
+    @Test
+    @Config(sdk = [35])
+    fun playbackErrorOffersNeutralRecoveryActions() {
+        setPlayerContent(playerState = state.copy(lastErrorMsg = "raw internal failure"))
+
+        composeTestRule.onNodeWithTag("player_recovery_failed").assertExists()
+        composeTestRule.onNodeWithText("Не вдалося відновити відтворення").assertExists()
+        composeTestRule.onNodeWithText("Повторити").assertExists()
+        composeTestRule.onNodeWithText("Знайти в іншому джерелі").assertExists()
+        composeTestRule.onNodeWithText("raw internal failure").assertDoesNotExist()
     }
 
     @Test
@@ -441,7 +441,6 @@ class PlayerAccessibilityTest {
 
     private fun setPlayerContent(
         playerState: PlayerState = state,
-        onRetryPlayback: () -> Unit = {},
         progressUi: PlayerProgressUi = progress,
         onSeek: (Float) -> Unit = {},
         onBookSeek: (Float) -> Unit = {}
@@ -451,7 +450,6 @@ class PlayerAccessibilityTest {
                 Surface(color = MaterialTheme.colorScheme.background) {
                     PlayerContent(
                         playerState,
-                        onRetryPlayback,
                         progressUi = progressUi,
                         onSeek = onSeek,
                         onBookSeek = onBookSeek
@@ -464,7 +462,6 @@ class PlayerAccessibilityTest {
     @Composable
     private fun PlayerContent(
         playerState: PlayerState = state,
-        onRetryPlayback: () -> Unit = {},
         activeTool: PlayerQuickTool? = null,
         progressUi: PlayerProgressUi = progress,
         onSeek: (Float) -> Unit = {},
@@ -496,7 +493,6 @@ class PlayerAccessibilityTest {
             onTimer = onTimer,
             onBookmark = onBookmark,
             onChapters = onChapters,
-            onRetryPlayback = onRetryPlayback,
             activeTool = activeTool
         )
     }

@@ -30,8 +30,8 @@ internal object RecoveryIdentityGuard {
             !knownNarrator.equals(capturedNarrator, ignoreCase = true)
         ) return false
         // A source which declares a language must prove the captured page has
-        // the same one.  4read currently leaves it blank, so legacy blank rows
-        // continue to recover while a language-bearing Edition fails closed.
+        // the same one. Legacy blank rows continue to recover while a
+        // language-bearing Edition fails closed on missing or different language.
         return storedLanguage.isBlank() ||
             storedLanguage.trim().equals(capturedLanguage.trim(), ignoreCase = true)
     }

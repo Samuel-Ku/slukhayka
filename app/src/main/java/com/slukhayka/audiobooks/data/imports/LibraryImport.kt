@@ -111,19 +111,27 @@ class LibraryImport(
             // narrator is an Edition property, never part of the Work.
             val mergeKey = MergeKey.keyFor(detail.title, detail.author)
             val narrator = MetadataAssertions.normalizeClaimedText(detail.narrator) ?: "$sourceId narrator"
+            val language = com.slukhayka.audiobooks.data.LanguageCode.normalize(
+                detail.language.ifBlank { sourceAdapters.firstOrNull { it.sourceId == sourceId }?.contentLanguage.orEmpty() }
+            ).orEmpty()
             // ADR-0011: the Edition id is the rendition identity and is
             // deterministic for mergeable books (the bookId fallback applies
             // only to blank keys), so the same narration resolves to its card
             // and a different narration of the same Work resolves to nothing.
             val existing = if (mergeKey.isNotBlank()) {
-                dao.findBookByEditionId(EditionId.forBook(mergeKey, "", narrator, ""))
+                dao.findBookByEditionId(EditionId.forBook(mergeKey, "", narrator, language))
+                    ?: if (language.isNotBlank()) {
+                        // Pre-language Editions retain their identity and listening state.
+                        dao.findBookByEditionId(EditionId.forBook(mergeKey, "", narrator, ""))
+                    } else null
             } else {
                 null
             }
             val bookId = existing?.id ?: adapterBookId(sourceId, detail.url)
             // The canonical Edition id the stored rows use (the same formula
             // as the Edition insert below) — the shared profile is keyed by it.
-            val editionId = EditionId.forBook(mergeKey, bookId, narrator)
+            val editionId = existing?.let { dao.getEditionForWork(it.id)?.id }
+                ?: EditionId.forBook(mergeKey, bookId, narrator, language)
 
             // Spec-32 T2 (#232): a resolved page contributes its full profile
             // to the shared base, best-effort — the next listener skips the
@@ -135,7 +143,7 @@ class LibraryImport(
                     profileStore?.putProfile(
                         sourceId = sourceId,
                         editionId = editionId,
-                        profile = BookProfileMapping.fromDetail(detail),
+                        profile = BookProfileMapping.fromDetail(detail.copy(language = language)),
                         provenance = ProfileProvenance(
                             ProfileProvenance.SOURCE_RESOLVED,
                             System.currentTimeMillis()
@@ -222,12 +230,12 @@ class LibraryImport(
                 }
                 // ADR-0010: the Edition id carries the narrator — two
                 // narrations of the same Work keep distinct listening state.
-                val editionId = EditionId.forBook(mergeKey, bookId, book.narrator)
                 dao.insertEdition(
                     EditionEntity(
                         id = editionId,
                         workId = bookId,
                         narrator = book.narrator,
+                        language = language,
                         totalChapters = detail.chapters.size,
                         totalDurationSeconds = book.totalDurationSeconds
                     )
@@ -259,13 +267,14 @@ class LibraryImport(
                 val known = dao.getSourcesForBookSync(existing.id).any { it.url == detail.url }
                 if (!known) {
                     val storedEdition = dao.getEditionForWork(existing.id)
-                    val editionId = storedEdition?.id ?: EditionId.forBook(mergeKey, existing.id, existing.narrator)
+                    val editionId = storedEdition?.id ?: EditionId.forBook(mergeKey, existing.id, existing.narrator, language)
                     if (storedEdition == null) {
                         dao.insertEdition(
                             EditionEntity(
                                 id = editionId,
                                 workId = existing.id,
                                 narrator = existing.narrator,
+                                language = language,
                                 totalChapters = existing.totalChapters,
                                 totalDurationSeconds = existing.totalDurationSeconds
                             )

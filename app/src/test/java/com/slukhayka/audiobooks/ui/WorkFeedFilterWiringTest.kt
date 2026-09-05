@@ -499,7 +499,10 @@ class WorkFeedFilterWiringTest {
         assertTrue(compose.onAllNodesWithText("Кобзар").fetchSemanticsNodes().isNotEmpty())
         assertTrue(compose.onAllNodesWithText("Pride and Prejudice").fetchSemanticsNodes().isEmpty())
         assertTrue(compose.onAllNodesWithText("Кобзар").fetchSemanticsNodes().isNotEmpty())
-        compose.onNodeWithText("Мова: Українська").assertExists()
+        // The UI language is independent of the selected content language.
+        compose.onNodeWithText(context.getString(
+            com.slukhayka.audiobooks.R.string.content_language_chip_label, "Українська"
+        )).assertExists()
 
         // Українська → English: the opposite world, again without restart.
         compose.onNodeWithTag("feed_language").performClick()

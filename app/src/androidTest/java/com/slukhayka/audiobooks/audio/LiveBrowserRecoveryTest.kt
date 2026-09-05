@@ -101,39 +101,46 @@ class LiveBrowserRecoveryTest {
         val existing = dao.getTracksForBookSync(id).mapNotNull { it.localFilePath }
             .associateWith { hash(File(it)) }
         assertTrue(existing.isNotEmpty())
-        val initialState = dao.getAudiobookById(id)?.downloadState
-        Log.i("LiveRecoveryTest", "cancelResumeStart state=$initialState files=${existing.size}")
-        val outcome = java.util.concurrent.atomic.AtomicReference<String>("running")
-        val job = launch(Dispatchers.IO) {
-            downloads.registerDownloadJob(id, requireNotNull(currentCoroutineContext()[Job]))
-            try { outcome.set(downloads.continueDownload(id).toString()) }
-            finally {
-                Log.i("LiveRecoveryTest", "cancelResumeJob result=${outcome.get()} state=${dao.getAudiobookById(id)?.downloadState}")
-                downloads.unregisterDownloadJob(id, requireNotNull(currentCoroutineContext()[Job]))
-            }
-        }
-        try {
-            val waitMs = args.getString("liveDownloadWaitMs")?.toLongOrNull()?.coerceIn(30_000, 600_000) ?: 120_000
-            withTimeout(waitMs) {
-                while (dao.getTracksForBookSync(id).count { !it.localFilePath.isNullOrBlank() } <= existing.size) {
-                    assertFalse("Queue ended without a new file: initial=$initialState result=${outcome.get()} state=${dao.getAudiobookById(id)?.downloadState}", job.isCompleted)
-                    delay(250)
+        repeat(2) { attempt ->
+            val beforeCount = dao.getTracksForBookSync(id).count { !it.localFilePath.isNullOrBlank() }
+            val initialState = dao.getAudiobookById(id)?.downloadState
+            if (attempt > 0) assertEquals("PAUSED", initialState)
+            Log.i("LiveRecoveryTest", "cancelResumeStart state=$initialState files=${existing.size}")
+            val outcome = java.util.concurrent.atomic.AtomicReference<String>("running")
+            val job = launch(Dispatchers.IO) {
+                downloads.registerDownloadJob(id, requireNotNull(currentCoroutineContext()[Job]))
+                try {
+                    outcome.set((if (initialState == "PAUSED") downloads.continueDownload(id)
+                        else downloads.downloadAudiobookOffline(id)).toString())
+                }
+                finally {
+                    Log.i("LiveRecoveryTest", "cancelResumeJob result=${outcome.get()} state=${dao.getAudiobookById(id)?.downloadState}")
+                    downloads.unregisterDownloadJob(id, requireNotNull(currentCoroutineContext()[Job]))
                 }
             }
-        } catch (failure: kotlinx.coroutines.TimeoutCancellationException) {
-            throw AssertionError("Download timed out: initial=$initialState result=${outcome.get()} state=${dao.getAudiobookById(id)?.downloadState} bytes=${downloads.downloadBytesProgress.value[id]}", failure)
-        } finally {
-            downloads.cancelDownload(id)
-            job.join()
+            try {
+                val waitMs = args.getString("liveDownloadWaitMs")?.toLongOrNull()?.coerceIn(30_000, 600_000) ?: 120_000
+                withTimeout(waitMs) {
+                    while (dao.getTracksForBookSync(id).count { !it.localFilePath.isNullOrBlank() } <= beforeCount) {
+                        assertFalse("Queue ended without a new file: initial=$initialState result=${outcome.get()} state=${dao.getAudiobookById(id)?.downloadState}", job.isCompleted)
+                        delay(250)
+                    }
+                }
+            } catch (failure: kotlinx.coroutines.TimeoutCancellationException) {
+                throw AssertionError("Download timed out: initial=$initialState result=${outcome.get()} state=${dao.getAudiobookById(id)?.downloadState} bytes=${downloads.downloadBytesProgress.value[id]}", failure)
+            } finally {
+                downloads.cancelDownload(id)
+                job.join()
+            }
+            val row = requireNotNull(dao.getAudiobookById(id))
+            assertEquals("PAUSED", row.downloadState)
+            assertTrue(row.downloadProgress > 0 && row.downloadProgress < 1)
+            (existing + controlFiles).forEach { (path, digest) -> assertEquals(digest, hash(File(path))) }
+            assertFalse(File(app.filesDir, "audiobooks").listFiles().orEmpty().any {
+                it.name.startsWith(id) && it.name.endsWith(".tmp")
+            })
+            Log.i("LiveRecoveryTest", "cancelResume=passed attempt=$attempt previousFiles=${existing.size} otherBookFiles=${controlFiles.size} state=${row.downloadState}")
         }
-        val row = requireNotNull(dao.getAudiobookById(id))
-        assertEquals("PAUSED", row.downloadState)
-        assertTrue(row.downloadProgress > 0 && row.downloadProgress < 1)
-        (existing + controlFiles).forEach { (path, digest) -> assertEquals(digest, hash(File(path))) }
-        assertFalse(File(app.filesDir, "audiobooks").listFiles().orEmpty().any {
-            it.name.startsWith(id) && it.name.endsWith(".tmp")
-        })
-        Log.i("LiveRecoveryTest", "cancelResume=passed previousFiles=${existing.size} otherBookFiles=${controlFiles.size} state=${row.downloadState}")
     }
 
     @Test fun failed_source_stops_old_audio_and_search_waits_for_action(): Unit = runBlocking {
@@ -284,6 +291,64 @@ class LiveBrowserRecoveryTest {
             assertEquals(bookmarks, dao.getBookmarksForBookSync(id))
             files.forEach { (path, digest) -> assertEquals("Preserved $path", digest, hash(File(path))) }
             scenario.onActivity { vm.playerManager.pause() }
+        }
+    }
+
+    @Test fun selected_chapters_play_and_transport_controls_work(): Unit = runBlocking {
+        val args = InstrumentationRegistry.getArguments()
+        val id = args.getString("liveBookId")
+        assumeTrue(!id.isNullOrBlank())
+        requireNotNull(id)
+        val app = App.instance
+        val book = requireNotNull(app.audiobookDao.getAudiobookById(id)).toAudiobookEntity()
+        val playable = app.sourceCatalog.getPlayableChapters(id)
+        fun local(index: Int) = playable[index].track?.localFilePath?.let { File(it).isFile } == true
+        val remote = playable.indices.first { !local(it) && playable[it].track?.url?.startsWith("http") == true }
+        val allRemote = args.getString("liveRequireUndownloaded") == "true"
+        val first = if (allRemote) {
+            assertTrue("The entire book must have no local audio", app.audiobookDao.getTracksForBookSync(id)
+                .none { it.localFilePath?.let { path -> File(path).isFile } == true })
+            remote
+        } else playable.indices.first { local(it) }
+        val second = if (allRemote) playable.indices.first { it != first && !local(it) } else remote
+        val intent = Intent(InstrumentationRegistry.getInstrumentation().targetContext, MainActivity::class.java)
+        ActivityScenario.launch<MainActivity>(intent).use { scenario ->
+            lateinit var vm: MainViewModel
+            scenario.onActivity {
+                it.window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                vm = ViewModelProvider(it)[MainViewModel::class.java]
+            }
+            try {
+                scenario.onActivity {
+                    vm.playerManager.loadAndPlayBook(book, playable.map { it.chapter }, playable,
+                        initialChapterIndex = first, initialPositionSeconds = 42, autoPlay = false)
+                    vm.setShowFullPlayer(true)
+                    vm.togglePlaybackFromPlayer(id, first, 42_000)
+                }
+                awaitState("First selected chapter plays", 150_000) {
+                    vm.playerState.value.let { it.isPlaying && it.currentBook?.id == id && it.currentChapterIndex == first }
+                }
+                val start = vm.playerState.value.currentPositionMs
+                awaitState("Audio position advances") { vm.playerState.value.currentPositionMs > start + 1_000 }
+                scenario.onActivity { vm.playerManager.pause() }
+                awaitState("Pause stops playback") { !vm.playerState.value.isPlaying }
+                val paused = vm.playerState.value.currentPositionMs
+                SystemClock.sleep(1_200)
+                assertTrue("Pause holds position", kotlin.math.abs(vm.playerState.value.currentPositionMs - paused) < 500)
+                scenario.onActivity { vm.playerManager.seekTo(60_000) }
+                awaitState("Seek reaches requested position") { vm.playerState.value.currentPositionMs in 59_000..61_000 }
+                scenario.onActivity { vm.togglePlaybackFromPlayer(id, first, 60_000) }
+                awaitState("Resume plays") { vm.playerState.value.isPlaying }
+                scenario.onActivity { vm.playerManager.selectChapter(second) }
+                awaitState("Second selected chapter plays", 150_000) {
+                    vm.playerState.value.let { it.isPlaying && it.currentChapterIndex == second }
+                }
+                assertTrue("Selected chapter starts at its beginning", vm.playerState.value.currentPositionMs in 0..15_000)
+                assertEquals(id, vm.playerState.value.currentBook?.id)
+                Log.i("LiveRecoveryTest", "transport=passed allRemote=$allRemote first=$first second=$second")
+            } finally {
+                scenario.onActivity { vm.playerManager.pause() }
+            }
         }
     }
 

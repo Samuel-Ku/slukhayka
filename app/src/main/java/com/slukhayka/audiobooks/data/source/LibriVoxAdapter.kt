@@ -129,6 +129,7 @@ class LibriVoxAdapter(
                 title = title,
                 author = creator,
                 url = "https://archive.org/details/$identifier",
+                coverImageUrl = LibriVoxCover.forIdentifier(identifier),
                 // Archive metadata reports the language code itself ("eng").
                 language = LanguageCode.normalize(language).orEmpty(),
                 sourceId = sourceId,
@@ -161,6 +162,7 @@ class LibriVoxAdapter(
                 title = title,
                 author = author,
                 url = "https://archive.org/details/$archiveIdentifier",
+                coverImageUrl = LibriVoxCover.forIdentifier(archiveIdentifier),
                 language = LanguageCode.normalize(API_LANGUAGE_TAGS[language]).orEmpty(),
                 totalDurationSeconds = durationSeconds,
                 sourceId = sourceId
@@ -217,7 +219,7 @@ class LibriVoxAdapter(
             title = title,
             author = author,
             url = url,
-            coverImageUrl = "https://archive.org/download/$identifier/__ia_thumb.jpg",
+            coverImageUrl = LibriVoxCover.forIdentifier(identifier),
             language = LanguageCode.normalize(language).orEmpty(),
             narrator = narrator,
             chapters = chapters,

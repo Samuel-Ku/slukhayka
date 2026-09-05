@@ -44,6 +44,7 @@ class LibriVoxAdapterTest {
         val pride = cards.first { it.title == "Pride and Prejudice (version 6 dramatic reading)" }
         assertEquals("Jane Austen", pride.author)
         assertEquals("https://archive.org/details/prideandprejudice_1107_librivox", pride.url)
+        assertEquals("https://archive.org/download/prideandprejudice_1107_librivox/__ia_thumb.jpg", pride.coverImageUrl)
         assertEquals("librivox", pride.sourceId)
         assertEquals("en", pride.language)
         assertTrue(cards.all { it.url.startsWith("https://archive.org/details/") })
@@ -61,6 +62,7 @@ class LibriVoxAdapterTest {
         assertEquals(4, cards.size)
         assertEquals("Socialism", cards.first().title)
         assertEquals("https://archive.org/details/socialism_2609_librivox", cards.first().url)
+        assertEquals("https://archive.org/download/socialism_2609_librivox/__ia_thumb.jpg", cards.first().coverImageUrl)
         assertTrue(cards.all { it.sourceId == "librivox" && it.language == "en" })
     }
 
@@ -86,6 +88,7 @@ class LibriVoxAdapterTest {
         // Cards carry the archive.org mirror page (T3 #491 plays from it) —
         // the identifier the api embeds in `url_zip_file`.
         assertEquals("https://archive.org/details/little_men_1107_librivox", littleMen.url)
+        assertEquals("https://archive.org/download/little_men_1107_librivox/__ia_thumb.jpg", littleMen.coverImageUrl)
         assertEquals("en", littleMen.language)
         assertEquals("librivox", littleMen.sourceId)
         // The API record carries the real duration.

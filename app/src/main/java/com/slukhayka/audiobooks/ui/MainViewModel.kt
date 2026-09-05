@@ -2529,7 +2529,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 id = result.key,
                 title = result.title,
                 author = result.author,
-                series = work?.seriesTitle.orEmpty()
+                series = work?.seriesTitle.orEmpty(),
+                coverImageUrl = result.coverImageUrl
             )
         }
         val knownIds = library.flatMap { lb ->

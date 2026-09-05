@@ -296,7 +296,7 @@ class SourceCatalog(
                 // or the recommendation row (candidates = the union). The
                 // MERGED corpus is retained so a later selection change
                 // re-filters live (R6 #513) without re-fetching.
-                val merged = mergeGlobalSearchResults(books)
+                val merged = withLocalCovers(mergeGlobalSearchResults(books))
                 _unifiedCatalogMerged.value = merged
                 val visible = merged.visibleInContentLanguages(contentLanguageSelection.value)
                 _unifiedCatalog.value = visible
@@ -493,7 +493,7 @@ class SourceCatalog(
      * its typed [CatalogSectionId.NEW_ARRIVALS] id, never by title — a rename
      * in the parser cannot silently drop or duplicate 4read's new arrivals.
      */
-    private fun publishNewArrivals(sections: List<CatalogSection>, feeds: List<SourceNewFeed>) {
+    private suspend fun publishNewArrivals(sections: List<CatalogSection>, feeds: List<SourceNewFeed>) {
         val fourReadBooks = sections
             .firstOrNull { it.id == CatalogSectionId.NEW_ARRIVALS }
             ?.books.orEmpty()
@@ -502,10 +502,20 @@ class SourceCatalog(
         // Spec-45 (#405) T5 (#493): the rail drops hidden-language cards at
         // publish, like the union; the merged corpus is retained for the R6
         // live re-filter.
-        val merged = mergeGlobalSearchResults(fourReadBooks + otherBooks)
+        val merged = withLocalCovers(mergeGlobalSearchResults(fourReadBooks + otherBooks))
         _newArrivalsMerged.value = merged
         _newArrivals.value = merged.visibleInContentLanguages(contentLanguageSelection.value)
     }
+
+    /** A saved Work cover takes precedence over a feed's thumbnail claim. */
+    private suspend fun withLocalCovers(cards: List<GlobalSearchResult>): List<GlobalSearchResult> =
+        cards.map { card ->
+            val local = card.mergeKey.takeIf { it.isNotBlank() }?.let { key ->
+                dao.findByMergeKey(key)?.coverImageUrl?.takeIf { it.isNotBlank() }
+                    ?: dao.findWorkByMergeKey(key)?.coverImageUrl?.takeIf { it.isNotBlank() }
+            }
+            if (local != null) card.copy(coverImageUrl = local) else card
+        }
 
     private fun CatalogBook.toSourceBook(): SourceBook = SourceBook(
         title = title,

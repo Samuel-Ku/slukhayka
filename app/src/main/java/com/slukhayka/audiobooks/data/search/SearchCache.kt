@@ -222,7 +222,10 @@ object SearchResultCodec {
             author = map["author"] as? String ?: "",
             narrator = map["narrator"] as? String ?: "",
             mergeKey = map["mergeKey"] as? String ?: "",
-            coverImageUrl = map["coverImageUrl"] as? String,
+            coverImageUrl = (map["coverImageUrl"] as? String)?.takeIf { it.isNotBlank() }
+                ?: sources.firstNotNullOfOrNull { source ->
+                    com.slukhayka.audiobooks.data.source.LibriVoxCover.resolve(null, source.sourceId, source.url)
+                },
             durationSeconds = (map["durationSeconds"] as? Number)?.toLong(),
             sources = sources,
             // Old documents carry no language — it decodes to "" (unknown),

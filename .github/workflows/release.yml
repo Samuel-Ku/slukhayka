@@ -70,6 +70,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: false
+          body_path: docs/releases/${{ github.ref_name }}.md
           files: |
             app/build/outputs/renamed_apks/release/${{ env.APK_NAME }}
             app/build/outputs/renamed_apks/release/${{ env.APK_NAME }}.sha256

@@ -34,7 +34,7 @@ import org.robolectric.annotation.GraphicsMode
 /** Public Compose seam for the compact spec-42 T1 feed toolbar and sheet. */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
-@Config(qualifiers = RobolectricDeviceQualifiers.Pixel8, sdk = [36])
+@Config(qualifiers = "uk-rUA-" + RobolectricDeviceQualifiers.Pixel8, sdk = [36])
 class WorkFeedToolbarSnapshotTest {
 
     @get:Rule

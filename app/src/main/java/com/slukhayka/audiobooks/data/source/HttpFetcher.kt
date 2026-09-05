@@ -120,6 +120,31 @@ open class HttpFetcher(
     }
 
     /**
+     * #516 — availability probe: a lightweight HEAD through the SAME shared
+     * stack (app DNS / DoH / privacy route / per-source headers). True on
+     * any 2xx/3xx status; false on any failure or refusal — never throws.
+     * Open so fixture fakes can decide without network.
+     */
+    open fun isReachable(url: String, extraHeaders: Map<String, String> = emptyMap()): Boolean {
+        val request = buildRequest(url, extraHeaders).newBuilder().head().build()
+        return try {
+            TransportClients.okHttp.newCall(request).execute().use { response ->
+                response.isSuccessful || response.code in 300..399
+            }
+        } catch (e: Exception) {
+            val viaPrivacyRoute = TransportPrivacy.currentJavaProxy() != null ||
+                TransportPrivacy.isRelayActive()
+            Log.w(
+                "HttpFetcher",
+                "HEAD $url failed" +
+                    if (viaPrivacyRoute) " (privacy route active — no direct fallback)" else "",
+                e
+            )
+            false
+        }
+    }
+
+    /**
      * Spec-37 T1 — sized binary GET: the download path's verified transport.
      * Like [getStream] but the response's `Content-Length` travels alongside the
      * stream so the caller can honestly reject a short body. Null when the

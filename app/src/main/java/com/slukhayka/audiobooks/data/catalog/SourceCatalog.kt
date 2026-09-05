@@ -39,6 +39,7 @@ import com.slukhayka.audiobooks.data.search.SearchCache
 import com.slukhayka.audiobooks.data.source.FourReadAdapter
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.data.source.HttpFetcher
+import com.slukhayka.audiobooks.data.source.headersFor
 import com.slukhayka.audiobooks.data.source.SourceAdapter
 import com.slukhayka.audiobooks.data.source.SourceBook
 import com.slukhayka.audiobooks.data.source.SourceIds
@@ -85,6 +86,11 @@ class SourceCatalog(
     // HTTP client of its own. Injectable so the hydration tests serve canned
     // pages without network.
     private val fourReadFetcher: HttpFetcher = HttpFetcher(referer = "https://4read.org/"),
+    // #516 — availability probes of ANY source ride a NEUTRAL fetcher: the
+    // per-source Referer comes from the headersFor seam per probe, and a
+    // constructor default (like fourReadFetcher's) must never leak onto
+    // foreign hosts (SEC-004).
+    private val probeFetcher: HttpFetcher = HttpFetcher(),
     // Spec-16: the curated smart-collection lists, loaded at the composition
     // root through the context seam (CollectionAssets). Empty in tests that
     // don't exercise collections; a list asset is pure data — adding one is
@@ -1072,20 +1078,15 @@ class SourceCatalog(
                 if (source.type == "local") {
                     SourceSelectionCoordinator.ProbeResult.Success
                 } else {
-                    try {
-                        val conn = java.net.URL(source.url).openConnection() as java.net.HttpURLConnection
-                        conn.requestMethod = "HEAD"
-                        conn.connectTimeout = 3_000
-                        conn.readTimeout = 3_000
-                        conn.instanceFollowRedirects = true
-                        try {
-                            val code = conn.responseCode
-                            if (code in 200..399) SourceSelectionCoordinator.ProbeResult.Success
-                            else SourceSelectionCoordinator.ProbeResult.Failure
-                        } finally {
-                            conn.disconnect()
-                        }
-                    } catch (_: Exception) {
+                    // #516 — availability rides the SHARED transport (app DNS /
+                    // DoH / privacy route / per-source Referer), not a raw
+                    // HttpURLConnection on the system resolver. Browser cookies
+                    // stay out of availability probes, exactly as before.
+                    val headers = headersFor(source.type, source.url)
+                    val reachable = probeFetcher.isReachable(source.url, headers)
+                    if (reachable) {
+                        SourceSelectionCoordinator.ProbeResult.Success
+                    } else {
                         SourceSelectionCoordinator.ProbeResult.Failure
                     }
                 }

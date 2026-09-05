@@ -109,7 +109,15 @@ class AndroidEmulatorReadinessTest(unittest.TestCase):
 
         self.assertLess(prebuild, emulator)
         self.assertIn(":app:assembleDebug :app:assembleDebugAndroidTest", workflow)
-        self.assertIn("scripts/wait-for-android-package-service.sh", workflow)
+        # v1.3.7 moved the journey's run logic into a wrapper script: the
+        # workflow calls the wrapper, and the wrapper gates on the readiness
+        # script (#424) before instrumentation starts.
+        runner = workflow.index("bash .github/scripts/run-accessibility-test.sh")
+        self.assertLess(emulator, runner)
+        runner_script = (
+            REPO_ROOT / ".github" / "scripts" / "run-accessibility-test.sh"
+        ).read_text(encoding="utf-8")
+        self.assertIn("scripts/wait-for-android-package-service.sh", runner_script)
         self.assertIn("target: google_atd", workflow)
 
 

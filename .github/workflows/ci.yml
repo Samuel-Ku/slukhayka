@@ -331,11 +331,7 @@ jobs:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 50
-    # Release decision (v1.3.7): the journey reports but does not block. The
-    # 48dp touch-target gate currently conflicts with the tightened person
-    # rows, and the emulator focus-return wait is flaky on CI runners. Revisit
-    # both after the release ships.
-    continue-on-error: true
+    # A signed candidate must pass the real listener accessibility journey.
 
     steps:
       - name: Checkout

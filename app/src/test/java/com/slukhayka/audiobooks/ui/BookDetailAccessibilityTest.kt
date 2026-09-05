@@ -243,6 +243,10 @@ class BookDetailAccessibilityTest {
         val narratorBookmark = composeTestRule.onNodeWithTag("book_detail_narrator_bookmark")
             .assertIsDisplayed().fetchSemanticsNode().boundsInRoot
         assertEquals(authorBookmark.left, narratorBookmark.left, 0.01f)
+        listOf("book_detail_author_link", "book_detail_narrator_link",
+            "book_detail_author_bookmark", "book_detail_narrator_bookmark").forEach { tag ->
+            composeTestRule.onNodeWithTag(tag).assertHeightIsAtLeast(48.dp)
+        }
 
         val metadataBottom = composeTestRule.onNodeWithTag("book_detail_metadata_chips")
             .fetchSemanticsNode().boundsInRoot.bottom

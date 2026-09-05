@@ -107,6 +107,8 @@ class LiveBrowserRecoveryTest {
             if (attempt > 0) assertEquals("PAUSED", initialState)
             Log.i("LiveRecoveryTest", "cancelResumeStart state=$initialState files=${existing.size}")
             val outcome = java.util.concurrent.atomic.AtomicReference<String>("running")
+            val initialBytes = downloads.downloadBytesProgress.value[id]?.downloadedBytes ?: 0L
+            var madeProgress = false
             val job = launch(Dispatchers.IO) {
                 downloads.registerDownloadJob(id, requireNotNull(currentCoroutineContext()[Job]))
                 try {
@@ -121,10 +123,14 @@ class LiveBrowserRecoveryTest {
             try {
                 val waitMs = args.getString("liveDownloadWaitMs")?.toLongOrNull()?.coerceIn(30_000, 600_000) ?: 120_000
                 withTimeout(waitMs) {
-                    while (dao.getTracksForBookSync(id).count { !it.localFilePath.isNullOrBlank() } <= beforeCount) {
+                    while (
+                        dao.getTracksForBookSync(id).count { !it.localFilePath.isNullOrBlank() } <= beforeCount &&
+                        (downloads.downloadBytesProgress.value[id]?.downloadedBytes ?: 0L) <= initialBytes
+                    ) {
                         assertFalse("Queue ended without a new file: initial=$initialState result=${outcome.get()} state=${dao.getAudiobookById(id)?.downloadState}", job.isCompleted)
                         delay(250)
                     }
+                    madeProgress = true
                 }
             } catch (failure: kotlinx.coroutines.TimeoutCancellationException) {
                 throw AssertionError("Download timed out: initial=$initialState result=${outcome.get()} state=${dao.getAudiobookById(id)?.downloadState} bytes=${downloads.downloadBytesProgress.value[id]}", failure)
@@ -135,6 +141,10 @@ class LiveBrowserRecoveryTest {
             val row = requireNotNull(dao.getAudiobookById(id))
             assertEquals("PAUSED", row.downloadState)
             assertTrue(row.downloadProgress > 0 && row.downloadProgress < 1)
+            assertTrue(
+                "Continue must download bytes or finish another chapter",
+                madeProgress
+            )
             (existing + controlFiles).forEach { (path, digest) -> assertEquals(digest, hash(File(path))) }
             assertFalse(File(app.filesDir, "audiobooks").listFiles().orEmpty().any {
                 it.name.startsWith(id) && it.name.endsWith(".tmp")

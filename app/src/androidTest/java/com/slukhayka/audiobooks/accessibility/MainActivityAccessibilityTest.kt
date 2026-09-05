@@ -1,6 +1,7 @@
 package com.slukhayka.audiobooks.accessibility
 
 import android.app.Application
+import android.util.Log
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
@@ -20,6 +21,7 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.printToString
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performSemanticsAction
@@ -401,12 +403,20 @@ class MainActivityAccessibilityTest {
                 .fetchSemanticsNodes()
                 .isEmpty()
         }
-        composeTestRule.waitUntil(timeoutMillis = NAV_TIMEOUT_MS) {
-            composeTestRule.onAllNodesWithTag("book_detail_chapter_$fixtureChapterId")
-                .fetchSemanticsNodes()
-                .singleOrNull()
-                ?.config
-                ?.getOrNull(SemanticsProperties.Focused) == true
+        try {
+            composeTestRule.waitUntil(timeoutMillis = NAV_TIMEOUT_MS) {
+                composeTestRule.onAllNodesWithTag("book_detail_chapter_$fixtureChapterId")
+                    .fetchSemanticsNodes()
+                    .singleOrNull()
+                    ?.config
+                    ?.getOrNull(SemanticsProperties.Focused) == true
+            }
+        } catch (failure: androidx.compose.ui.test.ComposeTimeoutException) {
+            // This gate uses a generated fixture in an isolated emulator.
+            // Preserve the actual tree when focus restoration fails;
+            // the assertion still fails unchanged.
+            Log.e("AccessibilityFocusReturn", composeTestRule.onRoot(useUnmergedTree = true).printToString())
+            throw failure
         }
         composeTestRule.onNodeWithTag("book_detail_chapter_$fixtureChapterId")
             .assertIsFocused()

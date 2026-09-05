@@ -26,6 +26,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -689,6 +690,8 @@ fun LibraryBookCard(
         modifier = modifier
             .fillMaxWidth()
             .clip(MaterialTheme.shapes.medium)
+            // Route-return focus must also work on touch-only devices.
+            .focusProperties { canFocus = true }
             .clickable(onClick = performOpen)
             .testTag("library_book_item_${book.book.id}")
             .clearAndSetSemantics {

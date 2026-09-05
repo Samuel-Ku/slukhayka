@@ -29,6 +29,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -1770,6 +1771,9 @@ fun ChapterRowItem(
                 // clickable accessibility nodes with identical bounds.
                 .testTag("book_detail_chapter_${chapter.id}")
                 .then(focusRequester?.let { Modifier.focusRequester(it) } ?: Modifier)
+                // A modal must return to this one node even in Touch mode;
+                // clickable's SystemDefined focusability otherwise rejects it.
+                .focusProperties { canFocus = true }
                 .clickable(onClickLabel = actionLabel, onClick = onAction)
                 .semantics(mergeDescendants = true) {
                     contentDescription = chapterSummary

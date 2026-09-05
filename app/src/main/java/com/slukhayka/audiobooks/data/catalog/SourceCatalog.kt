@@ -134,6 +134,11 @@ class SourceCatalog(
     // explicit user refresh. Null keeps the pre-#467 behaviour (network on
     // every cache miss); tests inject a store over an in-memory database.
     private val feedSnapshotStore: FeedSnapshotStore? = null,
+    // #485 — the persistent source-signal store: every live-collection fetch
+    // records provenance-bearing popularity assertions beneath the shelves.
+    // Null in tests that don't exercise the layer — the shelves then behave
+    // exactly as before.
+    private val popularityAssertionStore: PopularityAssertionStore? = null,
     // Spec-45 (#405) T5 (#493): the VISIBLE content languages (BCP-47); an
     // EMPTY selection = «Усі» (both on) = inactive — every card shows (US6).
     // The ⚙️ «Мови контенту» destination and the Огляд chip (T6) write the
@@ -354,6 +359,12 @@ class SourceCatalog(
                 emptyList()
             }
             liveCollectionCache[source.sourceId] = CachedLiveList(now, fetched)
+            // #485: the fetch itself is the observation — each entry becomes
+            // a provenance-bearing popularity assertion beneath the shelves
+            // (best-effort; the shelves and this loop are untouched).
+            if (fetched.isNotEmpty()) {
+                popularityAssertionStore?.recordRankSignals(fetched, now)
+            }
             lists += fetched
         }
         return lists

@@ -66,8 +66,6 @@ import com.slukhayka.audiobooks.data.personbookmarks.PersonBookmarks
 import com.slukhayka.audiobooks.data.source.sourceDisplayName
 import com.slukhayka.audiobooks.data.source.sourceIdForUrl
 import com.slukhayka.audiobooks.data.source.streamOnlyFor
-import com.slukhayka.audiobooks.data.source.SourceAccessMode
-import com.slukhayka.audiobooks.data.source.SourceAccessPolicy
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.ui.library.siblingNarrations
 import com.slukhayka.audiobooks.ui.MainViewModel
@@ -789,7 +787,6 @@ fun BookDetailScreen(
                             )
                         },
                         onSeriesClick = { title, url -> viewModel.openSeries(title, url) },
-                        onWrongUniverse = { viewModel.reportWrongUniverse(currentBook.id) },
                         authorBookmark = PersonBookmarkControl(
                             isBookmarked = authorBookmark != null,
                             notifyEnabled = authorBookmark?.notifyEnabled ?: true,
@@ -2269,7 +2266,6 @@ fun BookDetailIdentityHeader(
     onAuthorClick: (String) -> Unit = {},
     onNarratorClick: (String) -> Unit = {},
     onSeriesClick: (String, String) -> Unit = { _, _ -> },
-    onWrongUniverse: () -> Unit = {},
     requestInitialFocus: Boolean = true,
     onInitialFocusHandled: () -> Unit = {},
     returnFocusOrigin: BookDetailLinkOrigin? = null,
@@ -2314,7 +2310,6 @@ fun BookDetailIdentityHeader(
         onAuthorClick = onAuthorClick,
         onNarratorClick = onNarratorClick,
         onSeriesClick = onSeriesClick,
-        onWrongUniverse = onWrongUniverse,
         requestInitialFocus = requestInitialFocus,
         onInitialFocusHandled = onInitialFocusHandled,
         returnFocusOrigin = returnFocusOrigin,
@@ -2356,7 +2351,6 @@ fun BookDetailCanonicalSummary(
     onAuthorClick: (String) -> Unit = {},
     onNarratorClick: (String) -> Unit = {},
     onSeriesClick: (String, String) -> Unit = { _, _ -> },
-    onWrongUniverse: () -> Unit = {},
     requestInitialFocus: Boolean = true,
     onInitialFocusHandled: () -> Unit = {},
     returnFocusOrigin: BookDetailLinkOrigin? = null,
@@ -2404,41 +2398,36 @@ fun BookDetailCanonicalSummary(
     Spacer(modifier = Modifier.height(8.dp))
     if (presentation.author.isNotBlank()) {
         BoxWithConstraints(
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            contentAlignment = Alignment.Center
         ) {
             val textMaxWidth = (maxWidth - 48.dp).coerceAtLeast(0.dp)
-            // The star anchors to the shared trailing column (right edge), so
-            // its position never depends on the text width of either row.
-            Text(
-                text = "Автор: ${presentation.author}",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.primary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.Center,
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .widthIn(max = textMaxWidth)
-                    .focusRequester(authorFocusRequester)
-                    .testTag("book_detail_author_link")
-                    .heightIn(min = 48.dp)
-                    .clickable {
-                        onChildRouteOpened(BookDetailLinkOrigin.AUTHOR)
-                        onAuthorClick(presentation.author)
-                    }
-                    .wrapContentHeight(Alignment.CenterVertically)
-            )
-            PersonBookmarkButton(
-                modifier = Modifier
-                    .align(Alignment.CenterEnd)
-                    .offset(x = (-4).dp),
-                isBookmarked = authorBookmark.isBookmarked,
-                notifyEnabled = authorBookmark.notifyEnabled,
-                personName = presentation.author,
-                onToggle = authorBookmark.onToggle,
-                onToggleNotify = authorBookmark.onToggleNotify,
-                testTag = "book_detail_author_bookmark"
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "Автор: ${presentation.author}",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .widthIn(max = textMaxWidth)
+                        .focusRequester(authorFocusRequester)
+                        .testTag("book_detail_author_link")
+                        .heightIn(min = 48.dp)
+                        .clickable {
+                            onChildRouteOpened(BookDetailLinkOrigin.AUTHOR)
+                            onAuthorClick(presentation.author)
+                        }
+                        .wrapContentHeight(Alignment.CenterVertically)
+                )
+                PersonBookmarkButton(
+                    isBookmarked = authorBookmark.isBookmarked,
+                    notifyEnabled = authorBookmark.notifyEnabled,
+                    personName = presentation.author,
+                    onToggle = authorBookmark.onToggle,
+                    onToggleNotify = authorBookmark.onToggleNotify,
+                    testTag = "book_detail_author_bookmark"
+                )
+            }
         }
     }
     if (presentation.author.isNotBlank() && presentation.narrator.isNotBlank()) {
@@ -2446,41 +2435,37 @@ fun BookDetailCanonicalSummary(
     }
     if (presentation.narrator.isNotBlank()) {
         BoxWithConstraints(
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            contentAlignment = Alignment.Center
         ) {
             val textMaxWidth = (maxWidth - 48.dp).coerceAtLeast(0.dp)
-            // Same shared trailing column as the author row.
-            Text(
-                text = "Озвучує: ${presentation.narrator}",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.Center,
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .widthIn(max = textMaxWidth)
-                    .focusRequester(narratorFocusRequester)
-                    .testTag("book_detail_narrator_link")
-                    .heightIn(min = 48.dp)
-                    .clickable {
-                        onChildRouteOpened(BookDetailLinkOrigin.NARRATOR)
-                        onNarratorClick(presentation.narrator)
-                    }
-                    .wrapContentHeight(Alignment.CenterVertically)
-                    .semantics { stateDescription = currentEditionState }
-            )
-            PersonBookmarkButton(
-                modifier = Modifier
-                    .align(Alignment.CenterEnd)
-                    .offset(x = (-4).dp),
-                isBookmarked = narratorBookmark.isBookmarked,
-                notifyEnabled = narratorBookmark.notifyEnabled,
-                personName = presentation.narrator,
-                onToggle = narratorBookmark.onToggle,
-                onToggleNotify = narratorBookmark.onToggleNotify,
-                testTag = "book_detail_narrator_bookmark"
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "Озвучує: ${presentation.narrator}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .widthIn(max = textMaxWidth)
+                        .focusRequester(narratorFocusRequester)
+                        .testTag("book_detail_narrator_link")
+                        .heightIn(min = 48.dp)
+                        .clickable {
+                            onChildRouteOpened(BookDetailLinkOrigin.NARRATOR)
+                            onNarratorClick(presentation.narrator)
+                        }
+                        .wrapContentHeight(Alignment.CenterVertically)
+                        .semantics { stateDescription = currentEditionState }
+                )
+                PersonBookmarkButton(
+                    isBookmarked = narratorBookmark.isBookmarked,
+                    notifyEnabled = narratorBookmark.notifyEnabled,
+                    personName = presentation.narrator,
+                    onToggle = narratorBookmark.onToggle,
+                    onToggleNotify = narratorBookmark.onToggleNotify,
+                    testTag = "book_detail_narrator_bookmark"
+                )
+            }
         }
     }
     // ADR-0023 (#348): the narration rating lives beside the narrator's name —
@@ -2529,17 +2514,7 @@ fun BookDetailCanonicalSummary(
             )
         }
         universeName?.let { name ->
-            Spacer(modifier = Modifier.height(4.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                BookUniverseLine(name)
-                TextButton(
-                    onClick = onWrongUniverse,
-                    contentPadding = PaddingValues(horizontal = 6.dp),
-                    modifier = Modifier.testTag("book_detail_report_wrong_universe")
-                ) {
-                    Text(stringResource(R.string.bookdetail_wrong_universe), style = MaterialTheme.typography.labelSmall)
-                }
-            }
+            BookUniverseLine(name)
         }
     }
     val seriesTitle = presentation.seriesTitle.orEmpty()
@@ -2603,7 +2578,7 @@ fun BookDetailSourceSection(
 /**
  * Spec-23 T5/#426 — one informational row of the book page's «Джерела»
  * section: a source that carries the Work, with its stream-only marker
- * («Тільки стрімінг») and browser requirement.
+ * («Тільки стрімінг»).
  * [isCurrent] marks the source the library row itself came from. Pure
  * `@Composable` — pinned by the snapshot seam from fixture rows.
  */
@@ -2612,7 +2587,6 @@ fun WorkSourceRowCard(
     source: BookDetailSourcePresentation,
     workTitle: String = ""
 ) {
-    val requiresBrowser = SourceAccessPolicy.modeFor(source.sourceId) == SourceAccessMode.BROWSER
     val contextualTitle = workTitle.takeIf(String::isNotBlank) ?: "книгу"
     val actionDescription = if (source.selectable) {
         stringResource(R.string.book_detail_play_source, contextualTitle, source.name)
@@ -2623,12 +2597,7 @@ fun WorkSourceRowCard(
         if (source.isCurrent) R.string.book_detail_current_source
         else R.string.book_detail_other_source
     ).let { base ->
-        buildString {
-            append(if (source.streamOnly) stringResource(R.string.book_detail_source_stream_only, base) else base)
-            if (requiresBrowser) {
-                append(" · ${stringResource(R.string.book_detail_browser_needed)}")
-            }
-        }
+        if (source.streamOnly) stringResource(R.string.book_detail_source_stream_only, base) else base
     }
     Surface(
         shape = RoundedCornerShape(AppDimens.RadiusPanel),
@@ -2669,10 +2638,6 @@ fun WorkSourceRowCard(
                     if (source.isCurrent) {
                         Spacer(modifier = Modifier.width(6.dp))
                         SourceBadgePill(label = "Поточна")
-                    }
-                    if (requiresBrowser) {
-                        Spacer(modifier = Modifier.width(6.dp))
-                        SourceBadgePill(label = stringResource(R.string.book_detail_browser_needed))
                     }
                 }
                 source.rating?.let { rating ->

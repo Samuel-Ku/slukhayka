@@ -221,7 +221,7 @@ class BookDetailAccessibilityTest {
     }
 
     @Test
-    fun personBookmarksShareATrailingColumnAndSeriesDoesNotStretchMetadataRow() {
+    fun personBookmarksStayBesideTheirNamesAndSeriesDoesNotStretchMetadataRow() {
         val seriesBook = book.copy().also {
             it.seriesTitle = "Перший закон — довга назва циклу"
             it.seriesUrl = "https://4read.org/series/first-law"
@@ -232,7 +232,7 @@ class BookDetailAccessibilityTest {
             AudiobookTheme(darkTheme = true) {
                 Surface {
                     Column(modifier = Modifier.width(320.dp)) {
-                        BookDetailCanonicalSummary(presentation = presentation)
+                        BookDetailCanonicalSummary(presentation = presentation, universeName = "Перший закон")
                     }
                 }
             }
@@ -242,7 +242,12 @@ class BookDetailAccessibilityTest {
             .assertIsDisplayed().fetchSemanticsNode().boundsInRoot
         val narratorBookmark = composeTestRule.onNodeWithTag("book_detail_narrator_bookmark")
             .assertIsDisplayed().fetchSemanticsNode().boundsInRoot
-        assertEquals(authorBookmark.left, narratorBookmark.left, 0.01f)
+        val author = composeTestRule.onNodeWithTag("book_detail_author_link").fetchSemanticsNode().boundsInRoot
+        val narrator = composeTestRule.onNodeWithTag("book_detail_narrator_link").fetchSemanticsNode().boundsInRoot
+        assertEquals(author.right, authorBookmark.left, 0.01f)
+        assertEquals(narrator.right, narratorBookmark.left, 0.01f)
+        composeTestRule.onNodeWithText("Всесвіт: «Перший закон»").assertExists()
+        composeTestRule.onAllNodesWithText("Всесвіт неправильний?", useUnmergedTree = true).assertCountEquals(0)
         listOf("book_detail_author_link", "book_detail_narrator_link",
             "book_detail_author_bookmark", "book_detail_narrator_bookmark").forEach { tag ->
             composeTestRule.onNodeWithTag(tag).assertHeightIsAtLeast(48.dp)
@@ -330,18 +335,17 @@ class BookDetailAccessibilityTest {
             .assert(
                 SemanticsMatcher.expectValue(
                     SemanticsProperties.StateDescription,
-                    "Поточне джерело · Потрібен браузер"
+                    "Поточне джерело"
                 )
             )
-        composeTestRule.onAllNodesWithText("Потрібен браузер", useUnmergedTree = true).assertCountEquals(2)
-        // Поточне джерело може потребувати браузера для захищеного відтворення.
+        composeTestRule.onAllNodesWithText("Потрібен браузер", useUnmergedTree = true).assertCountEquals(0)
         composeTestRule.onAllNodesWithText("Поточна", useUnmergedTree = true).assertCountEquals(1)
         composeTestRule.onNodeWithTag("work_source_sluhay")
             .assertContentDescriptionEquals("Джерело Sluhay для «${book.title}»")
             .assert(
                 SemanticsMatcher.expectValue(
                     SemanticsProperties.StateDescription,
-                    "Інше джерело, тільки стрімінг · Потрібен браузер"
+                    "Інше джерело, тільки стрімінг"
                 )
             )
             .assertHeightIsAtLeast(48.dp)

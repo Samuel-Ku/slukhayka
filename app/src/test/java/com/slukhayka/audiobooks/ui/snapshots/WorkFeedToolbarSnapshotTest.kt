@@ -12,7 +12,9 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.junit4.createComposeRule
-import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
@@ -45,12 +47,12 @@ class WorkFeedToolbarSnapshotTest {
         var selectedSort: Boolean? = null
         setToolbar(sortByTitle = false, selectedGenres = { emptySet() }, onSortChange = { selectedSort = it })
 
-        composeTestRule.onAllNodesWithText("Спочатку нові").assertCountEquals(1)
+        composeTestRule.onAllNodesWithTag("feed_sort").assertCountEquals(1)
         composeTestRule.onNodeWithText("За назвою").assertDoesNotExist()
-        composeTestRule.onNodeWithText("Фільтри").assertExists()
+        composeTestRule.onNodeWithTag("feed_filters").assertIsDisplayed().assertContentDescriptionEquals("Фільтри")
         composeTestRule.onNodeWithText("Усі джерела").assertDoesNotExist()
 
-        composeTestRule.onNodeWithText("Спочатку нові").performClick()
+        composeTestRule.onNodeWithTag("feed_sort").assertContentDescriptionEquals("Спочатку нові").performClick()
         composeTestRule.onNodeWithText("За назвою").assertExists().performClick()
         assertEquals(true, selectedSort)
     }
@@ -64,7 +66,7 @@ class WorkFeedToolbarSnapshotTest {
             onGenresChange = { genres = it }
         )
 
-        composeTestRule.onNodeWithText("Фільтри").performClick()
+        composeTestRule.onNodeWithTag("feed_filters").performClick()
         composeTestRule.onNodeWithText("Жанри").assertExists()
         composeTestRule.onNodeWithText("Фентезі").assertIsNotSelected().performClick().assertIsSelected()
         composeTestRule.onNodeWithText("Детективи").assertIsNotSelected().performClick().assertIsSelected()
@@ -81,7 +83,7 @@ class WorkFeedToolbarSnapshotTest {
         composeTestRule.onNodeWithText("Скинути все").assertDoesNotExist()
         assertEquals(setOf("detective"), genres)
 
-        composeTestRule.onNodeWithText("Фільтри").performClick()
+        composeTestRule.onNodeWithTag("feed_filters").performClick()
         composeTestRule.onNodeWithText("Скинути все").performClick()
         assertEquals(emptySet<String>(), genres)
     }
@@ -96,7 +98,7 @@ class WorkFeedToolbarSnapshotTest {
             onGenresChange = { selectedGenres = it }
         )
 
-        composeTestRule.onNodeWithText("Фільтри").performClick()
+        composeTestRule.onNodeWithTag("feed_filters").performClick()
         composeTestRule.onNodeWithText("Скинути все").assertIsDisplayed()
         composeTestRule.onNodeWithText("Готово").assertIsDisplayed()
         composeTestRule.onNodeWithText("Жанр 30").performScrollTo().performClick()
@@ -117,7 +119,7 @@ class WorkFeedToolbarSnapshotTest {
             onDurationsChange = { selectedDurations = it }
         )
 
-        composeTestRule.onNodeWithText("Фільтри").performClick()
+        composeTestRule.onNodeWithTag("feed_filters").performClick()
         composeTestRule.onNodeWithText("Тривалість").assertExists()
         composeTestRule.onNodeWithText("До 5 год").assertIsNotSelected().performClick().assertIsSelected()
         composeTestRule.onNodeWithText("10–20 год").assertIsNotSelected().performClick().assertIsSelected()

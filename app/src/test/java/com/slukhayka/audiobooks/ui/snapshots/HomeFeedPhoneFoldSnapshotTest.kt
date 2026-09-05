@@ -12,6 +12,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.getBoundsInRoot
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -203,8 +205,10 @@ class HomeFeedPhoneFoldSnapshotTest {
             "feed toolbar should be pinned at the viewport top",
             composeTestRule.onNodeWithTag("work_feed_toolbar").getBoundsInRoot().top <= 1.dp
         )
-        composeTestRule.onNodeWithText("Спочатку нові").assertExists()
-        composeTestRule.onNodeWithText("Фільтри").assertExists()
+        composeTestRule.onNodeWithTag("feed_sort").assertIsDisplayed()
+            .assertContentDescriptionEquals("Спочатку нові")
+        composeTestRule.onNodeWithTag("feed_filters").assertIsDisplayed()
+            .assertContentDescriptionEquals("Фільтри")
 
         composeTestRule.onRoot().captureRoboImage(
             filePath = "src/test/snapshots/home_feed_phone_feed.png"

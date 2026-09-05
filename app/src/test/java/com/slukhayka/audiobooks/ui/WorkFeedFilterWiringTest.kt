@@ -127,7 +127,7 @@ class WorkFeedFilterWiringTest {
 
         compose.setContent {
             AudiobookTheme(darkTheme = true) {
-                feed = feedChain(genreFilters, sortByTitle, scope).collectAsLazyPagingItems()
+                feed = remember { feedChain(genreFilters, sortByTitle, scope) }.collectAsLazyPagingItems()
                 val fg by genreFilters.collectAsState()
                 val st by sortByTitle.collectAsState()
                 LazyColumn {
@@ -241,7 +241,7 @@ class WorkFeedFilterWiringTest {
         try {
             compose.setContent {
                 AudiobookTheme(darkTheme = true) {
-                    feed = feedChain(genreFilters, sortByTitle, scope).collectAsLazyPagingItems()
+                    feed = remember { feedChain(genreFilters, sortByTitle, scope) }.collectAsLazyPagingItems()
                     val fg by genreFilters.collectAsState()
                     val st by sortByTitle.collectAsState()
                     LazyColumn {
@@ -338,7 +338,7 @@ class WorkFeedFilterWiringTest {
 
         compose.setContent {
             AudiobookTheme(darkTheme = true) {
-                feed = feedChain(genreFilters, sortByTitle, scope).collectAsLazyPagingItems()
+                feed = remember { feedChain(genreFilters, sortByTitle, scope) }.collectAsLazyPagingItems()
                 val fg by genreFilters.collectAsState()
                 val st by sortByTitle.collectAsState()
                 LazyColumn {
@@ -433,7 +433,8 @@ class WorkFeedFilterWiringTest {
 
         compose.setContent {
             AudiobookTheme(darkTheme = true) {
-                feed = feedChain(genreFilters, sortByTitle, scope, languages).collectAsLazyPagingItems()
+                // Match the ViewModel: one stable flow, reactive filter values.
+                feed = remember { feedChain(genreFilters, sortByTitle, scope, languages) }.collectAsLazyPagingItems()
                 val langs by languages.collectAsState()
                 val label = when (langs) {
                     setOf("uk") -> "Українська"

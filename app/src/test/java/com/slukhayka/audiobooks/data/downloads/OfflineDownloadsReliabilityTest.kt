@@ -107,15 +107,17 @@ class OfflineDownloadsReliabilityTest {
 
     @Test
     fun `download starts without waiting for optional HEAD size probes`() = runBlocking {
-        val audio = ByteArray(2048) { 0x42 }
         var probes = 0
         val fetcher = object : HttpFetcher() {
             override fun headContentLength(url: String, extraHeaders: Map<String, String>): Long? {
                 probes++
                 return null
             }
-            override fun getSizedStreamResult(url: String, extraHeaders: Map<String, String>): SizedStreamResult =
-                SizedStreamResult(200, SizedStream(ByteArrayInputStream(audio), audio.size.toLong()))
+            override fun getSizedStreamResult(url: String, extraHeaders: Map<String, String>): SizedStreamResult {
+                // Distinct recordings keep hash dedup out of this HEAD-probe test.
+                val audio = ByteArray(2048) { url.hashCode().toByte() }
+                return SizedStreamResult(200, SizedStream(ByteArrayInputStream(audio), audio.size.toLong()))
+            }
         }
         val (imports, _, downloads) = harness(2, { "https://audio.example/chapter-$it.mp3" }, fetcher)
         val bookId = importBook(imports, "https://sluhay.com/svitova-literatura/6177-pasazhir.html")

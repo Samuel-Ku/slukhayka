@@ -144,26 +144,43 @@ object NetworkPrivacy {
     val DOH_BOOTSTRAP_IPS = listOf("8.8.8.8", "8.8.4.4")
 
     /**
-     * Resolves the DNS half of the prefs into a strategy. Deliberately
-     * INDEPENDENT of [resolve] (spec-38 T4 AC): the route (прямо / проксі /
-     * Tor / реле) and name resolution are two separate decisions — DoH
-     * behaves identically on any route, because a lookup is itself just
-     * transport traffic and rides whatever route is installed.
+     * Resolves the DNS half of the prefs into a strategy (#516). DoH stays
+     * the default ON for every route; the difference is the failure rule:
+     *
+     * - DIRECT — availability above secrecy: a failed DoH lookup degrades to
+     *   the system resolver, so a broken app DNS never breaks playback when
+     *   the phone's own resolver still works.
+     * - A CHOSEN privacy route (Tor / проксі / реле) — the route is
+     *   обов'язковий: a failed DoH lookup fails the request instead of
+     *   leaking the name through the system resolver outside the chosen
+     *   route. No direct fallback, including DNS.
      */
-    fun resolveDns(prefs: PrivacyPrefs): DnsStrategy =
-        if (prefs.dohEnabled) DnsStrategy.DohFirst(DOH_URL) else DnsStrategy.SystemOnly
+    fun resolveDns(prefs: PrivacyPrefs): DnsStrategy {
+        if (!prefs.dohEnabled) return DnsStrategy.SystemOnly
+        val routeChosen = prefs.routeMode != RouteMode.DIRECT
+        return DnsStrategy.DohFirst(DOH_URL, allowSystemFallback = !routeChosen)
+    }
 }
 
 /**
  * Spec-38 T4 (#256) — how the transport turns hostnames into addresses.
- * Availability above secrecy: even the DoH-first strategy never fails a
- * request over an unreachable resolver — its fallback chain degrades to the
- * system resolver transparently ([FallbackDns], thin glue beside this door).
+ * #516 renegotiates the failure rule: under DIRECT the chain still degrades
+ * to the system resolver transparently ([FallbackDns]); under a CHOSEN
+ * privacy route the primary resolver is strict — a failed lookup fails the
+ * request rather than leaking the name outside the route (no direct
+ * fallback, including DNS).
  */
 sealed interface DnsStrategy {
 
-    /** Encrypted lookups first; the system resolver only as silent fallback. */
-    data class DohFirst(val serverUrl: String) : DnsStrategy
+    /**
+     * Encrypted lookups first. [allowSystemFallback] = false only when the
+     * listener consciously chose a privacy route — then the system resolver
+     * is never consulted.
+     */
+    data class DohFirst(
+        val serverUrl: String,
+        val allowSystemFallback: Boolean = true
+    ) : DnsStrategy
 
     /** Plain system resolution — the pre-spec-38 behaviour, opt-out via settings. */
     object SystemOnly : DnsStrategy

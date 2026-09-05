@@ -19,13 +19,14 @@ import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
-import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.catalog.SourceCatalog
+import com.slukhayka.audiobooks.data.privacy.TransportClients
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.BookmarkEntity
 import com.slukhayka.audiobooks.data.db.ChapterEntity
@@ -249,12 +250,18 @@ class AudioPlayerManager(
      * Referer is impossible (and would leak a Referer onto hosts that need
      * none — SEC-004). Tests inject their own PlayerFactory and never touch
      * this one.
+     *
+     * #516 — the engine underneath is the shared privacy stack
+     * ([TransportClients.playbackOkHttp]): app DNS / DoH, the chosen privacy
+     * route, the shared browser identity and the bounded same-scheme-only
+     * redirect rule ([PlaybackRedirects]). The former `DefaultHttpDataSource`
+     * resolved names with the system resolver — under a broken system DNS
+     * playback failed even while the app itself could resolve names. Range/
+     * seek semantics ride OkHttp's standard streaming; per-chapter headers
+     * keep the identical `setDefaultRequestProperties` contract.
      */
-    private val httpDataSourceFactory: DefaultHttpDataSource.Factory = DefaultHttpDataSource.Factory()
-        .setUserAgent("Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36")
-        .setAllowCrossProtocolRedirects(false)
-        .setConnectTimeoutMs(15000)
-        .setReadTimeoutMs(30000)
+    private val httpDataSourceFactory: OkHttpDataSource.Factory =
+        OkHttpDataSource.Factory(TransportClients.playbackOkHttp)
         // Device-session evidence (spec-13 S04 / spec-14 T6): log the HTTP
         // status and the per-source Referer actually applied for EVERY stream
         // request. This is what proves the redirectto.cc gate on the phone —

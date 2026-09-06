@@ -158,6 +158,13 @@ export class DomainStore {
     return db.get<WorkRelationshipRow>(RELATIONSHIPS, mergeKey)
   }
 
+  /** Every relationship row (any state) — the linking merge's local read side (#581). */
+  async allRelationships(): Promise<WorkRelationshipRow[]> {
+    const db = await this.ready()
+    if (db === null) return []
+    return db.getAll<WorkRelationshipRow>(RELATIONSHIPS)
+  }
+
   /** Every active Library Entry (state = entry), for the future Медіатека. */
   async libraryEntries(): Promise<LibraryEntryEntity[]> {
     const db = await this.ready()

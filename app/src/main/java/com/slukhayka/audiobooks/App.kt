@@ -45,6 +45,8 @@ import com.slukhayka.audiobooks.data.identity.ListenerIdentity
 import com.slukhayka.audiobooks.data.identity.LocalOnlyIdentity
 import com.slukhayka.audiobooks.data.identity.SharedPreferencesLocalCredentialStore
 import com.slukhayka.audiobooks.data.listening.FirestoreListenerProgressSyncStore
+import com.slukhayka.audiobooks.data.listening.FirestoreWorkRelationshipsStore
+import com.slukhayka.audiobooks.data.listening.WorkRelationshipsSync
 import com.slukhayka.audiobooks.data.listening.ListeningStateStore
 import com.slukhayka.audiobooks.data.listening.ProgressSyncController
 import com.slukhayka.audiobooks.data.listening.ProgressSyncSettingsStore
@@ -304,6 +306,21 @@ class App : Application() {
     }
 
     /**
+     * #581 W0.3 (ADR-0034) — the Work-relationship sync writer: Library
+     * Entries and tombstones mirror to the `work_relationships` collection
+     * the web reads. Same switch as Progress Sync (on by default, ADR-0023
+     * п.1); null store without Firebase keys makes it a no-op —
+     * degrade-never.
+     */
+    val workRelationshipsSync: WorkRelationshipsSync by lazy {
+        WorkRelationshipsSync(
+            identity = listenerIdentity,
+            store = FirestoreWorkRelationshipsStore.create(this),
+            isEnabled = { progressSyncSettings.enabled.value }
+        )
+    }
+
+    /**
      * Spec-38 T2 (#254): the persisted privacy choice — the settings screen
      * reads and writes it, startup installs it into [TransportPrivacy]. The
      * store itself is dumb; the route decision lives behind the door.
@@ -368,7 +385,10 @@ class App : Application() {
             // fetch), and a card import reads a fresh profile back instead of
             // fetching. Null without Firebase keys: imports behave as before.
             profileStore = sharedMetaStore,
-            verifiedProfileReader = verifiedSourceProfileReader
+            verifiedProfileReader = verifiedSourceProfileReader,
+            // #581 W0.3 — an imported Work mirrors as an `entry` row for the
+            // web Медіатека (best-effort, silent on failure).
+            workRelationshipsSync = workRelationshipsSync
         )
     }
 
@@ -531,7 +551,7 @@ class App : Application() {
 
     /** Library Entries: delete/remove/favourite/metadata + library reads. */
     val libraryEntries: LibraryEntries by lazy {
-        LibraryEntries(database.audiobookDao(), sourceAdapters)
+        LibraryEntries(database.audiobookDao(), sourceAdapters, workRelationshipsSync)
     }
 
     /**

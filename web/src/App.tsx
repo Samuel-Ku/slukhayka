@@ -9,10 +9,13 @@ import type { BookDetail, SourceId } from './worker/types'
 import { LocalListeningStateStore, BrowserStorage } from './player/localState'
 import { HybridListeningStateStorage } from './local/hybridListeningState'
 import { IdbListeningStateStore } from './local/listeningState'
+import { DomainStore } from './local/domain'
 import { BrowserProgressSyncLedger } from './sync/ledger'
 import { ProgressSyncSettings } from './sync/settings'
 import { FirestoreProgressSyncStore } from './sync/store'
 import { ProgressSyncController } from './sync/controller'
+import { WorkRelationshipController } from './sync/workRelationshipController'
+import { FirestoreWorkRelationshipStore } from './sync/workRelationshipStore'
 import { getFirestoreForEnv } from './firebase/firestore'
 import { editionIdFor, mergeKeyFor } from './sync/edition'
 import { setUiLocale, useTranslate, useUiLocale } from './i18n/locale'
@@ -35,10 +38,13 @@ function Profile({
   profile: initialProfile,
   onProfileChange,
   evicted = false,
+  onLinked,
 }: {
   profile: ListenerProfile | null
   onProfileChange?: (p: ListenerProfile) => void
   evicted?: boolean
+  /** #581 W0.3 — fired after a Recovery-Code restore: the linking moment. */
+  onLinked?: (uid: string) => void
 }) {
   const t = useTranslate()
   const [profile, setProfile] = useState(initialProfile)
@@ -84,6 +90,11 @@ function Profile({
         setProfile(restored)
         // Also persist as current parent profile
         onProfileChange?.(restored)
+        // #581 W0.3 — the linking moment: pre-link local rows union-merge
+        // with the account's rows (favorites upload beside them, a phone's
+        // deliberate hide wins every tie). Best-effort — a failure leaves
+        // the binding done; the next pull catches up.
+        onLinked?.(restored.uid)
       }
     } finally {
       setRestoring(false)
@@ -209,7 +220,6 @@ export function App({ profile: initialProfile }: { profile: ListenerProfile | nu
       cancelled = true
     }
   }, [hybrid])
-
   const ledger = useMemo(() => new BrowserProgressSyncLedger(window.localStorage), [])
   const settings = useMemo(() => new ProgressSyncSettings(window.localStorage), [])
   const firestore = useMemo(() => getFirestoreForEnv(import.meta.env), [])
@@ -221,6 +231,27 @@ export function App({ profile: initialProfile }: { profile: ListenerProfile | nu
     profileRef.current = profile
   }, [profile])
 
+  // #581 W0.3 — the Work-relationship sync (entry/tombstone mirror, LWW):
+  // pull on boot for a returning bound session, merge at linking, push at
+  // the honest moments via the callbacks below.
+  const domainStore = useMemo(() => new DomainStore(), [])
+  const relationshipStore = useMemo(
+    () => (firestore ? new FirestoreWorkRelationshipStore(firestore) : null),
+    [firestore],
+  )
+  const relationships = useMemo(
+    () =>
+      new WorkRelationshipController(
+        () => profileRef.current?.uid ?? null,
+        domainStore,
+        relationshipStore,
+        () => settings.isEnabled(),
+      ),
+    [domainStore, relationshipStore, settings],
+  )
+  useEffect(() => {
+    void relationships.pullAndApply().catch(() => [])
+  }, [relationships])
   const syncController = useMemo(() => {
     const mirror = {
       editionIdForSync: (bookId: string) => bookId,
@@ -318,7 +349,15 @@ export function App({ profile: initialProfile }: { profile: ListenerProfile | nu
         ) : tab === 'catalog' ? (
           <Catalog onOpenBook={(url, source) => setBook({ url, source })} onPlay={handlePlay} />
         ) : (
-          <Profile profile={profile} onProfileChange={setProfile} evicted={boot.evicted} />
+          <Profile
+            profile={profile}
+            onProfileChange={setProfile}
+            evicted={boot.evicted}
+            onLinked={(uid) => {
+              relationships.setUid(uid)
+              void relationships.mergeAtLinking().catch(() => undefined)
+            }}
+          />
         )}
       </main>
       <MiniPlayer engine={engine} onExpand={() => setPlayerOpen(true)} />

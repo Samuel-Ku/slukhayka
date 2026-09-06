@@ -6,7 +6,9 @@ import { AudioEngine } from './player/audioEngine'
 import { MiniPlayer } from './ui/MiniPlayer'
 import { PlayerSheet } from './ui/PlayerSheet'
 import type { BookDetail, SourceId } from './worker/types'
-import { LocalListeningStateStore } from './player/localState'
+import { LocalListeningStateStore, BrowserStorage } from './player/localState'
+import { HybridListeningStateStorage } from './local/hybridListeningState'
+import { IdbListeningStateStore } from './local/listeningState'
 import { BrowserProgressSyncLedger } from './sync/ledger'
 import { ProgressSyncSettings } from './sync/settings'
 import { FirestoreProgressSyncStore } from './sync/store'
@@ -32,9 +34,11 @@ function Stub({ title, what }: { title: string; what: string }) {
 function Profile({
   profile: initialProfile,
   onProfileChange,
+  evicted = false,
 }: {
   profile: ListenerProfile | null
   onProfileChange?: (p: ListenerProfile) => void
+  evicted?: boolean
 }) {
   const t = useTranslate()
   const [profile, setProfile] = useState(initialProfile)
@@ -96,10 +100,24 @@ function Profile({
     // Dispatch storage event for controller's isEnabled check if needed
   }
 
-  if (profile === null) return <Stub title={t('tabProfile')} what={t('profileStubWhat')} />
+  const evictionNotice = evicted ? (
+    <div role="alert" className="profile-card" style={{ borderColor: 'var(--bad)' }}>
+      <span className="label">{t('storageEvictedTitle')}</span>
+      <span className="value">{t('storageEvictedHint')}</span>
+    </div>
+  ) : null
+
+  if (profile === null)
+    return (
+      <>
+        {evictionNotice}
+        <Stub title={t('tabProfile')} what={t('profileStubWhat')} />
+      </>
+    )
 
   return (
     <div>
+      {evictionNotice}
       <div className="profile-card">
         <span className="label">{t('nickLabel')}</span>
         <span className="value">{profile.nickname}</span>
@@ -169,15 +187,28 @@ export function App({ profile: initialProfile }: { profile: ListenerProfile | nu
   const [playerOpen, setPlayerOpen] = useState(false)
   const [, forceUpdate] = useState(0)
 
-  // Shared local store for engine + sync mirror (same localStorage backing).
-  const localStore = useMemo(() => {
-    const storageLike = {
-      getItem: (k: string) => window.localStorage.getItem(k),
-      setItem: (k: string, v: string) => window.localStorage.setItem(k, v),
-      removeItem: (k: string) => window.localStorage.removeItem(k),
+  // Shared local store for engine + sync mirror: the synchronous StorageLike
+  // the engine already consumes, now backed by IndexedDB (R-W8) with a boot
+  // gate + buffered pre-boot writes (StrictMode double-effect safe).
+  const hybrid = useMemo(
+    () =>
+      new HybridListeningStateStorage(
+        new IdbListeningStateStore(),
+        new BrowserStorage(window.localStorage),
+      ),
+    [],
+  )
+  const localStore = useMemo(() => new LocalListeningStateStore(hybrid), [])
+  const [boot, setBoot] = useState<{ snapshots: number; evicted: boolean } | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    void hybrid.whenBooted().then((outcome) => {
+      if (!cancelled) setBoot({ snapshots: outcome.snapshots.length, evicted: outcome.evicted })
+    })
+    return () => {
+      cancelled = true
     }
-    return new LocalListeningStateStore(storageLike as never)
-  }, [])
+  }, [hybrid])
 
   const ledger = useMemo(() => new BrowserProgressSyncLedger(window.localStorage), [])
   const settings = useMemo(() => new ProgressSyncSettings(window.localStorage), [])
@@ -278,12 +309,16 @@ export function App({ profile: initialProfile }: { profile: ListenerProfile | nu
       <main className="surface">
         {book !== null ? (
           <BookPage url={book.url} source={book.source} onOpenBook={(url, source) => setBook({ url, source })} onPlay={handlePlay} />
+        ) : boot === null ? (
+          // The hydration gate: no screen reads listener data before IDB boot
+          // (migration + hydration) has settled — R-W8's loss-free bar.
+          <div className="placeholder">{t('storageLoading')}</div>
         ) : tab === 'listen' ? (
           <Stub title={t('listenStubTitle')} what={t('listenStubWhat')} />
         ) : tab === 'catalog' ? (
           <Catalog onOpenBook={(url, source) => setBook({ url, source })} onPlay={handlePlay} />
         ) : (
-          <Profile profile={profile} onProfileChange={setProfile} />
+          <Profile profile={profile} onProfileChange={setProfile} evicted={boot.evicted} />
         )}
       </main>
       <MiniPlayer engine={engine} onExpand={() => setPlayerOpen(true)} />

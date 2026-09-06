@@ -662,6 +662,12 @@ class App : Application() {
     }
 
     /** Single player manager; created lazily on first playback/service access. */
+    val bookFeedbackStore by lazy {
+        com.slukhayka.audiobooks.data.reviews.BookFeedbackStore(
+            com.slukhayka.audiobooks.data.reviews.AndroidFeedbackPreferences(this)
+        )
+    }
+
     val playerManager: AudioPlayerManager by lazy {
         // The player runs on the store; chapter materialisation (incl. the
         // 4read page fallback) stays on the catalog's chapter-fetch path.
@@ -678,6 +684,7 @@ class App : Application() {
                 libraryImport.refreshStreamUrl(bookId, chapterIndex, failedUrl)
             },
             progressSync = progressSync,
+            onBookCompleted = bookFeedbackStore::completed,
             // Spec 2026-08-26: YouTube watch URLs resolve per-use before setMediaItem.
             streamUrlResolver = { url -> youTubeStreamResolver.resolve(url) },
             cookieProvider = {

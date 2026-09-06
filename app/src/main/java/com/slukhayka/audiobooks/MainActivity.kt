@@ -1067,6 +1067,12 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
         )
     }
 
+    com.slukhayka.audiobooks.ui.screens.BookFeedbackHost(
+        viewModel.bookFeedback, viewModel.bookFeedbackStore,
+        foreground = appVisibility == AppVisibility.FOREGROUND,
+        allowAutomatic = !crashReportingState.shouldShowPrompt && !bilingualPromptVisible && narrationSwitchPrompt == null
+    )
+
     }
 }
 

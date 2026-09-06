@@ -442,7 +442,11 @@ fun PlayerScreen(
                 viewModel.playerManager.selectChapter(index)
                 activeTool = null
             },
-            onDismiss = { activeTool = null }
+            onDismiss = { activeTool = null },
+            onFeedback = {
+                activeTool = null
+                viewModel.bookFeedback.open(book.id)
+            }
         )
         PlayerQuickTool.Bookmarks -> BookmarksListSheet(
             workTitle = book.title,
@@ -1618,7 +1622,8 @@ internal fun ChapterBottomSheet(
     chapters: List<ChapterEntity>,
     selectedIndex: Int,
     onSelect: (Int) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onFeedback: (() -> Unit)? = null
 ) {
     val headingFocusRequester = remember { FocusRequester() }
     val paneTitle = stringResource(R.string.a11y_chapter_pane)
@@ -1660,6 +1665,7 @@ internal fun ChapterBottomSheet(
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(max = 480.dp)
+                    .testTag("chapter_sheet_list")
                     .selectableGroup()
             ) {
                 itemsIndexed(chapters, key = { _, chapter -> chapter.id }) { index, chapter ->
@@ -1719,6 +1725,7 @@ internal fun ChapterBottomSheet(
                     }
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f))
                 }
+                if (onFeedback != null) item(key = "feedback") { BookFeedbackEntry(onFeedback) }
             }
             Spacer(Modifier.height(AppDimens.SpaceXl))
         }

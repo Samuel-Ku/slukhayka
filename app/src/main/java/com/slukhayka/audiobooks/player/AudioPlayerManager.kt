@@ -226,7 +226,8 @@ class AudioPlayerManager(
      */
     private val streamUrlResolver: suspend (String) -> String? = { url -> url },
     /** Local WebView cookies, scoped by the source header policy. */
-    private val cookieProvider: () -> String = { "" }
+    private val cookieProvider: () -> String = { "" },
+    private val onBookCompleted: (String) -> Unit = {}
 ) {
 
     private val _playerState = MutableStateFlow(PlayerState())
@@ -1804,6 +1805,7 @@ class AudioPlayerManager(
             // tracker can both observe the end; completionLogged dedupes).
             if (!completionLogged) {
                 completionLogged = true
+                _playerState.value.currentBook?.id?.let(onBookCompleted)
                 recordPlaybackEvent(
                     kind = PlaybackEventKind.COMPLETED,
                     chapterIndex = _playerState.value.chapters.lastIndex.coerceAtLeast(0),

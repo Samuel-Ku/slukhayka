@@ -89,4 +89,22 @@
     <string name="author_all_found">All found authors</string>
     <string name="nav_settings">Settings</string>
     <string name="mini_player_other_book_chapter">In player · %1$s</string>
+
+    <string name="feedback_title">Your impressions</string>
+    <string name="feedback_invitation">Rate the book and narration, or write a review.</string>
+    <string name="feedback_open">Rate and write a review</string>
+    <string name="feedback_finished">Book finished</string>
+    <string name="feedback_loading">Loading your ratings…</string>
+    <string name="feedback_accepted">Saved for sending. Publishing may require an internet connection.</string>
+    <string name="feedback_book_rating">Book rating</string>
+    <string name="feedback_narration_rating">Narration rating · %1$s</string>
+    <string name="feedback_unknown_narrator">Narrator</string>
+    <string name="feedback_no_edition">The narration for this book has not been identified yet. You can save a book rating separately.</string>
+    <string name="feedback_body">Review — optional</string>
+    <string name="feedback_need_book_rating">Choose a book rating to leave a review.</string>
+    <string name="feedback_failed">Some ratings could not be saved. Your draft is still on this device. Check your connection and try again.</string>
+    <string name="feedback_save">Save</string>
+    <string name="feedback_retry">Retry</string>
+    <string name="feedback_done">Done</string>
+    <string name="feedback_later">Not now</string>
 </resources>

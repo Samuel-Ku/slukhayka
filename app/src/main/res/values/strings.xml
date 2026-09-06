@@ -91,4 +91,22 @@
     <string name="author_all_found">Усі знайдені автори</string>
     <string name="nav_settings">Налаштування</string>
     <string name="mini_player_other_book_chapter">У плеєрі · %1$s</string>
+
+    <string name="feedback_title">Ваші враження</string>
+    <string name="feedback_invitation">Оцініть книгу й озвучку або напишіть відгук.</string>
+    <string name="feedback_open">Оцінити та написати відгук</string>
+    <string name="feedback_finished">Книгу прослухано</string>
+    <string name="feedback_loading">Завантажуємо ваші оцінки…</string>
+    <string name="feedback_accepted">Збережено для надсилання. Публікація може потребувати інтернету.</string>
+    <string name="feedback_book_rating">Оцінка книги</string>
+    <string name="feedback_narration_rating">Оцінка озвучки · %1$s</string>
+    <string name="feedback_unknown_narrator">Озвучувач</string>
+    <string name="feedback_no_edition">Для цієї книги ще не визначено начитку. Оцінку книги можна зберегти окремо.</string>
+    <string name="feedback_body">Відгук — необов’язково</string>
+    <string name="feedback_need_book_rating">Щоб залишити відгук, виберіть оцінку книги.</string>
+    <string name="feedback_failed">Не вдалося зберегти всі оцінки. Чернетка залишилася на пристрої. Перевірте інтернет і спробуйте ще раз.</string>
+    <string name="feedback_save">Зберегти</string>
+    <string name="feedback_retry">Повторити</string>
+    <string name="feedback_done">Готово</string>
+    <string name="feedback_later">Не зараз</string>
 </resources>

@@ -486,6 +486,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                     // Floating Persistent Mini Player
                     MiniPlayerBar(
                         playerState = playerState,
+                        viewedBookId = selectedBookId,
                         onPlayPauseClick = {
                             val current = viewModel.playerManager.playerState.value
                             current.currentBook?.let { book ->

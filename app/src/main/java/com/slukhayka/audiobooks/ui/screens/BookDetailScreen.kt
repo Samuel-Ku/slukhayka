@@ -672,47 +672,6 @@ fun BookDetailScreen(
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    BookDetailDescription(detailPresentation)
-
-                    // ADR-0011: «Інші начитки» — the other rendition cards of
-                    // the same Work. Tapping one opens that card (its own
-                    // narrator, chapters, progress) — the narration selection.
-                    if (siblingCards.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(20.dp))
-                        Text(
-                            text = "Інші начитки",
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                            color = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier
-                                .padding(horizontal = 8.dp)
-                                .semantics { heading() }
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        siblingCards.forEach { sibling ->
-                            // ADR-0023 (#348/#357): each rendition carries ITS
-                            // OWN narration average — the comparison point.
-                            val siblingStats = run {
-                                val eid = siblingEditionIds[sibling.id]
-                                val votes = eid?.let { id -> narrationRatings.filter { it.editionId == id } }
-                                    .orEmpty()
-                                votes.takeIf { it.isNotEmpty() }?.let { Pair(it.map { r -> r.rating }.average(), it.size) }
-                            }
-                            NarrationRowCard(
-                                sibling = sibling,
-                                average = siblingStats?.first,
-                                voteCount = siblingStats?.second ?: 0,
-                                onClick = { viewModel.openNarration(sibling) }
-                            )
-                        }
-                    }
-
-                    // Spec-23 T5/#426: «Джерела» is informational — it shows
-                    // which sources carry the Work and whether a browser is
-                    // required. Playback chooses the shared source order.
-                    BookDetailSourceSection(detailPresentation)
-
-                    Spacer(modifier = Modifier.height(20.dp))
-
                     BookDetailPrimaryActions(
                         workTitle = currentBook.title,
                         playLabel = bookPlayLabel(playState) { MainViewModel.formatTime(it) },
@@ -802,6 +761,51 @@ fun BookDetailScreen(
                             modifier = Modifier.padding(start = 4.dp)
                         )
                     }
+
+                    Spacer(modifier = Modifier.height(AppDimens.SpaceLg))
+
+                    BookDetailDescription(detailPresentation)
+
+                    // ADR-0011: «Інші начитки» — the other rendition cards of
+                    // the same Work. Tapping one opens that card (its own
+                    // narrator, chapters, progress) — the narration selection.
+                    if (siblingCards.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(20.dp))
+                        Text(
+                            text = "Інші начитки",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier
+                                .padding(horizontal = 8.dp)
+                                .semantics { heading() }
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        siblingCards.forEach { sibling ->
+                            // ADR-0023 (#348/#357): each rendition carries ITS
+                            // OWN narration average — the comparison point.
+                            val siblingStats = run {
+                                val eid = siblingEditionIds[sibling.id]
+                                val votes = eid?.let { id -> narrationRatings.filter { it.editionId == id } }
+                                    .orEmpty()
+                                votes.takeIf { it.isNotEmpty() }?.let { Pair(it.map { r -> r.rating }.average(), it.size) }
+                            }
+                            NarrationRowCard(
+                                sibling = sibling,
+                                average = siblingStats?.first,
+                                voteCount = siblingStats?.second ?: 0,
+                                onClick = { viewModel.openNarration(sibling) }
+                            )
+                        }
+                    }
+
+                    // Spec-23 T5/#426: «Джерела» is informational — it shows
+                    // which sources carry the Work and whether a browser is
+                    // required. Playback chooses the shared source order.
+                    BookDetailSourceSection(detailPresentation)
+
+                    Spacer(modifier = Modifier.height(20.dp))
+
+
 
                 }
             }
@@ -2462,7 +2466,7 @@ fun BookDetailDescription(presentation: BookDetailPresentation) {
             text = presentation.description,
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 8.dp)
+            modifier = Modifier.padding(horizontal = 8.dp).testTag("book_detail_description")
         )
     }
 }

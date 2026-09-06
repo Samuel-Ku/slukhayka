@@ -586,7 +586,12 @@ fun BookDetailScreen(
                         onInitialFocusHandled = { initialTitleFocusPending = false },
                         returnFocusOrigin = returnFocusOrigin,
                         onChildRouteOpened = onChildRouteOpened,
-                        onReturnFocusRestored = onReturnFocusRestored,
+                        onReturnFocusRestored = { origin ->
+                            // Returning to this recreated screen consumes its entry focus.
+                            // Clearing the route origin must not focus the title afterward.
+                            initialTitleFocusPending = false
+                            onReturnFocusRestored(origin)
+                        },
                         narrationAverage = narrationAverage,
                         narrationVoteCount = editionNarrationRatings.size,
                         ownNarrationRating = ownNarrationRating?.rating,
@@ -2331,6 +2336,7 @@ fun BookDetailCanonicalSummary(
                     modifier = Modifier
                         .widthIn(max = textMaxWidth)
                         .focusRequester(authorFocusRequester)
+                        .focusProperties { canFocus = true }
                         .testTag("book_detail_author_link")
                         .heightIn(min = 48.dp)
                         .clickable {
@@ -2365,6 +2371,7 @@ fun BookDetailCanonicalSummary(
                     modifier = Modifier
                         .widthIn(max = textMaxWidth)
                         .focusRequester(narratorFocusRequester)
+                        .focusProperties { canFocus = true }
                         .testTag("book_detail_narrator_link")
                         .heightIn(min = 48.dp)
                         .clickable {
@@ -2447,7 +2454,8 @@ fun BookDetailCanonicalSummary(
             SeriesPill(
                 seriesTitle = seriesTitle,
                 seriesIndex = presentation.seriesIndex ?: 0,
-                modifier = Modifier.focusRequester(seriesFocusRequester),
+                modifier = Modifier.focusRequester(seriesFocusRequester)
+                    .focusProperties { canFocus = true },
                 onClick = {
                     presentation.seriesUrl?.takeIf(String::isNotBlank)?.let { url ->
                         onChildRouteOpened(BookDetailLinkOrigin.SERIES)

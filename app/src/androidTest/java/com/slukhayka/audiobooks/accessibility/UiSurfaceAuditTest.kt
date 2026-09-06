@@ -124,7 +124,11 @@ class UiSurfaceAuditTest {
                                     ) {
                                         val presentation = bookDetailPresentation(book, emptyList(), listOf(
                                             SourceCatalog.WorkSourceRow("4read", "4read", "https://4read.org/audit", false)
-                                        ))
+                                        )).copy(
+                                            seriesTitle = "Надзвичайно довга назва циклу про повернення додому між світами",
+                                            seriesIndex = 12,
+                                            seriesUrl = "https://example.invalid/audit-series"
+                                        )
                                         BookDetailIdentityHeader(book, presentation, universeName = "Перший закон")
                                         BookDetailPrimaryActions(
                                             workTitle = book.title,
@@ -200,6 +204,8 @@ class UiSurfaceAuditTest {
                                 .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
                             assertTrue("Clipped person name", !layouts.single().hasVisualOverflow)
                         }
+                        rule.onNodeWithTag("book_detail_series_pill").performScrollTo().assertIsDisplayed().assertHeightIsAtLeast(48.dp)
+                        screenshot("555-$locale-long-series-$fontScale.png")
                         for (tag in listOf("play_book_button", "download_offline_button", "bookmark_button")) {
                             rule.onNodeWithTag(tag).performScrollTo().assertIsDisplayed().assertHeightIsAtLeast(48.dp)
                         }

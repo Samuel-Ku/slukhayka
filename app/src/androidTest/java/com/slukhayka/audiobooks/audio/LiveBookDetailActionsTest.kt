@@ -88,7 +88,18 @@ class LiveBookDetailActionsTest {
             val screenshot = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
             File(rule.activity.getExternalFilesDir(null), "554-different-books.png").outputStream().use { screenshot.compress(Bitmap.CompressFormat.PNG, 100, it) }
             screenshot.recycle()
-            rule.onNodeWithTag("play_book_button").performTouchInput { click() }
+            val scroll = rule.onNodeWithTag("book_detail_screen")
+            repeat(12) {
+                if (rule.onNodeWithTag("book_detail_description").getUnclippedBoundsInRoot().bottom > rule.onNodeWithTag("mini_player_bar").getUnclippedBoundsInRoot().top) {
+                    scroll.performTouchInput { swipeUp(startY = height * 0.8f, endY = height * 0.3f) }
+                }
+            }
+            assertTrue("description end must scroll above the other book's mini-player",
+                rule.onNodeWithTag("book_detail_description").getUnclippedBoundsInRoot().bottom <= rule.onNodeWithTag("mini_player_bar").getUnclippedBoundsInRoot().top)
+            val descriptionScreenshot = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
+            File(rule.activity.getExternalFilesDir(null), "554-description-above-mini.png").outputStream().use { descriptionScreenshot.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            descriptionScreenshot.recycle()
+            rule.onNodeWithTag("play_book_button").performScrollTo().performTouchInput { click() }
             playing(viewed)
             val saved = positions.getValue(viewed.id)
             assertEquals(saved.first, vm.playerState.value.currentChapterIndex)

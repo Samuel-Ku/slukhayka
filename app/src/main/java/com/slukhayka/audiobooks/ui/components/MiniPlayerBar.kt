@@ -41,7 +41,8 @@ fun MiniPlayerBar(
     modifier: Modifier = Modifier,
     // ADR-0024 (#362): the second (and last) home of the cast affordance —
     // the same shared tool as on the player screen, never a duplicate.
-    castReady: Boolean = false
+    castReady: Boolean = false,
+    viewedBookId: String? = null
 ) {
     val book = playerState.currentBook ?: return
     val chapterTitle = if (
@@ -128,7 +129,7 @@ fun MiniPlayerBar(
                             Text(
                                 text = book.title,
                                 style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                                maxLines = 1,
+                                maxLines = 2,
                                 overflow = TextOverflow.Ellipsis,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
@@ -144,7 +145,9 @@ fun MiniPlayerBar(
                         }
 
                         Text(
-                            text = chapterTitle,
+                            text = if (viewedBookId != null && viewedBookId != book.id) {
+                                stringResource(R.string.mini_player_other_book_chapter, chapterTitle)
+                            } else chapterTitle,
                             style = MaterialTheme.typography.bodySmall,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,

@@ -16,6 +16,8 @@ import androidx.compose.ui.test.assertWidthIsEqualTo
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performClick
+import org.junit.Assert.assertEquals
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
@@ -234,6 +236,24 @@ class ListenAccessibilityTest {
             .assertHeightIsAtLeast(48.dp)
         compose.onNodeWithContentDescription(book.title, useUnmergedTree = true)
             .assertDoesNotExist()
+    }
+
+    @Test
+    fun viewingAnotherBookKeepsMiniPlayerControlsBoundToItsCurrentBook() {
+        var toggles = 0
+        compose.setContent {
+            AudiobookTheme(darkTheme = true) {
+                MiniPlayerBar(
+                    playerState = PlayerState(currentBook = book),
+                    viewedBookId = "another-book",
+                    onPlayPauseClick = { toggles++ }, onSkipNextClick = {}, onBarClick = {}
+                )
+            }
+        }
+        compose.onNodeWithTag("mini_player_summary").assertTextContains(book.title)
+            .assertTextContains("У плеєрі", substring = true)
+        compose.onNodeWithContentDescription("Відтворити: ${book.title}").performClick()
+        assertEquals(1, toggles)
     }
 
     @Test

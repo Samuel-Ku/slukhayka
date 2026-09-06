@@ -90,4 +90,5 @@
     <string name="top100_open_chart">Відкрити рейтинг у 4read</string>
     <string name="author_all_found">Усі знайдені автори</string>
     <string name="nav_settings">Налаштування</string>
+    <string name="mini_player_other_book_chapter">У плеєрі · %1$s</string>
 </resources>

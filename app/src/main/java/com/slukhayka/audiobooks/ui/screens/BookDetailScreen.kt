@@ -927,6 +927,12 @@ fun BookDetailScreen(
                 }
             }
 
+            if (activeTab == 0) {
+                item(key = "book_feedback") {
+                    BookFeedbackEntry { viewModel.bookFeedback.open(currentBook.id) }
+                }
+            }
+
             // Related books from the book page ("Можливо, Тебе зацікавить:").
             if (relatedBooks.isNotEmpty()) {
                 item {

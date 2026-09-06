@@ -735,7 +735,8 @@ class AudioPlayerManagerTest {
     @Test
     fun `reaching the end of the book records completion exactly once`() {
         val clock = TestClock()
-        playerTest(clock = clock) { manager, factory ->
+        val prompts = mutableListOf<String>()
+        playerTest(clock = clock, onBookCompleted = prompts::add) { manager, factory ->
             manager.loadAndPlayBook(book, chapters, playable = playable, initialChapterIndex = chapters.lastIndex, autoPlay = true)
             factory.current.simulateReady(chapters.last().durationSeconds * MILLIS_PER_SECOND)
             awaitEvents(1)
@@ -745,6 +746,7 @@ class AudioPlayerManagerTest {
             // A duplicate ENDED observation must not re-record the completion.
             factory.current.simulateEnded()
             assertEventCountStays(2)
+            assertEquals(listOf(book.id), prompts)
 
             assertEquals(
                 listOf(PlaybackEventKind.RESUME, PlaybackEventKind.COMPLETED),
@@ -1296,6 +1298,7 @@ class AudioPlayerManagerTest {
         // Spec 2026-08-26: the per-use stream resolution seam (YouTube watch
         // URLs). Null keeps the identity resolver (plain URL pass-through).
         resolver: (suspend (String) -> String?)? = null,
+        onBookCompleted: (String) -> Unit = {},
         body: suspend TestScope.(AudioPlayerManager, RecordingPlayerFactory) -> Unit
     ) = runTest(dispatcher) {
         val factory = RecordingPlayerFactory()
@@ -1317,7 +1320,8 @@ class AudioPlayerManagerTest {
             ioDispatcher = dispatcher,
             // Spec-22 T4: widget sync is a forever-running sampled collector;
             // keep it off the test scheduler.
-            widgetSyncEnabled = false
+            widgetSyncEnabled = false,
+            onBookCompleted = onBookCompleted
         )
         try {
             body(manager, factory)

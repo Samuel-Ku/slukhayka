@@ -2763,6 +2763,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val listenerReviews: com.slukhayka.audiobooks.data.reviews.ListenerReviewsStore? =
         App.instance.listenerReviews
 
+    internal val bookFeedbackStore = App.instance.bookFeedbackStore
+    internal val bookFeedback by lazy {
+        BookFeedbackController(viewModelScope, bookFeedbackStore,
+            App.instance.audiobookDao::getAudiobookById,
+            App.instance.audiobookDao::getEditionIdForBook,
+            { listenerIdentityModule.ensure() }, listenerReviews, narrationRatingsStore,
+            onAccepted = { workId -> loadReviews(workId); loadNarrationRatings(workId) })
+    }
+
     // --- ADR-0023 (#348): «Оцінка начитки» — stars per (Work × Edition) ----
 
     /** Null without Firebase keys: the rating UI simply does not render. */

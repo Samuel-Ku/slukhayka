@@ -9,6 +9,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.foundation.layout.width
+import com.slukhayka.audiobooks.ui.screens.SeriesPill
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.unit.dp
@@ -68,6 +77,36 @@ class BookDetailMetadataSnapshotTest {
         url = book.sourceUrl,
         streamOnly = false
     )
+
+    @Test
+    fun series_navigation_centers_its_label_and_wraps_long_titles() {
+        var opened = 0
+        val title = "Епоха божевілля"
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                Column {
+                    SeriesPill(title, 1, onClick = { opened++ })
+                    SeriesPill("Дуже довга назва циклу про повернення додому", 12,
+                        modifier = Modifier.width(160.dp), onClick = {})
+                }
+            }
+        }
+        val label = composeTestRule.onNodeWithText("«$title» • Кн. 1", useUnmergedTree = true)
+        val labelBounds = label.fetchSemanticsNode().boundsInRoot
+        val control = composeTestRule.onAllNodesWithTag("book_detail_series_pill")[0].fetchSemanticsNode().boundsInRoot
+        val shortLayouts = mutableListOf<TextLayoutResult>()
+        label.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(shortLayouts) }
+        val shortLayout = shortLayouts.single()
+        val textCenter = labelBounds.top + (shortLayout.getLineTop(0) + shortLayout.getLineBottom(0)) / 2
+        assertEquals("label should be vertically centered", control.center.y, textCenter, 1f)
+        label.performClick()
+        assertEquals(1, opened)
+        val layouts = mutableListOf<TextLayoutResult>()
+        composeTestRule.onNodeWithText("«Дуже довга назва циклу про повернення додому» • Кн. 12", useUnmergedTree = true)
+            .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+        assertTrue("long cycle name should wrap", layouts.single().lineCount > 1)
+        assertTrue("cycle name should remain readable", !layouts.single().hasVisualOverflow)
+    }
 
     @Test
     fun single_source_metadata_region() {

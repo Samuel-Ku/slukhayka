@@ -1684,14 +1684,17 @@ fun SeriesPill(
             .testTag("book_detail_series_pill")
             .defaultMinSize(minHeight = 48.dp)
     ) {
-        Text(
-            text = if (seriesIndex > 0) "«$seriesTitle» • Кн. $seriesIndex" else "«$seriesTitle»",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.primary,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-        )
+        Box(
+            modifier = Modifier.padding(horizontal = AppDimens.SpaceMd, vertical = AppDimens.SpaceSm),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = if (seriesIndex > 0) "«$seriesTitle» • Кн. $seriesIndex" else "«$seriesTitle»",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary,
+                textAlign = TextAlign.Center
+            )
+        }
     }
 }
 
@@ -1707,8 +1710,7 @@ fun BookUniverseLine(universeName: String) {
         text = "Всесвіт: «$universeName»",
         style = MaterialTheme.typography.labelSmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
+        textAlign = TextAlign.Center,
         modifier = Modifier.testTag("book_detail_universe_line")
     )
 }
@@ -2394,8 +2396,7 @@ fun BookDetailCanonicalSummary(
             .focusable()
             .semantics { heading() }
     )
-    // Keep the title→author rhythm tight: title and its people read as one group.
-    Spacer(modifier = Modifier.height(8.dp))
+    // The links already provide 48 dp touch targets; do not add empty rows between people.
     if (presentation.author.isNotBlank()) {
         BoxWithConstraints(
             modifier = Modifier.fillMaxWidth(),
@@ -2429,9 +2430,6 @@ fun BookDetailCanonicalSummary(
                 )
             }
         }
-    }
-    if (presentation.author.isNotBlank() && presentation.narrator.isNotBlank()) {
-        Spacer(modifier = Modifier.height(4.dp))
     }
     if (presentation.narrator.isNotBlank()) {
         BoxWithConstraints(
@@ -2480,7 +2478,7 @@ fun BookDetailCanonicalSummary(
         deleteFocusRequester = narrationRatingDeleteFocusRequester,
         modifier = Modifier.padding(top = 2.dp)
     )
-    Spacer(modifier = Modifier.height(12.dp))
+    Spacer(modifier = Modifier.height(AppDimens.SpaceSm))
     FlowRow(
         modifier = Modifier.testTag("book_detail_metadata_chips"),
         horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
@@ -2513,12 +2511,14 @@ fun BookDetailCanonicalSummary(
                 border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
             )
         }
-        universeName?.let { name ->
-            BookUniverseLine(name)
-        }
+    }
+    universeName?.takeIf(String::isNotBlank)?.let { name ->
+        Spacer(modifier = Modifier.height(AppDimens.SpaceSm))
+        BookUniverseLine(name)
     }
     val seriesTitle = presentation.seriesTitle.orEmpty()
     if (seriesTitle.isNotBlank()) {
+        Spacer(modifier = Modifier.height(AppDimens.SpaceSm))
         Row(
             modifier = Modifier
                 .fillMaxWidth()

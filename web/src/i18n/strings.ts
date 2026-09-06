@@ -40,6 +40,8 @@ const uk = {
   unboundHint: 'Поки профіль не прив’язано, браузер не надсилає нічого особистого — прогрес лишається лише тут.',
   // catalog
   searchPlaceholder: 'Пошук…',
+  searchAria: 'Пошук',
+  closeSearchAria: 'Закрити пошук',
   allSources: 'Усі джерела',
   searching: 'Шукаємо…',
   nothingFound: 'Нічого не знайшли.',
@@ -118,6 +120,8 @@ const en: Strings = {
   unboundHint: 'Until the profile is bound, the browser sends nothing personal — progress stays here only.',
   // catalog
   searchPlaceholder: 'Search…',
+  searchAria: 'Search',
+  closeSearchAria: 'Close search',
   allSources: 'All sources',
   searching: 'Searching…',
   nothingFound: 'Nothing found.',

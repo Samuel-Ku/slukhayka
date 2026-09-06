@@ -3,6 +3,7 @@ import { api } from '../api/client'
 import { readWarm, WARM_CACHE_TTL_MS, warmKey, writeWarm } from '../api/warmCache'
 import type { BookDetail } from '../worker/types'
 import { canPlayBookFromDisplayedDetail, sourceNeedsBrowserSession } from './bookPlaybackAvailability'
+import { EmptyState, EmptyStateRow, MetadataChip, SectionHeader } from './components'
 import { useTranslate } from '../i18n/locale'
 
 /**
@@ -57,8 +58,8 @@ export function BookPage({
     }
   }, [url, source])
 
-  if (failed) return <div className="placeholder">{t('bookFailed')}</div>
-  if (detail === null) return <div className="placeholder">{t('loadingBook')}</div>
+  if (failed) return <EmptyState message={t('bookFailed')} />
+  if (detail === null) return <EmptyState message={t('loadingBook')} />
 
   const canPlay = canPlayBookFromDisplayedDetail(source, showingCachedBook)
   const requiresFreshSession = !canPlay && sourceNeedsBrowserSession(source)
@@ -78,7 +79,11 @@ export function BookPage({
         {detail.narrator ? t('readBy', { narrator: detail.narrator }) : ''}
       </p>
       {detail.coverImageUrl && <img className="cover" src={detail.coverImageUrl} alt="" loading="lazy" />}
-      {detail.genres.length > 0 && <p className="genres">{detail.genres.join(' · ')}</p>}
+      {detail.genres.length > 0 && (
+        <p className="genres">
+          {detail.genres.map((genre) => <MetadataChip key={genre} kind="plain">{genre}</MetadataChip>)}
+        </p>
+      )}
       {detail.descriptionHtml && (
         <div className="description">
           {detail.descriptionHtml.split('\n').map((paragraph, i) => (
@@ -87,9 +92,9 @@ export function BookPage({
         </div>
       )}
 
-      <h2>{t('chapters')}</h2>
+      <SectionHeader level="section" title={t('chapters')} count={detail.chapters.length > 0 ? detail.chapters.length : undefined} />
       {detail.chapters.length === 0 ? (
-        <p className="notice">{t('noChapters')}</p>
+        <EmptyStateRow message={t('noChapters')} />
       ) : (
         <ol className="chapters">
           {detail.chapters.map((chapter, idx) => (
@@ -111,7 +116,7 @@ export function BookPage({
 
       {detail.otherNarrations.length > 0 && (
         <>
-          <h2>{t('otherNarrations')}</h2>
+          <SectionHeader level="section" title={t('otherNarrations')} count={detail.otherNarrations.length} />
           <ul className="narrations">
             {detail.otherNarrations.map((card) => (
               <li key={card.url}>

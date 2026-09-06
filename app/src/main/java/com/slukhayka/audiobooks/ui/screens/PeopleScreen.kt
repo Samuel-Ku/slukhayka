@@ -55,6 +55,8 @@ fun PeopleScreen(
     val people by viewModel.peopleEntries.collectAsState()
     val isLoading by viewModel.isPeopleLoading.collectAsState()
     val loadFailed by viewModel.peopleLoadFailed.collectAsState()
+    // #559 — індекс ще добудовується: список людей ростиме ще хвилини.
+    val indexBackfillPending by viewModel.authorIndexBackfillPending.collectAsState()
 
     val currentKind = kind ?: return
 
@@ -64,6 +66,7 @@ fun PeopleScreen(
             isLoading = isLoading,
             loadFailed = loadFailed,
             peopleCountLabel = "${people.size} ${if (currentKind.title == "Виконавці") "виконавців" else "авторів"}",
+            indexBackfillPending = indexBackfillPending,
             onPersonClick = onPersonClick,
             restoreFocusPersonPath = restoreFocusPersonPath,
             onPersonFocusRestored = onPersonFocusRestored,
@@ -83,6 +86,9 @@ fun PeopleContent(
     peopleCountLabel: String,
     onPersonClick: (CatalogPerson) -> Unit,
     modifier: Modifier = Modifier,
+    // #559 — the local people index is still backfilling: the list grows for
+    // a few minutes, so the count row says so instead of posing as complete.
+    indexBackfillPending: Boolean = false,
     restoreFocusPersonPath: String? = null,
     onPersonFocusRestored: (String) -> Unit = {},
     listState: LazyListState = rememberLazyListState()
@@ -144,7 +150,11 @@ fun PeopleContent(
             else -> {
                 item {
                     Text(
-                        text = peopleCountLabel,
+                        text = if (indexBackfillPending) {
+                            "$peopleCountLabel · список поповнюється…"
+                        } else {
+                            peopleCountLabel
+                        },
                         style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
                         color = MaterialTheme.colorScheme.secondary,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)

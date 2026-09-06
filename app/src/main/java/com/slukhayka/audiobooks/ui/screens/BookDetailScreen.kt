@@ -427,34 +427,6 @@ fun BookDetailScreen(
         totalDurationSeconds = totalDuration
     )
     val paneTitle = stringResource(R.string.book_detail_pane_title, detailPresentation.title)
-    val downloadActionDescription = when (downloadAction) {
-        BookDetailDownloadAction.Cancel -> stringResource(
-            R.string.book_detail_download_in_progress,
-            currentBook.title,
-            (currentBook.downloadProgress.coerceIn(0f, 1f) * 100).toInt()
-        )
-        BookDetailDownloadAction.Continue -> stringResource(
-            R.string.book_detail_download_continue,
-            currentBook.title,
-            (currentBook.downloadProgress.coerceIn(0f, 1f) * 100).toInt()
-        )
-        BookDetailDownloadAction.Remove -> stringResource(
-            R.string.book_detail_download_remove,
-            currentBook.title
-        )
-        BookDetailDownloadAction.Start -> stringResource(
-            R.string.book_detail_download_add,
-            currentBook.title
-        )
-    }
-    val downloadStateDescription = stringResource(
-        when (downloadAction) {
-            BookDetailDownloadAction.Cancel -> R.string.book_detail_downloading
-            BookDetailDownloadAction.Continue -> R.string.book_detail_download_paused
-            BookDetailDownloadAction.Remove -> R.string.book_detail_downloaded
-            BookDetailDownloadAction.Start -> R.string.book_detail_streaming
-        }
-    )
     val onDownloadClick: () -> Unit = {
         when (downloadAction) {
             BookDetailDownloadAction.Cancel -> viewModel.cancelDownload(currentBook.id)
@@ -518,155 +490,6 @@ fun BookDetailScreen(
                             }
                         }
                     )
-                    // 4read's browser session is the supported way to refresh
-                    // Cloudflare-gated playlists, so keep this action in-app.
-                    if (currentBook.sourceUrl.contains("4read.org")) {
-                        IconButton(onClick = {
-                            viewModel.openWebSource("4read", currentBook.sourceUrl, "4read")
-                        }) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.OpenInNew,
-                                contentDescription = stringResource(
-                                    R.string.a11y_book_detail_open_site,
-                                    currentBook.title
-                                ),
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    }
-                    // Spec-13 T3: a WebView-source book opens the source's own
-                    // browser surface (the site needs the session past CF).
-                    if (currentBook.sourceUrl.contains("sluhay.com") &&
-                        !currentBook.sourceUrl.contains("sluhay.com.ua")
-                    ) {
-                        IconButton(
-                            onClick = {
-                                viewModel.openWebSource(
-                                    sourceId = "sluhay",
-                                    homeUrl = "https://sluhay.com/",
-                                    displayName = "Sluhay"
-                                )
-                            }
-                        ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.OpenInNew,
-                                contentDescription = stringResource(
-                                    R.string.a11y_book_detail_open_sluhay,
-                                    currentBook.title
-                                ),
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    }
-                    if (!streamOnly) {
-                        IconButton(
-                            onClick = onDownloadClick,
-                            modifier = Modifier.semantics {
-                                contentDescription = downloadActionDescription
-                                stateDescription = downloadStateDescription
-                            }
-                        ) {
-                            if (downloadAction == BookDetailDownloadAction.Cancel) {
-                                Box(
-                                    modifier = Modifier.size(24.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    CircularProgressIndicator(
-                                        progress = { currentBook.downloadProgress.coerceIn(0.05f, 0.95f) },
-                                        modifier = Modifier.fillMaxSize(),
-                                        strokeWidth = 2.dp,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
-                                    Icon(
-                                        imageVector = Icons.Default.Close,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(14.dp),
-                                        tint = MaterialTheme.colorScheme.onSurface
-                                    )
-                                }
-                            } else {
-                                Icon(
-                                    imageVector = if (downloadAction == BookDetailDownloadAction.Remove) {
-                                        Icons.Default.CloudDone
-                                    } else {
-                                        Icons.Default.CloudDownload
-                                    },
-                                    contentDescription = null,
-                                    tint = if (currentBook.isDownloaded) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurface
-                                )
-                            }
-                        }
-                    }
-                    // #392 — size display below download button
-                    if (!streamOnly && !currentBook.isDownloaded && !isDownloadingThis) {
-                        val sizeText = when {
-                            bytesProgress != null -> {
-                                val dl = bytesProgress!!.downloadedBytes / (1024 * 1024)
-                                val totalBytes = bytesProgress!!.totalBytes
-                                if (totalBytes != null && totalBytes > 0) {
-                                    val tot = totalBytes / (1024 * 1024)
-                                    val pct = (bytesProgress!!.downloadedBytes * 100 / totalBytes).toInt()
-                                    stringResource(
-                                        R.string.book_detail_download_progress,
-                                        bytesProgress!!.completedChapters,
-                                        bytesProgress!!.totalChapters,
-                                        dl,
-                                        tot,
-                                        pct
-                                    )
-                                } else {
-                                    stringResource(
-                                        R.string.book_detail_download_progress_unknown_total,
-                                        bytesProgress!!.completedChapters,
-                                        bytesProgress!!.totalChapters,
-                                        dl
-                                    )
-                                }
-                            }
-                            estimatedSize != null -> {
-                                val es = estimatedSize!!
-                                val mb = es.totalBytes?.let { it / (1024 * 1024) }
-                                if (mb != null && mb > 0) {
-                                    if (es.isApproximate) stringResource(R.string.book_detail_size_approximate, mb)
-                                    else stringResource(R.string.book_detail_size_format, mb)
-                                } else stringResource(R.string.book_detail_size_unknown)
-                            }
-                            else -> stringResource(R.string.book_detail_size_unknown)
-                        }
-                        Text(
-                            text = sizeText,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(start = 4.dp)
-                        )
-                    } else if (!streamOnly && isDownloadingThis && bytesProgress != null) {
-                        val bp = bytesProgress!!
-                        val dl = bp.downloadedBytes / (1024 * 1024)
-                        Text(
-                            text = if (bp.totalBytes != null && bp.totalBytes > 0) {
-                                val tot = bp.totalBytes / (1024 * 1024)
-                                val pct = (bp.downloadedBytes * 100 / bp.totalBytes).toInt()
-                                stringResource(
-                                    R.string.book_detail_download_progress,
-                                    bp.completedChapters,
-                                    bp.totalChapters,
-                                    dl,
-                                    tot,
-                                    pct
-                                )
-                            } else {
-                                stringResource(
-                                    R.string.book_detail_download_progress_unknown_total,
-                                    bp.completedChapters,
-                                    bp.totalChapters,
-                                    dl
-                                )
-                            },
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(start = 4.dp)
-                        )
-                    }
                     // #382 (spec-27): deletion is a rare action — it lives in
                     // the ⋮ overflow, not next to Favorite/Download. The
                     // confirmation flow (Wayfinder #28 sheet) is untouched:
@@ -691,6 +514,26 @@ fun BookDetailScreen(
                             expanded = showOverflowMenu,
                             onDismissRequest = { showOverflowMenu = false }
                         ) {
+                            if (currentBook.sourceUrl.contains("4read.org")) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.a11y_book_detail_open_site, currentBook.title)) },
+                                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null) },
+                                    onClick = {
+                                        showOverflowMenu = false
+                                        viewModel.openWebSource("4read", currentBook.sourceUrl, "4read")
+                                    }
+                                )
+                            }
+                            if (currentBook.sourceUrl.contains("sluhay.com") && !currentBook.sourceUrl.contains("sluhay.com.ua")) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.a11y_book_detail_open_sluhay, currentBook.title)) },
+                                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null) },
+                                    onClick = {
+                                        showOverflowMenu = false
+                                        viewModel.openWebSource("sluhay", "https://sluhay.com/", "Sluhay")
+                                    }
+                                )
+                            }
                             DropdownMenuItem(
                                 text = { Text(stringResource(R.string.a11y_book_detail_delete_work, currentBook.title)) },
                                 leadingIcon = {
@@ -889,6 +732,77 @@ fun BookDetailScreen(
                         onDownload = onDownloadClick,
                         onAddBookmark = { showAddBookmarkDialog = true }
                     )
+                    // #392 — size display below download button
+                    if (!streamOnly && !currentBook.isDownloaded && !isDownloadingThis) {
+                        val sizeText = when {
+                            bytesProgress != null -> {
+                                val dl = bytesProgress!!.downloadedBytes / (1024 * 1024)
+                                val totalBytes = bytesProgress!!.totalBytes
+                                if (totalBytes != null && totalBytes > 0) {
+                                    val tot = totalBytes / (1024 * 1024)
+                                    val pct = (bytesProgress!!.downloadedBytes * 100 / totalBytes).toInt()
+                                    stringResource(
+                                        R.string.book_detail_download_progress,
+                                        bytesProgress!!.completedChapters,
+                                        bytesProgress!!.totalChapters,
+                                        dl,
+                                        tot,
+                                        pct
+                                    )
+                                } else {
+                                    stringResource(
+                                        R.string.book_detail_download_progress_unknown_total,
+                                        bytesProgress!!.completedChapters,
+                                        bytesProgress!!.totalChapters,
+                                        dl
+                                    )
+                                }
+                            }
+                            estimatedSize != null -> {
+                                val es = estimatedSize!!
+                                val mb = es.totalBytes?.let { it / (1024 * 1024) }
+                                if (mb != null && mb > 0) {
+                                    if (es.isApproximate) stringResource(R.string.book_detail_size_approximate, mb)
+                                    else stringResource(R.string.book_detail_size_format, mb)
+                                } else stringResource(R.string.book_detail_size_unknown)
+                            }
+                            else -> stringResource(R.string.book_detail_size_unknown)
+                        }
+                        Text(
+                            text = sizeText,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(start = 4.dp)
+                        )
+                    } else if (!streamOnly && isDownloadingThis && bytesProgress != null) {
+                        val bp = bytesProgress!!
+                        val dl = bp.downloadedBytes / (1024 * 1024)
+                        Text(
+                            text = if (bp.totalBytes != null && bp.totalBytes > 0) {
+                                val tot = bp.totalBytes / (1024 * 1024)
+                                val pct = (bp.downloadedBytes * 100 / bp.totalBytes).toInt()
+                                stringResource(
+                                    R.string.book_detail_download_progress,
+                                    bp.completedChapters,
+                                    bp.totalChapters,
+                                    dl,
+                                    tot,
+                                    pct
+                                )
+                            } else {
+                                stringResource(
+                                    R.string.book_detail_download_progress_unknown_total,
+                                    bp.completedChapters,
+                                    bp.totalChapters,
+                                    dl
+                                )
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(start = 4.dp)
+                        )
+                    }
+
                 }
             }
 
@@ -2278,6 +2192,7 @@ fun BookDetailIdentityHeader(
 ) {
     Card(
         modifier = Modifier
+            .testTag("book_detail_cover")
             .width(180.dp)
             .height(240.dp)
             .clip(RoundedCornerShape(AppDimens.RadiusHero))
@@ -2292,7 +2207,7 @@ fun BookDetailIdentityHeader(
             book = book,
             semantics = BookCoverSemantics.Decorative,
             modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.Crop
+            contentScale = ContentScale.Fit
         )
     }
 

@@ -122,6 +122,9 @@ fun BookDetailScreen(
     val downloadRecoveryBookId by viewModel.downloadRecoveryBookId.collectAsState()
     // Spec-15 T5: what every source carrying the Work says about it.
     val sourceProfiles by viewModel.sourceProfiles.collectAsState()
+    // #559 — фонова довантаження метаданих відкритої книги (обкладинка, опис,
+    // розділи з першоджерела): показуємо тихий стан замість «мовчазної порожнечі».
+    val detailsRefreshing by viewModel.bookDetailsRefreshing.collectAsState()
     // Spec-23 T5: every Edition carrying the Work — the «Джерела» section.
     val bookSources by viewModel.bookSources.collectAsState()
 
@@ -828,7 +831,11 @@ fun BookDetailScreen(
                         onClick = { activeTab = 0 },
                         text = {
                             Text(
-                                text = "Розділи (${chapters.size})",
+                                text = if (detailsRefreshing && chapters.isEmpty()) {
+                                    "Розділи · довантажуємо…"
+                                } else {
+                                    "Розділи (${chapters.size})"
+                                },
                                 fontWeight = FontWeight.Bold,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis

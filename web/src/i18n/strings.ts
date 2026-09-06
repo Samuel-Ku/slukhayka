@@ -38,6 +38,9 @@ const uk = {
   syncTitle: 'Синхронізація прогресу',
   syncDescription: 'Коли ввімкнено, позиція дзеркалиться між телефоном і браузером (останній запис виграє). Вимкніть — дзеркалення зупиниться одразу, локальний прогрес лишиться.',
   unboundHint: 'Поки профіль не прив’язано, браузер не надсилає нічого особистого — прогрес лишається лише тут.',
+  storageLoading: 'Відновлюємо ваші дані…',
+  storageEvictedTitle: 'Браузер звільнив сховище',
+  storageEvictedHint: 'Ваші позначки позицій було видалено браузером. Щоб дані повернулися самі, прив’яжіть код відновлення з телефону.',
   // catalog
   searchPlaceholder: 'Пошук…',
   searchAria: 'Пошук',
@@ -118,6 +121,9 @@ const en: Strings = {
   syncTitle: 'Progress sync',
   syncDescription: 'When on, position mirrors between phone and browser (the latest write wins). Turn it off and mirroring stops immediately; local progress stays.',
   unboundHint: 'Until the profile is bound, the browser sends nothing personal — progress stays here only.',
+  storageLoading: 'Restoring your data…',
+  storageEvictedTitle: 'The browser cleared its storage',
+  storageEvictedHint: 'Your listening positions were removed by the browser. Bind the recovery code from your phone and your data will return on its own.',
   // catalog
   searchPlaceholder: 'Search…',
   searchAria: 'Search',

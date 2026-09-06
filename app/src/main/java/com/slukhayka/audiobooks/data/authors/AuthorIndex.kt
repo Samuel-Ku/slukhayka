@@ -9,6 +9,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.delay
@@ -25,6 +27,13 @@ data class AuthorSummary(
 
 interface AuthorIndex {
     val authors: Flow<List<AuthorSummary>>
+
+    /**
+     * #559 — поки true, початковий backfill індексу ще добирає свої сторінки:
+     * індекс людей на екранах зростає хвилинами, і слухач мусить бачити, що
+     * це добудова, а не остаточний список.
+     */
+    val backfillPending: Flow<Boolean>
 
     suspend fun search(query: String, limit: Int = DEFAULT_SEARCH_LIMIT): List<AuthorSummary>
     suspend fun works(authorId: String): List<WorkEntity>
@@ -53,6 +62,9 @@ class RoomAuthorIndex(
 ) : AuthorIndex {
     @Volatile private var backfillChecked = false
     private val backfillMutex = Mutex()
+
+    private val _backfillPending = MutableStateFlow(false)
+    override val backfillPending: Flow<Boolean> = _backfillPending.asStateFlow()
 
     override val authors: Flow<List<AuthorSummary>> = flow {
         ensureBackfilled()
@@ -161,6 +173,9 @@ class RoomAuthorIndex(
             backfillChecked = true
             page.size == BACKFILL_BATCH_SIZE
         }
+        // #559: the visible truth about the growing index — on while pages
+        // remain, off the moment the background drain finishes.
+        _backfillPending.value = hasMore
         if (hasMore) {
             backfillScope.launch {
                 // The first local read has a strict bounded-work contract:
@@ -172,6 +187,7 @@ class RoomAuthorIndex(
                 // eventual repair (including virtual-time tests).
                 delay(BACKFILL_CONTINUATION_DELAY_MS)
                 while (repairBackfillPage()) Unit
+                _backfillPending.value = false
             }
         }
     }

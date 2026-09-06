@@ -131,11 +131,18 @@ class AuthorIndexRoomTest {
             val boundedIndex = RoomAuthorIndex(localDb.audiobookDao(), CoroutineScope(backgroundDispatcher))
 
             TestScope(backgroundDispatcher).runTest {
+                // #559 — before the first read the status is not yet known
+                // (false default); the first read discovers remaining pages.
+                assertEquals(false, boundedIndex.backfillPending.first())
                 assertTrue(boundedIndex.search("автор 0").isNotEmpty())
                 assertEquals(1, localDb.audiobookDao().worksMissingCanonicalAuthor(RoomAuthorIndex.BACKFILL_BATCH_SIZE).size)
+                // One page repaired, one work still missing → status is ON.
+                assertEquals(true, boundedIndex.backfillPending.first())
 
                 scheduler.advanceUntilIdle()
                 assertEquals(0, localDb.audiobookDao().worksMissingCanonicalAuthor(RoomAuthorIndex.BACKFILL_BATCH_SIZE).size)
+                // The background drain finished → the status clears.
+                assertEquals(false, boundedIndex.backfillPending.first())
             }
         } finally {
             localDb.close()

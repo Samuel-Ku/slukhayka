@@ -699,9 +699,11 @@ fun BookDetailScreen(
                         onDownload = onDownloadClick,
                         onAddBookmark = { showAddBookmarkDialog = true }
                     )
-                    // #392 — size display below download button
+                    // #392 — size display below download button. A size we
+                    // cannot honestly estimate renders NOTHING — never the
+                    // useless «невідомо» (user report via #561 follow-up).
                     if (!streamOnly && !currentBook.isDownloaded && !isDownloadingThis) {
-                        val sizeText = when {
+                        val sizeText: String? = when {
                             bytesProgress != null -> {
                                 val dl = bytesProgress!!.downloadedBytes / (1024 * 1024)
                                 val totalBytes = bytesProgress!!.totalBytes
@@ -731,16 +733,18 @@ fun BookDetailScreen(
                                 if (mb != null && mb > 0) {
                                     if (es.isApproximate) stringResource(R.string.book_detail_size_approximate, mb)
                                     else stringResource(R.string.book_detail_size_format, mb)
-                                } else stringResource(R.string.book_detail_size_unknown)
+                                } else null
                             }
-                            else -> stringResource(R.string.book_detail_size_unknown)
+                            else -> null
                         }
-                        Text(
-                            text = sizeText,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(start = 4.dp)
-                        )
+                        if (sizeText != null) {
+                            Text(
+                                text = sizeText,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(start = 4.dp)
+                            )
+                        }
                     } else if (!streamOnly && isDownloadingThis && bytesProgress != null) {
                         val bp = bytesProgress!!
                         val dl = bp.downloadedBytes / (1024 * 1024)
@@ -1023,20 +1027,9 @@ fun BookDetailScreen(
                             color = MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.semantics { heading() }
                         )
-                        // Writing needs a listener identity — until lane-a's
-                        // seam answers, the block stays honestly read-only.
-                        if (listenerProfile != null) {
-                            Button(
-                                onClick = {
-                                    editingReview = null
-                                    reviewSaveError = null
-                                    showReviewForm = true
-                                },
-                                shape = RoundedCornerShape(AppDimens.RadiusCard)
-                            ) {
-                                Text(stringResource(R.string.profile_write_review))
-                            }
-                        }
+                        // No «Написати відгук» launcher here (user report):
+                        // writing opens after listening («Ваші враження») and
+                        // editing an own review stays on the review itself.
                     }
                 }
 
@@ -2371,7 +2364,12 @@ fun BookDetailCanonicalSummary(
     }
     if (presentation.narrator.isNotBlank()) {
         BoxWithConstraints(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                // User report (#561 follow-up): two stacked 48 dp link rows read
+                // as a hole between Автор and Озвучує. The overlap keeps every
+                // target its full 48 dp while the visible text pitch tightens.
+                .offset(y = (-8).dp)
+                .fillMaxWidth(),
             contentAlignment = Alignment.Center
         ) {
             val textMaxWidth = (maxWidth - 48.dp).coerceAtLeast(0.dp)

@@ -9,6 +9,7 @@ import com.slukhayka.audiobooks.data.db.ChapterEntity
 import com.slukhayka.audiobooks.data.db.PlaybackProgressEntity
 import com.slukhayka.audiobooks.data.db.SourceEntity
 import com.slukhayka.audiobooks.data.db.TombstoneEntity
+import com.slukhayka.audiobooks.data.listening.WorkRelationshipsSync
 import com.slukhayka.audiobooks.data.facets.applyEditionFacet
 import kotlinx.coroutines.flow.map
 import com.slukhayka.audiobooks.data.metadata.MetadataAssertions
@@ -36,7 +37,11 @@ import java.io.File
  */
 class LibraryEntries(
     private val dao: AudiobookDao,
-    private val sourceAdapters: List<SourceAdapter>
+    private val sourceAdapters: List<SourceAdapter>,
+    // #581 W0.3 — the Work-relationship sync writer: removing a Work
+    // mirrors as a `tombstone` row (the web's hide filter and every device
+    // agree). Null in tests / without Firebase; best-effort and silent.
+    private val workRelationshipsSync: WorkRelationshipsSync? = null
 ) {
 
     // The 4read transport/parser behind the book-detail refresh (cover +
@@ -207,6 +212,12 @@ class LibraryEntries(
         // lists deleted books on every sync, so without a durable marker the
         // next sync would resurrect the deleted book after a restart.
         dao.insertTombstone(TombstoneEntity(bookId = bookId))
+        // #581 W0.3 — the honest moment for the cloud: the Work leaves the
+        // library, so its relationship row becomes a `tombstone` (a stale
+        // favorite can never resurrect it — server-stamp LWW, ADR-0034).
+        dao.getAudiobookById(bookId)?.mergeKey?.takeIf { it.isNotBlank() }?.let { key ->
+            runCatching { workRelationshipsSync?.pushTombstone(key) }
+        }
         // ADR-0007: the physical copies live on the TRACK rows.
         dao.getTracksForBookSync(bookId).forEach { track ->
             track.localFilePath?.let { path ->
@@ -241,6 +252,11 @@ class LibraryEntries(
      */
     suspend fun removeFromLibrary(bookId: String) = withContext(Dispatchers.IO) {
         dao.insertTombstone(TombstoneEntity(bookId = bookId))
+        // #581 W0.3 — same mirror as the cascading delete: one tombstone row
+        // in the cloud, so the hide survives catalog refreshes everywhere.
+        dao.getAudiobookById(bookId)?.mergeKey?.takeIf { it.isNotBlank() }?.let { key ->
+            runCatching { workRelationshipsSync?.pushTombstone(key) }
+        }
         dao.deleteChaptersForBook(bookId)
         dao.deleteBookmarksForBook(bookId)
         dao.deletePlaybackProgressForBook(bookId)

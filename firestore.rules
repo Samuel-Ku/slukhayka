@@ -391,6 +391,39 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // #581 W0.3 (ADR-0034) — Work-relationship sync: one row per listener
+    // per Work (`{uid}_{mergeKey}`, state `entry | tombstone`), readable and
+    // writable ONLY by its own listener under App Check. The FIELD uid is
+    // the ownership anchor; `updatedAt` must be a server timestamp, so no
+    // client can forge the LWW ordering clock (a tie therefore always
+    // resolves server-side-by-time, tombstone wins by policy on equal
+    // stamps). An unlinked browser has no auth and can write nothing.
+    function isWellFormedWorkRelationship(d) {
+      return d.keys().hasOnly(['uid', 'mergeKey', 'state', 'title', 'author', 'updatedAt'])
+        && d.uid is string && d.uid.size() > 0
+        && d.mergeKey is string && d.mergeKey.size() > 0 && d.mergeKey.size() <= 300
+        && (d.state == 'entry' || d.state == 'tombstone')
+        && d.title is string && d.title.size() > 0 && d.title.size() <= 500
+        && d.author is string && d.author.size() > 0 && d.author.size() <= 300
+        && d.updatedAt == request.time;
+    }
+
+    match /work_relationships/{document} {
+      allow read: if isAppCheckValid()
+        && request.auth != null
+        && resource.data.uid == request.auth.uid;
+      allow create: if isAppCheckValid()
+        && request.auth != null
+        && request.resource.data.uid == request.auth.uid
+        && isWellFormedWorkRelationship(request.resource.data);
+      allow update: if isAppCheckValid()
+        && request.auth != null
+        && request.resource.data.uid == request.auth.uid
+        && resource.data.uid == request.auth.uid
+        && isWellFormedWorkRelationship(request.resource.data);
+      allow delete: if false;
+    }
+
     // #404 — private, owner-only person bookmarks. The server timestamp is
     // the sole LWW clock; documents never become public catalogue data.
     function isWellFormedPersonBookmark(d) {

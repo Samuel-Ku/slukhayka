@@ -393,6 +393,9 @@ fun LibraryScreen(
                         selectedBorderColor = MaterialTheme.colorScheme.primary
                     ),
                     modifier = Modifier
+                        // #560: the chip row sits flush on the launcher without
+                        // this gap — the canonical spacer keeps the vertical rhythm.
+                        .padding(top = AppDimens.SpaceXs)
                         .padding(horizontal = 16.dp)
                         .heightIn(min = 48.dp)
                         .focusRequester(filterFocusRequester)

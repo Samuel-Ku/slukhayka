@@ -3,6 +3,10 @@ import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
 export default defineConfig({
+  // #579: the shared test setup (jsdom localStorage fallback — see src/test/setup.ts).
+  test: {
+    setupFiles: ['./src/test/setup.ts'],
+  },
   server: {
     proxy: {
       // spec-43/T3: у dev /api йде на локальний wrangler dev (порт 8787).

@@ -138,7 +138,8 @@ body {
   counter-reset: chapter;
 }
 
-.card-list button,
+/* #579: the bordered-card look survives only on the narration rows of the
+   book page; Work lists render canonical BookRows (divider, not border). */
 .narrations button {
   width: 100%;
   text-align: left;
@@ -151,38 +152,6 @@ body {
   padding: 10px 12px;
   color: var(--fg);
   cursor: pointer;
-}
-
-.card-list img {
-  width: 72px;
-  height: 72px;
-  object-fit: cover;
-  border-radius: 8px;
-  align-self: flex-start;
-}
-
-.card-title {
-  font-weight: 600;
-}
-
-.card-author {
-  color: var(--fg-dim);
-  font-size: 14px;
-}
-
-/* spec-45 T13 (#501) — the EN/UA rendition-language badge on cards. */
-.lang-badge {
-  display: inline-block;
-  margin-left: 6px;
-  padding: 1px 6px;
-  border-radius: 6px;
-  border: 1px solid var(--line);
-  background: var(--surface);
-  color: var(--fg);
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 1.4;
-  vertical-align: middle;
 }
 
 .byline,
@@ -205,4 +174,229 @@ body {
 h2 {
   font-size: 16px;
   margin: 20px 0 0;
+}
+
+/* --- #579 W0.1: canonical component vocabulary (ADR-0033/0034) ------------ */
+
+/* SectionHeader: two levels; uppercase small title for sections, bold group. */
+.sec-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+.sec-head-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.sec-head-section .sec-head-title {
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--fg-dim);
+}
+
+.sec-head-count,
+.sec-head-hint {
+  color: var(--fg-dim);
+  font-weight: 400;
+}
+
+.sec-head-action {
+  margin-left: auto;
+}
+
+/* MetadataChip: one non-interactive muted chip for every metadata surface. */
+.meta-chip {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--fg);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+/* BookRow: a flat row — divider, never a bordered card (ADR-0018). */
+.bookrow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  list-style: none;
+  border-bottom: 1px solid var(--line);
+}
+
+.bookrow:first-child {
+  border-top: 1px solid var(--line);
+}
+
+.bookrow-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+span.bookrow-body {
+  cursor: default;
+}
+
+.bookrow-cover {
+  width: 64px;
+  height: 64px;
+  object-fit: cover;
+  border-radius: 8px;
+  flex: none;
+}
+
+.bookrow-cover-fallback {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-raised);
+  color: var(--fg-dim);
+  font-weight: 700;
+}
+
+.bookrow-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.bookrow-title {
+  font-weight: 600;
+}
+
+.bookrow-subtitle {
+  color: var(--fg-dim);
+  font-size: 14px;
+}
+
+.bookrow-badges {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.bookrow-progress {
+  height: 2px;
+  border-radius: 1px;
+  background: var(--line);
+  margin-top: 4px;
+}
+
+.bookrow-progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: 1px;
+  background: var(--accent);
+}
+
+.bookrow-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.bookrow-actions button {
+  min-width: 48px;
+  min-height: 48px;
+}
+
+/* Canonical states. */
+.empty-state {
+  border: 1px dashed var(--line);
+  border-radius: 12px;
+  padding: 24px 16px;
+  text-align: center;
+  color: var(--fg-dim);
+  margin-top: 16px;
+}
+
+.empty-state-icon {
+  font-size: 28px;
+  display: block;
+  margin-bottom: 6px;
+}
+
+.empty-state-message {
+  margin: 0;
+  color: var(--fg);
+}
+
+.empty-state-hint {
+  font-size: 13px;
+  margin: 6px 0 0;
+}
+
+.empty-state-actions {
+  margin-top: 12px;
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+}
+
+.empty-state-actions button {
+  min-height: 48px;
+}
+
+.empty-state-row {
+  color: var(--fg-dim);
+  font-size: 13px;
+  margin-top: 12px;
+}
+
+/* TabHeader: one header model with the collapsible search gesture. */
+.tabheader {
+  margin-bottom: 8px;
+}
+
+.tabheader-title {
+  font-size: 20px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.tabheader-subtitle {
+  color: var(--fg-dim);
+  font-size: 13px;
+  margin: 2px 0 0;
+}
+
+.tabheader-btn {
+  min-width: 48px;
+  min-height: 48px;
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 4px 12px;
+  color: var(--fg);
+  cursor: pointer;
+}
+
+.tabheader-search-field {
+  flex: 1;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--fg);
+  font: inherit;
 }

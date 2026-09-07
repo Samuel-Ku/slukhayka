@@ -35,33 +35,9 @@ import com.slukhayka.audiobooks.ui.theme.AppDimens
  * Content is separated by spacing and typography, never by nesting cards.
  */
 
-/** Section heading with the standard 24 dp section rhythm and an optional trailing action. */
-@Composable
-fun AppSectionHeader(
-    title: String,
-    modifier: Modifier = Modifier,
-    action: (@Composable RowScope.() -> Unit)? = null
-) {
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = AppDimens.PageSides, vertical = AppDimens.SpaceMd),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            text = title.uppercase(),
-            style = MaterialTheme.typography.titleSmall.copy(
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 1.sp
-            ),
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier
-                .weight(1f)
-                .semantics { heading() }
-        )
-        if (action != null) action()
-    }
-}
+// The canonical section header moved to SectionHeaders.kt (v1.4 C1,
+// ADR-0033): two levels (group/section) with optional counter and action
+// slots. This file keeps the canonical empty states.
 
 /**
  * Full-size empty state: 56 dp icon, title, explanation and (per the house

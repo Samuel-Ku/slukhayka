@@ -46,7 +46,7 @@ import com.slukhayka.audiobooks.data.source.GlobalSearchSource
 import com.slukhayka.audiobooks.testing.TestDataFactory
 import com.slukhayka.audiobooks.ui.screens.AudiobookListItem
 import com.slukhayka.audiobooks.ui.screens.CatalogSeriesCard
-import com.slukhayka.audiobooks.ui.screens.CatalogRowHeader
+import com.slukhayka.audiobooks.ui.components.AppSectionHeader
 import com.slukhayka.audiobooks.ui.screens.CollectionBookCard
 import com.slukhayka.audiobooks.ui.screens.GlobalSearchResultCard
 import com.slukhayka.audiobooks.ui.screens.GlobalSearchStatus
@@ -112,7 +112,7 @@ class ExploreAccessibilityTest {
     fun catalogueSectionTitleIsAHeading() {
         compose.setContent {
             AudiobookTheme(darkTheme = true) {
-                CatalogRowHeader("Новинки")
+                AppSectionHeader("Новинки")
             }
         }
 

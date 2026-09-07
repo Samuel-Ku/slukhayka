@@ -15,7 +15,7 @@ import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.data.source.GlobalSearchSource
-import com.slukhayka.audiobooks.ui.screens.CatalogRowHeader
+import com.slukhayka.audiobooks.ui.components.AppSectionHeader
 import com.slukhayka.audiobooks.ui.screens.CollectionBookCard
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
@@ -37,7 +37,7 @@ import org.robolectric.annotation.GraphicsMode
  */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
-@Config(qualifiers = RobolectricDeviceQualifiers.Pixel8, sdk = [36])
+@Config(qualifiers = "uk-rUA-" + RobolectricDeviceQualifiers.Pixel8, sdk = [36])
 class CollectionsBlockSnapshotTest {
 
     @get:Rule
@@ -66,7 +66,7 @@ class CollectionsBlockSnapshotTest {
             AudiobookTheme(darkTheme = true) {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     Column {
-                        CatalogRowHeader(title = "Нобелівські лауреати")
+                        AppSectionHeader(title = "Нобелівські лауреати")
                         LazyRow(
                             contentPadding = PaddingValues(horizontal = 16.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -90,7 +90,7 @@ class CollectionsBlockSnapshotTest {
             AudiobookTheme(darkTheme = true) {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     Column {
-                        CatalogRowHeader(title = "Букер")
+                        AppSectionHeader(title = "Букер")
                         CollectionBookCard(result = results.first(), onClick = {})
                     }
                 }

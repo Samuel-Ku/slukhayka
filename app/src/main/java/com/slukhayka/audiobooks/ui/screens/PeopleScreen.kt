@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.data.catalog.CatalogPerson
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.ui.MainViewModel
+import com.slukhayka.audiobooks.ui.components.BookRow
 import com.slukhayka.audiobooks.ui.components.IndexScreenScaffold
 import com.slukhayka.audiobooks.ui.components.SecondaryLoadingState
 import com.slukhayka.audiobooks.ui.components.SecondaryMessageState
@@ -105,7 +106,7 @@ fun PeopleContent(
     LazyColumn(
         state = listState,
         modifier = modifier.testTag("people_screen"),
-        contentPadding = PaddingValues(bottom = 120.dp, top = 8.dp)
+        contentPadding = PaddingValues(bottom = AppDimens.SpaceAboveMiniPlayer, top = 8.dp)
     ) {
         when {
             isLoading -> {
@@ -151,9 +152,43 @@ fun PeopleContent(
                     )
                 }
                 items(people, key = { it.path }) { person ->
-                    PersonRow(
-                        person = person,
+                    // v1.4 C3 (ADR-0033): the canonical flat row — avatar in
+                    // the leading slot, count in the trailing slot, divider
+                    // instead of a card border.
+                    BookRow(
+                        title = person.name,
                         onClick = { onPersonClick(person) },
+                        leading = {
+                            Box(
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Person,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        },
+                        trailing = {
+                            Text(
+                                text = "${person.bookCount} ${ukPlural(person.bookCount, "книга", "книги", "книг")}",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Icon(
+                                imageVector = Icons.Default.ChevronRight,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        },
+                        testTag = "person_${person.path.hashCode()}",
                         modifier = if (person.path == restoreFocusPersonPath) {
                             Modifier.focusRequester(returnFocusRequester)
                         } else {
@@ -162,76 +197,6 @@ fun PeopleContent(
                     )
                 }
             }
-        }
-    }
-}
-
-/** One person: avatar-initial, name and book count. */
-@Composable
-fun PersonRow(
-    person: CatalogPerson,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp)
-            .defaultMinSize(minHeight = 48.dp)
-            .clip(RoundedCornerShape(AppDimens.RadiusCardLg))
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(AppDimens.RadiusCardLg))
-            .clickable { onClick() }
-            .semantics(mergeDescendants = true) { }
-            .testTag("person_${person.path.hashCode()}"),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Person,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-
-            Spacer(modifier = Modifier.width(12.dp))
-
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = person.name,
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-            }
-
-            Text(
-                text = "${person.bookCount} ${ukPlural(person.bookCount, "книга", "книги", "книг")}",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            Spacer(modifier = Modifier.width(4.dp))
-
-            Icon(
-                imageVector = Icons.Default.ChevronRight,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(20.dp)
-            )
         }
     }
 }

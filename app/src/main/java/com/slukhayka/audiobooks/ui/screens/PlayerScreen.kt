@@ -890,7 +890,8 @@ private fun PlayerTopBar(
         }
         Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
-                text = "ЗАРАЗ ЗВУЧИТЬ",
+                // v1.4 (ADR-0033): the overline rides resources, not code.
+                text = stringResource(R.string.player_now_playing),
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onBackground
@@ -911,7 +912,14 @@ private fun PlayerTopBar(
             }
             DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
                 DropdownMenuItem(
-                    text = { Text(if (isFavorite) "Прибрати з обраного" else "Додати в обране") },
+                    text = {
+                        Text(
+                            stringResource(
+                                if (isFavorite) R.string.player_favorite_remove
+                                else R.string.player_favorite_add
+                            )
+                        )
+                    },
                     leadingIcon = { Icon(if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder, null) },
                     onClick = { onToggleFavorite(); showMenu = false }
                 )

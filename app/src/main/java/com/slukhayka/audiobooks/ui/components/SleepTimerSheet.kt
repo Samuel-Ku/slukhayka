@@ -45,23 +45,27 @@ fun SleepTimerSheet(
     onExtendTimer: () -> Unit = {},
     onDismiss: () -> Unit
 ) {
+    // v1.4 (ADR-0033): the option labels ride resources, not code.
     val options = listOf(
-        0 to "Вимкнено",
-        -1 to "До кінця розділу",
-        5 to "5 хвилин",
-        15 to "15 хвилин",
-        30 to "30 хвилин",
-        45 to "45 хвилин",
-        60 to "60 хвилин",
-        90 to "90 хвилин"
+        0 to stringResource(R.string.timer_off),
+        -1 to stringResource(R.string.timer_until_chapter_end),
+        5 to stringResource(R.string.timer_minutes, 5),
+        15 to stringResource(R.string.timer_minutes, 15),
+        30 to stringResource(R.string.timer_minutes, 30),
+        45 to stringResource(R.string.timer_minutes, 45),
+        60 to stringResource(R.string.timer_minutes, 60),
+        90 to stringResource(R.string.timer_minutes, 90)
     )
     val headingFocusRequester = remember { FocusRequester() }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val paneTitle = stringResource(R.string.a11y_timer_pane)
     val closeDescription = stringResource(R.string.a11y_timer_close)
     val extendDescription = stringResource(R.string.a11y_timer_extend)
+    val activeLabel = stringResource(R.string.timer_active)
+    val chapterEndCountdown = stringResource(R.string.timer_until_chapter_end_countdown, remainingSeconds / 60, remainingSeconds % 60)
+    val remainingCountdown = stringResource(R.string.timer_remaining_countdown, remainingSeconds / 60, remainingSeconds % 60)
     val currentMode = options.firstOrNull { it.first == currentTimerMinutes }?.second
-        ?: if (remainingSeconds > 0) "Таймер активний" else options.first().second
+        ?: if (remainingSeconds > 0) activeLabel else options.first().second
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -108,11 +112,8 @@ fun SleepTimerSheet(
                             .testTag("sleep_timer_heading")
                     )
                     if (remainingSeconds > 0) {
-                        val min = remainingSeconds / 60
-                        val sec = remainingSeconds % 60
                         Text(
-                            text = if (isEndOfChapter) "До кінця розділу: %d:%02d".format(min, sec)
-                            else "Залишилось: %d:%02d".format(min, sec),
+                            text = if (isEndOfChapter) chapterEndCountdown else remainingCountdown,
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.primary,
                             modifier = Modifier

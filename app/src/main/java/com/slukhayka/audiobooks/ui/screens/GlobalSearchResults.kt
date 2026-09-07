@@ -54,6 +54,7 @@ import com.slukhayka.audiobooks.ui.catalog.CatalogCardAction
 import com.slukhayka.audiobooks.ui.catalog.CatalogCardActionState
 import com.slukhayka.audiobooks.ui.catalog.CatalogBrowserFocusReturn
 import com.slukhayka.audiobooks.ui.components.BookCoverSemantics
+import com.slukhayka.audiobooks.ui.components.CatalogCoverImage
 import com.slukhayka.audiobooks.ui.theme.AppBadgeScrim
 import com.slukhayka.audiobooks.ui.theme.AppBadgeScrimBorder
 import com.slukhayka.audiobooks.ui.theme.AppDimens
@@ -217,107 +218,21 @@ fun UnifiedCatalogCard(
     isDownloaded: Boolean = false,
     onDownload: (() -> Unit)? = null
 ) {
-    LaunchedEffect(result.key) { onPreflight() }
-    Column(modifier = modifier.width(120.dp)) {
-      Box {
-       Column(
-        modifier = Modifier
-            .width(120.dp)
-            .clickable(onClick = onClick)
-            .semantics { contentDescription = "Відкрити книгу: ${result.title}" }
-            .testTag("unified_catalog_${result.key}"),
-        horizontalAlignment = Alignment.CenterHorizontally
-       ) {
-        Box {
-            CatalogCoverImage(
-                coverImageUrl = result.coverImageUrl,
-                title = result.title,
-                semantics = BookCoverSemantics.Decorative,
-                modifier = Modifier
-                    .width(120.dp)
-                    .height(168.dp)
-                    .clip(RoundedCornerShape(AppDimens.RadiusCardLg))
-            )
-            if (downloadAllowed && onDownload != null) {
-                val progress = downloadProgress
-                if (progress != null) {
-                    // Downloading: a thin progress bar along the cover's bottom
-                    // edge. The card recomposes as chapters complete (the
-                    // repository writes downloadProgress per chapter).
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .fillMaxWidth()
-                            .height(4.dp)
-                            .clip(RoundedCornerShape(AppDimens.RadiusXs))
-                            .background(MaterialTheme.colorScheme.surfaceContainerHighest)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth(progress.coerceIn(0f, 1f))
-                                .height(4.dp)
-                                .background(MaterialTheme.colorScheme.primary)
-                        )
-                    }
-                } else {
-                    IconButton(
-                        onClick = onDownload,
-                        modifier = Modifier
-                            .align(Alignment.BottomEnd)
-                            .size(AppDimens.TouchTarget)
-                            .clip(RoundedCornerShape(AppDimens.RadiusXs))
-                            // Spec-22 T2: solid badge scrim over the cover — a
-                            // translucent wash lost contrast on light artwork.
-                            .background(AppBadgeScrim)
-                            .border(1.dp, AppBadgeScrimBorder, RoundedCornerShape(AppDimens.RadiusXs))
-                            .testTag("unified_catalog_download_${result.key}")
-                    ) {
-                        Icon(
-                            imageVector = if (isDownloaded) Icons.Default.CloudDone else Icons.Default.CloudDownload,
-                            contentDescription = stringResource(
-                                if (isDownloaded) R.string.a11y_downloaded_work else R.string.a11y_download_work,
-                                result.title
-                            ),
-                            tint = if (isDownloaded) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-                }
-            }
-        }
-        Spacer(modifier = Modifier.height(6.dp))
-        Text(
-            text = result.title,
-            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth()
-        )
-        if (result.author.isNotBlank()) {
-            Text(
-                text = result.author,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth()
-            )
-        }
-        if (result.sources.isNotEmpty()) {
-            Spacer(modifier = Modifier.height(4.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(AppDimens.SpaceXs)) {
-                result.sources.forEach { source ->
-                    SourceBadgePill(label = source.sourceName)
-                }
-            }
-        }
-       }
-      }
-      CatalogCardStatus(result.key, actionState, onOpenBrowser)
-    }
+    // v1.4 C2 (ADR-0033): the card IS the canonical PosterCard — its old
+    // body (a second 120×168 implementation) is gone. Provenance badges per
+    // source render at the row level through the same slot contract.
+    com.slukhayka.audiobooks.ui.components.PosterCard(
+        result = result,
+        onClick = onClick,
+        modifier = modifier,
+        onDownload = onDownload,
+        downloadAllowed = downloadAllowed,
+        downloadProgress = downloadProgress,
+        isDownloaded = isDownloaded,
+        preflightKey = result.key,
+        onPreflight = onPreflight,
+        actionHost = { CatalogCardStatus(result.key, actionState, onOpenBrowser) }
+    )
 }
 
 @Composable

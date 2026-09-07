@@ -568,7 +568,7 @@ fun BookDetailScreen(
                 .padding(padding)
                 .accessibilityPane(paneTitle)
                 .testTag("book_detail_screen"),
-            contentPadding = PaddingValues(bottom = 120.dp)
+            contentPadding = PaddingValues(bottom = AppDimens.SpaceAboveMiniPlayer)
         ) {
             // Book Header Section
             item {

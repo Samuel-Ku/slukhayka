@@ -14,6 +14,7 @@ import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.data.collections.CollectionMatcher
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.ui.MainViewModel
+import com.slukhayka.audiobooks.ui.components.AppSectionHeader
 import com.slukhayka.audiobooks.ui.components.IndexEmptyState
 import com.slukhayka.audiobooks.ui.components.IndexScreenScaffold
 import com.slukhayka.audiobooks.ui.theme.*
@@ -73,12 +74,12 @@ fun CollectionsIndexContent(
 
     LazyColumn(
         modifier = modifier.testTag("collections_index_screen"),
-        contentPadding = PaddingValues(bottom = 120.dp, top = 8.dp)
+        contentPadding = PaddingValues(bottom = AppDimens.SpaceAboveMiniPlayer, top = 8.dp)
     ) {
         collections.forEach { collection ->
             item(key = "header_${collection.id}") {
                 Box(Modifier.semantics(mergeDescendants = true) { heading() }) {
-                    CatalogRowHeader(title = collection.name)
+                    AppSectionHeader(title = collection.name)
                 }
             }
             item(key = "row_${collection.id}") {

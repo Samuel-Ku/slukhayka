@@ -16,6 +16,7 @@ import { sourceNeedsBrowserSession } from './bookPlaybackAvailability'
 import { SOURCE_METADATA, SOURCE_ORDER } from '../worker/sourceMetadata'
 import { rankEditionsForPlayback } from '../worker/workFeed'
 import { useTranslate } from '../i18n/locale'
+import type { DomainStore } from '../local/domain'
 import {
   availableLanguagesOf,
   filterWorksByLanguage,
@@ -42,11 +43,13 @@ function pillStyle(active: boolean): CSSProperties {
 }
 
 /** spec-43/T3+T4 — огляд із перемикачем джерел і пошуком. */
-export function Catalog({ onOpenBook, onPlay, onSaveWork }: {
+export function Catalog({ onOpenBook, onPlay, onSaveWork, domainStore }: {
   onOpenBook: (url: string, source: SourceId) => void
   onPlay: (detail: BookDetail, chapterIndex: number) => Promise<boolean>
   /** #584 W1.2 — «зберегти»: creates the Library Entry for this Work. */
   onSaveWork?: (work: UnifiedWork, edition: UnifiedEdition) => void
+  /** #584 W1.3 — tombstones: a hidden Work never returns to Огляд. */
+  domainStore?: DomainStore
 }) {
   const t = useTranslate()
   const [source, setSource] = useState<'all' | SourceId>('all')
@@ -64,10 +67,23 @@ export function Catalog({ onOpenBook, onPlay, onSaveWork }: {
   const [contentLanguages, setContentLanguages] = useState<string[]>(() => loadContentLanguagePrefs())
   const applyLanguages = (next: string[]): void => setContentLanguages(saveContentLanguagePrefs(next))
   const loadMoreMarker = useRef<HTMLDivElement | null>(null)
+  // #584 W1.3 — the listener's deliberate hides: a tombstoned Work never
+  // re-enters discovery, whatever the catalog refresh brings back.
+  const [tombstoned, setTombstoned] = useState<ReadonlySet<string>>(new Set())
 
-  const visibleWorks = filterWorksByLanguage(works ?? [], contentLanguages)
-  const visibleSearch = filterWorksByLanguage(searchWorks ?? [], contentLanguages)
+  const visibleWorks = filterWorksByLanguage((works ?? []).filter((work) => !tombstoned.has(work.mergeKey)), contentLanguages)
+  const visibleSearch = filterWorksByLanguage((searchWorks ?? []).filter((work) => !tombstoned.has(work.mergeKey)), contentLanguages)
   const languageOptions = availableLanguagesOf([...(works ?? []), ...(searchWorks ?? [])], contentLanguages)
+
+  useEffect(() => {
+    // The tombstone read rides the same trigger as the feed, so a hide made
+    // in Медіатека is honored the next time Огляд renders.
+    let tombstonesAlive = true
+    void domainStore?.tombstones().then((rows) => {
+      if (tombstonesAlive) setTombstoned(new Set(rows.map((row) => row.mergeKey)))
+    })
+    return () => { tombstonesAlive = false }
+  }, [domainStore])
 
   useEffect(() => {
     if (query.trim().length >= 2) return

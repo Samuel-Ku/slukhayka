@@ -128,7 +128,7 @@ describe('Library', () => {
     expect(screen.getByText('У цьому фільтрі нічого.')).toBeTruthy()
   })
 
-  it('deletes through three levels: ⋮ → red item → scope confirmation → tombstone', async () => {
+  it('tier 1 — «прибрати з медіатеки» cascades immediately from the options sheet', async () => {
     const user = userEvent.setup()
     const domain = new DomainStore()
     const links = new EditionLinkStore()
@@ -142,19 +142,17 @@ describe('Library', () => {
     render(<Library domainStore={domain} linkStore={links} listening={listening} pushAfterChange={push} />)
     expect(await screen.findByText('Заяць')).toBeTruthy()
 
-    // Level 1: the row's ⋮ action (rare actions live in secondary menus).
+    // Tier 1: the row's ⋮ action opens the options sheet (Android's flow).
     await user.click(screen.getByRole('button', { name: 'Дії з книгою: Заяць' }))
-    // Level 2: the red, explicitly-labelled menu item.
-    const menuItem = screen.getByRole('menuitem', { name: 'Видалити з Медіатеки…' })
-    expect(menuItem.className).toContain('danger')
-    await user.click(menuItem)
-    // Level 3: the confirmation quotes the exact scope (count + what is wiped).
-    expect(screen.getByRole('alertdialog')).toBeTruthy()
-    expect(screen.getByText(/Точна сфера: 1 книга «Заяць»/)).toBeTruthy()
-    expect(screen.getByText(/Позицій прослуховування: 1/)).toBeTruthy()
-    expect(screen.getByText(/Завантажених файлів немає/)).toBeTruthy()
+    const sheet = screen.getByRole('dialog', { name: 'Видалити «Заяць»' })
+    expect(sheet).toBeTruthy()
+    // The sheet names each tier's consequence before anything happens.
+    expect(screen.getByText('Книга зникне зі списку.')).toBeTruthy()
+    expect(screen.getByText('Повністю видалить книгу і всі її дані. Дію не можна скасувати.')).toBeTruthy()
+    // No downloads on web (the platform ledger) — the downloads tier is absent.
+    expect(screen.queryByText(/завантажену копію/i)).toBeNull()
 
-    await user.click(screen.getByRole('button', { name: 'Видалити' }))
+    await user.click(screen.getByRole('button', { name: /Прибрати «Заяць» з медіатеки/ }))
 
     await waitFor(() => expect(screen.queryByText('Заяць')).toBeNull())
     const relationship = await domain.relationshipOf('заяць|михайло коцюбинський')
@@ -163,6 +161,37 @@ describe('Library', () => {
     expect(await links.linksFor('заяць|михайло коцюбинський')).toEqual([])
     expect(push).toHaveBeenCalledWith('заяць|михайло коцюбинський')
     expect(await screen.findByText(/«Заяць» видалено з Медіатеки\./)).toBeTruthy()
+  })
+
+  it('tier 3 — «видалити та файли» requires the exact-scope confirmation', async () => {
+    const user = userEvent.setup()
+    const domain = new DomainStore()
+    const links = new EditionLinkStore()
+    const listening = new MemoryListeningStore()
+    const push = vi.fn(async () => undefined)
+    await domain.addLibraryEntry({ title: 'Заяць', author: 'Михайло Коцюбинський' })
+    await links.link({ editionId: 'ed-t3', mergeKey: 'заяць|михайло коцюбинський', narrator: '', language: '', durationSeconds: null, chapterDurations: null })
+    // A synthetic downloaded copy: the tier-2 slot and the file-size wording
+    // appear the moment downloads exist (the once-downloads-exist contract).
+    const downloadsOf = () => ({ fileCount: 12, bytes: 2.3 * 1024 * 1024 * 1024 })
+
+    render(<Library domainStore={domain} linkStore={links} listening={listening} pushAfterChange={push} downloadsOf={downloadsOf} />)
+    expect(await screen.findByText('Заяць')).toBeTruthy()
+
+    await user.click(screen.getByRole('button', { name: 'Дії з книгою: Заяць' }))
+    // The downloads tier is real now.
+    expect(screen.getByText(/Видалити завантажену копію «Заяць»/)).toBeTruthy()
+    expect(screen.getByText('Книга зникне зі списку, файли на пристрої лишаться.')).toBeTruthy()
+
+    await user.click(screen.getByRole('button', { name: /Видалити «Заяць» та файли з пристрою/ }))
+    // The exact-scope confirmation quotes count + size (ADR-0014).
+    expect(screen.getByRole('alertdialog')).toBeTruthy()
+    expect(screen.getByText((_, node) => node?.textContent === 'Буде видалено «Заяць» разом із прогресом і завантаженими файлами. Завантажені файли: 12 файлів (2,3 ГБ). Дію не можна скасувати.')).toBeTruthy()
+
+    await user.click(screen.getByRole('button', { name: 'Видалити' }))
+    await waitFor(() => expect(screen.queryByText('Заяць')).toBeNull())
+    expect((await domain.relationshipOf('заяць|михайло коцюбинський'))?.state).toBe('tombstone')
+    expect(push).toHaveBeenCalled()
   })
 
   it('cancelling the confirmation deletes nothing and returns focus to the row', async () => {
@@ -179,14 +208,16 @@ describe('Library', () => {
     expect(await screen.findByText('Лісова пісня')).toBeTruthy()
 
     await user.click(screen.getByRole('button', { name: 'Дії з книгою: Лісова пісня' }))
-    await user.click(screen.getByRole('menuitem', { name: 'Видалити з Медіатеки…' }))
+    // The sheet's heading took focus when it opened.
+    expect(document.activeElement?.textContent).toContain('Видалити «Лісова пісня»')
+    await user.click(screen.getByRole('button', { name: /Видалити «Лісова пісня» та файли з пристрою/ }))
     // The dialog took focus when it opened.
-    expect(document.activeElement?.getAttribute('name') ?? document.activeElement?.textContent).toContain('Видалити')
+    expect(document.activeElement?.textContent).toBe('Видалити')
     await user.click(screen.getByRole('button', { name: 'Скасувати' }))
 
     expect(screen.queryByRole('alertdialog')).toBeNull()
     expect(screen.getByText('Лісова пісня')).toBeTruthy()
-    // The focus-return contract: back to the ⋮ row that opened the dialog.
+    // The focus-return contract: back to the ⋮ row that opened the flow.
     expect(document.activeElement?.getAttribute('aria-label')).toBe('Дії з книгою: Лісова пісня')
     const relationship = await domain.relationshipOf('лісова пісня|леся українка')
     expect(relationship?.state).toBe('entry')

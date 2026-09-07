@@ -243,7 +243,12 @@ export function App({ profile: initialProfile }: { profile: ListenerProfile | nu
         ) : tab === 'listen' ? (
           <EmptyState icon="🎧" message={t('listenStubTitle')} hint={t('listenStubWhat')} />
         ) : tab === 'explore' ? (
-          <Catalog onOpenBook={(url, source) => setBook({ url, source })} onPlay={handlePlay} onSaveWork={handleSaveWork} />
+          <Catalog
+            onOpenBook={(url, source) => setBook({ url, source })}
+            onPlay={handlePlay}
+            onSaveWork={handleSaveWork}
+            domainStore={domainStore}
+          />
         ) : tab === 'library' ? (
           <Library
             domainStore={domainStore}

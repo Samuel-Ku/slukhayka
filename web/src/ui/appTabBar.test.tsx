@@ -56,8 +56,9 @@ describe('App tab bar', () => {
     await waitFor(() => expect(screen.getAllByRole('tab')).toHaveLength(4))
     const tabs = screen.getAllByRole('tab')
     expect(tabs[2]!.getAttribute('aria-selected')).toBe('true')
-    // Медіатека is the W1.2 library screen under its canonical header.
-    expect(screen.getByRole('heading', { level: 1, name: 'Медіатека' })).toBeTruthy()
+    // Медіатека is the W1.2 library screen under its canonical header;
+    // it renders after the IndexedDB boot gate settles.
+    await screen.findByRole('heading', { level: 1, name: 'Медіатека' })
   })
 
   it('ignores a stale tab id from an older release', async () => {

@@ -1,0 +1,115 @@
+name: branch-cleanup
+
+# Авточищення release/* і pr-split/* гілок, які вже повністю поглинув main.
+#
+# Правила (за RELEASE-BRANCH.md):
+#   - pr-split/* видаляється, коли її tip поглинутий main — топологічно
+#     (предок main) або за вмістом (git cherry не знаходить унікальних
+#     патчів: зайві коміти — лише merge-коміти PR).
+#   - release/* додатково вимагає тег v* на лінії гілки: пабліш відбувається
+#     push-ом тега, тому жодна непроанонсована лінія не зникає. Живий лейн
+#     з унікальними комітами (наприклад нотатки релізу перед FF) лишиться.
+#   - Теги й інші префікси (codex/*, fix/*, wip/*, backup/*) не чіпаються.
+#   - Видаляються ЛИШЕ remote-гілки. Локальні refи мейнтейнера (які можуть
+#     нести ще не запушені страхові патчі) робочому процесу невідомі.
+#
+# Сухий запуск: workflow_dispatch із dry_run, або локально DRY_RUN=true.
+
+on:
+  schedule:
+    - cron: "23 2 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Лише показати, що буде видалено (нічого не видаляти)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: branch-cleanup
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Видалити поглинуті release/* та pr-split/* гілки
+        env:
+          DRY_RUN: ${{ inputs.dry_run == true }}
+        run: |
+          set -euo pipefail
+
+          git fetch origin --prune --force
+
+          mapfile -t BRANCHES < <(
+            git for-each-ref refs/remotes/origin --format='%(refname:short)' \
+              | sed 's|^origin/||' \
+              | grep -E '^(release|pr-split)/' || true
+          )
+
+          if [ "${#BRANCHES[@]}" -eq 0 ]; then
+            echo "Немає release/* чи pr-split/* гілок — чистити нічого."
+            exit 0
+          fi
+
+          # Коміти всіх опублікованих релізних тегів v* (archive/* не рахуємо).
+          TAG_COMMITS=$(git for-each-ref 'refs/tags/v*' --format='%(refname:short)' \
+            | while read -r T; do git rev-parse "$T^{commit}" 2>/dev/null || true; done \
+            | sort -u)
+
+          deleted=0
+          kept=0
+          SUMMARY=""
+
+          for B in "${BRANCHES[@]}"; do
+            TIP=$(git rev-parse "origin/$B")
+            PREFIX="${B%%/*}"
+
+            # 1) Tip повністю поглинутий main?
+            if git merge-base --is-ancestor "$TIP" origin/main; then
+              ABSORBED=yes
+            else
+              UQ=$(git cherry origin/main "$TIP" | grep -c '^+' || true)
+              if [ "$UQ" -eq 0 ]; then ABSORBED=yes; else ABSORBED=no; fi
+            fi
+
+            # 2) Для release/* — тег v* на лінії цієї гілки?
+            TAGGED=no
+            if [ "$PREFIX" = "release" ]; then
+              for C in $TAG_COMMITS; do
+                if git merge-base --is-ancestor "$C" "$TIP"; then TAGGED=yes; break; fi
+              done
+            else
+              TAGGED="n/a"
+            fi
+
+            if [ "$ABSORBED" = "yes" ] && { [ "$PREFIX" = "pr-split" ] || [ "$TAGGED" = "yes" ]; }; then
+              echo "DELETE $B ($TIP) — поглинутий main, тег: $TAGGED"
+              SUMMARY="${SUMMARY}- \`${B}\` — видалено (поглинутий main, тег: ${TAGGED})"$'\n'
+              if [ "$DRY_RUN" != "true" ]; then
+                git push origin --delete "$B"
+              fi
+              deleted=$((deleted + 1))
+            else
+              echo "KEEP   $B ($TIP) — поглинутий: $ABSORBED, тег: $TAGGED"
+              SUMMARY="${SUMMARY}- \`${B}\` — лишено (поглинутий: ${ABSORBED}, тег: ${TAGGED})"$'\n'
+              kept=$((kept + 1))
+            fi
+          done
+
+          {
+            echo "## branch-cleanup"
+            echo ""
+            echo "Видалено: ${deleted}, лишено: ${kept} (dry-run: ${DRY_RUN})"
+            echo ""
+            echo "$SUMMARY"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo "Готово. Видалено: ${deleted}, лишено: ${kept}."

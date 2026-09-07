@@ -1,9 +1,11 @@
 package com.slukhayka.audiobooks.data.source
 
 import android.util.Log
+import com.slukhayka.audiobooks.data.collections.MiniJson
 import com.slukhayka.audiobooks.data.privacy.BrowserIdentity
 import com.slukhayka.audiobooks.data.privacy.TransportClients
 import com.slukhayka.audiobooks.data.privacy.TransportPrivacy
+import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.schabi.newpipe.extractor.NewPipe
@@ -179,5 +181,116 @@ object NewPipeYouTubeExtractor {
                 )
             }
         }
+    }
+}
+
+/**
+ * The alternate production extractor (ADR-0035 / #603): yt-dlp driven
+ * RESOLVE-ONLY — the binary prints its full JSON (`-J --no-download
+ * --no-playlist`) and the shared pure-JVM [MiniJson] decoder maps the
+ * formats to [AudioStreamSpec]. Bytes are NEVER fetched here: the returned
+ * URL rides the existing download loop / player through the shared
+ * [com.slukhayka.audiobooks.data.privacy.TransportClients] (spec-38 route,
+ * human-rhythm pacing) — the same contract as [NewPipeYouTubeExtractor], so
+ * swapping one engine for the other behind [YouTubeStreamResolver] is a
+ * one-line change. Runs on [Dispatchers.IO]; any failure yields an EMPTY
+ * list — the pure resolver turns it into the honest null (ADR-0019, no
+ * fabricated audio).
+ */
+object YtDlpStreamExtractor {
+
+    /**
+     * Drops `"key": null` pairs BEFORE [MiniJson.parse] — the shared pure
+     * decoder treats a JSON null as a parse error (its `parseValue` returns
+     * null for both `null` and failure), so a document carrying nulls (and
+     * yt-dlp emits `"acodec": null` / `"abr": null` on its HLS and
+     * storyboard formats) would otherwise decode to nothing. The field is
+     * absent after the strip — the format reads treat absence exactly like
+     * null. Three passes cover pair-with-trailing-comma, pair-with-leading-
+     * comma and a lone last pair; a `: null` inside a quoted STRING value is
+     * never matched (the value there is quoted, not bare `null`).
+     */
+    internal fun stripNullFields(json: String): String {
+        val nullField = Regex("\"[A-Za-z0-9_-]+\"\\s*:\\s*null")
+        val trailingComma = Regex("\"[A-Za-z0-9_-]+\"\\s*:\\s*null\\s*,")
+        val leadingComma = Regex(",\\s*\"[A-Za-z0-9_-]+\"\\s*:\\s*null")
+        val lone = nullField
+        // Repeated until stable: a pair once trailing-comma-stripped may leave
+        // a new leading-comma neighbour, and vice versa.
+        var text = json
+        var changed = true
+        while (changed) {
+            changed = false
+            val a = trailingComma.replace(text, "")
+            val b = leadingComma.replace(a, "")
+            val c = lone.replace(b, "")
+            if (c != text) { text = c; changed = true }
+        }
+        return text
+    }
+
+    /**
+     * Parses one `yt-dlp -J` document into audio candidates. Pure JVM,
+     * fixture-tested from a REAL capture (2026-09-07, ozaZXk5Qcwc).
+     * Audio-only formats only: a format whose `vcodec` is not `none` (a
+     * video+audio file) or that carries NO audio codec (storyboard
+     * mhtml stubs, HLS audio shells) is never an audio stream this
+     * resolver picks.
+     */
+    fun parseFormats(ytDlpJson: String): List<AudioStreamSpec> {
+        val root = MiniJson.parse(stripNullFields(ytDlpJson)) as? Map<*, *> ?: return emptyList()
+        val formats = root["formats"] as? List<*> ?: return emptyList()
+        return formats.mapNotNull { item ->
+            val format = item as? Map<*, *> ?: return@mapNotNull null
+            val url = format["url"] as? String ?: return@mapNotNull null
+            if (url.isBlank() || !url.startsWith("http")) return@mapNotNull null
+            val vcodec = format["vcodec"] as? String ?: return@mapNotNull null
+            val acodec = format["acodec"] as? String ?: return@mapNotNull null
+            if (vcodec != "none" || acodec.isEmpty() || acodec == "none") return@mapNotNull null
+            val protocol = (format["protocol"] as? String).orEmpty()
+            val ext = (format["ext"] as? String).orEmpty().lowercase(Locale.ROOT)
+            val bitrate = (format["abr"] as? Double)?.toInt() ?: 0
+            AudioStreamSpec(
+                url = url,
+                isM4a = ext == "m4a",
+                isDirectUrl = protocol == "https" || protocol == "http",
+                bitrateKbps = bitrate
+            )
+        }
+    }
+
+    /** Extracts via the real `yt-dlp` binary (resolve-only JSON). */
+    suspend fun extract(watchUrl: String): List<AudioStreamSpec> =
+        extract(watchUrl, ::runYtDlpJson)
+
+    /**
+     * The seam-tested path: an injected launcher supplies the `-J` JSON, so
+     * the extract/parse flow is JVM-testable without a binary on CI.
+     */
+    suspend fun extract(
+        watchUrl: String,
+        launcher: suspend (String) -> String?
+    ): List<AudioStreamSpec> = withContext(Dispatchers.IO) {
+        val json = runCatching { launcher(watchUrl) }.getOrNull() ?: return@withContext emptyList()
+        parseFormats(json)
+    }
+
+    /**
+     * Runs `yt-dlp -J --no-download --no-playlist <url>` and returns stdout,
+     * or null on any failure (missing binary, network, non-zero exit). The
+     * signed stream URLs in the JSON expire (~6h) — callers re-resolve per
+     * use, never cache (the same rule as NewPipe).
+     */
+    private suspend fun runYtDlpJson(watchUrl: String): String? = try {
+        val process = ProcessBuilder(
+            "yt-dlp", "-J", "--no-download", "--no-playlist", "--no-warnings", watchUrl
+        ).redirectErrorStream(true).start()
+        val output = process.inputStream.bufferedReader().use { it.readText() }
+        if (process.waitFor() != 0) null else output
+    } catch (e: kotlinx.coroutines.CancellationException) {
+        throw e
+    } catch (t: Throwable) {
+        Log.w("YtDlpExtractor", "yt-dlp failed for $watchUrl", t)
+        null
     }
 }

@@ -50,8 +50,8 @@ describe('EditionLinkStore', () => {
     await expect(store.link({ editionId: 'e', mergeKey: 'm', narrator: '', language: '', durationSeconds: null, chapterDurations: null })).resolves.toBeUndefined()
   })
 
-  it('the schema carries the edition_links store at v2', () => {
-    expect(LISTENER_DB_VERSION).toBe(2)
+  it('the schema carries the edition_links store (v3 adds listen_prefs)', () => {
+    expect(LISTENER_DB_VERSION).toBe(3)
     expect(LISTENER_STORES.some((spec) => spec.name === EDITION_LINKS_STORE)).toBe(true)
   })
 })

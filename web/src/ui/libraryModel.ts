@@ -33,6 +33,9 @@ export interface LibraryBookView {
   lastListenedAt: number | null
   /** Narration of the edition the progress belongs to (Edition-owned, CONTEXT.md). */
   narrator: string
+  /** Real wall-clock totals when chapter durations are known; else absent (ADR-0014). */
+  totalSeconds?: number
+  cumulativeSeconds?: number
 }
 
 /**
@@ -73,6 +76,18 @@ export function buildLibraryViews(
       .sort((a, b) => (byEdition.get(b.editionId)!.lastPausedAtEpochMs ?? 0) - (byEdition.get(a.editionId)!.lastPausedAtEpochMs ?? 0))
     const link = withSnapshots[0] ?? candidates.sort((a, b) => b.updatedAt - a.updatedAt)[0]
     const snapshot = link === undefined ? null : byEdition.get(link.editionId) ?? null
+    // The real wall-clock totals (ADR-0014): only when every chapter declared
+    // a duration — the same honesty bar as the progress hairline.
+    const chapterDurations = link?.chapterDurations ?? null
+    const durationsKnown = chapterDurations !== null && chapterDurations.length > 0
+    const totalSeconds = durationsKnown
+      ? chapterDurations!.reduce((sum, seconds) => sum + seconds, 0)
+      : link?.durationSeconds ?? undefined
+    const cumulativeSeconds =
+      snapshot === null || !durationsKnown
+        ? undefined
+        : chapterDurations!.slice(0, Math.min(snapshot.chapterIndex, chapterDurations!.length)).reduce((sum, seconds) => sum + seconds, 0) +
+          snapshot.positionSeconds
     return {
       mergeKey: entry.mergeKey,
       title: entry.title,
@@ -85,6 +100,8 @@ export function buildLibraryViews(
           : cumulativeFraction(snapshot, link.chapterDurations),
       lastListenedAt: snapshot?.lastPausedAtEpochMs ?? null,
       narrator: link?.narrator ?? '',
+      totalSeconds,
+      cumulativeSeconds,
     }
   })
 }

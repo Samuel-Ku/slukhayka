@@ -13,6 +13,7 @@ export const WORKS_STORE = 'works'
 export const WORK_RELATIONSHIPS_STORE = 'work_relationships'
 export const PERSON_BOOKMARKS_STORE = 'person_bookmarks'
 export const EDITION_LINKS_STORE = 'edition_links'
+export const LISTEN_PREFS_STORE = 'listen_prefs'
 
 /**
  * #584 W1.2 — v2 adds `edition_links`: the local mergeKey → Edition join
@@ -41,7 +42,8 @@ export const LISTENER_STORES: StoreSpec[] = [
   { name: WORK_RELATIONSHIPS_STORE, keyPath: 'mergeKey' },
   { name: PERSON_BOOKMARKS_STORE, keyPath: 'personId' },
   { name: EDITION_LINKS_STORE, keyPath: 'editionId' },
+  { name: LISTEN_PREFS_STORE, keyPath: 'id' },
 ]
 
 /** The current database version — bump when LISTENER_STORES grows. */
-export const LISTENER_DB_VERSION = 2
+export const LISTENER_DB_VERSION = 3

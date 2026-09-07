@@ -309,6 +309,12 @@ interface AudiobookDao {
     @Query("DELETE FROM source_tracks WHERE sourceId = :sourceId")
     suspend fun deleteTracksForSource(sourceId: String)
 
+    @Query("SELECT * FROM sources WHERE id = :sourceId LIMIT 1")
+    suspend fun getSourceById(sourceId: String): SourceEntity?
+
+    @Query("SELECT * FROM sources WHERE url = :url LIMIT 1")
+    suspend fun getSourceByUrl(url: String): SourceEntity?
+
     // --- Domain Editions (ADR-0007) ---
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)

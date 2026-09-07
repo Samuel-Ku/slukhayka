@@ -576,6 +576,12 @@ class FakeAudiobookDao(
     override fun getSourcesForBook(bookId: String): Flow<List<SourceEntity>> =
         sourcesState.map { sources -> sources.filter { it.bookId == bookId }.sortedBy { it.addedAt } }
 
+    override suspend fun getSourceById(sourceId: String): SourceEntity? =
+        sourcesState.value.firstOrNull { it.id == sourceId }
+
+    override suspend fun getSourceByUrl(url: String): SourceEntity? =
+        sourcesState.value.firstOrNull { it.url == url }
+
     override suspend fun getSourcesForBookSync(bookId: String): List<SourceEntity> =
         sourcesState.value.filter { it.bookId == bookId }.sortedBy { it.addedAt }
 

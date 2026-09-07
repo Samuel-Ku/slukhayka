@@ -264,6 +264,22 @@ object YtDlpStreamExtractor {
         extract(watchUrl, ::runYtDlpJson)
 
     /**
+     * Fetches the flat-playlist metadata JSON of a submitted link (single
+     * video or playlist) — `-J --flat-playlist` returns the title (and, for a
+     * playlist, its ordered entries with titles + URLs) WITHOUT fetching each
+     * video's formats. This is the [LibraryImport.importSubmittedYouTube]
+     * input: title + entries are the observed identity and chapter list
+     * (ADR-0035 / #604). Resolve-only: no bytes are downloaded.
+     */
+    suspend fun fetchMetadataJson(url: String): String? = fetchMetadataJson(url, ::runFlatPlaylistJson)
+
+    /** The seam-tested path: an injected launcher supplies the metadata JSON. */
+    suspend fun fetchMetadataJson(url: String, launcher: suspend (String) -> String?): String? =
+        withContext(Dispatchers.IO) {
+            runCatching { launcher(url) }.getOrNull()
+        }
+
+    /**
      * The seam-tested path: an injected launcher supplies the `-J` JSON, so
      * the extract/parse flow is JVM-testable without a binary on CI.
      */
@@ -291,6 +307,19 @@ object YtDlpStreamExtractor {
         throw e
     } catch (t: Throwable) {
         Log.w("YtDlpExtractor", "yt-dlp failed for $watchUrl", t)
+        null
+    }
+
+    private suspend fun runFlatPlaylistJson(url: String): String? = try {
+        val process = ProcessBuilder(
+            "yt-dlp", "-J", "--flat-playlist", "--no-download", "--no-warnings", url
+        ).redirectErrorStream(true).start()
+        val output = process.inputStream.bufferedReader().use { it.readText() }
+        if (process.waitFor() != 0) null else output
+    } catch (e: kotlinx.coroutines.CancellationException) {
+        throw e
+    } catch (t: Throwable) {
+        Log.w("YtDlpExtractor", "yt-dlp metadata failed for $url", t)
         null
     }
 }

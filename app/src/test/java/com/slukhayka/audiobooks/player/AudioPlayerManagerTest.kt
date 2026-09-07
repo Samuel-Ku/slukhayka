@@ -733,6 +733,20 @@ class AudioPlayerManagerTest {
     }
 
     @Test
+    fun `unknown duration does not finish a playing book`() {
+        val prompts = mutableListOf<String>()
+        playerTest(onBookCompleted = prompts::add) { manager, factory ->
+            val unknown = chapters.last().copy(durationSeconds = 0L)
+            manager.loadAndPlayBook(book, listOf(unknown), playable = listOf(playable.last().copy(chapter = unknown)), autoPlay = true)
+            factory.current.simulateReady(0L)
+            dispatcher.scheduler.advanceTimeBy(2_000L)
+            dispatcher.scheduler.runCurrent()
+            assertTrue(prompts.isEmpty())
+            assertTrue(manager.playerState.value.isPlaying)
+        }
+    }
+
+    @Test
     fun `reaching the end of the book records completion exactly once`() {
         val clock = TestClock()
         val prompts = mutableListOf<String>()

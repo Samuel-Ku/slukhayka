@@ -1794,6 +1794,7 @@ class AudioPlayerManager(
     }
 
     private fun onChapterCompleted() {
+        if (_playerState.value.currentChapterIndex !in _playerState.value.chapters.indices) return
         val nextIdx = _playerState.value.currentChapterIndex + 1
         val chapters = _playerState.value.chapters
         if (nextIdx in chapters.indices) {
@@ -1837,7 +1838,7 @@ class AudioPlayerManager(
                         }
                     }
 
-                    if (newPos >= state.durationMs) {
+                    if (state.durationMs > 0L && newPos >= state.durationMs) {
                         onChapterCompleted()
                     } else {
                         _playerState.value = state.copy(currentPositionMs = newPos)

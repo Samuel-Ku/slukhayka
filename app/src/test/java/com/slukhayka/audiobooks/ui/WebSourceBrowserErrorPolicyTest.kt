@@ -45,6 +45,7 @@ class WebSourceBrowserErrorPolicyTest {
     fun cloudflareChallengeRecognizesUrlTitleAndDomMarker() {
         assertTrue(isCloudflareChallenge("https://4read.org/cdn-cgi/challenge-platform/x", "", false))
         assertTrue(isCloudflareChallenge("https://4read.org/book", "Just a moment...", false))
+        assertTrue(isCloudflareChallenge("https://4read.org/book", "Attention Required! | Cloudflare", false))
         assertTrue(isCloudflareChallenge("https://4read.org/book", "4read", true))
         assertFalse(isCloudflareChallenge("https://4read.org/book", "Проблема з миром", false))
     }

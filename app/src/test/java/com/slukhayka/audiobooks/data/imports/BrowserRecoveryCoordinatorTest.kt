@@ -465,7 +465,7 @@ class BrowserRecoveryCoordinatorTest {
     }
 
     @Test
-    fun `search fallback url is generated when exact source url missing`() = runBlocking {
+    fun `saved book page is used when source row is missing`() = runBlocking {
         val original = detail(title = "Кобзар", author = "Тарас Шевченко", chapters = listOf("Глава 1" to "https://s1.reasd.org/kobzar/old1.mp3"))
         val bookId = seedBook(original)
 
@@ -478,10 +478,10 @@ class BrowserRecoveryCoordinatorTest {
         // Should be exact source URL when present
         assertEquals("https://4read.org/kobzar.html", entryUrl)
 
-        // Delete the source to simulate missing URL
+        // A catalogue row retains its page even before a Source is materialized.
         dao.deleteSourcesForBook(bookId)
         val fallback = BrowserRecoveryCoordinator.recoveryEntryUrl(dao, bookId)
-        assertTrue(fallback.contains("search"))
+        assertEquals("https://4read.org/kobzar.html", fallback)
     }
 
     @Test

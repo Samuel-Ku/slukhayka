@@ -9,12 +9,14 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { Settings } from './Settings'
+import { setUiLocale } from '../i18n/locale'
 import type { ListenerProfile } from '../identity/listenerIdentity'
 
 const localProfile: ListenerProfile = { uid: 'local-abc123', nickname: 'Слухач-1' }
 const boundProfile: ListenerProfile = { uid: 'uid-xyz789', nickname: 'Слухач-1' }
 
 beforeEach(() => {
+  setUiLocale('uk')
   window.localStorage.clear()
 })
 

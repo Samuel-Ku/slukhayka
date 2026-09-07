@@ -36,4 +36,10 @@ object AppDimens {
 
     // Touch targets (Android accessibility: ≥ 48 dp)
     val TouchTarget = 48.dp
+
+    // v1.4 C5 (ADR-0033): the ONE clearance above the persistent mini player.
+    // Scrollable content pads its bottom by this token instead of a scattered
+    // hardcoded 120 dp — a mini-player height change edits one line, not a
+    // dozen screens.
+    val SpaceAboveMiniPlayer = 120.dp
 }

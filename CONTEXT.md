@@ -145,8 +145,8 @@ The rule that one listener's Listening State mirrors across that listener's own 
 _Avoid_: backup, history upload, library sync
 
 **Web Client**:
-The browser surface of Слухайка — installable to the iOS home screen — where a listener browses the Source Catalog, plays Editions, and keeps a Listening State exactly like any other device. There is one listener relationship model across platforms; the Web Client introduces no second kind of profile.
-_Avoid_: mobile site, native iOS app, companion viewer
+The browser surface of Слухайка — installable to the iOS home screen — where a listener browses the Source Catalog, plays Editions, and keeps a Listening State exactly like any other device. There is one listener relationship model across platforms; the Web Client introduces no second kind of profile. Surface parity with Android is the standing bar (ADR-0034): the same screens, the same canonical component vocabulary (React equivalents of the v1.4 system — never a web-second vocabulary), and the same data after deliberate linking; mechanically impossible platform differences are recorded honestly in the delivery spec's delta ledger, never papered over.
+_Avoid_: mobile site, native iOS app, companion viewer, a web-only second vocabulary
 
 **Listener Review**:
 The one shared review («Відгук») a listener may leave per Work — a required 1–5 star rating plus optional bounded text and an optional narration tag (`editionTag`). Anchored at the Work mergeKey like Canonical covers; document identity `workId_uid` in the shared base's `book_reviews` collection makes double-voting impossible by construction. The headline score above the cards is the honest flat average over every source WITH a rating and every review (ADR-0022); a source's own ★ stays a separate row. A source page's visitors' comments are NOT reviews — they render as a plainly-labelled simple subblock, never mixed into community cards.
@@ -296,6 +296,24 @@ _Avoid_: duplicated collection behaviour, new collection data source
 **Content Language Preference**:
 The local-only set of content languages shown in discovery: «обидві ввімкнені» by default, an empty selection means ALL, and a card is hidden only when every Edition of its Work carries a known language outside the selection. Rows with an unknown language stay visible under any selection (US17, ADR-0029). Android: `ContentLanguagePrefs` → `SourceCatalog.contentLanguageSelection` plus the «Мови контенту» destination and the «Мова» chip. Web: `contentLanguagePrefs.filterWorksByLanguage` plus chips that offer only languages with actual content. It never syncs and never touches Listening State.
 _Avoid_: server-side preference, hiding unknown-language rows, an all-off state
+
+## v1.4 UI consistency (spec-27, ADR-0033)
+
+**Canonical UI Components**:
+The enforced code-level vocabulary of v1.4: one `PosterCard` (120×168 portrait with slots for author/duration/progress/caption/dismiss/download), one landscape `CycleCard`, one flat `BookRow` (64 dp cover, hairline progress, divider not border), one non-interactive `MetadataChip` (language/source/plain slots), two-level section headers (group + section with optional action/count) and two canonical empty/loading states. They replace the earlier twin implementations (`CatalogBookCard`, `UnifiedCatalogCard`, `CollectionBookCard`, `LanguageBadge`, `SourceBadgePill`, `TagPill`, `OverviewGroupHeader`, `CatalogRowHeader`, `IndexEmptyState`, …), which are deleted, not deprecated. The a11y contracts (panes, headings, 48 dp targets, focus-restore) live inside the components as mandatory behavior.
+_Avoid_: per-screen card/chip/header reinventions, a fourth card type, dead canonical components referenced only by tests
+
+**Shelf Management**:
+The one «Керувати полицями» sheet on «Слухати» that owns reorder, hide and restore for the eight blocks (ADR-0015's mechanics, one chrome entry). It replaces the per-block ⋮ menus.
+_Avoid_: eight identical ⋮ menus, hiding the manage entry inside a destination screen
+
+**One Feedback Door**:
+The book page's single entry to listener feedback: the «Відгуки» block (stars + text + narration tag). The post-completion prompt (ADR-0032) opens the same form automatically; the former «Ваші враження» button after the chapter list is gone.
+_Avoid_: two competing feedback entries, an entry that bypasses the shared form
+
+**Collapsible Search Pattern**:
+The one tab-header search gesture (🔍 in the tab header expands the field; ✕ or Back collapses and clears), shared by Огляд and Медіатека. A tab never grows a second, always-visible search field.
+_Avoid_: two search patterns on sibling tabs, search as a chrome row above the fold
 
 ## UX principles (spec-27)
 

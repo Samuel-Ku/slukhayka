@@ -8,6 +8,7 @@
   --fg-dim: #9a9a9a;
   --accent: #7fa8d9;
   --accent-contrast: #000;
+  --bad: #e57373;
 }
 
 * {
@@ -435,4 +436,85 @@ span.bookrow-body {
 .settings-row-chevron {
   color: var(--fg-dim);
   font-size: 20px;
+}
+
+/* --- #584 W1.2: Медіатека row menu and the deletion confirmation ---------- */
+
+.lib-menu {
+  display: flex;
+  flex-direction: column;
+  margin: 4px 0 8px;
+}
+
+.lib-menu button {
+  min-height: 48px;
+  text-align: left;
+  padding: 8px 12px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+
+.lib-menu .lib-menu-danger {
+  color: var(--bad);
+  border-color: var(--bad);
+}
+
+.lib-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgb(0 0 0 / 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  z-index: 30;
+}
+
+.lib-dialog {
+  width: 100%;
+  max-width: 420px;
+  background: var(--surface-raised);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.lib-dialog-title {
+  margin: 0;
+  font-size: 16px;
+}
+
+.lib-dialog-scope {
+  color: var(--fg-dim);
+  font-size: 14px;
+  margin: 8px 0 0;
+}
+
+.lib-dialog-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+.lib-dialog-actions button {
+  min-height: 48px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+
+/* Destructive actions never look neutral (ADR-0014 UX rules): red, explicit. */
+.lib-dialog-actions .lib-dialog-danger {
+  color: var(--bad);
+  border-color: var(--bad);
+  font-weight: 600;
 }

@@ -19,7 +19,7 @@
  */
 import type { IdbDatabase } from './idb'
 import { openListenerDatabase } from './idb'
-import { LISTENER_STORES, WORKS_STORE, WORK_RELATIONSHIPS_STORE, PERSON_BOOKMARKS_STORE } from './schema'
+import { LISTENER_DB_VERSION, LISTENER_STORES, WORKS_STORE, WORK_RELATIONSHIPS_STORE, PERSON_BOOKMARKS_STORE } from './schema'
 import { mergeKeyFor } from '../sync/edition'
 
 export type WorkRelationshipState = 'entry' | 'tombstone' | 'none'
@@ -84,7 +84,7 @@ export function resolveRelationship(local: WorkRelationshipRow, incoming: WorkRe
 }
 
 function openDomainDatabase(): Promise<IdbDatabase | null> {
-  return openListenerDatabase(1, LISTENER_STORES)
+  return openListenerDatabase(LISTENER_DB_VERSION, LISTENER_STORES)
 }
 
 /** The one store seam for domain data; degrade-never everywhere. */

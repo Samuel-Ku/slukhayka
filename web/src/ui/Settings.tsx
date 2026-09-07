@@ -134,8 +134,9 @@ export function ProfileDirection({ profile: initialProfile, onProfileChange, evi
         <span className="value">{profile.uid}</span>
       </div>
       <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <label style={{ fontSize: 14, fontWeight: 600 }}>{t('restoreCodeLabel')}</label>
+        <label htmlFor="profile-recovery-code" style={{ fontSize: 14, fontWeight: 600 }}>{t('restoreCodeLabel')}</label>
         <input
+          id="profile-recovery-code"
           value={code}
           onChange={(e) => setCode(e.target.value)}
           placeholder="SLK1.…"
@@ -186,19 +187,19 @@ export function Settings({ profile, onProfileChange, evicted = false, onLinked }
   const t = useTranslate()
   const [destination, setDestination] = useState<SettingsDestination | null>(null)
   const rowRefs = useRef(new Map<SettingsDestination, HTMLButtonElement | null>())
-  const destinationWasOpen = useRef(false)
+  // The direction to hand focus back to when the list re-appears.
+  const openedFrom = useRef<SettingsDestination | null>(null)
 
   // The focus-return contract: closing a direction returns focus to the
   // row that opened it (Android's returnDestination → rowFocus).
   useEffect(() => {
     if (destination !== null) {
-      destinationWasOpen.current = true
+      openedFrom.current = destination
       return
     }
-    if (destinationWasOpen.current) {
-      destinationWasOpen.current = false
-      rowRefs.current.get('profile')?.focus()
-    }
+    const origin = openedFrom.current
+    openedFrom.current = null
+    if (origin !== null) rowRefs.current.get(origin)?.focus()
   }, [destination])
 
   if (destination === 'profile') {

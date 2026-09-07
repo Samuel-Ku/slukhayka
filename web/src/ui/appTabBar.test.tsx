@@ -9,6 +9,7 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it } from 'vitest'
 import { App } from '../App'
+import { setUiLocale } from '../i18n/locale'
 import type { ListenerProfile } from '../identity/listenerIdentity'
 
 const profile: ListenerProfile = { uid: 'local-abc123', nickname: 'Слухач-1' }
@@ -16,10 +17,12 @@ const profile: ListenerProfile = { uid: 'local-abc123', nickname: 'Слухач-
 afterEach(() => {
   cleanup()
   window.localStorage.clear()
+  setUiLocale('uk')
 })
 
 describe('App tab bar', () => {
   it('renders the four Android tabs in order and nothing else', async () => {
+    setUiLocale('uk')
     render(<App profile={profile} />)
     await waitFor(() => expect(screen.getAllByRole('tab')).toHaveLength(4))
     const tabs = screen.getAllByRole('tab')
@@ -32,6 +35,7 @@ describe('App tab bar', () => {
   })
 
   it('switches tab content and persists the choice', async () => {
+    setUiLocale('uk')
     const user = userEvent.setup()
     render(<App profile={profile} />)
     await waitFor(() => expect(screen.getAllByRole('tab')).toHaveLength(4))
@@ -46,6 +50,7 @@ describe('App tab bar', () => {
   })
 
   it('restores the persisted selection on remount', async () => {
+    setUiLocale('uk')
     window.localStorage.setItem('slukhayka.selected_tab', 'library')
     render(<App profile={profile} />)
     await waitFor(() => expect(screen.getAllByRole('tab')).toHaveLength(4))
@@ -56,6 +61,7 @@ describe('App tab bar', () => {
   })
 
   it('ignores a stale tab id from an older release', async () => {
+    setUiLocale('uk')
     window.localStorage.setItem('slukhayka.selected_tab', 'profile')
     render(<App profile={profile} />)
     await waitFor(() => expect(screen.getAllByRole('tab')).toHaveLength(4))
@@ -64,7 +70,7 @@ describe('App tab bar', () => {
   })
 
   it('keeps the i18n labels aligned with Android across locales', async () => {
-    window.localStorage.setItem('slukhayka.ui_language', 'en')
+    setUiLocale('en')
     render(<App profile={profile} />)
     await waitFor(() => expect(screen.getAllByRole('tab')).toHaveLength(4))
     expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual(

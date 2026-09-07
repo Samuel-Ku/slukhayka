@@ -89,7 +89,7 @@ object WebViewSessionPrivacy {
     fun lockdownScript(): String = buildString {
         append("(function(){var d=Object.defineProperty,w=window;")
         append("try{d(navigator,'geolocation',{value:void 0,writable:false,configurable:false})}catch(e){}")
-        append(SENSOR_GLOBALS.joinToString(separator = ",") { name -> "try{d(w,'$name',{value:void 0,writable:false,configurable:false})}catch(e){}" })
+        append(SENSOR_GLOBALS.joinToString(separator = ";") { name -> "try{d(w,'$name',{value:void 0,writable:false,configurable:false})}catch(e){}" })
         append("})();")
     }
 

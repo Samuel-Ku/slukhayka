@@ -92,6 +92,7 @@ internal fun isCloudflareChallenge(
     val normalizedTitle = title.orEmpty().trim().lowercase()
     return normalizedTitle == "just a moment..." ||
         normalizedTitle == "just a moment" ||
+        normalizedTitle == "attention required! | cloudflare" ||
         normalizedTitle.contains("security verification")
 }
 
@@ -354,6 +355,7 @@ fun WebSourceBrowserScreen(
                         const fullUrl = targetUrl.startsWith('http') ? targetUrl : (targetUrl.startsWith('/') ? window.location.origin + targetUrl : window.location.origin + '/' + targetUrl);
                         const request = new XMLHttpRequest();
                         request.open('GET', fullUrl, false);
+                        request.setRequestHeader('X-Requested-With', '');
                         request.withCredentials = true;
                         request.send(null);
                         if (request.status !== 200) return '';
@@ -529,6 +531,15 @@ fun WebSourceBrowserScreen(
                 }
             )
     ) {
+        if (recoverySurface == BrowserRecoverySurface.CLOUDFLARE_ONLY) {
+            Text(
+                text = stringResource(R.string.source_verification_notice),
+                modifier = Modifier.padding(16.dp)
+            )
+            TextButton(onClick = onAutomaticRecoveryFailed) {
+                Text(stringResource(R.string.source_verification_return))
+            }
+        }
         if (recoverySurface == BrowserRecoverySurface.FULL_BROWSER) {
         Surface(
             color = MaterialTheme.colorScheme.surface,
@@ -598,7 +609,7 @@ fun WebSourceBrowserScreen(
                                     blockedNavMessage = "Перехід за межі $displayName заблоковано"
                                 } else {
                                     blockedNavMessage = ""
-                                    webViewInstance?.loadUrl(homeUrl)
+                                    webViewInstance?.loadUrl(homeUrl, BrowserIdentity.sourcePageHeaders(sourceId))
                                 }
                             },
                             modifier = Modifier
@@ -704,7 +715,7 @@ fun WebSourceBrowserScreen(
                                 SourceWebViewSession.clear(sourceId)
                                 showClearSessionConfirmation = false
                                 webViewInstance?.clearHistory()
-                                webViewInstance?.loadUrl(homeUrl)
+                                webViewInstance?.loadUrl(homeUrl, BrowserIdentity.sourcePageHeaders(sourceId))
                             }) { Text(stringResource(R.string.profile_source_session_clear_confirm)) }
                         },
                         dismissButton = {
@@ -798,7 +809,7 @@ fun WebSourceBrowserScreen(
                                         } else {
                                             blockedNavMessage = ""
                                             currentWebUrl = target
-                                            webViewInstance?.loadUrl(target)
+                                            webViewInstance?.loadUrl(target, BrowserIdentity.sourcePageHeaders(sourceId))
                                         }
                                     },
                                     modifier = Modifier
@@ -1030,6 +1041,12 @@ fun WebSourceBrowserScreen(
                                     return true
                                 }
                                 blockedNavMessage = ""
+                                if (sourceId == "4read" && request?.isForMainFrame == true &&
+                                    request.method == "GET" && view != null
+                                ) {
+                                    view.loadUrl(url, BrowserIdentity.sourcePageHeaders(sourceId))
+                                    return true
+                                }
                                 return false
                             }
 
@@ -1181,7 +1198,7 @@ fun WebSourceBrowserScreen(
                         }
                         // Spec-42 #427 — programmatic open also through the same allowlist.
                         if (SourceBrowserPolicy.isUrlAllowed(homeUrl, sourceId)) {
-                            loadUrl(homeUrl)
+                            loadUrl(homeUrl, BrowserIdentity.sourcePageHeaders(sourceId))
                         } else {
                             Log.w("WebSource", "Blocked initial load outside allowlist for $sourceId: $homeUrl")
                         }
@@ -1245,7 +1262,7 @@ fun WebSourceBrowserScreen(
                                     hasWebError = false
                                     isLoading = true
                                     webViewInstance?.visibility = android.view.View.VISIBLE
-                                    webViewInstance?.loadUrl(currentWebUrl)
+                                    webViewInstance?.loadUrl(currentWebUrl, BrowserIdentity.sourcePageHeaders(sourceId))
                                 },
                                 shape = RoundedCornerShape(AppDimens.RadiusInner)
                             ) {

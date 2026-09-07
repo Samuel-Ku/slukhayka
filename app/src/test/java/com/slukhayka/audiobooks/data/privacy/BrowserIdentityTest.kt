@@ -13,6 +13,11 @@ import org.junit.Test
  * that fingerprint was the bug SEC-018 removed from the player.
  */
 class BrowserIdentityTest {
+    @Test
+    fun `4read page requests suppress the automatic app identity header`() {
+        assertEquals(mapOf("X-Requested-With" to ""), BrowserIdentity.sourcePageHeaders("4read"))
+        assertTrue(BrowserIdentity.sourcePageHeaders("sluhayua").isEmpty())
+    }
 
     @Test
     fun `before any report the static fallback answers`() {

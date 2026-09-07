@@ -373,10 +373,10 @@ fun PlayerScreen(
                 playerState = playerState,
                 onClose = { showDebugOverlay = false },
                 onRetryPlayback = {
-                    viewModel.playerManager.prepareChapter(
+                    viewModel.togglePlaybackFromPlayer(
+                        book.id,
                         playerState.currentChapterIndex,
-                        playerState.currentPositionMs,
-                        autoPlay = true
+                        playerState.currentPositionMs
                     )
                 },
                 events = viewModel.playerManager.playbackEventLog.recent(6),

@@ -390,6 +390,11 @@ class BrowserRecoveryCoordinator(
             val sources = dao.getSourcesForBookSync(bookId)
             val exact = sources.firstOrNull { it.type == sourceId }?.url?.takeIf { it.isNotBlank() }
             if (!exact.isNullOrBlank()) return exact
+            // Catalogue-only books may not have materialized Source rows yet.
+            // Their saved page is still a valid recovery entry.
+            book.sourceUrl.takeIf {
+                it.isNotBlank() && sourceIdForUrl(it) == sourceId
+            }?.let { return it }
             if (sourceId == "4read") {
                 val title = book.title.takeIf { it.isNotBlank() } ?: "книга"
                 return searchUrlFor(title)

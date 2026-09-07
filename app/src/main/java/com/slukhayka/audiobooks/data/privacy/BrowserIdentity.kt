@@ -12,6 +12,9 @@ package com.slukhayka.audiobooks.data.privacy
  * and NO app name: both were leaks (SEC-018 precedent in the player).
  */
 object BrowserIdentity {
+    /** Suppress WebView's automatic app-package header that 4read rejects. */
+    fun sourcePageHeaders(sourceId: String): Map<String, String> =
+        if (sourceId == "4read") mapOf("X-Requested-With" to "") else emptyMap()
 
     /**
      * 4read serves a hard block page to Android WebViews that advertise the

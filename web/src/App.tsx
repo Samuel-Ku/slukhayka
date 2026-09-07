@@ -1,17 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ListenerProfile } from './identity/listenerIdentity'
 import { Catalog } from './ui/Catalog'
+import { Library } from './ui/Library'
 import { Settings } from './ui/Settings'
 import { EmptyState } from './ui/components'
 import { BookPage } from './ui/BookPage'
 import { AudioEngine } from './player/audioEngine'
 import { MiniPlayer } from './ui/MiniPlayer'
 import { PlayerSheet } from './ui/PlayerSheet'
-import type { BookDetail, SourceId } from './worker/types'
+import type { BookDetail, SourceId, UnifiedEdition, UnifiedWork } from './worker/types'
 import { LocalListeningStateStore, BrowserStorage } from './player/localState'
 import { HybridListeningStateStorage } from './local/hybridListeningState'
 import { IdbListeningStateStore } from './local/listeningState'
 import { DomainStore } from './local/domain'
+import { EditionLinkStore } from './local/editionLinks'
 import { BrowserProgressSyncLedger } from './sync/ledger'
 import { ProgressSyncSettings } from './sync/settings'
 import { FirestoreProgressSyncStore } from './sync/store'
@@ -30,8 +32,8 @@ import { loadSelectedTab, saveSelectedTab, SELECTED_TAB_ORDER, type SelectedTab 
  * Слухати / Огляд / Медіатека / Налаштування, in the enum's order. The
  * chosen tab persists (ui/selectedTab); «Профіль» is not a tab — the
  * recovery code and the sync switch live in the Налаштування direction
- * (ui/Settings). Until W2.1/W1.2 fill Слухати and Медіатека, those tabs
- * render the canonical empty state; the interim landing tab is Огляд.
+ * (ui/Settings). Until W2.1 fills Слухати, that tab renders the canonical
+ * empty state; the interim landing tab is Огляд.
  */
 
 /** One label per tab, in the same i18n keys the Android resources mirror. */
@@ -64,14 +66,17 @@ export function App({ profile: initialProfile }: { profile: ListenerProfile | nu
   // Shared local store for engine + sync mirror: the synchronous StorageLike
   // the engine already consumes, now backed by IndexedDB (R-W8) with a boot
   // gate + buffered pre-boot writes (StrictMode double-effect safe).
+  const idbStore = useMemo(() => new IdbListeningStateStore(), [])
   const hybrid = useMemo(
     () =>
       new HybridListeningStateStorage(
-        new IdbListeningStateStore(),
+        idbStore,
         new BrowserStorage(window.localStorage),
       ),
-    [],
+    [idbStore],
   )
+  // #584 W1.2 — the mergeKey → Edition join the Медіатека reads.
+  const linkStore = useMemo(() => new EditionLinkStore(), [])
   const localStore = useMemo(() => new LocalListeningStateStore(hybrid), [])
   const [boot, setBoot] = useState<{ snapshots: number; evicted: boolean } | null>(null)
   useEffect(() => {
@@ -171,12 +176,40 @@ export function App({ profile: initialProfile }: { profile: ListenerProfile | nu
   const handlePlay = async (detail: BookDetail, chapterIndex: number): Promise<boolean> => {
     const mergeKey = mergeKeyFor(detail.title, detail.author)
     const editionId = editionIdFor(mergeKey, detail.url, detail.narrator ?? '')
+    // #584 W1.2 — write the edition link at the moment the app knows both
+    // sides: the Медіатека's hairline and Нові/Слухаю/Завершені join on it.
+    // Never guessed: durations count only when every chapter declared one.
+    const chapterDurations = detail.chapters.map((chapter) => chapter.durationSeconds ?? Number.NaN)
+    const durationsKnown = detail.chapters.length > 0 && chapterDurations.every((seconds) => Number.isFinite(seconds) && seconds > 0)
+    void linkStore.link({
+      editionId,
+      mergeKey,
+      narrator: detail.narrator ?? '',
+      language: detail.language ?? '',
+      durationSeconds: detail.totalDurationSeconds ?? (durationsKnown ? chapterDurations.reduce((sum, seconds) => sum + seconds, 0) : null),
+      chapterDurations: durationsKnown ? chapterDurations : null,
+    })
     const playing = await engine.loadBookAndAwaitPlaying(
       { title: detail.title, chapters: detail.chapters, editionId },
       chapterIndex,
     )
     if (playing) setPlayerOpen(true)
     return playing
+  }
+
+  /** #584 W1.2 — «зберегти» on an Огляд card creates the Library Entry. */
+  const handleSaveWork = (work: UnifiedWork, edition: UnifiedEdition): void => {
+    void domainStore.addLibraryEntry({ title: work.title, author: work.author })
+      .then(() => linkStore.link({
+        editionId: edition.id,
+        mergeKey: work.mergeKey,
+        narrator: edition.narrator ?? '',
+        language: edition.language ?? '',
+        durationSeconds: edition.durationSeconds ?? null,
+        chapterDurations: null,
+      }))
+      .then(() => relationships.pushAfterChange(work.mergeKey))
+      .catch(() => undefined)
   }
   return (
     <>
@@ -210,9 +243,14 @@ export function App({ profile: initialProfile }: { profile: ListenerProfile | nu
         ) : tab === 'listen' ? (
           <EmptyState icon="🎧" message={t('listenStubTitle')} hint={t('listenStubWhat')} />
         ) : tab === 'explore' ? (
-          <Catalog onOpenBook={(url, source) => setBook({ url, source })} onPlay={handlePlay} />
+          <Catalog onOpenBook={(url, source) => setBook({ url, source })} onPlay={handlePlay} onSaveWork={handleSaveWork} />
         ) : tab === 'library' ? (
-          <EmptyState icon="📚" message={t('stubInProgress', { title: t('tabLibrary') })} />
+          <Library
+            domainStore={domainStore}
+            linkStore={linkStore}
+            listening={idbStore}
+            pushAfterChange={(mergeKey) => relationships.pushAfterChange(mergeKey)}
+          />
         ) : (
           <Settings
             profile={profile}

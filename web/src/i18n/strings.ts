@@ -13,10 +13,13 @@
 export type UiLocale = 'uk' | 'en'
 
 const uk = {
-  // app chrome
+  // app chrome — #583 W1.1: the four-tab bar mirrors Android's SelectedTab
+  // verbatim (Слухати / Огляд / Медіатека / Налаштування); «Профіль» is a
+  // Налаштування direction, not a tab.
   tabListen: 'Слухати',
   tabCatalog: 'Огляд',
-  tabProfile: 'Профіль',
+  tabLibrary: 'Медіатека',
+  tabSettings: 'Налаштування',
   back: '← Назад',
   appSubtitle: 'аудіокниги українською · веб',
   docTitle: 'Слухайка — аудіокниги українською',
@@ -24,7 +27,8 @@ const uk = {
   stubInProgress: '{title} ще в роботі.',
   listenStubTitle: 'Продовження слухання',
   listenStubWhat: 'Оберіть книгу в Огляді й натисніть ▶ на розділі.',
-  // profile
+  // profile (the Налаштування direction, not a tab — #583 W1.1)
+  profileTitle: 'Профіль',
   profileStubWhat: 'Профіль з’явиться разом із першим запуском.',
   firebaseNotConfigured: 'Firebase не налаштовано на цьому деплої',
   restoreFailed: 'Не вдалося відновити — перевірте код і з’єднання',
@@ -96,10 +100,13 @@ const uk = {
 export type Strings = typeof uk
 
 const en: Strings = {
-  // app chrome
+  // app chrome — #583 W1.1: the four-tab bar mirrors Android's SelectedTab
+  // verbatim (Listen / Catalog / Library / Settings); Profile is a Settings
+  // direction, not a tab.
   tabListen: 'Listen',
-  tabCatalog: 'Catalog',
-  tabProfile: 'Profile',
+  tabCatalog: 'Explore',
+  tabLibrary: 'Library',
+  tabSettings: 'Settings',
   back: '← Back',
   appSubtitle: 'audiobooks in Ukrainian · web',
   docTitle: 'Слухайка — audiobooks in Ukrainian',
@@ -107,7 +114,8 @@ const en: Strings = {
   stubInProgress: '{title} is still a work in progress.',
   listenStubTitle: 'Continue listening',
   listenStubWhat: 'Pick a book in Catalog and press ▶ on a chapter.',
-  // profile
+  // profile (the Settings direction, not a tab — #583 W1.1)
+  profileTitle: 'Profile',
   profileStubWhat: 'Profile will appear after the first launch.',
   firebaseNotConfigured: 'Firebase is not configured on this deployment',
   restoreFailed: 'Could not restore — check the code and your connection',

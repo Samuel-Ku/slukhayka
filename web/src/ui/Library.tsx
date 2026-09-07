@@ -6,11 +6,13 @@
  * (ADR-0014). Data comes from the Work-relationship projection (W0.3) —
  * favorites from a linked phone appear right after binding.
  *
- * Deletion is Android's three-level flow: the row's ⋮ action → the red
- * «Видалити з Медіатеки…» item → the confirmation quoting the exact
- * scope. Confirming writes a tombstone (sync pushes it — a hidden Work
- * never resurrects), clears the local Listening State rows of the Work's
- * linked Editions, and removes the links.
+ * Deletion is Android's three-tier flow (W1.3): the row's ⋮ action opens
+ * the options sheet naming every tier and its consequence; tier 1
+ * (Прибрати з медіатеки) executes the cascade immediately, tier 3
+ * (Видалити та файли з пристрою) alone earns the exact-scope
+ * confirmation. Confirming writes a tombstone (sync pushes it — a hidden
+ * Work never resurrects), clears the local Listening State rows of the
+ * Work's linked Editions, and removes the links.
  *
  * Web deltas (honest, per the platform ledger): a row body is not
  * openable yet — a synced Library Entry carries no Source URL; DOWNLOADED/
@@ -24,9 +26,11 @@ import type { DomainStore } from '../local/domain'
 import type { EditionLink, EditionLinkStore } from '../local/editionLinks'
 import type { ListenerDatabase } from '../local/listeningState'
 import type { LocalListeningStateSnapshot } from '../player/localState'
-import { useTranslate } from '../i18n/locale'
+import { useTranslate, useUiLocale } from '../i18n/locale'
 import type { StringKey } from '../i18n/strings'
 import { BookRow, EmptyState, EmptyStateRow, SectionHeader, TabHeader } from './components'
+import { DeleteBookSheet, type DownloadedCopy } from './DeleteBookSheet'
+import { deleteEverythingScopeText, type DeleteScope } from './deleteModel'
 import {
   buildLibraryViews,
   filterLibrary,
@@ -60,23 +64,28 @@ function pillStyle(active: boolean): React.CSSProperties {
   }
 }
 
-export function Library({ domainStore, linkStore, listening, pushAfterChange }: {
+export function Library({ domainStore, linkStore, listening, pushAfterChange, downloadsOf }: {
   domainStore: DomainStore
   linkStore: EditionLinkStore
   listening: Pick<ListenerDatabase, 'allSnapshots' | 'clearSnapshot'>
   pushAfterChange: (mergeKey: string) => Promise<void>
+  /** The Work's downloaded copy, when the (future) download manager owns one. */
+  downloadsOf?: (mergeKey: string) => DownloadedCopy | null
 }) {
   const t = useTranslate()
+  const locale = useUiLocale()
   const [entries, setEntries] = useState<LibraryEntryEntity[] | null>(null)
   const [links, setLinks] = useState<EditionLink[]>([])
   const [snapshots, setSnapshots] = useState<LocalListeningStateSnapshot[]>([])
   const [filter, setFilter] = useState<LibraryFilter>('all')
   const [sort, setSort] = useState<LibrarySort>('recently-listened')
-  const [menuFor, setMenuFor] = useState<string | null>(null)
+  // The three-tier deletion state: the options sheet first, the exact-scope
+  // confirmation only for the delete-everything tier (Android's flow).
+  const [sheetFor, setSheetFor] = useState<LibraryBookView | null>(null)
   const [confirmFor, setConfirmFor] = useState<LibraryBookView | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   // The a11y contract: the dialog takes focus when it opens and hands it
-  // back to the ⋮ row that opened it when it closes by cancellation.
+  // back to the ⋮ row that opened it when everything closes.
   const dialogConfirmRef = useRef<HTMLButtonElement | null>(null)
   const menuButtonRefs = useRef(new Map<string, HTMLButtonElement | null>())
   const openedFrom = useRef<string | null>(null)
@@ -86,11 +95,12 @@ export function Library({ domainStore, linkStore, listening, pushAfterChange }: 
       dialogConfirmRef.current?.focus()
       return
     }
+    if (sheetFor !== null) return
     const origin = openedFrom.current
     openedFrom.current = null
     const node = origin === null ? undefined : menuButtonRefs.current.get(origin)
     if (node?.isConnected === true) node.focus()
-  }, [confirmFor])
+  }, [confirmFor, sheetFor])
 
   const load = async (): Promise<void> => {
     const [loadedEntries, loadedLinks, loadedSnapshots] = await Promise.all([
@@ -118,11 +128,14 @@ export function Library({ domainStore, linkStore, listening, pushAfterChange }: 
     [views, filter, sort],
   )
 
-  /** Linked editions of the Work that actually carry a local position. */
-  const positionsOf = (mergeKey: string): number => {
-    const editionIds = new Set(links.filter((link) => link.mergeKey === mergeKey).map((link) => link.editionId))
-    return snapshots.filter((snapshot) => editionIds.has(snapshot.editionId)).length
-  }
+  /** The exact scope of THIS Work's delete-everything, in this platform's truth. */
+  const scopeOf = (view: LibraryBookView): DeleteScope => ({
+    title: view.title,
+    chapters: false,
+    bookmarks: false,
+    progress: true,
+    downloads: downloadsOf?.(view.mergeKey) ?? null,
+  })
 
   const performDelete = async (view: LibraryBookView): Promise<void> => {
     // The tombstone anchors at the Work: one row blocks every Edition and
@@ -134,7 +147,7 @@ export function Library({ domainStore, linkStore, listening, pushAfterChange }: 
     await pushAfterChange(view.mergeKey)
     openedFrom.current = null
     setConfirmFor(null)
-    setMenuFor(null)
+    setSheetFor(null)
     setNotice(t('libDeletedNotice', { title: view.title }))
     await load()
   }
@@ -190,27 +203,13 @@ export function Library({ domainStore, linkStore, listening, pushAfterChange }: 
                     <button
                       type="button"
                       ref={(node) => { menuButtonRefs.current.set(view.mergeKey, node) }}
-                      onClick={() => setMenuFor(menuFor === view.mergeKey ? null : view.mergeKey)}
+                      onClick={() => { openedFrom.current = view.mergeKey; setSheetFor(view) }}
                       aria-label={t('libActionsAria', { title: view.title })}
-                      aria-expanded={menuFor === view.mergeKey}
+                      aria-haspopup="dialog"
                       style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 999, color: 'var(--fg)' }}
                     >
                       ⋮
                     </button>
-                  }
-                  trailing={
-                    menuFor === view.mergeKey ? (
-                      <div className="lib-menu" role="menu">
-                        <button
-                          type="button"
-                          role="menuitem"
-                          className="lib-menu-danger"
-                          onClick={() => setConfirmFor(view)}
-                        >
-                          {t('libDeleteMenu')}
-                        </button>
-                      </div>
-                    ) : undefined
                   }
                 />
               ))}
@@ -219,12 +218,34 @@ export function Library({ domainStore, linkStore, listening, pushAfterChange }: 
         </>
       )}
 
+      {sheetFor !== null && (
+        <DeleteBookSheet
+          workTitle={sheetFor.title}
+          downloads={downloadsOf?.(sheetFor.mergeKey) ?? null}
+          onRemoveFromLibrary={() => {
+            // Tier 1 — the full cascade, immediately (Android: no second
+            // confirmation; the sheet's consequence line is the warning).
+            const view = sheetFor
+            openedFrom.current = null
+            setSheetFor(null)
+            void performDelete(view)
+          }}
+          onDeleteEverything={() => {
+            // Tier 3 — the red tier alone earns the exact-scope confirmation.
+            const view = sheetFor
+            setSheetFor(null)
+            setConfirmFor(view)
+          }}
+          onDismiss={() => setSheetFor(null)}
+        />
+      )}
+
       {confirmFor !== null && (
         <div className="lib-dialog-backdrop">
-          <div className="lib-dialog" role="alertdialog" aria-modal="true" aria-label={t('libDeleteTitle')}>
-            <h2 className="lib-dialog-title">{t('libDeleteTitle')}</h2>
+          <div className="lib-dialog" role="alertdialog" aria-modal="true" aria-label={t('deleteConfirmTitle', { title: confirmFor.title })}>
+            <h2 className="lib-dialog-title">{t('deleteConfirmTitle', { title: confirmFor.title })}</h2>
             <p className="lib-dialog-scope">
-              {t('libDeleteScope', { title: confirmFor.title, positions: positionsOf(confirmFor.mergeKey) })}
+              {deleteEverythingScopeText(scopeOf(confirmFor), t, locale)}
             </p>
             <div className="lib-dialog-actions">
               <button
@@ -239,7 +260,7 @@ export function Library({ domainStore, linkStore, listening, pushAfterChange }: 
                 className="lib-dialog-danger"
                 onClick={() => void performDelete(confirmFor)}
               >
-                {t('libDeleteConfirm')}
+                {t('deleteConfirmAction')}
               </button>
             </div>
           </div>

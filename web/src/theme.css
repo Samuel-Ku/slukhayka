@@ -438,29 +438,83 @@ span.bookrow-body {
   font-size: 20px;
 }
 
-/* --- #584 W1.2: Медіатека row menu and the deletion confirmation ---------- */
+/* --- #584 W1.2/W1.3: Медіатека delete-options sheet + confirmation -------- */
 
-.lib-menu {
-  display: flex;
-  flex-direction: column;
-  margin: 4px 0 8px;
+.lib-sheet {
+  width: 100%;
+  max-width: 480px;
+  margin: 0 auto;
+  background: var(--surface-raised);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 16px;
 }
 
-.lib-menu button {
+.lib-sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.lib-sheet-title {
+  margin: 0;
+  font-size: 16px;
+}
+
+.lib-sheet-title:focus {
+  outline: none;
+}
+
+.lib-sheet-hint {
+  color: var(--fg-dim);
+  font-size: 13px;
+  margin: 4px 0 12px;
+}
+
+.lib-sheet-option {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 14px;
   min-height: 48px;
   text-align: left;
-  padding: 8px 12px;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 8px;
+  padding: 12px 4px;
+  background: none;
+  border: none;
+  border-top: 1px solid var(--line);
   color: var(--fg);
   font: inherit;
   cursor: pointer;
 }
 
-.lib-menu .lib-menu-danger {
+.lib-sheet-icon {
+  font-size: 20px;
+  flex: none;
+}
+
+.lib-sheet-option-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.lib-sheet-option-title {
+  font-weight: 600;
+}
+
+.lib-sheet-option-consequence {
+  font-size: 13px;
+  color: var(--fg-dim);
+}
+
+.lib-sheet-option-primary {
+  color: var(--accent);
+}
+
+.lib-sheet-option-danger,
+.lib-sheet-option-danger .lib-sheet-option-consequence {
   color: var(--bad);
-  border-color: var(--bad);
 }
 
 .lib-dialog-backdrop {

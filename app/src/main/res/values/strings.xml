@@ -121,4 +121,32 @@
          Source Audio Refusal. -->
     <string name="source_audio_refusal_title">Аудіо джерел</string>
     <string name="source_audio_refusal_description">Позначені джерела більше не пропонуються для прослуховування й завантаження — метадані, каталог і підбірки лишаються. Зніміть прапорець, щоб повернути джерело без повторного імпорту.</string>
+    <!-- v1.4 (ADR-0033): player and timer chrome rides resources. -->
+    <string name="player_now_playing">ЗАРАЗ ЗВУЧИТЬ</string>
+    <string name="player_favorite_add">Додати в обране</string>
+    <string name="player_favorite_remove">Прибрати з обраного</string>
+    <string name="timer_off">Вимкнено</string>
+    <string name="timer_until_chapter_end">До кінця розділу</string>
+    <string name="timer_until_chapter_end_countdown">До кінця розділу: %1$d:%2$02d</string>
+    <string name="timer_minutes">%1$d хвилин</string>
+    <string name="timer_active">Таймер активний</string>
+    <string name="timer_remaining_countdown">Залишилось: %1$d:%2$02d</string>
+
+    <!-- v1.4 (ADR-0033): Слухати hero chrome. -->
+    <string name="listen_hero_overline">ПРОДОВЖИТИ СЛУХАТИ</string>
+    <string name="listen_chapter_of">Розділ %1$d із %2$d</string>
+    <string name="listen_chapter_position">Розділ %1$d · %2$s</string>
+    <string name="listen_progress_percent_remaining">%1$d%% · %2$s</string>
+    <string name="listen_remaining_hm">Залишилося %1$d год %2$d хв</string>
+    <string name="listen_remaining_h">Залишилося %1$d год</string>
+    <string name="listen_remaining_m">Залишилося %1$d хв</string>
+    <string name="listen_remaining_less_than_minute">Залишилося менше хвилини</string>
+
+    <!-- v1.4 (ADR-0033): Огляд rails and search states. -->
+    <string name="home_people_new_arrivals">Нове від ваших авторів/виконавців</string>
+    <string name="home_people_new_count">• %1$d нові</string>
+    <string name="home_search_no_results">Нічого не знайдено</string>
+    <string name="home_search_no_results_hint">Спробуйте змінити запит або фільтр.</string>
+    <string name="home_no_personal_picks">Персональних добірок поки немає.</string>
+    <string name="home_personal_picks_loading">Готуємо персональні добірки…</string>
 </resources>

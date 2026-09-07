@@ -23,8 +23,8 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.player.PlayerState
 import com.slukhayka.audiobooks.testing.TestDataFactory
-import com.slukhayka.audiobooks.ui.components.CompactBookCard
-import com.slukhayka.audiobooks.ui.components.CompactBookDismissVisualSize
+import com.slukhayka.audiobooks.ui.components.PosterCard
+import com.slukhayka.audiobooks.ui.components.PosterDismissVisualSize
 import com.slukhayka.audiobooks.ui.components.MiniPlayerBar
 import com.slukhayka.audiobooks.ui.library.ListenComposer
 import com.slukhayka.audiobooks.ui.screens.ListenBlockHeader
@@ -55,7 +55,7 @@ class ListenAccessibilityTest {
     fun compactCardIsOneWorkNodeWithASeparateContextualDismissAction() {
         compose.setContent {
             AudiobookTheme(darkTheme = true) {
-                CompactBookCard(
+                PosterCard(
                     book = book,
                     onClick = {},
                     onNotInterested = {},
@@ -80,7 +80,7 @@ class ListenAccessibilityTest {
         // no longer dominates the cover; the invisible touch target stays
         // at >= 48 dp.
         compose.onNodeWithTag("not_interested_visual_${book.id}", useUnmergedTree = true)
-            .assertWidthIsEqualTo(CompactBookDismissVisualSize)
+            .assertWidthIsEqualTo(PosterDismissVisualSize)
         compose.onNodeWithContentDescription(book.title, useUnmergedTree = true)
             .assertDoesNotExist()
     }
@@ -90,7 +90,7 @@ class ListenAccessibilityTest {
         val streamingBook = book.copy(isDownloaded = false)
         compose.setContent {
             AudiobookTheme(darkTheme = true) {
-                CompactBookCard(
+                PosterCard(
                     book = streamingBook,
                     onClick = {},
                     progress = 0.5f
@@ -116,7 +116,7 @@ class ListenAccessibilityTest {
         )
         compose.setContent {
             AudiobookTheme(darkTheme = true) {
-                CompactBookCard(
+                PosterCard(
                     book = localImport,
                     onClick = {}
                 )

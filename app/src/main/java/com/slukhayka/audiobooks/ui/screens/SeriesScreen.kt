@@ -74,7 +74,7 @@ fun SeriesScreen(
                 .fillMaxSize()
                 .padding(padding)
                 .testTag("series_screen"),
-            contentPadding = PaddingValues(bottom = 120.dp, top = 8.dp)
+            contentPadding = PaddingValues(bottom = AppDimens.SpaceAboveMiniPlayer, top = 8.dp)
         ) {
             when {
                 isLoading -> {

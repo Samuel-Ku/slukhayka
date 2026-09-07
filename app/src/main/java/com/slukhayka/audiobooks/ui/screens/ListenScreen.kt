@@ -30,7 +30,7 @@ import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.PlaybackProgressEntity
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
 import com.slukhayka.audiobooks.ui.MainViewModel
-import com.slukhayka.audiobooks.ui.components.CompactBookCard
+import com.slukhayka.audiobooks.ui.components.PosterCard
 import com.slukhayka.audiobooks.ui.components.EmptyState
 import com.slukhayka.audiobooks.ui.displayAuthor
 import com.slukhayka.audiobooks.ui.library.ListenComposer
@@ -85,7 +85,7 @@ fun ListenScreen(
         modifier = Modifier
             .fillMaxSize()
             .testTag("listen_screen"),
-        contentPadding = PaddingValues(bottom = 120.dp)
+        contentPadding = PaddingValues(bottom = AppDimens.SpaceAboveMiniPlayer)
     ) {
         // Fresh install: placeholder hero + clear next actions.
         if (allBooks.isEmpty()) {
@@ -296,7 +296,7 @@ fun ListenBlockShelf(
         modifier = Modifier.testTag("listen_block_shelf")
     ) {
         items(books, key = { it.book.id }) { entry ->
-            CompactBookCard(
+            PosterCard(
                 book = entry.book,
                 onClick = { onBookClick(entry.book.id) },
                 onNotInterested = { onNotInterested(entry.book.id) },
@@ -350,7 +350,7 @@ fun ListenHeroCard(
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                    text = "ПРОДОВЖИТИ СЛУХАТИ",
+                    text = stringResource(R.string.listen_hero_overline),
                     style = MaterialTheme.typography.labelMedium.copy(
                         fontWeight = FontWeight.Bold,
                         letterSpacing = 1.sp
@@ -394,7 +394,11 @@ fun ListenHeroCard(
                     )
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
-                        text = "Розділ ${progress.currentChapterIndex + 1} із ${book.totalChapters.coerceAtLeast(1)}",
+                        text = stringResource(
+                            R.string.listen_chapter_of,
+                            progress.currentChapterIndex + 1,
+                            book.totalChapters.coerceAtLeast(1)
+                        ),
                         style = MaterialTheme.typography.labelMedium,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -403,7 +407,11 @@ fun ListenHeroCard(
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
                         text = if (hasDuration) {
-                            "${(progressFraction * 100).toInt()}% · ${formatRemaining((totalSec - positionSec).coerceAtLeast(0L))}"
+                            stringResource(
+                                R.string.listen_progress_percent_remaining,
+                                (progressFraction * 100).toInt(),
+                                formatRemainingLocalized((totalSec - positionSec).coerceAtLeast(0L))
+                            )
                         } else {
                             MainViewModel.formatTime(positionSec)
                         },
@@ -509,7 +517,11 @@ fun RecentlyListenedRow(
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = "Розділ ${progress.currentChapterIndex + 1} · ${MainViewModel.formatTime(positionSec)}",
+                        text = stringResource(
+                            R.string.listen_chapter_position,
+                            progress.currentChapterIndex + 1,
+                            MainViewModel.formatTime(positionSec)
+                        ),
                         // Spec-22 T2: tabular figures — the live position ticks
                         // without shifting the row's digit widths.
                         style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
@@ -594,14 +606,19 @@ fun ListenEmptyState(
     }
 }
 
-/** "Залишилося X год Y хв" remaining-time label for the hero card. */
-internal fun formatRemaining(totalSeconds: Long): String {
+/** Localized remaining-time label for the hero card (v1.4, ADR-0033). */
+@Composable
+internal fun formatRemainingLocalized(totalSeconds: Long): String {
     val hrs = totalSeconds / 3600
     val mins = (totalSeconds % 3600) / 60
     return when {
-        hrs > 0 && mins > 0 -> "Залишилося $hrs год $mins хв"
-        hrs > 0 -> "Залишилося $hrs год"
-        mins > 0 -> "Залишилося $mins хв"
-        else -> "Залишилося менше хвилини"
+        hrs > 0 && mins > 0 ->
+            stringResource(R.string.listen_remaining_hm, hrs, mins)
+        hrs > 0 ->
+            stringResource(R.string.listen_remaining_h, hrs)
+        mins > 0 ->
+            stringResource(R.string.listen_remaining_m, mins)
+        else ->
+            stringResource(R.string.listen_remaining_less_than_minute)
     }
 }

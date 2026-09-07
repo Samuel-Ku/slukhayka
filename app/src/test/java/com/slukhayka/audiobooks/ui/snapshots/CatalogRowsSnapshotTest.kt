@@ -12,7 +12,7 @@ import androidx.compose.ui.test.onRoot
 import com.slukhayka.audiobooks.data.catalog.CatalogBook
 import com.slukhayka.audiobooks.data.catalog.CatalogSeries
 import com.slukhayka.audiobooks.ui.screens.CatalogBookCard
-import com.slukhayka.audiobooks.ui.screens.CatalogRowHeader
+import com.slukhayka.audiobooks.ui.components.AppSectionHeader
 import com.slukhayka.audiobooks.ui.screens.CatalogSeriesCard
 import com.slukhayka.audiobooks.ui.screens.EmptyCatalogState
 import com.slukhayka.audiobooks.ui.screens.HomeHeader
@@ -33,7 +33,7 @@ import org.robolectric.annotation.GraphicsMode
  */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
-@Config(qualifiers = RobolectricDeviceQualifiers.Pixel8, sdk = [36])
+@Config(qualifiers = "uk-rUA-" + RobolectricDeviceQualifiers.Pixel8, sdk = [36])
 class CatalogRowsSnapshotTest {
 
     @get:Rule
@@ -56,7 +56,7 @@ class CatalogRowsSnapshotTest {
     @Test
     fun row_header() {
         composeTestRule.setContent {
-            AudiobookTheme(darkTheme = true) { CatalogSurface { CatalogRowHeader(title = "Новинки") } }
+            AudiobookTheme(darkTheme = true) { CatalogSurface { AppSectionHeader(title = "Новинки") } }
         }
         composeTestRule.onRoot().captureRoboImage(
             filePath = "src/test/snapshots/catalog_row_header.png"

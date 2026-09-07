@@ -29,6 +29,7 @@ import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.ui.PeopleKind
 import com.slukhayka.audiobooks.ui.catalog.CatalogCardActionState
+import com.slukhayka.audiobooks.ui.components.AppSectionHeader
 import com.slukhayka.audiobooks.ui.components.NavigationChip
 
 /**
@@ -146,7 +147,7 @@ fun LazyListScope.homeFeedContent(
     // NAVIGATE, so they are NavigationChips (filled, no outline) —
     // never filter-shaped chips.
     item {
-        CatalogRowHeader(title = "Швидкі переходи")
+        AppSectionHeader(title = "Швидкі переходи")
     }
     item {
         CatalogNavRow(
@@ -159,14 +160,14 @@ fun LazyListScope.homeFeedContent(
 
     val hasForYouContent = personalCycles.isNotEmpty() ||
         similarCycles.isNotEmpty() || recommendedBooks.isNotEmpty() || showRecommendationConsent
-    item { OverviewGroupHeader(title = "Для вас") }
+    item { AppSectionHeader(title = "Для вас", level = com.slukhayka.audiobooks.ui.components.SectionHeaderLevel.GROUP) }
     if (!hasForYouContent) {
         item {
             Text(
                 text = if (recommendationsReady) {
-                    "Персональних добірок поки немає."
+                    stringResource(R.string.home_no_personal_picks)
                 } else {
-                    "Готуємо персональні добірки…"
+                    stringResource(R.string.home_personal_picks_loading)
                 },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -181,7 +182,7 @@ fun LazyListScope.homeFeedContent(
     // shelf below is skipped (gradual replacement, spec-39 Р1).
     if (personalCycles.isNotEmpty()) {
         item {
-            CatalogRowHeader(title = "Ваші цикли")
+            AppSectionHeader(title = "Ваші цикли")
         }
         item {
             LazyRow(
@@ -204,7 +205,7 @@ fun LazyListScope.homeFeedContent(
     // Best-effort: an empty tier renders nothing at all.
     if (similarCycles.isNotEmpty()) {
         item {
-            CatalogRowHeader(title = "Схожі цикли")
+            AppSectionHeader(title = "Схожі цикли")
         }
         item {
             LazyRow(
@@ -227,7 +228,7 @@ fun LazyListScope.homeFeedContent(
     // any other Огляд row (import the Work, then the native page).
     if (recommendedBooks.isNotEmpty()) {
         item {
-            CatalogRowHeader(title = "Рекомендовано для вас")
+            AppSectionHeader(title = "Рекомендовано для вас")
         }
         item {
             LazyRow(
@@ -270,7 +271,7 @@ fun LazyListScope.homeFeedContent(
     }
 
     // Editorial and catalogue shelves form the second top-level group.
-    item { OverviewGroupHeader(title = "Відкрити нове") }
+    item { AppSectionHeader(title = "Відкрити нове", level = com.slukhayka.audiobooks.ui.components.SectionHeaderLevel.GROUP) }
 
     if (peopleNewArrivals.results.isNotEmpty()) {
         item {
@@ -330,7 +331,7 @@ fun LazyListScope.homeFeedContent(
         if (section.id == CatalogSectionId.SERIES && personalCycles.isNotEmpty()) return@forEach
         if (section.books.isNotEmpty()) {
             item {
-                CatalogRowHeader(title = section.title)
+                AppSectionHeader(title = section.title)
             }
             item {
                 LazyRow(
@@ -351,7 +352,7 @@ fun LazyListScope.homeFeedContent(
         }
         if (section.series.isNotEmpty()) {
             item {
-                CatalogRowHeader(title = section.title)
+                AppSectionHeader(title = section.title)
             }
             item {
                 LazyRow(
@@ -382,7 +383,7 @@ fun LazyListScope.homeFeedContent(
     if (collections.isNotEmpty()) {
         collections.forEach { collection ->
             item {
-                CatalogRowHeader(title = collection.name)
+                AppSectionHeader(title = collection.name)
             }
             item {
                 LazyRow(

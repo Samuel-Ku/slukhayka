@@ -15,7 +15,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.unit.Density
 import com.slukhayka.audiobooks.testing.TestDataFactory
-import com.slukhayka.audiobooks.ui.components.CompactBookCard
+import com.slukhayka.audiobooks.ui.components.PosterCard
 import com.slukhayka.audiobooks.ui.library.ListenComposer
 import com.slukhayka.audiobooks.ui.library.buildLibraryBooks
 import com.slukhayka.audiobooks.ui.library.nextSeriesPartCaption
@@ -42,7 +42,7 @@ import org.robolectric.annotation.GraphicsMode
  */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
-@Config(qualifiers = RobolectricDeviceQualifiers.Pixel8, sdk = [36])
+@Config(qualifiers = "uk-rUA-" + RobolectricDeviceQualifiers.Pixel8, sdk = [36])
 class ListenScreenBlocksSnapshotTest {
 
     @get:Rule
@@ -275,7 +275,7 @@ class ListenScreenBlocksSnapshotTest {
         composeTestRule.setContent {
             AudiobookTheme(darkTheme = true) {
                 ListenSurface {
-                    CompactBookCard(book = book, onClick = {}, onNotInterested = {})
+                    PosterCard(book = book, onClick = {}, onNotInterested = {})
                 }
             }
         }
@@ -292,7 +292,7 @@ class ListenScreenBlocksSnapshotTest {
             AtFontScale(1.15f) {
                 AudiobookTheme(darkTheme = true) {
                     ListenSurface {
-                        CompactBookCard(book = book, onClick = {}, onNotInterested = {})
+                        PosterCard(book = book, onClick = {}, onNotInterested = {})
                     }
                 }
             }

@@ -2,8 +2,14 @@ package com.slukhayka.audiobooks.ui.screens
 
 import android.content.Intent
 import android.util.Log
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -25,6 +31,7 @@ import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -175,7 +182,20 @@ fun LibraryScreen(
     var activeTab by remember { mutableStateOf(0) } // 0 = Книги, 1 = Закладки, 2 = Статистика, 3 = Люди
     var filter by remember { mutableStateOf(LibraryFilter.ALL) }
     var sort by remember { mutableStateOf(LibrarySort.RECENTLY_LISTENED) }
-    var query by remember { mutableStateOf("") }
+    var query by rememberSaveable { mutableStateOf("") }
+    // v1.4 C5 (ADR-0033): the collapsible search — 🔍 in the tab header,
+    // ✕/Back clears (US-2, the same gesture as Огляд); the always-visible
+    // field is gone.
+    var searchRequested by rememberSaveable { mutableStateOf(false) }
+    val searchExpanded = searchRequested || query.isNotBlank()
+    val librarySearchFocusRequester = remember { FocusRequester() }
+    LaunchedEffect(searchExpanded) {
+        if (searchExpanded) librarySearchFocusRequester.requestFocus()
+    }
+    BackHandler(enabled = searchExpanded) {
+        searchRequested = false
+        if (query.isNotBlank()) query = ""
+    }
     var gridMode by remember { mutableStateOf(false) }
     // Spec-28 #193: the rare filters, sort and view toggle live in the sheet.
     var showFilterSheet by remember { mutableStateOf(false) }
@@ -242,67 +262,64 @@ fun LibraryScreen(
                 .testTag("library_screen")
                 .accessibilityPane(stringResource(com.slukhayka.audiobooks.R.string.a11y_library_pane))
         ) {
-            // Top Header — one row: title + subtitle, «+ Додати» (the import
-            // sheet) and the ⋮ overflow (the storage destination). Collapsing
-            // the two import buttons into one action and dropping the storage
-            // row (spec-28 #194) lifts the first book above the fold.
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "Медіатека",
-                        style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 2,
+            // Top Header — the canonical tab header (v1.4 C5, ADR-0033):
+            // title + subtitle through AppTabHeader, the 🔍 collapsible search
+            // (the same gesture as Огляд) and «+ Додати» as header actions.
+            // Import stays one action — a sheet with the two source options
+            // (files / folder) per spec-28 #194.
+            com.slukhayka.audiobooks.ui.components.AppTabHeader(
+                title = "Медіатека",
+                // Spec-15 T6: one library for local files and every
+                // online source, not just 4read.
+                subtitle = "Всі книги — в одному місці",
+                headingTestTag = "library_heading",
+                returnFocusRequester = libraryHeadingFocusRequester,
+                actions = {
+                    IconButton(
+                        onClick = {
+                            searchRequested = !searchExpanded
+                            if (!searchRequested && query.isNotBlank()) query = ""
+                        },
                         modifier = Modifier
-                            .focusRequester(libraryHeadingFocusRequester)
-                            .focusable()
-                            .testTag("library_heading")
-                            .semantics { heading() }
-                    )
-                    Text(
-                        // Spec-15 T6: one library for local files and every
-                        // online source, not just 4read.
-                        text = "Всі книги — в одному місці",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 2
-                    )
+                            .size(AppDimens.TouchTarget)
+                            .testTag("library_search_toggle")
+                    ) {
+                        Icon(
+                            imageVector = if (searchExpanded) Icons.Default.Close else Icons.Default.Search,
+                            contentDescription = stringResource(
+                                if (searchExpanded) {
+                                    com.slukhayka.audiobooks.R.string.a11y_close_search
+                                } else {
+                                    com.slukhayka.audiobooks.R.string.a11y_open_search
+                                }
+                            )
+                        )
+                    }
+                    Button(
+                        onClick = { showImportSheet = true },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                        shape = RoundedCornerShape(AppDimens.RadiusCardLg),
+                        contentPadding = PaddingValues(horizontal = 12.dp),
+                        modifier = Modifier
+                            .heightIn(min = 48.dp)
+                            .focusRequester(importFocusRequester)
+                            .testTag("library_add_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Add,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onPrimary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Додати",
+                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.onPrimary
+                        )
+                    }
                 }
-
-                // Spec-28 #194: import is one action — a sheet with the two
-                // source options (files / folder). Per ADR-0018 the add-audio
-                // picker is a sheet, not two competing buttons.
-                Button(
-                    onClick = { showImportSheet = true },
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                    shape = RoundedCornerShape(AppDimens.RadiusCardLg),
-                    modifier = Modifier
-                        .heightIn(min = 48.dp)
-                        .focusRequester(importFocusRequester)
-                        .testTag("library_add_button")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Add,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onPrimary,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = "Додати",
-                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                        color = MaterialTheme.colorScheme.onPrimary
-                    )
-                }
-                Spacer(modifier = Modifier.width(4.dp))
-
-
-            }
+            )
 
             // Sub-tabs: the unified book list, bookmarks, listening stats.
             ScrollableTabRow(
@@ -336,30 +353,39 @@ fun LibraryScreen(
             }
 
             if (activeTab == 0) {
-                // Library chrome (wayfinder #39): search, quick filters, sort + view toggle.
-                OutlinedTextField(
-                    value = query,
-                    onValueChange = { query = it },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp)
-                        .testTag("library_search"),
-                    label = { Text(stringResource(com.slukhayka.audiobooks.R.string.a11y_library_search)) },
-                    placeholder = { Text(stringResource(R.string.lib_search_placeholder)) },
-                    leadingIcon = { Icon(imageVector = Icons.Default.Search, contentDescription = null) },
-                    trailingIcon = if (query.isNotEmpty()) {
-                        {
-                            IconButton(onClick = { query = "" }) {
-                                Icon(
-                                    imageVector = Icons.Default.Clear,
-                                    contentDescription = stringResource(R.string.a11y_library_clear_search)
-                                )
+                // Library chrome (wayfinder #39): the collapsible search (v1.4
+                // C5 — the same gesture as Огляд), quick filters, sort + view
+                // toggle.
+                AnimatedVisibility(
+                    visible = searchExpanded,
+                    enter = fadeIn() + expandVertically(),
+                    exit = fadeOut() + shrinkVertically()
+                ) {
+                    OutlinedTextField(
+                        value = query,
+                        onValueChange = { query = it },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                            .focusRequester(librarySearchFocusRequester)
+                            .testTag("library_search"),
+                        label = { Text(stringResource(com.slukhayka.audiobooks.R.string.a11y_library_search)) },
+                        placeholder = { Text(stringResource(R.string.lib_search_placeholder)) },
+                        leadingIcon = { Icon(imageVector = Icons.Default.Search, contentDescription = null) },
+                        trailingIcon = if (query.isNotEmpty()) {
+                            {
+                                IconButton(onClick = { query = "" }) {
+                                    Icon(
+                                        imageVector = Icons.Default.Clear,
+                                        contentDescription = stringResource(R.string.a11y_library_clear_search)
+                                    )
+                                }
                             }
-                        }
-                    } else null,
-                    singleLine = true,
-                    shape = RoundedCornerShape(AppDimens.RadiusCard)
-                )
+                        } else null,
+                        singleLine = true,
+                        shape = RoundedCornerShape(AppDimens.RadiusCard)
+                    )
+                }
 
                 // Spec-28 #193: the five one-tap statuses as a segmented row.
                 LibraryStatusRow(selected = filter, onSelect = { filter = it })
@@ -432,7 +458,7 @@ fun LibraryScreen(
                             columns = if (gridMode) GridCells.Fixed(2) else GridCells.Fixed(1),
                             state = libraryGridState,
                             modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 120.dp),
+                            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = AppDimens.SpaceAboveMiniPlayer),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
@@ -462,7 +488,7 @@ fun LibraryScreen(
                     } else {
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(bottom = 120.dp, top = 12.dp)
+                            contentPadding = PaddingValues(bottom = AppDimens.SpaceAboveMiniPlayer, top = 12.dp)
                         ) {
                             items(allBookmarks, key = { it.id }) { bookmark ->
                                 val book = allBooks.find { it.id == bookmark.bookId }
@@ -482,7 +508,7 @@ fun LibraryScreen(
                 2 -> {
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(bottom = 120.dp)
+                        contentPadding = PaddingValues(bottom = AppDimens.SpaceAboveMiniPlayer)
                     ) {
                         item {
                             ListeningStatsCard(listeningStats = listeningStats, totalBooks = libraryBooks.size)
@@ -502,7 +528,7 @@ fun LibraryScreen(
                     } else {
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(bottom = 120.dp, top = 8.dp)
+                            contentPadding = PaddingValues(bottom = AppDimens.SpaceAboveMiniPlayer, top = 8.dp)
                         ) {
                             items(
                                 bookmarkedPeople,

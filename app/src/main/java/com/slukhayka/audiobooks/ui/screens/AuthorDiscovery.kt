@@ -14,6 +14,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.ui.res.stringResource
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.ui.theme.AppDimens
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Person
@@ -191,7 +192,7 @@ fun AuthorsIndexContent(
     LazyColumn(
         state = listState,
         modifier = modifier.testTag("authors_index"),
-        contentPadding = PaddingValues(top = 8.dp, bottom = 120.dp)
+        contentPadding = PaddingValues(top = 8.dp, bottom = AppDimens.SpaceAboveMiniPlayer)
     ) {
         item {
             Text(
@@ -244,7 +245,7 @@ fun CanonicalAuthorContent(
     LazyColumn(
         state = listState,
         modifier = modifier.testTag("canonical_author_page"),
-        contentPadding = PaddingValues(top = 8.dp, bottom = 120.dp)
+        contentPadding = PaddingValues(top = 8.dp, bottom = AppDimens.SpaceAboveMiniPlayer)
     ) {
         item {
             Text(

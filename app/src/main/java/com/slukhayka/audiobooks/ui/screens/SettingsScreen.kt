@@ -20,6 +20,7 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.ui.components.AppTabHeader
 import com.slukhayka.audiobooks.ui.components.accessibilityPane
 
 /** One home for the existing settings destinations; preferences stay in their modules. */
@@ -45,14 +46,17 @@ internal fun SettingsScreen(
     }
     Column(
         Modifier.fillMaxSize().testTag("settings_screen").accessibilityPane(title)
-            .verticalScroll(rememberScrollState()).padding(16.dp)
+            .verticalScroll(rememberScrollState())
     ) {
-        Text(
-            title, style = MaterialTheme.typography.headlineMedium,
-            modifier = Modifier.padding(vertical = 16.dp).focusRequester(headingFocus)
-                .focusable().semantics { heading() }
+        // v1.4 C5 (ADR-0033): the same tab header as Огляд/Медіатека —
+        // one headline model across the tabs; the return-focus contract
+        // rides the header's title.
+        AppTabHeader(
+            title = title,
+            returnFocusRequester = headingFocus
         )
-        destinations.forEach { destination ->
+        Column(Modifier.padding(horizontal = 16.dp)) {
+            destinations.forEach { destination ->
             ListItem(
                 headlineContent = { Text(stringResource(destination.titleRes)) },
                 trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null) },
@@ -64,6 +68,7 @@ internal fun SettingsScreen(
                     .clickable(role = Role.Button) { onOpen(destination) }
             )
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            }
         }
     }
 }

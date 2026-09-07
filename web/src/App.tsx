@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ListenerProfile } from './identity/listenerIdentity'
 import { Catalog } from './ui/Catalog'
+import { Listen } from './ui/Listen'
 import { Library } from './ui/Library'
 import { Settings } from './ui/Settings'
-import { EmptyState } from './ui/components'
 import { BookPage } from './ui/BookPage'
 import { AudioEngine } from './player/audioEngine'
 import { MiniPlayer } from './ui/MiniPlayer'
@@ -14,6 +14,7 @@ import { HybridListeningStateStorage } from './local/hybridListeningState'
 import { IdbListeningStateStore } from './local/listeningState'
 import { DomainStore } from './local/domain'
 import { EditionLinkStore } from './local/editionLinks'
+import { ListenPrefsStore } from './local/listenPrefs'
 import { BrowserProgressSyncLedger } from './sync/ledger'
 import { ProgressSyncSettings } from './sync/settings'
 import { FirestoreProgressSyncStore } from './sync/store'
@@ -32,8 +33,7 @@ import { loadSelectedTab, saveSelectedTab, SELECTED_TAB_ORDER, type SelectedTab 
  * Слухати / Огляд / Медіатека / Налаштування, in the enum's order. The
  * chosen tab persists (ui/selectedTab); «Профіль» is not a tab — the
  * recovery code and the sync switch live in the Налаштування direction
- * (ui/Settings). Until W2.1 fills Слухати, that tab renders the canonical
- * empty state; the interim landing tab is Огляд.
+ * (ui/Settings). The interim landing tab is Огляд.
  */
 
 /** One label per tab, in the same i18n keys the Android resources mirror. */
@@ -77,6 +77,8 @@ export function App({ profile: initialProfile }: { profile: ListenerProfile | nu
   )
   // #584 W1.2 — the mergeKey → Edition join the Медіатека reads.
   const linkStore = useMemo(() => new EditionLinkStore(), [])
+  // #585 W2.1 — the Слухати shelves' local-only order/hide/dismiss prefs.
+  const listenPrefsStore = useMemo(() => new ListenPrefsStore(), [])
   const localStore = useMemo(() => new LocalListeningStateStore(hybrid), [])
   const [boot, setBoot] = useState<{ snapshots: number; evicted: boolean } | null>(null)
   useEffect(() => {
@@ -241,7 +243,12 @@ export function App({ profile: initialProfile }: { profile: ListenerProfile | nu
           // (migration + hydration) has settled — R-W8's loss-free bar.
           <div className="placeholder">{t('storageLoading')}</div>
         ) : tab === 'listen' ? (
-          <EmptyState icon="🎧" message={t('listenStubTitle')} hint={t('listenStubWhat')} />
+          <Listen
+            domainStore={domainStore}
+            linkStore={linkStore}
+            listening={idbStore}
+            prefsStore={listenPrefsStore}
+          />
         ) : tab === 'explore' ? (
           <Catalog
             onOpenBook={(url, source) => setBook({ url, source })}

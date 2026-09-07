@@ -572,3 +572,38 @@ span.bookrow-body {
   border-color: var(--bad);
   font-weight: 600;
 }
+
+/* --- #585 W2.1: «Керувати полицями» rows ---------------------------------- */
+
+.manage-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.manage-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 48px;
+  border-bottom: 1px solid var(--line);
+}
+
+.manage-row-title {
+  flex: 1;
+  font-size: 15px;
+}
+
+.manage-row button {
+  min-width: 48px;
+  min-height: 48px;
+  background: none;
+  border: none;
+  color: var(--fg);
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.manage-row .manage-danger {
+  color: var(--bad);
+}

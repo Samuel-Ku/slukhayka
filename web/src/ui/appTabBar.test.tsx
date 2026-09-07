@@ -45,7 +45,8 @@ describe('App tab bar', () => {
     expect(window.localStorage.getItem('slukhayka.selected_tab')).toBe('settings')
 
     await user.click(screen.getByRole('tab', { name: 'Слухати' }))
-    expect(await screen.findByText('Продовження слухання')).toBeTruthy()
+    // The W2.1 shelves screen under its canonical header.
+    expect(await screen.findByRole('heading', { level: 1, name: 'Слухати' })).toBeTruthy()
     expect(window.localStorage.getItem('slukhayka.selected_tab')).toBe('listen')
   })
 

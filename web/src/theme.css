@@ -625,6 +625,175 @@ span.bookrow-body {
   font-weight: 600;
 }
 
+/* --- W3.1: Огляд shelves (PosterCard/CycleCard, ADR-0033) ---------------- */
+
+/* One horizontal scrollable shelf; cards never wrap into a grid. */
+.shelf-rail {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  padding: 4px 2px 12px;
+  list-style: none;
+  margin: 0;
+  scroll-snap-type: x proximity;
+}
+
+.shelf-rail > * {
+  flex: 0 0 auto;
+  scroll-snap-align: start;
+}
+
+/* Portrait poster 120×168 (ADR-0033); merged clickable node, card look. */
+.poster-card {
+  width: 120px;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+  padding: 0;
+  color: var(--fg);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+
+.poster-cover {
+  width: 120px;
+  height: 168px;
+  object-fit: cover;
+  display: block;
+  background: var(--line);
+}
+
+.poster-cover-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg-dim);
+  font-size: 40px;
+  font-weight: 600;
+}
+
+.poster-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px;
+}
+
+.poster-title {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.25;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.poster-author,
+.poster-duration {
+  font-size: 12px;
+  color: var(--fg-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.poster-caption {
+  font-size: 12px;
+  color: var(--fg-dim);
+}
+
+.poster-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.poster-progress {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--line);
+  margin-top: 4px;
+  overflow: hidden;
+  display: block;
+}
+
+.poster-progress-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+/* Landscape cycle card 132×78 (ADR-0033). */
+.cycle-card {
+  width: 132px;
+  height: 78px;
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+  padding: 0;
+  color: var(--fg);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+
+.cycle-cover {
+  width: 48px;
+  height: 78px;
+  object-fit: cover;
+  display: block;
+  background: var(--line);
+  flex: 0 0 auto;
+}
+
+.cycle-cover-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg-dim);
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.cycle-body {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  padding: 6px 8px 6px 0;
+  min-width: 0;
+}
+
+.cycle-title {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.cycle-subtitle {
+  font-size: 11px;
+  color: var(--fg-dim);
+}
+
+.cycle-reason {
+  font-size: 11px;
+  color: var(--accent);
+}
+
 /* --- #585 W2.1: «Керувати полицями» rows ---------------------------------- */
 
 .manage-list {

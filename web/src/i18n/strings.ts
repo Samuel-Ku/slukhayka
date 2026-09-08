@@ -112,6 +112,18 @@ const uk = {
   manageRestoreAria: 'Повернути полицію: {title}',
   manageHiddenHeading: 'Сховані',
   manageDone: 'Готово',
+  // not interested — #586 W2.2, Android's a11y_not_interested_work + the
+  // Recommendation Preference dictionary (HIDE_WORK/REDUCE_SIMILAR/HIDE_AUTHOR)
+  notInterestedAria: 'Не цікаво: {title}',
+  recommendationsTitle: 'Персональні рекомендації',
+  recommendationsHiddenHeading: 'Приховане вами',
+  recommendationsRestoreDescription: 'Повернути: {title}',
+  actionRestore: 'Повернути',
+  feedbackHideWork: 'Не рекомендувати цю книгу',
+  feedbackReduceSimilar: 'Менше схожих',
+  feedbackHideAuthor: 'Не рекомендувати цього автора',
+  recommendationsEmptyTitle: 'Нічого не приховано',
+  recommendationsEmptyHint: 'Книги, позначені «Не цікаво» на полицях, з’являться тут — і їх можна повернути.',
   // catalog
   searchPlaceholder: 'Пошук…',
   searchAria: 'Пошук',
@@ -267,6 +279,18 @@ const en: Strings = {
   manageRestoreAria: 'Restore shelf: {title}',
   manageHiddenHeading: 'Hidden',
   manageDone: 'Done',
+  // not interested — #586 W2.2, Android's a11y_not_interested_work + the
+  // Recommendation Preference dictionary (HIDE_WORK/REDUCE_SIMILAR/HIDE_AUTHOR)
+  notInterestedAria: 'Not interested: {title}',
+  recommendationsTitle: 'Personal recommendations',
+  recommendationsHiddenHeading: 'Hidden by you',
+  recommendationsRestoreDescription: 'Restore: {title}',
+  actionRestore: 'Restore',
+  feedbackHideWork: "Don't recommend this book",
+  feedbackReduceSimilar: 'Fewer like these',
+  feedbackHideAuthor: "Don't recommend this author",
+  recommendationsEmptyTitle: 'Nothing hidden',
+  recommendationsEmptyHint: 'Books marked “Not interested” on the shelves appear here — and can be restored.',
   // catalog
   searchPlaceholder: 'Search…',
   searchAria: 'Search',

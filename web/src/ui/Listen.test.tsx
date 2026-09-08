@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { DomainStore } from '../local/domain'
 import { EditionLinkStore } from '../local/editionLinks'
 import { ListenPrefsStore } from '../local/listenPrefs'
+import { RecommendationPrefsStore } from '../local/recommendationPrefs'
 import type { LocalListeningStateSnapshot } from '../player/localState'
 import type { ListenerDatabase } from '../local/listeningState'
 import { setUiLocale } from '../i18n/locale'
@@ -63,6 +64,7 @@ describe('Listen', () => {
         linkStore={new EditionLinkStore()}
         listening={makeListening([])}
         prefsStore={new ListenPrefsStore()}
+        recommendationPrefs={new RecommendationPrefsStore()}
       />,
     )
     expect(await screen.findByText('Тут з’являться ваші полиці')).toBeTruthy()
@@ -88,6 +90,7 @@ describe('Listen', () => {
           snapshot('ed-спляча|а', NOW - 20 * DAY),
         ])}
         prefsStore={new ListenPrefsStore()}
+        recommendationPrefs={new RecommendationPrefsStore()}
       />,
     )
 
@@ -112,6 +115,7 @@ describe('Listen', () => {
       linkStore: links,
       listening: makeListening([snapshot('ed-книга|а', NOW - DAY)]),
       prefsStore,
+      recommendationPrefs: new RecommendationPrefsStore(),
     }
     const { unmount } = render(<Listen {...props} />)
     await waitFor(() => expect(screen.getByText('Книга')).toBeTruthy())
@@ -140,6 +144,45 @@ describe('Listen', () => {
     await waitFor(() => expect(screen.getByText('Продовжити слухати')).toBeTruthy())
   })
 
+  it('«Не цікаво» hides the book from every shelf and persists as a HIDE_WORK preference', async () => {
+    const user = userEvent.setup()
+    const domain = new DomainStore()
+    const links = new EditionLinkStore()
+    await seedBook(domain, links, 'герой|а', 'Герой')
+    await seedBook(domain, links, 'інша|а', 'Інша')
+    const recommendationPrefs = new RecommendationPrefsStore()
+    const props = {
+      domainStore: domain,
+      linkStore: links,
+      listening: makeListening([
+        snapshot('ed-герой|а', NOW - DAY, 0, 500),
+        snapshot('ed-інша|а', NOW - 2 * DAY),
+      ]),
+      prefsStore: new ListenPrefsStore(),
+      recommendationPrefs,
+    }
+    const { unmount } = render(<Listen {...props} />)
+    await waitFor(() => expect(screen.getByText('Герой')).toBeTruthy())
+
+    // «Герой» is the resume CTA — no ✕ on the hero row; shelf rows carry it.
+    expect(screen.queryByRole('button', { name: 'Не цікаво: Герой' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Не цікаво: Інша' })).toBeTruthy()
+
+    // Dismiss «Інша» (a recently-added shelf row): the book leaves, the
+    // HIDE_WORK preference persists locally.
+    await user.click(screen.getByRole('button', { name: 'Не цікаво: Інша' }))
+    await waitFor(() => expect(screen.queryByText('Інша')).toBeNull())
+    const rows = await recommendationPrefs.all()
+    expect(rows.map((row) => row.targetKey)).toEqual(['інша|а'])
+    expect(rows[0]!.kind).toBe('HIDE_WORK')
+
+    // Persistence: a remount keeps the book hidden; the hero stays intact.
+    unmount()
+    render(<Listen {...props} />)
+    await waitFor(() => expect(screen.queryByText('Інша')).toBeNull())
+    expect(await screen.findByText('Герой')).toBeTruthy()
+  })
+
   it('closing the manage sheet returns focus to its opener', async () => {
     const user = userEvent.setup()
     render(
@@ -148,6 +191,7 @@ describe('Listen', () => {
         linkStore={new EditionLinkStore()}
         listening={makeListening([])}
         prefsStore={new ListenPrefsStore()}
+        recommendationPrefs={new RecommendationPrefsStore()}
       />,
     )
     await screen.findByText('Тут з’являться ваші полиці')

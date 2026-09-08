@@ -28,8 +28,9 @@ import com.slukhayka.audiobooks.ui.theme.AppDimens
  * - [AppSectionHeader] `SectionHeaderLevel.SECTION` — shelves, rails and
  *   blocks: uppercase titleSmall, optionally with a [count] subtitle
  *   (R10: «12 книг у жанрі» — the counter lives in the header, never as a
- *   free-standing row) and/or an [action] slot (a 48 dp control, e.g. the
- *   Listen block menu until ticket #570 replaces it).
+ *   free-standing row) and/or an [action] slot (a 48 dp control; the
+ *   Listen blocks used one for their ⋮ menu until v1.4 E1 replaced the
+ *   menus with the shelf-management sheet).
  *
  * The [subtitle] slot carries a small secondary line under the title (the
  * Listen block reason, «чому це тут»); [count] and [subtitle] are mutually

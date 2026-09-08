@@ -5,6 +5,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.ui.Modifier
@@ -28,11 +30,13 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
@@ -44,17 +48,16 @@ import com.slukhayka.audiobooks.data.recommend.RecommendationEngine
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.data.source.GlobalSearchSource
 import com.slukhayka.audiobooks.testing.TestDataFactory
-import com.slukhayka.audiobooks.ui.screens.AudiobookListItem
-import com.slukhayka.audiobooks.ui.screens.CatalogSeriesCard
 import com.slukhayka.audiobooks.ui.components.AppSectionHeader
-import com.slukhayka.audiobooks.ui.screens.CollectionBookCard
+import com.slukhayka.audiobooks.ui.components.BookRow
+import com.slukhayka.audiobooks.ui.components.CycleCard
+import com.slukhayka.audiobooks.ui.components.PosterCard
 import com.slukhayka.audiobooks.ui.screens.GlobalSearchResultCard
 import com.slukhayka.audiobooks.ui.screens.GlobalSearchStatus
 import com.slukhayka.audiobooks.ui.screens.HomeHeader
 import com.slukhayka.audiobooks.ui.screens.NewArrivalsRail
 import com.slukhayka.audiobooks.ui.screens.RecommendedBookCard
 import com.slukhayka.audiobooks.ui.screens.RecommendationDisclosureDialog
-import com.slukhayka.audiobooks.ui.screens.UnifiedCatalogCard
 import com.slukhayka.audiobooks.ui.screens.WorkFeedCard
 import com.slukhayka.audiobooks.ui.screens.WorkFeedFilters
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
@@ -276,7 +279,7 @@ class ExploreAccessibilityTest {
     fun catalogueCardKeepsDownloadAsASeparateContextualAction() {
         compose.setContent {
             AudiobookTheme(darkTheme = true) {
-                UnifiedCatalogCard(
+                PosterCard(
                     result = result,
                     onClick = {},
                     isDownloaded = false,
@@ -299,7 +302,7 @@ class ExploreAccessibilityTest {
         val book = TestDataFactory.dataBooks().first()
         compose.setContent {
             AudiobookTheme(darkTheme = true) {
-                AudiobookListItem(book = book, onClick = {}, onPlayClick = {})
+                BookRow(book = book, onClick = {}, onPlayClick = {})
             }
         }
 
@@ -323,7 +326,7 @@ class ExploreAccessibilityTest {
         val streamingBook = TestDataFactory.dataBooks().first().copy(isDownloaded = false)
         compose.setContent {
             AudiobookTheme(darkTheme = true) {
-                AudiobookListItem(book = streamingBook, onClick = {}, onPlayClick = {})
+                BookRow(book = streamingBook, onClick = {}, onPlayClick = {})
             }
         }
 
@@ -523,17 +526,35 @@ class ExploreAccessibilityTest {
                 LocalDensity provides Density(density.density, fontScale = 2f)
             ) {
                 AudiobookTheme(darkTheme = true) {
-                    Box(Modifier.width(320.dp).height(480.dp)) {
-                        androidx.compose.foundation.layout.Column {
-                            AudiobookListItem(book = book, onClick = {}, onPlayClick = {})
-                            CatalogSeriesCard(series = series, onClick = {})
-                            CollectionBookCard(result = result, onClick = {})
-                        }
+                    // The canonical v1.4 cards are taller than the old twins,
+                    // so at 200% font scale the trio scrolls — this test pins
+                    // the a11y contract, not layout density.
+                    androidx.compose.foundation.layout.Column(
+                        Modifier
+                            .width(320.dp)
+                            .height(800.dp)
+                            .verticalScroll(rememberScrollState())
+                            .testTag("shared_cards_column")
+                    ) {
+                        BookRow(book = book, onClick = {}, onPlayClick = {})
+                        CycleCard(
+                            title = series.title,
+                            coverUrl = series.coverImageUrl,
+                            onClick = {},
+                            testTag = "catalog_series_${series.url.hashCode()}"
+                        )
+                        PosterCard(
+                            result = result,
+                            onClick = {},
+                            testTag = "collection_book_${result.key.hashCode()}"
+                        )
                     }
                 }
             }
         }
 
+        compose.onNodeWithTag("shared_cards_column")
+            .performScrollToNode(hasTestTag("book_item_${book.id}"))
         compose.onNodeWithTag("book_item_${book.id}")
             .assertIsDisplayed()
             .assertHeightIsAtLeast(48.dp)
@@ -543,6 +564,8 @@ class ExploreAccessibilityTest {
                         "Відкрити книгу: ${book.title}"
                 }
             )
+        compose.onNodeWithTag("shared_cards_column")
+            .performScrollToNode(hasTestTag("catalog_series_${series.url.hashCode()}"))
         compose.onNodeWithTag("catalog_series_${series.url.hashCode()}")
             .assertIsDisplayed()
             .assertHeightIsAtLeast(48.dp)
@@ -552,6 +575,8 @@ class ExploreAccessibilityTest {
                         "Відкрити серію: ${series.title}"
                 }
             )
+        compose.onNodeWithTag("shared_cards_column")
+            .performScrollToNode(hasTestTag("collection_book_${result.key.hashCode()}"))
         compose.onNodeWithTag("collection_book_${result.key.hashCode()}")
             .assertIsDisplayed()
             .assertHeightIsAtLeast(48.dp)

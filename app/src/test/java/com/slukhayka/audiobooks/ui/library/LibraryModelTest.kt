@@ -3,6 +3,8 @@ package com.slukhayka.audiobooks.ui.library
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.ChapterEntity
 import com.slukhayka.audiobooks.data.db.PlaybackProgressEntity
+import com.slukhayka.audiobooks.ui.library.RemainingTimeUnits
+import com.slukhayka.audiobooks.ui.library.formatRemainingTime
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -395,15 +397,25 @@ class LibraryModelTest {
     }
 
     // --- formatRemainingTime ------------------------------------------------
+    // v1.4: the bucket logic is pure; the units are injected. The literal
+    // impl pins the UK shapes; the resource-backed resolver (used by the
+    // composables) renders the same text in uk locale — EN renders the
+    // remaining_units_* EN twins instead of mixed-language units.
+    private val ukUnits = object : RemainingTimeUnits {
+        override fun hoursMinutes(hours: Long, minutes: Long) = "$hours год $minutes хв"
+        override fun hours(hours: Long) = "$hours год"
+        override fun minutes(minutes: Long) = "$minutes хв"
+        override fun singleMinute() = "1 хв"
+    }
 
     @Test
     fun `remaining time formats hours and minutes`() {
-        assertEquals("—", formatRemainingTime(0L))
-        assertEquals("—", formatRemainingTime(-5L))
-        assertEquals("1 хв", formatRemainingTime(45L))
-        assertEquals("45 хв", formatRemainingTime(45 * 60L))
-        assertEquals("4 год 12 хв", formatRemainingTime(4 * 3600L + 12 * 60L))
-        assertEquals("4 год", formatRemainingTime(4 * 3600L))
+        assertEquals("—", formatRemainingTime(0L, ukUnits))
+        assertEquals("—", formatRemainingTime(-5L, ukUnits))
+        assertEquals("1 хв", formatRemainingTime(45L, ukUnits))
+        assertEquals("45 хв", formatRemainingTime(45 * 60L, ukUnits))
+        assertEquals("4 год 12 хв", formatRemainingTime(4 * 3600L + 12 * 60L, ukUnits))
+        assertEquals("4 год", formatRemainingTime(4 * 3600L, ukUnits))
     }
 
     // --- ADR-0007: multiple progress rows (one per Edition) dedup to one card

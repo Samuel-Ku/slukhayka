@@ -31,7 +31,9 @@ import org.robolectric.annotation.GraphicsMode
  */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
-@Config(qualifiers = RobolectricDeviceQualifiers.Pixel8, sdk = [36])
+// uk-rUA: explicit qualifiers replace robolectric.properties' default `uk`,
+// and the rail header is resource-backed since v1.4 (E3).
+@Config(qualifiers = "uk-rUA-" + RobolectricDeviceQualifiers.Pixel8, sdk = [36])
 class NewArrivalsRailSnapshotTest {
 
     @get:Rule

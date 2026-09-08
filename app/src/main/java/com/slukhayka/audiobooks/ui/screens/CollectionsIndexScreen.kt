@@ -16,6 +16,7 @@ import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.components.AppSectionHeader
 import com.slukhayka.audiobooks.ui.components.IndexEmptyState
+import com.slukhayka.audiobooks.ui.components.PosterCard
 import com.slukhayka.audiobooks.ui.components.IndexScreenScaffold
 import com.slukhayka.audiobooks.ui.theme.*
 
@@ -88,9 +89,12 @@ fun CollectionsIndexContent(
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     items(collection.books, key = { it.key }) { result ->
-                        CollectionBookCard(
+                        // v1.4 C2 (ADR-0033): the canonical PosterCard; the
+                        // index carries no action state — plain card contract.
+                        PosterCard(
                             result = result,
-                            onClick = { onBookClick(result) }
+                            onClick = { onBookClick(result) },
+                            testTag = "collection_book_${result.key.hashCode()}"
                         )
                     }
                 }

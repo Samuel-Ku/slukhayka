@@ -22,6 +22,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -60,14 +61,25 @@ fun Top100Screen(
     val loadFailed by viewModel.top100LoadFailed.collectAsState()
     val returnFocusRequester = remember { FocusRequester() }
 
-    IndexScreenScaffold(title = "ТОП 100 АудіоКниг", onBackClick = onBackClick) { padding ->
+    // v1.4 E6 (ADR-0033): the honest count rides the scaffold's subtitle
+    // (R10), rendered only when it is real (ADR-0014).
+    IndexScreenScaffold(
+        title = stringResource(R.string.top100_index_title),
+        onBackClick = onBackClick,
+        subtitle = if (!isLoading && !loadFailed && books.isNotEmpty()) {
+            pluralStringResource(R.plurals.best_book_count, books.size, books.size)
+        } else {
+            null
+        }
+    ) { padding ->
         LaunchedEffect(restoreFocusBookId, books, isLoading, loadFailed) {
             val bookId = restoreFocusBookId ?: return@LaunchedEffect
             if (isLoading || loadFailed) return@LaunchedEffect
             val bookIndex = books.indexOfFirst { it.id == bookId }
             if (bookIndex < 0) return@LaunchedEffect
-            // The count row is item zero; ranked books start at item one.
-            listState.scrollToItem(bookIndex + 1)
+            // The count moved into the scaffold's subtitle (v1.4 E6);
+            // ranked books start at item zero now.
+            listState.scrollToItem(bookIndex)
             withFrameNanos { }
             if (runCatching { returnFocusRequester.requestFocus() }.getOrDefault(false)) {
                 onBookFocusRestored(bookId)
@@ -124,17 +136,8 @@ fun Top100Screen(
                 }
 
                 else -> {
-                    item {
-                        Text(
-                            // Spec-27 (#204) BUG-006: правильна множина —
-                            // «1 найкраща книга», «2 найкращі книги»,
-                            // «5 найкращих книг».
-                            text = "${books.size} ${ukPlural(books.size, "найкраща книга", "найкращі книги", "найкращих книг")}",
-                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                            color = MaterialTheme.colorScheme.secondary,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-                        )
-                    }
+                    // The count lives in the scaffold's subtitle (v1.4 E6,
+                    // ADR-0033; spec-27 #204 BUG-006 pluralization preserved).
                     itemsIndexed(books, key = { _, book -> book.id }) { index, book ->
                         // v1.4 C3 (ADR-0033): the canonical flat row — rank
                         // badge in the leading slot, ▶ as a separate 48 dp

@@ -18,6 +18,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.data.catalog.CatalogSeries
 import com.slukhayka.audiobooks.ui.MainViewModel
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
+import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.ui.components.CycleCard
 import com.slukhayka.audiobooks.ui.components.IndexEmptyState
 import com.slukhayka.audiobooks.ui.components.IndexScreenScaffold
 import com.slukhayka.audiobooks.ui.theme.*
@@ -44,7 +48,13 @@ fun SeriesIndexScreen(
     // spec-28 (#202): the chrome is the shared index scaffold — title, back
     // arrow, insets and container colour live in one place; only the content
     // differs per screen.
-    IndexScreenScaffold(title = "Серії", onBackClick = onBackClick) { padding ->
+    // v1.4 E6 (ADR-0033): the honest count rides the scaffold's subtitle
+    // (R10), never a free-standing list row.
+    IndexScreenScaffold(
+        title = stringResource(R.string.series_index_title),
+        onBackClick = onBackClick,
+        subtitle = pluralStringResource(R.plurals.series_count, series.size, series.size)
+    ) { padding ->
         SeriesIndexContent(
             series = series,
             onSeriesClick = onSeriesClick,
@@ -88,8 +98,9 @@ fun SeriesIndexContent(
         val url = restoreFocusSeriesUrl ?: return@LaunchedEffect
         val seriesIndex = series.indexOfFirst { it.url == url }
         if (seriesIndex < 0) return@LaunchedEffect
-        // The count spans item zero; series cards start at item one.
-        gridState.scrollToItem(seriesIndex + 1)
+        // The count moved into the scaffold's subtitle (v1.4 E6); cards
+        // start at item zero now.
+        gridState.scrollToItem(seriesIndex)
         withFrameNanos { }
         if (runCatching { returnFocusRequester.requestFocus() }.getOrDefault(false)) {
             onSeriesFocusRestored(url)
@@ -104,26 +115,22 @@ fun SeriesIndexContent(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        item(span = { GridItemSpan(maxLineSpan) }) {
-            Text(
-                text = "${series.size} серій",
-                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                color = MaterialTheme.colorScheme.secondary,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-            )
-        }
+        // The count lives in the scaffold's subtitle (v1.4 E6, ADR-0033).
         items(series, key = { it.url }) { s ->
             // The card is a fixed-width poster (the same shape as the Огляд
             // «Цикли» row); center it inside its grid cell.
             Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                CatalogSeriesCard(
-                    series = s,
+                // v1.4 C2 (ADR-0033): the canonical CycleCard.
+                CycleCard(
+                    title = s.title,
+                    coverUrl = s.coverImageUrl,
                     onClick = { onSeriesClick(s) },
                     modifier = if (s.url == restoreFocusSeriesUrl) {
                         Modifier.focusRequester(returnFocusRequester)
                     } else {
                         Modifier
-                    }
+                    },
+                    testTag = "catalog_series_${s.url.hashCode()}"
                 )
             }
         }

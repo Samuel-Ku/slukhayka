@@ -14,6 +14,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
+import com.slukhayka.audiobooks.ui.components.BookRow
 import com.slukhayka.audiobooks.ui.components.IndexScreenScaffold
 import com.slukhayka.audiobooks.ui.components.SecondaryLoadingState
 import com.slukhayka.audiobooks.ui.components.SecondaryMessageState
@@ -21,9 +22,9 @@ import com.slukhayka.audiobooks.ui.theme.*
 
 /**
  * Shared full-screen book list used by the series, genre and person-book
- * screens: a back button, the list's title, a small count label, the standard
- * [AudiobookListItem] rows and a friendly empty state. Keeping the layout here
- * means each catalogue screen only wires its own state to it.
+ * screens: a back button, the list's title (with the count as its subtitle,
+ * v1.4 E6), the canonical [BookRow] rows and a friendly empty state. Keeping
+ * the layout here means each catalogue screen only wires its own state to it.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -46,18 +47,22 @@ fun BookListScreen(
 ) {
     val returnFocusRequester = remember { FocusRequester() }
 
+    // v1.4 E6 (ADR-0033): the count rides the scaffold's subtitle (R10),
+    // never a free-standing list row.
     IndexScreenScaffold(
         title = title,
         onBackClick = onBackClick,
-        actions = headerAction
+        actions = headerAction,
+        subtitle = countLabel
     ) { padding ->
         LaunchedEffect(restoreFocusBookId, books, isLoading, errorMessage) {
             val bookId = restoreFocusBookId ?: return@LaunchedEffect
             if (isLoading || errorMessage != null) return@LaunchedEffect
             val bookIndex = books.indexOfFirst { it.id == bookId }
             if (bookIndex < 0) return@LaunchedEffect
-            val countOffset = if (countLabel != null) 1 else 0
-            listState.scrollToItem(bookIndex + countOffset)
+            // The count moved into the scaffold's subtitle (v1.4 E6); rows
+            // start at item zero now.
+            listState.scrollToItem(bookIndex)
             withFrameNanos { }
             if (runCatching { returnFocusRequester.requestFocus() }.getOrDefault(false)) {
                 onBookFocusRestored(bookId)
@@ -106,18 +111,10 @@ fun BookListScreen(
                 }
 
                 else -> {
-                    if (countLabel != null) {
-                        item {
-                            Text(
-                                text = countLabel,
-                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                                color = MaterialTheme.colorScheme.secondary,
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-                            )
-                        }
-                    }
+                    // The count lives in the scaffold's subtitle (v1.4 E6,
+                    // ADR-0033).
                     items(books, key = { it.id }) { book ->
-                        AudiobookListItem(
+                        BookRow(
                             book = book,
                             onClick = { onBookClick(book.id) },
                             onPlayClick = { onPlayClick(book) },

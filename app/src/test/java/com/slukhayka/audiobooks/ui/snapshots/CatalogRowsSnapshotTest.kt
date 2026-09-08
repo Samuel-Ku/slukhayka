@@ -11,9 +11,10 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import com.slukhayka.audiobooks.data.catalog.CatalogBook
 import com.slukhayka.audiobooks.data.catalog.CatalogSeries
-import com.slukhayka.audiobooks.ui.screens.CatalogBookCard
+import com.slukhayka.audiobooks.ui.components.PosterCard
+import com.slukhayka.audiobooks.ui.components.formatRowDuration
 import com.slukhayka.audiobooks.ui.components.AppSectionHeader
-import com.slukhayka.audiobooks.ui.screens.CatalogSeriesCard
+import com.slukhayka.audiobooks.ui.components.CycleCard
 import com.slukhayka.audiobooks.ui.screens.EmptyCatalogState
 import com.slukhayka.audiobooks.ui.screens.HomeHeader
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
@@ -68,7 +69,7 @@ class CatalogRowsSnapshotTest {
         composeTestRule.setContent {
             AudiobookTheme(darkTheme = true) {
                 CatalogSurface {
-                    CatalogBookCard(book = book, onClick = {})
+                    PosterCard(title = book.title, coverUrl = book.coverImageUrl, onClick = {})
                 }
             }
         }
@@ -85,7 +86,12 @@ class CatalogRowsSnapshotTest {
         composeTestRule.setContent {
             AudiobookTheme(darkTheme = true) {
                 CatalogSurface {
-                    CatalogBookCard(book = withDuration, onClick = {})
+                    PosterCard(
+                    title = withDuration.title,
+                    coverUrl = withDuration.coverImageUrl,
+                    onClick = {},
+                    duration = formatRowDuration(withDuration.totalDurationSeconds)
+                )
                 }
             }
         }
@@ -100,7 +106,7 @@ class CatalogRowsSnapshotTest {
         composeTestRule.setContent {
             AudiobookTheme(darkTheme = true) {
                 CatalogSurface {
-                    CatalogBookCard(book = book, onClick = {})
+                    PosterCard(title = book.title, coverUrl = book.coverImageUrl, onClick = {})
                 }
             }
         }
@@ -116,7 +122,7 @@ class CatalogRowsSnapshotTest {
         composeTestRule.setContent {
             AudiobookTheme(darkTheme = true) {
                 CatalogSurface {
-                    CatalogSeriesCard(series = series, onClick = {})
+                    CycleCard(title = series.title, coverUrl = series.coverImageUrl, onClick = {})
                 }
             }
         }

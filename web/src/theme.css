@@ -1437,3 +1437,25 @@ span.bookrow-body {
   color: var(--bad);
   border-color: var(--bad);
 }
+
+/* W6.2 — honest offline indicators (#593). */
+.offline-chip {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+  vertical-align: middle;
+}
+
+.chapter-row-cached {
+  margin-left: 8px;
+  font-size: 11px;
+  color: var(--fg-dim);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 1px 6px;
+}

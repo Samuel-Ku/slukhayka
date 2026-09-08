@@ -22,6 +22,7 @@ import {
   type SleepTimerState,
 } from './sleepTimer'
 import type { PlayerBookmarksStore } from './bookmarks'
+import { OfflineAudioPrimer } from '../offline/primer'
 
 /**
  * Android's auto-bookmark note, verbatim (AudioPlayerManager.kt writes the
@@ -36,6 +37,8 @@ export interface AudioEngineOptions {
   store?: LocalListeningStateStore
   syncController?: ProgressSyncController | null
   bookmarks?: PlayerBookmarksStore | null
+  /** W6.2 — the offline streaming-cache primer (injectable in tests). */
+  offlinePrimer?: OfflineAudioPrimer | null
 }
 
 export class AudioEngine {
@@ -51,6 +54,7 @@ export class AudioEngine {
   private relayBase: string | undefined
   private bookmarks: PlayerBookmarksStore | null
   private workId: string | undefined
+  private offlinePrimer: OfflineAudioPrimer | null
 
   // W5.1 — the sleep timer (Android's AudioPlayerManager policy): its own
   // wall-clock interval, independent of the play ticker, because Android's
@@ -66,6 +70,10 @@ export class AudioEngine {
     this.relayBase = opts.relayBase
     this.syncController = opts.syncController ?? null
     this.bookmarks = opts.bookmarks ?? null
+    // W6.2 — the primer only exists where a relay exists: without a relay
+    // there is nothing same-origin to cache for offline playback.
+    this.offlinePrimer =
+      opts.offlinePrimer === undefined ? (this.relayBase ? new OfflineAudioPrimer() : null) : opts.offlinePrimer
     this.engine = new PlaybackEngine({
       relayUrlOf: this.relayBase ? (url) => relayUrlFor(this.relayBase!, url) : undefined,
     })
@@ -88,7 +96,13 @@ export class AudioEngine {
 
   attachAudio(audio: HTMLAudioElement): void {
     this.audio = audio
-    audio.addEventListener('playing', () => this.engine.attemptPlaying())
+    audio.addEventListener('playing', () => {
+      this.engine.attemptPlaying()
+      // W6.2 — the chapter actually started playing: prime its relay URL
+      // for offline (idempotent — an already-cached chapter is not
+      // re-downloaded; offline browsers skip the prime entirely).
+      this.primeCurrentChapter()
+    })
     audio.addEventListener('error', () => this.engine.attemptErrored())
     audio.addEventListener('ended', () => this.onEnded())
   }
@@ -237,6 +251,12 @@ export class AudioEngine {
     return this.chapters
   }
 
+  /** W6.2 — the direct stream URLs currently in the offline cache. */
+  async cachedStreamUrls(): Promise<Set<string>> {
+    if (this.offlinePrimer === null) return new Set()
+    return this.offlinePrimer.cachedStreamUrls()
+  }
+
   /** W5.1 — the sleep timer controls (Android's option vocabulary). */
   setSleepTimer(minutes: number): void {
     if (minutes === -1) {
@@ -283,6 +303,16 @@ export class AudioEngine {
 
   subscribe(listener: (state: EngineState) => void): () => void {
     return this.engine.subscribe(listener)
+  }
+
+  private primeCurrentChapter(): void {
+    if (this.offlinePrimer === null || this.relayBase === undefined) return
+    const state = this.engine.getState()
+    const chapter = this.chapters[state.chapterIndex]
+    if (!chapter) return
+    const relayUrl = relayUrlFor(this.relayBase, chapter.streamUrl)
+    if (relayUrl === '') return
+    void this.offlinePrimer.prime(relayUrl)
   }
 
   private syncAudioSrc(): void {

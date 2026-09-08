@@ -21,6 +21,8 @@ import { setUiLocale } from '../i18n/locale'
 import { BookmarksPane, ChapterList, SleepTimerPane, type BookmarkContext } from './playerExtras'
 import { PlayerSheet } from './PlayerSheet'
 import { InMemoryReviewsStore } from '../reviews/store'
+import { OfflineAudioPrimer } from '../offline/primer'
+import { relayUrlFor } from '../player/audioEngine'
 
 class MapStorage implements StorageLike {
   private map = new Map<string, string>()
@@ -71,7 +73,47 @@ afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
   vi.useRealTimers()
+  Object.defineProperty(navigator, 'onLine', { configurable: true, value: true })
 })
+
+/** A tiny in-memory cache for the offline primer (mirrors primer.test.ts). */
+class FakeCache {
+  private entries = new Map<string, Response>()
+  async match(request: RequestInfo | string): Promise<Response | undefined> {
+    return this.entries.get(String(request))
+  }
+
+  async put(request: RequestInfo | string, response: Response): Promise<void> {
+    this.entries.set(String(request), response)
+  }
+
+  async keys(): Promise<readonly string[]> {
+    return Array.from(this.entries.keys())
+  }
+
+  async delete(request: RequestInfo | string): Promise<boolean> {
+    return this.entries.delete(String(request))
+  }
+}
+
+async function primedEngine(streamUrls: string[]): Promise<AudioEngine> {
+  const cache = new FakeCache()
+  const primer = new OfflineAudioPrimer({
+    fetchImpl: vi.fn(),
+    cacheStorage: { open: vi.fn(async () => cache as unknown as Cache) } as unknown as CacheStorage,
+    isOnline: () => true,
+  })
+  const engine = new AudioEngine({
+    relayBase: '/api',
+    store: new LocalListeningStateStore(new MapStorage()),
+    offlinePrimer: primer,
+  })
+  // Seed the cache exactly like the real primer would after listening.
+  await Promise.all(
+    streamUrls.map((url) => cache.put(relayUrlFor('/api', url), new Response('audio-bytes', { status: 200 }))),
+  )
+  return engine
+}
 
 describe('ChapterList', () => {
   it('renders every chapter, marks the current one with the position', () => {
@@ -289,6 +331,56 @@ describe('PlayerSheet panes (W5.1)', () => {
     // The sleep timer tab offers Android's options.
     await user.click(screen.getByRole('tab', { name: 'Таймер сну' }))
     expect(screen.getByText('До кінця розділу')).toBeTruthy()
+  })
+
+  it('marks cached chapters «у кеші» from the real cache and shows the offline state honestly', async () => {
+    const engine = await primedEngine([CHAPTERS[0].streamUrl])
+    await engine.loadBook({ title: 'Книга', chapters: CHAPTERS, editionId: 'ed-1', workId: 'Книга|Автор' }, 0, { forceChapter: true })
+    engine.pause()
+    render(
+      <PlayerSheet
+        engine={engine}
+        onClose={vi.fn()}
+        lastPlayed={null}
+        profile={null}
+        reviewsStore={null}
+        bookmarksStore={null}
+      />,
+    )
+    // Online: no offline chip; only the truly cached chapter carries the badge.
+    await waitFor(() => expect(screen.getByText('у кеші')).toBeTruthy())
+    const rows = screen.getAllByRole('button', { name: /Глава/ })
+    expect(rows[0]!.textContent).toContain('у кеші')
+    expect(rows[1]!.textContent).not.toContain('у кеші')
+    expect(screen.queryByText('Офлайн — грає з кешу')).toBeNull()
+
+    // The network drops: the chip names the honest source of truth — the
+    // current (cached) chapter plays from the cache.
+    Object.defineProperty(navigator, 'onLine', { configurable: true, value: false })
+    window.dispatchEvent(new Event('offline'))
+    await waitFor(() => expect(screen.getByText('Офлайн — грає з кешу')).toBeTruthy())
+  })
+
+  it('shows the plain offline state when the current chapter is not cached', async () => {
+    const engine = await primedEngine([CHAPTERS[0].streamUrl])
+    await engine.loadBook({ title: 'Книга', chapters: CHAPTERS, editionId: 'ed-1', workId: 'Книга|Автор' }, 1, { forceChapter: true })
+    engine.pause()
+    Object.defineProperty(navigator, 'onLine', { configurable: true, value: false })
+    window.dispatchEvent(new Event('offline'))
+    render(
+      <PlayerSheet
+        engine={engine}
+        onClose={vi.fn()}
+        lastPlayed={null}
+        profile={null}
+        reviewsStore={null}
+        bookmarksStore={null}
+      />,
+    )
+    // The current chapter (Глава 2) is NOT cached — only «Офлайн», never
+    // a fabricated «грає з кешу».
+    await waitFor(() => expect(screen.getByText('Офлайн')).toBeTruthy())
+    expect(screen.queryByText('Офлайн — грає з кешу')).toBeNull()
   })
 
   it('shows the honest empty bookmarks state without a loaded book', () => {

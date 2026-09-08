@@ -100,6 +100,25 @@ describe('HybridListeningStateStorage', () => {
     expect(await idb.loadSnapshot('ed-3')).toBeNull()
   })
 
+  it('clearListeningSnapshots resets the memory view, the buffer and every IDB row (#591)', async () => {
+    const idb = new IdbListeningStateStore()
+    await idb.saveSnapshot(snapshotOf('ed-1'))
+    const hybrid = new HybridListeningStateStorage(idb, new MemoryStorage())
+    await hybrid.whenBooted()
+    hybrid.setItem(listeningStateKeyFor('ed-1'), JSON.stringify(snapshotOf('ed-1', 500)))
+    await hybrid.flushWrites()
+    expect(await idb.allSnapshots()).toHaveLength(1)
+
+    await hybrid.clearListeningSnapshots()
+
+    expect(hybrid.getItem(listeningStateKeyFor('ed-1'))).toBeNull()
+    expect(await idb.allSnapshots()).toHaveLength(0)
+    // A fresh write after the reset starts a clean book (position 0).
+    hybrid.setItem(listeningStateKeyFor('ed-2'), JSON.stringify(snapshotOf('ed-2', 0)))
+    await hybrid.flushWrites()
+    expect(await idb.allSnapshots()).toHaveLength(1)
+  })
+
   it('runs the legacy migration: rows land in IndexedDB and leave localStorage', async () => {
     const storage = new MemoryStorage()
     storage.setItem('slukhayka.listening.ed-4', JSON.stringify(snapshotOf('ed-4', 7)))

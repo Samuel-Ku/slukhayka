@@ -121,4 +121,20 @@ export class HybridListeningStateStorage implements StorageLike {
     const editionId = editionIdFromListeningKey(key)
     if (editionId !== null && this.booted !== null) void this.store.clearSnapshot(editionId)
   }
+
+  /**
+   * #591 W5.2 — «Скинути позиції прослуховування»: the exact scope of one
+   * honest clear. The memory mirror, the pre-boot buffer AND the IndexedDB
+   * rows all go — the engine's next save starts a fresh book. Settings,
+   * bookmarks, library rows and preferences are untouched (they live in
+   * other stores). Degrade-never: an IDB failure still empties the
+   * synchronous view, so the UI never claims a reset that did not happen.
+   */
+  async clearListeningSnapshots(): Promise<void> {
+    for (const key of Array.from(this.memory.keys())) {
+      if (editionIdFromListeningKey(key) !== null) this.memory.delete(key)
+    }
+    this.pending.clear()
+    if (this.booted !== null) await this.store.clearAllSnapshots()
+  }
 }

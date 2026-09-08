@@ -312,6 +312,9 @@ export function App({ profile: initialProfile }: { profile: ListenerProfile | nu
             }}
             recommendationPrefs={recommendationPrefsStore}
             domainStore={domainStore}
+            hybrid={hybrid}
+            idbStore={idbStore}
+            storage={window.localStorage}
           />
         )}
       </main>

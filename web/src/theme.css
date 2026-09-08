@@ -1459,3 +1459,36 @@ span.bookrow-body {
   border-radius: 999px;
   padding: 1px 6px;
 }
+
+/* #591 W5.2 — the storage direction's danger zone (ADR-0014 separation). */
+.settings-danger-divider {
+  border: none;
+  border-top: 1px solid var(--line);
+  margin: 24px 0;
+}
+
+.settings-danger-heading {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--bad);
+  margin: 0 0 8px;
+}
+
+.settings-danger-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.settings-danger-button {
+  width: 100%;
+  padding: 12px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--bad);
+  background: none;
+  color: var(--bad);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}

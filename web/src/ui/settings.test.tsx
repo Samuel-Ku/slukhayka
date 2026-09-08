@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { Settings } from './Settings'
 import { DomainStore } from '../local/domain'
 import { RecommendationPrefsStore } from '../local/recommendationPrefs'
+import { RecommendationParticipation } from '../recommend/participation'
 import { IdbListeningStateStore } from '../local/listeningState'
 import { HybridListeningStateStorage } from '../local/hybridListeningState'
 import { setUiLocale } from '../i18n/locale'
@@ -23,6 +24,8 @@ const boundProfile: ListenerProfile = { uid: 'uid-xyz789', nickname: 'Слуха
 
 const recPrefs = (): RecommendationPrefsStore => new RecommendationPrefsStore()
 const domain = (): DomainStore => new DomainStore()
+/** #592 W6.1 — the participation consent, fresh per render. */
+const participation = (): RecommendationParticipation => new RecommendationParticipation(window.localStorage)
 
 /** #591 W5.2 — the storage direction's seams, shared by every render. */
 const hybrid = (): HybridListeningStateStorage =>
@@ -35,6 +38,7 @@ const renderSettings = (profile: ListenerProfile | null = localProfile): void =>
       profile={profile}
       recommendationPrefs={recPrefs()}
       domainStore={domain()}
+      participation={participation()}
       hybrid={hybrid()}
       idbStore={idbStore()}
       storage={window.localStorage}
@@ -134,6 +138,7 @@ describe('Settings', () => {
         profile={localProfile}
         recommendationPrefs={prefs}
         domainStore={store}
+        participation={participation()}
         hybrid={hybrid()}
         idbStore={idbStore()}
         storage={window.localStorage}
@@ -169,5 +174,41 @@ describe('Settings', () => {
     await user.click(screen.getByRole('button', { name: /Персональні рекомендації/ }))
 
     expect(await screen.findByText('Нічого не приховано')).toBeTruthy()
+  })
+
+  it('«Рекомендації» carries the participation switch, OFF by default, persisted and revocable', async () => {
+    const user = userEvent.setup()
+    const consent = participation()
+    expect(consent.isEnabled()).toBe(false)
+    render(
+      <Settings
+        profile={localProfile}
+        recommendationPrefs={recPrefs()}
+        domainStore={domain()}
+        participation={consent}
+        hybrid={hybrid()}
+        idbStore={idbStore()}
+        storage={window.localStorage}
+      />,
+    )
+    await user.click(screen.getByRole('button', { name: /Персональні рекомендації/ }))
+
+    const toggle = screen.getByRole('checkbox', { name: /Допомагати покращувати спільні рекомендації/ }) as HTMLInputElement
+    expect(toggle).toBeTruthy()
+    expect(toggle.checked).toBe(false)
+    expect(screen.getByText('Не беру участі')).toBeTruthy()
+    expect(screen.getByText(/згода стосується майбутнього серверного профілю/)).toBeTruthy()
+
+    // ON: the consent persists and the state description flips.
+    await user.click(toggle)
+    expect(toggle.checked).toBe(true)
+    expect(consent.isEnabled()).toBe(true)
+    expect(screen.getByText('Згоду збережено локально')).toBeTruthy()
+
+    // Revocation stops contributions — the switch flips back, local recs stay.
+    await user.click(toggle)
+    expect(toggle.checked).toBe(false)
+    expect(consent.isEnabled()).toBe(false)
+    expect(screen.getByText('Не беру участі')).toBeTruthy()
   })
 })

@@ -9,6 +9,9 @@ import type { ListenerProfile } from '../identity/listenerIdentity'
 import type { NarrationRatingsStore, ReviewsStore } from '../reviews/store'
 import { reviewWorkIdFor, ReviewsBlock } from './bookReviews'
 import { mergeKeyFor, editionIdFor } from '../sync/edition'
+import type { DomainStore, PersonRole } from '../local/domain'
+import { personIdentityOf } from '../local/personIdentity'
+import type { PersonBookmarkSyncController } from '../sync/personBookmarkController'
 
 /**
  * spec-43/T3+T5 + W4.1 — сторінка книги: метадані, розділи, «Інші
@@ -24,6 +27,8 @@ export function BookPage({
   profile,
   reviewsStore,
   narrationRatingsStore,
+  domainStore,
+  personBookmarks,
 }: {
   url: string
   source: SourceId
@@ -32,12 +37,36 @@ export function BookPage({
   profile: ListenerProfile | null
   reviewsStore: ReviewsStore | null
   narrationRatingsStore: NarrationRatingsStore | null
+  /** #582 W0.4 — person-bookmark state + toggle (buttons render only with both). */
+  domainStore?: Pick<DomainStore, 'personBookmarkOf'>
+  personBookmarks?: PersonBookmarkSyncController
 }) {
   const t = useTranslate()
   const [detail, setDetail] = useState<BookDetail | null>(null)
   const [failed, setFailed] = useState(false)
   const [showingCachedBook, setShowingCachedBook] = useState(false)
   const [seriesBooks, setSeriesBooks] = useState<CatalogCard[]>([])
+  // #582 W0.4 — Android's PersonBookmarkControl state: one boolean per role,
+  // read fresh on mount (the screen remounts per book) and after each toggle.
+  const [bookmarkedPeople, setBookmarkedPeople] = useState<Set<string>>(new Set())
+  const [bookmarkReady, setBookmarkReady] = useState(false)
+  useEffect(() => {
+    let alive = true
+    setBookmarkReady(false)
+    if (domainStore === undefined || personBookmarks === undefined) return
+    void (async () => {
+      const author = detail?.author ?? ''
+      const narrator = detail?.narrator ?? ''
+      const ids = await Promise.all([
+        author === '' ? null : domainStore.personBookmarkOf(personIdentityOf('author', author).id),
+        narrator === '' ? null : domainStore.personBookmarkOf(personIdentityOf('narrator', narrator).id),
+      ])
+      if (!alive) return
+      setBookmarkedPeople(new Set(ids.filter((row) => row !== null).map((row) => row!.personId)))
+      setBookmarkReady(true)
+    })()
+    return () => { alive = false }
+  }, [domainStore, personBookmarks, detail?.author, detail?.narrator])
 
   useEffect(() => {
     let alive = true
@@ -98,6 +127,9 @@ export function BookPage({
   const mergeKey = mergeKeyFor(detail.title, detail.author)
   const editionId = editionIdFor(mergeKey, url, detail.narrator ?? '', detail.language ?? '')
   const workId = reviewWorkIdFor(mergeKey, editionId)
+  // #582 W0.4 — the byline's people, blank-safe for the identity computation.
+  const bylineAuthor = detail.author ?? ''
+  const bylineNarrator = detail.narrator ?? ''
 
   return (
     <article>
@@ -113,6 +145,47 @@ export function BookPage({
         {detail.author}
         {detail.narrator ? t('readBy', { narrator: detail.narrator }) : ''}
       </p>
+      {/* #582 W0.4 — Android's PersonBookmarkControl on the byline: one
+          toggle per person, present only when the bookmark seam is (never
+          dead buttons). The star shows the honest local state. */}
+      {domainStore !== undefined && personBookmarks !== undefined && (
+        <p className="byline-bookmarks" style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
+          {bylineAuthor !== '' && (
+            <PersonBookmarkButton
+              role="author"
+              name={bylineAuthor}
+              bookmarked={bookmarkReady && bookmarkedPeople.has(personIdentityOf('author', bylineAuthor).id)}
+              onToggle={async () => {
+                await personBookmarks.toggle('author', bylineAuthor)
+                const row = await domainStore.personBookmarkOf(personIdentityOf('author', bylineAuthor).id)
+                setBookmarkedPeople((prev) => {
+                  const next = new Set(prev)
+                  if (row !== null) next.add(row.personId)
+                  else next.delete(personIdentityOf('author', bylineAuthor).id)
+                  return next
+                })
+              }}
+            />
+          )}
+          {bylineNarrator !== '' && (
+            <PersonBookmarkButton
+              role="narrator"
+              name={bylineNarrator}
+              bookmarked={bookmarkReady && bookmarkedPeople.has(personIdentityOf('narrator', bylineNarrator).id)}
+              onToggle={async () => {
+                await personBookmarks.toggle('narrator', bylineNarrator)
+                const row = await domainStore.personBookmarkOf(personIdentityOf('narrator', bylineNarrator).id)
+                setBookmarkedPeople((prev) => {
+                  const next = new Set(prev)
+                  if (row !== null) next.add(row.personId)
+                  else next.delete(personIdentityOf('narrator', bylineNarrator).id)
+                  return next
+                })
+              }}
+            />
+          )}
+        </p>
+      )}
       {detail.coverImageUrl && <img className="cover" src={detail.coverImageUrl} alt="" loading="lazy" />}
       {detail.genres.length > 0 && (
         <p className="genres">
@@ -220,6 +293,36 @@ export function BookPage({
         />
       )}
     </article>
+  )
+}
+
+/** #582 W0.4 — the byline's one-person bookmark control (Android's control). */
+function PersonBookmarkButton({ role, name, bookmarked, onToggle }: {
+  role: PersonRole
+  name: string
+  bookmarked: boolean
+  onToggle: () => Promise<void>
+}) {
+  const t = useTranslate()
+  return (
+    <button
+      type="button"
+      onClick={() => void onToggle()}
+      aria-label={bookmarked
+        ? t('personBookmarkRemoveAria', { name })
+        : t('personBookmarkAddAria', { name })}
+      aria-pressed={bookmarked}
+      style={{
+        background: 'none',
+        border: '1px solid var(--line)',
+        borderRadius: 999,
+        padding: '4px 10px',
+        color: bookmarked ? 'var(--accent)' : 'var(--fg)',
+        cursor: 'pointer',
+      }}
+    >
+      {bookmarked ? '★' : '☆'} {t(role === 'author' ? 'personRoleAuthor' : 'personRolePerformer')}
+    </button>
   )
 }
 

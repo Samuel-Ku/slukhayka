@@ -2,9 +2,11 @@ import { useEffect, useState } from 'react'
 import type { AudioEngine } from '../player/audioEngine'
 import type { EngineState } from '../player/engine'
 import { useTranslate } from '../i18n/locale'
+import { useOnline } from '../offline/status'
 
 export function MiniPlayer({ engine, onExpand }: { engine: AudioEngine; onExpand: () => void }) {
   const t = useTranslate()
+  const online = useOnline()
   const [state, setState] = useState<EngineState>(engine.getState())
   useEffect(() => engine.subscribe(setState), [engine])
   if (state.status === 'idle') return null
@@ -30,6 +32,7 @@ export function MiniPlayer({ engine, onExpand }: { engine: AudioEngine; onExpand
     >
       <span style={{ flex: 1, fontSize: 14, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
         {t('miniChapter', { n: state.chapterIndex + 1, time: `${Math.floor(state.positionSeconds / 60)}:${String(Math.floor(state.positionSeconds % 60)).padStart(2, '0')}` })}
+        {!online && <span className="offline-chip">{t('offline')}</span>}
       </span>
       <button
         onClick={(e) => {

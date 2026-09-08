@@ -20,6 +20,7 @@ import { BrowserProgressSyncLedger } from './sync/ledger'
 import { ProgressSyncSettings } from './sync/settings'
 import { FirestoreProgressSyncStore } from './sync/store'
 import { ProgressSyncController } from './sync/controller'
+import { FirestoreNarrationRatingsStore, FirestoreReviewsStore } from './reviews/store'
 import { WorkRelationshipController } from './sync/workRelationshipController'
 import { FirestoreWorkRelationshipStore } from './sync/workRelationshipStore'
 import { getFirestoreForEnv } from './firebase/firestore'
@@ -98,6 +99,13 @@ export function App({ profile: initialProfile }: { profile: ListenerProfile | nu
   const settings = useMemo(() => new ProgressSyncSettings(window.localStorage), [])
   const firestore = useMemo(() => getFirestoreForEnv(import.meta.env), [])
   const syncStore = useMemo(() => (firestore ? new FirestoreProgressSyncStore(firestore) : null), [firestore])
+  // W4.1 — the reviews block exists only when Firebase is configured (Android's
+  // `listenerReviews != null` gate): no config → no «Відгуки» block at all.
+  const reviewsStore = useMemo(() => (firestore ? new FirestoreReviewsStore(firestore) : null), [firestore])
+  const narrationRatingsStore = useMemo(
+    () => (firestore ? new FirestoreNarrationRatingsStore(firestore) : null),
+    [firestore],
+  )
 
   // Identity reads current profile (updated after restore) — no writes before binding.
   const profileRef = useRef(profile)
@@ -179,7 +187,19 @@ export function App({ profile: initialProfile }: { profile: ListenerProfile | nu
     if (audioRef.current) engine.attachAudio(audioRef.current)
   }, [engine])
 
+  // W4.1 — «Запит після завершення книги відкриває ту саму форму»: the
+  // player remembers the last played Work so the finish prompt can open the
+  // SAME review form the book page uses (the AC's single entry — no second
+  // buttons anywhere).
+  const lastPlayedRef = useRef<{ title: string; author: string; narrator?: string; language?: string; url: string } | null>(null)
   const handlePlay = async (detail: BookDetail, chapterIndex: number): Promise<boolean> => {
+    lastPlayedRef.current = {
+      title: detail.title,
+      author: detail.author,
+      narrator: detail.narrator,
+      language: detail.language,
+      url: detail.url,
+    }
     const mergeKey = mergeKeyFor(detail.title, detail.author)
     const editionId = editionIdFor(mergeKey, detail.url, detail.narrator ?? '')
     // #584 W1.2 — write the edition link at the moment the app knows both
@@ -241,7 +261,15 @@ export function App({ profile: initialProfile }: { profile: ListenerProfile | nu
       </header>
       <main className="surface">
         {book !== null ? (
-          <BookPage url={book.url} source={book.source} onOpenBook={(url, source) => setBook({ url, source })} onPlay={handlePlay} />
+          <BookPage
+            url={book.url}
+            source={book.source}
+            onOpenBook={(url, source) => setBook({ url, source })}
+            onPlay={handlePlay}
+            profile={profile}
+            reviewsStore={reviewsStore}
+            narrationRatingsStore={narrationRatingsStore}
+          />
         ) : boot === null ? (
           // The hydration gate: no screen reads listener data before IDB boot
           // (migration + hydration) has settled — R-W8's loss-free bar.
@@ -283,7 +311,15 @@ export function App({ profile: initialProfile }: { profile: ListenerProfile | nu
         )}
       </main>
       <MiniPlayer engine={engine} onExpand={() => setPlayerOpen(true)} />
-      {playerOpen && <PlayerSheet engine={engine} onClose={() => setPlayerOpen(false)} />}
+      {playerOpen && (
+        <PlayerSheet
+          engine={engine}
+          onClose={() => setPlayerOpen(false)}
+          lastPlayed={lastPlayedRef.current}
+          profile={profile}
+          reviewsStore={reviewsStore}
+        />
+      )}
       {book === null && (
         <nav className="tab-bar" role="tablist">
           {SELECTED_TAB_ORDER.map((id) => (

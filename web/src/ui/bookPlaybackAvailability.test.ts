@@ -15,7 +15,7 @@ describe('cached book playback availability', () => {
 
   it('keeps only public direct stream locators in the offline book projection', () => {
     const projected = publicBookProjection({
-      url: 'https://source.example/book', title: 'Книга', author: 'Автор', genres: [], otherNarrations: [],
+      url: 'https://source.example/book', title: 'Книга', author: 'Автор', genres: [], otherNarrations: [], relatedBooks: [],
       chapters: [
         { title: 'Public', streamUrl: 'https://audio.example/public.mp3' },
         { title: 'Signed', streamUrl: 'https://audio.example/signed.mp3?X-Amz-Signature=private' },

@@ -17,6 +17,7 @@ const detail: BookDetail = {
   genres: [],
   chapters: [{ title: 'Розділ', streamUrl: 'https://audio.example/1.mp3' }],
   otherNarrations: [],
+  relatedBooks: [],
 }
 
 class PlayingAudio extends EventTarget {

@@ -95,6 +95,7 @@ export const audiobookMp3Adapter: SourceAdapter = {
       descriptionHtml: descriptionHtml === '' ? undefined : descriptionHtml,
       chapters: [],
       otherNarrations: [],
+      relatedBooks: [],
     }
   },
 }

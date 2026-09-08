@@ -1,30 +1,43 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api/client'
 import { readWarm, WARM_CACHE_TTL_MS, warmKey, writeWarm } from '../api/warmCache'
-import type { BookDetail } from '../worker/types'
+import type { BookDetail, CatalogCard, SourceId } from '../worker/types'
 import { canPlayBookFromDisplayedDetail, sourceNeedsBrowserSession } from './bookPlaybackAvailability'
-import { EmptyState, EmptyStateRow, MetadataChip, SectionHeader } from './components'
+import { EmptyState, EmptyStateRow, MetadataChip, PosterCard, SectionHeader } from './components'
 import { useTranslate } from '../i18n/locale'
+import type { ListenerProfile } from '../identity/listenerIdentity'
+import type { NarrationRatingsStore, ReviewsStore } from '../reviews/store'
+import { reviewWorkIdFor, ReviewsBlock } from './bookReviews'
+import { mergeKeyFor, editionIdFor } from '../sync/edition'
 
 /**
- * spec-43/T3+T5 — сторінка книги: метадані, розділи й «Інші начитки».
- * Розділи — кнопки ▶ для плеєра (T5).
+ * spec-43/T3+T5 + W4.1 — сторінка книги: метадані, розділи, «Інші
+ * начитки» (rendition cards, empty on web until a registry exists), «У
+ * серії» і «Можливо, Тебе зацікавить» з реальних даних сторінки, і блок
+ * «Відгуки» (spec-40 #277-#282) через store seam — відсутній без Firebase.
  */
 export function BookPage({
   url,
   source,
   onOpenBook,
   onPlay,
+  profile,
+  reviewsStore,
+  narrationRatingsStore,
 }: {
   url: string
-  source: import('../worker/types').SourceId
-  onOpenBook: (next: string, source: import('../worker/types').SourceId) => void
+  source: SourceId
+  onOpenBook: (next: string, source: SourceId) => void
   onPlay?: (detail: BookDetail, chapterIndex: number) => Promise<boolean>
+  profile: ListenerProfile | null
+  reviewsStore: ReviewsStore | null
+  narrationRatingsStore: NarrationRatingsStore | null
 }) {
   const t = useTranslate()
   const [detail, setDetail] = useState<BookDetail | null>(null)
   const [failed, setFailed] = useState(false)
   const [showingCachedBook, setShowingCachedBook] = useState(false)
+  const [seriesBooks, setSeriesBooks] = useState<CatalogCard[]>([])
 
   useEffect(() => {
     let alive = true
@@ -58,11 +71,33 @@ export function BookPage({
     }
   }, [url, source])
 
+  // W4.1 — «У серії»: the other volumes of the book's series, fetched once
+  // per opened book through the catalogue seam (Android's
+  // fetchSeriesBooks minus the book itself). A missing/failing series page
+  // degrades to an empty row — the canonical empty state, never an error.
+  const seriesUrl = detail?.series?.url
+  useEffect(() => {
+    let alive = true
+    setSeriesBooks([])
+    if (!seriesUrl) return
+    void api.catalog(source, seriesUrl).then((parsed) => {
+      if (!alive || parsed === null) return
+      const cards = parsed.sections.flatMap((section) => section.cards)
+      setSeriesBooks(cards.filter((card) => card.url !== url))
+    })
+    return () => {
+      alive = false
+    }
+  }, [source, seriesUrl, url])
+
   if (failed) return <EmptyState message={t('bookFailed')} />
   if (detail === null) return <EmptyState message={t('loadingBook')} />
 
   const canPlay = canPlayBookFromDisplayedDetail(source, showingCachedBook)
   const requiresFreshSession = !canPlay && sourceNeedsBrowserSession(source)
+  const mergeKey = mergeKeyFor(detail.title, detail.author)
+  const editionId = editionIdFor(mergeKey, url, detail.narrator ?? '', detail.language ?? '')
+  const workId = reviewWorkIdFor(mergeKey, editionId)
 
   return (
     <article>
@@ -125,6 +160,64 @@ export function BookPage({
             ))}
           </ul>
         </>
+      )}
+
+      {/* W4.1 — «У серії»: the other volumes of this book's series, the book
+          itself excluded (Android's row verbatim). Empty = absent. */}
+      {seriesBooks.length > 0 && (
+        <>
+          <SectionHeader level="section" title={t('inSeries')} count={seriesBooks.length} />
+          <ul className="poster-row">
+            {seriesBooks.map((card) => (
+              <li key={card.url}>
+                <PosterCard
+                  coverUrl={card.coverImageUrl}
+                  title={card.title}
+                  author={card.author || undefined}
+                  onClick={() => onOpenBook(card.url, source)}
+                  openAriaLabel={t('openBookPosterAria', { title: card.title })}
+                />
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+
+      {/* W4.1 — «Можливо, Тебе зацікавить»: the page's own related posters. */}
+      {detail.relatedBooks.length > 0 && (
+        <>
+          <SectionHeader level="section" title={t('maybeInterest')} count={detail.relatedBooks.length} />
+          <ul className="poster-row">
+            {detail.relatedBooks.map((card) => (
+              <li key={card.url}>
+                <PosterCard
+                  coverUrl={card.coverImageUrl}
+                  title={card.title}
+                  author={card.author || undefined}
+                  onClick={() => onOpenBook(card.url, source)}
+                  openAriaLabel={t('openBookPosterAria', { title: card.title })}
+                />
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+
+      {/* W4.1 — «Відгуки»: the block exists ONLY when the store does (no
+          Firebase config → no block, Android's contract). The narration
+          rating row sits beside the current rendition. */}
+      {reviewsStore && narrationRatingsStore && (
+        <ReviewsBlock
+          workId={workId}
+          bookTitle={detail.title}
+          defaultEditionTag={detail.narrator ?? ''}
+          editionOptions={[detail.narrator ?? '', ...detail.otherNarrations.map((card) => card.author)]}
+          sourceRating={detail.rating}
+          profile={profile}
+          store={reviewsStore}
+          narrationRatingsStore={narrationRatingsStore}
+          narrationEditionId={editionId}
+        />
       )}
     </article>
   )

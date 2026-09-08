@@ -122,6 +122,12 @@ export interface BookDetail {
   chapters: Chapter[]
   /** «Інші начитки»: other renditions of the same Work on this source. */
   otherNarrations: CatalogCard[]
+  /** W4.1 — «Можливо, Тебе зацікавить»: the page's own related-book posters. */
+  relatedBooks: CatalogCard[]
+  /** W4.1 — «У серії»: the series (cycle) this book belongs to, from the page's «Цикл:» row. */
+  series?: { name: string; url: string; position?: number }
+  /** W4.1 — the source's own rating score («pmovie__rating-score»), when the page declares one. */
+  rating?: number
   /** The page's own full duration («Триває:»), when the source declares it — never a sum of unknowns. */
   totalDurationSeconds?: number
 }

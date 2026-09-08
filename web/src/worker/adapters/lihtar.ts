@@ -58,6 +58,7 @@ export const lihtarAdapter: SourceAdapter = {
       genres: [],
       chapters: [],
       otherNarrations: [],
+      relatedBooks: [],
     }
   },
 }

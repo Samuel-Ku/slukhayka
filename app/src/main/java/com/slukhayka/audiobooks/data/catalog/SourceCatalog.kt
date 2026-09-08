@@ -323,7 +323,7 @@ class SourceCatalog(
 
     private fun List<SourceBook>.withoutPromotions(sourceId: String): List<SourceBook> =
         if (sourceId == "soundbooks") filterNot {
-            com.slukhayka.audiobooks.data.source.SoundBooksAdapter.isPromoUrl(it.url)
+            com.slukhayka.audiobooks.data.source.isSoundBooksPromoUrl(it.url)
         } else this
 
     /** TTL-cached catalogue enumeration for one adapter (mirrors newFeedFor). */

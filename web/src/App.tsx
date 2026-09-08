@@ -1,15 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ListenerProfile } from './identity/listenerIdentity'
 import { Catalog } from './ui/Catalog'
+import { Listen } from './ui/Listen'
+import { Library } from './ui/Library'
+import { Settings } from './ui/Settings'
 import { BookPage } from './ui/BookPage'
 import { AudioEngine } from './player/audioEngine'
 import { MiniPlayer } from './ui/MiniPlayer'
 import { PlayerSheet } from './ui/PlayerSheet'
-import type { BookDetail, SourceId } from './worker/types'
+import type { BookDetail, SourceId, UnifiedEdition, UnifiedWork } from './worker/types'
 import { LocalListeningStateStore, BrowserStorage } from './player/localState'
 import { HybridListeningStateStorage } from './local/hybridListeningState'
 import { IdbListeningStateStore } from './local/listeningState'
 import { DomainStore } from './local/domain'
+import { EditionLinkStore } from './local/editionLinks'
+import { ListenPrefsStore } from './local/listenPrefs'
+import { RecommendationPrefsStore } from './local/recommendationPrefs'
 import { BrowserProgressSyncLedger } from './sync/ledger'
 import { ProgressSyncSettings } from './sync/settings'
 import { FirestoreProgressSyncStore } from './sync/store'
@@ -20,162 +26,23 @@ import { getFirestoreForEnv } from './firebase/firestore'
 import { editionIdFor, mergeKeyFor } from './sync/edition'
 import { setUiLocale, useTranslate, useUiLocale } from './i18n/locale'
 import { translate } from './i18n/strings'
+import type { StringKey } from './i18n/strings'
+import { loadSelectedTab, saveSelectedTab, SELECTED_TAB_ORDER, type SelectedTab } from './ui/selectedTab'
 
-type Tab = 'listen' | 'catalog' | 'profile'
+/**
+ * #583 W1.1 (R-W7) — the bottom bar is Android's `SelectedTab` verbatim:
+ * Слухати / Огляд / Медіатека / Налаштування, in the enum's order. The
+ * chosen tab persists (ui/selectedTab); «Профіль» is not a tab — the
+ * recovery code and the sync switch live in the Налаштування direction
+ * (ui/Settings). The interim landing tab is Огляд.
+ */
 
-function Stub({ title, what }: { title: string; what: string }) {
-  const t = useTranslate()
-  return (
-    <div className="placeholder">
-      {t('stubInProgress', { title })}
-      <br />
-      {what}
-    </div>
-  )
-}
-
-function Profile({
-  profile: initialProfile,
-  onProfileChange,
-  evicted = false,
-  onLinked,
-}: {
-  profile: ListenerProfile | null
-  onProfileChange?: (p: ListenerProfile) => void
-  evicted?: boolean
-  /** #581 W0.3 — fired after a Recovery-Code restore: the linking moment. */
-  onLinked?: (uid: string) => void
-}) {
-  const t = useTranslate()
-  const [profile, setProfile] = useState(initialProfile)
-  const [code, setCode] = useState('')
-  const [error, setError] = useState<string | null>(null)
-  const [restoring, setRestoring] = useState(false)
-  const [syncEnabled, setSyncEnabled] = useState(() => {
-    try {
-      const raw = window.localStorage.getItem('slukhayka.progress_sync_enabled')
-      if (raw === null) return true
-      return raw !== '0' && raw !== 'false'
-    } catch {
-      return true
-    }
-  })
-
-  useEffect(() => setProfile(initialProfile), [initialProfile])
-  // Keep parent in sync when local profile changes (after restore)
-  useEffect(() => {
-    if (profile && initialProfile && profile.uid !== initialProfile.uid) {
-      onProfileChange?.(profile)
-    }
-  }, [profile, initialProfile, onProfileChange])
-
-  const isBound = profile !== null && !profile.uid.startsWith('local-')
-
-  const handleRestore = async (): Promise<void> => {
-    setError(null)
-    setRestoring(true)
-    try {
-      const { createAuthGateway } = await import('./firebase/bootstrap')
-      const { BrowserCredentialStore } = await import('./identity/credentialStore')
-      const { restoreFromCode } = await import('./identity/listenerIdentity')
-      const gateway = await createAuthGateway(import.meta.env)
-      if (!gateway) {
-        setError(t('firebaseNotConfigured'))
-        return
-      }
-      const store = new BrowserCredentialStore(window.localStorage)
-      const restored = await restoreFromCode(gateway, code, (pair) => store.save(pair))
-      if (!restored) setError(t('restoreFailed'))
-      else {
-        setProfile(restored)
-        // Also persist as current parent profile
-        onProfileChange?.(restored)
-        // #581 W0.3 — the linking moment: pre-link local rows union-merge
-        // with the account's rows (favorites upload beside them, a phone's
-        // deliberate hide wins every tie). Best-effort — a failure leaves
-        // the binding done; the next pull catches up.
-        onLinked?.(restored.uid)
-      }
-    } finally {
-      setRestoring(false)
-    }
-  }
-
-  const handleSyncToggle = (next: boolean): void => {
-    try {
-      window.localStorage.setItem('slukhayka.progress_sync_enabled', next ? '1' : '0')
-    } catch {
-      // degrade-never
-    }
-    setSyncEnabled(next)
-    // Dispatch storage event for controller's isEnabled check if needed
-  }
-
-  const evictionNotice = evicted ? (
-    <div role="alert" className="profile-card" style={{ borderColor: 'var(--bad)' }}>
-      <span className="label">{t('storageEvictedTitle')}</span>
-      <span className="value">{t('storageEvictedHint')}</span>
-    </div>
-  ) : null
-
-  if (profile === null)
-    return (
-      <>
-        {evictionNotice}
-        <Stub title={t('tabProfile')} what={t('profileStubWhat')} />
-      </>
-    )
-
-  return (
-    <div>
-      {evictionNotice}
-      <div className="profile-card">
-        <span className="label">{t('nickLabel')}</span>
-        <span className="value">{profile.nickname}</span>
-        <span className="label">{t('profileLabel')}</span>
-        <span className="value">{profile.uid}</span>
-      </div>
-      <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <label style={{ fontSize: 14, fontWeight: 600 }}>{t('restoreCodeLabel')}</label>
-        <input
-          value={code}
-          onChange={(e) => setCode(e.target.value)}
-          placeholder="SLK1.…"
-          style={{ padding: '8px', borderRadius: 8, border: '1px solid var(--line)', background: 'var(--surface)', color: 'var(--fg)' }}
-        />
-        <button
-          onClick={() => void handleRestore()}
-          disabled={code.trim().length < 10 || restoring}
-          style={{ padding: '8px 12px', borderRadius: 8, border: 'none', background: 'var(--accent)', color: '#000', opacity: code.trim().length < 10 ? 0.5 : 1 }}
-        >
-          {restoring ? t('restoring') : t('restoreProfile')}
-        </button>
-        {error && <span style={{ color: 'var(--bad)', fontSize: 13 }}>{error}</span>}
-        {!error && profile.uid.startsWith('local-') && <span style={{ color: 'var(--fg-dim)', fontSize: 13 }}>{t('enterCodeHint')}</span>}
-        {!error && isBound && <span style={{ color: 'var(--fg-dim)', fontSize: 13 }}>{t('boundHint')}</span>}
-      </div>
-      {isBound && (
-        <div style={{ marginTop: 20, padding: 12, border: '1px solid var(--line)', borderRadius: 8, background: 'var(--surface)' }}>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-            <input
-              type="checkbox"
-              checked={syncEnabled}
-              onChange={(e) => handleSyncToggle(e.target.checked)}
-            />
-            <span style={{ fontSize: 14, fontWeight: 600 }}>{t('syncTitle')}</span>
-          </label>
-          <p style={{ margin: '8px 0 0', fontSize: 13, color: 'var(--fg-dim)' }}>
-            {t('syncDescription')}
-          </p>
-        </div>
-      )}
-      {!isBound && (
-        <p style={{ marginTop: 16, fontSize: 13, color: 'var(--fg-dim)' }}>
-          {t('unboundHint')}
-        </p>
-      )}
-    </div>
-  )
+/** One label per tab, in the same i18n keys the Android resources mirror. */
+const TAB_LABELS: Record<SelectedTab, StringKey> = {
+  listen: 'tabListen',
+  explore: 'tabCatalog',
+  library: 'tabLibrary',
+  settings: 'tabSettings',
 }
 
 export function App({ profile: initialProfile }: { profile: ListenerProfile | null }) {
@@ -184,13 +51,12 @@ export function App({ profile: initialProfile }: { profile: ListenerProfile | nu
   const [profile, setProfile] = useState(initialProfile)
   useEffect(() => setProfile(initialProfile), [initialProfile])
 
-  const TABS: Array<{ id: Tab; label: string }> = [
-    { id: 'listen', label: t('tabListen') },
-    { id: 'catalog', label: t('tabCatalog') },
-    { id: 'profile', label: t('tabProfile') },
-  ]
+  const [tab, setTab] = useState<SelectedTab>(() => loadSelectedTab())
+  const selectTab = (next: SelectedTab): void => {
+    setTab(next)
+    saveSelectedTab(next)
+  }
 
-  const [tab, setTab] = useState<Tab>('catalog')
   const [book, setBook] = useState<{ url: string; source: SourceId } | null>(null)
   const bookUrl = book?.url ?? null
   const audioRef = useRef<HTMLAudioElement | null>(null)
@@ -201,14 +67,22 @@ export function App({ profile: initialProfile }: { profile: ListenerProfile | nu
   // Shared local store for engine + sync mirror: the synchronous StorageLike
   // the engine already consumes, now backed by IndexedDB (R-W8) with a boot
   // gate + buffered pre-boot writes (StrictMode double-effect safe).
+  const idbStore = useMemo(() => new IdbListeningStateStore(), [])
   const hybrid = useMemo(
     () =>
       new HybridListeningStateStorage(
-        new IdbListeningStateStore(),
+        idbStore,
         new BrowserStorage(window.localStorage),
       ),
-    [],
+    [idbStore],
   )
+  // #584 W1.2 — the mergeKey → Edition join the Медіатека reads.
+  const linkStore = useMemo(() => new EditionLinkStore(), [])
+  // #585 W2.1 — the Слухати shelves' local-only order/hide prefs.
+  const listenPrefsStore = useMemo(() => new ListenPrefsStore(), [])
+  // #586 W2.2 — «Не цікаво»: the local Recommendation Preference store
+  // (HIDE_WORK dictionary, local-only, reversible from Рекомендації).
+  const recommendationPrefsStore = useMemo(() => new RecommendationPrefsStore(), [])
   const localStore = useMemo(() => new LocalListeningStateStore(hybrid), [])
   const [boot, setBoot] = useState<{ snapshots: number; evicted: boolean } | null>(null)
   useEffect(() => {
@@ -308,12 +182,40 @@ export function App({ profile: initialProfile }: { profile: ListenerProfile | nu
   const handlePlay = async (detail: BookDetail, chapterIndex: number): Promise<boolean> => {
     const mergeKey = mergeKeyFor(detail.title, detail.author)
     const editionId = editionIdFor(mergeKey, detail.url, detail.narrator ?? '')
+    // #584 W1.2 — write the edition link at the moment the app knows both
+    // sides: the Медіатека's hairline and Нові/Слухаю/Завершені join on it.
+    // Never guessed: durations count only when every chapter declared one.
+    const chapterDurations = detail.chapters.map((chapter) => chapter.durationSeconds ?? Number.NaN)
+    const durationsKnown = detail.chapters.length > 0 && chapterDurations.every((seconds) => Number.isFinite(seconds) && seconds > 0)
+    void linkStore.link({
+      editionId,
+      mergeKey,
+      narrator: detail.narrator ?? '',
+      language: detail.language ?? '',
+      durationSeconds: detail.totalDurationSeconds ?? (durationsKnown ? chapterDurations.reduce((sum, seconds) => sum + seconds, 0) : null),
+      chapterDurations: durationsKnown ? chapterDurations : null,
+    })
     const playing = await engine.loadBookAndAwaitPlaying(
       { title: detail.title, chapters: detail.chapters, editionId },
       chapterIndex,
     )
     if (playing) setPlayerOpen(true)
     return playing
+  }
+
+  /** #584 W1.2 — «зберегти» on an Огляд card creates the Library Entry. */
+  const handleSaveWork = (work: UnifiedWork, edition: UnifiedEdition): void => {
+    void domainStore.addLibraryEntry({ title: work.title, author: work.author })
+      .then(() => linkStore.link({
+        editionId: edition.id,
+        mergeKey: work.mergeKey,
+        narrator: edition.narrator ?? '',
+        language: edition.language ?? '',
+        durationSeconds: edition.durationSeconds ?? null,
+        chapterDurations: null,
+      }))
+      .then(() => relationships.pushAfterChange(work.mergeKey))
+      .catch(() => undefined)
   }
   return (
     <>
@@ -345,11 +247,29 @@ export function App({ profile: initialProfile }: { profile: ListenerProfile | nu
           // (migration + hydration) has settled — R-W8's loss-free bar.
           <div className="placeholder">{t('storageLoading')}</div>
         ) : tab === 'listen' ? (
-          <Stub title={t('listenStubTitle')} what={t('listenStubWhat')} />
-        ) : tab === 'catalog' ? (
-          <Catalog onOpenBook={(url, source) => setBook({ url, source })} onPlay={handlePlay} />
+          <Listen
+            domainStore={domainStore}
+            linkStore={linkStore}
+            listening={idbStore}
+            prefsStore={listenPrefsStore}
+            recommendationPrefs={recommendationPrefsStore}
+          />
+        ) : tab === 'explore' ? (
+          <Catalog
+            onOpenBook={(url, source) => setBook({ url, source })}
+            onPlay={handlePlay}
+            onSaveWork={handleSaveWork}
+            domainStore={domainStore}
+          />
+        ) : tab === 'library' ? (
+          <Library
+            domainStore={domainStore}
+            linkStore={linkStore}
+            listening={idbStore}
+            pushAfterChange={(mergeKey) => relationships.pushAfterChange(mergeKey)}
+          />
         ) : (
-          <Profile
+          <Settings
             profile={profile}
             onProfileChange={setProfile}
             evicted={boot.evicted}
@@ -357,6 +277,8 @@ export function App({ profile: initialProfile }: { profile: ListenerProfile | nu
               relationships.setUid(uid)
               void relationships.mergeAtLinking().catch(() => undefined)
             }}
+            recommendationPrefs={recommendationPrefsStore}
+            domainStore={domainStore}
           />
         )}
       </main>
@@ -364,9 +286,9 @@ export function App({ profile: initialProfile }: { profile: ListenerProfile | nu
       {playerOpen && <PlayerSheet engine={engine} onClose={() => setPlayerOpen(false)} />}
       {book === null && (
         <nav className="tab-bar" role="tablist">
-          {TABS.map((t) => (
-            <button key={t.id} role="tab" aria-selected={tab === t.id} onClick={() => setTab(t.id)}>
-              {t.label}
+          {SELECTED_TAB_ORDER.map((id) => (
+            <button key={id} role="tab" aria-selected={tab === id} onClick={() => selectTab(id)}>
+              {t(TAB_LABELS[id])}
             </button>
           ))}
         </nav>

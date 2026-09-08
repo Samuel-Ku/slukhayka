@@ -61,6 +61,7 @@ import com.slukhayka.audiobooks.ui.components.BookRow
 import com.slukhayka.audiobooks.ui.components.CycleCard
 import com.slukhayka.audiobooks.ui.components.MetadataChip
 import com.slukhayka.audiobooks.ui.components.PosterCard
+import com.slukhayka.audiobooks.ui.components.PosterWidth
 import com.slukhayka.audiobooks.ui.components.applySourceCoverHeaders
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.first
@@ -227,11 +228,15 @@ fun HomeScreen(
     // #434: a browser-only search card cannot import silently — offer the
     // explicit 4read browser door with the work title prefilled.
     val browserNeededImport by viewModel.browserNeededImport.collectAsState()
+    val browserOnlyMessage = stringResource(R.string.home_browser_only_snackbar)
+    val openLabel = stringResource(R.string.home_open)
+    val recommendationUpdated = stringResource(R.string.home_recommendation_updated)
+    val cancelLabel = stringResource(R.string.download_action_cancel)
     LaunchedEffect(browserNeededImport) {
         val needed = browserNeededImport ?: return@LaunchedEffect
         val result = recommendationSnackbar.showSnackbar(
-            message = "Ця книга лише на 4read — потрібен браузер",
-            actionLabel = "Відкрити",
+            message = browserOnlyMessage,
+            actionLabel = openLabel,
             withDismissAction = true
         )
         if (result == SnackbarResult.ActionPerformed) {
@@ -243,6 +248,8 @@ fun HomeScreen(
         // One cancellable delta chain for this active Огляд session. Filters,
         // cards and recompositions only read Room; none of them touch Firestore.
         launch { sourceCatalog.syncSharedFacets() }
+        launch { sourceCatalog.syncSharedSubmissions() }
+        launch { sourceCatalog.syncSharedTombstones() }
         sourceCatalog.refreshUnifiedCatalog()
         com.slukhayka.audiobooks.data.personbookmarks.PeopleNewArrivalWorker.notifyIfNeeded(App.instance)
         sourceCatalog.refreshSourceFeeds()
@@ -363,7 +370,7 @@ fun HomeScreen(
             // (all sources, imported on tap).
             item {
                 Text(
-                    text = "У вашій медіатеці (${filteredBooks.size})",
+                    text = stringResource(R.string.home_library_results, filteredBooks.size),
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier
@@ -384,7 +391,7 @@ fun HomeScreen(
                 }
             }
             items(filteredBooks, key = { it.id }) { book ->
-                AudiobookListItem(
+                BookRow(
                     book = book,
                     onClick = { onBookClick(book.id) },
                     onPlayClick = { onPlayClick(book) }
@@ -398,7 +405,7 @@ fun HomeScreen(
             if (searchQuery.trim().length >= 2) {
                 item {
                     Text(
-                        text = "Усі джерела (${globalResults.size})",
+                        text = stringResource(R.string.home_all_sources, globalResults.size),
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                         color = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier
@@ -420,7 +427,7 @@ fun HomeScreen(
                         OpenWebSourceRow(
                             displayName = "4read",
                             onClick = { viewModel.open4readSearch(searchQuery) },
-                            text = "Шукати «${searchQuery.trim()}» на 4read",
+                            text = stringResource(R.string.home_search_on_4read, searchQuery.trim()),
                             testTag = "open_4read_search_empty"
                         )
                     }
@@ -433,7 +440,7 @@ fun HomeScreen(
                             OpenWebSourceRow(
                                 displayName = "4read",
                                 onClick = { viewModel.open4readSearch(searchQuery) },
-                                text = "Нічого на 4read? Шукати в браузері",
+                                text = stringResource(R.string.home_search_browser_fallback),
                                 testTag = "open_4read_search_footer"
                             )
                         }
@@ -539,8 +546,8 @@ fun HomeScreen(
                             )
                         } ?: return@launch
                         val result = recommendationSnackbar.showSnackbar(
-                            message = "Рекомендацію оновлено",
-                            actionLabel = "Скасувати",
+                            message = recommendationUpdated,
+                            actionLabel = cancelLabel,
                             withDismissAction = true
                         )
                         if (result == SnackbarResult.ActionPerformed) {
@@ -837,7 +844,7 @@ fun DurationSection(
     if (shortBooks.isEmpty() && longBooks.isEmpty()) return
     Column(modifier = modifier.testTag("duration_section")) {
         if (shortBooks.isNotEmpty()) {
-            AppSectionHeader(title = "Короткі — до 5 годин")
+            AppSectionHeader(title = stringResource(R.string.home_short_books))
             LazyRow(
                 contentPadding = PaddingValues(horizontal = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -854,7 +861,7 @@ fun DurationSection(
                             null
                         },
                         preflightKey = book.id,
-                        onPreflight = onPreflight,
+                        onPreflight = { onPreflight(book) },
                         testTag = "catalog_book_${book.id}",
                         actionHost = { CatalogCardStatus(book.id, actionState, onOpenBrowser) }
                     )
@@ -862,7 +869,7 @@ fun DurationSection(
             }
         }
         if (longBooks.isNotEmpty()) {
-            AppSectionHeader(title = "Довгі — від 10 годин")
+            AppSectionHeader(title = stringResource(R.string.home_long_books))
             LazyRow(
                 contentPadding = PaddingValues(horizontal = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -879,7 +886,7 @@ fun DurationSection(
                             null
                         },
                         preflightKey = book.id,
-                        onPreflight = onPreflight,
+                        onPreflight = { onPreflight(book) },
                         testTag = "catalog_book_${book.id}",
                         actionHost = { CatalogCardStatus(book.id, actionState, onOpenBrowser) }
                     )
@@ -905,19 +912,39 @@ fun NewArrivalsRail(
     modifier: Modifier = Modifier
 ) {
     Column(modifier = modifier.testTag("new_arrivals_rail")) {
-        AppSectionHeader(title = "Новинки")
+        AppSectionHeader(title = stringResource(R.string.home_new_arrivals))
         LazyRow(
             contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             items(results, key = { it.key }) { result ->
-                PosterCard(
-                    result = result,
-                    onClick = { onBookClick(result) },
-                    preflightKey = result.key,
-                    onPreflight = onPreflight,
-                    actionHost = { CatalogCardStatus(result.key, actionState, onOpenBrowser) }
-                )
+                // spec-28 (#192): the merged rail card carries a chip per
+                // Source that carries the Work — provenance is the rail's
+                // reason to exist (Work-dedup would hide it otherwise).
+                // v1.4 C4 (ADR-0033): MetadataChip, not the old pill.
+                Column(
+                    modifier = Modifier.width(PosterWidth),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    PosterCard(
+                        result = result,
+                        onClick = { onBookClick(result) },
+                        preflightKey = result.key,
+                        onPreflight = { onPreflight(result) },
+                        actionHost = { CatalogCardStatus(result.key, actionState, onOpenBrowser) }
+                    )
+                    if (result.sources.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(AppDimens.SpaceXs, Alignment.CenterHorizontally),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            result.sources.forEach { source ->
+                                MetadataChip(source = source.sourceName)
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -973,7 +1000,7 @@ fun OpenWebSourceRow(
     displayName: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    text: String = "Більше книг на $displayName",
+    text: String = stringResource(R.string.home_more_books_on, displayName),
     testTag: String = "open_web_source_${displayName.lowercase()}"
 ) {
     Card(
@@ -1227,141 +1254,6 @@ fun EmptyCatalogState(
     }
 }
 
-@Composable
-fun AudiobookListItem(
-    book: AudiobookEntity,
-    onClick: () -> Unit,
-    onPlayClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val availabilityState = stringResource(
-        if (book.isDownloaded) R.string.a11y_available_offline
-        else R.string.a11y_connection_required
-    )
-    val openLabel = stringResource(R.string.a11y_open_work, book.title)
-    Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 6.dp)
-            .semantics {
-                stateDescription = availabilityState
-            }
-            .clip(RoundedCornerShape(AppDimens.RadiusPanel))
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(AppDimens.RadiusPanel))
-            .clickable(onClickLabel = openLabel, onClick = onClick)
-            .testTag("book_item_${book.id}"),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            com.slukhayka.audiobooks.ui.components.BookCoverImage(
-                book = book,
-                semantics = BookCoverSemantics.Decorative,
-                modifier = Modifier
-                    .size(68.dp)
-                    .clip(RoundedCornerShape(AppDimens.RadiusCard)),
-                contentScale = ContentScale.Crop
-            )
-
-            Spacer(modifier = Modifier.width(12.dp))
-
-            Column(
-                modifier = Modifier.weight(1f)
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    // "4read Каталог" is the placeholder genre for catalogue
-                    // books — skip it so every list row isn't labelled "4read".
-                    if (book.genre.isNotBlank() && !book.genre.contains("4read", ignoreCase = true)) {
-                        Text(
-                            text = book.genre,
-                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                    if (book.isDownloaded) {
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Icon(
-                            imageVector = Icons.Default.CloudDone,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.secondary,
-                            modifier = Modifier.size(14.dp)
-                        )
-                    }
-                }
-
-                Text(
-                    text = book.title,
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-
-                Text(
-                    text = book.displayAuthor,
-                    style = MaterialTheme.typography.bodySmall,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-
-                Spacer(modifier = Modifier.height(4.dp))
-
-                // Only the values we actually know — catalogue books start
-                // with 0 chapters / 0 duration until their page is fetched.
-                // Each part renders only when known, so a source that carries a
-                // real duration but no chapter count (e.g. "Популярне") shows
-                // just the duration, never "0 Chapters".
-                val chaptersLabel = if (book.totalChapters > 0) {
-                    pluralStringResource(R.plurals.chapter_count, book.totalChapters, book.totalChapters)
-                } else {
-                    null
-                }
-                val durationLabel = if (book.totalDurationSeconds > 0L) MainViewModel.formatTime(book.totalDurationSeconds) else null
-                val statsLabel = when {
-                    chaptersLabel != null && durationLabel != null -> "$chaptersLabel • $durationLabel"
-                    chaptersLabel != null -> chaptersLabel
-                    durationLabel != null -> durationLabel
-                    else -> null
-                }
-                if (statsLabel != null) {
-                    Text(
-                        text = statsLabel,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.width(8.dp))
-
-            val haptic = LocalHapticFeedback.current
-            IconButton(
-                onClick = {
-                    // Spec-22 T3: a light tick on playback start.
-                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    onPlayClick()
-                },
-                modifier = Modifier
-                    .size(AppDimens.TouchTarget)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.PlayArrow,
-                    contentDescription = stringResource(R.string.a11y_play_work, book.title),
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(24.dp)
-                )
-            }
-        }
-    }
-}
-
 /**
  * One row of the endless merged feed: a Work without Source chrome. Tapping
  * resolves the Work's first Edition and import-and-plays it (the same path as
@@ -1394,87 +1286,39 @@ fun WorkFeedCard(
     val openDescription = stringResource(R.string.a11y_open_work, row.title)
     val listenDescription = stringResource(R.string.a11y_catalog_card_listen, row.title)
 
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Row(
-                modifier = Modifier
-                    .weight(1f)
-                    .clickable(enabled = !checking, onClick = onClick)
-                    .semantics { contentDescription = openDescription }
-                    .testTag("work_feed_${row.workId}")
-                    .testTag("work_feed_${row.workId}_open"),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                CatalogCoverImage(
-                    coverImageUrl = row.coverImageUrl,
-                    title = row.title,
-                    semantics = BookCoverSemantics.Decorative,
-                    modifier = Modifier
-                        .width(56.dp)
-                        .height(80.dp)
-                        .clip(RoundedCornerShape(AppDimens.RadiusCard))
-                )
-                Spacer(modifier = Modifier.width(12.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    // Spec-45 (#405) T7 (#495): the rendition's known
-                    // languages — one EN/UA badge per language, sorted;
-                    // unknown renders nothing (US3).
-                    val languages = row.languages
-                        .split(',')
-                        .mapNotNull { LanguageCode.normalize(it.trim()) }
-                        .distinct()
-                        .sorted()
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = row.title,
-                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.weight(1f)
-                        )
-                        if (languages.isNotEmpty()) {
-                            Spacer(modifier = Modifier.width(8.dp))
-                            languages.forEach { lang ->
-                                LanguageBadge(language = lang)
-                                Spacer(modifier = Modifier.width(4.dp))
-                            }
-                        }
-                    }
-                    if (row.author.isNotBlank()) {
-                        Text(
-                            text = row.author,
-                            style = MaterialTheme.typography.bodySmall,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    val feedDuration = EditionDurationPolicy.summarize(
-                        listOfNotNull(row.durationSeconds, row.durationMaxSeconds)
-                    )
-                    if (feedDuration != null) {
-                        Text(
-                            text = when (feedDuration) {
-                                is EditionDurationSummary.Single ->
-                                    MainViewModel.formatTime(feedDuration.seconds)
-                                is EditionDurationSummary.Range ->
-                                    "${MainViewModel.formatTime(feedDuration.shortestSeconds)}–" +
-                                        MainViewModel.formatTime(feedDuration.longestSeconds)
-                            },
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                }
+    // v1.4 C3 (ADR-0033): the feed row IS the canonical BookRow — the old
+    // 56×80 bordered-card body is gone. Language chips ride the badges slot;
+    // the action status stays under the row via the footnote slot.
+    BookRow(
+        title = row.title,
+        modifier = modifier,
+        coverUrl = row.coverImageUrl,
+        author = row.author.takeIf { it.isNotBlank() },
+        stats = EditionDurationPolicy.summarize(
+            listOfNotNull(row.durationSeconds, row.durationMaxSeconds)
+        )?.let { feedDuration ->
+            when (feedDuration) {
+                is EditionDurationSummary.Single ->
+                    MainViewModel.formatTime(feedDuration.seconds)
+                is EditionDurationSummary.Range ->
+                    "${MainViewModel.formatTime(feedDuration.shortestSeconds)}–" +
+                        MainViewModel.formatTime(feedDuration.longestSeconds)
             }
-            Spacer(modifier = Modifier.width(8.dp))
+        },
+        badges = {
+            // Spec-45 (#405) T7 (#495): the rendition's known languages — one
+            // EN/UA chip per language, sorted; unknown renders nothing (US3).
+            row.languages
+                .split(',')
+                .mapNotNull { LanguageCode.normalize(it.trim()) }
+                .distinct()
+                .sorted()
+                .forEach { lang ->
+                    MetadataChip(language = lang)
+                    Spacer(modifier = Modifier.width(4.dp))
+                }
+        },
+        trailing = {
             if (checking) {
                 IconButton(
                     onClick = onCancelAction,
@@ -1499,48 +1343,52 @@ fun WorkFeedCard(
                     )
                 }
             }
-        }
-
-        val statusText = when (val state = rowState) {
-            is CatalogCardActionState.Checking -> stringResource(R.string.catalog_card_checking)
-            is CatalogCardActionState.BrowserRequired -> stringResource(R.string.catalog_card_browser_required)
-            is CatalogCardActionState.Failed -> stringResource(
-                if (state.action == CatalogCardAction.OPEN) {
-                    R.string.catalog_card_open_error
-                } else {
-                    R.string.catalog_card_play_error
-                }
-            )
-            is CatalogCardActionState.Cancelled -> stringResource(R.string.catalog_card_cancelled)
-            else -> null
-        }
-        if (statusText != null) {
-            Column(
-                modifier = Modifier
-                    .padding(start = 68.dp, top = 4.dp)
-                    .semantics { liveRegion = LiveRegionMode.Polite }
-            ) {
-                Text(
-                    text = statusText,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = if (rowState is CatalogCardActionState.Failed) {
-                        MaterialTheme.colorScheme.error
+        },
+        contentDescription = openDescription,
+        onClick = if (checking) null else onClick,
+        testTag = "work_feed_${row.workId}",
+        footnote = {
+            val statusText = when (val state = rowState) {
+                is CatalogCardActionState.Checking -> stringResource(R.string.catalog_card_checking)
+                is CatalogCardActionState.BrowserRequired -> stringResource(R.string.catalog_card_browser_required)
+                is CatalogCardActionState.Failed -> stringResource(
+                    if (state.action == CatalogCardAction.OPEN) {
+                        R.string.catalog_card_open_error
                     } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
+                        R.string.catalog_card_play_error
                     }
                 )
-                if (rowState is CatalogCardActionState.BrowserRequired) {
-                    TextButton(
-                        onClick = onOpenBrowser,
-                        modifier = catalogBrowserReturnFocusModifier(row.workId)
-                            .testTag("catalog_card_open_browser_${row.workId}")
-                    ) {
-                        Text(stringResource(R.string.catalog_card_open_browser))
+                is CatalogCardActionState.Cancelled -> stringResource(R.string.catalog_card_cancelled)
+                else -> null
+            }
+            if (statusText != null) {
+                Column(
+                    modifier = Modifier
+                        .padding(start = 68.dp, bottom = 4.dp)
+                        .semantics { liveRegion = LiveRegionMode.Polite }
+                ) {
+                    Text(
+                        text = statusText,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (rowState is CatalogCardActionState.Failed) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        }
+                    )
+                    if (rowState is CatalogCardActionState.BrowserRequired) {
+                        TextButton(
+                            onClick = onOpenBrowser,
+                            modifier = catalogBrowserReturnFocusModifier(row.workId)
+                                .testTag("catalog_card_open_browser_${row.workId}")
+                        ) {
+                            Text(stringResource(R.string.catalog_card_open_browser))
+                        }
                     }
                 }
             }
         }
-    }
+    )
 }
 
 /**
@@ -1704,7 +1552,7 @@ fun WorkFeedFilterSheet(
                     .navigationBarsPadding()
             ) {
                 Text(
-                    text = "Фільтри",
+                    text = stringResource(R.string.feed_filters),
                     style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
                     modifier = Modifier
                         .focusRequester(headingFocusRequester)
@@ -1713,7 +1561,7 @@ fun WorkFeedFilterSheet(
                         .semantics { heading() }
                 )
                 Spacer(modifier = Modifier.height(20.dp))
-                Text(text = "Жанри", style = MaterialTheme.typography.titleMedium)
+                Text(text = stringResource(R.string.feed_genres), style = MaterialTheme.typography.titleMedium)
                 Spacer(modifier = Modifier.height(12.dp))
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -1747,7 +1595,7 @@ fun WorkFeedFilterSheet(
                     }
                 }
                 Spacer(modifier = Modifier.height(20.dp))
-                Text(text = "Тривалість", style = MaterialTheme.typography.titleMedium)
+                Text(text = stringResource(R.string.feed_duration), style = MaterialTheme.typography.titleMedium)
                 Spacer(modifier = Modifier.height(12.dp))
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),

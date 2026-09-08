@@ -54,7 +54,10 @@ import com.slukhayka.audiobooks.ui.catalog.CatalogCardAction
 import com.slukhayka.audiobooks.ui.catalog.CatalogCardActionState
 import com.slukhayka.audiobooks.ui.catalog.CatalogBrowserFocusReturn
 import com.slukhayka.audiobooks.ui.components.BookCoverSemantics
+import com.slukhayka.audiobooks.ui.components.BookRow
 import com.slukhayka.audiobooks.ui.components.CatalogCoverImage
+import com.slukhayka.audiobooks.ui.components.MetadataChip
+import com.slukhayka.audiobooks.ui.components.formatRowDuration
 import com.slukhayka.audiobooks.ui.theme.AppBadgeScrim
 import com.slukhayka.audiobooks.ui.theme.AppBadgeScrimBorder
 import com.slukhayka.audiobooks.ui.theme.AppDimens
@@ -76,164 +79,38 @@ fun GlobalSearchResultCard(
     modifier: Modifier = Modifier
 ) {
     LaunchedEffect(result.key) { onPreflight() }
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = AppDimens.SpaceLg, vertical = AppDimens.SpaceSm),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Row(
-            modifier = Modifier
-                .weight(1f)
-                .clickable(onClick = onClick)
-                .semantics {
-                    contentDescription = "Відкрити книгу: ${result.title}"
-                }
-                .testTag("global_search_result_${result.key}"),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-        // Cover: the real artwork when the source carries one — the global
-        // search used to render only the letter placeholder, so EVERY result
-        // (4read, sound-books, audiobook-mp3, …) looked imageless
-        // (2026-08-17 bug report). [CatalogCoverImage] falls back to its own
-        // typographic placeholder when the cover is absent or fails to load;
-        // the letter placeholder below stays for the (rare) blank-URL case.
-        if (!result.coverImageUrl.isNullOrBlank()) {
-            CatalogCoverImage(
-                coverImageUrl = result.coverImageUrl,
-                title = result.title,
-                semantics = BookCoverSemantics.Decorative,
-                modifier = Modifier
-                    .size(56.dp)
-                    .clip(RoundedCornerShape(AppDimens.RadiusCover))
-            )
-        } else {
-            Box(
-                modifier = Modifier
-                    .size(56.dp)
-                    .clip(RoundedCornerShape(AppDimens.RadiusCover))
-                    .clearAndSetSemantics { }
-                    .background(MaterialTheme.colorScheme.surfaceContainerHighest),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = result.title.firstOrNull()?.toString()?.uppercase() ?: "?",
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-        Spacer(modifier = Modifier.width(AppDimens.SpaceMd))
-        Column(modifier = Modifier.weight(1f)) {
+    // v1.4 C3/C4 (ADR-0033): the result row IS the canonical BookRow with
+    // MetadataChip slots — the old bordered-card body (a sixth row style)
+    // is gone. Language and provenance chips ride the badges slot.
+    BookRow(
+        title = result.title,
+        modifier = modifier,
+        coverUrl = result.coverImageUrl,
+        author = result.author.takeIf { it.isNotBlank() },
+        // Spec-30 T2 (#217): the resolved duration when one is known (the
+        // local database or the shared metadata cache) — the search card
+        // used to never show a duration at all.
+        stats = result.durationSeconds?.takeIf { it > 0L }?.let { formatRowDuration(it) },
+        badges = {
             // Spec-45 (#405) T7 (#495): the card's rendition language — one
-            // EN/UA badge; unknown renders nothing (US3).
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = result.title,
-                    style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold),
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f)
-                )
-                if (result.language.isNotBlank()) {
-                    Spacer(modifier = Modifier.width(AppDimens.SpaceXs))
-                    LanguageBadge(language = result.language)
-                }
+            // EN/UA chip; unknown renders nothing (US3).
+            if (result.language.isNotBlank()) {
+                MetadataChip(language = result.language)
+                Spacer(modifier = Modifier.width(AppDimens.SpaceXs))
             }
-            if (result.author.isNotBlank()) {
-                Text(
-                    text = result.author,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+            // Spec-10 T4: which source(s) carry a book.
+            result.sources.forEach { source ->
+                MetadataChip(source = source.sourceName)
+                Spacer(modifier = Modifier.width(AppDimens.SpaceXs))
             }
-            // Spec-30 T2 (#217): the resolved duration when one is known (the
-            // local database or the shared metadata cache) — the search card
-            // used to never show a duration at all.
-            val duration = result.durationSeconds
-            if (duration != null && duration > 0L) {
-                Text(
-                    text = MainViewModel.formatTime(duration),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            if (result.sources.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(AppDimens.SpaceXs))
-                Row(horizontalArrangement = Arrangement.spacedBy(AppDimens.SpaceXs)) {
-                    result.sources.forEach { source ->
-                        SourceBadgePill(label = source.sourceName)
-                    }
-                }
-            }
-        }
-        }
-    }
+        },
+        contentDescription = stringResource(R.string.a11y_open_work, result.title),
+        onClick = onClick,
+        testTag = "global_search_result_${result.key}"
+    )
     CatalogCardStatus(result.key, actionState, onOpenBrowser)
 }
-/** Small unobtrusive pill: which source(s) carry a book (spec-10 T4). */
-@Composable
-fun SourceBadgePill(
-    label: String,
-    modifier: Modifier = Modifier
-) {
-    Surface(
-        color = MaterialTheme.colorScheme.primaryContainer,
-        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-        shape = RoundedCornerShape(AppDimens.RadiusXs),
-        modifier = modifier
-    ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelSmall,
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-        )
-    }
-}
 
-/**
- * Spec-15 T1 — one cover-first card of the deduplicated «Увесь каталог»
- * union: a Work with a badge per source that carries it. Tapping opens the
- * book page (ADR-0018: shelves carry no one-tap play). Pure `@Composable`
- * (no ViewModel) so the snapshot seam can pin it from fixture data.
- *
- * Spec-15 T4 — the card also carries a one-tap download affordance (a small
- * icon on the cover). [downloadAllowed] hides it for stream-only sources;
- * [downloadProgress] turns it into a progress bar while the book downloads;
- * [isDownloaded] marks the book as offline-ready (CloudDone).
- */
-@Composable
-fun UnifiedCatalogCard(
-    result: GlobalSearchResult,
-    onClick: () -> Unit,
-    actionState: CatalogCardActionState = CatalogCardActionState.Idle,
-    onOpenBrowser: () -> Unit = {},
-    onPreflight: () -> Unit = {},
-    modifier: Modifier = Modifier,
-    downloadAllowed: Boolean = true,
-    downloadProgress: Float? = null,
-    isDownloaded: Boolean = false,
-    onDownload: (() -> Unit)? = null
-) {
-    // v1.4 C2 (ADR-0033): the card IS the canonical PosterCard — its old
-    // body (a second 120×168 implementation) is gone. Provenance badges per
-    // source render at the row level through the same slot contract.
-    com.slukhayka.audiobooks.ui.components.PosterCard(
-        result = result,
-        onClick = onClick,
-        modifier = modifier,
-        onDownload = onDownload,
-        downloadAllowed = downloadAllowed,
-        downloadProgress = downloadProgress,
-        isDownloaded = isDownloaded,
-        preflightKey = result.key,
-        onPreflight = onPreflight,
-        actionHost = { CatalogCardStatus(result.key, actionState, onOpenBrowser) }
-    )
-}
 
 @Composable
 internal fun CatalogCardStatus(

@@ -28,9 +28,12 @@ import com.slukhayka.audiobooks.data.personbookmarks.PersonNewArrivals
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.ui.PeopleKind
+import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.catalog.CatalogCardActionState
 import com.slukhayka.audiobooks.ui.components.AppSectionHeader
+import com.slukhayka.audiobooks.ui.components.CycleCard
 import com.slukhayka.audiobooks.ui.components.NavigationChip
+import com.slukhayka.audiobooks.ui.components.PosterCard
 
 /**
  * spec-28 (#203) — the Огляд feed body, extracted from HomeScreen as a
@@ -147,7 +150,7 @@ fun LazyListScope.homeFeedContent(
     // NAVIGATE, so they are NavigationChips (filled, no outline) —
     // never filter-shaped chips.
     item {
-        AppSectionHeader(title = "Швидкі переходи")
+        AppSectionHeader(title = stringResource(R.string.feed_quick_links))
     }
     item {
         CatalogNavRow(
@@ -160,7 +163,7 @@ fun LazyListScope.homeFeedContent(
 
     val hasForYouContent = personalCycles.isNotEmpty() ||
         similarCycles.isNotEmpty() || recommendedBooks.isNotEmpty() || showRecommendationConsent
-    item { AppSectionHeader(title = "Для вас", level = com.slukhayka.audiobooks.ui.components.SectionHeaderLevel.GROUP) }
+    item { AppSectionHeader(title = stringResource(R.string.feed_for_you), level = com.slukhayka.audiobooks.ui.components.SectionHeaderLevel.GROUP) }
     if (!hasForYouContent) {
         item {
             Text(
@@ -182,7 +185,7 @@ fun LazyListScope.homeFeedContent(
     // shelf below is skipped (gradual replacement, spec-39 Р1).
     if (personalCycles.isNotEmpty()) {
         item {
-            AppSectionHeader(title = "Ваші цикли")
+            AppSectionHeader(title = stringResource(R.string.feed_your_cycles))
         }
         item {
             LazyRow(
@@ -190,9 +193,21 @@ fun LazyListScope.homeFeedContent(
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 items(personalCycles, key = { it.url }) { cycle ->
-                    PersonalCycleCard(
-                        cycle = cycle,
-                        onClick = { onOpenSeries(cycle.title, cycle.url) }
+                    // v1.4 C2 (ADR-0033): the card IS the canonical CycleCard.
+                    // The subtitle slot carries the honest «Прослухано X із Y»
+                    // line — only real numbers (ADR-0014) — or the engine's
+                    // reason chip for the similar tier.
+                    CycleCard(
+                        title = cycle.title,
+                        coverUrl = cycle.coverImageUrl,
+                        onClick = { onOpenSeries(cycle.title, cycle.url) },
+                        subtitle = when {
+                            cycle.reasonTitle != null -> stringResource(R.string.home_cycle_similar, cycle.reasonTitle)
+                            cycle.totalCount > 0 -> stringResource(R.string.home_cycle_progress, cycle.listenedCount, cycle.totalCount)
+                            else -> null
+                        },
+                        subtitleIsReason = cycle.reasonTitle != null,
+                        testTag = "personal_cycle_${cycle.url.hashCode()}"
                     )
                 }
             }
@@ -205,7 +220,7 @@ fun LazyListScope.homeFeedContent(
     // Best-effort: an empty tier renders nothing at all.
     if (similarCycles.isNotEmpty()) {
         item {
-            AppSectionHeader(title = "Схожі цикли")
+            AppSectionHeader(title = stringResource(R.string.feed_similar_cycles))
         }
         item {
             LazyRow(
@@ -213,9 +228,16 @@ fun LazyListScope.homeFeedContent(
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 items(similarCycles, key = { it.url }) { cycle ->
-                    SimilarCycleCard(
-                        cycle = cycle,
-                        onClick = { onOpenSeries(cycle.title, cycle.url) }
+                    // v1.4 C2 (ADR-0033): the same canonical CycleCard; the
+                    // magnet line is the engine's reason chip («схоже на X»)
+                    // instead of a progress count (ADR-0014: only real data).
+                    CycleCard(
+                        title = cycle.title,
+                        coverUrl = cycle.coverImageUrl,
+                        onClick = { onOpenSeries(cycle.title, cycle.url) },
+                        subtitle = stringResource(R.string.home_cycle_similar, cycle.reasonTitle),
+                        subtitleIsReason = true,
+                        testTag = "similar_cycle_" + cycle.url.hashCode()
                     )
                 }
             }
@@ -228,7 +250,7 @@ fun LazyListScope.homeFeedContent(
     // any other Огляд row (import the Work, then the native page).
     if (recommendedBooks.isNotEmpty()) {
         item {
-            AppSectionHeader(title = "Рекомендовано для вас")
+            AppSectionHeader(title = stringResource(R.string.feed_recommended_for_you))
         }
         item {
             LazyRow(
@@ -271,7 +293,7 @@ fun LazyListScope.homeFeedContent(
     }
 
     // Editorial and catalogue shelves form the second top-level group.
-    item { AppSectionHeader(title = "Відкрити нове", level = com.slukhayka.audiobooks.ui.components.SectionHeaderLevel.GROUP) }
+    item { AppSectionHeader(title = stringResource(R.string.feed_discover), level = com.slukhayka.audiobooks.ui.components.SectionHeaderLevel.GROUP) }
 
     if (peopleNewArrivals.results.isNotEmpty()) {
         item {
@@ -339,12 +361,21 @@ fun LazyListScope.homeFeedContent(
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     items(section.books, key = { it.id }) { book ->
-                        CatalogBookCard(
-                            book = book,
+                        // v1.4 C2 (ADR-0033): the canonical PosterCard with the
+                        // per-surface action host.
+                        PosterCard(
+                            title = book.title,
+                            coverUrl = book.coverImageUrl,
                             onClick = { onOpenCatalogBook(book) },
-                            actionState = catalogCardActionState,
-                            onOpenBrowser = onOpenCatalogBrowser,
-                            onPreflight = { onPreflightCatalogBook(book) }
+                            duration = if (book.totalDurationSeconds > 0L) {
+                                MainViewModel.formatTime(book.totalDurationSeconds)
+                            } else {
+                                null
+                            },
+                            preflightKey = book.id,
+                            onPreflight = { onPreflightCatalogBook(book) },
+                            testTag = "catalog_book_${book.id}",
+                            actionHost = { CatalogCardStatus(book.id, catalogCardActionState, onOpenCatalogBrowser) }
                         )
                     }
                 }
@@ -360,9 +391,12 @@ fun LazyListScope.homeFeedContent(
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     items(section.series, key = { it.url }) { series ->
-                        CatalogSeriesCard(
-                            series = series,
-                            onClick = { onOpenSeries(series.title, series.url) }
+                        // v1.4 C2 (ADR-0033): the canonical CycleCard.
+                        CycleCard(
+                            title = series.title,
+                            coverUrl = series.coverImageUrl,
+                            onClick = { onOpenSeries(series.title, series.url) },
+                            testTag = "catalog_series_${series.url.hashCode()}"
                         )
                     }
                 }
@@ -391,12 +425,15 @@ fun LazyListScope.homeFeedContent(
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     items(collection.books, key = { it.key }) { result ->
-                        CollectionBookCard(
+                        // v1.4 C2 (ADR-0033): the canonical PosterCard with the
+                        // per-surface action host.
+                        PosterCard(
                             result = result,
                             onClick = { onOpenGlobalSearchResult(result) },
-                            actionState = catalogCardActionState,
-                            onOpenBrowser = onOpenCatalogBrowser,
-                            onPreflight = { onPreflightGlobalSearchResult(result) }
+                            preflightKey = result.key,
+                            onPreflight = { onPreflightGlobalSearchResult(result) },
+                            testTag = "collection_book_${result.key.hashCode()}",
+                            actionHost = { CatalogCardStatus(result.key, catalogCardActionState, onOpenCatalogBrowser) }
                         )
                     }
                 }

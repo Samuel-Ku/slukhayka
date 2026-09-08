@@ -16,7 +16,7 @@ import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.data.source.GlobalSearchSource
 import com.slukhayka.audiobooks.ui.components.AppSectionHeader
-import com.slukhayka.audiobooks.ui.screens.CollectionBookCard
+import com.slukhayka.audiobooks.ui.components.PosterCard
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
 import com.github.takahirom.roborazzi.captureRoboImage
@@ -72,7 +72,7 @@ class CollectionsBlockSnapshotTest {
                             horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             items(results, key = { it.key }) { result ->
-                                CollectionBookCard(result = result, onClick = {})
+                                PosterCard(result = result, onClick = {})
                             }
                         }
                     }
@@ -91,7 +91,7 @@ class CollectionsBlockSnapshotTest {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     Column {
                         AppSectionHeader(title = "Букер")
-                        CollectionBookCard(result = results.first(), onClick = {})
+                        PosterCard(result = results.first(), onClick = {})
                     }
                 }
             }

@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.ui.theme.AppDimens
@@ -45,7 +46,10 @@ import com.slukhayka.audiobooks.data.db.WorkEntity
 import com.slukhayka.audiobooks.data.db.PersonBookmarkKey
 import com.slukhayka.audiobooks.data.db.PersonRole
 import com.slukhayka.audiobooks.data.personbookmarks.PersonBookmarks
+import com.slukhayka.audiobooks.ui.components.AppSectionHeader
 import com.slukhayka.audiobooks.ui.components.IndexEmptyState
+import com.slukhayka.audiobooks.ui.components.IndexScreenScaffold
+import com.slukhayka.audiobooks.ui.components.SectionHeaderLevel
 import com.slukhayka.audiobooks.ui.library.ukPlural
 import kotlinx.coroutines.launch
 
@@ -59,8 +63,21 @@ fun AuthorsIndexScreen(
     onAuthorClick: (AuthorSummary) -> Unit,
     initialScrollIndex: Int = 0
 ) {
-    AuthorDiscoveryScaffold(title = "Автори", onBackClick = onBackClick) { modifier ->
-        AuthorsIndexContent(authors = authors, onAuthorClick = onAuthorClick, modifier = modifier, initialScrollIndex = initialScrollIndex)
+    // v1.4 E6 (ADR-0033): the one pushed-screen chrome — the count rides the
+    // scaffold's subtitle (R10), never a free-standing list row. The saved
+    // scroll index referenced the old count row as item zero, so it shifts
+    // down by one now that authors start at item zero.
+    IndexScreenScaffold(
+        title = stringResource(R.string.author_index_title),
+        onBackClick = onBackClick,
+        subtitle = pluralStringResource(R.plurals.author_count, authors.size, authors.size)
+    ) { padding ->
+        AuthorsIndexContent(
+            authors = authors,
+            onAuthorClick = onAuthorClick,
+            modifier = Modifier.padding(padding),
+            initialScrollIndex = (initialScrollIndex - 1).coerceAtLeast(0)
+        )
     }
 }
 
@@ -84,9 +101,17 @@ fun CanonicalAuthorScreen(
     val bookmark by bookmarkFlow.collectAsState(initial = null)
     val scope = rememberCoroutineScope()
 
-    AuthorDiscoveryScaffold(
+    // v1.4 E6 (ADR-0033): the one pushed-screen chrome — the honest work
+    // count rides the scaffold's subtitle, rendered only when it is real
+    // (ADR-0014: no provisional numbers while loading).
+    IndexScreenScaffold(
         title = author.displayName,
         onBackClick = onBackClick,
+        subtitle = if (!isLoading && !loadFailed && works.isNotEmpty()) {
+            pluralStringResource(R.plurals.book_count, works.size, works.size)
+        } else {
+            null
+        },
         actions = {
             PersonBookmarkButton(
                 isBookmarked = bookmark != null,
@@ -105,43 +130,15 @@ fun CanonicalAuthorScreen(
                 }
             )
         }
-    ) { modifier ->
+    ) { padding ->
         CanonicalAuthorContent(
             author = author,
             works = works,
             onWorkClick = onWorkClick,
-            modifier = modifier,
+            modifier = Modifier.padding(padding),
             isLoading = isLoading,
             loadFailed = loadFailed
         )
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun AuthorDiscoveryScaffold(
-    title: String,
-    onBackClick: () -> Unit,
-    actions: @Composable () -> Unit = {},
-    content: @Composable (Modifier) -> Unit
-) {
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                windowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0),
-                title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                navigationIcon = {
-                    IconButton(onClick = onBackClick) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
-                    }
-                },
-                actions = { actions() },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
-            )
-        },
-        containerColor = MaterialTheme.colorScheme.background
-    ) { padding ->
-        content(Modifier.padding(padding))
     }
 }
 
@@ -155,10 +152,12 @@ fun AuthorSearchResults(
 ) {
     if (authors.isEmpty()) return
     Column(modifier = modifier.fillMaxWidth().testTag("author_search_results")) {
-        Text(
-            text = "Автори",
-            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+        // v1.4 C1 (ADR-0033): the canonical section header — GROUP level, a
+        // top-level search-result block (sentence case, not the uppercase
+        // shelf form).
+        AppSectionHeader(
+            title = stringResource(R.string.author_index_title),
+            level = SectionHeaderLevel.GROUP
         )
         authors.take(INLINE_AUTHOR_LIMIT).forEach { author ->
             AuthorRow(author = author, onClick = { onAuthorClick(author) })
@@ -181,7 +180,7 @@ fun AuthorsIndexContent(
 ) {
     if (authors.isEmpty()) {
         IndexEmptyState(
-            message = "Автори з'являться після завантаження каталогу.",
+            message = stringResource(R.string.author_empty_catalog),
             modifier = modifier.testTag("authors_index")
         )
         return
@@ -194,14 +193,7 @@ fun AuthorsIndexContent(
         modifier = modifier.testTag("authors_index"),
         contentPadding = PaddingValues(top = 8.dp, bottom = AppDimens.SpaceAboveMiniPlayer)
     ) {
-        item {
-            Text(
-                text = "${authors.size} ${ukPlural(authors.size, "автор", "автори", "авторів")}",
-                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                color = MaterialTheme.colorScheme.secondary,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-            )
-        }
+        // The count lives in the scaffold's subtitle (v1.4 E6, ADR-0033).
         items(authors, key = AuthorSummary::id) { author ->
             AuthorRow(author, onClick = { onAuthorClick(author) })
         }
@@ -227,14 +219,14 @@ fun CanonicalAuthorContent(
     }
     if (loadFailed) {
         IndexEmptyState(
-            message = "Не вдалося відкрити книги автора. Спробуйте ще раз.",
+            message = stringResource(R.string.author_load_failed),
             modifier = modifier.testTag("canonical_author_page")
         )
         return
     }
     if (works.isEmpty()) {
         IndexEmptyState(
-            message = "Книг цього автора поки немає в каталозі.",
+            message = stringResource(R.string.author_empty_works),
             modifier = modifier.testTag("canonical_author_page")
         )
         return
@@ -247,16 +239,7 @@ fun CanonicalAuthorContent(
         modifier = modifier.testTag("canonical_author_page"),
         contentPadding = PaddingValues(top = 8.dp, bottom = AppDimens.SpaceAboveMiniPlayer)
     ) {
-        item {
-            Text(
-                text = "${works.size} ${ukPlural(works.size, "книга", "книги", "книг")}",
-                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                color = MaterialTheme.colorScheme.secondary,
-                modifier = Modifier
-                    .testTag("canonical_author_work_count")
-                    .padding(horizontal = 16.dp, vertical = 4.dp)
-            )
-        }
+        // The count lives in the scaffold's subtitle (v1.4 E6, ADR-0033).
         items(works, key = WorkEntity::id) { work ->
             Row(
                 modifier = Modifier

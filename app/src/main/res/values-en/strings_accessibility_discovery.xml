@@ -1,6 +1,11 @@
 <resources>
     <string name="a11y_not_interested_work">Not interested: %1$s</string>
-    <string name="a11y_listen_block_actions">Block actions: %1$s</string>
+    <string name="a11y_listen_shelves_pane">Shelf management</string>
+    <string name="a11y_listen_shelves_close">Close shelf management</string>
+    <string name="a11y_listen_shelf_move_up">Move up: %1$s</string>
+    <string name="a11y_listen_shelf_move_down">Move down: %1$s</string>
+    <string name="a11y_listen_shelf_hide">Hide shelf: %1$s</string>
+    <string name="a11y_listen_shelf_show">Show shelf: %1$s</string>
     <string name="a11y_resume_work">Resume listening: %1$s</string>
     <string name="a11y_open_work">Open book: %1$s</string>
     <string name="a11y_open_series">Open series: %1$s</string>

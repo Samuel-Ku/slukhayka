@@ -1,18 +1,18 @@
 package com.slukhayka.audiobooks.ui.components
 
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.defaultMinSize
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -25,18 +25,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.withFrameNanos
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
-import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -55,6 +51,10 @@ fun IndexScreenScaffold(
     title: String,
     onBackClick: () -> Unit,
     actions: @Composable () -> Unit = {},
+    // v1.4 E6 (ADR-0033): the screen's honest count lives under the title
+    // (R10 — the counter rides the canonical header, never a free-standing
+    // list row).
+    subtitle: String? = null,
     content: @Composable (PaddingValues) -> Unit
 ) {
     val headingFocusRequester = remember { FocusRequester() }
@@ -73,17 +73,29 @@ fun IndexScreenScaffold(
             TopAppBar(
                 windowInsets = WindowInsets(0, 0, 0, 0),
                 title = {
-                    Text(
-                        text = title,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                        modifier = Modifier
-                            .focusRequester(headingFocusRequester)
-                            .focusable()
-                            .testTag("secondary_screen_heading")
-                            .semantics { heading() }
-                    )
+                    Column {
+                        Text(
+                            text = title,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                            modifier = Modifier
+                                .focusRequester(headingFocusRequester)
+                                .focusable()
+                                .testTag("secondary_screen_heading")
+                                .semantics { heading() }
+                        )
+                        if (subtitle != null) {
+                            Text(
+                                text = subtitle,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.testTag("secondary_screen_subtitle")
+                            )
+                        }
+                    }
                 },
                 navigationIcon = {
                     IconButton(
@@ -109,54 +121,59 @@ fun IndexScreenScaffold(
 /**
  * spec-28 (#202) — the shared index empty-state: the centred icon + message
  * placeholder every catalogue index renders when its data hasn't synced yet
- * (never a crash). The message is per-screen; the shape is one.
+ * (never a crash). v1.4 C4 (ADR-0033): a thin facade over the canonical
+ * [EmptyState] — one empty-state shape app-wide (icon 56, bold title,
+ * polite live-region announcement). The message is per-screen.
  */
 @Composable
 fun IndexEmptyState(
     message: String,
     modifier: Modifier = Modifier
 ) {
-    Box(
-        modifier = modifier,
-        contentAlignment = Alignment.Center
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(
-                imageVector = Icons.AutoMirrored.Filled.MenuBook,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(48.dp)
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            Text(
-                text = message,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }
-            )
-        }
-    }
+    EmptyState(
+        icon = Icons.AutoMirrored.Filled.MenuBook,
+        title = message,
+        body = "",
+        modifier = modifier
+    )
 }
 
-/** A named progress state shared by pushed content lists. */
+/**
+ * A named progress state shared by pushed content lists. v1.4 C4
+ * (ADR-0033): a thin facade over the canonical [EmptyState] — the spinner
+ * rides the icon slot (a live indicator, not a static glyph), the label is
+ * the canonical title, and the real progress-bar node keeps its
+ * contentDescription so TalkBack announces loading exactly once.
+ */
 @Composable
 fun SecondaryLoadingState(
     modifier: Modifier = Modifier
 ) {
     val loadingDescription = stringResource(R.string.secondary_loading)
-    Box(modifier = modifier, contentAlignment = Alignment.Center) {
-        androidx.compose.material3.CircularProgressIndicator(
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier
-                .testTag("secondary_loading")
-                .semantics {
-                    contentDescription = loadingDescription
-                }
-        )
-    }
+    EmptyState(
+        icon = Icons.Filled.Info,
+        title = loadingDescription,
+        body = "",
+        iconContent = {
+            CircularProgressIndicator(
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier
+                    .size(28.dp)
+                    .testTag("secondary_loading")
+                    .semantics {
+                        contentDescription = loadingDescription
+                    }
+            )
+        },
+        modifier = modifier
+    )
 }
 
-/** A one-shot polite empty/error message, rendered only while that state exists. */
+/**
+ * A one-shot polite empty/error message, rendered only while that state
+ * exists. v1.4 C4 (ADR-0033): a thin facade over the canonical [EmptyState]
+ * — the error flavour announces «Помилка» on the same polite title node.
+ */
 @Composable
 fun SecondaryMessageState(
     message: String,
@@ -164,21 +181,11 @@ fun SecondaryMessageState(
     isError: Boolean = false
 ) {
     val errorState = stringResource(R.string.secondary_state_error)
-    Box(modifier = modifier, contentAlignment = Alignment.Center) {
-        Text(
-            text = message,
-            style = MaterialTheme.typography.bodyMedium,
-            color = if (isError) {
-                MaterialTheme.colorScheme.error
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            },
-            modifier = Modifier
-                .testTag("secondary_message")
-                .semantics {
-                    liveRegion = LiveRegionMode.Polite
-                    if (isError) stateDescription = errorState
-                }
-        )
-    }
+    EmptyState(
+        icon = if (isError) Icons.Filled.Warning else Icons.Filled.Info,
+        title = message,
+        body = "",
+        stateDescription = if (isError) errorState else null,
+        modifier = modifier.testTag("secondary_message")
+    )
 }

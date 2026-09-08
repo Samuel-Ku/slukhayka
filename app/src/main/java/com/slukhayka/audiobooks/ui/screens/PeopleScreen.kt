@@ -21,6 +21,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -33,8 +34,18 @@ import com.slukhayka.audiobooks.ui.components.BookRow
 import com.slukhayka.audiobooks.ui.components.IndexScreenScaffold
 import com.slukhayka.audiobooks.ui.components.SecondaryLoadingState
 import com.slukhayka.audiobooks.ui.components.SecondaryMessageState
+import com.slukhayka.audiobooks.ui.PeopleKind
 import com.slukhayka.audiobooks.ui.library.ukPlural
 import com.slukhayka.audiobooks.ui.theme.*
+
+/** v1.4 E6 (ADR-0033): the people-tab count in the scaffold's subtitle. */
+@Composable
+private fun peopleCountLabel(kind: PeopleKind, size: Int): String =
+    pluralStringResource(
+        if (kind.title == "Виконавці") R.plurals.performer_count else R.plurals.author_count,
+        size,
+        size
+    )
 
 /**
  * Full-screen Виконавці (`/readers.html`) or Автори (`/avtors.html`) index:
@@ -59,12 +70,17 @@ fun PeopleScreen(
 
     val currentKind = kind ?: return
 
-    IndexScreenScaffold(title = currentKind.title, onBackClick = onBackClick) { padding ->
+    // v1.4 E6 (ADR-0033): the count rides the scaffold's subtitle (R10),
+    // never a free-standing list row.
+    IndexScreenScaffold(
+        title = currentKind.title,
+        onBackClick = onBackClick,
+        subtitle = peopleCountLabel(currentKind, people.size)
+    ) { padding ->
         PeopleContent(
             people = people,
             isLoading = isLoading,
             loadFailed = loadFailed,
-            peopleCountLabel = "${people.size} ${if (currentKind.title == "Виконавці") "виконавців" else "авторів"}",
             onPersonClick = onPersonClick,
             restoreFocusPersonPath = restoreFocusPersonPath,
             onPersonFocusRestored = onPersonFocusRestored,
@@ -81,7 +97,6 @@ fun PeopleContent(
     people: List<CatalogPerson>,
     isLoading: Boolean,
     loadFailed: Boolean,
-    peopleCountLabel: String,
     onPersonClick: (CatalogPerson) -> Unit,
     modifier: Modifier = Modifier,
     restoreFocusPersonPath: String? = null,
@@ -140,17 +155,9 @@ fun PeopleContent(
                             .padding(48.dp)
                     )
                 }
-            }
-
-            else -> {
-                item {
-                    Text(
-                        text = peopleCountLabel,
-                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                        color = MaterialTheme.colorScheme.secondary,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-                    )
-                }
+            }                else -> {
+                // The count lives in the scaffold's subtitle (v1.4 E6,
+                // ADR-0033).
                 items(people, key = { it.path }) { person ->
                     // v1.4 C3 (ADR-0033): the canonical flat row — avatar in
                     // the leading slot, count in the trailing slot, divider

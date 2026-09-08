@@ -25,6 +25,8 @@ import { ProgressSyncController } from './sync/controller'
 import { FirestoreNarrationRatingsStore, FirestoreReviewsStore } from './reviews/store'
 import { WorkRelationshipController } from './sync/workRelationshipController'
 import { FirestoreWorkRelationshipStore } from './sync/workRelationshipStore'
+import { PersonBookmarkSyncController, LocalPendingPersonBookmarkDeletes } from './sync/personBookmarkController'
+import { FirestorePersonBookmarkStore } from './sync/personBookmarkStore'
 import { getFirestoreForEnv } from './firebase/firestore'
 import { editionIdFor, mergeKeyFor } from './sync/edition'
 import { setUiLocale, useTranslate, useUiLocale } from './i18n/locale'
@@ -122,6 +124,15 @@ export function App({ profile: initialProfile }: { profile: ListenerProfile | nu
     profileRef.current = profile
   }, [profile])
 
+  // #582 W0.4 — person-bookmark sync rides the same delivery as the Work
+  // relationships (the R-W10 seam): deterministic ids, local-first toggle,
+  // pull/merge at the same moments, refusing sync never deletes local rows.
+  const pendingPersonDeletes = useMemo(() => new LocalPendingPersonBookmarkDeletes(window.localStorage), [])
+  const personBookmarkStore = useMemo(
+    () => (firestore ? new FirestorePersonBookmarkStore(firestore) : null),
+    [firestore],
+  )
+
   // #581 W0.3 — the Work-relationship sync (entry/tombstone mirror, LWW):
   // pull on boot for a returning bound session, merge at linking, push at
   // the honest moments via the callbacks below.
@@ -140,9 +151,25 @@ export function App({ profile: initialProfile }: { profile: ListenerProfile | nu
       ),
     [domainStore, relationshipStore, settings],
   )
+  const personBookmarks = useMemo(
+    () =>
+      new PersonBookmarkSyncController(
+        () => profileRef.current?.uid ?? null,
+        domainStore,
+        personBookmarkStore,
+        () => settings.isEnabled(),
+        pendingPersonDeletes,
+      ),
+    [domainStore, personBookmarkStore, settings, pendingPersonDeletes],
+  )
   useEffect(() => {
     void relationships.pullAndApply().catch(() => [])
   }, [relationships])
+  useEffect(() => {
+    // #582 W0.4 — the same boot pull as the relationships: a returning bound
+    // session finds the phone's bookmarks; a null store is a no-op.
+    void personBookmarks.sync().catch(() => undefined)
+  }, [personBookmarks])
   const syncController = useMemo(() => {
     const mirror = {
       editionIdForSync: (bookId: string) => bookId,
@@ -278,6 +305,8 @@ export function App({ profile: initialProfile }: { profile: ListenerProfile | nu
             profile={profile}
             reviewsStore={reviewsStore}
             narrationRatingsStore={narrationRatingsStore}
+            domainStore={domainStore}
+            personBookmarks={personBookmarks}
           />
         ) : boot === null ? (
           // The hydration gate: no screen reads listener data before IDB boot
@@ -301,6 +330,7 @@ export function App({ profile: initialProfile }: { profile: ListenerProfile | nu
             listening={idbStore}
             recommendationPrefs={recommendationPrefsStore}
             participation={participation}
+            personBookmarks={personBookmarks}
           />
         ) : tab === 'library' ? (
           <Library
@@ -308,6 +338,7 @@ export function App({ profile: initialProfile }: { profile: ListenerProfile | nu
             linkStore={linkStore}
             listening={idbStore}
             pushAfterChange={(mergeKey) => relationships.pushAfterChange(mergeKey)}
+            personBookmarks={personBookmarks}
           />
         ) : (
           <Settings
@@ -317,6 +348,8 @@ export function App({ profile: initialProfile }: { profile: ListenerProfile | nu
             onLinked={(uid) => {
               relationships.setUid(uid)
               void relationships.mergeAtLinking().catch(() => undefined)
+              personBookmarks.setUid(uid)
+              void personBookmarks.mergeAtLinking().catch(() => undefined)
             }}
             recommendationPrefs={recommendationPrefsStore}
             domainStore={domainStore}

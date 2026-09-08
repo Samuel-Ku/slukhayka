@@ -9,6 +9,9 @@ import { FEED_CATALOG, needsNetwork } from './feedSnapshotPolicy'
 import { formatRemainingTime } from './listenComposer'
 import { BookRow, CycleCard, EmptyStateRow, PosterCard, SectionHeader } from './components'
 import type { MatchedCollection } from './collectionModel'
+import type { DomainStore, PersonRole } from '../local/domain'
+import { personIdentityOf } from '../local/personIdentity'
+import type { PersonBookmarkSyncController } from '../sync/personBookmarkController'
 
 /**
  * W3.2 — the four catalogue indexes (Серії, Колекції, ТОП 100, Виконавці/
@@ -185,16 +188,46 @@ export function Top100IndexPanel({ onBack, onOpenBook }: {
   )
 }
 
-/** One people index (Виконавці or Автори) from its own site page. */
-export function PeopleIndexPanel({ kind, onBack, onOpenPerson }: {
+/**
+ * #582 W0.4 — one people index (Виконавці or Автори) from its own site
+ * page, with Android's person-bookmark toggle on every row: the web's
+ * in-app person surface is this list (person pages themselves are external
+ * site pages), so the bookmark button lives here — the honest counterpart
+ * of Android's PersonBooksScreen control. The buttons render only when the
+ * controller is present (no Firebase config → no buttons, never dead UI).
+ */
+export function PeopleIndexPanel({ kind, onBack, onOpenPerson, domainStore, personBookmarks }: {
   kind: 'performers' | 'authors'
   onBack: () => void
   onOpenPerson: (card: CatalogCard) => void
+  /** #582 W0.4 — read the bookmark state (buttons render only with both). */
+  domainStore?: Pick<DomainStore, 'personBookmarks'>
+  personBookmarks?: PersonBookmarkSyncController
 }) {
   const t = useTranslate()
   const home = SOURCE_METADATA.fourread.homeUrl
   const url = kind === 'performers' ? `${home}/readers.html` : `${home}/avtors.html`
   const cards = useFourreadSection(url, warmKey('catalog', 'fourread', kind), 'people')
+  const role: PersonRole = kind === 'performers' ? 'narrator' : 'author'
+  const [booked, setBooked] = useState<Set<string>>(new Set())
+  const [ready, setReady] = useState(false)
+  useEffect(() => {
+    let alive = true
+    setReady(false)
+    if (domainStore === undefined || personBookmarks === undefined) return
+    void domainStore.personBookmarks().then((rows) => {
+      if (!alive) return
+      setBooked(new Set(rows.map((row) => row.personId)))
+      setReady(true)
+    })
+    return () => { alive = false }
+  }, [domainStore, personBookmarks])
+  const toggle = async (name: string): Promise<void> => {
+    if (personBookmarks === undefined || domainStore === undefined) return
+    await personBookmarks.toggle(role, name)
+    const rows = await domainStore.personBookmarks()
+    setBooked(new Set(rows.map((row) => row.personId)))
+  }
   // en's few === many ('books'), so the one plural helper covers both locales.
   const countLabel = (n: number): string =>
     `${n} ${ukPlural(n, t('peopleBookOne'), t('peopleBookFew'), t('peopleBookMany'))}`
@@ -210,17 +243,45 @@ export function PeopleIndexPanel({ kind, onBack, onOpenPerson }: {
         <EmptyStateRow message={t('peopleIndexEmpty')} />
       ) : (
         <ul className="card-list">
-          {cards.map((card) => (
-            <BookRow
-              key={card.url}
-              title={card.title}
-              subtitle={card.count !== undefined ? countLabel(card.count) : undefined}
-              onOpen={() => onOpenPerson(card)}
-              openAriaLabel={t('openPersonAria', { name: card.title })}
-            />
-          ))}
+          {cards.map((card) => {
+            const isBookmarked = ready && booked.has(personIdOfName(role, card.title))
+            return (
+              <BookRow
+                key={card.url}
+                title={card.title}
+                subtitle={card.count !== undefined ? countLabel(card.count) : undefined}
+                onOpen={() => onOpenPerson(card)}
+                openAriaLabel={t('openPersonAria', { name: card.title })}
+                trailing={domainStore !== undefined && personBookmarks !== undefined ? (
+                  <button
+                    type="button"
+                    onClick={() => void toggle(card.title)}
+                    aria-label={isBookmarked
+                      ? t('personBookmarkRemoveAria', { name: card.title })
+                      : t('personBookmarkAddAria', { name: card.title })}
+                    aria-pressed={isBookmarked}
+                    style={{
+                      background: 'none',
+                      border: '1px solid var(--line)',
+                      borderRadius: 999,
+                      padding: '4px 10px',
+                      color: isBookmarked ? 'var(--accent)' : 'var(--fg)',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {isBookmarked ? '★' : '☆'}
+                  </button>
+                ) : undefined}
+              />
+            )
+          })}
         </ul>
       )}
     </IndexChrome>
   )
+}
+
+/** The deterministic bookmark id of a displayed person name (Android's boundedId). */
+function personIdOfName(role: PersonRole, name: string): string {
+  return personIdentityOf(role, name).id
 }

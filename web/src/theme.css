@@ -1492,3 +1492,29 @@ span.bookrow-body {
   text-align: left;
   cursor: pointer;
 }
+
+/* #592 W6.1 — «Для вас» group: the dismiss sits on the poster's corner,
+   matching the Listen shelves' touch target (min 48 px). */
+.for-you-item {
+  position: relative;
+}
+
+.for-you-dismiss {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  min-width: 48px;
+  min-height: 48px;
+  background: none;
+  border: none;
+  color: var(--fg-dim);
+  font-size: 15px;
+  cursor: pointer;
+  border-radius: 8px;
+}
+
+.for-you-dismiss:hover,
+.for-you-dismiss:focus-visible {
+  color: var(--fg);
+  background: var(--line);
+}

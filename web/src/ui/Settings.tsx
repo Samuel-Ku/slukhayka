@@ -23,6 +23,7 @@ import { useTranslate } from '../i18n/locale'
 import type { StringKey } from '../i18n/strings'
 import { NetworkDirection, StorageDirection } from './settingsDirections'
 import type { ManagementCacheStorage } from '../local/storageManagement'
+import { RecommendationParticipation } from '../recommend/participation'
 
 export type SettingsDestination = 'profile' | 'storage' | 'network' | 'recommendations'
 
@@ -197,16 +198,22 @@ const RECOMMENDATION_KIND_LABELS: Record<RecommendationKind, StringKey> = {
  * #586 W2.2 — the «Рекомендації» direction: the «Приховане вами» list
  * (Android's RecommendationSettingsScreen), the ONE undo surface for
  * «Не цікаво» — a local preference is never synced, so this list is the
- * only way it leaves discovery. The personalization switches join with
- * T14/W6.1; until then the direction carries only what is real.
+ * only way it leaves discovery. #592 W6.1 adds the participation switch
+ * (Android's recommendations_shared_switch): local consent, off by
+ * default, revocable — the server layer joins later (ADR-0030).
  */
-export function RecommendationsDirection({ recommendationPrefs, domainStore, onBack }: {
+export function RecommendationsDirection({ recommendationPrefs, domainStore, participation, onBack }: {
   recommendationPrefs: RecommendationPrefsStore
   domainStore: DomainStore
+  /** #592 W6.1 — the participation consent (Android's shared switch). */
+  participation: RecommendationParticipation
   onBack: () => void
 }) {
   const t = useTranslate()
   const [preferences, setPreferences] = useState<RecommendationPreferenceRow[] | null>(null)
+  // #592 W6.1 — the participation switch: local consent, off by default;
+  // revoking stops contributions and leaves local recommendations.
+  const [participating, setParticipating] = useState(() => participation.isEnabled())
 
   useEffect(() => {
     let alive = true
@@ -251,6 +258,26 @@ export function RecommendationsDirection({ recommendationPrefs, domainStore, onB
         <button type="button" className="back" onClick={onBack}>{t('back')}</button>
       </div>
       <TabHeader title={t('recommendationsTitle')} />
+      <div className="profile-card">
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={participating}
+            onChange={(event) => {
+              const next = event.target.checked
+              participation.setEnabled(next)
+              setParticipating(next)
+            }}
+          />
+          <span style={{ fontSize: 14, fontWeight: 600 }}>{t('recommendationParticipationTitle')}</span>
+        </label>
+        <p style={{ margin: '8px 0 0', fontSize: 13, color: 'var(--fg-dim)' }}>
+          {t('recommendationParticipationDescription')}
+        </p>
+        <span className="label" style={{ marginTop: 8 }}>
+          {t(participating ? 'recommendationParticipationOn' : 'recommendationParticipationOff')}
+        </span>
+      </div>
       {preferences === null ? (
         <p className="empty-state-row" role="status">{t('loading')}</p>
       ) : preferences.length === 0 ? (
@@ -285,7 +312,7 @@ export function RecommendationsDirection({ recommendationPrefs, domainStore, onB
 }
 
 /** The Налаштування tab: the one home for settings directions. */
-export function Settings({ profile, onProfileChange, evicted = false, onLinked, recommendationPrefs, domainStore, hybrid, idbStore, storage, cacheStorage }: {
+export function Settings({ profile, onProfileChange, evicted = false, onLinked, recommendationPrefs, domainStore, participation, hybrid, idbStore, storage, cacheStorage }: {
   profile: ListenerProfile | null
   onProfileChange?: (p: ListenerProfile) => void
   evicted?: boolean
@@ -293,6 +320,8 @@ export function Settings({ profile, onProfileChange, evicted = false, onLinked, 
   /** #586 W2.2 — the local Recommendation Preference store («Не цікаво» undo). */
   recommendationPrefs: RecommendationPrefsStore
   domainStore: DomainStore
+  /** #592 W6.1 — the participation consent (Settings → Рекомендації). */
+  participation: RecommendationParticipation
   /** #591 W5.2 — the storage direction's seams (the honest clear paths). */
   hybrid: HybridListeningStateStorage
   idbStore: ListenerDatabase
@@ -347,6 +376,7 @@ export function Settings({ profile, onProfileChange, evicted = false, onLinked, 
       <RecommendationsDirection
         recommendationPrefs={recommendationPrefs}
         domainStore={domainStore}
+        participation={participation}
         onBack={() => setDestination(null)}
       />
     )

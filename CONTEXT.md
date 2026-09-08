@@ -36,8 +36,8 @@ A device's locator, permission, and availability relationship to a Source. Bindi
 _Avoid_: Source, download
 
 **Source Catalog**:
-The union of browseable Works a Source exposes — sections, genres, series listings, people — fetched as Metadata Assertions on demand rather than stored wholesale.
-_Avoid_: Store, browse cache
+The union of browseable Works a Source exposes — sections, genres, series listings, people — fetched as Metadata Assertions on demand rather than stored wholesale. A Source of a mixed site contributes only its audio: text-only content (e-books, online reading) of the same site never enters the catalog (spec-47: chytaylo) until a separate recorded decision.
+_Avoid_: Store, browse cache, text content of a mixed site as catalog rows
 
 **Chapter**:
 An ordered logical subdivision of one Edition to which positions and bookmarks can be anchored, independent of how a Source divides its files. A Chapter row carries order, title, and duration only — stream URLs, file paths, and content hashes belong to Source tracks.

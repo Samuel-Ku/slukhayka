@@ -72,12 +72,16 @@ describe('en locale flows', () => {
       genres: [],
       chapters: [{ title: 'Chapter 1', streamUrl: 'https://archive.org/download/pride_librivox/01.mp3', durationSeconds: 600 }],
       otherNarrations: [],
+      relatedBooks: [],
     })
     render(<BookPage
       url="https://archive.org/details/pride_librivox"
       source="librivox"
       onOpenBook={vi.fn()}
       onPlay={vi.fn(async () => true)}
+      profile={null}
+      reviewsStore={null}
+      narrationRatingsStore={null}
     />)
 
     await waitFor(() => expect(screen.getByText('Pride and Prejudice')).toBeTruthy())

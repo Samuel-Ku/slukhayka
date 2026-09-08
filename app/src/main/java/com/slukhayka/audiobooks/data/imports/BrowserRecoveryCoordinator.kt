@@ -120,6 +120,7 @@ class BrowserRecoveryCoordinator(
         val hasRecoverableSource = storedBookRow != null &&
             dao.getSourcesForBookSync(storedBookRow.id).any { it.type == sourceId }
         val isNewImport = storedBookRow == null || !hasRecoverableSource
+        android.util.Log.w("Recovery", "[DEBUG-1392] newImport=$isNewImport")
         if (!isNewImport) {
             val captured = libraryImport.inspectWebSourcePage(sourceId, url, html, capturedAudioUrls)
             val storedSource = dao.getSourcesForBookSync(bookId!!)
@@ -140,6 +141,7 @@ class BrowserRecoveryCoordinator(
                 ) &&
                 captured.chapters.size != storedCount
             ) {
+                android.util.Log.w("Recovery", "[DEBUG-1392] structure_count=$storedCount/${captured.chapters.size}")
                 return@withContext resolveStructureMismatch(
                     bookId = bookId!!,
                     mismatch = Outcome.StructureMismatch(storedCount, captured.chapters.size),
@@ -216,6 +218,7 @@ class BrowserRecoveryCoordinator(
             false
         }
 
+        android.util.Log.w("Recovery", "[DEBUG-1392] verdict=$canPlay")
         if (!canPlay) {
             // Dead candidate — 403, dead URL, etc. Browser stays open.
             // Recovery rolls back to old tracks; a new import is NEVER deleted

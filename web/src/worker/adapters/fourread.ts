@@ -172,7 +172,38 @@ function parseHomepage(html: string): ParsedCatalog {
   const popular = parsePopularBooks(html)
   if (popular.length) sections.push({ id: 'popular', title: 'Популярне', cards: popular })
 
+  // W3.3 — the homepage's genre navigation sidebar («Аудіокниги жанру:»):
+  // the ONE honest source of genre facets (Android `parseGenreNav`). Each
+  // genre page (`/kazka/` …) is a poster grid, so its cards belong to that
+  // genre by construction.
+  const genres = parseGenreNav(html)
+  if (genres.length) sections.push({ id: 'genres', title: 'Жанри', cards: genres })
+
   return { sections }
+}
+
+/**
+ * W3.3 — the homepage genre navigation sidebar («Аудіокниги жанру:»): a
+ * `<ul class="sb__content sb__nav">` of plain `<li><a href="/kazka/">Казка</a></li>`
+ * entries. The trailing «Додати книгу» entry embeds an `<i>` icon, so its
+ * anchor text contains markup and is skipped by the `[^<]+` text match;
+ * ЗНО is a static works list (no poster grid) and is excluded by its `.html`
+ * href — exactly Android's `parseGenreNav`.
+ */
+export function parseGenreNav(html: string): CatalogCard[] {
+  const nav = /<ul class="sb__content sb__nav">([\s\S]*?)<\/ul>/i.exec(html)?.[1]
+  if (!nav) return []
+  const cards: CatalogCard[] = []
+  const re = /<li>\s*<a href="([^"]+)">([^<]+)<\/a><\/li>/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(nav)) !== null) {
+    const title = decodeEntities(m[2].trim())
+    if (title.length < 2) continue
+    // ЗНО is a static works list — tapping it lands on an empty book list.
+    if (m[1].endsWith('.html')) continue
+    cards.push({ url: toAbsolute(m[1]) ?? SITE, title, author: '' })
+  }
+  return cards
 }
 
 /** Бічний блок «Популярне»: автора відновлено з alt обкладинки («Автор - Назва»). */

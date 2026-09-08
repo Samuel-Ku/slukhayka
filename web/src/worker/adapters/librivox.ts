@@ -240,6 +240,7 @@ export function buildBookDetail(jsonText: string, pageUrl: string): BookDetail |
     descriptionHtml: description === '' ? undefined : description,
     chapters,
     otherNarrations: [],
+    relatedBooks: [],
   }
 }
 

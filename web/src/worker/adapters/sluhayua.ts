@@ -56,6 +56,7 @@ export const sluhayuaAdapter: SourceAdapter = {
       descriptionHtml: descriptionFromPage(html) || undefined,
       chapters: [],
       otherNarrations: relatedFromPage(html, pageUrl),
+      relatedBooks: [],
     }
   },
   // spec-43/T4 — той самий /find/allcards JSON, що й у fetchNew (порт

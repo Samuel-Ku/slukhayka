@@ -952,3 +952,263 @@ span.bookrow-body {
   border: none;
   color: var(--accent-contrast);
 }
+
+/* W4.1 — the book page's «У серії» / «Можливо, Тебе зацікавить» rows and
+   the «Відгуки» block (spec-40, port of BookDetailReviews.kt). */
+.poster-row {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  padding: 4px 0 12px;
+  list-style: none;
+  margin: 0;
+}
+
+.poster-row > * {
+  flex: 0 0 auto;
+}
+
+/* --- Reviews block ------------------------------------------------------ */
+
+.reviews-block {
+  margin-top: 8px;
+  padding-bottom: 16px;
+}
+
+.reviews-average {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0;
+  color: var(--fg);
+}
+
+.reviews-average-value {
+  font-weight: 700;
+  font-size: 17px;
+}
+
+.reviews-average-count {
+  color: var(--fg-dim);
+  font-size: 13px;
+}
+
+.reviews-empty {
+  color: var(--fg-dim);
+  font-size: 13px;
+  margin: 8px 0;
+}
+
+.review-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.review-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.review-stars {
+  display: inline-flex;
+  gap: 2px;
+  color: var(--fg-dim);
+}
+
+.review-stars-interactive {
+  gap: 4px;
+}
+
+.review-star {
+  font-size: 16px;
+  line-height: 1;
+  color: var(--fg-dim);
+}
+
+.review-star-on {
+  color: var(--accent);
+}
+
+.review-stars-interactive .review-star {
+  background: none;
+  border: none;
+  padding: 2px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.review-body {
+  margin: 0;
+  color: var(--fg);
+  font-size: 14px;
+}
+
+.review-edition-chip {
+  align-self: flex-start;
+  background: var(--surface-2, var(--line));
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 12px;
+  color: var(--fg-dim);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.review-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.review-author {
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.review-date {
+  color: var(--fg-dim);
+  font-size: 12px;
+}
+
+.review-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.review-actions button {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 8px;
+  min-height: 36px;
+  cursor: pointer;
+}
+
+.review-actions .review-delete {
+  color: var(--bad, #c0392b);
+}
+
+/* The write/edit form sheet. */
+.review-form-label {
+  display: block;
+  margin: 12px 0 4px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.review-body-input {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 88px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--fg);
+  padding: 10px;
+  font: inherit;
+}
+
+.review-counter {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--fg-dim);
+  text-align: right;
+}
+
+.review-error {
+  color: var(--bad, #c0392b);
+  margin: 8px 0 0;
+  font-size: 13px;
+}
+
+.review-tag-select {
+  position: relative;
+  display: inline-block;
+}
+
+.review-tag-menu {
+  position: absolute;
+  z-index: 10;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 180px;
+  list-style: none;
+  margin: 0;
+  padding: 6px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.15);
+}
+
+.review-tag-menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--fg);
+  font: inherit;
+  font-size: 14px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.review-tag-menu button:hover {
+  background: var(--line);
+}
+
+.review-delete-confirm {
+  background: var(--bad, #c0392b) !important;
+  border-color: var(--bad, #c0392b) !important;
+  color: #fff !important;
+  font-weight: 700;
+}
+
+/* The narration-rating row (ADR-0023 #348). */
+.narration-rating-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 12px 0 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.narration-rating-average,
+.narration-rating-ask {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 13px;
+  color: var(--fg-dim);
+}
+
+.narration-rating-count {
+  font-variant-numeric: tabular-nums;
+}
+
+.narration-rating-ask button.review-star {
+  color: var(--fg-dim);
+}
+
+.narration-rating-ask button.review-star.review-star-on {
+  color: var(--accent);
+}

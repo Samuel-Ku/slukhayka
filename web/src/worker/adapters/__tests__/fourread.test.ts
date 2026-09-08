@@ -8,6 +8,8 @@ import {
   parseNextPageUrl,
   parsePeopleList,
   parsePopularBooks,
+  parsePmovieCycle,
+  parseRatingScore,
   parseRelatedBooks,
   parseTop100,
 } from '../fourread'
@@ -57,6 +59,7 @@ const BOOK_PAGE = `
   <li><span> Жанр: </span><a href="#">Аудіокниги</a>, <a href="#">Фентезі</a>, <a href="#">Бойовик</a></li>
   <li><span> Цикл: </span><a href="https://4read.org/xfsearch/cikl/xyz/">Трохи ненависті</a><meta itemprop="position" content="volumeNumber" value="1"></li>
 </ul>
+<div class="pmovie__rating-score"> 4.7 </div>
 <div itemprop="description"><p>Перший абзац повної анотації про події книги.</p>
 <p>Другий абзац теж про книгу.</p>
 <p>Телеграм канал автора t.me/x</p></div>
@@ -107,6 +110,8 @@ describe('fourread catalog', () => {
     expect(parsePopularBooks('<html></html>')).toEqual([])
     expect(parseNextPageUrl('<html></html>')).toBeNull()
     expect(parseRelatedBooks('<html></html>')).toEqual([])
+    expect(parsePmovieCycle('<html></html>')).toBeNull()
+    expect(parseRatingScore('<html></html>')).toBeUndefined()
   })
 })
 
@@ -118,7 +123,12 @@ describe('fourread book page (sync part)', () => {
     expect(detail.narrator).toBe('Олександр Волох')
     expect(detail.genres).toEqual(['Фентезі', 'Бойовик'])
     expect(detail.coverImageUrl).toContain('neostannij-bij.webp')
-    expect(detail.otherNarrations[0]).toMatchObject({ title: 'Інша книга', author: 'Інший автор' })
+    // W4.1 — honest split: the pmovie__related posters ride «Можливо, Тебе
+    // зацікавить», otherNarrations stays empty (no rendition registry yet).
+    expect(detail.otherNarrations).toEqual([])
+    expect(detail.relatedBooks[0]).toMatchObject({ title: 'Інша книга', author: 'Інший автор' })
+    expect(detail.series).toEqual({ name: 'Трохи ненависті', url: 'https://4read.org/xfsearch/cikl/xyz/', position: 1 })
+    expect(detail.rating).toBe(4.7)
     expect(detail.descriptionHtml).toBe('Перший абзац повної анотації про події книги.\nДругий абзац теж про книгу.')
   })
 

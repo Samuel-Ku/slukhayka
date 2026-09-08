@@ -40,7 +40,7 @@ export const sluhayAdapter: SourceAdapter = {
   },
   parseBookPage(html, pageUrl): BookDetail {
     if (html.trim() === '') {
-      return { url: pageUrl, title: '', author: '', genres: [], chapters: [], otherNarrations: [] }
+      return { url: pageUrl, title: '', author: '', genres: [], chapters: [], otherNarrations: [], relatedBooks: [] }
     }
     const ogRaw = ogMeta(html, 'og:title')
     const ogTitle = ogRaw === null ? '' : beforeFirst(ogRaw, ' »').trim()
@@ -66,6 +66,7 @@ export const sluhayAdapter: SourceAdapter = {
       descriptionHtml: descriptionHtml === '' ? undefined : descriptionHtml,
       chapters: [],
       otherNarrations: [],
+      relatedBooks: [],
     }
   },
 }

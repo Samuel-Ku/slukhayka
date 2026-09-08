@@ -67,6 +67,7 @@ export const soundBooksAdapter: SourceAdapter = {
       descriptionHtml: descriptionHtml === '' ? undefined : descriptionHtml,
       chapters: [],
       otherNarrations: [],
+      relatedBooks: [],
     }
   },
 }

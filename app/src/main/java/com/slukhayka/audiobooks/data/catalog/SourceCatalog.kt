@@ -16,9 +16,13 @@ import com.slukhayka.audiobooks.data.db.WorkEntity
 import com.slukhayka.audiobooks.data.db.WorkFeedRow
 import com.slukhayka.audiobooks.data.db.WorkSourceEntity
 import com.slukhayka.audiobooks.data.metadata.FacetPageLimits
+import com.slukhayka.audiobooks.data.metadata.SubmissionPageLimits
 import com.slukhayka.audiobooks.data.metadata.SharedBookMetaStore
 import com.slukhayka.audiobooks.data.facets.FacetDeltaSync
 import com.slukhayka.audiobooks.data.facets.FacetSyncCursorStore
+import com.slukhayka.audiobooks.data.facets.RoomSubmissionProjectionWriter
+import com.slukhayka.audiobooks.data.facets.SubmissionDeltaSync
+import com.slukhayka.audiobooks.data.facets.SubmissionSyncCursorStore
 import com.slukhayka.audiobooks.data.facets.GenreFacetAssertion
 import com.slukhayka.audiobooks.data.facets.GenreSourceFacetReplacement
 import com.slukhayka.audiobooks.data.facets.LocalFacetDelta
@@ -128,6 +132,10 @@ class SourceCatalog(
     private val sharedFacetStore: SharedBookMetaStore? = null,
     private val facetSyncCursorStore: FacetSyncCursorStore? = null,
     private val facetSyncNowMillis: () -> Long = System::currentTimeMillis,
+    // ADR-0035 / #605: the durable high-water mark of the shared-submission
+    // lane. Null (or a null shared store) disables the lane entirely — the
+    // app then behaves exactly as before.
+    private val submissionSyncCursorStore: SubmissionSyncCursorStore? = null,
     // Spec #462 ID6 (#467): the persisted feed-snapshot store — the Огляд
     // feeds read `feed_snapshots` FIRST and hit the network ONLY after the
     // feed's TTL (новинки 6 h, каталог 24 h — FeedSnapshotPolicy) or on an
@@ -158,12 +166,35 @@ class SourceCatalog(
             null
         }
 
+    private val submissionDeltaSync: SubmissionDeltaSync? =
+        if (sharedFacetStore != null && submissionSyncCursorStore != null) {
+            SubmissionDeltaSync(
+                sharedFacetStore,
+                RoomSubmissionProjectionWriter(dao),
+                submissionSyncCursorStore
+            )
+        } else {
+            null
+        }
+
     /** One bounded chain per active Огляд composition; all interactions remain local. */
     suspend fun syncSharedFacets(
         pageSize: Int = FacetPageLimits.MAX_PAGE_SIZE,
         maxPages: Int = 20
     ): FacetDeltaSync.ChainResult =
         facetDeltaSync?.syncAvailablePages(pageSize, maxPages) ?: FacetDeltaSync.ChainResult(0, 0)
+
+    /**
+     * ADR-0035 / #605 — one bounded chain of the shared-submission lane: a
+     * second install materializes published sources into the local catalog
+     * projection. Degrades to a no-op without the shared store/cursor.
+     */
+    suspend fun syncSharedSubmissions(
+        pageSize: Int = SubmissionPageLimits.MAX_PAGE_SIZE,
+        maxPages: Int = 20
+    ): SubmissionDeltaSync.ChainResult =
+        submissionDeltaSync?.syncAvailablePages(pageSize, maxPages)
+            ?: SubmissionDeltaSync.ChainResult(0, 0)
 
     /** Bounded local options for the filter sheet; never a Work materialization. */
     val genreFacetOptions = dao.observeGenreFacetOptions()

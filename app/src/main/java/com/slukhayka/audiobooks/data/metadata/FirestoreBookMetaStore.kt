@@ -232,6 +232,42 @@ class FirestoreBookMetaStore(private val firestore: FirebaseFirestore) : SharedB
         }
     }
 
+    override suspend fun publishSubmission(publication: SubmissionPublication) {
+        val document = SubmissionPublicationCodec.toMap(publication) ?: return
+        // Best-effort fire-and-forget; the document key is the normalized
+        // URL's hash — the same link re-published REPLACE-no-ops (URL dedup).
+        runCatching {
+            firestore.collection(SUBMISSION_COLLECTION)
+                .document(SubmissionPublicationCodec.documentId(publication.sourceUrl))
+                .set(document)
+        }
+    }
+
+    override suspend fun getSubmissionPage(after: SubmissionCursor?, limit: Int): SubmissionPage {
+        val boundedLimit = SubmissionPageLimits.bounded(limit)
+        if (boundedLimit == 0) return SubmissionPage(emptyList(), null)
+        return try {
+            var query = firestore.collection(SUBMISSION_COLLECTION)
+                .orderBy(SUBMISSION_CURSOR_FIELD)
+                .orderBy(FieldPath.documentId())
+            if (after != null) query = query.startAfter(after.submittedAt, after.documentId)
+            val snapshot = query.limit((boundedLimit + 1).toLong()).get().awaitOrNull()
+                ?: return SubmissionPage(emptyList(), null)
+            val pageDocuments = snapshot.documents.take(boundedLimit)
+            val publications = pageDocuments.mapNotNull { document ->
+                SubmissionPublicationCodec.fromMap(document.data ?: return@mapNotNull null)
+            }
+            val nextCursor = pageDocuments.lastOrNull()
+                ?.let { document ->
+                    (document.data?.get(SUBMISSION_CURSOR_FIELD) as? Number)?.toLong()
+                        ?.let { submittedAt -> SubmissionCursor(submittedAt, document.id) }
+                }
+            SubmissionPage(publications, nextCursor)
+        } catch (e: Exception) {
+            SubmissionPage(emptyList(), null)
+        }
+    }
+
     /** The deterministic document key of one Source×Edition profile. */
     private fun profileKey(sourceId: String, editionId: String): String = "$sourceId|$editionId"
 
@@ -259,6 +295,14 @@ class FirestoreBookMetaStore(private val firestore: FirebaseFirestore) : SharedB
          * the Work mergeKey (one cover per Work, shared across narrations).
          */
         private const val COVER_COLLECTION = "book_covers"
+
+        /**
+         * ADR-0035 / #605 — the shared listener-submission collection, keyed
+         * by the normalized URL's hash; ordered by `submittedAt` for the
+         * consuming delta lane.
+         */
+        private const val SUBMISSION_COLLECTION = "book_submissions"
+        private const val SUBMISSION_CURSOR_FIELD = "submittedAt"
 
         /** Firestore's `whereIn` value bound — the batch chunk size. */
         private const val MAX_WHERE_IN = 10

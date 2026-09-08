@@ -17,6 +17,7 @@ import { IdbListeningStateStore } from '../local/listeningState'
 import { HybridListeningStateStorage } from '../local/hybridListeningState'
 import { DomainStore } from '../local/domain'
 import { RecommendationPrefsStore } from '../local/recommendationPrefs'
+import { RecommendationParticipation } from '../recommend/participation'
 import { AUDIO_CACHE_NAME } from '../offline/policy'
 import { setUiLocale } from '../i18n/locale'
 import type { ManagementCache, ManagementCacheStorage } from '../local/storageManagement'
@@ -82,6 +83,7 @@ describe('Сховище direction', () => {
         profile={localProfile}
         recommendationPrefs={new RecommendationPrefsStore()}
         domainStore={new DomainStore()}
+        participation={new RecommendationParticipation(window.localStorage)}
         hybrid={new HybridListeningStateStorage(idb, window.localStorage)}
         idbStore={idb}
         storage={window.localStorage}
@@ -111,6 +113,7 @@ describe('Сховище direction', () => {
         profile={localProfile}
         recommendationPrefs={new RecommendationPrefsStore()}
         domainStore={new DomainStore()}
+        participation={new RecommendationParticipation(window.localStorage)}
         hybrid={new HybridListeningStateStorage(idb, window.localStorage)}
         idbStore={idb}
         storage={window.localStorage}
@@ -141,6 +144,7 @@ describe('Сховище direction', () => {
         profile={localProfile}
         recommendationPrefs={new RecommendationPrefsStore()}
         domainStore={new DomainStore()}
+        participation={new RecommendationParticipation(window.localStorage)}
         hybrid={hybrid}
         idbStore={idb}
         storage={window.localStorage}
@@ -171,6 +175,7 @@ describe('Приватність direction', () => {
         profile={localProfile}
         recommendationPrefs={new RecommendationPrefsStore()}
         domainStore={new DomainStore()}
+        participation={new RecommendationParticipation(window.localStorage)}
         hybrid={new HybridListeningStateStorage(new IdbListeningStateStore(), window.localStorage)}
         idbStore={new IdbListeningStateStore()}
         storage={window.localStorage}

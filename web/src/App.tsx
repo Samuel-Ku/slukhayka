@@ -16,6 +16,7 @@ import { DomainStore } from './local/domain'
 import { EditionLinkStore } from './local/editionLinks'
 import { ListenPrefsStore } from './local/listenPrefs'
 import { RecommendationPrefsStore } from './local/recommendationPrefs'
+import { RecommendationParticipation } from './recommend/participation'
 import { PlayerBookmarksStore } from './player/bookmarks'
 import { BrowserProgressSyncLedger } from './sync/ledger'
 import { ProgressSyncSettings } from './sync/settings'
@@ -85,6 +86,9 @@ export function App({ profile: initialProfile }: { profile: ListenerProfile | nu
   // #586 W2.2 — «Не цікаво»: the local Recommendation Preference store
   // (HIDE_WORK dictionary, local-only, reversible from Рекомендації).
   const recommendationPrefsStore = useMemo(() => new RecommendationPrefsStore(), [])
+  // #592 W6.1 — the participation consent (Settings → Рекомендації):
+  // local-only, off by default; the server layer joins later (ADR-0030).
+  const participation = useMemo(() => new RecommendationParticipation(window.localStorage), [])
   // #590 W5.1 — the player's bookmarks (Android's BookmarkEntity, local
   // only — never synced), shared by the engine's auto-bookmark and the
   // player sheet's list.
@@ -293,6 +297,10 @@ export function App({ profile: initialProfile }: { profile: ListenerProfile | nu
             onPlay={handlePlay}
             onSaveWork={handleSaveWork}
             domainStore={domainStore}
+            linkStore={linkStore}
+            listening={idbStore}
+            recommendationPrefs={recommendationPrefsStore}
+            participation={participation}
           />
         ) : tab === 'library' ? (
           <Library
@@ -312,6 +320,7 @@ export function App({ profile: initialProfile }: { profile: ListenerProfile | nu
             }}
             recommendationPrefs={recommendationPrefsStore}
             domainStore={domainStore}
+            participation={participation}
             hybrid={hybrid}
             idbStore={idbStore}
             storage={window.localStorage}

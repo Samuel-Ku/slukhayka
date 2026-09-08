@@ -871,3 +871,84 @@ span.bookrow-body {
   font: inherit;
   cursor: pointer;
 }
+
+/* --- W3.3 feed filters (spec-42 T1 #302) ----------------------------------- */
+
+/* The sticky toolbar: one compact filter entry above the endless feed. */
+.feed-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  background: var(--surface);
+}
+
+.feed-toolbar-filter {
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+
+.feed-toolbar-filter-active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-contrast);
+}
+
+/* Multi-select chips inside the filter sheet (Android FilterChip). */
+.filter-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 4px 0 16px;
+}
+
+.filter-chip {
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+
+.filter-chip-on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-contrast);
+}
+
+.lib-sheet-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.lib-sheet-actions button {
+  min-height: 44px;
+  padding: 8px 18px;
+  border-radius: 10px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.lib-sheet-actions-reset {
+  background: none;
+  border: 1px solid var(--line);
+  color: var(--fg);
+}
+
+.lib-sheet-actions-done {
+  background: var(--accent);
+  border: none;
+  color: var(--accent-contrast);
+}

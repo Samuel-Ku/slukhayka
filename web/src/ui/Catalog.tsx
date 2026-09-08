@@ -14,7 +14,7 @@ import {
 } from './catalogAvailability'
 import { sourceNeedsBrowserSession } from './bookPlaybackAvailability'
 import { SOURCE_METADATA, SOURCE_ORDER } from '../worker/sourceMetadata'
-import { rankEditionsForPlayback } from '../worker/workFeed'
+import { mergeWorkFeed, rankEditionsForPlayback } from '../worker/workFeed'
 import { useTranslate, useUiLocale } from '../i18n/locale'
 import type { DomainStore } from '../local/domain'
 import {
@@ -27,6 +27,8 @@ import {
 } from './contentLanguagePrefs'
 import { BookRow, CycleCard, EmptyStateRow, MetadataChip, PosterCard, SectionHeader, TabHeader } from './components'
 import { CollectionsIndexPanel, PeopleIndexPanel, SeriesIndexPanel, Top100IndexPanel } from './catalogIndexes'
+import { FiltersSheet, StickyFiltersToolbar } from './catalogFilters'
+import { createFacetFilter, workMatchesFacets, type DurationBucket, type FacetWork } from './facetModel'
 import { loadCollections } from './collectionAssets'
 import { matchAllCollections } from './collectionModel'
 import { FEED_CATALOG, FEED_HOMEPAGE_SECTIONS, FEED_NEW_ARRIVALS, needsNetwork } from './feedSnapshotPolicy'
@@ -84,6 +86,17 @@ export function Catalog({ onOpenBook, onPlay, onSaveWork, domainStore }: {
   const [refreshNonce, setRefreshNonce] = useState(0)
   // W3.1 — «Цикли»: the 4read homepage series shelf (live list via the worker).
   const [cycles, setCycles] = useState<CatalogCard[] | null>(null)
+  // W3.3 — the homepage genre nav (the filter sheet's honest options; null =
+  // the nav failed to load) and the live selections. Selections commit
+  // immediately as an OR-set, no draft (Android's sheet contract).
+  const [genres, setGenres] = useState<CatalogCard[] | null>(null)
+  const [genreFilter, setGenreFilter] = useState<string[]>([])
+  const [durationFilter, setDurationFilter] = useState<DurationBucket[]>([])
+  const [showFilters, setShowFilters] = useState(false)
+  // The genre-union feed: works from the selected genre pages (fourread),
+  // MergeKey-deduped with their genre claims; null = not active/loading.
+  const [genreWorks, setGenreWorks] = useState<UnifiedWork[] | null>(null)
+  const filterTriggerRef = useRef<HTMLButtonElement | null>(null)
   // W3.2 — the pushed index screens (spec-28 #198): one at a time over the
   // feed; null = the Огляд itself. The chip that opened the index keeps the
   // focus-return contract (back focuses it again).
@@ -105,6 +118,23 @@ export function Catalog({ onOpenBook, onPlay, onSaveWork, domainStore }: {
     if (origin !== null) chipRefs.current.get(origin)?.focus()
   }, [index])
   const closeIndex = (): void => setIndex(null)
+  // W3.3 — the sheet's focus-return contract: closing the sheet returns
+  // focus to the toolbar trigger that opened it (DeleteBookSheet's own rule:
+  // the parent owns the return). Only when it was actually open.
+  const filtersWereOpen = useRef(false)
+  useEffect(() => {
+    if (filtersWereOpen.current && !showFilters) filterTriggerRef.current?.focus()
+    filtersWereOpen.current = showFilters
+  }, [showFilters])
+  const toggleGenre = (url: string | null): void => {
+    setGenreFilter((current) => {
+      if (url === null) return []
+      return current.includes(url) ? current.filter((item) => item !== url) : [...current, url]
+    })
+  }
+  const toggleDuration = (bucket: DurationBucket): void => {
+    setDurationFilter((current) => current.includes(bucket) ? current.filter((item) => item !== bucket) : [...current, bucket])
+  }
   // spec-45 T13 — the persisted content-language preference; empty = all.
   const [contentLanguages, setContentLanguages] = useState<string[]>(() => loadContentLanguagePrefs())
   const applyLanguages = (next: string[]): void => setContentLanguages(saveContentLanguagePrefs(next))
@@ -113,7 +143,22 @@ export function Catalog({ onOpenBook, onPlay, onSaveWork, domainStore }: {
   // re-enters discovery, whatever the catalog refresh brings back.
   const [tombstoned, setTombstoned] = useState<ReadonlySet<string>>(new Set())
 
-  const visibleWorks = filterWorksByLanguage((works ?? []).filter((work) => !tombstoned.has(work.mergeKey)), contentLanguages)
+  // W3.3 — the facet matcher over the loaded works: durations AND languages
+  // compose across dimensions; a real duration only ever comes from the
+  // Edition's own data. The genre dimension is absent here by design — the
+  // regular merged feed carries no genre claims (the genre feed below does).
+  const facetOf = (work: UnifiedWork): FacetWork => ({
+    durations: work.editions.map((edition) => edition.durationSeconds),
+    languages: work.editions.map((edition) => edition.language),
+    genres: work.genres,
+  })
+  const byDurations = (list: UnifiedWork[]): UnifiedWork[] => {
+    if (durationFilter.length === 0) return list
+    const filter = createFacetFilter({ durationBucketIds: durationFilter })
+    return list.filter((work) => workMatchesFacets(facetOf(work), filter))
+  }
+  const visibleWorks = filterWorksByLanguage(byDurations((works ?? []).filter((work) => !tombstoned.has(work.mergeKey))), contentLanguages)
+  const visibleGenreWorks = filterWorksByLanguage(byDurations((genreWorks ?? []).filter((work) => !tombstoned.has(work.mergeKey))), contentLanguages)
   const visibleSearch = filterWorksByLanguage((searchWorks ?? []).filter((work) => !tombstoned.has(work.mergeKey)), contentLanguages)
   const languageOptions = availableLanguagesOf([...(works ?? []), ...(searchWorks ?? [])], contentLanguages)
   // W3.1 — «Колекції» match LOCALLY against the merged union (the same Works
@@ -207,40 +252,96 @@ export function Catalog({ onOpenBook, onPlay, onSaveWork, domainStore }: {
     return () => { alive = false }
   }, [source, query, refreshNonce])
 
-  // W3.1 — «Цикли»: the 4read homepage series section through the worker
-  // (spec-37 live list). Homepage sections are catalog-grade (24 h); a
-  // failure leaves the shelf honestly absent and never breaks the refresh.
+  // W3.1/W3.3 — the 4read homepage sections through the worker (spec-37
+  // live list): «Цикли» feeds the shelf, «Жанри» feeds the filter sheet's
+  // options. Homepage sections are catalog-grade (24 h); a failure leaves
+  // both honestly absent and never breaks the refresh.
   useEffect(() => {
     if (source !== 'all' || query.trim().length >= 2) {
       setCycles(null)
+      setGenres(null)
       return
     }
     let alive = true
     const key = warmKey('catalog', 'fourread', 'homepage')
+    const sectionsOf = (value: ParsedCatalog | null): { cycles: CatalogCard[] | null; genres: CatalogCard[] | null } => {
+      const cyclesSection = value?.sections.find((s) => s.id === 'series')
+      const genresSection = value?.sections.find((s) => s.id === 'genres')
+      return {
+        cycles: cyclesSection && cyclesSection.cards.length > 0 ? cyclesSection.cards : null,
+        genres: genresSection && genresSection.cards.length > 0 ? genresSection.cards : null,
+      }
+    }
     void (async () => {
       const cached = await readWarmEntry<ParsedCatalog>(key)
       if (!alive) return
       if (cached !== null && !needsNetwork(FEED_HOMEPAGE_SECTIONS, cached.savedAt, Date.now())) {
-        const section = cached.value.sections.find((s) => s.id === 'series')
-        setCycles(section && section.cards.length > 0 ? section.cards : null)
+        const sections = sectionsOf(cached.value)
+        setCycles(sections.cycles)
+        setGenres(sections.genres)
         return
       }
       const parsed = await api.catalog('fourread')
       if (!alive) return
-      const sourceOf = (value: ParsedCatalog | null): CatalogCard[] | null => {
-        const section = value?.sections.find((s) => s.id === 'series')
-        return section && section.cards.length > 0 ? section.cards : null
-      }
       if (parsed !== null) {
         void writeWarm(key, parsed)
-        setCycles(sourceOf(parsed))
+        const sections = sectionsOf(parsed)
+        setCycles(sections.cycles)
+        setGenres(sections.genres)
       } else {
         // Offline: the last homepage snapshot still answers (honest stale).
-        setCycles(cached !== null ? sourceOf(cached.value) : null)
+        const sections = sectionsOf(cached !== null ? cached.value : null)
+        setCycles(sections.cycles)
+        setGenres(sections.genres)
       }
     })()
     return () => { alive = false }
   }, [source, query])
+
+  // W3.3 — the genre-union feed: the selected genre pages through the
+  // worker (catalog-grade 24 h snapshots, all pages), MergeKey-deduped — a
+  // Work on two genre pages claims both genres. The regular merged feed
+  // carries no genre claims (genre pages are the ONLY honest genre source),
+  // so a genre selection replaces the feed with this union, exactly like a
+  // source selection replaces it with that source's feed.
+  useEffect(() => {
+    if (query.trim().length >= 2 || genreFilter.length === 0) {
+      setGenreWorks(null)
+      return
+    }
+    let alive = true
+    void (async () => {
+      const fetchPage = async (url: string): Promise<ParsedCatalog | null> => {
+        const key = warmKey('catalog', 'fourread', url)
+        const cached = await readWarmEntry<ParsedCatalog>(key)
+        if (cached !== null && !needsNetwork(FEED_CATALOG, cached.savedAt, Date.now())) return cached.value
+        const parsed = await api.catalog('fourread', url)
+        if (parsed !== null) {
+          void writeWarm(key, parsed)
+          return parsed
+        }
+        return cached !== null ? cached.value : null
+      }
+      const cards: CatalogCard[] = []
+      for (const genreUrl of genreFilter) {
+        let url: string | undefined = genreUrl
+        // The genre page paginates like any poster grid; keep the honest
+        // full list (bounded, so a runaway source can't loop forever).
+        for (let page = 0; page < 8 && url !== undefined; page++) {
+          const parsed = await fetchPage(url)
+          if (!alive) return
+          if (parsed === null) break
+          for (const section of parsed.sections) {
+            for (const card of section.cards) cards.push({ ...card, genres: [genreUrl] })
+          }
+          url = parsed.nextPageUrl
+        }
+      }
+      if (!alive) return
+      setGenreWorks(mergeWorkFeed([{ sourceId: 'fourread', cards }], 0, 200).works)
+    })()
+    return () => { alive = false }
+  }, [query, genreFilter])
 
   useEffect(() => {
     const trimmed = query.trim()
@@ -448,6 +549,31 @@ export function Catalog({ onOpenBook, onPlay, onSaveWork, domainStore }: {
         </section>
       )}
 
+      {/* W3.3 — the sticky toolbar (spec-42 T1 #302): ONE compact filter
+          entry above the endless feed; a selection lights the trigger. The
+          sheet commits OR-sets immediately (no draft). */}
+      {query.trim().length < 2 && (
+        <>
+          <StickyFiltersToolbar
+            active={genreFilter.length > 0 || durationFilter.length > 0}
+            onOpen={() => setShowFilters(true)}
+            triggerRef={(node) => { filterTriggerRef.current = node }}
+          />
+          {showFilters && (
+            <FiltersSheet
+              genres={genres ?? []}
+              selectedGenreUrls={new Set(genreFilter)}
+              selectedDurations={new Set(durationFilter)}
+              onGenreToggle={toggleGenre}
+              onDurationToggle={toggleDuration}
+              onReset={() => { setGenreFilter([]); setDurationFilter([]) }}
+              onDismiss={() => setShowFilters(false)}
+              onDone={() => setShowFilters(false)}
+            />
+          )}
+        </>
+      )}
+
       {query.trim().length >= 2 ? (
         searching ? (
           <EmptyStateRow message={t('searching')} />
@@ -458,6 +584,23 @@ export function Catalog({ onOpenBook, onPlay, onSaveWork, domainStore }: {
             <SectionHeader level="group" title={t('allSources')} />
             <ul className="card-list">
               {visibleSearch.map((work) => <UnifiedWorkRow key={work.id} work={work} onOpenBook={onOpenBook} onPlay={onPlay} onSaveWork={onSaveWork} />)}
+            </ul>
+          </section>
+        )
+      ) : genreFilter.length > 0 ? (
+        genreWorks === null ? (
+          <EmptyStateRow message={t('loadingCatalog')} />
+        ) : visibleGenreWorks.length === 0 ? (
+          <EmptyStateRow message={t('nothingFound')} />
+        ) : (
+          <section>
+            <SectionHeader
+              level="group"
+              title={genreFilter.map((url) => genres?.find((genre) => genre.url === url)?.title ?? url).join(', ')}
+              count={visibleGenreWorks.length}
+            />
+            <ul className="card-list">
+              {visibleGenreWorks.map((work) => <UnifiedWorkRow key={work.id} work={work} onOpenBook={onOpenBook} onPlay={onPlay} onSaveWork={onSaveWork} />)}
             </ul>
           </section>
         )

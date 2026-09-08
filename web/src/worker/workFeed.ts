@@ -85,6 +85,13 @@ export function mergeWorkFeed(inputs: SourceCards[], offset = 0, limit = 30): Un
         editions: [],
       }
       if (!works.has(mergeKey)) works.set(mergeKey, work)
+      // W3.3 — genre memberships union across the cards of one Work (a Work
+      // on two genre pages claims both genres — Android work_genres rows).
+      if (card.genres && card.genres.length > 0) {
+        const existing = new Set(work.genres ?? [])
+        for (const genre of card.genres) existing.add(genre)
+        if (existing.size > 0) work.genres = [...existing]
+      }
       const editionKey = editionKeyOf(card, language)
       let edition = work.editions.find((candidate) => candidate.id === editionKey)
       if (!edition) {

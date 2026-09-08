@@ -8,6 +8,7 @@ const emptyBook = {
   genres: [],
   chapters: [],
   otherNarrations: [],
+  relatedBooks: [],
 }
 
 describe('web catalog card terminal states', () => {

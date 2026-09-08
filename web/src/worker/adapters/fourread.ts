@@ -534,9 +534,41 @@ function parseBookMeta(html: string, pageUrl: string): BookMeta {
     coverImageUrl: coverFromPage(html) ?? undefined,
     genres: pmovieGenres(html),
     descriptionHtml: itempropDescription(html) || ogMeta(html, 'og:description')?.trim() || undefined,
-    otherNarrations: parseRelatedBooks(html),
+    // W4.1 — honest split: the pmovie__related section is the site's own
+    // «Можливо, Тебе зацікавить» posters, NOT other renditions of this
+    // Work. Android's otherNarrations come from the local library join
+    // (ADR-0011); the web has no rendition registry yet, so it stays
+    // honestly empty while the posters render under their true heading.
+    otherNarrations: [],
+    relatedBooks: parseRelatedBooks(html),
+    series: parsePmovieCycle(html) ?? undefined,
+    rating: parseRatingScore(html),
     totalDurationSeconds: pageDuration(html),
   }
+}
+
+/**
+ * W4.1 — the book's series (cycle) from the «Цикл:» row: the anchor's
+ * href and name plus the optional volume-number meta (port of
+ * `WebViewHtmlParser.parsePmovieCycle`). Absent row → null.
+ */
+export function parsePmovieCycle(html: string): { name: string; url: string; position?: number } | null {
+  const block = /<span>\s*Цикл:\s*<\/span>([\s\S]*?)<\/li>/i.exec(html)?.[1]
+  if (!block) return null
+  const anchor = /<a\s+href="([^"]+)"[^>]*>([^<]+)<\/a>/i.exec(block)
+  if (!anchor) return null
+  const name = decodeEntities(anchor[2]).replace(/&#039;/g, "'").trim()
+  if (!name) return null
+  const position = Number(/volumeNumber"[^>]*value="(\d+)"/.exec(block)?.[1]) || undefined
+  return { name, url: toAbsolute(anchor[1]) ?? anchor[1], ...(position !== undefined ? { position } : {}) }
+}
+
+/** W4.1 — the source's own rating from `pmovie__rating-score`; absent → undefined (never guessed). */
+export function parseRatingScore(html: string): number | undefined {
+  const raw = /pmovie__rating-score[^"]*">\s*(\d+(?:\.\d+)?)/.exec(html)?.[1]
+  if (!raw) return undefined
+  const value = Number(raw)
+  return Number.isFinite(value) ? value : undefined
 }
 
 /** Реальна повна тривалість зі сторінки (формати `10:57:18` / `53:42`); null — невідома. */

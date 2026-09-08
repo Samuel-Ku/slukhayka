@@ -116,6 +116,51 @@ interface SharedBookMetaStore {
         coverUrl: String,
         provenance: CoverProvenance
     )
+
+    /**
+     * ADR-0035 / #605 — publishes ONE verified listener submission into the
+     * shared base, keyed by the normalized source URL's document id
+     * ([SubmissionPublicationCodec.documentId]) — the same link re-published
+     * REPLACE-no-ops instead of duplicating (store-level URL dedup). The
+     * caller (the publication gate) guarantees the verification verdict;
+     * the payload is pure JVM (ADR-0028 p. 3). Best-effort by contract: a
+     * failing write contributes nothing.
+     */
+    suspend fun publishSubmission(publication: SubmissionPublication) = Unit
+
+    /**
+     * ADR-0035 / #605 — bounded ordered remote submission page; applying it
+     * into the local projection belongs to the consumption lane
+     * (spec-601 T4). A miss or a failure yields an empty page, never a throw.
+     */
+    suspend fun getSubmissionPage(after: SubmissionCursor?, limit: Int): SubmissionPage =
+        SubmissionPage(emptyList(), null)
+}
+
+/**
+ * ADR-0035 / #605 — the ordered-page cursor of the shared submission
+ * collection: mirrors [FacetCursor] (the consuming sync lane persists it the
+ * same way).
+ */
+data class SubmissionCursor(
+    val submittedAt: Long,
+    val documentId: String
+)
+
+/** One bounded page of published submissions plus the continuation cursor. */
+data class SubmissionPage(
+    val publications: List<SubmissionPublication>,
+    val nextCursor: SubmissionCursor?
+)
+
+/** The page bound of the shared submission collection (mirrors [FacetPageLimits]). */
+object SubmissionPageLimits {
+    const val MAX_PAGE_SIZE = 100
+
+    fun bounded(requested: Int): Int = when {
+        requested <= 0 -> 0
+        else -> requested.coerceAtMost(MAX_PAGE_SIZE)
+    }
 }
 
 /**

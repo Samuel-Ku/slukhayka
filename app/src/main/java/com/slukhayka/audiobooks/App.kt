@@ -36,6 +36,7 @@ import com.slukhayka.audiobooks.data.duration.ChapterDurationProbe
 import com.slukhayka.audiobooks.data.duration.DurationEnrichment
 import com.slukhayka.audiobooks.data.duration.HttpStreamProber
 import com.slukhayka.audiobooks.data.facets.SharedPreferencesFacetSyncCursorStore
+import com.slukhayka.audiobooks.data.facets.SharedPreferencesSubmissionSyncCursorStore
 import com.slukhayka.audiobooks.data.facets.BilingualPromptEngine
 import com.slukhayka.audiobooks.data.facets.ContentLanguagePrefs
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
@@ -463,6 +464,7 @@ class App : Application() {
             },
             sharedFacetStore = sharedMetaStore,
             facetSyncCursorStore = SharedPreferencesFacetSyncCursorStore(this),
+            submissionSyncCursorStore = SharedPreferencesSubmissionSyncCursorStore(this),
             // Spec #462 ID6 (#467): the persisted feed snapshots — Огляд's
             // feeds read the database first and hit the network only after
             // the TTL (новинки 6 год, каталог 24 год) or an explicit refresh.

@@ -87,6 +87,52 @@ class FourReadRecoveryIdentityTest {
     }
 
     @Test
+    fun `legacy plain work key accepts entity encoded capture without rewriting identity`() = runBlocking {
+        val url = "https://4read.org/7832-endi-vejr-proyekt-ave-marija.html"
+        val original = detail(
+            title = "Проєкт \"Аве Марія\"", author = "Енді Вейр", narrator = "Євген Зубенко",
+            url = url, chapters = listOf("Глава 1" to "https://s1.reasd.org/7832/old.mp3")
+        )
+        val bookId = seedBook(original)
+        // Historical metadata refresh changed the display row, while its Work key stayed plain.
+        val encodedTitle = "Проєкт &quot;Аве Марія&quot;"
+        db.openHelper.writableDatabase.execSQL(
+            "UPDATE audiobooks SET title = ? WHERE id = ?", arrayOf(encodedTitle, bookId)
+        )
+        val edition = dao.getEditionForWork(bookId)!!
+        val source = dao.getSourcesForBookSync(bookId).single()
+        val oldTrack = dao.getTracksForSourceSync(source.id).single().copy(
+            localFilePath = "/saved/chapter.mp3", isDownloaded = true
+        )
+        dao.insertTracks(listOf(oldTrack))
+        dao.savePlaybackProgress(com.slukhayka.audiobooks.data.db.PlaybackProgressEntity(
+            editionId = edition.id, bookId = bookId, currentChapterIndex = 0,
+            currentPositionSeconds = 14L, lastListenedAt = 123L
+        ))
+        dao.insertBookmark(com.slukhayka.audiobooks.data.db.BookmarkEntity(
+            bookId = bookId, editionId = edition.id, chapterIndex = 0,
+            chapterTitle = "Глава 1", timestampSeconds = 10L, note = "saved", createdAt = 123L
+        ))
+        val before = dao.getAudiobookById(bookId)!!
+        val bookmarks = dao.getBookmarksForEdition(edition.id).first()
+        val progress = dao.getPlaybackProgressSyncByEdition(edition.id)
+        val captured = original.copy(title = encodedTitle, chapters = listOf(
+            SourceChapter("Глава 1", "https://s1.reasd.org/7832/new.mp3?expires=123&md5=test")
+        ))
+        val imports = LibraryImport(dao, context, listOf(fakeAdapter("captured", captured)))
+        repeat(2) {
+            assertNotNull(imports.recoverWebSourcePage(bookId, "4read", url, "captured"))
+        }
+        assertEquals(before, dao.getAudiobookById(bookId))
+        assertEquals(edition, dao.getEditionForWork(bookId))
+        assertEquals(source, dao.getSourcesForBookSync(bookId).single())
+        assertEquals(oldTrack.copy(url = captured.chapters.single().streamUrl), dao.getTracksForSourceSync(source.id).single())
+        assertEquals(progress, dao.getPlaybackProgressSyncByEdition(edition.id))
+        assertEquals(bookmarks, dao.getBookmarksForEdition(edition.id).first())
+        assertEquals(1, dao.getAllAudiobooksOnce().size)
+    }
+
+    @Test
     fun `new language scoped fourread import recovers through real captured parser`() = runBlocking {
         val url = "https://4read.org/123-kobzar.html"
         val html = """

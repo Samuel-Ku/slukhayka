@@ -51,7 +51,9 @@ describe('Catalog tombstone filter', () => {
     await domain.tombstoneWork('заяць|михайло коцюбинський')
     render(<Catalog onOpenBook={vi.fn()} onPlay={vi.fn(async () => true)} domainStore={domain} />)
 
-    await waitFor(() => expect(screen.getByText('Лісова пісня')).toBeTruthy())
+    // The surviving Work appears on its shelf poster AND in the feed — both
+    // surfaces are honest; the tombstoned one appears on neither.
+    await waitFor(() => expect(screen.getAllByText('Лісова пісня').length).toBeGreaterThan(0))
     await waitFor(() => expect(screen.queryByText('Заяць')).toBeNull())
     // The counter is the truth after filtering (ADR-0014): 1, not 2.
     expect(document.querySelector('.sec-head-count')?.textContent?.replace('·', '').trim()).toBe('1')
@@ -62,18 +64,19 @@ describe('Catalog tombstone filter', () => {
     await domain.tombstoneWork('заяць|михайло коцюбинський')
     const user = (await import('@testing-library/user-event')).default.setup()
     render(<Catalog onOpenBook={vi.fn()} onPlay={vi.fn(async () => true)} domainStore={domain} />)
-    await waitFor(() => expect(screen.queryByText('Лісова пісня')).toBeTruthy())
+    await waitFor(() => expect(screen.getAllByText('Лісова пісня').length).toBeGreaterThan(0))
 
     await user.click(screen.getByRole('button', { name: 'Пошук' }))
     await user.type(screen.getByRole('searchbox'), 'Заяць')
     // The search debounce must settle before the results (and their filter) exist.
     await waitFor(() => expect(screen.getByText('Лісова пісня')).toBeTruthy(), { timeout: 3000 })
+    // Search hides the tombstoned Work too.
     expect(screen.queryByText('Заяць')).toBeNull()
   })
 
   it('without a domain store the catalog renders everything (back-compat)', async () => {
     render(<Catalog onOpenBook={vi.fn()} onPlay={vi.fn(async () => true)} />)
-    await waitFor(() => expect(screen.getByText('Заяць')).toBeTruthy())
-    expect(screen.getByText('Лісова пісня')).toBeTruthy()
+    await waitFor(() => expect(screen.getAllByText('Заяць').length).toBeGreaterThan(0))
+    expect(screen.getAllByText('Лісова пісня').length).toBeGreaterThan(0)
   })
 })

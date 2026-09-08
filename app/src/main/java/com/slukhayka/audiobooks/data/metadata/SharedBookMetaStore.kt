@@ -135,6 +135,45 @@ interface SharedBookMetaStore {
      */
     suspend fun getSubmissionPage(after: SubmissionCursor?, limit: Int): SubmissionPage =
         SubmissionPage(emptyList(), null)
+
+    /**
+     * ADR-0035 / #607 — ONE published submission by its document key (the
+     * normalized URL's hash) — the URL-dedup read of the anti-spam policy.
+     * Null on a miss or a failure.
+     */
+    suspend fun getSubmission(sourceUrl: String): SubmissionPublication? = null
+
+    /**
+     * ADR-0035 / #607 — publishes ONE curator Shared Tombstone into the
+     * shared base, keyed deterministically PER TARGET (work mergeKey or
+     * normalized source URL) — re-placing the same tombstone REPLACE-no-ops.
+     * Best-effort by contract.
+     */
+    suspend fun putSharedTombstone(tombstone: SharedTombstone) = Unit
+
+    /**
+     * ADR-0035 / #607 — bounded ordered remote tombstone page; applying it
+     * into the LOCAL tombstone machinery belongs to the consumption lane. A
+     * miss or a failure yields an empty page, never a throw.
+     */
+    suspend fun getSharedTombstonePage(after: SharedTombstoneCursor?, limit: Int): SharedTombstonePage =
+        SharedTombstonePage(emptyList(), null)
+
+    /**
+     * ADR-0035 / #607 — the per-device daily submission count of ONE day
+     * (UTC epoch-day key — deterministic, timezone-free). Lives in the
+     * SHARED base so a reinstall cannot reset the budget. 0 on a miss or a
+     * failure (the limit then degrades open, never a false refusal).
+     */
+    suspend fun getSubmissionCount(deviceId: String, dayKey: String): Long = 0L
+
+    /**
+     * ADR-0035 / #607 — atomically increments the per-device daily counter
+     * and returns the NEW count. Best-effort: a failing write contributes
+     * nothing (the policy has already approved the publish — the counter
+     * lags one behind, never blocks a real listener).
+     */
+    suspend fun incrementSubmissionCount(deviceId: String, dayKey: String): Long = 0L
 }
 
 /**

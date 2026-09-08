@@ -6,38 +6,42 @@ import com.slukhayka.audiobooks.data.metadata.SubmissionChapter
 import com.slukhayka.audiobooks.data.metadata.SubmissionPublication
 
 /**
- * ADR-0035 / #605 — the publication gate of ONE listener submission: only a
- * REAL playback verdict ([SubmissionVerification], recorded by the player
- * verdict seam) lets a submission leave the device. A bare link insert — no
- * verdict — publishes NOTHING (spec-601 AC: «голе вставлення посилання без
- * верифікаційного вердикту не публікує нічого»). The payload is assembled
- * from the SAME yt-dlp metadata the import door consumed ([YouTubeSubmissionPlanner]),
- * so the shared document carries the honest observed identity + chapters;
- * the store keys it by the normalized URL, so the same link never
- * duplicates (the mergeKey dedup then happens on every consumer's write
- * path: the same narration lands as a second Source of ONE Work).
+ * ADR-0035 / #605/#607 — the publication door of ONE listener submission.
+ * The anti-spam policy ([SubmissionPolicy]) gates every publish: a real
+ * playback verdict, the per-device daily budget and the normalized-URL
+ * dedup are all enforced BEFORE anything leaves the device; only a verified,
+ * budgeted, non-duplicate submission assembles the payload (from the SAME
+ * yt-dlp metadata the import door consumed) and lands in the shared base.
+ * A refused submission publishes NOTHING and consumes no budget.
  */
 class SubmissionPublisher(
     private val sharedStore: SharedBookMetaStore,
-    private val verification: SubmissionVerification,
+    private val policy: SubmissionPolicy,
     private val clock: () -> Long = System::currentTimeMillis
 ) {
 
     enum class Result {
-        /** The verified submission document was handed to the shared store. */
+        /** The verified, budgeted, non-duplicate document was published. */
         PUBLISHED,
 
         /** No real playback verdict yet — nothing was published. */
         NOT_VERIFIED,
 
         /** The metadata carried no usable identity — nothing was published. */
-        METADATA_FAILED
+        METADATA_FAILED,
+
+        /** The per-device daily budget is exhausted — nothing was published. */
+        DAILY_LIMIT_REACHED,
+
+        /** The normalized URL is already published — nothing was published. */
+        ALREADY_PUBLISHED
     }
 
     /**
      * Assembles and publishes one submission document. [sourceId] is the
      * door's Source id — the same key the player verdict seam records the
-     * verdict under; [submitterId] is a bounded anonymous device id.
+     * verdict under; [submitterId] is a bounded anonymous device id (also
+     * the daily-budget key).
      */
     suspend fun publish(
         url: String,
@@ -46,7 +50,15 @@ class SubmissionPublisher(
         sourceId: String,
         submitterId: String
     ): Result {
-        if (!verification.isVerified(sourceId)) return Result.NOT_VERIFIED
+        val decision = policy.decide(sourceId, url, submitterId)
+        if (!decision.allowed) {
+            return when (decision.reason) {
+                SubmissionPolicy.Reason.NOT_VERIFIED -> Result.NOT_VERIFIED
+                SubmissionPolicy.Reason.DAILY_LIMIT_REACHED -> Result.DAILY_LIMIT_REACHED
+                SubmissionPolicy.Reason.ALREADY_PUBLISHED -> Result.ALREADY_PUBLISHED
+                null -> Result.NOT_VERIFIED
+            }
+        }
         val metadata = YouTubeSubmissionPlanner.parseMetadata(metadataJson) ?: return Result.METADATA_FAILED
         val plan = YouTubeSubmissionPlanner.plan(url, metadata, channelId)
         if (plan.title.isBlank()) return Result.METADATA_FAILED
@@ -59,11 +71,12 @@ class SubmissionPublisher(
             narrator = plan.narrator,
             durationSeconds = metadata.durationSeconds,
             chapters = plan.chapters.map { SubmissionChapter(it.title, it.watchUrl) },
-            verifiedAt = verification.verifiedAt(sourceId) ?: return Result.NOT_VERIFIED,
+            verifiedAt = policy.verifiedAt(sourceId) ?: return Result.NOT_VERIFIED,
             submittedAt = clock(),
             submitterId = submitterId
         )
         sharedStore.publishSubmission(publication)
+        policy.consume(submitterId)
         return Result.PUBLISHED
     }
 }

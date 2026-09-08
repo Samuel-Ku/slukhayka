@@ -1,0 +1,66 @@
+name: Signed release candidate
+
+on:
+  push:
+    branches:
+      - "codex/release-*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Restore signing keystore
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > "${{ runner.temp }}/upload.jks"
+          chmod 600 "${{ runner.temp }}/upload.jks"
+
+      # ADR-0021: a release without this client config silently falls back to
+      # LocalOnlyIdentity and can never create a portable recovery code.
+      - name: Restore Firebase release configuration
+        env:
+          GOOGLE_SERVICES_RELEASE_JSON_BASE64: ${{ secrets.GOOGLE_SERVICES_RELEASE_JSON_BASE64 }}
+        run: |
+          if [ -z "$GOOGLE_SERVICES_RELEASE_JSON_BASE64" ]; then
+            echo "Missing GOOGLE_SERVICES_RELEASE_JSON_BASE64 repository secret" >&2
+            exit 1
+          fi
+          mkdir -p app/src/release
+          printf '%s' "$GOOGLE_SERVICES_RELEASE_JSON_BASE64" | base64 -d > app/src/release/google-services.json
+
+      - name: Build release APK
+        env:
+          KEYSTORE_PATH: "${{ runner.temp }}/upload.jks"
+          STORE_PASSWORD: "${{ secrets.STORE_PASSWORD }}"
+          KEY_PASSWORD: "${{ secrets.KEY_PASSWORD }}"
+        run: ./gradlew :app:assembleRelease --no-daemon
+
+      # assembleRelease emits app/build/outputs/renamed_apks/release/slukhayka-v1.1.apk
+      # (the versioned copy produced by the renameReleaseApk task).
+      - name: Checksum
+        run: |
+          cd app/build/outputs/renamed_apks/release
+          for apk in *.apk; do sha256sum "$apk" > "$apk.sha256"; done
+
+      - name: Upload candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: signed-release-candidate
+          path: |
+            app/build/outputs/renamed_apks/release/*.apk
+            app/build/outputs/renamed_apks/release/*.sha256
+          if-no-files-found: error

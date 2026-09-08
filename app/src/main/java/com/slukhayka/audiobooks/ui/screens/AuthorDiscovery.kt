@@ -56,10 +56,11 @@ fun AuthorsIndexScreen(
     authors: List<AuthorSummary>,
     onBackClick: () -> Unit,
     onAuthorClick: (AuthorSummary) -> Unit,
-    initialScrollIndex: Int = 0
+    initialScrollIndex: Int = 0,
+    backfillPending: Boolean = false
 ) {
-    AuthorDiscoveryScaffold(title = "Автори", onBackClick = onBackClick) { modifier ->
-        AuthorsIndexContent(authors = authors, onAuthorClick = onAuthorClick, modifier = modifier, initialScrollIndex = initialScrollIndex)
+    AuthorDiscoveryScaffold(title = stringResource(R.string.authors_index_title), onBackClick = onBackClick) { modifier ->
+        AuthorsIndexContent(authors = authors, onAuthorClick = onAuthorClick, modifier = modifier, initialScrollIndex = initialScrollIndex, backfillPending = backfillPending)
     }
 }
 
@@ -176,9 +177,10 @@ fun AuthorsIndexContent(
     authors: List<AuthorSummary>,
     onAuthorClick: (AuthorSummary) -> Unit,
     modifier: Modifier = Modifier,
-    initialScrollIndex: Int = 0
+    initialScrollIndex: Int = 0,
+    backfillPending: Boolean = false
 ) {
-    if (authors.isEmpty()) {
+    if (authors.isEmpty() && !backfillPending) {
         IndexEmptyState(
             message = "Автори з'являться після завантаження каталогу.",
             modifier = modifier.testTag("authors_index")
@@ -195,11 +197,20 @@ fun AuthorsIndexContent(
     ) {
         item {
             Text(
-                text = "${authors.size} ${ukPlural(authors.size, "автор", "автори", "авторів")}",
+                text = androidx.compose.ui.res.pluralStringResource(R.plurals.authors_index_count, authors.size, authors.size),
                 style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
                 color = MaterialTheme.colorScheme.secondary,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
             )
+        }
+        if (backfillPending) {
+            item {
+                Text(
+                    text = stringResource(R.string.people_index_loading),
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                )
+            }
         }
         items(authors, key = AuthorSummary::id) { author ->
             AuthorRow(author, onClick = { onAuthorClick(author) })

@@ -701,7 +701,7 @@ fun BookDetailScreen(
                     )
                     // #392 — size display below download button
                     if (!streamOnly && !currentBook.isDownloaded && !isDownloadingThis) {
-                        val sizeText = when {
+                        val sizeText: String? = when {
                             bytesProgress != null -> {
                                 val dl = bytesProgress!!.downloadedBytes / (1024 * 1024)
                                 val totalBytes = bytesProgress!!.totalBytes
@@ -731,16 +731,18 @@ fun BookDetailScreen(
                                 if (mb != null && mb > 0) {
                                     if (es.isApproximate) stringResource(R.string.book_detail_size_approximate, mb)
                                     else stringResource(R.string.book_detail_size_format, mb)
-                                } else stringResource(R.string.book_detail_size_unknown)
+                                } else null
                             }
-                            else -> stringResource(R.string.book_detail_size_unknown)
+                            else -> null
                         }
-                        Text(
-                            text = sizeText,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(start = 4.dp)
-                        )
+                        if (sizeText != null) {
+                            Text(
+                                text = sizeText,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(start = 4.dp)
+                            )
+                        }
                     } else if (!streamOnly && isDownloadingThis && bytesProgress != null) {
                         val bp = bytesProgress!!
                         val dl = bp.downloadedBytes / (1024 * 1024)
@@ -832,9 +834,9 @@ fun BookDetailScreen(
                         text = {
                             Text(
                                 text = if (detailsRefreshing && chapters.isEmpty()) {
-                                    "Розділи · довантажуємо…"
+                                    stringResource(R.string.book_detail_chapters_loading)
                                 } else {
-                                    "Розділи (${chapters.size})"
+                                    stringResource(R.string.book_detail_chapters_count, chapters.size)
                                 },
                                 fontWeight = FontWeight.Bold,
                                 maxLines = 1,

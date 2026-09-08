@@ -9,6 +9,29 @@ import org.junit.Test
 class BookDetailSourceStateTest {
 
     @Test
+    fun `old refresh cannot finish a reopened book loading state`() {
+        val state = BookDetailSourceState()
+        val firstA = state.select("a")
+        val b = state.select("b")
+        val secondA = state.select("a")
+        state.finishRefresh(firstA)
+        state.finishRefresh(b)
+        assertTrue(state.refreshing.value)
+        state.finishRefresh(secondA)
+        assertFalse(state.refreshing.value)
+    }
+
+    @Test
+    fun `closing book clears loading and late completion cannot restart it`() {
+        val state = BookDetailSourceState()
+        val request = state.select("a")
+        assertTrue(state.refreshing.value)
+        state.select(null)
+        state.finishRefresh(request)
+        assertFalse(state.refreshing.value)
+    }
+
+    @Test
     fun `switching books clears visible claims and rejects late results`() {
         val state = BookDetailSourceState()
         val oldProfile = LibraryEntries.SourceProfile(

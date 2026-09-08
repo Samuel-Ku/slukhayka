@@ -5,8 +5,10 @@ import {
   expandPlaylist,
   fourread,
   parseNextPageUrl,
+  parsePeopleList,
   parsePopularBooks,
   parseRelatedBooks,
+  parseTop100,
 } from '../fourread'
 
 const HOMEPAGE = `
@@ -148,5 +150,86 @@ describe('fourread book page (sync part)', () => {
     expect(expandPlaylist('[{"title":"Глава 1","file":"https://4read.org/uploads/audio/7589/01.mp3"}]'))
       .toEqual(['https://4read.org/uploads/audio/7589/01.mp3'])
     expect(expandPlaylist(PLAYLIST_TXT)).toHaveLength(2)
+  })
+})
+
+describe('fourread indexes (W3.2)', () => {
+  it('top-100 linek cards parse into ranked books with real duration', () => {
+    const html = `
+      <div class="sect__content count-items">
+        <div class="linek d-flex ai-center has-overlay card">
+          <div class="linek__img img-fit-cover"><img src="/uploads/posts/2026-02/medium/x.webp" loading="lazy"></div>
+          <div class="linek__desc flex-grow-1">
+            <a href="https://4read.org/6945-dzho-aberkrombi-chorti.html"><div class="linek__title ws-nowrap">Чорти - Джо Аберкромбі</div></a>
+            <div class="linek__meta ws-nowrap"><span>Триває:</span> 21:42:42</div>
+          </div>
+        </div>
+        <div class="linek d-flex ai-center has-overlay card">
+          <div class="linek__img img-fit-cover"><img src="/uploads/posts/2026-01/medium/y.webp" loading="lazy"></div>
+          <div class="linek__desc flex-grow-1">
+            <a href="https://4read.org/7001-vkradi-mene-zaraz.html"><div class="linek__title ws-nowrap">Вкради мене... Зараз! - Сергій Оріанець</div></a>
+            <div class="linek__meta ws-nowrap"><span>Триває:</span> 8:05:00</div>
+          </div>
+        </div>
+      </div>
+    `
+    const cards = parseTop100(html)
+
+    expect(cards).toHaveLength(2)
+    // «Title - Author» split at the LAST separator.
+    expect(cards[0]).toMatchObject({
+      url: 'https://4read.org/6945-dzho-aberkrombi-chorti.html',
+      title: 'Чорти',
+      author: 'Джо Аберкромбі',
+      coverImageUrl: 'https://4read.org/uploads/posts/2026-02/medium/x.webp',
+      durationSeconds: 21 * 3600 + 42 * 60 + 42,
+    })
+    // A title that itself contains « - » keeps it intact.
+    expect(cards[1].title).toBe('Вкради мене... Зараз!')
+    expect(cards[1].author).toBe('Сергій Оріанець')
+    expect(cards[1].durationSeconds).toBe(8 * 3600 + 5 * 60)
+  })
+
+  it('people list parses narrators and authors with book counts', () => {
+    const readers = `
+      <h1>Усі виконавці:</h1>
+      <div style="font-size:16px!important;"><ul>
+        <li><a href="/xfsearch/chitaet/Ада Роговцева/" target="_blank">Ада Роговцева - 23 книги</a></li>
+        <li><a href="/xfsearch/chitaet/Аліна Лукащук/" target="_blank">Аліна Лукащук - 8 книг</a></li>
+        <li><a href="/xfsearch/chitaet/Аза Власова/" target="_blank">Аза Власова - 1 книга</a></li>
+      </ul></div>
+    `
+    const people = parsePeopleList(readers)
+
+    expect(people).toHaveLength(3)
+    expect(people[0]).toMatchObject({
+      url: 'https://4read.org/xfsearch/chitaet/Ада Роговцева/',
+      title: 'Ада Роговцева',
+      count: 23,
+    })
+    expect(people[2].count).toBe(1)
+  })
+
+  it('parseCatalog routes the index pages to their own sections', () => {
+    const top = fourread.parseCatalog('<div class="linek d-flex ai-center has-overlay card"><a href="https://4read.org/1-a.html"><div class="linek__title ws-nowrap">А - Б</div></a></div>', 'https://4read.org/top-100.html')
+    expect(top?.sections[0]?.id).toBe('top100')
+    expect(top?.sections[0]?.cards).toHaveLength(1)
+
+    const readers = fourread.parseCatalog('<li><a href="/xfsearch/chitaet/Ім\'я/">Ім\'я - 5 книг</a></li>', 'https://4read.org/readers.html')
+    expect(readers?.sections[0]?.id).toBe('people')
+    expect(readers?.sections[0]?.title).toBe('Виконавці')
+    expect(readers?.sections[0]?.cards[0]?.count).toBe(5)
+
+    const avtors = fourread.parseCatalog('<li><a href="/xfsearch/avtor/Ім\'я/">Ім\'я - 2 книги</a></li>', 'https://4read.org/avtors.html')
+    expect(avtors?.sections[0]?.title).toBe('Автори')
+  })
+
+  it('top100 and people lists degrade to empty on malformed html', () => {
+    expect(parseTop100('')).toEqual([])
+    expect(parseTop100('<html><body><p>no linek</p></body></html>')).toEqual([])
+    expect(parsePeopleList('')).toEqual([])
+    expect(parsePeopleList('<html><body><p>no people</p></body></html>')).toEqual([])
+    // A person label without a count still parses (honest: no count).
+    expect(parsePeopleList('<li><a href="/xfsearch/chitaet/Ім\'я/">Ім\'я</a></li>')[0]?.count).toBeUndefined()
   })
 })

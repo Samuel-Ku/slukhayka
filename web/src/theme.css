@@ -316,6 +316,23 @@ span.bookrow-body {
   gap: 6px;
 }
 
+.bookrow-dismiss {
+  min-width: 48px;
+  min-height: 48px;
+  background: none;
+  border: none;
+  color: var(--fg-dim);
+  font-size: 15px;
+  cursor: pointer;
+  border-radius: 8px;
+}
+
+.bookrow-dismiss:hover,
+.bookrow-dismiss:focus-visible {
+  color: var(--fg);
+  background: var(--line);
+}
+
 .bookrow-actions button {
   min-width: 48px;
   min-height: 48px;
@@ -431,6 +448,41 @@ span.bookrow-body {
   text-align: left;
   cursor: pointer;
   padding: 8px 0;
+}
+
+.settings-row-static {
+  cursor: default;
+}
+
+.settings-row-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.settings-row-sub {
+  font-size: 13px;
+  color: var(--fg-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-restore {
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: none;
+  color: var(--fg);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.settings-restore:hover,
+.settings-restore:focus-visible {
+  background: var(--line);
 }
 
 .settings-row-chevron {

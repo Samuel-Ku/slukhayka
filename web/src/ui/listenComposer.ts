@@ -12,7 +12,7 @@
  * favorite flag in work_relationships — their rules exist and run, they
  * just find nothing today, exactly like Android's cold start.
  */
-import type { ListenBlockId, ListenPrefsRow } from '../local/listenPrefs'
+import type { ListenBlockId } from '../local/listenPrefs'
 import type { LibraryBookView } from './libraryModel'
 import type { StringKey } from '../i18n/strings'
 
@@ -147,7 +147,9 @@ export function recentlyAddedBlock(library: LibraryBookView[], now: number): Lis
  */
 export function composeListenBlocks(
   library: LibraryBookView[],
-  prefs: Pick<ListenPrefsRow, 'order' | 'hidden' | 'dismissed'>,
+  prefs: { order: ListenBlockId[]; hidden: ListenBlockId[] },
+  /** «Не цікаво» — the HIDE_WORK preference targets (#586 W2.2). */
+  dismissed: string[],
   deps: {
     now: number
     locale?: ComposerLocale
@@ -158,8 +160,8 @@ export function composeListenBlocks(
   },
 ): ListenBlock[] {
   const locale = deps.locale ?? 'uk'
-  const dismissed = new Set(prefs.dismissed)
-  const visible = library.filter((view) => !dismissed.has(view.mergeKey))
+  const dismissedSet = new Set(dismissed)
+  const visible = library.filter((view) => !dismissedSet.has(view.mergeKey))
 
   const byId = new Map<ListenBlockId, ListenBlock>()
   const hero = heroBlock(visible)

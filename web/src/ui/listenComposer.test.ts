@@ -43,7 +43,7 @@ describe('effectiveBlockOrder', () => {
 
 describe('composeListenBlocks', () => {
   it('a cold-start library composes nothing', () => {
-    expect(composeListenBlocks([], { order: [], hidden: [], dismissed: [] }, { now: NOW })).toEqual([])
+    expect(composeListenBlocks([], { order: [], hidden: [] }, [], { now: NOW })).toEqual([])
   })
 
   it('the hero is the most recently listened, unfinished book', () => {
@@ -52,7 +52,8 @@ describe('composeListenBlocks', () => {
         view('a', { status: 'listening', lastListenedAt: NOW - 2 * DAY }),
         view('b', { status: 'listening', lastListenedAt: NOW - DAY }),
       ],
-      { order: [], hidden: [], dismissed: [] },
+      { order: [], hidden: [] },
+      [],
       { now: NOW },
     )
     expect(blocks[0]!.id).toBe('hero')
@@ -62,7 +63,8 @@ describe('composeListenBlocks', () => {
   it('almost-done takes ≥ 80 % and states the honest remaining time', () => {
     const blocks = composeListenBlocks(
       [view('a', { status: 'listening', progress: 0.85, totalSeconds: 3600, cumulativeSeconds: 3600 * 0.85 })],
-      { order: [], hidden: [], dismissed: [] },
+      { order: [], hidden: [] },
+      [],
       { now: NOW },
     )
     const almostDone = blocks.find((block) => block.id === 'almost-done')!
@@ -72,7 +74,8 @@ describe('composeListenBlocks', () => {
   it('return catches a book dormant for 14+ days with the day count', () => {
     const blocks = composeListenBlocks(
       [view('a', { status: 'listening', lastListenedAt: NOW - 20 * DAY })],
-      { order: [], hidden: [], dismissed: [] },
+      { order: [], hidden: [] },
+      [],
       { now: NOW },
     )
     const ret = blocks.find((block) => block.id === 'return')!
@@ -85,7 +88,8 @@ describe('composeListenBlocks', () => {
         view('shorty', { totalSeconds: 2 * 3600 }),
         view('long', { totalSeconds: 5 * 3600 }),
       ],
-      { order: [], hidden: [], dismissed: [] },
+      { order: [], hidden: [] },
+      [],
       { now: NOW },
     )
     const short = blocks.find((block) => block.id === 'short')!
@@ -98,7 +102,8 @@ describe('composeListenBlocks', () => {
         view('fresh', { createdAt: NOW - 2 * DAY }),
         view('old', { createdAt: NOW - 30 * DAY }),
       ],
-      { order: [], hidden: [], dismissed: [] },
+      { order: [], hidden: [] },
+      [],
       { now: NOW },
     )
     const recent = blocks.find((block) => block.id === 'recently-added')!
@@ -108,7 +113,8 @@ describe('composeListenBlocks', () => {
   it('dismissed works are filtered from every block', () => {
     const blocks = composeListenBlocks(
       [view('a', { status: 'listening', lastListenedAt: NOW - DAY })],
-      { order: [], hidden: [], dismissed: ['a'] },
+      { order: [], hidden: [] },
+      ['a'],
       { now: NOW },
     )
     expect(blocks).toEqual([])
@@ -117,7 +123,8 @@ describe('composeListenBlocks', () => {
   it('a hidden block stays computed but unrendered', () => {
     const blocks = composeListenBlocks(
       [view('a', { status: 'listening', lastListenedAt: NOW - DAY })],
-      { order: [], hidden: ['hero'], dismissed: [] },
+      { order: [], hidden: ['hero'] },
+      [],
       { now: NOW },
     )
     expect(blocks.find((block) => block.id === 'hero')).toBeUndefined()
@@ -128,14 +135,15 @@ describe('composeListenBlocks', () => {
       view('a', { status: 'listening', lastListenedAt: NOW - DAY }),
       view('b', { createdAt: NOW - DAY }),
     ]
-    const blocks = composeListenBlocks(library, { order: ['recently-added', 'hero'], hidden: [], dismissed: [] }, { now: NOW })
+    const blocks = composeListenBlocks(library, { order: ['recently-added', 'hero'], hidden: [] }, [], { now: NOW })
     expect(blocks.map((block) => block.id)).toEqual(['recently-added', 'hero'])
   })
 
   it('the en locale renders the reason params honestly', () => {
     const blocks = composeListenBlocks(
       [view('a', { status: 'listening', lastListenedAt: NOW - 20 * DAY })],
-      { order: [], hidden: [], dismissed: [] },
+      { order: [], hidden: [] },
+      [],
       { now: NOW, locale: 'en' },
     )
     expect(blocks.find((block) => block.id === 'return')!.reason!.params!.days).toBe('20 days')

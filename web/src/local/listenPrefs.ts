@@ -1,9 +1,13 @@
 /**
  * #585 W2.1 — local-only Listen preferences, the web port of Android's
- * `ListenPrefs` (wayfinder #62): the user's block order, hidden blocks and
- * dismissed works. A preference, not an identity fact — deliberately NEVER
- * synced, fully reversible from «Керувати полицями», and stored in
- * IndexedDB (R-W8) like every other listener-owned row.
+ * `ListenPrefs` (wayfinder #62): the user's block order and hidden blocks.
+ * A preference, not an identity fact — deliberately NEVER synced, fully
+ * reversible from «Керувати полицями», and stored in IndexedDB (R-W8)
+ * like every other listener-owned row.
+ *
+ * #586 W2.2 — «Не цікаво» is NOT a Listen pref: it is a Recommendation
+ * Preference (HIDE_WORK) in its own store, so the undo surface is one
+ * (Налаштування → Рекомендації), exactly like Android's dictionary.
  */
 import { openListenerDatabase, type IdbDatabase } from './idb'
 import { LISTENER_DB_VERSION, LISTENER_STORES, LISTEN_PREFS_STORE } from './schema'
@@ -36,13 +40,11 @@ export interface ListenPrefsRow {
   order: ListenBlockId[]
   /** Blocks the user hid; hidden blocks stay computed but unrendered. */
   hidden: ListenBlockId[]
-  /** Works the user marked «Не цікаво» — filtered from every block (W2.2). */
-  dismissed: string[]
 }
 
 const ROW_ID = 'listen'
 
-const DEFAULT_ROW: ListenPrefsRow = { id: ROW_ID, order: [], hidden: [], dismissed: [] }
+const DEFAULT_ROW: ListenPrefsRow = { id: ROW_ID, order: [], hidden: [] }
 
 function openPrefsDatabase(): Promise<IdbDatabase | null> {
   return openListenerDatabase(LISTENER_DB_VERSION, LISTENER_STORES)
@@ -74,7 +76,6 @@ export class ListenPrefsStore {
       id: ROW_ID,
       order: Array.isArray(row.order) ? row.order : [],
       hidden: Array.isArray(row.hidden) ? row.hidden : [],
-      dismissed: Array.isArray(row.dismissed) ? row.dismissed : [],
     }
   }
 

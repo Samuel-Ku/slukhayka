@@ -597,6 +597,18 @@ class FakeAudiobookDao(
         sourcesState.update { current -> current.filterNot { it.bookId == bookId } }
     }
 
+    override suspend fun deleteSourceById(sourceId: String) {
+        sourcesState.update { current -> current.filterNot { it.id == sourceId } }
+    }
+
+    override suspend fun deleteWorkSourcesForWork(workId: String) {
+        workSourcesState.update { current -> current.filterNot { it.workId == workId } }
+    }
+
+    override suspend fun deleteWorkSourceForUrl(workId: String, sourceUrl: String) {
+        workSourcesState.update { current -> current.filterNot { it.workId == workId && it.sourceUrl == sourceUrl } }
+    }
+
     override suspend fun getBookIdBySourceId(sourceId: String): String? =
         sourcesState.value.firstOrNull { it.id == sourceId }?.bookId
 

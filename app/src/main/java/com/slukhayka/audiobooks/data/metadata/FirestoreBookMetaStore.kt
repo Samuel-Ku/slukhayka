@@ -4,6 +4,7 @@ import android.content.Context
 import com.google.android.gms.tasks.Task
 import com.google.firebase.FirebaseApp
 import com.google.firebase.firestore.FieldPath
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlin.coroutines.resume
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -268,6 +269,77 @@ class FirestoreBookMetaStore(private val firestore: FirebaseFirestore) : SharedB
         }
     }
 
+    override suspend fun getSubmission(sourceUrl: String): SubmissionPublication? {
+        return try {
+            val snapshot = firestore.collection(SUBMISSION_COLLECTION)
+                .document(SubmissionPublicationCodec.documentId(sourceUrl)).get()
+                .awaitOrNull() ?: return null
+            if (!snapshot.exists()) null
+            else SubmissionPublicationCodec.fromMap(snapshot.data ?: return null)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    override suspend fun putSharedTombstone(tombstone: SharedTombstone) {
+        val document = SharedTombstoneCodec.toMap(tombstone) ?: return
+        val documentId = SharedTombstoneCodec.documentId(tombstone) ?: return
+        // Best-effort fire-and-forget; the key is deterministic per TARGET,
+        // so re-placing the same tombstone REPLACE-no-ops.
+        runCatching {
+            firestore.collection(TOMBSTONE_COLLECTION).document(documentId).set(document)
+        }
+    }
+
+    override suspend fun getSharedTombstonePage(after: SharedTombstoneCursor?, limit: Int): SharedTombstonePage {
+        val boundedLimit = SharedTombstonePageLimits.bounded(limit)
+        if (boundedLimit == 0) return SharedTombstonePage(emptyList(), null)
+        return try {
+            var query = firestore.collection(TOMBSTONE_COLLECTION)
+                .orderBy(TOMBSTONE_CURSOR_FIELD)
+                .orderBy(FieldPath.documentId())
+            if (after != null) query = query.startAfter(after.placedAt, after.documentId)
+            val snapshot = query.limit((boundedLimit + 1).toLong()).get().awaitOrNull()
+                ?: return SharedTombstonePage(emptyList(), null)
+            val pageDocuments = snapshot.documents.take(boundedLimit)
+            val tombstones = pageDocuments.mapNotNull { document ->
+                SharedTombstoneCodec.fromMap(document.data ?: return@mapNotNull null)
+            }
+            val nextCursor = pageDocuments.lastOrNull()
+                ?.let { document ->
+                    (document.data?.get(TOMBSTONE_CURSOR_FIELD) as? Number)?.toLong()
+                        ?.let { placedAt -> SharedTombstoneCursor(placedAt, document.id) }
+                }
+            SharedTombstonePage(tombstones, nextCursor)
+        } catch (e: Exception) {
+            SharedTombstonePage(emptyList(), null)
+        }
+    }
+
+    override suspend fun getSubmissionCount(deviceId: String, dayKey: String): Long {
+        return try {
+            val snapshot = firestore.collection(COUNTER_COLLECTION).document("$deviceId|$dayKey").get()
+                .awaitOrNull() ?: return 0L
+            if (!snapshot.exists()) 0L
+            else (snapshot.data?.get(COUNTER_FIELD) as? Number)?.toLong() ?: 0L
+        } catch (e: Exception) {
+            0L
+        }
+    }
+
+    override suspend fun incrementSubmissionCount(deviceId: String, dayKey: String): Long {
+        // Firestore FieldValue.increment is atomic across devices — the
+        // shared counter never races. The returned count is best-effort.
+        return try {
+            val ref = firestore.collection(COUNTER_COLLECTION).document("$deviceId|$dayKey")
+            ref.set(mapOf(COUNTER_FIELD to FieldValue.increment(1)), com.google.firebase.firestore.SetOptions.merge())
+                .awaitOrNull()
+            (ref.get().awaitOrNull()?.data?.get(COUNTER_FIELD) as? Number)?.toLong() ?: 0L
+        } catch (e: Exception) {
+            0L
+        }
+    }
+
     /** The deterministic document key of one Source×Edition profile. */
     private fun profileKey(sourceId: String, editionId: String): String = "$sourceId|$editionId"
 
@@ -303,6 +375,21 @@ class FirestoreBookMetaStore(private val firestore: FirebaseFirestore) : SharedB
          */
         private const val SUBMISSION_COLLECTION = "book_submissions"
         private const val SUBMISSION_CURSOR_FIELD = "submittedAt"
+
+        /**
+         * ADR-0035 / #607 — the shared curator-tombstone collection, keyed
+         * deterministically per target; ordered by `placedAt` for the
+         * consuming delta lane.
+         */
+        private const val TOMBSTONE_COLLECTION = "book_tombstones"
+        private const val TOMBSTONE_CURSOR_FIELD = "placedAt"
+
+        /**
+         * ADR-0035 / #607 — the per-device daily submission counters,
+         * document per `deviceId|dayKey` with an atomic `count` field.
+         */
+        private const val COUNTER_COLLECTION = "submission_daily_counters"
+        private const val COUNTER_FIELD = "count"
 
         /** Firestore's `whereIn` value bound — the batch chunk size. */
         private const val MAX_WHERE_IN = 10

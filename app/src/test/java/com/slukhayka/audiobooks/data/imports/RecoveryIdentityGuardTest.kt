@@ -22,6 +22,28 @@ class RecoveryIdentityGuardTest {
         chapters = chapters.map { SourceChapter(it, "https://reasd.org/$it.mp3") }
     )
 
+    @Test fun `title entity equivalence stays anchored to the existing work key`() {
+        val plain = "Проєкт \"Аве Марія\""
+        val encoded = "Проєкт &quot;Аве Марія&quot;"
+        val plainKey = com.slukhayka.audiobooks.data.merge.MergeKey.keyFor(plain, "Автор")
+        val encodedKey = com.slukhayka.audiobooks.data.merge.MergeKey.keyFor(encoded, "Автор")
+        for (stored in listOf(plain, encoded, "Проєкт &amp;quot;Аве Марія&amp;quot;")) {
+            val storedKey = com.slukhayka.audiobooks.data.merge.MergeKey.keyFor(stored, "Автор")
+            for (captured in listOf(plain, encoded, "Проєкт &#34;Аве Марія&#34;")) {
+                assertTrue(RecoveryIdentityGuard.matchesStoredWorkKey(stored, "Автор", storedKey, detail(title = captured)))
+                assertTrue(RecoveryIdentityGuard.matchesStoredWorkKey(stored, "Автор", plainKey, detail(title = captured)))
+                assertTrue(RecoveryIdentityGuard.matches(stored, "Автор", "Читець", "", listOf("1", "2"), detail(title = captured)))
+            }
+        }
+        assertTrue(RecoveryIdentityGuard.matchesStoredWorkKey(plain, "Автор", encodedKey, detail(title = encoded)))
+        assertFalse(RecoveryIdentityGuard.matchesStoredWorkKey(encoded, "Автор", "unrelated|key", detail(title = encoded)))
+        assertFalse(RecoveryIdentityGuard.matchesStoredWorkKey(encoded, "Автор", plainKey, detail(title = plain, author = "Інший автор")))
+        assertFalse(RecoveryIdentityGuard.matchesStoredWorkKey(encoded, "Автор", plainKey, detail(title = "Інша книга")))
+        assertFalse(RecoveryIdentityGuard.matches(encoded, "Автор", "Читець", "", listOf("1", "2"), detail(title = plain, narrator = "Інший читець")))
+        assertFalse(RecoveryIdentityGuard.matches(encoded, "Автор", "Читець", "uk", listOf("1", "2"), detail(title = plain, language = "en")))
+        assertFalse(RecoveryIdentityGuard.matches(encoded, "Автор", "Читець", "", listOf("1", "2"), detail(title = plain, chapters = listOf("2", "1"))))
+    }
+
     @Test fun `accepts exact work edition and chapter topology`() {
         assertTrue(RecoveryIdentityGuard.matches("Книга", "Автор", "Читець", "", listOf("1", "2"), detail()))
     }

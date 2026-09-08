@@ -15,4 +15,7 @@ object SourceIds {
 
     /** sluhay.com.ua — the server-fetch direct source (cross-resolve target, #469). */
     const val SLUHAYUA = "sluhayua"
+
+    /** Telegram public-preview (t.me/s/…) — submissions only, never a browsable catalog (ADR-0035). */
+    const val TELEGRAM = "telegram"
 }

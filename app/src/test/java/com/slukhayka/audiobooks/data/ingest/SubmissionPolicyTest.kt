@@ -106,6 +106,48 @@ class SubmissionPolicyTest {
     }
 
     @Test
+    fun `metadata-only decision needs no verdict - the parse is the quality bar`() = runBlocking {
+        // No playback verdict exists for a TG preview (no audio) — the
+        // decision must NOT be gated on it (ADR-0035 п. 13).
+        val decision = policy.decideMetadataOnly(url, "device-1")
+        assertTrue(decision.allowed)
+        assertEquals(null, decision.reason)
+        assertEquals(SubmissionPolicy.DAILY_SUBMISSION_LIMIT, decision.remainingToday.toLong())
+    }
+
+    @Test
+    fun `metadata-only over the daily limit refuses honestly`() = runBlocking {
+        repeat(SubmissionPolicy.DAILY_SUBMISSION_LIMIT.toInt()) {
+            store.incrementSubmissionCount("device-1", SubmissionPolicy.dayKeyOf(now))
+        }
+        val decision = policy.decideMetadataOnly(url, "device-1")
+        assertFalse(decision.allowed)
+        assertEquals(SubmissionPolicy.Reason.DAILY_LIMIT_REACHED, decision.reason)
+        assertEquals(0, decision.remainingToday)
+    }
+
+    @Test
+    fun `metadata-only duplicate url refuses without consuming`() = runBlocking {
+        // The dedup is URL-based and mode-agnostic: a YOUTUBE publication of
+        // the same link blocks the metadata-only publish too (one shared base).
+        store.publishSubmission(publish("device-1"))
+        val decision = policy.decideMetadataOnly(url, "device-2")
+        assertFalse(decision.allowed)
+        assertEquals(SubmissionPolicy.Reason.ALREADY_PUBLISHED, decision.reason)
+        assertEquals(0L, store.getSubmissionCount("device-2", SubmissionPolicy.dayKeyOf(now)))
+    }
+
+    @Test
+    fun `metadata-only shares ONE budget with playable submissions`() = runBlocking {
+        repeat(SubmissionPolicy.DAILY_SUBMISSION_LIMIT.toInt() - 1) {
+            store.incrementSubmissionCount("device-1", SubmissionPolicy.dayKeyOf(now))
+        }
+        assertTrue("one slot left", policy.decideMetadataOnly(url, "device-1").allowed)
+        policy.consume("device-1")
+        assertFalse(policy.decideMetadataOnly(url, "device-1").allowed)
+    }
+
+    @Test
     fun `consume spends exactly one slot`() = runBlocking {
         policy.consume("device-1")
         policy.consume("device-1")

@@ -146,6 +146,37 @@ class RoomSubmissionProjectionWriterTest {
     }
 
     @Test
+    fun `a tg preview publication materializes identity with honest unavailable`() = runBlocking {
+        // ADR-0035 п. 13 / #606 — the RED verdict: a TG post publishes as
+        // metadata only; another install sees the Work + the telegram
+        // WorkSource claim, but NO Source rows and NO tracks — playback
+        // honestly finds nothing, never a fabricated stream.
+        writer.apply(
+            listOf(
+                publication(
+                    url = "https://t.me/stivenkingua/168",
+                    accessMode = SubmissionAccessMode.TG_PREVIEW,
+                    chapters = emptyList(),
+                    title = "Джералдова гра",
+                    author = null,
+                    narrator = "Alex Nekrasov"
+                )
+            )
+        )
+
+        // No author claim → the blank-identity contract: the Work lives under
+        // its own stable id, never under a mergeKey.
+        val workId = "w-telegram-${Integer.toHexString("https://t.me/stivenkingua/168".hashCode())}"
+        val workSources = dao.getWorkSourcesForWorkSync(workId)
+        assertEquals(1, workSources.size)
+        assertEquals(com.slukhayka.audiobooks.data.source.SourceIds.TELEGRAM, workSources.single().sourceId)
+        assertEquals("https://t.me/stivenkingua/168", workSources.single().sourceUrl)
+        assertTrue("no Source rows - the honest unavailable surface", dao.getSourcesForBookSync(workId).isEmpty())
+        assertTrue(dao.getChaptersListForBook(workId).isEmpty())
+        assertTrue("never a silent library book", dao.getAllAudiobooksOnce().isEmpty())
+    }
+
+    @Test
     fun `an unknown access mode is skipped entirely`() = runBlocking {
         writer.apply(
             listOf(

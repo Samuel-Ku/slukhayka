@@ -52,7 +52,7 @@ class SoundBooksAdapter(
         // #558: a promo article stored by an older build fails hydration
         // honestly — the same empty detail as an unreachable page — instead of
         // posing as a playless book forever.
-        if (isPromoUrl(url)) return SourceBookDetail("", "", url = url, chapters = emptyList())
+        if (isSoundBooksPromoUrl(url)) return SourceBookDetail("", "", url = url, chapters = emptyList())
         val html = fetcher.getText(url)
         if (html.isEmpty()) return SourceBookDetail("", "", url = url, chapters = emptyList())
 
@@ -149,7 +149,7 @@ class SoundBooksAdapter(
             .distinct()
             // #558: the promo section (/reklama/) is a first-class link on the
             // homepage — never a catalogue category to walk into.
-            .filterNot { isPromoUrl(it) }
+            .filterNot { isSoundBooksPromoUrl(it) }
             .take(categoryPageLimit)
         val seen = mutableSetOf<String>()
         val books = mutableListOf<SourceBook>()
@@ -250,7 +250,7 @@ class SoundBooksAdapter(
         val extras = cardExtras(html)
         // #558: promo tiles ride the same markup as books; they are dropped
         // BEFORE the limit so an ad can never crowd out a real book.
-        return best.entries.filter { !isPromoUrl(it.key) }.take(limit).map { entry ->
+        return best.entries.filter { !isSoundBooksPromoUrl(it.key) }.take(limit).map { entry ->
             val url = entry.key
             val anchor = entry.value.first
             val sep = if (entry.value.second) anchor.indexOf(" - ") else -1
@@ -354,20 +354,6 @@ class SoundBooksAdapter(
         // Category sections of the full catalogue (`https://sound-books.net/<slug>/`).
         val CATEGORY_LINK = Regex("""href="(https://sound-books\.net/[a-z-]+/)"""", RegexOption.IGNORE_CASE)
 
-        /**
-         * #558 — site promo sections that render in the same tiles as books.
-         * `reklama` articles leaked into the catalogue feeds and the on-device
-         * recommendation row as non-audiobook cards that fail on open
-         * («Couldn't open the book»). The first path segment decides; new
-         * promo sections join this set when reported.
-         */
-        val PROMO_SEGMENTS = setOf("reklama")
-
-        /** Whether a sound-books.net url is a promo article, not a book. */
-        fun isPromoUrl(url: String): Boolean {
-            val path = url.substringAfter("sound-books.net", "").removePrefix("/")
-            return path.substringBefore('/') in PROMO_SEGMENTS
-        }
         val AUTHOR_MARK = Regex("""Автор:\s*([^.<]{2,80})""", RegexOption.IGNORE_CASE)
         val NARRATOR_MARK = Regex("""Читає:\s*([^.<]{2,80})""", RegexOption.IGNORE_CASE)
         val JSONLD_AUTHOR = Regex(""""author"\s*:\s*"([^"]+)"""", RegexOption.IGNORE_CASE)
@@ -377,4 +363,10 @@ class SoundBooksAdapter(
         val CARD_GENRE_BLOCK = Regex("""<span class="fal fa-folder"[^>]*></span>(.*?)</div>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
         val GENRE_LINK = Regex("""<a[^>]*>([^<]+)</a>""", RegexOption.IGNORE_CASE)
     }
+}
+
+/** Shared by live parsing and cached catalogue reads after an app update. */
+internal fun isSoundBooksPromoUrl(url: String): Boolean {
+    val path = url.substringAfter("sound-books.net", "").removePrefix("/")
+    return path.substringBefore('/') == "reklama"
 }

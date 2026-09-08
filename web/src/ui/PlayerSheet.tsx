@@ -9,6 +9,7 @@ import { editionIdFor, mergeKeyFor } from '../sync/edition'
 import { reviewWorkIdFor, ListenerReviewFormSheet } from './bookReviews'
 import type { ListenerReview } from '../reviews/reviewModel'
 import { BookmarksPane, ChapterList, formatClock, SleepTimerPane } from './playerExtras'
+import { useOnline } from '../offline/status'
 
 export type PlayerTab = 'chapters' | 'timer' | 'bookmarks'
 
@@ -33,6 +34,8 @@ export function PlayerSheet({
   const [tab, setTab] = useState<PlayerTab>('chapters')
   const [finishFormOpen, setFinishFormOpen] = useState(false)
   const [bookmarkCount, setBookmarkCount] = useState(0)
+  const online = useOnline()
+  const [cachedUrls, setCachedUrls] = useState<ReadonlySet<string>>(new Set())
   useEffect(() => engine.subscribe(setState), [engine])
 
   const isPlaying = state.status === 'playing'
@@ -40,6 +43,18 @@ export function PlayerSheet({
 
   const chapters = engine.chaptersOf()
   const workId = engine.workIdOf()
+
+  // W6.2 — the honest «у кеші» badges: read from the REAL offline cache,
+  // never guessed; refreshed when the loaded book changes.
+  useEffect(() => {
+    let alive = true
+    void engine.cachedStreamUrls().then((urls) => {
+      if (alive) setCachedUrls(urls)
+    })
+    return () => {
+      alive = false
+    }
+  }, [engine, chapters])
 
   // W5.1 — the honest count on the tab label from the start (Android shows
   // it before the pane opens); the pane refreshes it after every change.
@@ -90,7 +105,14 @@ export function PlayerSheet({
     <div style={{ position: 'fixed', inset: 0, background: 'var(--bg)', zIndex: 50, display: 'flex', flexDirection: 'column', padding: '16px' }}>
       <button onClick={onClose} style={{ alignSelf: 'flex-start', background: 'none', border: 'none', color: 'var(--accent)', fontSize: 16 }}>{t('close')}</button>
       <h2 style={{ marginTop: 16 }}>{state.isCompleted ? t('completed') : t('chapter', { n: state.chapterIndex + 1 })}</h2>
-      <p style={{ color: 'var(--fg-dim)', fontSize: 14 }}>{t('position', { time: formatClock(state.positionSeconds) })}</p>
+      <p style={{ color: 'var(--fg-dim)', fontSize: 14 }}>
+        {t('position', { time: formatClock(state.positionSeconds) })}
+        {!online && (
+          <span className="offline-chip">
+            {cachedUrls.has(chapters[state.chapterIndex]?.streamUrl ?? '') ? t('playingFromCache') : t('offline')}
+          </span>
+        )}
+      </p>
       <input
         type="range"
         min={0}
@@ -161,6 +183,7 @@ export function PlayerSheet({
             chapters={chapters}
             currentIndex={state.chapterIndex}
             currentPosition={state.positionSeconds}
+            cachedUrls={cachedUrls}
             onJump={(index) => {
               if (index === state.chapterIndex) engine.play()
               else engine.jumpTo(index, 0)

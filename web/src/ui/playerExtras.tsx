@@ -24,17 +24,21 @@ export function ChapterList({
   currentIndex,
   currentPosition,
   onJump,
+  cachedUrls,
 }: {
   chapters: Chapter[]
   currentIndex: number
   currentPosition: number
   onJump: (chapterIndex: number) => void
+  /** W6.2 — the honest «у кеші» badges, derived from the real cache. */
+  cachedUrls?: ReadonlySet<string>
 }) {
   const t = useTranslate()
   return (
     <ul className="chapters" aria-label={t('chaptersCount', { n: chapters.length })}>
       {chapters.map((chapter, index) => {
         const isCurrent = index === currentIndex
+        const isCached = cachedUrls !== undefined && cachedUrls.has(chapter.streamUrl)
         return (
           <li key={`${index}-${chapter.title}`}>
             <button
@@ -47,6 +51,7 @@ export function ChapterList({
               <span className="chapter-row-title">
                 {chapter.title}
                 {isCurrent && <span className="chapter-row-pos">{formatClock(currentPosition)}</span>}
+                {isCached && <span className="chapter-row-cached">{t('cachedBadge')}</span>}
               </span>
               <span className="chapter-row-dur">
                 {typeof chapter.durationSeconds === 'number' && chapter.durationSeconds > 0

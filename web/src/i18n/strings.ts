@@ -284,6 +284,10 @@ const uk = {
   bookmarkDeleteError: 'Не вдалося видалити закладку. Спробуйте ще раз.',
   bookmarkJumpAria: 'Перейти до закладки у «{title}», розділ «{chapter}», {time}',
   bookmarkDeleteAria: 'Видалити закладку у «{title}», розділ «{chapter}», {time}',
+  // offline — W6.2 (#593)
+  offline: 'Офлайн',
+  playingFromCache: 'Офлайн — грає з кешу',
+  cachedBadge: 'у кеші',
 }
 
 export type Strings = typeof uk
@@ -558,6 +562,10 @@ const en: Strings = {
   bookmarkDeleteError: 'Could not delete the bookmark. Try again.',
   bookmarkJumpAria: 'Jump to the bookmark in “{title}”, chapter “{chapter}”, {time}',
   bookmarkDeleteAria: 'Delete the bookmark in “{title}”, chapter “{chapter}”, {time}',
+  // offline — W6.2 (#593)
+  offline: 'Offline',
+  playingFromCache: 'Offline — playing from cache',
+  cachedBadge: 'cached',
 }
 
 export const STRINGS: Record<UiLocale, Strings> = { uk, en }

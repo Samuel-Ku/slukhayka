@@ -8,17 +8,19 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * ADR-0035 / #605 — the publication gate, fixture-tested (the PacingPolicy
- * precedent): a bare link insert with NO real playback verdict publishes
- * NOTHING; a verified submission publishes the honest observed claims; the
- * store keys by the normalized URL so the same link never duplicates.
+ * ADR-0035 / #605/#607 — the publication door, fixture-tested: a bare link
+ * insert with NO real playback verdict publishes NOTHING; a verified
+ * submission publishes the honest observed claims and consumes one daily
+ * budget slot; the same normalized URL is refused honestly on a repeat; the
+ * store keys by the URL so one link lives once.
  */
 class SubmissionPublisherTest {
 
     private val store = FakeSharedBookMetaStore()
     private var now = 10_000L
     private val verification = SubmissionVerification { now }
-    private val publisher = SubmissionPublisher(store, verification) { now }
+    private val policy = SubmissionPolicy(store, verification) { now }
+    private val publisher = SubmissionPublisher(store, policy) { now }
 
     private val kingPlaylistJson = """
         {
@@ -40,10 +42,11 @@ class SubmissionPublisherTest {
         val result = publisher.publish(playlistUrl, kingPlaylistJson, "@stivenkingua", sourceId, "device-1")
         assertEquals(SubmissionPublisher.Result.NOT_VERIFIED, result)
         assertTrue("nothing was handed to the shared store", store.submissionPuts.isEmpty())
+        assertEquals("no budget slot was consumed", 0L, store.getSubmissionCount("device-1", "0"))
     }
 
     @Test
-    fun `verified submission publishes the honest observed claims`() = runBlocking {
+    fun `verified submission publishes the honest observed claims and consumes one slot`() = runBlocking {
         verification.record(sourceId, actualPlaybackStarted = true)
         val result = publisher.publish(playlistUrl, kingPlaylistJson, "@stivenkingua", sourceId, "device-1")
         assertEquals(SubmissionPublisher.Result.PUBLISHED, result)
@@ -61,6 +64,7 @@ class SubmissionPublisherTest {
         assertEquals("the verdict moment rides the document", 10_000L, publication.verifiedAt)
         assertEquals("the write moment is the clock", 10_000L, publication.submittedAt)
         assertEquals("device-1", publication.submitterId)
+        assertEquals("the publish consumed one daily slot", 1L, store.getSubmissionCount("device-1", "0"))
     }
 
     @Test
@@ -85,11 +89,16 @@ class SubmissionPublisherTest {
     }
 
     @Test
-    fun `the same url never duplicates in the shared base`() = runBlocking {
+    fun `the same url is refused honestly on a repeat`() = runBlocking {
         verification.record(sourceId, actualPlaybackStarted = true)
-        publisher.publish(playlistUrl, kingPlaylistJson, "@stivenkingua", sourceId, "device-1")
-        publisher.publish(playlistUrl, kingPlaylistJson, "@stivenkingua", sourceId, "device-2")
-        assertEquals(2, store.submissionPuts.size)
+        assertEquals(SubmissionPublisher.Result.PUBLISHED, publisher.publish(playlistUrl, kingPlaylistJson, "@stivenkingua", sourceId, "device-1"))
+        assertEquals(
+            "the repeat is refused, not silently duplicated",
+            SubmissionPublisher.Result.ALREADY_PUBLISHED,
+            publisher.publish(playlistUrl, kingPlaylistJson, "@stivenkingua", sourceId, "device-2")
+        )
+        assertEquals("one document, one put", 1, store.submissionPuts.size)
         assertEquals(1, store.getSubmissionPage(null, 100).publications.size)
+        assertEquals("the refused repeat consumed no slot", 1L, store.getSubmissionCount("device-1", "0"))
     }
 }

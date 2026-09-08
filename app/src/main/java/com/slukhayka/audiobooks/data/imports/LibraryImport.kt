@@ -781,37 +781,41 @@ class LibraryImport(
         html: String,
         capturedAudioUrls: List<String> = emptyList()
     ): AudiobookEntity? = withContext(Dispatchers.IO) {
+        fun refuse(reason: String): AudiobookEntity? {
+            android.util.Log.w("Recovery", "[DEBUG-1392] refused: $reason")
+            return null
+        }
         val adapter = sourceAdapters.firstOrNull { it.sourceId == sourceId }
-            ?: return@withContext null
+            ?: return@withContext refuse("missing_adapter")
         val parsed = try {
             adapter.parseCapturedPage(html, url)
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (_: Exception) {
             null
-        } ?: return@withContext null
+        } ?: return@withContext refuse("parse_failed")
         val detail = parsed.withCapturedAudioUrls(capturedAudioUrls)
-        if (detail.chapters.isEmpty()) return@withContext null
-        if (detail.chapters.any { !it.streamUrl.isPlayableSourceUrl() }) return@withContext null
+        if (detail.chapters.isEmpty()) return@withContext refuse("no_chapters")
+        if (detail.chapters.any { !it.streamUrl.isPlayableSourceUrl() }) return@withContext refuse("unplayable_chapter")
         // Recovery is never a fuzzy source lookup. A same-type 4read page can
         // be a different narration (or entirely different Work), and replacing
         // its tracks would corrupt this Edition's progress and downloads.
         val source = dao.getSourcesForBookSync(bookId)
             .firstOrNull { it.type == sourceId && it.url == url }
-            ?: return@withContext null
+            ?: return@withContext refuse("missing_exact_source")
 
         // 2. Work identity.
         val existingBook = dao.getAudiobookById(bookId) ?: return@withContext null
         val capturedMergeKey = MergeKey.keyFor(detail.title, detail.author)
         val storedMergeKey = existingBook.mergeKey ?: ""
         // Both blank is permitted only for legacy local rows — for 4read both are non-blank; any mismatch is refusal.
-        if (capturedMergeKey != storedMergeKey) return@withContext null
+        if (capturedMergeKey != storedMergeKey) return@withContext refuse("work_key_mismatch")
 
         // 3. Edition identity: narrator + derived EditionId.
         val edition = dao.getEditionForWork(bookId)
         val storedBook = dao.getAudiobookById(bookId)?.toAudiobookEntity() ?: return@withContext null
         if (edition != null && source.editionId != null && source.editionId != edition.id) {
-            return@withContext null
+            return@withContext refuse("source_edition_mismatch")
         }
         val logicalChapters = dao.getChaptersListForBook(bookId).sortedBy { it.chapterIndex }
         if (!RecoveryIdentityGuard.matches(
@@ -822,14 +826,16 @@ class LibraryImport(
                 storedChapterTitles = logicalChapters.map { it.title },
                 captured = detail
             )) {
+            android.util.Log.w("Recovery", "[DEBUG-1392] guard workEdition=" + RecoveryIdentityGuard.matchesWorkAndEdition(storedBook.title, storedBook.author, edition?.narrator.orEmpty(), edition?.language.orEmpty(), detail) + " chapterCount=" + logicalChapters.size + "/" + detail.chapters.size)
             // Same-count pages can still be reordered. Refuse the update rather
             // than attaching a new URL to the wrong Work, Edition or chapter.
             return@withContext null
         }
         val tracks = dao.getTracksForSourceSync(source.id).sortedBy { it.trackIndex }
-        if (tracks.size != detail.chapters.size) return@withContext null
+        if (tracks.size != detail.chapters.size) return@withContext refuse("track_count_mismatch")
         if (tracks.map { it.trackIndex } != detail.chapters.indices.toList()) return@withContext null
 
+        android.util.Log.w("Recovery", "[DEBUG-1392] guards passed")
         // All guards passed — refresh the physical URLs in place.
         val refreshed = detail.chapters.mapIndexed { index, chapter ->
             tracks[index].copy(url = chapter.streamUrl)

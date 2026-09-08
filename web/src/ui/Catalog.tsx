@@ -29,6 +29,7 @@ import { BookRow, CycleCard, EmptyStateRow, MetadataChip, PosterCard, SectionHea
 import { CollectionsIndexPanel, PeopleIndexPanel, SeriesIndexPanel, Top100IndexPanel } from './catalogIndexes'
 import { FiltersSheet, StickyFiltersToolbar } from './catalogFilters'
 import { createFacetFilter, workMatchesFacets, type DurationBucket, type FacetWork } from './facetModel'
+import { searchMemory } from './searchMemory'
 import { loadCollections } from './collectionAssets'
 import { matchAllCollections } from './collectionModel'
 import { FEED_CATALOG, FEED_HOMEPAGE_SECTIONS, FEED_NEW_ARRIVALS, needsNetwork } from './feedSnapshotPolicy'
@@ -75,7 +76,9 @@ export function Catalog({ onOpenBook, onPlay, onSaveWork, domainStore }: {
   const [showingCachedCatalog, setShowingCachedCatalog] = useState(false)
   const [cachedAt, setCachedAt] = useState<number | null>(null)
   const [failed, setFailed] = useState(false)
-  const [query, setQuery] = useState('')
+  // W3.4 — the query survives the book round-trip (Android keeps the screen
+  // on the backstack; the web remembers the two things the AC names).
+  const [query, setQuery] = useState(() => searchMemory.query)
   const [searchWorks, setSearchWorks] = useState<UnifiedWork[] | null>(null)
   const [searching, setSearching] = useState(false)
   // W3.1 — explicit refresh: the «Оновити» pill sets the flag and bumps the
@@ -118,6 +121,25 @@ export function Catalog({ onOpenBook, onPlay, onSaveWork, domainStore }: {
     if (origin !== null) chipRefs.current.get(origin)?.focus()
   }, [index])
   const closeIndex = (): void => setIndex(null)
+  // W3.4 — the round-trip ledger: every query change is remembered, and an
+  // unmount (book open, tab switch) records the scroll place. Content settles
+  // → the place is restored exactly once per mount.
+  useEffect(() => {
+    searchMemory.query = query
+  }, [query])
+  useEffect(() => () => { searchMemory.scrollY = window.scrollY ?? 0 }, [])
+  const scrollRestored = useRef(false)
+  useEffect(() => {
+    if (scrollRestored.current) return
+    if ((works !== null || searchWorks !== null) && query === searchMemory.query) {
+      scrollRestored.current = true
+      if (searchMemory.scrollY > 0) {
+        window.scrollTo?.(0, searchMemory.scrollY)
+        searchMemory.scrollY = 0
+      }
+    }
+  }, [works, searchWorks, query])
+
   // W3.3 — the sheet's focus-return contract: closing the sheet returns
   // focus to the toolbar trigger that opened it (DeleteBookSheet's own rule:
   // the parent owns the return). Only when it was actually open.
@@ -581,7 +603,7 @@ export function Catalog({ onOpenBook, onPlay, onSaveWork, domainStore }: {
           <EmptyStateRow message={t('nothingFound')} />
         ) : (
           <section>
-            <SectionHeader level="group" title={t('allSources')} />
+            <SectionHeader level="group" title={t('allSources')} count={visibleSearch.length} />
             <ul className="card-list">
               {visibleSearch.map((work) => <UnifiedWorkRow key={work.id} work={work} onOpenBook={onOpenBook} onPlay={onPlay} onSaveWork={onSaveWork} />)}
             </ul>

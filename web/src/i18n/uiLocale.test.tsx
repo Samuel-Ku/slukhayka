@@ -9,6 +9,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from '../api/client'
 import { Catalog } from '../ui/Catalog'
+import { resetSearchMemory } from '../ui/searchMemory'
 import { BookPage } from '../ui/BookPage'
 import { setUiLocale } from './locale'
 import type { UnifiedWorkPage } from '../worker/types'
@@ -30,6 +31,7 @@ const UK_CHROME = ['Пошук', 'Усі джерела', 'Завантажує�
 
 beforeEach(() => {
   setUiLocale('en')
+  resetSearchMemory()
 })
 
 afterEach(() => {

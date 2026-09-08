@@ -828,3 +828,46 @@ span.bookrow-body {
 .manage-row .manage-danger {
   color: var(--bad);
 }
+
+/* --- W3.2 indexes ---------------------------------------------------------- */
+
+/* Rank badge on ТОП 100 rows (1-based list order — real by construction). */
+.bookrow-rank {
+  flex: 0 0 auto;
+  min-width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+/* «Серії» index: the two-column CycleCard grid (Android SeriesIndexScreen). */
+.index-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 16px 12px;
+  list-style: none;
+  padding: 8px 0;
+  margin: 0;
+}
+
+.index-grid > li {
+  display: flex;
+  justify-content: center;
+}
+
+/* The «Швидкі переходи» navigation chips (ADR-0018: filled, no outline). */
+.nav-chip {
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: none;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font: inherit;
+  cursor: pointer;
+}

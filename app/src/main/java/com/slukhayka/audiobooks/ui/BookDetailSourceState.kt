@@ -16,10 +16,23 @@ internal class BookDetailSourceState {
     private val _sources = MutableStateFlow<List<SourceCatalog.WorkSourceRow>>(emptyList())
     val sources: StateFlow<List<SourceCatalog.WorkSourceRow>> = _sources.asStateFlow()
 
-    fun select(bookId: String?) {
+    private var selectionGeneration = 0L
+    private val _refreshing = MutableStateFlow(false)
+    val refreshing: StateFlow<Boolean> = _refreshing.asStateFlow()
+
+    @Synchronized
+    fun finishRefresh(generation: Long) {
+        if (generation == selectionGeneration) _refreshing.value = false
+    }
+
+    @Synchronized
+    fun select(bookId: String?): Long {
+        selectionGeneration++
+        _refreshing.value = bookId != null
         selectedBookId = bookId
         _profiles.value = emptyList()
         _sources.value = emptyList()
+        return selectionGeneration
     }
 
     fun acceptProfiles(bookId: String, profiles: List<LibraryEntries.SourceProfile>): Boolean {

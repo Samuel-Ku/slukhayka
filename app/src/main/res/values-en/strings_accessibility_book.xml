@@ -90,4 +90,12 @@
     <string name="person_bookmark_off">Not bookmarked</string>
     <string name="person_bookmark_notify_enable">Enable notifications</string>
     <string name="person_bookmark_notify_disable">Disable notifications</string>
+    <string name="book_detail_chapters_loading">Chapters · loading…</string>
+    <string name="book_detail_chapters_count">Chapters (%1$d)</string>
+    <string name="people_index_loading">Loading more…</string>
+    <string name="authors_index_title">Authors</string>
+    <plurals name="authors_index_count">
+        <item quantity="one">%d author</item>
+        <item quantity="other">%d authors</item>
+    </plurals>
 </resources>

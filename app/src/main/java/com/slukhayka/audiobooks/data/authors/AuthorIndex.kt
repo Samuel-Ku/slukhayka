@@ -185,9 +185,12 @@ class RoomAuthorIndex(
                 // visible count race each other. One dispatcher tick keeps
                 // continuation truly background while preserving immediate
                 // eventual repair (including virtual-time tests).
-                delay(BACKFILL_CONTINUATION_DELAY_MS)
-                while (repairBackfillPage()) Unit
-                _backfillPending.value = false
+                try {
+                    delay(BACKFILL_CONTINUATION_DELAY_MS)
+                    while (repairBackfillPage()) Unit
+                } finally {
+                    _backfillPending.value = false
+                }
             }
         }
     }

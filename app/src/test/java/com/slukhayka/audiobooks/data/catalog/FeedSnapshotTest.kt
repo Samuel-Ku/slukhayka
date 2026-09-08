@@ -121,11 +121,10 @@ class FeedSnapshotTest {
     )
 
     /** A counting fake adapter — the honest «did the network get hit» probe. */
-    private class CountingAdapter : SourceAdapter {
+    private class CountingAdapter(override val sourceId: String = "sluhayua") : SourceAdapter {
         val fetchNewCalls = AtomicInteger(0)
         var page: List<SourceBook> = emptyList()
 
-        override val sourceId: String = "sluhayua"
         override suspend fun search(query: String): List<SourceBook> = emptyList()
         override suspend fun fetchBookPage(url: String): SourceBookDetail =
             SourceBookDetail(title = "", author = "", url = url, chapters = emptyList())
@@ -293,4 +292,22 @@ class FeedSnapshotTest {
         )
         assertNull(store.freshBooks("sluhayua", FeedSnapshotPolicy.FEED_NEW_ARRIVALS))
     }
+    @Test
+    fun `old soundbooks snapshots exclude promotions without fetching again`() = runBlocking {
+        val adapter = CountingAdapter("soundbooks")
+        val books = listOf(
+            book("Реклама", "https://sound-books.net/reklama/2820-bike.html").copy(sourceId = "soundbooks"),
+            book("Книга", "https://sound-books.net/fantastika/42-book.html").copy(sourceId = "soundbooks")
+        )
+        store.saveBooks(adapter.sourceId, FeedSnapshotPolicy.FEED_CATALOG, books)
+        store.saveBooks(adapter.sourceId, FeedSnapshotPolicy.FEED_NEW_ARRIVALS, books)
+        val catalog = SourceCatalog(
+            db.audiobookDao(), listOf(adapter),
+            LibraryImport(db.audiobookDao(), context, emptyList()), feedSnapshotStore = store
+        )
+        assertEquals(listOf("Книга"), catalog.refreshUnifiedCatalog().map { it.title })
+        assertEquals(listOf("Книга"), catalog.refreshSourceFeeds().flatMap { it.books }.map { it.title })
+        assertEquals(0, adapter.fetchNewCalls.get())
+    }
+
 }

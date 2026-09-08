@@ -321,6 +321,11 @@ class SourceCatalog(
             }
         }
 
+    private fun List<SourceBook>.withoutPromotions(sourceId: String): List<SourceBook> =
+        if (sourceId == "soundbooks") filterNot {
+            com.slukhayka.audiobooks.data.source.SoundBooksAdapter.isPromoUrl(it.url)
+        } else this
+
     /** TTL-cached catalogue enumeration for one adapter (mirrors newFeedFor). */
     private suspend fun catalogueFor(adapter: SourceAdapter, limit: Int, forceRefresh: Boolean = false): List<SourceBook> {
         // Session-bound sources re-enumerate on every refresh: a fresh
@@ -328,14 +333,14 @@ class SourceCatalog(
         if (!adapter.sessionBound && !forceRefresh) {
             val now = System.currentTimeMillis()
             adapterCatalogCache[adapter.sourceId]?.let { cached ->
-                if (now - cached.fetchedAt < newFeedTtlMs) return cached.books
+                if (now - cached.fetchedAt < newFeedTtlMs) return cached.books.withoutPromotions(adapter.sourceId)
             }
             // #467: the persisted snapshot answers before any network call —
             // the source is hit only after the 24-hour catalog TTL.
-            feedSnapshotStore?.freshBooks(adapter.sourceId, FeedSnapshotPolicy.FEED_CATALOG)?.let { return it }
+            feedSnapshotStore?.freshBooks(adapter.sourceId, FeedSnapshotPolicy.FEED_CATALOG)?.let { return it.withoutPromotions(adapter.sourceId) }
         }
         val books = try {
-            adapter.fetchCatalog(limit)
+            adapter.fetchCatalog(limit).withoutPromotions(adapter.sourceId)
         } catch (e: Exception) {
             emptyList()
         }
@@ -551,14 +556,14 @@ class SourceCatalog(
         val now = System.currentTimeMillis()
         if (!skipCache && !forceRefresh) {
             newFeedCache[adapter.sourceId]?.let { cached ->
-                if (now - cached.fetchedAt < newFeedTtlMs) return cached.books
+                if (now - cached.fetchedAt < newFeedTtlMs) return cached.books.withoutPromotions(adapter.sourceId)
             }
             // #467: the persisted snapshot answers before any network call —
             // the source is hit only after the 6-hour new-arrivals TTL.
-            feedSnapshotStore?.freshBooks(adapter.sourceId, FeedSnapshotPolicy.FEED_NEW_ARRIVALS)?.let { return it }
+            feedSnapshotStore?.freshBooks(adapter.sourceId, FeedSnapshotPolicy.FEED_NEW_ARRIVALS)?.let { return it.withoutPromotions(adapter.sourceId) }
         }
         val books = try {
-            adapter.fetchNew()
+            adapter.fetchNew().withoutPromotions(adapter.sourceId)
         } catch (e: Exception) {
             emptyList()
         }
@@ -688,7 +693,7 @@ class SourceCatalog(
             val adapter = sourceAdapters.firstOrNull { it.sourceId == sourceId }
                 ?: return@withContext HydrationResult(sourceId, found = 0, imported = 0, merged = 0, failed = 0)
             val catalog = try {
-                adapter.fetchCatalog(limit)
+                adapter.fetchCatalog(limit).withoutPromotions(adapter.sourceId)
             } catch (e: Exception) {
                 emptyList()
             }

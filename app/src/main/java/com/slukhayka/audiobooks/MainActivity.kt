@@ -838,9 +838,11 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                         // The full 10k-capable alphabetical projection is cold:
                         // collect it only while its destination is visible.
                         val canonicalAuthors by viewModel.sourceCatalog.authors.collectAsState(initial = emptyList())
+                        val authorsBackfillPending by viewModel.sourceCatalog.authorIndexBackfillPending.collectAsState(initial = false)
                         val authorList = authorsIndexResults ?: canonicalAuthors
                         AuthorsIndexScreen(
                             authors = authorList,
+                            backfillPending = authorsBackfillPending,
                             onBackClick = { viewModel.closeAuthorsIndex() },
                             onAuthorClick = { author ->
                                 val idx = authorList.indexOfFirst { it.id == author.id }

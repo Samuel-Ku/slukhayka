@@ -90,4 +90,14 @@
     <string name="person_bookmark_off">Не в закладках</string>
     <string name="person_bookmark_notify_enable">Увімкнути сповіщення</string>
     <string name="person_bookmark_notify_disable">Вимкнути сповіщення</string>
+    <string name="book_detail_chapters_loading">Розділи · довантажуємо…</string>
+    <string name="book_detail_chapters_count">Розділи (%1$d)</string>
+    <string name="people_index_loading">Список поповнюється…</string>
+    <string name="authors_index_title">Автори</string>
+    <plurals name="authors_index_count">
+        <item quantity="one">%d автор</item>
+        <item quantity="few">%d автори</item>
+        <item quantity="many">%d авторів</item>
+        <item quantity="other">%d авторів</item>
+    </plurals>
 </resources>

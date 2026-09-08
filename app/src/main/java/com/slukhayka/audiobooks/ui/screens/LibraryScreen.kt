@@ -71,7 +71,9 @@ import com.slukhayka.audiobooks.ui.bookPersonPath
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.components.BookCoverSemantics
 import com.slukhayka.audiobooks.ui.components.BookCoverImage
+import com.slukhayka.audiobooks.ui.components.BookRow
 import com.slukhayka.audiobooks.ui.components.EmptyState
+import com.slukhayka.audiobooks.ui.components.MetadataChip
 import com.slukhayka.audiobooks.ui.components.RestoreFocusAfterModal
 import com.slukhayka.audiobooks.ui.components.accessibilityPane
 import com.slukhayka.audiobooks.ui.components.accessibilityModalBackground
@@ -83,6 +85,7 @@ import com.slukhayka.audiobooks.ui.library.clearCacheConfirmText
 import com.slukhayka.audiobooks.ui.library.SHEET_FILTERS
 import com.slukhayka.audiobooks.ui.library.filterAndSortLibrary
 import com.slukhayka.audiobooks.ui.library.formatRemainingTime
+import com.slukhayka.audiobooks.ui.library.stringRemainingTimeUnits
 import com.slukhayka.audiobooks.ui.theme.*
 import kotlin.math.roundToInt
 
@@ -690,7 +693,7 @@ fun LibraryBookCard(
         stringResource(
             com.slukhayka.audiobooks.R.string.a11y_library_progress,
             (book.percent * 100f).roundToInt(),
-            formatRemainingTime(book.remainingSeconds)
+            formatRemainingTime(book.remainingSeconds, stringRemainingTimeUnits())
         )
     } else {
         stringResource(com.slukhayka.audiobooks.R.string.a11y_library_progress_unknown)
@@ -739,85 +742,51 @@ fun LibraryBookCard(
 
 @Composable
 private fun LibraryBookRowContent(book: LibraryBook) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(12.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        BookCoverImage(
-            book = book.book,
-            semantics = BookCoverSemantics.Decorative,
-            modifier = Modifier
-                .size(56.dp)
-                .clip(MaterialTheme.shapes.medium),
-            contentScale = ContentScale.Crop
-        )
-
-        Spacer(modifier = Modifier.width(12.dp))
-
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = book.book.title,
-                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            if (book.book.displayAuthor.isNotBlank()) {
-                Text(
-                    text = book.book.displayAuthor,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+    // v1.4 E3 (ADR-0033): the library list row IS the canonical BookRow —
+    // the old bespoke 56 dp Row (a fifth row style) is gone. The card's
+    // own a11y contract (tag, content/state description, role) still rides
+    // on the Card wrapper above; the inner row only carries the visuals.
+    BookRow(
+        title = book.book.title,
+        book = book.book,
+        author = book.book.displayAuthor.takeIf { it.isNotBlank() },
+        // The series line is a known fact about the edition, so it rides
+        // the stats slot (label line under the author).
+        stats = book.seriesLabel,
+        progress = book.percent,
+        badges = {
+            // C4: the canonical provenance chip — the local SourceBadge was
+            // a pixel-duplicate of MetadataChip(source=…).
+            MetadataChip(source = book.sourceName)
+            if (book.book.isDownloaded) {
+                Spacer(modifier = Modifier.width(AppDimens.SpaceXs))
+                Icon(
+                    imageVector = Icons.Default.CloudDone,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.secondary,
+                    modifier = Modifier.size(14.dp)
                 )
             }
-            book.seriesLabel?.let { series ->
+        },
+        footnote = {
+            if (book.totalDurationSeconds > 0L) {
+                // Aligned under the text column (canonical footnote rhythm:
+                // the honest remaining line, right under the progress hairline).
                 Text(
-                    text = series,
-                    style = MaterialTheme.typography.labelMedium,
+                    text = stringResource(
+                        R.string.library_remaining,
+                        formatRemainingTime(book.remainingSeconds, stringRemainingTimeUnits())
+                    ),
+                    style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    modifier = Modifier.padding(
+                        start = AppDimens.PageSides + 64.dp + AppDimens.SpaceMd,
+                        bottom = AppDimens.SpaceXs
+                    )
                 )
-            }
-            Spacer(modifier = Modifier.height(6.dp))
-            LinearProgressIndicator(
-                progress = { book.percent },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(4.dp)
-                    .clip(RoundedCornerShape(AppDimens.RadiusProgress))
-                    .clearAndSetSemantics { },
-                color = MaterialTheme.colorScheme.primary,
-                trackColor = MaterialTheme.colorScheme.outlineVariant
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (book.totalDurationSeconds > 0L) {
-                    Text(
-                        text = "Залишилось ${formatRemainingTime(book.remainingSeconds)}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.weight(1f)
-                    )
-                } else {
-                    Spacer(modifier = Modifier.weight(1f))
-                }
-                SourceBadge(book)
-                if (book.book.isDownloaded) {
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Icon(
-                        imageVector = Icons.Default.CloudDone,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.secondary,
-                        modifier = Modifier.size(14.dp)
-                    )
-                }
             }
         }
-    }
+    )
 }
 
 @Composable
@@ -875,12 +844,14 @@ private fun LibraryBookGridContent(book: LibraryBook) {
             ) {
                 if (book.totalDurationSeconds > 0L) {
                     Text(
-                        text = formatRemainingTime(book.remainingSeconds),
+                        text = formatRemainingTime(book.remainingSeconds, stringRemainingTimeUnits()),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                SourceBadge(book)
+                // C4: the canonical provenance chip (the local SourceBadge
+                // was a pixel-duplicate of MetadataChip(source=…)).
+                MetadataChip(source = book.sourceName)
                 if (book.book.isDownloaded) {
                     Spacer(modifier = Modifier.width(6.dp))
                     Icon(
@@ -892,26 +863,6 @@ private fun LibraryBookGridContent(book: LibraryBook) {
                 }
             }
         }
-    }
-}
-
-/**
- * Small unobtrusive source badge: «Локальна» for local imports, else the
- * book's real source (4read, Sluhay, Sound-Books, …) — spec-15 T6, one badge
- * for the whole multi-source library.
- */
-@Composable
-private fun SourceBadge(book: LibraryBook) {
-    Surface(
-        color = MaterialTheme.colorScheme.primaryContainer,
-        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-        shape = RoundedCornerShape(AppDimens.RadiusXs)
-    ) {
-        Text(
-            text = book.sourceName,
-            style = MaterialTheme.typography.labelSmall,
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-        )
     }
 }
 

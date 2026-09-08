@@ -37,6 +37,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -77,6 +78,9 @@ import com.slukhayka.audiobooks.ui.components.BookmarkDialog
 import com.slukhayka.audiobooks.ui.components.BookCoverImage
 import com.slukhayka.audiobooks.ui.components.BookCoverSemantics
 import com.slukhayka.audiobooks.data.imports.NarrationClaimPolicy
+import com.slukhayka.audiobooks.ui.components.AppSectionHeader
+import com.slukhayka.audiobooks.ui.components.MetadataChip
+import com.slukhayka.audiobooks.ui.components.PosterCard
 import com.slukhayka.audiobooks.ui.components.RestoreFocusAfterModal
 import com.slukhayka.audiobooks.ui.components.accessibilityModalBackground
 import com.slukhayka.audiobooks.ui.components.accessibilityPane
@@ -836,16 +840,10 @@ fun BookDetailScreen(
                     // the same Work. Tapping one opens that card (its own
                     // narrator, chapters, progress) — the narration selection.
                     if (siblingCards.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(20.dp))
-                        Text(
-                            text = "Інші начитки",
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                            color = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier
-                                .padding(horizontal = 8.dp)
-                                .semantics { heading() }
+                        // v1.4 C1 (ADR-0033): the canonical section header.
+                        AppSectionHeader(
+                            title = stringResource(R.string.book_detail_other_narrations)
                         )
-                        Spacer(modifier = Modifier.height(8.dp))
                         siblingCards.forEach { sibling ->
                             // ADR-0023 (#348/#357): each rendition carries ITS
                             // OWN narration average — the comparison point.
@@ -1019,11 +1017,9 @@ fun BookDetailScreen(
             // Related books from the book page ("Можливо, Тебе зацікавить:").
             if (relatedBooks.isNotEmpty()) {
                 item {
-                    Text(
-                        text = "Можливо, Тебе зацікавить",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 20.dp, bottom = 8.dp)
+                    // v1.4 C1 (ADR-0033): the canonical section header.
+                    AppSectionHeader(
+                        title = stringResource(R.string.book_detail_maybe_interest)
                     )
                 }
                 item {
@@ -1032,15 +1028,12 @@ fun BookDetailScreen(
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         items(relatedBooks, key = { it.id }) { related ->
-                            CatalogBookCard(
-                                book = CatalogBook(
-                                    id = related.id,
-                                    title = related.title,
-                                    author = related.author,
-                                    url = related.sourceUrl,
-                                    coverImageUrl = related.coverImageUrl
-                                ),
-                                onClick = { viewModel.selectBook(related.id) }
+                            // v1.4 C2 (ADR-0033): the canonical PosterCard.
+                            PosterCard(
+                                title = related.title,
+                                coverUrl = related.coverImageUrl,
+                                onClick = { viewModel.selectBook(related.id) },
+                                testTag = "catalog_book_${related.id}"
                             )
                         }
                     }
@@ -1052,11 +1045,9 @@ fun BookDetailScreen(
             // cached, so this row costs nothing once the series page loaded.
             if (inSeriesBooks.isNotEmpty()) {
                 item {
-                    Text(
-                        text = "У серії",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 20.dp, bottom = 8.dp)
+                    // v1.4 C1 (ADR-0033): the canonical section header.
+                    AppSectionHeader(
+                        title = stringResource(R.string.book_detail_in_series)
                     )
                 }
                 item {
@@ -1065,15 +1056,12 @@ fun BookDetailScreen(
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         items(inSeriesBooks, key = { it.id }) { seriesBook ->
-                            CatalogBookCard(
-                                book = CatalogBook(
-                                    id = seriesBook.id,
-                                    title = seriesBook.title,
-                                    author = seriesBook.author,
-                                    url = seriesBook.sourceUrl,
-                                    coverImageUrl = seriesBook.coverImageUrl
-                                ),
-                                onClick = { viewModel.selectBook(seriesBook.id) }
+                            // v1.4 C2 (ADR-0033): the canonical PosterCard.
+                            PosterCard(
+                                title = seriesBook.title,
+                                coverUrl = seriesBook.coverImageUrl,
+                                onClick = { viewModel.selectBook(seriesBook.id) },
+                                testTag = "catalog_book_${seriesBook.id}"
                             )
                         }
                     }
@@ -1086,23 +1074,36 @@ fun BookDetailScreen(
             // degrades to absent — never a fake state.
             if (viewModel.listenerReviews != null) {
                 item(key = "reviews_header") {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(start = 16.dp, end = 16.dp, top = 20.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                            text = "Відгуки (${bookReviews.size})",
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                            color = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.semantics { heading() }
-                        )
-                        // No «Написати відгук» launcher here (user report):
-                        // writing opens after listening («Ваші враження») and
-                        // editing an own review stays on the review itself.
-                    }
+                    // v1.4 C1 (ADR-0033): the canonical section header — the
+                    // review count rides the header's count slot (R10), the
+                    // write action rides its action slot.
+                    AppSectionHeader(
+                        title = stringResource(R.string.book_detail_reviews_title),
+                        count = pluralStringResource(
+                            R.plurals.book_detail_review_count,
+                            bookReviews.size,
+                            bookReviews.size
+                        ),
+                        action = if (listenerProfile != null) {
+                            {
+                                // Writing needs a listener identity — until
+                                // lane-a's seam answers, the block stays
+                                // honestly read-only.
+                                Button(
+                                    onClick = {
+                                        editingReview = null
+                                        reviewSaveError = null
+                                        showReviewForm = true
+                                    },
+                                    shape = RoundedCornerShape(AppDimens.RadiusCard)
+                                ) {
+                                    Text(stringResource(R.string.profile_write_review))
+                                }
+                            }
+                        } else {
+                            null
+                        }
+                    )
                 }
 
                 // Spec-40 #279 — the honest headline average: flat mean over
@@ -1597,29 +1598,6 @@ private fun BookDetailBookmarkButton(
             Spacer(modifier = Modifier.width(6.dp))
             Text(stringResource(R.string.book_detail_add_bookmark_short), maxLines = 2)
         }
-    }
-}
-
-@Composable
-private fun TagPill(
-    text: String,
-    color: Color,
-    container: Color,
-    border: androidx.compose.foundation.BorderStroke?
-) {
-    Surface(
-        color = container,
-        shape = RoundedCornerShape(AppDimens.RadiusCard),
-        border = border
-    ) {
-        Text(
-            text = text,
-            style = MaterialTheme.typography.labelSmall,
-            color = color,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-        )
     }
 }
 
@@ -2494,10 +2472,8 @@ fun BookDetailCanonicalSummary(
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         if (presentation.genre.isNotBlank() && !presentation.genre.contains("4read", ignoreCase = true)) {
-            TagPill(
+            MetadataChip(
                 text = presentation.genre,
-                color = MaterialTheme.colorScheme.onSurface,
-                container = MaterialTheme.colorScheme.surfaceContainerHigh,
                 border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
             )
         }
@@ -2508,15 +2484,13 @@ fun BookDetailCanonicalSummary(
                 presentation.totalChapters,
                 "розділ", "розділи", "розділів"
             )
-            TagPill(
+            MetadataChip(
                 text = when {
                     chaptersKnown && durationKnown ->
                         "${presentation.totalChapters} $chaptersLabel • ${MainViewModel.formatTime(presentation.totalDurationSeconds)}"
                     chaptersKnown -> "${presentation.totalChapters} $chaptersLabel"
                     else -> MainViewModel.formatTime(presentation.totalDurationSeconds)
                 },
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                container = MaterialTheme.colorScheme.surfaceContainerHigh,
                 border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
             )
         }
@@ -2647,7 +2621,7 @@ fun WorkSourceRowCard(
                     )
                     if (source.isCurrent) {
                         Spacer(modifier = Modifier.width(6.dp))
-                        SourceBadgePill(label = "Поточна")
+                        MetadataChip(source = stringResource(R.string.book_detail_source_current))
                     }
                 }
                 source.rating?.let { rating ->
@@ -2682,7 +2656,7 @@ fun WorkSourceRowCard(
                 }
                 if (source.streamOnly) {
                     Text(
-                        text = "Тільки стрімінг",
+                        text = stringResource(R.string.book_detail_stream_only),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -2754,7 +2728,7 @@ fun NarrationRowCard(
                     // EN/UA badge next to the narrator; unknown renders nothing.
                     if (sibling.language.isNotBlank()) {
                         Spacer(modifier = Modifier.width(8.dp))
-                        LanguageBadge(language = sibling.language)
+                        MetadataChip(language = sibling.language)
                     }
                 }
                 Text(

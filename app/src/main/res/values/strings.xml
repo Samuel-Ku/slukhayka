@@ -45,6 +45,43 @@
     <string name="feed_all_genres">Усі жанри</string>
     <string name="feed_reset_all">Скинути все</string>
     <string name="feed_done">Готово</string>
+    <!-- v1.4 EN/UK chrome (E3 + «Огляд rails → ресурси»): the feed's section
+         headers and search doors moved off hardcoded strings. -->
+    <string name="feed_quick_links">Швидкі переходи</string>
+    <string name="feed_for_you">Для вас</string>
+    <string name="feed_your_cycles">Ваші цикли</string>
+    <string name="feed_similar_cycles">Схожі цикли</string>
+    <string name="feed_recommended_for_you">Рекомендовано для вас</string>
+    <string name="feed_discover">Відкрити нове</string>
+    <string name="feed_genres">Жанри</string>
+    <string name="feed_duration">Тривалість</string>
+    <string name="home_new_arrivals">Новинки</string>
+    <string name="home_short_books">Короткі — до 5 годин</string>
+    <string name="home_long_books">Довгі — від 10 годин</string>
+    <string name="home_more_books_on">Більше книг на %1$s</string>
+    <string name="home_library_results">У вашій медіатеці (%1$d)</string>
+    <string name="home_all_sources">Усі джерела (%1$d)</string>
+    <string name="home_search_on_4read">Шукати «%1$s» на 4read</string>
+    <string name="home_search_browser_fallback">Нічого на 4read? Шукати в браузері</string>
+    <string name="home_browser_only_snackbar">Ця книга лише на 4read — потрібен браузер</string>
+    <string name="home_open">Відкрити</string>
+    <string name="home_recommendation_updated">Рекомендацію оновлено</string>
+    <string name="library_remaining">Залишилось %1$s</string>
+    <!-- v1.4 E5: player chrome off hardcoded strings. -->
+    <string name="player_chapter_fallback">Розділ %1$d</string>
+    <string name="player_feedback_chapter_end">До кінця розділу</string>
+    <string name="player_feedback_timer_minutes">Таймер на %1$d хв</string>
+    <string name="player_feedback_bookmark_saved">Закладку додано на %1$s</string>
+    <string name="player_seek_back_label">15 с</string>
+    <string name="player_seek_forward_label">30 с</string>
+    <string name="player_chapters_title">Розділи</string>
+    <!-- v1.4: locale-aware remaining-time units (formatRemainingTime /
+         formatRemainingLocalized share the strings; EN differs, UK matches
+         the old literals). -->
+    <string name="remaining_units_hm">%1$d год %2$d хв</string>
+    <string name="remaining_units_h">%1$d год</string>
+    <string name="remaining_units_m">%1$d хв</string>
+    <string name="remaining_units_minute">1 хв</string>
     <string name="lib_books_count">Книги (%1$d)</string>
     <string name="lib_bookmarks_count">Закладки (%1$d)</string>
     <string name="lib_statistics">Статистика</string>
@@ -67,10 +104,6 @@
     <string name="listen_book">Книга</string>
     <string name="listen_chapter">Розділ</string>
     <string name="listen_note_optional">Нотатка (необов\'язково)</string>
-    <string name="profile_unhide_blocks">Повернути приховані блоки</string>
-    <string name="profile_move_up">Перемістити вище</string>
-    <string name="profile_move_down">Перемістити нижче</string>
-    <string name="profile_hide_block">Сховати цей блок</string>
     <string name="profile_view_catalogue">Переглянути каталог</string>
     <string name="profile_import_from_device">Імпортувати з пристрою</string>
     <string name="profile_nickname_label">Як вас показувати</string>
@@ -138,6 +171,10 @@
     <string name="listen_chapter_position">Розділ %1$d · %2$s</string>
     <string name="listen_progress_percent_remaining">%1$d%% · %2$s</string>
     <string name="listen_remaining_hm">Залишилося %1$d год %2$d хв</string>
+    <!-- v1.4 E1: the shelf-management sheet (the eight ⋮ menus are gone). -->
+    <string name="listen_manage_shelves">Керувати полицями</string>
+    <string name="listen_shelves_hidden">Приховано</string>
+    <string name="listen_shelves_restore_all">Відновити всі приховані</string>
     <string name="listen_remaining_h">Залишилося %1$d год</string>
     <string name="listen_remaining_m">Залишилося %1$d хв</string>
     <string name="listen_remaining_less_than_minute">Залишилося менше хвилини</string>
@@ -149,4 +186,66 @@
     <string name="home_search_no_results_hint">Спробуйте змінити запит або фільтр.</string>
     <string name="home_no_personal_picks">Персональних добірок поки немає.</string>
     <string name="home_personal_picks_loading">Готуємо персональні добірки…</string>
+
+    <!-- v1.4 (ADR-0033): book-page section headers and source chrome. -->
+    <string name="book_detail_other_narrations">Інші начитки</string>
+    <string name="book_detail_maybe_interest">Можливо, Тебе зацікавить</string>
+    <string name="book_detail_in_series">У серії</string>
+    <string name="book_detail_reviews_title">Відгуки</string>
+    <string name="book_detail_source_current">Поточна</string>
+    <string name="book_detail_stream_only">Тільки стрімінг</string>
+    <plurals name="book_detail_review_count">
+        <item quantity="one">%1$d відгук</item>
+        <item quantity="few">%1$d відгуки</item>
+        <item quantity="many">%1$d відгуків</item>
+        <item quantity="other">%1$d відгуків</item>
+    </plurals>
+
+    <!-- v1.4 (ADR-0033): index screens — honest counts and empty states. -->
+    <string name="author_index_title">Автори</string>
+    <string name="series_index_title">Серії</string>
+    <string name="top100_index_title">ТОП 100 АудіоКниг</string>
+    <string name="author_empty_catalog">Автори з\'являться після завантаження каталогу.</string>
+    <string name="author_load_failed">Не вдалося відкрити книги автора. Спробуйте ще раз.</string>
+    <string name="author_empty_works">Книг цього автора поки немає в каталозі.</string>
+    <plurals name="author_count">
+        <item quantity="one">%1$d автор</item>
+        <item quantity="few">%1$d автори</item>
+        <item quantity="many">%1$d авторів</item>
+        <item quantity="other">%1$d авторів</item>
+    </plurals>
+    <plurals name="book_count">
+        <item quantity="one">%1$d книга</item>
+        <item quantity="few">%1$d книги</item>
+        <item quantity="many">%1$d книг</item>
+        <item quantity="other">%1$d книг</item>
+    </plurals>
+    <plurals name="series_count">
+        <item quantity="one">%1$d серія</item>
+        <item quantity="few">%1$d серії</item>
+        <item quantity="many">%1$d серій</item>
+        <item quantity="other">%1$d серій</item>
+    </plurals>
+    <plurals name="best_book_count">
+        <item quantity="one">%1$d найкраща книга</item>
+        <item quantity="few">%1$d найкращі книги</item>
+        <item quantity="many">%1$d найкращих книг</item>
+        <item quantity="other">%1$d найкращих книг</item>
+    </plurals>
+    <plurals name="book_in_cycle_count">
+        <item quantity="one">%1$d книга у циклі</item>
+        <item quantity="few">%1$d книги у циклі</item>
+        <item quantity="many">%1$d книг у циклі</item>
+        <item quantity="other">%1$d книг у циклі</item>
+    </plurals>
+    <plurals name="performer_count">
+        <item quantity="one">%1$d виконавець</item>
+        <item quantity="few">%1$d виконавці</item>
+        <item quantity="many">%1$d виконавців</item>
+        <item quantity="other">%1$d виконавців</item>
+    </plurals>
+    <!-- ADR-0037 (spec-49 T1): the «Аудіо джерел» destination — the personal
+         Source Audio Refusal. -->
+    <string name="source_audio_refusal_title">Аудіо джерел</string>
+    <string name="source_audio_refusal_description">Позначені джерела більше не пропонуються для прослуховування й завантаження — метадані, каталог і підбірки лишаються. Зніміть прапорець, щоб повернути джерело без повторного імпорту.</string>
 </resources>

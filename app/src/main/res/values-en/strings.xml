@@ -43,6 +43,40 @@
     <string name="feed_all_genres">All genres</string>
     <string name="feed_reset_all">Reset all</string>
     <string name="feed_done">Done</string>
+    <!-- v1.4 EN/UK chrome (E3 + «Огляд rails → ресурси»): English twins. -->
+    <string name="feed_quick_links">Quick links</string>
+    <string name="feed_for_you">For you</string>
+    <string name="feed_your_cycles">Your cycles</string>
+    <string name="feed_similar_cycles">Similar cycles</string>
+    <string name="feed_recommended_for_you">Recommended for you</string>
+    <string name="feed_discover">Discover</string>
+    <string name="feed_genres">Genres</string>
+    <string name="feed_duration">Duration</string>
+    <string name="home_new_arrivals">New arrivals</string>
+    <string name="home_short_books">Short — up to 5 hours</string>
+    <string name="home_long_books">Long — 10+ hours</string>
+    <string name="home_more_books_on">More books on %1$s</string>
+    <string name="home_library_results">In your library (%1$d)</string>
+    <string name="home_all_sources">All sources (%1$d)</string>
+    <string name="home_search_on_4read">Search “%1$s” on 4read</string>
+    <string name="home_search_browser_fallback">Nothing on 4read? Search in browser</string>
+    <string name="home_browser_only_snackbar">This book is 4read-only — browser needed</string>
+    <string name="home_open">Open</string>
+    <string name="home_recommendation_updated">Recommendation updated</string>
+    <string name="library_remaining">%1$s left</string>
+    <!-- v1.4 E5: player chrome off hardcoded strings (English twins). -->
+    <string name="player_chapter_fallback">Chapter %1$d</string>
+    <string name="player_feedback_chapter_end">Until chapter end</string>
+    <string name="player_feedback_timer_minutes">Timer for %1$d min</string>
+    <string name="player_feedback_bookmark_saved">Bookmark added at %1$s</string>
+    <string name="player_seek_back_label">15 s</string>
+    <string name="player_seek_forward_label">30 s</string>
+    <string name="player_chapters_title">Chapters</string>
+    <!-- v1.4: locale-aware remaining-time units. -->
+    <string name="remaining_units_hm">%1$d h %2$d min</string>
+    <string name="remaining_units_h">%1$d h</string>
+    <string name="remaining_units_m">%1$d min</string>
+    <string name="remaining_units_minute">1 min</string>
     <string name="lib_books_count">Books (%1$d)</string>
     <string name="lib_bookmarks_count">Bookmarks (%1$d)</string>
     <string name="lib_statistics">Statistics</string>
@@ -65,10 +99,6 @@
     <string name="listen_book">Book</string>
     <string name="listen_chapter">Chapter</string>
     <string name="listen_note_optional">Note (optional)</string>
-    <string name="profile_unhide_blocks">Restore hidden blocks</string>
-    <string name="profile_move_up">Move up</string>
-    <string name="profile_move_down">Move down</string>
-    <string name="profile_hide_block">Hide this block</string>
     <string name="profile_view_catalogue">View catalogue</string>
     <string name="profile_import_from_device">Import from device</string>
     <string name="profile_nickname_label">How to show you</string>
@@ -136,6 +166,10 @@
     <string name="listen_chapter_position">Chapter %1$d · %2$s</string>
     <string name="listen_progress_percent_remaining">%1$d%% · %2$s</string>
     <string name="listen_remaining_hm">%1$d h %2$d min left</string>
+    <!-- v1.4 E1: the shelf-management sheet (the eight ⋮ menus are gone). -->
+    <string name="listen_manage_shelves">Manage shelves</string>
+    <string name="listen_shelves_hidden">Hidden</string>
+    <string name="listen_shelves_restore_all">Restore all hidden</string>
     <string name="listen_remaining_h">%1$d h left</string>
     <string name="listen_remaining_m">%1$d min left</string>
     <string name="listen_remaining_less_than_minute">Less than a minute left</string>
@@ -147,4 +181,52 @@
     <string name="home_search_no_results_hint">Try a different query or filter.</string>
     <string name="home_no_personal_picks">No personal picks yet.</string>
     <string name="home_personal_picks_loading">Preparing personal picks…</string>
+
+    <!-- v1.4 (ADR-0033): book-page section headers and source chrome. -->
+    <string name="book_detail_other_narrations">Other narrations</string>
+    <string name="book_detail_maybe_interest">You may also like</string>
+    <string name="book_detail_in_series">In the series</string>
+    <string name="book_detail_reviews_title">Reviews</string>
+    <string name="book_detail_source_current">Current</string>
+    <string name="book_detail_stream_only">Streaming only</string>
+    <plurals name="book_detail_review_count">
+        <item quantity="one">%1$d review</item>
+        <item quantity="other">%1$d reviews</item>
+    </plurals>
+
+    <!-- v1.4 (ADR-0033): index screens — honest counts and empty states. -->
+    <string name="author_index_title">Authors</string>
+    <string name="series_index_title">Series</string>
+    <string name="top100_index_title">Top 100 Audiobooks</string>
+    <string name="author_empty_catalog">Authors will appear once the catalogue loads.</string>
+    <string name="author_load_failed">Couldn\'t open this author\'s books. Try again.</string>
+    <string name="author_empty_works">No books by this author in the catalogue yet.</string>
+    <plurals name="author_count">
+        <item quantity="one">%1$d author</item>
+        <item quantity="other">%1$d authors</item>
+    </plurals>
+    <plurals name="book_count">
+        <item quantity="one">%1$d book</item>
+        <item quantity="other">%1$d books</item>
+    </plurals>
+    <plurals name="series_count">
+        <item quantity="one">%1$d series</item>
+        <item quantity="other">%1$d series</item>
+    </plurals>
+    <plurals name="best_book_count">
+        <item quantity="one">%1$d best book</item>
+        <item quantity="other">%1$d best books</item>
+    </plurals>
+    <plurals name="book_in_cycle_count">
+        <item quantity="one">%1$d book in the cycle</item>
+        <item quantity="other">%1$d books in the cycle</item>
+    </plurals>
+    <plurals name="performer_count">
+        <item quantity="one">%1$d narrator</item>
+        <item quantity="other">%1$d narrators</item>
+    </plurals>
+    <!-- ADR-0037 (spec-49 T1): the «Source audio» destination — the personal
+         Source Audio Refusal. -->
+    <string name="source_audio_refusal_title">Source audio</string>
+    <string name="source_audio_refusal_description">Ticked sources stop supplying audio for playback and downloads — metadata, catalog and collections stay. Untick a source to bring it back without re-importing.</string>
 </resources>

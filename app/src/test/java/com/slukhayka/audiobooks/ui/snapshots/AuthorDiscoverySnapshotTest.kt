@@ -1,5 +1,6 @@
 package com.slukhayka.audiobooks.ui.snapshots
 
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
@@ -8,8 +9,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
@@ -18,9 +20,11 @@ import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
 import com.github.takahirom.roborazzi.captureRoboImage
 import com.slukhayka.audiobooks.data.authors.AuthorSummary
 import com.slukhayka.audiobooks.data.db.WorkEntity
+import com.slukhayka.audiobooks.data.personbookmarks.PersonBookmarks
+import com.slukhayka.audiobooks.testing.FakeAudiobookDao
 import com.slukhayka.audiobooks.ui.screens.AuthorSearchResults
-import com.slukhayka.audiobooks.ui.screens.AuthorsIndexContent
-import com.slukhayka.audiobooks.ui.screens.CanonicalAuthorContent
+import com.slukhayka.audiobooks.ui.screens.AuthorsIndexScreen
+import com.slukhayka.audiobooks.ui.screens.CanonicalAuthorScreen
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -89,24 +93,36 @@ class AuthorDiscoverySnapshotTest {
             WorkEntity("w2", "w2", "Бояриня", "Леся Українка", addedAt = 2),
             WorkEntity("w1", "w1", "Лісова пісня", "Леся Українка", addedAt = 1)
         )
+        // v1.4 E6 (ADR-0033): the counts ride the canonical scaffold's
+        // subtitle — compose the real screens, not the bare content.
         composeTestRule.setContent {
             AudiobookTheme(darkTheme = true) {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     Column {
-                        AuthorsIndexContent(authors = authors, onAuthorClick = {}, modifier = Modifier.height(360.dp))
-                        CanonicalAuthorContent(
-                            author = authors.first().copy(displayName = "Леся Українка", workCount = 2),
-                            works = works,
-                            onWorkClick = {},
-                            modifier = Modifier.height(360.dp)
-                        )
+                        Box(Modifier.height(360.dp)) {
+                            AuthorsIndexScreen(authors = authors, onBackClick = {}, onAuthorClick = {})
+                        }
+                        Box(Modifier.height(360.dp)) {
+                            CanonicalAuthorScreen(
+                                author = authors.first().copy(displayName = "Леся Українка", workCount = 2),
+                                works = works,
+                                isLoading = false,
+                                loadFailed = false,
+                                onBackClick = {},
+                                onWorkClick = {},
+                                personBookmarks = PersonBookmarks(FakeAudiobookDao())
+                            )
+                        }
                     }
                 }
             }
         }
 
         composeTestRule.onNodeWithText("6 авторів").assertExists()
-        composeTestRule.onNodeWithTag("canonical_author_work_count").assertTextEquals("2 книги")
+        // The author index's subtitle is unique; the canonical page's «2 книги»
+        // also legitimately matches «Автор 2»'s per-row count — assert both
+        // (the header subtitle + the honest per-row work count).
+        composeTestRule.onAllNodesWithText("2 книги").assertCountEquals(2)
         composeTestRule.onNodeWithText("Бояриня").assertExists()
         composeTestRule.onNodeWithText("Лісова пісня").assertExists()
         composeTestRule.onRoot().captureRoboImage("src/test/snapshots/canonical_author_page.png")
@@ -116,7 +132,15 @@ class AuthorDiscoverySnapshotTest {
     fun empty_canonical_page_does_not_invent_a_work_count() {
         composeTestRule.setContent {
             AudiobookTheme(darkTheme = true) {
-                CanonicalAuthorContent(author = authors.first().copy(workCount = 0), works = emptyList(), onWorkClick = {})
+                CanonicalAuthorScreen(
+                    author = authors.first().copy(workCount = 0),
+                    works = emptyList(),
+                    isLoading = false,
+                    loadFailed = false,
+                    onBackClick = {},
+                    onWorkClick = {},
+                    personBookmarks = PersonBookmarks(FakeAudiobookDao())
+                )
             }
         }
 
@@ -128,11 +152,14 @@ class AuthorDiscoverySnapshotTest {
     fun canonical_failure_state_does_not_invent_work_count() {
         composeTestRule.setContent {
             AudiobookTheme(darkTheme = true) {
-                CanonicalAuthorContent(
+                CanonicalAuthorScreen(
                     author = authors.first().copy(workCount = 12),
                     works = emptyList(),
+                    isLoading = false,
+                    loadFailed = true,
+                    onBackClick = {},
                     onWorkClick = {},
-                    loadFailed = true
+                    personBookmarks = PersonBookmarks(FakeAudiobookDao())
                 )
             }
         }

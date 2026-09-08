@@ -632,6 +632,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _listenPrefsVersion.value++
     }
 
+    /** v1.4 E1: the shelf sheet's per-row show toggle — restores ONE block. */
+    fun unhideListenBlock(id: com.slukhayka.audiobooks.ui.library.ListenComposer.BlockId) {
+        listenPrefs.unhideBlock(id)
+        _listenPrefsVersion.value++
+    }
+
     fun restoreHiddenListenBlocks() {
         listenPrefs.restoreHiddenBlocks()
         _listenPrefsVersion.value++

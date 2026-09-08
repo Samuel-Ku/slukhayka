@@ -336,12 +336,15 @@ class SecondaryScreensAccessibilityTest {
                         Text("Назад")
                     }
                 } else {
-                    IndexScreenScaffold(title = "Автори", onBackClick = {}) { padding ->
+                    IndexScreenScaffold(
+                        title = "Автори",
+                        onBackClick = {},
+                        subtitle = "20 авторів"
+                    ) { padding ->
                         PeopleContent(
                             people = people,
                             isLoading = false,
                             loadFailed = false,
-                            peopleCountLabel = "20 авторів",
                             onPersonClick = { person ->
                                 returnPath = person.path
                                 childOpen = true
@@ -609,7 +612,17 @@ class SecondaryScreensAccessibilityTest {
             CompositionLocalProvider(LocalDensity provides Density(density.density, 2f)) {
                 AudiobookTheme(darkTheme = true) {
                     Box(Modifier.width(320.dp).height(480.dp)) {
-                        SeriesIndexContent(series = listOf(series), onSeriesClick = {})
+                        IndexScreenScaffold(
+                            title = "Серії",
+                            onBackClick = {},
+                            subtitle = "1 серія"
+                        ) { padding ->
+                            SeriesIndexContent(
+                                series = listOf(series),
+                                onSeriesClick = {},
+                                modifier = Modifier.padding(padding)
+                            )
+                        }
                     }
                 }
             }
@@ -618,7 +631,7 @@ class SecondaryScreensAccessibilityTest {
         composeTestRule.onNodeWithTag("catalog_series_${series.url.hashCode()}")
             .assertIsDisplayed()
             .assertHeightIsAtLeast(48.dp)
-        composeTestRule.onNodeWithText("1 серій").assertIsDisplayed()
+        composeTestRule.onNodeWithText("1 серія").assertIsDisplayed()
     }
 
     @Test

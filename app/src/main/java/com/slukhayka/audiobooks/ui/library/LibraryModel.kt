@@ -1,5 +1,8 @@
 package com.slukhayka.audiobooks.ui.library
 
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
+import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.ChapterEntity
 import com.slukhayka.audiobooks.data.db.PlaybackProgressEntity
@@ -216,19 +219,56 @@ private fun comparatorFor(sort: LibrarySort): Comparator<LibraryBook> {
 }
 
 /**
- * «Залишилось 4 год 12 хв» — the remaining-time line on the book card.
- * Returns "—" when the duration is unknown.
+ * The remaining-time unit shapes (v1.4: locale-aware). The bucket strings
+ * live in the EN/UK pair (remaining_units_*), so EN no longer renders
+ * mixed-language units; implementations are tiny string formatters.
  */
-fun formatRemainingTime(totalSeconds: Long): String {
+interface RemainingTimeUnits {
+    fun hoursMinutes(hours: Long, minutes: Long): String
+    fun hours(hours: Long): String
+    fun minutes(minutes: Long): String
+    fun singleMinute(): String
+}
+
+/** The shared bucket logic: picks the shape, the units render the text. */
+fun formatRemainingTime(totalSeconds: Long, units: RemainingTimeUnits): String {
     if (totalSeconds <= 0L) return "—"
     val hours = totalSeconds / 3600
     val minutes = (totalSeconds % 3600) / 60
     return when {
-        hours > 0L && minutes > 0L -> "$hours год $minutes хв"
-        hours > 0L -> "$hours год"
-        minutes > 0L -> "$minutes хв"
-        else -> "1 хв"
+        hours > 0L && minutes > 0L -> units.hoursMinutes(hours, minutes)
+        hours > 0L -> units.hours(hours)
+        minutes > 0L -> units.minutes(minutes)
+        else -> units.singleMinute()
     }
+}
+
+/** The resource-backed units for composables: the four templates resolve
+ * eagerly in the composable body, the returned impl does plain formatting. */
+@Composable
+fun stringRemainingTimeUnits(): RemainingTimeUnits {
+    val hmTemplate = stringResource(R.string.remaining_units_hm)
+    val hTemplate = stringResource(R.string.remaining_units_h)
+    val mTemplate = stringResource(R.string.remaining_units_m)
+    val single = stringResource(R.string.remaining_units_minute)
+    return object : RemainingTimeUnits {
+        override fun hoursMinutes(hours: Long, minutes: Long) =
+            String.format(hmTemplate, hours, minutes)
+        override fun hours(hours: Long) =
+            String.format(hTemplate, hours)
+        override fun minutes(minutes: Long) =
+            String.format(mTemplate, minutes)
+        override fun singleMinute() = single
+    }
+}
+
+/** The UK product-copy units for pure (non-composable) call sites — the
+ * block reasons and the JVM tests pin the Ukrainian shapes by convention. */
+val UK_REMAINING_TIME_UNITS: RemainingTimeUnits = object : RemainingTimeUnits {
+    override fun hoursMinutes(hours: Long, minutes: Long) = "$hours год $minutes хв"
+    override fun hours(hours: Long) = "$hours год"
+    override fun minutes(minutes: Long) = "$minutes хв"
+    override fun singleMinute() = "1 хв"
 }
 
 /**

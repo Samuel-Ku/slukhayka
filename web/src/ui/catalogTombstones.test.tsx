@@ -13,6 +13,7 @@ import { DomainStore } from '../local/domain'
 import { setUiLocale } from '../i18n/locale'
 import type { UnifiedWorkPage } from '../worker/types'
 import { Catalog } from './Catalog'
+import { resetSearchMemory } from './searchMemory'
 
 const page: UnifiedWorkPage = {
   works: [
@@ -36,6 +37,7 @@ const page: UnifiedWorkPage = {
 beforeEach(() => {
   globalThis.indexedDB = new IDBFactory()
   setUiLocale('uk')
+  resetSearchMemory()
   vi.spyOn(api, 'workFeed').mockResolvedValue(page)
   vi.spyOn(api, 'workSearch').mockResolvedValue(page)
 })

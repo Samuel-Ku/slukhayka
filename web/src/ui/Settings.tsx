@@ -16,18 +16,24 @@ import { useEffect, useRef, useState } from 'react'
 import type { ListenerProfile } from '../identity/listenerIdentity'
 import type { DomainStore } from '../local/domain'
 import { RecommendationPrefsStore, type RecommendationKind, type RecommendationPreferenceRow } from '../local/recommendationPrefs'
+import type { HybridListeningStateStorage } from '../local/hybridListeningState'
+import type { ListenerDatabase } from '../local/listeningState'
 import { EmptyState, SectionHeader, TabHeader } from './components'
 import { useTranslate } from '../i18n/locale'
 import type { StringKey } from '../i18n/strings'
+import { NetworkDirection, StorageDirection } from './settingsDirections'
+import type { ManagementCacheStorage } from '../local/storageManagement'
 
-export type SettingsDestination = 'profile' | 'recommendations'
+export type SettingsDestination = 'profile' | 'storage' | 'network' | 'recommendations'
 
-/** Android's order (Profile first); the missing destinations join with W5.2. */
-export const SETTINGS_DESTINATIONS: readonly SettingsDestination[] = ['profile', 'recommendations']
+/** Android's order verbatim (Profile, Storage, Приватність, Рекомендації). */
+export const SETTINGS_DESTINATIONS: readonly SettingsDestination[] = ['profile', 'storage', 'network', 'recommendations']
 
 /** One label per destination — never a lookup keyed to the only existing row. */
 const SETTINGS_DESTINATION_LABELS: Record<SettingsDestination, StringKey> = {
   profile: 'profileTitle',
+  storage: 'storageTitle',
+  network: 'networkTitle',
   recommendations: 'recommendationsTitle',
 }
 
@@ -279,7 +285,7 @@ export function RecommendationsDirection({ recommendationPrefs, domainStore, onB
 }
 
 /** The Налаштування tab: the one home for settings directions. */
-export function Settings({ profile, onProfileChange, evicted = false, onLinked, recommendationPrefs, domainStore }: {
+export function Settings({ profile, onProfileChange, evicted = false, onLinked, recommendationPrefs, domainStore, hybrid, idbStore, storage, cacheStorage }: {
   profile: ListenerProfile | null
   onProfileChange?: (p: ListenerProfile) => void
   evicted?: boolean
@@ -287,6 +293,11 @@ export function Settings({ profile, onProfileChange, evicted = false, onLinked, 
   /** #586 W2.2 — the local Recommendation Preference store («Не цікаво» undo). */
   recommendationPrefs: RecommendationPrefsStore
   domainStore: DomainStore
+  /** #591 W5.2 — the storage direction's seams (the honest clear paths). */
+  hybrid: HybridListeningStateStorage
+  idbStore: ListenerDatabase
+  storage: { getItem(key: string): string | null; removeItem(key: string): void; length?: number; key?(index: number): string | null }
+  cacheStorage?: ManagementCacheStorage | null
 }) {
   const t = useTranslate()
   const [destination, setDestination] = useState<SettingsDestination | null>(null)
@@ -316,6 +327,20 @@ export function Settings({ profile, onProfileChange, evicted = false, onLinked, 
         onBack={() => setDestination(null)}
       />
     )
+  }
+  if (destination === 'storage') {
+    return (
+      <StorageDirection
+        hybrid={hybrid}
+        idbStore={idbStore}
+        storage={storage}
+        cacheStorage={cacheStorage}
+        onBack={() => setDestination(null)}
+      />
+    )
+  }
+  if (destination === 'network') {
+    return <NetworkDirection onBack={() => setDestination(null)} />
   }
   if (destination === 'recommendations') {
     return (

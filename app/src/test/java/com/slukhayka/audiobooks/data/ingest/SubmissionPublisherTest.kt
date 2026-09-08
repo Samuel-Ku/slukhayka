@@ -101,4 +101,85 @@ class SubmissionPublisherTest {
         assertEquals(1, store.getSubmissionPage(null, 100).publications.size)
         assertEquals("the refused repeat consumed no slot", 1L, store.getSubmissionCount("device-1", "0"))
     }
+
+    // ---------------------------------------------------------------------
+    // The TG door (ADR-0035 п. 13 / #606) — metadata-only by the RED verdict
+    // ---------------------------------------------------------------------
+
+    private val tgPostUrl = "https://t.me/stivenkingua/168"
+
+    @Test
+    fun `a tg post publishes as metadata-only with no verdict and no chapters`() = runBlocking {
+        val result = publisher.publishTgMetadata(
+            url = tgPostUrl,
+            title = "Джералдова гра",
+            author = null,
+            narrator = "Alex Nekrasov",
+            coverUrl = "https://cdn4.telesco.pe/file/cover.jpg",
+            description = "Опис: Цей відпочинок у віддаленому літньому будиночку…",
+            submitterId = "device-1"
+        )
+        assertEquals(SubmissionPublisher.Result.PUBLISHED, result)
+
+        val publication = store.submissionPuts.single()
+        assertEquals(tgPostUrl, publication.sourceUrl)
+        assertEquals(SubmissionAccessMode.TG_PREVIEW, publication.accessMode)
+        assertEquals("Джералдова гра", publication.title)
+        assertEquals(null, publication.author)
+        assertEquals("Alex Nekrasov", publication.narrator)
+        assertTrue("no chapters - the honest unavailable state", publication.chapters.isEmpty())
+        assertEquals("no duration is claimed", null, publication.durationSeconds)
+        assertEquals(
+            "verifiedAt is honestly 0 - no playback verdict ever fired",
+            0L,
+            publication.verifiedAt
+        )
+        assertEquals("the metadata publish consumed one daily slot", 1L, store.getSubmissionCount("device-1", "0"))
+    }
+
+    @Test
+    fun `a blank-title tg post publishes nothing`() = runBlocking {
+        assertEquals(
+            SubmissionPublisher.Result.METADATA_FAILED,
+            publisher.publishTgMetadata(tgPostUrl, title = "   ", author = null, narrator = null, coverUrl = null, description = null, submitterId = "device-1")
+        )
+        assertTrue(store.submissionPuts.isEmpty())
+    }
+
+    @Test
+    fun `a repeated tg url is refused honestly and consumes nothing`() = runBlocking {
+        assertEquals(
+            SubmissionPublisher.Result.PUBLISHED,
+            publisher.publishTgMetadata(tgPostUrl, title = "Джералдова гра", author = null, narrator = null, coverUrl = null, description = null, submitterId = "device-1")
+        )
+        assertEquals(
+            SubmissionPublisher.Result.ALREADY_PUBLISHED,
+            publisher.publishTgMetadata(tgPostUrl, title = "Джералдова гра", author = null, narrator = null, coverUrl = null, description = null, submitterId = "device-2")
+        )
+        assertEquals(1, store.submissionPuts.size)
+        assertEquals(1L, store.getSubmissionCount("device-1", "0"))
+        assertEquals("the refused repeat consumed nothing", 0L, store.getSubmissionCount("device-2", "0"))
+    }
+
+    @Test
+    fun `the tg url dedups against a youtube publication of the same link`() = runBlocking {
+        // One shared base: the URL hash is the key regardless of mode.
+        store.publishSubmission(
+            com.slukhayka.audiobooks.data.metadata.SubmissionPublication(
+                sourceUrl = tgPostUrl,
+                accessMode = SubmissionAccessMode.YOUTUBE,
+                title = "Джералдова гра",
+                chapters = emptyList(),
+                verifiedAt = 1_000L,
+                submittedAt = 1_000L,
+                submitterId = "device-0"
+            )
+        )
+        assertEquals(
+            SubmissionPublisher.Result.ALREADY_PUBLISHED,
+            publisher.publishTgMetadata(tgPostUrl, title = "Джералдова гра", author = null, narrator = null, coverUrl = null, description = null, submitterId = "device-1")
+        )
+        assertEquals("only the direct put landed", 1, store.submissionPuts.size)
+        assertEquals(0L, store.getSubmissionCount("device-1", "0"))
+    }
 }

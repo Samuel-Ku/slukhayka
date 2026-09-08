@@ -79,4 +79,55 @@ class SubmissionPublisher(
         policy.consume(submitterId)
         return Result.PUBLISHED
     }
+
+    /**
+     * The TG door (ADR-0035 п. 13 / #606) — publishes a RED-prototype TG
+     * post as METADATA-ONLY. The identity claims are the adapter's
+     * captured-page parse (TitleNormalizer output — the author is never
+     * invented); the payload carries [SubmissionAccessMode.TG_PREVIEW] and
+     * NO chapters, so other installs materialize the Work honestly and
+     * playback surfaces the absent source as unavailable, never fabricated.
+     * No playback verdict is POSSIBLE (the preview exposes no audio), so
+     * the anti-spam is the policy's daily budget + URL dedup, and the parse
+     * itself is the quality bar; [SubmissionPublication.verifiedAt] is
+     * honestly 0 — no verdict moment ever fired.
+     */
+    suspend fun publishTgMetadata(
+        url: String,
+        title: String,
+        author: String?,
+        narrator: String?,
+        coverUrl: String?,
+        description: String?,
+        submitterId: String
+    ): Result {
+        val decision = policy.decideMetadataOnly(url, submitterId)
+        if (!decision.allowed) {
+            return when (decision.reason) {
+                SubmissionPolicy.Reason.DAILY_LIMIT_REACHED -> Result.DAILY_LIMIT_REACHED
+                SubmissionPolicy.Reason.ALREADY_PUBLISHED -> Result.ALREADY_PUBLISHED
+                else -> Result.NOT_VERIFIED
+            }
+        }
+        if (title.isBlank()) return Result.METADATA_FAILED
+
+        sharedStore.publishSubmission(
+            SubmissionPublication(
+                sourceUrl = url.trim(),
+                accessMode = SubmissionAccessMode.TG_PREVIEW,
+                title = title.trim(),
+                author = author,
+                narrator = narrator,
+                description = description,
+                coverUrl = coverUrl,
+                durationSeconds = null,
+                chapters = emptyList(),
+                verifiedAt = 0L,
+                submittedAt = clock(),
+                submitterId = submitterId
+            )
+        )
+        policy.consume(submitterId)
+        return Result.PUBLISHED
+    }
 }

@@ -14,18 +14,21 @@
  */
 import { useEffect, useRef, useState } from 'react'
 import type { ListenerProfile } from '../identity/listenerIdentity'
-import { EmptyState, TabHeader } from './components'
+import type { DomainStore } from '../local/domain'
+import { RecommendationPrefsStore, type RecommendationKind, type RecommendationPreferenceRow } from '../local/recommendationPrefs'
+import { EmptyState, SectionHeader, TabHeader } from './components'
 import { useTranslate } from '../i18n/locale'
 import type { StringKey } from '../i18n/strings'
 
-export type SettingsDestination = 'profile'
+export type SettingsDestination = 'profile' | 'recommendations'
 
 /** Android's order (Profile first); the missing destinations join with W5.2. */
-export const SETTINGS_DESTINATIONS: readonly SettingsDestination[] = ['profile']
+export const SETTINGS_DESTINATIONS: readonly SettingsDestination[] = ['profile', 'recommendations']
 
 /** One label per destination — never a lookup keyed to the only existing row. */
 const SETTINGS_DESTINATION_LABELS: Record<SettingsDestination, StringKey> = {
   profile: 'profileTitle',
+  recommendations: 'recommendationsTitle',
 }
 
 /** The profile sub-screen: binding status, the recovery-code entry and the sync switch. */
@@ -177,12 +180,113 @@ export function ProfileDirection({ profile: initialProfile, onProfileChange, evi
   )
 }
 
+/** One kind label per Recommendation Preference — Android's dictionary verbatim. */
+const RECOMMENDATION_KIND_LABELS: Record<RecommendationKind, StringKey> = {
+  HIDE_WORK: 'feedbackHideWork',
+  REDUCE_SIMILAR: 'feedbackReduceSimilar',
+  HIDE_AUTHOR: 'feedbackHideAuthor',
+}
+
+/**
+ * #586 W2.2 — the «Рекомендації» direction: the «Приховане вами» list
+ * (Android's RecommendationSettingsScreen), the ONE undo surface for
+ * «Не цікаво» — a local preference is never synced, so this list is the
+ * only way it leaves discovery. The personalization switches join with
+ * T14/W6.1; until then the direction carries only what is real.
+ */
+export function RecommendationsDirection({ recommendationPrefs, domainStore, onBack }: {
+  recommendationPrefs: RecommendationPrefsStore
+  domainStore: DomainStore
+  onBack: () => void
+}) {
+  const t = useTranslate()
+  const [preferences, setPreferences] = useState<RecommendationPreferenceRow[] | null>(null)
+
+  useEffect(() => {
+    let alive = true
+    void recommendationPrefs.all().then((rows) => {
+      if (alive) setPreferences(rows)
+    })
+    return () => {
+      alive = false
+    }
+  }, [recommendationPrefs])
+
+  const restore = (preference: RecommendationPreferenceRow): void => {
+    void recommendationPrefs.remove(preference.kind, preference.targetKey).then(() => {
+      setPreferences((current) => (current ?? []).filter((p) => p.id !== preference.id))
+    })
+  }
+
+  /** The target's real title (or author for HIDE_AUTHOR) from the local domain. */
+  const targetName = async (preference: RecommendationPreferenceRow): Promise<string> => {
+    if (preference.kind === 'HIDE_AUTHOR') return preference.targetKey
+    const relationship = await domainStore.relationshipOf(preference.targetKey)
+    return relationship?.title?.trim() !== '' && relationship?.title ? relationship.title : preference.targetKey
+  }
+
+  const [names, setNames] = useState<Record<string, string>>({})
+  useEffect(() => {
+    let alive = true
+    if (preferences === null) return
+    void Promise.all(preferences.map(async (p) => ({ id: p.id, name: await targetName(p) }))).then((resolved) => {
+      if (!alive) return
+      setNames(Object.fromEntries(resolved.map((r) => [r.id, r.name])))
+    })
+    return () => {
+      alive = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preferences, domainStore])
+
+  return (
+    <div>
+      <div className="dest-header">
+        <button type="button" className="back" onClick={onBack}>{t('back')}</button>
+      </div>
+      <TabHeader title={t('recommendationsTitle')} />
+      {preferences === null ? (
+        <p className="empty-state-row" role="status">{t('loading')}</p>
+      ) : preferences.length === 0 ? (
+        <EmptyState icon="🤫" message={t('recommendationsEmptyTitle')} hint={t('recommendationsEmptyHint')} />
+      ) : (
+        <>
+          <SectionHeader level="section" title={t('recommendationsHiddenHeading')} />
+          <ul className="settings-list">
+            {preferences.map((preference) => (
+              <li key={preference.id}>
+                <div className="settings-row settings-row-static">
+                  <span className="settings-row-main">
+                    <span>{t(RECOMMENDATION_KIND_LABELS[preference.kind])}</span>
+                    <span className="settings-row-sub">{names[preference.id] ?? preference.targetKey}</span>
+                  </span>
+                  <button
+                    type="button"
+                    className="settings-restore"
+                    onClick={() => restore(preference)}
+                    aria-label={t('recommendationsRestoreDescription', { title: names[preference.id] ?? preference.targetKey })}
+                  >
+                    {t('actionRestore')}
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </div>
+  )
+}
+
 /** The Налаштування tab: the one home for settings directions. */
-export function Settings({ profile, onProfileChange, evicted = false, onLinked }: {
+export function Settings({ profile, onProfileChange, evicted = false, onLinked, recommendationPrefs, domainStore }: {
   profile: ListenerProfile | null
   onProfileChange?: (p: ListenerProfile) => void
   evicted?: boolean
   onLinked?: (uid: string) => void
+  /** #586 W2.2 — the local Recommendation Preference store («Не цікаво» undo). */
+  recommendationPrefs: RecommendationPrefsStore
+  domainStore: DomainStore
 }) {
   const t = useTranslate()
   const [destination, setDestination] = useState<SettingsDestination | null>(null)
@@ -209,6 +313,15 @@ export function Settings({ profile, onProfileChange, evicted = false, onLinked }
         onProfileChange={onProfileChange}
         evicted={evicted}
         onLinked={onLinked}
+        onBack={() => setDestination(null)}
+      />
+    )
+  }
+  if (destination === 'recommendations') {
+    return (
+      <RecommendationsDirection
+        recommendationPrefs={recommendationPrefs}
+        domainStore={domainStore}
         onBack={() => setDestination(null)}
       />
     )

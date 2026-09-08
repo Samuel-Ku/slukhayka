@@ -17,6 +17,7 @@ import type { DomainStore } from '../local/domain'
 import type { EditionLinkStore } from '../local/editionLinks'
 import type { ListenerDatabase } from '../local/listeningState'
 import { LISTEN_BLOCK_IDS, ListenPrefsStore, type ListenBlockId, type ListenPrefsRow } from '../local/listenPrefs'
+import { RecommendationPrefsStore } from '../local/recommendationPrefs'
 import { useTranslate } from '../i18n/locale'
 import type { StringKey } from '../i18n/strings'
 import { BookRow, EmptyState, EmptyStateRow, SectionHeader, TabHeader } from './components'
@@ -39,32 +40,37 @@ export function blockTitleKey(id: ListenBlockId): StringKey {
   return BLOCK_TITLE_KEYS[id]
 }
 
-export function Listen({ domainStore, linkStore, listening, prefsStore }: {
+export function Listen({ domainStore, linkStore, listening, prefsStore, recommendationPrefs }: {
   domainStore: DomainStore
   linkStore: EditionLinkStore
   listening: Pick<ListenerDatabase, 'allSnapshots'>
   prefsStore: ListenPrefsStore
+  /** #586 W2.2 — the local Recommendation Preference store («Не цікаво»). */
+  recommendationPrefs: RecommendationPrefsStore
 }) {
   const t = useTranslate()
   const [views, setViews] = useState<LibraryBookView[] | null>(null)
-  const [prefs, setPrefs] = useState<ListenPrefsRow>({ id: 'listen', order: [], hidden: [], dismissed: [] })
+  const [prefs, setPrefs] = useState<ListenPrefsRow>({ id: 'listen', order: [], hidden: [] })
+  // #586 W2.2 — «Не цікаво» mergeKeys; the HIDE_WORK preference targets.
+  const [dismissed, setDismissed] = useState<string[]>([])
   const [manageOpen, setManageOpen] = useState(false)
   const manageButtonRef = useRef<HTMLButtonElement | null>(null)
   const sheetWasOpen = useRef(false)
 
   useEffect(() => {
     let alive = true
-    void Promise.all([domainStore.libraryEntries(), linkStore.all(), listening.allSnapshots(), prefsStore.load()]).then(
-      ([entries, links, snapshots, loadedPrefs]) => {
+    void Promise.all([domainStore.libraryEntries(), linkStore.all(), listening.allSnapshots(), prefsStore.load(), recommendationPrefs.all()]).then(
+      ([entries, links, snapshots, loadedPrefs, loadedPreferences]) => {
         if (!alive) return
         setViews(buildLibraryViews(entries, links, snapshots))
         setPrefs(loadedPrefs)
+        setDismissed(loadedPreferences.filter((p) => p.kind === 'HIDE_WORK').map((p) => p.targetKey))
       },
     )
     return () => {
       alive = false
     }
-  }, [domainStore, linkStore, listening, prefsStore])
+  }, [domainStore, linkStore, listening, prefsStore, recommendationPrefs])
 
   const blocks: ListenBlock[] = useMemo(() => {
     if (views === null) return []
@@ -72,9 +78,9 @@ export function Listen({ domainStore, linkStore, listening, prefsStore }: {
     // nothing — empty shelves are not a thing; the empty STATE is for the
     // whole screen.
     return deduplicateListenShelves(
-      composeListenBlocks(views, prefs, { now: Date.now() }),
+      composeListenBlocks(views, { order: prefs.order, hidden: prefs.hidden }, dismissed, { now: Date.now() }),
     ).filter((block) => block.books.length > 0)
-  }, [views, prefs])
+  }, [views, prefs, dismissed])
 
   // The focus-return contract: the sheet takes focus when it opens; the
   // manage button regains it when the sheet closes.
@@ -92,6 +98,13 @@ export function Listen({ domainStore, linkStore, listening, prefsStore }: {
   const savePrefs = async (next: Omit<ListenPrefsRow, 'id'>): Promise<void> => {
     await prefsStore.save(next)
     setPrefs({ id: 'listen', ...next })
+  }
+
+  /** #586 W2.2 — «Не цікаво»: a local HIDE_WORK preference, reversible from Рекомендації. */
+  const dismissBook = (mergeKey: string): void => {
+    void recommendationPrefs.add('HIDE_WORK', mergeKey, mergeKey).then(() => {
+      setDismissed((current) => (current.includes(mergeKey) ? current : [...current, mergeKey]))
+    })
   }
 
   return (
@@ -126,7 +139,23 @@ export function Listen({ domainStore, linkStore, listening, prefsStore }: {
             />
             <ul className="card-list">
               {block.books.map((book) => (
-                <BookRow key={`${block.id}-${book.mergeKey}`} title={book.title} subtitle={book.author} />
+                <BookRow
+                  key={`${block.id}-${book.mergeKey}`}
+                  title={book.title}
+                  subtitle={book.author}
+                  // The hero is the resume CTA — no dismiss on it (Android's
+                  // ListenHeroCard); the «Не цікаво» ✕ lives on shelf rows.
+                  actions={block.id === 'hero' ? undefined : (
+                    <button
+                      type="button"
+                      className="bookrow-dismiss"
+                      onClick={() => dismissBook(book.mergeKey)}
+                      aria-label={t('notInterestedAria', { title: book.title })}
+                    >
+                      ✕
+                    </button>
+                  )}
+                />
               ))}
             </ul>
           </section>
@@ -174,7 +203,7 @@ export function ManageShelvesSheet({ prefs, onClose, onSave }: {
 
   const commit = (nextOrder: ListenBlockId[], nextHidden: ListenBlockId[]): void => {
     setOrder(nextOrder)
-    onSave({ order: nextOrder, hidden: nextHidden, dismissed: prefs.dismissed })
+    onSave({ order: nextOrder, hidden: nextHidden })
   }
 
   const move = (id: ListenBlockId, delta: -1 | 1): void => {

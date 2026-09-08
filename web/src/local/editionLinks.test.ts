@@ -51,7 +51,7 @@ describe('EditionLinkStore', () => {
   })
 
   it('the schema carries the edition_links store (v3 adds listen_prefs)', () => {
-    expect(LISTENER_DB_VERSION).toBe(3)
+    expect(LISTENER_DB_VERSION).toBe(4)
     expect(LISTENER_STORES.some((spec) => spec.name === EDITION_LINKS_STORE)).toBe(true)
   })
 })

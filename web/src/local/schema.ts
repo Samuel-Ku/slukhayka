@@ -14,6 +14,7 @@ export const WORK_RELATIONSHIPS_STORE = 'work_relationships'
 export const PERSON_BOOKMARKS_STORE = 'person_bookmarks'
 export const EDITION_LINKS_STORE = 'edition_links'
 export const LISTEN_PREFS_STORE = 'listen_prefs'
+export const RECOMMENDATION_PREFS_STORE = 'recommendation_prefs'
 
 /**
  * #584 W1.2 — v2 adds `edition_links`: the local mergeKey → Edition join
@@ -22,6 +23,11 @@ export const LISTEN_PREFS_STORE = 'listen_prefs'
  * library can never answer «Слухаю»/«Завершені» honestly. Links are written
  * at the moments the app itself knows both sides (play / «зберегти»), never
  * guessed.
+ *
+ * #586 W2.2 — v4 adds `recommendation_prefs`: the local Recommendation
+ * Preference rows (Android's `RecommendationPreferenceEntity` verbatim —
+ * PK kind+targetKey). A preference, not an identity fact: NEVER synced,
+ * fully reversible from Налаштування → Рекомендації.
  */
 
 export interface StoreSpec {
@@ -43,7 +49,8 @@ export const LISTENER_STORES: StoreSpec[] = [
   { name: PERSON_BOOKMARKS_STORE, keyPath: 'personId' },
   { name: EDITION_LINKS_STORE, keyPath: 'editionId' },
   { name: LISTEN_PREFS_STORE, keyPath: 'id' },
+  { name: RECOMMENDATION_PREFS_STORE, keyPath: 'id' },
 ]
 
 /** The current database version — bump when LISTENER_STORES grows. */
-export const LISTENER_DB_VERSION = 3
+export const LISTENER_DB_VERSION = 4

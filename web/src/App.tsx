@@ -15,6 +15,7 @@ import { IdbListeningStateStore } from './local/listeningState'
 import { DomainStore } from './local/domain'
 import { EditionLinkStore } from './local/editionLinks'
 import { ListenPrefsStore } from './local/listenPrefs'
+import { RecommendationPrefsStore } from './local/recommendationPrefs'
 import { BrowserProgressSyncLedger } from './sync/ledger'
 import { ProgressSyncSettings } from './sync/settings'
 import { FirestoreProgressSyncStore } from './sync/store'
@@ -77,8 +78,11 @@ export function App({ profile: initialProfile }: { profile: ListenerProfile | nu
   )
   // #584 W1.2 — the mergeKey → Edition join the Медіатека reads.
   const linkStore = useMemo(() => new EditionLinkStore(), [])
-  // #585 W2.1 — the Слухати shelves' local-only order/hide/dismiss prefs.
+  // #585 W2.1 — the Слухати shelves' local-only order/hide prefs.
   const listenPrefsStore = useMemo(() => new ListenPrefsStore(), [])
+  // #586 W2.2 — «Не цікаво»: the local Recommendation Preference store
+  // (HIDE_WORK dictionary, local-only, reversible from Рекомендації).
+  const recommendationPrefsStore = useMemo(() => new RecommendationPrefsStore(), [])
   const localStore = useMemo(() => new LocalListeningStateStore(hybrid), [])
   const [boot, setBoot] = useState<{ snapshots: number; evicted: boolean } | null>(null)
   useEffect(() => {
@@ -248,6 +252,7 @@ export function App({ profile: initialProfile }: { profile: ListenerProfile | nu
             linkStore={linkStore}
             listening={idbStore}
             prefsStore={listenPrefsStore}
+            recommendationPrefs={recommendationPrefsStore}
           />
         ) : tab === 'explore' ? (
           <Catalog
@@ -272,6 +277,8 @@ export function App({ profile: initialProfile }: { profile: ListenerProfile | nu
               relationships.setUid(uid)
               void relationships.mergeAtLinking().catch(() => undefined)
             }}
+            recommendationPrefs={recommendationPrefsStore}
+            domainStore={domainStore}
           />
         )}
       </main>

@@ -26,6 +26,7 @@ import {
   toggleLanguage,
 } from './contentLanguagePrefs'
 import { BookRow, CycleCard, EmptyStateRow, MetadataChip, PosterCard, SectionHeader, TabHeader } from './components'
+import { CollectionsIndexPanel, PeopleIndexPanel, SeriesIndexPanel, Top100IndexPanel } from './catalogIndexes'
 import { loadCollections } from './collectionAssets'
 import { matchAllCollections } from './collectionModel'
 import { FEED_CATALOG, FEED_HOMEPAGE_SECTIONS, FEED_NEW_ARRIVALS, needsNetwork } from './feedSnapshotPolicy'
@@ -83,6 +84,27 @@ export function Catalog({ onOpenBook, onPlay, onSaveWork, domainStore }: {
   const [refreshNonce, setRefreshNonce] = useState(0)
   // W3.1 — «Цикли»: the 4read homepage series shelf (live list via the worker).
   const [cycles, setCycles] = useState<CatalogCard[] | null>(null)
+  // W3.2 — the pushed index screens (spec-28 #198): one at a time over the
+  // feed; null = the Огляд itself. The chip that opened the index keeps the
+  // focus-return contract (back focuses it again).
+  const [index, setIndex] = useState<'series' | 'collections' | 'top100' | 'performers' | 'authors' | null>(null)
+  // The focus-return contract: closing an index returns focus to the chip
+  // that opened it (the Settings/Android returnDestination → rowFocus form).
+  // Per-id refs: on re-mount every chip's callback re-runs, and the effect
+  // below fires after the commit, so the map holds the FRESH nodes.
+  const chipRefs = useRef(new Map<string, HTMLButtonElement | null>())
+  const openedIndex = useRef<string | null>(null)
+  const openIndex = (id: NonNullable<typeof index>): void => {
+    openedIndex.current = id
+    setIndex(id)
+  }
+  useEffect(() => {
+    if (index !== null) return
+    const origin = openedIndex.current
+    openedIndex.current = null
+    if (origin !== null) chipRefs.current.get(origin)?.focus()
+  }, [index])
+  const closeIndex = (): void => setIndex(null)
   // spec-45 T13 — the persisted content-language preference; empty = all.
   const [contentLanguages, setContentLanguages] = useState<string[]>(() => loadContentLanguagePrefs())
   const applyLanguages = (next: string[]): void => setContentLanguages(saveContentLanguagePrefs(next))
@@ -277,6 +299,18 @@ export function Catalog({ onOpenBook, onPlay, onSaveWork, domainStore }: {
         searchQuery={query}
         onSearchQueryChange={setQuery}
       />
+      {index !== null ? (
+        index === 'series' ? (
+          <SeriesIndexPanel onBack={closeIndex} onOpenSeries={(card) => window.open(card.url, '_blank', 'noopener')} />
+        ) : index === 'collections' ? (
+          <CollectionsIndexPanel collections={collections} onBack={closeIndex} onOpenWork={(work) => openWork(work)} />
+        ) : index === 'top100' ? (
+          <Top100IndexPanel onBack={closeIndex} onOpenBook={onOpenBook} />
+        ) : (
+          <PeopleIndexPanel kind={index} onBack={closeIndex} onOpenPerson={(card) => window.open(card.url, '_blank', 'noopener')} />
+        )
+      ) : (
+        <>
       <div style={{ display: 'flex', gap: 6, margin: '8px 0', flexWrap: 'wrap', alignItems: 'center' }}>
         {SOURCES.map((s) => (
           <button
@@ -326,6 +360,24 @@ export function Catalog({ onOpenBook, onPlay, onSaveWork, domainStore }: {
             </button>
           ))}
         </div>
+      )}
+
+      {/* W3.2 — «Швидкі переходи» (spec-28 #198): the five-chip navigation
+          row, in Android's order — ТОП 100 / Виконавці / Автори / Серії /
+          Колекції. Navigation chips (ADR-0018): filled, no outline. The
+          row belongs to the default view only; an open index replaces the
+          feed below (push-screen chassis). */}
+      {source === 'all' && query.trim().length < 2 && (
+        <section>
+          <SectionHeader level="group" title={t('quickTransitions')} />
+          <div style={{ display: 'flex', gap: 6, margin: '8px 0', flexWrap: 'wrap', alignItems: 'center' }}>
+            <button type="button" className="nav-chip" ref={(node) => { chipRefs.current.set('top100', node) }} onClick={() => openIndex('top100')}>{t('navTop100')}</button>
+            <button type="button" className="nav-chip" ref={(node) => { chipRefs.current.set('performers', node) }} onClick={() => openIndex('performers')}>{t('navPerformers')}</button>
+            <button type="button" className="nav-chip" ref={(node) => { chipRefs.current.set('authors', node) }} onClick={() => openIndex('authors')}>{t('navAuthors')}</button>
+            <button type="button" className="nav-chip" ref={(node) => { chipRefs.current.set('series', node) }} onClick={() => openIndex('series')}>{t('navSeries')}</button>
+            <button type="button" className="nav-chip" ref={(node) => { chipRefs.current.set('collections', node) }} onClick={() => openIndex('collections')}>{t('navCollections')}</button>
+          </div>
+        </section>
       )}
 
       {/* W3.1 — Огляд shelves in the #302 pin order: search → quick
@@ -435,6 +487,8 @@ export function Catalog({ onOpenBook, onPlay, onSaveWork, domainStore }: {
             {loadingMore ? t('loading') : appendError ? t('retry') : t('showMore')}
           </button>
         </div>
+      )}
+        </>
       )}
     </div>
   )

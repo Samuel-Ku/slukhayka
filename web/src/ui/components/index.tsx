@@ -76,7 +76,7 @@ export function coverInitials(title: string): string {
   return words.map((word) => word.charAt(0).toUpperCase()).join('') || '·'
 }
 
-export function BookRow({ coverUrl, title, subtitle, progress, badges, actions, onOpen, openAriaLabel, trailing, innerRef }: {
+export function BookRow({ coverUrl, title, subtitle, progress, badges, actions, onOpen, openAriaLabel, trailing, innerRef, rank }: {
   coverUrl?: string
   title: string
   subtitle?: string
@@ -92,9 +92,12 @@ export function BookRow({ coverUrl, title, subtitle, progress, badges, actions, 
   trailing?: ReactNode
   /** Observer hook: the row's own li node (availability preflight). */
   innerRef?: (node: HTMLLIElement | null) => void
+  /** W3.2 — the ТОП 100 rank badge (1-based list order; real by construction). */
+  rank?: number
 }) {
   const body = (
     <>
+      {rank !== undefined && <span className="bookrow-rank" aria-hidden="true">{rank}</span>}
       {coverUrl
         ? <img className="bookrow-cover" src={coverUrl} alt="" loading="lazy" />
         : <span className="bookrow-cover bookrow-cover-fallback" aria-hidden="true">{coverInitials(title)}</span>}

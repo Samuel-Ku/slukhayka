@@ -8,10 +8,12 @@ import kotlin.random.Random
  * ensure, persisted nickname), zero Android/Firebase dependencies.
  */
 class FakeListenerIdentity(
-    private val random: Random = Random.Default
+    private val random: Random = Random.Default,
+    /** Seeds the profile directly (tests that pin a concrete uid, e.g. sync gates). */
+    seededProfile: ListenerProfile? = null,
 ) : ListenerIdentity {
 
-    private var profile: ListenerProfile? = null
+    private var profile: ListenerProfile? = seededProfile
 
     /** Simulates a cold start: forgets everything before the next ensure(). */
     fun reset() {

@@ -58,15 +58,14 @@ function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value)
 }
 
-function parseSnapshot(raw: string): LocalListeningStateSnapshot | null {
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(raw)
-  } catch {
-    return null
-  }
-  if (typeof parsed !== 'object' || parsed === null) return null
-  const candidate = parsed as Partial<LocalListeningStateSnapshot>
+/**
+ * The one validator of a Listening State snapshot value (#580): the
+ * localStorage parser and the IndexedDB record parser share it, so both
+ * stores reject exactly the same shapes.
+ */
+export function parseSnapshotValue(value: unknown): LocalListeningStateSnapshot | null {
+  if (typeof value !== 'object' || value === null) return null
+  const candidate = value as Partial<LocalListeningStateSnapshot>
   if (
     typeof candidate.editionId !== 'string' ||
     candidate.editionId === '' ||
@@ -89,6 +88,16 @@ function parseSnapshot(raw: string): LocalListeningStateSnapshot | null {
     preferredSpeed: candidate.preferredSpeed,
     lastPausedAtEpochMs: candidate.lastPausedAtEpochMs,
   }
+}
+
+function parseSnapshot(raw: string): LocalListeningStateSnapshot | null {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return null
+  }
+  return parseSnapshotValue(parsed)
 }
 
 export class LocalListeningStateStore {

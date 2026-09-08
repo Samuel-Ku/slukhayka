@@ -63,6 +63,7 @@ describe('the player finish prompt (W4.1)', () => {
         lastPlayed={{ title: 'Неостанній бій', author: 'Костянтин Шелест', narrator: 'Олександр Волох', language: 'uk', url: 'https://4read.org/7611-neostannij-bij.html' }}
         profile={{ uid: 'uid-1', nickname: 'Слухач-0001' }}
         reviewsStore={reviewsStore}
+        bookmarksStore={null}
       />,
     )
     await waitFor(() => expect(screen.getByRole('button', { name: 'Написати відгук' })).toBeTruthy())
@@ -89,6 +90,7 @@ describe('the player finish prompt (W4.1)', () => {
         lastPlayed={{ title: 'Неостанній бій', author: 'Костянтин Шелест', narrator: 'Олександр Волох', language: 'uk', url: 'https://4read.org/7611-neostannij-bij.html' }}
         profile={null}
         reviewsStore={null}
+        bookmarksStore={null}
       />,
     )
     expect(screen.queryByRole('button', { name: 'Написати відгук' })).toBeNull()

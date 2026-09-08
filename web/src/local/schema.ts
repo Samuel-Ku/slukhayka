@@ -15,6 +15,7 @@ export const PERSON_BOOKMARKS_STORE = 'person_bookmarks'
 export const EDITION_LINKS_STORE = 'edition_links'
 export const LISTEN_PREFS_STORE = 'listen_prefs'
 export const RECOMMENDATION_PREFS_STORE = 'recommendation_prefs'
+export const PLAYER_BOOKMARKS_STORE = 'player_bookmarks'
 
 /**
  * #584 W1.2 — v2 adds `edition_links`: the local mergeKey → Edition join
@@ -22,12 +23,15 @@ export const RECOMMENDATION_PREFS_STORE = 'recommendation_prefs'
  * Listening State anchors at the Edition (a hash) — without this index the
  * library can never answer «Слухаю»/«Завершені» honestly. Links are written
  * at the moments the app itself knows both sides (play / «зберегти»), never
- * guessed.
- *
- * #586 W2.2 — v4 adds `recommendation_prefs`: the local Recommendation
+ * guessed. *  * #586 W2.2 — v4 adds `recommendation_prefs`: the local Recommendation
  * Preference rows (Android's `RecommendationPreferenceEntity` verbatim —
  * PK kind+targetKey). A preference, not an identity fact: NEVER synced,
  * fully reversible from Налаштування → Рекомендації.
+ *
+ * #590 W5.1 — v5 adds `player_bookmarks`: the player's bookmarks
+ * (Android's `BookmarkEntity` verbatim — book-scoped, chapter-anchored,
+ * optional note). Playback-recoverable, so R-W8 puts them in IDB like the
+ * rest; they are listener-owned and NEVER synced.
  */
 
 export interface StoreSpec {
@@ -50,7 +54,15 @@ export const LISTENER_STORES: StoreSpec[] = [
   { name: EDITION_LINKS_STORE, keyPath: 'editionId' },
   { name: LISTEN_PREFS_STORE, keyPath: 'id' },
   { name: RECOMMENDATION_PREFS_STORE, keyPath: 'id' },
+  {
+    name: PLAYER_BOOKMARKS_STORE,
+    keyPath: 'id',
+    indexes: [
+      { name: 'workId', keyPath: 'workId' },
+      { name: 'editionId', keyPath: 'editionId' },
+    ],
+  },
 ]
 
 /** The current database version — bump when LISTENER_STORES grows. */
-export const LISTENER_DB_VERSION = 4
+export const LISTENER_DB_VERSION = 5

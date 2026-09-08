@@ -1,5 +1,7 @@
 package com.slukhayka.audiobooks.ui.screens
 
+import com.slukhayka.audiobooks.ui.displayBookTitle
+
 import android.graphics.Bitmap
 import android.graphics.drawable.Drawable
 import androidx.compose.foundation.Canvas
@@ -357,7 +359,7 @@ fun PlayerScreen(
                     current.currentPositionMs
                 )
             },
-            onFindAnotherSource = { viewModel.findAnotherSource(book.title) }
+            onFindAnotherSource = { viewModel.findAnotherSource(displayBookTitle(book.title)) }
         )
 
         SnackbarHost(
@@ -449,7 +451,7 @@ fun PlayerScreen(
             }
         )
         PlayerQuickTool.Bookmarks -> BookmarksListSheet(
-            workTitle = book.title,
+            workTitle = displayBookTitle(book.title),
             bookmarks = bookmarks.sortedWith(compareBy({ it.chapterIndex }, { it.timestampSeconds })),
             onSelect = { bookmark ->
                 viewModel.jumpToBookmark(bookmark)
@@ -536,7 +538,7 @@ fun PlayerScreenContent(
     }
     val playerContextDescription = stringResource(
         R.string.a11y_player_context,
-        book.title,
+        displayBookTitle(book.title),
         book.displayAuthor,
         editionDescription,
         currentChapterTitle
@@ -589,7 +591,7 @@ fun PlayerScreenContent(
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
             PlayerTopBar(
-                bookTitle = book.title,
+                bookTitle = displayBookTitle(book.title),
                 isFavorite = book.isFavorite,
                 isOffline = playerState.isOfflineMode,
                 onDismiss = onDismiss,
@@ -698,7 +700,7 @@ fun PlayerScreenContent(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        text = book.title,
+                        text = displayBookTitle(book.title),
                         style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onBackground,
@@ -809,7 +811,7 @@ fun PlayerScreenContent(
 
                 Spacer(Modifier.height(AppDimens.SpaceMd))
                 TransportControls(
-                    bookTitle = book.title,
+                    bookTitle = displayBookTitle(book.title),
                     currentChapterTitle = currentChapterTitle,
                     isPlaying = playerState.isPlaying,
                     // Issue #381: під час резолюції стріму кнопка не має

@@ -1,5 +1,7 @@
 package com.slukhayka.audiobooks.ui.screens
 
+import com.slukhayka.audiobooks.ui.displayBookTitle
+
 import androidx.activity.compose.BackHandler
 import android.content.Intent
 import android.net.Uri
@@ -295,7 +297,7 @@ fun HomeScreen(
 
     val filteredBooks = allBooks.filter { book ->
         searchQuery.isBlank() ||
-            book.title.contains(searchQuery, ignoreCase = true) ||
+            displayBookTitle(book.title).contains(searchQuery, ignoreCase = true) ||
             book.author.contains(searchQuery, ignoreCase = true)
     }
 
@@ -1063,12 +1065,12 @@ fun CatalogBookCard(
        Column(
         modifier = Modifier
             .width(120.dp)
-            .clickable(onClickLabel = stringResource(R.string.a11y_open_work, book.title)) { onClick() },
+            .clickable(onClickLabel = stringResource(R.string.a11y_open_work, displayBookTitle(book.title))) { onClick() },
         horizontalAlignment = Alignment.CenterHorizontally
        ) {
         CatalogCoverImage(
             coverImageUrl = book.coverImageUrl,
-            title = book.title,
+            title = displayBookTitle(book.title),
             semantics = BookCoverSemantics.Decorative,
             modifier = Modifier
                 .width(120.dp)
@@ -1078,7 +1080,7 @@ fun CatalogBookCard(
         )
         Spacer(modifier = Modifier.height(6.dp))
         Text(
-            text = book.title,
+            text = displayBookTitle(book.title),
             style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
             color = MaterialTheme.colorScheme.onSurface,
             maxLines = 2,
@@ -1119,7 +1121,7 @@ fun CollectionBookCard(
     onPreflight: () -> Unit = {}
 ) {
     LaunchedEffect(result.key) { onPreflight() }
-    val openLabel = stringResource(R.string.a11y_open_work, result.title)
+    val openLabel = stringResource(R.string.a11y_open_work, displayBookTitle(result.title))
     Column(modifier = Modifier.width(120.dp)) {
       Box {
        Column(
@@ -1130,7 +1132,7 @@ fun CollectionBookCard(
        ) {
         CatalogCoverImage(
             coverImageUrl = result.coverImageUrl,
-            title = result.title,
+            title = displayBookTitle(result.title),
             semantics = BookCoverSemantics.Decorative,
             modifier = Modifier
                 .width(120.dp)
@@ -1140,7 +1142,7 @@ fun CollectionBookCard(
         )
         Spacer(modifier = Modifier.height(6.dp))
         Text(
-            text = result.title,
+            text = displayBookTitle(result.title),
             style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
             color = MaterialTheme.colorScheme.onSurface,
             maxLines = 2,
@@ -1184,7 +1186,7 @@ fun RecommendedBookCard(
         Column(modifier = Modifier.padding(12.dp)) {
             CatalogCoverImage(
                 coverImageUrl = rec.candidate.coverImageUrl,
-                title = rec.candidate.title,
+                title = displayBookTitle(rec.candidate.title),
                 semantics = BookCoverSemantics.Decorative,
                 genre = rec.candidate.genre,
                 modifier = Modifier
@@ -1195,7 +1197,7 @@ fun RecommendedBookCard(
             Spacer(modifier = Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.Top) {
                 Text(
-                    text = rec.candidate.title,
+                    text = displayBookTitle(rec.candidate.title),
                     style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 2,
@@ -1213,7 +1215,7 @@ fun RecommendedBookCard(
                             Icons.Default.MoreVert,
                             contentDescription = stringResource(
                                 R.string.a11y_recommendation_actions,
-                                rec.candidate.title
+                                displayBookTitle(rec.candidate.title)
                             )
                         )
                     }
@@ -1228,13 +1230,13 @@ fun RecommendedBookCard(
                     }
                     DropdownMenu(expanded = feedbackExpanded, onDismissRequest = { feedbackExpanded = false }) {
                         FeedbackMenuItem(
-                            stringResource(R.string.a11y_hide_recommended_work, rec.candidate.title)
+                            stringResource(R.string.a11y_hide_recommended_work, displayBookTitle(rec.candidate.title))
                         ) {
                             onFeedback(com.slukhayka.audiobooks.data.db.RecommendationPreferenceEntity.HIDE_WORK)
                             feedbackExpanded = false
                         }
                         FeedbackMenuItem(
-                            stringResource(R.string.a11y_reduce_similar_recommendations, rec.candidate.title)
+                            stringResource(R.string.a11y_reduce_similar_recommendations, displayBookTitle(rec.candidate.title))
                         ) {
                             onFeedback(com.slukhayka.audiobooks.data.db.RecommendationPreferenceEntity.REDUCE_SIMILAR)
                             feedbackExpanded = false
@@ -1676,7 +1678,7 @@ fun AudiobookListItem(
         if (book.isDownloaded) R.string.a11y_available_offline
         else R.string.a11y_connection_required
     )
-    val openLabel = stringResource(R.string.a11y_open_work, book.title)
+    val openLabel = stringResource(R.string.a11y_open_work, displayBookTitle(book.title))
     Card(
         modifier = modifier
             .fillMaxWidth()
@@ -1732,7 +1734,7 @@ fun AudiobookListItem(
                 }
 
                 Text(
-                    text = book.title,
+                    text = displayBookTitle(book.title),
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -1791,7 +1793,7 @@ fun AudiobookListItem(
             ) {
                 Icon(
                     imageVector = Icons.Default.PlayArrow,
-                    contentDescription = stringResource(R.string.a11y_play_work, book.title),
+                    contentDescription = stringResource(R.string.a11y_play_work, displayBookTitle(book.title)),
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(24.dp)
                 )

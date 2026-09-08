@@ -1,5 +1,7 @@
 package com.slukhayka.audiobooks.ui.components
 
+import com.slukhayka.audiobooks.ui.displayBookTitle
+
 import android.graphics.drawable.Drawable
 import android.util.Log
 import androidx.compose.foundation.background
@@ -148,7 +150,7 @@ fun BookCoverImage(
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = book.title,
+                    text = displayBookTitle(book.title),
                     color = MaterialTheme.colorScheme.onSurface,
                     style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
                     maxLines = 3,

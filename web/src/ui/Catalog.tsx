@@ -18,18 +18,28 @@ import { rankEditionsForPlayback } from '../worker/workFeed'
 import { useTranslate } from '../i18n/locale'
 import {
   availableLanguagesOf,
-  badgeLabel,
   filterWorksByLanguage,
   LANGUAGE_LABELS,
   loadContentLanguagePrefs,
   saveContentLanguagePrefs,
   toggleLanguage,
 } from './contentLanguagePrefs'
+import { BookRow, EmptyStateRow, MetadataChip, SectionHeader, TabHeader } from './components'
 
 const SOURCES: Array<{ id: 'all' | SourceId; label: string }> = [
   { id: 'all', label: 'all' },
   ...SOURCE_ORDER.map((id) => ({ id, label: SOURCE_METADATA[id].label })),
 ]
+
+function pillStyle(active: boolean): CSSProperties {
+  return {
+    padding: '8px 14px',
+    borderRadius: 999,
+    border: '1px solid var(--line)',
+    background: active ? 'var(--accent)' : 'var(--surface)',
+    color: active ? 'var(--accent-contrast)' : 'var(--fg)',
+  }
+}
 
 /** spec-43/T3+T4 — огляд із перемикачем джерел і пошуком. */
 export function Catalog({ onOpenBook, onPlay }: {
@@ -147,11 +157,11 @@ export function Catalog({ onOpenBook, onPlay }: {
 
   return (
     <div>
-      <input
-        placeholder={t('searchPlaceholder')}
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        style={{ width: '100%', padding: '8px', borderRadius: '8px', border: '1px solid var(--line)', background: 'var(--surface)', color: 'var(--fg)' }}
+      <TabHeader
+        title={t('tabCatalog')}
+        search
+        searchQuery={query}
+        onSearchQueryChange={setQuery}
       />
       <div style={{ display: 'flex', gap: 6, margin: '8px 0', flexWrap: 'wrap' }}>
         {SOURCES.map((s) => (
@@ -192,33 +202,40 @@ export function Catalog({ onOpenBook, onPlay }: {
 
       {query.trim().length >= 2 ? (
         searching ? (
-          <div className="placeholder">{t('searching')}</div>
+          <EmptyStateRow message={t('searching')} />
         ) : searchWorks === null || visibleSearch.length === 0 ? (
-          <div className="placeholder">{t('nothingFound')}</div>
+          <EmptyStateRow message={t('nothingFound')} />
         ) : (
           <section>
-            <h2>{t('allSources')}</h2>
+            <SectionHeader level="group" title={t('allSources')} />
             <ul className="card-list">
               {visibleSearch.map((work) => <UnifiedWorkRow key={work.id} work={work} onOpenBook={onOpenBook} onPlay={onPlay} />)}
             </ul>
           </section>
-        )      ) : failed ? (
-        <div className="placeholder">{t('sourceFailed')}</div>
+        )
+      ) : failed ? (
+        <EmptyStateRow message={t('sourceFailed')} />
       ) : works === null ? (
-        <div className="placeholder">{t('loadingCatalog')}</div>
+        <EmptyStateRow message={t('loadingCatalog')} />
       ) : (
         <section>
-          <h2>{source === 'all' ? t('allSources') : SOURCES.find((item) => item.id === source)?.label}</h2>
-          {showingCachedCatalog && <p className="notice" role="status" aria-live="polite">{t('cachedCatalogNotice', { date: cachedAt ? ` від ${new Date(cachedAt).toLocaleString('uk-UA')}` : '' })}</p>}
-            <ul className="card-list">
-              {visibleWorks.map((work) => <UnifiedWorkRow key={work.id} work={work} onOpenBook={onOpenBook} onPlay={onPlay} />)}
-            </ul>
-          </section>
+          <SectionHeader
+            level="group"
+            title={source === 'all' ? t('allSources') : SOURCES.find((item) => item.id === source)?.label ?? ''}
+            count={visibleWorks.length}
+          />
+          {showingCachedCatalog && (
+            <EmptyStateRow message={t('cachedCatalogNotice', { date: cachedAt ? ` від ${new Date(cachedAt).toLocaleString('uk-UA')}` : '' })} />
+          )}
+          <ul className="card-list">
+            {visibleWorks.map((work) => <UnifiedWorkRow key={work.id} work={work} onOpenBook={onOpenBook} onPlay={onPlay} />)}
+          </ul>
+        </section>
       )}
       {query.trim().length < 2 && nextPageUrl && (
         <div ref={loadMoreMarker} style={{ padding: '16px 0', textAlign: 'center' }}>
-          {appendError && <p className="notice" role="status">{t('appendFailed')}</p>}
-          <button onClick={loadMore} disabled={loadingMore}>
+          {appendError && <EmptyStateRow message={t('appendFailed')} />}
+          <button onClick={loadMore} disabled={loadingMore} style={pillStyle(false)}>
             {loadingMore ? t('loading') : appendError ? t('retry') : t('showMore')}
           </button>
         </div>
@@ -298,16 +315,6 @@ function UnifiedWorkRow({ work, onOpenBook, onPlay }: {
   )
 }
 
-function pillStyle(active: boolean): CSSProperties {
-  return {
-    padding: '4px 10px',
-    borderRadius: 999,
-    border: '1px solid var(--line)',
-    background: active ? 'var(--accent)' : 'var(--surface)',
-    color: active ? 'var(--accent-contrast)' : 'var(--fg)',
-  }
-}
-
 /** Appends a source cursor page without moving cards the listener already saw. */
 export type CardActionState = 'idle' | 'checking' | 'no-network' | 'temporary-failure' | 'audio-missing' | 'browser-required'
 
@@ -343,7 +350,6 @@ export function CatalogCardRow({ card, editionId, sources, onOpenBook, onPlay }:
   const rowRef = useRef<HTMLLIElement | null>(null)
   const primarySource = rankedSources[0]
   const source = primarySource?.sourceId
-  const badge = badgeLabel(card.language)
 
   useEffect(() => {
     let alive = true
@@ -488,14 +494,15 @@ export function CatalogCardRow({ card, editionId, sources, onOpenBook, onPlay }:
   }
 
   return (
-    <li ref={rowRef}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <button style={{ flex: 1, textAlign: 'left' }} onClick={() => onOpenBook(primarySource.url, source)} aria-label={t('openBookAria', { title: card.title })}>
-          {card.coverImageUrl && <img src={card.coverImageUrl} alt="" loading="lazy" />}
-          <span className="card-title">{card.title}</span>
-          <span className="card-author">{card.author}{card.narrator ? ` · ${card.narrator}` : ''}</span>
-          {badge && <span className="lang-badge" aria-label={badge.name}>{badge.label}</span>}
-        </button>
+    <BookRow
+      innerRef={(node) => { rowRef.current = node }}
+      coverUrl={card.coverImageUrl}
+      title={card.title}
+      subtitle={card.author + (card.narrator ? ` · ${card.narrator}` : '')}
+      badges={<MetadataChip kind="language" code={card.language} />}
+      onOpen={() => onOpenBook(primarySource.url, source)}
+      openAriaLabel={t('openBookAria', { title: card.title })}
+      actions={
         <button
           onClick={state === 'checking' ? cancel : play}
           aria-label={state === 'checking' ? t('cancelCheckAria', { title: card.title }) : t('listenAria', { title: card.title })}
@@ -504,17 +511,21 @@ export function CatalogCardRow({ card, editionId, sources, onOpenBook, onPlay }:
         >
           {state === 'checking' ? t('cancel') : '▶'}
         </button>
-      </div>
-      {state === 'checking' && <p className="notice" aria-live="polite">{t('checking')}</p>}
-      {state === 'no-network' && <p className="notice" role="status">{t('noNetwork')}</p>}
-      {state === 'temporary-failure' && <p className="notice" role="status">{t('temporaryFailure')}</p>}
-      {state === 'audio-missing' && <p className="notice" role="status">{t('audioMissing')}</p>}
-      {state === 'browser-required' && (
-        <p className="notice" role="status">
-          {t('sessionRequired')}{' '}
-          <a href={sourceHome(sessionSource ?? source)} target="_blank" rel="noreferrer">{t('openSourceLabel', { label: SOURCES.find((item) => item.id === (sessionSource ?? source))?.label ?? '' })}</a>
-        </p>
-      )}
-    </li>
+      }
+      trailing={
+        <>
+          {state === 'checking' && <EmptyStateRow message={t('checking')} />}
+          {state === 'no-network' && <EmptyStateRow message={t('noNetwork')} />}
+          {state === 'temporary-failure' && <EmptyStateRow message={t('temporaryFailure')} />}
+          {state === 'audio-missing' && <EmptyStateRow message={t('audioMissing')} />}
+          {state === 'browser-required' && (
+            <EmptyStateRow message={t('sessionRequired')}>
+              {' '}
+              <a href={sourceHome(sessionSource ?? source)} target="_blank" rel="noreferrer">{t('openSourceLabel', { label: SOURCES.find((item) => item.id === (sessionSource ?? source))?.label ?? '' })}</a>
+            </EmptyStateRow>
+          )}
+        </>
+      }
+    />
   )
 }

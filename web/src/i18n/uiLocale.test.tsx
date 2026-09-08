@@ -5,6 +5,7 @@
  * («Українська» on the chip/badge) are content, not chrome, and stay.
  */
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from '../api/client'
 import { Catalog } from '../ui/Catalog'
@@ -42,6 +43,8 @@ describe('en locale flows', () => {
     vi.spyOn(api, 'workFeed').mockResolvedValue(page)
     render(<Catalog onOpenBook={vi.fn()} onPlay={vi.fn(async () => true)} />)
 
+    // The collapsible search starts collapsed; expand it to see the field.
+    await userEvent.click(screen.getByRole('button', { name: 'Search' }))
     expect(screen.getByPlaceholderText('Search…')).toBeTruthy()
     await waitFor(() => expect(screen.getByText('Pride and Prejudice')).toBeTruthy())
     // The heading and the source chip both carry the same label.

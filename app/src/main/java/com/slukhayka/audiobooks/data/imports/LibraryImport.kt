@@ -11,6 +11,7 @@ import com.slukhayka.audiobooks.data.HASH_BUFFER_SIZE
 import com.slukhayka.audiobooks.data.contentHashOf
 import com.slukhayka.audiobooks.data.sha256Hex
 import com.slukhayka.audiobooks.data.db.AudiobookDao
+import com.slukhayka.audiobooks.data.listening.WorkRelationshipsSync
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.ChapterEntity
 import com.slukhayka.audiobooks.data.db.CorrectionEntity
@@ -88,7 +89,13 @@ class LibraryImport(
     // source's claimed rating as a provenance-bearing assertion. Null in
     // tests that don't exercise the layer — imports then behave exactly as
     // before.
-    private val popularityAssertionStore: com.slukhayka.audiobooks.data.catalog.PopularityAssertionStore? = null
+    private val popularityAssertionStore: com.slukhayka.audiobooks.data.catalog.PopularityAssertionStore? = null,
+    // #581 W0.3 — the Work-relationship sync writer: a Work entering the
+    // library mirrors as an `entry` row (the web Медіатека sees it). Null in
+    // tests / without Firebase — imports then behave exactly as before.
+    // Best-effort and silent by the seam's contract: a failing write never
+    // breaks the import.
+    private val workRelationshipsSync: WorkRelationshipsSync? = null
 ) {
     private val authorIndex: AuthorIndex = RoomAuthorIndex(dao)
 
@@ -263,6 +270,15 @@ class LibraryImport(
                     createdAt = System.currentTimeMillis(),
                     downloadProgress = 0f
                 )
+                // #581 W0.3 — the honest moment for the cloud: the Work
+                // entered the library, so its relationship row becomes
+                // `entry` (over any older tombstone, per the server-stamp
+                // LWW). Best-effort — never breaks the import.
+                if (mergeKey.isNotBlank()) {
+                    runCatching {
+                        workRelationshipsSync?.pushEntry(mergeKey, book.title, book.author)
+                    }
+                }
                 // Spec-26 T8 (#182): a NEW book with a series fires the
                 // import event trigger (the callback is wired to the universe
                 // chain validation in the composition root). Best-effort and
@@ -352,6 +368,14 @@ class LibraryImport(
                     )
                 }
                 dao.deleteTombstone(existing.id)
+                // #581 W0.3 — an explicit re-add over a tombstone is a user
+                // action: the relationship row flips back to `entry`.
+                val reAddKey = existing.mergeKey
+                if (!reAddKey.isNullOrBlank()) {
+                    runCatching {
+                        workRelationshipsSync?.pushEntry(reAddKey, existing.title, existing.author)
+                    }
+                }
                 existing.toAudiobookEntity()
             }
         }

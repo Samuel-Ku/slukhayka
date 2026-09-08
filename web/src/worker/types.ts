@@ -37,6 +37,13 @@ export interface CatalogCard {
    * absent = the listing carried no count.
    */
   count?: number
+  /**
+   * W3.3 — genre page memberships observed at the Source (a poster ON a
+   * genre page belongs to that genre by construction). Never guessed:
+   * absent = no genre claim, and a Work with no claims never matches a
+   * genre selection (Android `work_genres` semantics).
+   */
+  genres?: string[]
 }
 
 export interface CatalogSection {
@@ -82,6 +89,12 @@ export interface UnifiedWork {
   author: string
   coverImageUrl?: string
   editions: UnifiedEdition[]
+  /**
+   * W3.3 — genre page memberships the worker observed (union across the
+   * source cards). Absent = no claim: the regular merged feed carries none
+   * (genre pages are the only honest genre source).
+   */
+  genres?: string[]
 }
 
 export interface UnifiedWorkPage {

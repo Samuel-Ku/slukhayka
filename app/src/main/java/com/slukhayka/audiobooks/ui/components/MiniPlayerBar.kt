@@ -1,5 +1,7 @@
 package com.slukhayka.audiobooks.ui.components
 
+import com.slukhayka.audiobooks.ui.displayBookTitle
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
@@ -127,7 +129,7 @@ fun MiniPlayerBar(
                     Column(modifier = Modifier.weight(1f)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                text = book.title,
+                                text = displayBookTitle(book.title),
                                 style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis,
@@ -175,7 +177,7 @@ fun MiniPlayerBar(
                         // localization pass (2026-08-17).
                         contentDescription = stringResource(
                             if (playerState.isPlaying) R.string.a11y_pause_work else R.string.a11y_play_work,
-                            book.title
+                            displayBookTitle(book.title)
                         ),
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(28.dp)
@@ -191,7 +193,7 @@ fun MiniPlayerBar(
                 ) {
                     Icon(
                         imageVector = Icons.Default.SkipNext,
-                        contentDescription = stringResource(R.string.a11y_next_chapter_work, book.title),
+                        contentDescription = stringResource(R.string.a11y_next_chapter_work, displayBookTitle(book.title)),
                         tint = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.size(24.dp)
                     )

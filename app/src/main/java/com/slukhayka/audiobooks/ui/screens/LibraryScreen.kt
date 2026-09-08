@@ -1,5 +1,7 @@
 package com.slukhayka.audiobooks.ui.screens
 
+import com.slukhayka.audiobooks.ui.displayBookTitle
+
 import android.content.Intent
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -652,11 +654,11 @@ fun LibraryBookCard(
 ) {
     val author = book.book.displayAuthor
     val description = if (author.isBlank()) {
-        book.book.title
+        displayBookTitle(book.book.title)
     } else {
         stringResource(
             com.slukhayka.audiobooks.R.string.a11y_library_entry_description,
-            book.book.title,
+            displayBookTitle(book.book.title),
             author
         )
     }
@@ -681,7 +683,7 @@ fun LibraryBookCard(
     val state = listOf(progressState, availability, sourceState).joinToString(". ")
     val openLabel = stringResource(
         com.slukhayka.audiobooks.R.string.a11y_library_open_book,
-        book.book.title
+        displayBookTitle(book.book.title)
     )
     val performOpen = onClick
     Card(
@@ -732,7 +734,7 @@ private fun LibraryBookRowContent(book: LibraryBook) {
 
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = book.book.title,
+                text = displayBookTitle(book.book.title),
                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
@@ -807,7 +809,7 @@ private fun LibraryBookGridContent(book: LibraryBook) {
         )
         Column(modifier = Modifier.padding(10.dp)) {
             Text(
-                text = book.book.title,
+                text = displayBookTitle(book.book.title),
                 style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 2,
@@ -1208,7 +1210,7 @@ fun ImportPreviewDialog(
                         Column(modifier = Modifier.padding(12.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
-                                    text = book.title.ifBlank { "Без назви" },
+                                    text = displayBookTitle(book.title).ifBlank { "Без назви" },
                                     style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                                     color = MaterialTheme.colorScheme.onSurface,
                                     modifier = Modifier.weight(1f)

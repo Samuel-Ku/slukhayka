@@ -1,5 +1,7 @@
 package com.slukhayka.audiobooks.ui.screens
 
+import com.slukhayka.audiobooks.ui.displayBookTitle
+
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -483,7 +485,7 @@ fun BookDetailScreen(
                     val isFavoriteThis = favoriteBooks.any { it.id == currentBook.id }
                     FavoriteButton(
                         isFavorite = isFavoriteThis,
-                        bookTitle = currentBook.title,
+                        bookTitle = displayBookTitle(currentBook.title),
                         onToggle = {
                             scope.launch {
                                 viewModel.libraryEntries.toggleFavorite(
@@ -519,7 +521,7 @@ fun BookDetailScreen(
                         ) {
                             if (currentBook.sourceUrl.contains("4read.org")) {
                                 DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.a11y_book_detail_open_site, currentBook.title)) },
+                                    text = { Text(stringResource(R.string.a11y_book_detail_open_site, displayBookTitle(currentBook.title))) },
                                     leadingIcon = { Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null) },
                                     onClick = {
                                         showOverflowMenu = false
@@ -529,7 +531,7 @@ fun BookDetailScreen(
                             }
                             if (currentBook.sourceUrl.contains("sluhay.com") && !currentBook.sourceUrl.contains("sluhay.com.ua")) {
                                 DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.a11y_book_detail_open_sluhay, currentBook.title)) },
+                                    text = { Text(stringResource(R.string.a11y_book_detail_open_sluhay, displayBookTitle(currentBook.title))) },
                                     leadingIcon = { Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null) },
                                     onClick = {
                                         showOverflowMenu = false
@@ -538,7 +540,7 @@ fun BookDetailScreen(
                                 )
                             }
                             DropdownMenuItem(
-                                text = { Text(stringResource(R.string.a11y_book_detail_delete_work, currentBook.title)) },
+                                text = { Text(stringResource(R.string.a11y_book_detail_delete_work, displayBookTitle(currentBook.title))) },
                                 leadingIcon = {
                                     Icon(
                                         imageVector = Icons.Default.Delete,
@@ -681,7 +683,7 @@ fun BookDetailScreen(
                     Spacer(modifier = Modifier.height(16.dp))
 
                     BookDetailPrimaryActions(
-                        workTitle = currentBook.title,
+                        workTitle = displayBookTitle(currentBook.title),
                         playLabel = bookPlayLabel(playState) { MainViewModel.formatTime(it) },
                         streamOnly = streamOnly,
                         downloadAction = downloadAction,
@@ -924,7 +926,7 @@ fun BookDetailScreen(
                         val bookmarkDeleteFocusRequester = remember(bookmark.id) { FocusRequester() }
                         BookmarkRowItem(
                             bookmark = bookmark,
-                            workTitle = currentBook.title,
+                            workTitle = displayBookTitle(currentBook.title),
                             onJumpClick = { viewModel.jumpToBookmark(bookmark) },
                             onDeleteClick = {
                                 bookmarkDeleteOrigin = bookmarkDeleteFocusRequester
@@ -1101,7 +1103,7 @@ fun BookDetailScreen(
                     ) { review ->
                         ReviewCard(
                             review = review,
-                            workTitle = currentBook.title,
+                            workTitle = displayBookTitle(currentBook.title),
                             isOwn = listenerProfile?.uid == review.uid,
                             isPending = com.slukhayka.audiobooks.data.reviews.ListenerReviewCodec
                                 .documentId(review.workId, review.uid) in pendingReviewKeys,
@@ -1191,7 +1193,7 @@ fun BookDetailScreen(
         val deletedMessage = stringResource(R.string.book_detail_bookmark_deleted)
         val deleteError = stringResource(R.string.book_detail_bookmark_delete_error)
         BookmarkDeleteConfirmation(
-            workTitle = currentBook.title,
+            workTitle = displayBookTitle(currentBook.title),
             bookmark = doomed,
             onConfirm = {
                 bookmarkToDelete = null
@@ -1209,7 +1211,7 @@ fun BookDetailScreen(
     // never silently destroy the user's audio files. This owner also keeps
     // focus on the exact launcher across sheet -> confirmation transitions.
     BookDeleteModalLifecycle(
-        workTitle = currentBook.title,
+        workTitle = displayBookTitle(currentBook.title),
         isDownloaded = currentBook.isDownloaded || currentBook.downloadState == DownloadState.PAUSED,
         showOptions = showDeleteSheet,
         showConfirmation = showDeleteDialog,
@@ -1228,7 +1230,7 @@ fun BookDetailScreen(
     // modes; edit prefills stars/body/tag and re-sets under the same key).
     if (showReviewForm && viewModel.listenerReviews != null) {
         ListenerReviewFormSheet(
-            bookTitle = currentBook.title,
+            bookTitle = displayBookTitle(currentBook.title),
             editing = editingReview,
             editionOptions = workEditionNarrators,
             defaultEditionTag = currentBook.displayNarrator,
@@ -1252,7 +1254,7 @@ fun BookDetailScreen(
     // Spec-40 #277 — deleting a review is destructive: a confirmation that
     // quotes exactly what is removed (spec-27 «destructive never neutral»).
     ReviewDeleteConfirmationOwner(
-        workTitle = currentBook.title,
+        workTitle = displayBookTitle(currentBook.title),
         review = reviewToDelete,
         returnFocusRequester = reviewDeleteFocusRequester,
         fallbackFocusRequester = deleteTriggerFocusRequester,

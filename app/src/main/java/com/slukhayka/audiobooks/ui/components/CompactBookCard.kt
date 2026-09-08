@@ -1,5 +1,7 @@
 package com.slukhayka.audiobooks.ui.components
 
+import com.slukhayka.audiobooks.ui.displayBookTitle
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -129,7 +131,7 @@ fun CompactBookCard(
                 Spacer(modifier = Modifier.height(2.dp))
             }
             Text(
-                text = book.title,
+                text = displayBookTitle(book.title),
                 style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 2,
@@ -171,7 +173,7 @@ fun CompactBookCard(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Close,
-                        contentDescription = stringResource(R.string.a11y_not_interested_work, book.title),
+                        contentDescription = stringResource(R.string.a11y_not_interested_work, displayBookTitle(book.title)),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(CompactBookDismissIconSize)
                     )

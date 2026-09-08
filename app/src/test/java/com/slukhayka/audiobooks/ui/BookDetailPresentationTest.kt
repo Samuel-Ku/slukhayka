@@ -11,6 +11,25 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class BookDetailPresentationTest {
+    @Test
+    fun `encoded book title renders correctly without changing stored identity`() {
+        val expected = "Проєкт \"Аве Марія\""
+        for (raw in listOf("Проєкт &quot;Аве Марія&quot;", "Проєкт &amp;quot;Аве Марія&amp;quot;", "Проєкт &#34;Аве Марія&#34;", "Проєкт &#x22;Аве Марія&#x22;")) {
+            val stored = book.copy(title = raw)
+            val keyBefore = com.slukhayka.audiobooks.data.merge.MergeKey.keyFor(stored.title, stored.author)
+            assertEquals(expected, bookDetailPresentation(stored, emptyList(), emptyList()).title)
+            assertEquals(expected, displayBookTitle(displayBookTitle(raw)))
+            assertEquals(raw, stored.title)
+            assertEquals(book.id, stored.id)
+            assertEquals(keyBefore, com.slukhayka.audiobooks.data.merge.MergeKey.keyFor(stored.title, stored.author))
+        }
+    }
+
+    @Test
+    fun `display title preserves literal ampersands unknown and invalid entities`() {
+        assertEquals("A & B &unknown; &#xD800;", displayBookTitle("A &amp; B &unknown; &#xD800;"))
+    }
+
 
     private val book = AudiobookEntity(
         id = "work-edition",

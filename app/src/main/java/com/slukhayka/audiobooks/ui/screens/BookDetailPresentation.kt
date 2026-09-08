@@ -1,5 +1,7 @@
 package com.slukhayka.audiobooks.ui.screens
 
+import com.slukhayka.audiobooks.ui.displayBookTitle
+
 import com.slukhayka.audiobooks.data.catalog.SourceCatalog
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
@@ -79,7 +81,7 @@ fun bookDetailPresentation(
         )
     }
     return BookDetailPresentation(
-        title = book.title,
+        title = displayBookTitle(book.title),
         author = book.displayAuthor,
         description = description,
         narrator = book.displayNarrator,

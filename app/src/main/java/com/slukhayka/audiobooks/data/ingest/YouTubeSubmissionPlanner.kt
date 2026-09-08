@@ -44,7 +44,14 @@ object YouTubeSubmissionPlanner {
     data class Metadata(
         val id: String?,
         val title: String,
-        val entries: List<MetadataEntry>
+        val entries: List<MetadataEntry>,
+        /**
+         * ADR-0035 / #605 — the total duration the metadata observes for a
+         * SINGLE video (playlists carry per-entry durations, never an honest
+         * total — so playlists stay null). A metadata delta, not a canonical
+         * fact; null when absent/implausible.
+         */
+        val durationSeconds: Long? = null
     )
 
     /**
@@ -65,8 +72,22 @@ object YouTubeSubmissionPlanner {
                 title = entry["title"] as? String
             )
         } ?: emptyList()
-        return Metadata(id = root["id"] as? String, title = title, entries = entries)
+        val durationSeconds = if (entries.isEmpty()) {
+            (root["duration"] as? Number)?.toLong()
+                ?.takeIf { it > 0 && it <= MAX_PLAUSIBLE_DURATION_SECONDS }
+        } else {
+            null
+        }
+        return Metadata(
+            id = root["id"] as? String,
+            title = title,
+            entries = entries,
+            durationSeconds = durationSeconds
+        )
     }
+
+    /** The plausible ceiling of an observed single-video duration: 100 hours. */
+    private const val MAX_PLAUSIBLE_DURATION_SECONDS = 100L * 60 * 60
 
     /**
      * Builds the submission plan from the submitted URL and its metadata.

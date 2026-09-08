@@ -12,6 +12,11 @@ import com.slukhayka.audiobooks.data.metadata.FacetPageLimits
 import com.slukhayka.audiobooks.data.metadata.ProfileProvenance
 import com.slukhayka.audiobooks.data.metadata.SharedBookMetaStore
 import com.slukhayka.audiobooks.data.metadata.SharedProfileEntry
+import com.slukhayka.audiobooks.data.metadata.SubmissionCursor
+import com.slukhayka.audiobooks.data.metadata.SubmissionPage
+import com.slukhayka.audiobooks.data.metadata.SubmissionPageLimits
+import com.slukhayka.audiobooks.data.metadata.SubmissionPublication
+import com.slukhayka.audiobooks.data.metadata.SubmissionPublicationCodec
 
 /**
  * A recording in-memory [SharedBookMetaStore] for tests: duration puts are
@@ -19,7 +24,8 @@ import com.slukhayka.audiobooks.data.metadata.SharedProfileEntry
  * profile/cover surfaces are inert stubs.
  */
 class FakeSharedBookMetaStore(
-    var throwOnPut: Boolean = false
+    var throwOnPut: Boolean = false,
+    var throwOnSubmissionPage: Boolean = false
 ) : SharedBookMetaStore {
 
     private val facets = linkedMapOf<String, FacetAssertion>()
@@ -65,4 +71,34 @@ class FakeSharedBookMetaStore(
     override suspend fun getCover(mergeKey: String): String? = null
     override suspend fun getCovers(mergeKeys: List<String>): Map<String, String> = emptyMap()
     override suspend fun putCover(mergeKey: String, coverUrl: String, provenance: CoverProvenance) = Unit
+
+    /** Published submissions, keyed by the normalized-URL document id (store-level URL dedup). */
+    private val submissions = linkedMapOf<String, SubmissionPublication>()
+
+    /** Every publication attempt in call order — the gate tests assert on this. */
+    val submissionPuts = mutableListOf<SubmissionPublication>()
+
+    override suspend fun publishSubmission(publication: SubmissionPublication) {
+        if (SubmissionPublicationCodec.toMap(publication) == null) return
+        submissionPuts += publication
+        submissions[SubmissionPublicationCodec.documentId(publication.sourceUrl)] = publication
+    }
+
+    override suspend fun getSubmissionPage(after: SubmissionCursor?, limit: Int): SubmissionPage {
+        if (throwOnSubmissionPage) throw IllegalStateException("shared base down")
+        val boundedLimit = SubmissionPageLimits.bounded(limit)
+        if (boundedLimit == 0) return SubmissionPage(emptyList(), null)
+        val ordered = submissions.values.sortedWith(
+            compareBy<SubmissionPublication> { it.submittedAt }.thenBy { SubmissionPublicationCodec.documentId(it.sourceUrl) }
+        )
+        val remaining = ordered.filter { publication ->
+            val documentId = SubmissionPublicationCodec.documentId(publication.sourceUrl)
+            after == null || publication.submittedAt > after.submittedAt ||
+                (publication.submittedAt == after.submittedAt && documentId > after.documentId)
+        }
+        val page = remaining.take(boundedLimit)
+        val nextCursor = page.lastOrNull()
+            ?.let { SubmissionCursor(it.submittedAt, SubmissionPublicationCodec.documentId(it.sourceUrl)) }
+        return SubmissionPage(page, nextCursor)
+    }
 }

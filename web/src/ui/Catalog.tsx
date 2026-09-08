@@ -33,6 +33,7 @@ import { searchMemory } from './searchMemory'
 import { loadCollections } from './collectionAssets'
 import { matchAllCollections } from './collectionModel'
 import { ForYouGroup } from './forYouGroup'
+import type { PersonBookmarkSyncController } from '../sync/personBookmarkController'
 import type { EditionLinkStore } from '../local/editionLinks'
 import type { ListenerDatabase } from '../local/listeningState'
 import type { RecommendationPrefsStore } from '../local/recommendationPrefs'
@@ -71,7 +72,7 @@ function pillStyle(active: boolean): CSSProperties {
 }
 
 /** spec-43/T3+T4 — огляд із перемикачем джерел і пошуком. */
-export function Catalog({ onOpenBook, onPlay, onSaveWork, domainStore, linkStore, listening, recommendationPrefs, participation }: {
+export function Catalog({ onOpenBook, onPlay, onSaveWork, domainStore, linkStore, listening, recommendationPrefs, participation, personBookmarks }: {
   onOpenBook: (url: string, source: SourceId) => void
   onPlay: (detail: BookDetail, chapterIndex: number) => Promise<boolean>
   /** #584 W1.2 — «зберегти»: creates the Library Entry for this Work. */
@@ -84,6 +85,8 @@ export function Catalog({ onOpenBook, onPlay, onSaveWork, domainStore, linkStore
   recommendationPrefs?: RecommendationPrefsStore
   /** #592 W6.1 — the participation consent (Settings → Рекомендації). */
   participation?: RecommendationParticipation
+  /** #582 W0.4 — the people-index rows' bookmark toggle (no seam → no buttons). */
+  personBookmarks?: PersonBookmarkSyncController
 }) {
   const t = useTranslate()
   const locale = useUiLocale()
@@ -449,7 +452,13 @@ export function Catalog({ onOpenBook, onPlay, onSaveWork, domainStore, linkStore
         ) : index === 'top100' ? (
           <Top100IndexPanel onBack={closeIndex} onOpenBook={onOpenBook} />
         ) : (
-          <PeopleIndexPanel kind={index} onBack={closeIndex} onOpenPerson={(card) => window.open(card.url, '_blank', 'noopener')} />
+          <PeopleIndexPanel
+            kind={index}
+            onBack={closeIndex}
+            onOpenPerson={(card) => window.open(card.url, '_blank', 'noopener')}
+            domainStore={domainStore}
+            personBookmarks={personBookmarks}
+          />
         )
       ) : (
         <>

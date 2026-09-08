@@ -1,7 +1,8 @@
 import { IDBFactory } from 'fake-indexeddb'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { mergeKeyFor } from '../sync/edition'
-import { DomainStore, personIdFor, resolveRelationship, type WorkRelationshipRow } from './domain'
+import { DomainStore, resolveRelationship, type WorkRelationshipRow } from './domain'
+import { personIdentityOf } from './personIdentity'
 
 function row(overrides: Partial<WorkRelationshipRow> & { mergeKey: string; state: WorkRelationshipRow['state'] }): WorkRelationshipRow {
   return {
@@ -82,11 +83,11 @@ describe('DomainStore', () => {
 
   it('person bookmarks key by role and deterministic id, and remove cleanly', async () => {
     const store = new DomainStore()
-    await store.addPersonBookmark({ role: 'narrator', personId: personIdFor('narrator', 'читець'), displayName: 'Читець' })
-    await store.addPersonBookmark({ role: 'author', personId: personIdFor('author', 'автор'), displayName: 'Автор' })
+    await store.addPersonBookmark({ role: 'narrator', personId: personIdentityOf('narrator', 'Читець').id, displayName: 'Читець' })
+    await store.addPersonBookmark({ role: 'author', personId: personIdentityOf('author', 'Автор').id, displayName: 'Автор' })
     expect((await store.personBookmarks()).length).toBe(2)
-    expect((await store.personBookmarks('narrator')).map((bookmark) => bookmark.personId)).toEqual([personIdFor('narrator', 'читець')])
-    await store.removePersonBookmark(personIdFor('author', 'автор'))
+    expect((await store.personBookmarks('narrator')).map((bookmark) => bookmark.personId)).toEqual([personIdentityOf('narrator', 'Читець').id])
+    await store.removePersonBookmark(personIdentityOf('author', 'Автор').id)
     expect((await store.personBookmarks()).length).toBe(1)
   })
 

@@ -184,6 +184,12 @@ const uk = {
   peopleBookOne: 'книга',
   peopleBookFew: 'книги',
   peopleBookMany: 'книг',
+  // #582 W0.4 — person bookmarks: the library block and the byline controls.
+  yourPeople: 'Ваші виконавці/автори',
+  personRoleAuthor: 'Автор',
+  personRolePerformer: 'Виконавець',
+  personBookmarkAddAria: 'Закласти {name}',
+  personBookmarkRemoveAria: 'Прибрати з закладок: {name}',
   // W3.3 — the feed filters (spec-42 T1 #302): sticky toolbar + sheet.
   feedFilters: 'Фільтри',
   feedFiltersAria: 'Фільтри каталогу',
@@ -511,6 +517,12 @@ const en: Strings = {
   peopleBookOne: 'book',
   peopleBookFew: 'books',
   peopleBookMany: 'books',
+  // #582 W0.4 — person bookmarks: the library block and the byline controls.
+  yourPeople: 'Your authors & performers',
+  personRoleAuthor: 'Author',
+  personRolePerformer: 'Performer',
+  personBookmarkAddAria: 'Bookmark {name}',
+  personBookmarkRemoveAria: 'Remove bookmark: {name}',
   // W3.3 — the feed filters
   feedFilters: 'Filters',
   feedFiltersAria: 'Catalog filters',

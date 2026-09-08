@@ -124,6 +124,26 @@ const uk = {
   feedbackHideAuthor: 'Не рекомендувати цього автора',
   recommendationsEmptyTitle: 'Нічого не приховано',
   recommendationsEmptyHint: 'Книги, позначені «Не цікаво» на полицях, з’являться тут — і їх можна повернути.',
+  // W6.1 — #592 participation switch (Settings → Рекомендації), the honest
+  // web wording of Android's recommendations_shared_switch: the consent
+  // is real, the transmission stays disabled until the server layer
+  // passes the privacy/security/legal gates (ADR-0030 implementation
+  // pending; ADR-0031: absent graph never blocks Огляд).
+  recommendationParticipationTitle: 'Допомагати покращувати спільні рекомендації',
+  recommendationParticipationDescription: 'Ваша згода стосується майбутнього серверного профілю рекомендацій (ADR-0030). Передавання технічно вимкнене до перевірки приватності, безпеки та юридичних умов; книги й історія не надсилатимуться. Відкликання зупиняє внески й залишає локальні рекомендації.',
+  recommendationParticipationOn: 'Згоду збережено локально',
+  recommendationParticipationOff: 'Не беру участі',
+  // W6.1 — #592 the «Для вас» group on Огляд: Android's feed_for_you /
+  // feed_recommended_for_you / home_no_personal_picks / home_personal_picks_loading
+  // and the reason dictionary («Схоже на X», «За твоїм інтересом до …»).
+  feedForYou: 'Для вас',
+  feedRecommendedForYou: 'Рекомендовано для вас',
+  homeNoPersonalPicks: 'Персональних добірок поки немає.',
+  homePersonalPicksLoading: 'Готуємо персональні добірки…',
+  recommendReasonSimilar: 'Схоже на «{title}»',
+  recommendReasonGenre: 'За твоїм інтересом до {genre}',
+  recommendReasonCollective: 'Подобається слухачам, яким сподобалася «{title}»',
+  inLibrary: 'У медіатеці',
   // catalog
   searchPlaceholder: 'Пошук…',
   searchAria: 'Пошук',
@@ -432,6 +452,26 @@ const en: Strings = {
   feedbackHideAuthor: "Don't recommend this author",
   recommendationsEmptyTitle: 'Nothing hidden',
   recommendationsEmptyHint: 'Books marked “Not interested” on the shelves appear here — and can be restored.',
+  // W6.1 — #592 participation switch (Settings → Recommendations), the
+  // honest web wording of Android's recommendations_shared_switch: the
+  // consent is real, the transmission stays disabled until the server
+  // layer passes the privacy/security/legal gates (ADR-0030 pending).
+  recommendationParticipationTitle: 'Help improve shared recommendations',
+  recommendationParticipationDescription: 'Your consent concerns the future server recommendation profile (ADR-0030). Transmission is technically disabled until the privacy, security and legal checks pass; books and history will not be sent. Revoking stops contributions and keeps local recommendations.',
+  recommendationParticipationOn: 'Consent saved locally',
+  recommendationParticipationOff: 'Not participating',
+  // W6.1 — #592 the «For you» group on Explore: Android's
+  // feed_for_you / feed_recommended_for_you / home_no_personal_picks /
+  // home_personal_picks_loading and the reason dictionary
+  // («Similar to X», «Based on your interest in …»).
+  feedForYou: 'For you',
+  feedRecommendedForYou: 'Recommended for you',
+  homeNoPersonalPicks: 'No personal picks yet.',
+  homePersonalPicksLoading: 'Preparing personal picks…',
+  recommendReasonSimilar: 'Similar to “{title}”',
+  recommendReasonGenre: 'Based on your interest in {genre}',
+  recommendReasonCollective: 'Liked by listeners who enjoyed “{title}”',
+  inLibrary: 'In your library',
   // catalog
   searchPlaceholder: 'Search…',
   searchAria: 'Search',

@@ -32,6 +32,12 @@ import { createFacetFilter, workMatchesFacets, type DurationBucket, type FacetWo
 import { searchMemory } from './searchMemory'
 import { loadCollections } from './collectionAssets'
 import { matchAllCollections } from './collectionModel'
+import { ForYouGroup } from './forYouGroup'
+import type { EditionLinkStore } from '../local/editionLinks'
+import type { ListenerDatabase } from '../local/listeningState'
+import type { RecommendationPrefsStore } from '../local/recommendationPrefs'
+import type { RecommendationProfileSource } from '../recommend/profile'
+import { RecommendationParticipation } from '../recommend/participation'
 import { FEED_CATALOG, FEED_HOMEPAGE_SECTIONS, FEED_NEW_ARRIVALS, needsNetwork } from './feedSnapshotPolicy'
 import { formatRemainingTime } from './listenComposer'
 
@@ -43,6 +49,13 @@ const SOURCES: Array<{ id: 'all' | SourceId; label: string }> = [
 // W3.1 — the curated collections (static JSON assets) decoded once at module
 // load; a malformed asset contributes nothing (best-effort, CollectionJson).
 const SHIPPED_COLLECTIONS = loadCollections()
+
+// #592 W6.1 — the ONE profile source: honest null until a server layer
+// exists (ADR-0030 implementation pending; ADR-0031: absent graph never
+// blocks Огляд). Stable identity across renders for the effect deps.
+const PROFILE_SOURCE: RecommendationProfileSource = {
+  load: async () => null,
+}
 
 /** One horizontal shelf shows at most this many cards. */
 const RAIL_LIMIT = 15
@@ -58,13 +71,19 @@ function pillStyle(active: boolean): CSSProperties {
 }
 
 /** spec-43/T3+T4 — огляд із перемикачем джерел і пошуком. */
-export function Catalog({ onOpenBook, onPlay, onSaveWork, domainStore }: {
+export function Catalog({ onOpenBook, onPlay, onSaveWork, domainStore, linkStore, listening, recommendationPrefs, participation }: {
   onOpenBook: (url: string, source: SourceId) => void
   onPlay: (detail: BookDetail, chapterIndex: number) => Promise<boolean>
   /** #584 W1.2 — «зберегти»: creates the Library Entry for this Work. */
   onSaveWork?: (work: UnifiedWork, edition: UnifiedEdition) => void
   /** #584 W1.3 — tombstones: a hidden Work never returns to Огляд. */
   domainStore?: DomainStore
+  /** #592 W6.1 — the «Для вас» group's data seams. */
+  linkStore?: EditionLinkStore
+  listening?: Pick<ListenerDatabase, 'allSnapshots'>
+  recommendationPrefs?: RecommendationPrefsStore
+  /** #592 W6.1 — the participation consent (Settings → Рекомендації). */
+  participation?: RecommendationParticipation
 }) {
   const t = useTranslate()
   const locale = useUiLocale()
@@ -501,6 +520,27 @@ export function Catalog({ onOpenBook, onPlay, onSaveWork, domainStore }: {
             <button type="button" className="nav-chip" ref={(node) => { chipRefs.current.set('collections', node) }} onClick={() => openIndex('collections')}>{t('navCollections')}</button>
           </div>
         </section>
+      )}
+
+      {/* W6.1 — #592: the «Для вас» group (Android's HomeFeedContent
+          R-W4), in the #302 pin order right after quick transitions and
+          before «Відкрити нове». The personal shelf renders from the
+          server profile when participation is ON and a profile exists;
+          otherwise the honest local adaptation from the browser's own
+          Listening State (ADR-0031: absent graph never blocks Огляд).
+          The group belongs to the default view only. */}
+      {source === 'all' && query.trim().length < 2 && works !== null && !failed && domainStore !== undefined && linkStore !== undefined && listening !== undefined && recommendationPrefs !== undefined && participation !== undefined && (
+        <ForYouGroup
+          works={works}
+          domainStore={domainStore}
+          linkStore={linkStore}
+          listening={listening}
+          recommendationPrefs={recommendationPrefs}
+          participation={participation.isEnabled()}
+          profileSource={PROFILE_SOURCE}
+          onOpenWork={openWork}
+          onDismiss={(mergeKey) => { void recommendationPrefs.add('HIDE_WORK', mergeKey, mergeKey) }}
+        />
       )}
 
       {/* W3.1 — Огляд shelves in the #302 pin order: search → quick

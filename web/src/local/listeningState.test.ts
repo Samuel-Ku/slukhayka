@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { openListenerDatabase, type IdbDatabase } from './idb'
 import {
   bootListenerStorage,
+  collectLegacyListeningRows,
   EVICTION_SUSPECT_MS,
   IdbListeningStateStore,
   ListeningStateMigrator,
@@ -110,6 +111,7 @@ describe('ListeningStateMigrator', () => {
       saveSnapshot: (snapshot) => real.saveSnapshot(snapshot),
       clearSnapshot: (editionId) => real.clearSnapshot(editionId),
       allSnapshots: () => real.allSnapshots(),
+      clearAllSnapshots: () => real.clearAllSnapshots(),
     }
     storage.setItem('slukhayka.listening.edition-a', JSON.stringify(snapshotOf('edition-a')))
 
@@ -183,5 +185,28 @@ describe('bootListenerStorage', () => {
     expect(storage.getItem('slukhayka.idb.last_seen')).toBe('1000')
     await bootListenerStorage({ store, storage, now: () => 2_000 })
     expect(storage.getItem('slukhayka.idb.last_seen')).toBe('2000')
+  })
+
+  it('the migration done-marker is never counted as a legacy row (#591)', () => {
+    const storage = {
+      getItem: (key: string) => (key === 'slukhayka.listening.migrated_to_idb' ? '1' : null),
+      removeItem: () => undefined,
+      length: 1,
+      key: () => 'slukhayka.listening.migrated_to_idb',
+    }
+    expect(collectLegacyListeningRows(storage)).toEqual([])
+  })
+
+  it('clearAllSnapshots removes every snapshot row, nothing else (#591)', async () => {
+    const store = new IdbListeningStateStore(fakeOpen())
+    await store.saveSnapshot(snapshotOf('edition-a'))
+    await store.saveSnapshot(snapshotOf('edition-b'))
+    expect(await store.allSnapshots()).toHaveLength(2)
+
+    await store.clearAllSnapshots()
+
+    expect(await store.allSnapshots()).toHaveLength(0)
+    expect(await store.loadSnapshot('edition-a')).toBeNull()
+    expect(await store.loadSnapshot('edition-b')).toBeNull()
   })
 })

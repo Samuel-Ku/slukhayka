@@ -13,6 +13,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { Settings } from './Settings'
 import { DomainStore } from '../local/domain'
 import { RecommendationPrefsStore } from '../local/recommendationPrefs'
+import { IdbListeningStateStore } from '../local/listeningState'
+import { HybridListeningStateStorage } from '../local/hybridListeningState'
 import { setUiLocale } from '../i18n/locale'
 import type { ListenerProfile } from '../identity/listenerIdentity'
 
@@ -21,6 +23,24 @@ const boundProfile: ListenerProfile = { uid: 'uid-xyz789', nickname: 'Слуха
 
 const recPrefs = (): RecommendationPrefsStore => new RecommendationPrefsStore()
 const domain = (): DomainStore => new DomainStore()
+
+/** #591 W5.2 — the storage direction's seams, shared by every render. */
+const hybrid = (): HybridListeningStateStorage =>
+  new HybridListeningStateStorage(new IdbListeningStateStore(), window.localStorage)
+const idbStore = (): IdbListeningStateStore => new IdbListeningStateStore()
+
+const renderSettings = (profile: ListenerProfile | null = localProfile): void => {
+  render(
+    <Settings
+      profile={profile}
+      recommendationPrefs={recPrefs()}
+      domainStore={domain()}
+      hybrid={hybrid()}
+      idbStore={idbStore()}
+      storage={window.localStorage}
+    />,
+  )
+}
 
 beforeEach(() => {
   globalThis.indexedDB = new IDBFactory()
@@ -33,16 +53,29 @@ afterEach(() => {
 })
 
 describe('Settings', () => {
-  it('renders the tab header and the direction rows (Профіль, Рекомендації)', () => {
-    render(<Settings profile={localProfile} recommendationPrefs={recPrefs()} domainStore={domain()} />)
+  it('renders the tab header and the direction rows in Android order (Профіль, Сховище, Приватність, Рекомендації)', () => {
+    renderSettings()
     expect(screen.getByRole('heading', { level: 1, name: 'Налаштування' })).toBeTruthy()
     expect(screen.getByRole('button', { name: /Профіль/ })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /Сховище/ })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /Приватність/ })).toBeTruthy()
     expect(screen.getByRole('button', { name: /Персональні рекомендації/ })).toBeTruthy()
+    // Android's order: Профіль, Сховище, Приватність, Рекомендації.
+    const rows = screen
+      .getAllByRole('button')
+      .filter((row) => row.className.includes('settings-row'))
+      .map((row) => row.textContent)
+    expect(rows).toEqual([
+      expect.stringContaining('Профіль'),
+      expect.stringContaining('Сховище'),
+      expect.stringContaining('Приватність'),
+      expect.stringContaining('Персональні рекомендації'),
+    ])
   })
 
   it('opens the profile direction: recovery code, binding status and the sync switch', async () => {
     const user = userEvent.setup()
-    render(<Settings profile={boundProfile} recommendationPrefs={recPrefs()} domainStore={domain()} />)
+    renderSettings(boundProfile)
     await user.click(screen.getByRole('button', { name: /Профіль/ }))
 
     expect(screen.getByRole('heading', { level: 1, name: 'Профіль' })).toBeTruthy()
@@ -58,7 +91,7 @@ describe('Settings', () => {
 
   it('an unbound (local) profile offers the code entry and hides the sync switch', async () => {
     const user = userEvent.setup()
-    render(<Settings profile={localProfile} recommendationPrefs={recPrefs()} domainStore={domain()} />)
+    renderSettings()
     await user.click(screen.getByRole('button', { name: /Профіль/ }))
 
     expect(screen.getByText(/Введіть код з ⚙️ Профіль на телефоні/)).toBeTruthy()
@@ -68,7 +101,7 @@ describe('Settings', () => {
 
   it('a null profile renders the honest stub, not the code entry', async () => {
     const user = userEvent.setup()
-    render(<Settings profile={null} recommendationPrefs={recPrefs()} domainStore={domain()} />)
+    renderSettings(null)
     await user.click(screen.getByRole('button', { name: /Профіль/ }))
 
     expect(screen.getByText('Профіль ще в роботі.')).toBeTruthy()
@@ -77,7 +110,7 @@ describe('Settings', () => {
 
   it('back returns to the directions list and focus returns to the opening row', async () => {
     const user = userEvent.setup()
-    render(<Settings profile={localProfile} recommendationPrefs={recPrefs()} domainStore={domain()} />)
+    renderSettings()
     await user.click(screen.getByRole('button', { name: /Профіль/ }))
     expect(screen.getByRole('heading', { level: 1, name: 'Профіль' })).toBeTruthy()
 
@@ -96,7 +129,16 @@ describe('Settings', () => {
     await prefs.add('HIDE_WORK', 'чужинець|камю', 'чужинець|камю')
     await prefs.add('HIDE_WORK', 'пустеля|камю', 'пустеля|камю')
 
-    render(<Settings profile={localProfile} recommendationPrefs={prefs} domainStore={store} />)
+    render(
+      <Settings
+        profile={localProfile}
+        recommendationPrefs={prefs}
+        domainStore={store}
+        hybrid={hybrid()}
+        idbStore={idbStore()}
+        storage={window.localStorage}
+      />,
+    )
     await user.click(screen.getByRole('button', { name: /Персональні рекомендації/ }))
 
     expect(screen.getByRole('heading', { level: 1, name: 'Персональні рекомендації' })).toBeTruthy()
@@ -123,7 +165,7 @@ describe('Settings', () => {
 
   it('«Рекомендації» shows the honest empty state when nothing is hidden', async () => {
     const user = userEvent.setup()
-    render(<Settings profile={localProfile} recommendationPrefs={recPrefs()} domainStore={domain()} />)
+    renderSettings()
     await user.click(screen.getByRole('button', { name: /Персональні рекомендації/ }))
 
     expect(await screen.findByText('Нічого не приховано')).toBeTruthy()

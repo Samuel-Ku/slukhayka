@@ -52,6 +52,8 @@ export interface ListenerDatabase {
   clearSnapshot(editionId: string): Promise<void>
   /** Every valid snapshot, for hydration. */
   allSnapshots(): Promise<LocalListeningStateSnapshot[]>
+  /** #591 W5.2 — the honest «Скинути позиції» scope: every snapshot row. */
+  clearAllSnapshots(): Promise<void>
 }
 
 export function listeningStateRecordKey(editionId: string): string {
@@ -95,6 +97,12 @@ export class IdbListeningStateStore implements ListenerDatabase {
     await db.delete(STORE, editionId)
   }
 
+  async clearAllSnapshots(): Promise<void> {
+    const db = await this.ready()
+    if (db === null) return
+    await db.clear(STORE)
+  }
+
   /** Every valid snapshot, for the engine's hydration. */
   async allSnapshots(): Promise<LocalListeningStateSnapshot[]> {
     const db = await this.ready()
@@ -124,7 +132,9 @@ export function collectLegacyListeningRows(storage: {
   if (typeof storage.key !== 'function') return rows
   for (let i = 0; i < length; i += 1) {
     const key = storage.key(i)
-    if (key !== null && key.startsWith(prefix)) {
+    // The migration done-marker shares the prefix but is NOT a row — it
+    // would inflate the honest snapshot count (#591) and is never migrated.
+    if (key !== null && key !== MIGRATED_KEY && key.startsWith(prefix)) {
       const value = storage.getItem(key)
       if (value !== null) rows.push({ key, value })
     }

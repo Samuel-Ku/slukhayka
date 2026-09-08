@@ -17,6 +17,24 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
+      // W6.2: injectManifest — the custom service worker (src/sw.ts) owns
+      // the offline streaming-cache fallback; precaching still comes from
+      // workbox. v0.20 resolves the PROD build entry from srcDir+filename
+      // (injectManifest.swSrc serves the dev plugin); swDest derives as
+      // dist/sw.js.
+      strategies: 'injectManifest',
+      srcDir: 'src',
+      filename: 'sw.ts',
+      injectManifest: {
+        swSrc: 'src/sw.ts',
+        // The vite-built bundle path (renamed sw.mjs → sw.js in dist) that
+        // workbox injects the precache manifest into.
+        swDest: 'dist/sw.js',
+      },
+      devOptions: {
+        enabled: true,
+        type: 'module',
+      },
       includeAssets: ['icons/icon-192.png', 'icons/icon-512.png'],
       manifest: {
         name: 'Слухайка — аудіокниги українською',

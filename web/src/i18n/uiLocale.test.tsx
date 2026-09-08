@@ -46,7 +46,7 @@ describe('en locale flows', () => {
     // The collapsible search starts collapsed; expand it to see the field.
     await userEvent.click(screen.getByRole('button', { name: 'Search' }))
     expect(screen.getByPlaceholderText('Search…')).toBeTruthy()
-    await waitFor(() => expect(screen.getByText('Pride and Prejudice')).toBeTruthy())
+    await waitFor(() => expect(screen.getAllByText('Pride and Prejudice').length).toBeGreaterThan(0))
     // The heading and the source chip both carry the same label.
     expect(screen.getAllByText('All sources').length).toBeGreaterThan(0)
     expect(screen.getByText('Language:')).toBeTruthy()

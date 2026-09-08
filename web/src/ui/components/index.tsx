@@ -123,6 +123,85 @@ export function BookRow({ coverUrl, title, subtitle, progress, badges, actions, 
   )
 }
 
+// --- PosterCard / CycleCard (W3.1 Огляд shelves, ADR-0033) ------------------
+
+/**
+ * The ONE portrait poster (120×168, ADR-0033): the canonical horizontal-shelf
+ * card. Every element is a slot: title, author, duration, caption, badges,
+ * progress hairline. Surfaces render only what they really know (ADR-0014) —
+ * a null slot is absent, never a placeholder. One merged clickable node with
+ * an explicit [openAriaLabel]; the hairline renders only from a real number.
+ */
+export function PosterCard({ coverUrl, title, author, duration, caption, badges, progress, onClick, openAriaLabel }: {
+  coverUrl?: string
+  title: string
+  author?: string
+  duration?: string
+  caption?: string
+  badges?: ReactNode
+  /** 0..1 from a REAL known value; undefined renders no hairline (ADR-0014). */
+  progress?: number
+  onClick?: () => void
+  /** The open action's own name (e.g. «Відкрити книгу: …») — never raw text soup. */
+  openAriaLabel?: string
+}) {
+  const body = (
+    <>
+      {coverUrl
+        ? <img className="poster-cover" src={coverUrl} alt="" loading="lazy" />
+        : <span className="poster-cover poster-cover-fallback" aria-hidden="true">{coverInitials(title)}</span>}
+      <span className="poster-body">
+        <span className="poster-title">{title}</span>
+        {author && <span className="poster-author">{author}</span>}
+        {duration && <span className="poster-duration">{duration}</span>}
+        {caption && <span className="poster-caption">{caption}</span>}
+        {badges && <span className="poster-badges">{badges}</span>}
+        {progress !== undefined && (
+          <span className="poster-progress" data-progress={progress.toFixed(3)} aria-hidden="true">
+            <span className="poster-progress-fill" style={{ width: `${Math.min(Math.max(progress, 0), 1) * 100}%` }} />
+          </span>
+        )}
+      </span>
+    </>
+  )
+  return onClick !== undefined ? (
+    <button type="button" className="poster-card" onClick={onClick} aria-label={openAriaLabel}>{body}</button>
+  ) : (
+    <span className="poster-card" aria-label={openAriaLabel}>{body}</span>
+  )
+}
+
+/**
+ * The ONE landscape cycle card (132×78, ADR-0033): cover + title + an honest
+ * subtitle slot (progress or reason — real numbers only). One merged node.
+ */
+export function CycleCard({ coverUrl, title, subtitle, subtitleIsReason, onClick, openAriaLabel }: {
+  coverUrl?: string
+  title: string
+  subtitle?: string
+  /** Reason chips look like chips, progress lines look like counts (ADR-0033). */
+  subtitleIsReason?: boolean
+  onClick?: () => void
+  openAriaLabel?: string
+}) {
+  const body = (
+    <>
+      {coverUrl
+        ? <img className="cycle-cover" src={coverUrl} alt="" loading="lazy" />
+        : <span className="cycle-cover cycle-cover-fallback" aria-hidden="true">{coverInitials(title)}</span>}
+      <span className="cycle-body">
+        <span className="cycle-title">{title}</span>
+        {subtitle && <span className={subtitleIsReason ? 'cycle-reason' : 'cycle-subtitle'}>{subtitle}</span>}
+      </span>
+    </>
+  )
+  return onClick !== undefined ? (
+    <button type="button" className="cycle-card" onClick={onClick} aria-label={openAriaLabel}>{body}</button>
+  ) : (
+    <span className="cycle-card" aria-label={openAriaLabel}>{body}</span>
+  )
+}
+
 // --- Canonical states --------------------------------------------------------
 
 export function EmptyState({ icon, message, hint, actions }: {

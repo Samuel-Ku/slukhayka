@@ -26,6 +26,21 @@ export function parseCatalog(html: string, pageUrl: string): ParsedCatalog | nul
   if (!html.trim()) return null
   if (normalize(pageUrl) === `${SITE}/`) return parseHomepage(html)
 
+  // W3.2 — the index pages are catalogue pages too: the ТОП 100 list and
+  // the Виконавці/Автори indexes keep their own card shapes (linek rows,
+  // li entries), so they route before the poster fallback.
+  if (pageUrl.endsWith('/top-100.html')) {
+    const cards = parseTop100(html)
+    const section: CatalogSection = { id: 'top100', title: 'ТОП 100', url: pageUrl, cards }
+    return { sections: cards.length ? [section] : [] }
+  }
+  if (pageUrl.endsWith('/readers.html') || pageUrl.endsWith('/avtors.html')) {
+    const cards = parsePeopleList(html)
+    const title = pageUrl.endsWith('/avtors.html') ? 'Автори' : 'Виконавці'
+    const section: CatalogSection = { id: 'people', title, url: pageUrl, cards }
+    return { sections: cards.length ? [section] : [] }
+  }
+
   const books = parsePosterBooks(html)
   const isSeries = pageUrl.includes('/xfsearch/cikl/')
   const section: CatalogSection = {
@@ -38,6 +53,82 @@ export function parseCatalog(html: string, pageUrl: string): ParsedCatalog | nul
     sections: books.length ? [section] : [],
     nextPageUrl: parseNextPageUrl(html) ?? undefined,
   }
+}
+
+/**
+ * W3.2 — the ТОП 100 page (`/top-100.html`) uses `linek` cards (not
+ * posters): a cover, a «Title - Author» line and a real «Триває:» duration.
+ * Rank is the list order (1-based), so it never rides the card — the
+ * client's list index is the rank (Android `parseTop100`). The title/author
+ * split happens at the LAST « - » so titles that contain one stay intact.
+ */
+export function parseTop100(html: string): CatalogCard[] {
+  const opener = '<div class="linek d-flex ai-center has-overlay card">'
+  const starts: number[] = []
+  let idx = html.indexOf(opener)
+  while (idx >= 0) {
+    starts.push(idx)
+    idx = html.indexOf(opener, idx + opener.length)
+  }
+  if (!starts.length) return []
+
+  const cards: CatalogCard[] = []
+  for (let i = 0; i < starts.length; i++) {
+    const chunk = html.substring(starts[i], i + 1 < starts.length ? starts[i + 1] : html.length)
+    const bookUrl = match(chunk, /https:\/\/4read\.org\/\d+-[^"'<>]+\.html/)?.[0]
+    const titleLine = decodeEntities((match(chunk, /class="linek__title ws-nowrap">([^<]+)<\/div>/)?.[1] ?? '').trim())
+    if (!bookUrl || titleLine.length < 2) continue
+    const split = titleLine.lastIndexOf(' - ')
+    const title = split > 0 ? titleLine.substring(0, split).trim() : titleLine
+    const author = split > 0 ? titleLine.substring(split + 3).trim() : ''
+    const cover = toAbsolute(match(chunk, /<img[^>]+src="([^"]+)"/)?.[1] ?? '')
+    cards.push({
+      url: bookUrl,
+      title,
+      author,
+      coverImageUrl: cover ?? undefined,
+      durationSeconds: inlineDuration(chunk),
+    })
+  }
+  return cards
+}
+
+/**
+ * W3.2 — the Виконавці/Автори index pages (`/readers.html`, `/avtors.html`)
+ * list `<li><a href="/xfsearch/chitaet/Ім'я/">Ім'я - N книг</a></li>`;
+ * the person's book page is `/xfsearch/<kind>/<name>/` (a poster grid). The
+ * carried count is the page's own «N книг» — never guessed (Android
+ * `parsePeopleList`).
+ */
+export function parsePeopleList(html: string): CatalogCard[] {
+  const cards: CatalogCard[] = []
+  const re = /<li><a href="(\/xfsearch\/(?:chitaet|avtor)\/[^"]+)"[^>]*>([^<]+)<\/a><\/li>/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(html)) !== null) {
+    const label = decodeEntities(m[2].trim())
+    // Android `substringBefore`: the name ends at the FIRST « - ».
+    const name = label.split(' - ')[0].trim()
+    if (name.length < 2) continue
+    const count = / - (\d+) книг/.exec(label)?.[1]
+    cards.push({
+      url: toAbsolute(m[1]) ?? SITE,
+      title: name,
+      author: '',
+      count: count !== undefined ? Number(count) : undefined,
+    })
+  }
+  return cards
+}
+
+/** Real duration from a «Триває:» label (Android `parseInlineDuration`). */
+function inlineDuration(chunk: string): number | undefined {
+  const raw = match(chunk, /Триває:<\/span>\s*(\d{1,2}:\d{2}(?::\d{2})?)/)?.[1]
+  if (!raw) return undefined
+  const parts = raw.split(':').map((p) => Number(p))
+  if (parts.some((p) => Number.isNaN(p))) return undefined
+  return parts.length === 3 ? parts[0] * 3600 + parts[1] * 60 + parts[2]
+    : parts.length === 2 ? parts[0] * 60 + parts[1]
+    : undefined
 }
 
 function parseHomepage(html: string): ParsedCatalog {

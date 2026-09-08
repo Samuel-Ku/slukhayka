@@ -31,6 +31,12 @@ export interface CatalogCard {
    * the merge resolves it from the source's declared content language.
    */
   language?: string
+  /**
+   * Entry count carried by an index listing when the page shows one
+   * (e.g. «Ім'я - N книг» on the Виконавці/Автори pages). Never guessed:
+   * absent = the listing carried no count.
+   */
+  count?: number
 }
 
 export interface CatalogSection {

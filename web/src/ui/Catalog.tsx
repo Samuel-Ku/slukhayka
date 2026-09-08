@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { api } from '../api/client'
-import { readWarmEntry, WARM_CACHE_TTL_MS, warmKey, writeWarm } from '../api/warmCache'
-import type { BookDetail, CatalogCard, SourceId, UnifiedEdition, UnifiedSource, UnifiedWork, UnifiedWorkPage } from '../worker/types'
+import { readWarmEntry, warmKey, writeWarm } from '../api/warmCache'
+import type { BookDetail, CatalogCard, ParsedCatalog, SourceId, UnifiedEdition, UnifiedSource, UnifiedWork, UnifiedWorkPage } from '../worker/types'
 import {
   availabilitySortRank,
   isAvailabilityFresh,
@@ -15,7 +15,7 @@ import {
 import { sourceNeedsBrowserSession } from './bookPlaybackAvailability'
 import { SOURCE_METADATA, SOURCE_ORDER } from '../worker/sourceMetadata'
 import { rankEditionsForPlayback } from '../worker/workFeed'
-import { useTranslate } from '../i18n/locale'
+import { useTranslate, useUiLocale } from '../i18n/locale'
 import type { DomainStore } from '../local/domain'
 import {
   availableLanguagesOf,
@@ -25,12 +25,23 @@ import {
   saveContentLanguagePrefs,
   toggleLanguage,
 } from './contentLanguagePrefs'
-import { BookRow, EmptyStateRow, MetadataChip, SectionHeader, TabHeader } from './components'
+import { BookRow, CycleCard, EmptyStateRow, MetadataChip, PosterCard, SectionHeader, TabHeader } from './components'
+import { loadCollections } from './collectionAssets'
+import { matchAllCollections } from './collectionModel'
+import { FEED_CATALOG, FEED_HOMEPAGE_SECTIONS, FEED_NEW_ARRIVALS, needsNetwork } from './feedSnapshotPolicy'
+import { formatRemainingTime } from './listenComposer'
 
 const SOURCES: Array<{ id: 'all' | SourceId; label: string }> = [
   { id: 'all', label: 'all' },
   ...SOURCE_ORDER.map((id) => ({ id, label: SOURCE_METADATA[id].label })),
 ]
+
+// W3.1 — the curated collections (static JSON assets) decoded once at module
+// load; a malformed asset contributes nothing (best-effort, CollectionJson).
+const SHIPPED_COLLECTIONS = loadCollections()
+
+/** One horizontal shelf shows at most this many cards. */
+const RAIL_LIMIT = 15
 
 function pillStyle(active: boolean): CSSProperties {
   return {
@@ -52,6 +63,7 @@ export function Catalog({ onOpenBook, onPlay, onSaveWork, domainStore }: {
   domainStore?: DomainStore
 }) {
   const t = useTranslate()
+  const locale = useUiLocale()
   const [source, setSource] = useState<'all' | SourceId>('all')
   const [works, setWorks] = useState<UnifiedWork[] | null>(null)
   const [nextPageUrl, setNextPageUrl] = useState<string | null>(null)
@@ -63,6 +75,14 @@ export function Catalog({ onOpenBook, onPlay, onSaveWork, domainStore }: {
   const [query, setQuery] = useState('')
   const [searchWorks, setSearchWorks] = useState<UnifiedWork[] | null>(null)
   const [searching, setSearching] = useState(false)
+  // W3.1 — explicit refresh: the «Оновити» pill sets the flag and bumps the
+  // nonce; the load effect consumes the flag once (bypassing the snapshot
+  // TTL) and rewrites the snapshot — the consumed-ref pattern avoids an echo
+  // re-run that would briefly blank the feed.
+  const forceRefreshRef = useRef(false)
+  const [refreshNonce, setRefreshNonce] = useState(0)
+  // W3.1 — «Цикли»: the 4read homepage series shelf (live list via the worker).
+  const [cycles, setCycles] = useState<CatalogCard[] | null>(null)
   // spec-45 T13 — the persisted content-language preference; empty = all.
   const [contentLanguages, setContentLanguages] = useState<string[]>(() => loadContentLanguagePrefs())
   const applyLanguages = (next: string[]): void => setContentLanguages(saveContentLanguagePrefs(next))
@@ -74,6 +94,32 @@ export function Catalog({ onOpenBook, onPlay, onSaveWork, domainStore }: {
   const visibleWorks = filterWorksByLanguage((works ?? []).filter((work) => !tombstoned.has(work.mergeKey)), contentLanguages)
   const visibleSearch = filterWorksByLanguage((searchWorks ?? []).filter((work) => !tombstoned.has(work.mergeKey)), contentLanguages)
   const languageOptions = availableLanguagesOf([...(works ?? []), ...(searchWorks ?? [])], contentLanguages)
+  // W3.1 — «Колекції» match LOCALLY against the merged union (the same Works
+  // the feed shows); a tombstoned or language-hidden Work never appears here.
+  const collections = useMemo(() => matchAllCollections(SHIPPED_COLLECTIONS, visibleWorks), [visibleWorks])
+  const railWorks = visibleWorks.slice(0, RAIL_LIMIT)
+
+  // W3.1 — a shelf card opens the Work the same way a feed row does: the
+  // top-ranked Edition's first real Source (never a fabricated URL).
+  const openWork = (work: UnifiedWork): void => {
+    const edition = rankEditionsForPlayback(work.editions)[0]
+    const source = edition?.sources[0]
+    if (source) onOpenBook(source.url, source.sourceId)
+  }
+
+  /** The distinct source badges of one Work (ADR-0014: only real sources). */
+  const sourceBadges = (work: UnifiedWork): ReactNode => {
+    const ids = new Set<SourceId>()
+    for (const edition of work.editions) {
+      for (const source of edition.sources) ids.add(source.sourceId)
+    }
+    return [...ids].map((id) => <MetadataChip key={id} kind="source">{SOURCE_METADATA[id].label}</MetadataChip>)
+  }
+
+  const posterDuration = (work: UnifiedWork): string | undefined => {
+    const seconds = rankEditionsForPlayback(work.editions)[0]?.durationSeconds
+    return seconds && seconds > 0 ? formatRemainingTime(seconds, locale) : undefined
+  }
 
   useEffect(() => {
     // The tombstone read rides the same trigger as the feed, so a hide made
@@ -94,34 +140,84 @@ export function Catalog({ onOpenBook, onPlay, onSaveWork, domainStore }: {
     setCachedAt(null)
     setWorks(null)
     setNextPageUrl(null)
-    // The aggregate Work contract serves both the default feed and a
-    // source-filtered feed. A filter changes candidates, not the book model.
-    {
-      api.workFeed(undefined, source === 'all' ? undefined : source).then(async (page) => {
-        if (!alive) return
-        if (page === null) {
-          const cached = await readWarmEntry<UnifiedWorkPage | UnifiedWork[]>(warmKey('catalog', source), WARM_CACHE_TTL_MS)
-          if (!alive) return
-          if (cached === null) setFailed(true)
-          else {
-            const cachedPage = Array.isArray(cached.value)
-              ? { works: cached.value }
-              : cached.value
-            setWorks(cachedPage.works)
-            setNextPageUrl(cachedPage.nextCursor ?? null)
-            setShowingCachedCatalog(true)
-            setCachedAt(cached.savedAt)
-          }
-          return
+    // W3.1 — the FeedSnapshotPolicy port decides the network: a FRESH
+    // snapshot answers without a call; stale/missing or the explicit refresh
+    // fetches live; a failed fetch falls back to the last snapshot with an
+    // honest note (offline start). One merged page serves the «Новинки» rail
+    // and the catalog feed, so on the cross-source view the binding TTL is
+    // the new-arrivals one (6 h); a per-source view is catalog-grade (24 h).
+    const feedKey = source === 'all' ? FEED_NEW_ARRIVALS : FEED_CATALOG
+    const forceRefresh = forceRefreshRef.current
+    forceRefreshRef.current = false // consumed once, never echoed
+    void (async () => {
+      const cached = await readWarmEntry<UnifiedWorkPage | UnifiedWork[]>(warmKey('catalog', source))
+      if (!alive) return
+      if (cached !== null && !needsNetwork(feedKey, cached.savedAt, Date.now(), forceRefresh)) {
+        const cachedPage = Array.isArray(cached.value)
+          ? { works: cached.value }
+          : cached.value
+        setWorks(cachedPage.works)
+        setNextPageUrl(cachedPage.nextCursor ?? null)
+        return
+      }
+      const page = await api.workFeed(undefined, source === 'all' ? undefined : source)
+      if (!alive) return
+      if (page === null) {
+        if (cached !== null) {
+          const cachedPage = Array.isArray(cached.value)
+            ? { works: cached.value }
+            : cached.value
+          setWorks(cachedPage.works)
+          setNextPageUrl(cachedPage.nextCursor ?? null)
+          setShowingCachedCatalog(true)
+          setCachedAt(cached.savedAt)
+        } else {
+          setFailed(true)
         }
-        setWorks(page.works)
-        setNextPageUrl(page.nextCursor ?? null)
-        setShowingCachedCatalog(false)
-        setCachedAt(null)
-        void writeWarm(warmKey('catalog', source), page)
-      })
-      return () => { alive = false }
+        return
+      }
+      setWorks(page.works)
+      setNextPageUrl(page.nextCursor ?? null)
+      setShowingCachedCatalog(false)
+      setCachedAt(null)
+      void writeWarm(warmKey('catalog', source), page)
+    })()
+    return () => { alive = false }
+  }, [source, query, refreshNonce])
+
+  // W3.1 — «Цикли»: the 4read homepage series section through the worker
+  // (spec-37 live list). Homepage sections are catalog-grade (24 h); a
+  // failure leaves the shelf honestly absent and never breaks the refresh.
+  useEffect(() => {
+    if (source !== 'all' || query.trim().length >= 2) {
+      setCycles(null)
+      return
     }
+    let alive = true
+    const key = warmKey('catalog', 'fourread', 'homepage')
+    void (async () => {
+      const cached = await readWarmEntry<ParsedCatalog>(key)
+      if (!alive) return
+      if (cached !== null && !needsNetwork(FEED_HOMEPAGE_SECTIONS, cached.savedAt, Date.now())) {
+        const section = cached.value.sections.find((s) => s.id === 'series')
+        setCycles(section && section.cards.length > 0 ? section.cards : null)
+        return
+      }
+      const parsed = await api.catalog('fourread')
+      if (!alive) return
+      const sourceOf = (value: ParsedCatalog | null): CatalogCard[] | null => {
+        const section = value?.sections.find((s) => s.id === 'series')
+        return section && section.cards.length > 0 ? section.cards : null
+      }
+      if (parsed !== null) {
+        void writeWarm(key, parsed)
+        setCycles(sourceOf(parsed))
+      } else {
+        // Offline: the last homepage snapshot still answers (honest stale).
+        setCycles(cached !== null ? sourceOf(cached.value) : null)
+      }
+    })()
+    return () => { alive = false }
   }, [source, query])
 
   useEffect(() => {
@@ -181,7 +277,7 @@ export function Catalog({ onOpenBook, onPlay, onSaveWork, domainStore }: {
         searchQuery={query}
         onSearchQueryChange={setQuery}
       />
-      <div style={{ display: 'flex', gap: 6, margin: '8px 0', flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: 6, margin: '8px 0', flexWrap: 'wrap', alignItems: 'center' }}>
         {SOURCES.map((s) => (
           <button
             key={s.id}
@@ -194,6 +290,20 @@ export function Catalog({ onOpenBook, onPlay, onSaveWork, domainStore }: {
             {s.id === 'all' ? t('allSources') : s.label}
           </button>
         ))}
+        {query.trim().length < 2 && (
+          <button
+            type="button"
+            onClick={() => {
+              // W3.1 — explicit refresh: bypasses the snapshot TTL once.
+              forceRefreshRef.current = true
+              setRefreshNonce((n) => n + 1)
+            }}
+            style={pillStyle(false)}
+            aria-label={t('refreshCatalogAria')}
+          >
+            {t('refreshCatalog')}
+          </button>
+        )}
       </div>
       {languageOptions.length > 0 && (
         <div style={{ display: 'flex', gap: 6, margin: '8px 0', flexWrap: 'wrap', alignItems: 'center' }}>
@@ -216,6 +326,74 @@ export function Catalog({ onOpenBook, onPlay, onSaveWork, domainStore }: {
             </button>
           ))}
         </div>
+      )}
+
+      {/* W3.1 — Огляд shelves in the #302 pin order: search → quick
+          transitions → «Для вас» → «Відкрити нове» → sticky toolbar → feed.
+          The cross-source shelves belong to the default view only (a chosen
+          source shows its own feed); the infinite feed stays the last
+          element. An empty shelf renders nothing at all (ADR-0014). */}
+      {source === 'all' && query.trim().length < 2 && works !== null && !failed &&
+        (railWorks.length > 0 || (cycles?.length ?? 0) > 0 || collections.length > 0) && (
+        <section>
+          <SectionHeader level="group" title={t('shelfGroupNew')} />
+          {railWorks.length > 0 && (
+            <>
+              <SectionHeader level="section" title={t('shelfNewArrivals')} />
+              <ul className="shelf-rail">
+                {railWorks.map((work) => (
+                  <li key={work.id}>
+                    <PosterCard
+                      coverUrl={work.coverImageUrl}
+                      title={work.title}
+                      author={work.author}
+                      duration={posterDuration(work)}
+                      badges={sourceBadges(work)}
+                      onClick={() => openWork(work)}
+                      openAriaLabel={t('openBookPosterAria', { title: work.title })}
+                    />
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+          {cycles && cycles.length > 0 && (
+            <>
+              <SectionHeader level="section" title={t('shelfCycles')} />
+              <ul className="shelf-rail">
+                {cycles.map((cycle) => (
+                  <li key={cycle.url}>
+                    <CycleCard
+                      coverUrl={cycle.coverImageUrl}
+                      title={cycle.title}
+                      onClick={() => window.open(cycle.url, '_blank', 'noopener')}
+                      openAriaLabel={t('openCycleAria', { title: cycle.title })}
+                    />
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+          {collections.map((collection) => (
+            <div key={collection.id}>
+              <SectionHeader level="section" title={collection.name} />
+              <ul className="shelf-rail">
+                {collection.books.map((work) => (
+                  <li key={work.id}>
+                    <PosterCard
+                      coverUrl={work.coverImageUrl}
+                      title={work.title}
+                      author={work.author}
+                      duration={posterDuration(work)}
+                      onClick={() => openWork(work)}
+                      openAriaLabel={t('openBookPosterAria', { title: work.title })}
+                    />
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </section>
       )}
 
       {query.trim().length >= 2 ? (

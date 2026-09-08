@@ -16,6 +16,7 @@ import { DomainStore } from './local/domain'
 import { EditionLinkStore } from './local/editionLinks'
 import { ListenPrefsStore } from './local/listenPrefs'
 import { RecommendationPrefsStore } from './local/recommendationPrefs'
+import { PlayerBookmarksStore } from './player/bookmarks'
 import { BrowserProgressSyncLedger } from './sync/ledger'
 import { ProgressSyncSettings } from './sync/settings'
 import { FirestoreProgressSyncStore } from './sync/store'
@@ -84,6 +85,10 @@ export function App({ profile: initialProfile }: { profile: ListenerProfile | nu
   // #586 W2.2 — «Не цікаво»: the local Recommendation Preference store
   // (HIDE_WORK dictionary, local-only, reversible from Рекомендації).
   const recommendationPrefsStore = useMemo(() => new RecommendationPrefsStore(), [])
+  // #590 W5.1 — the player's bookmarks (Android's BookmarkEntity, local
+  // only — never synced), shared by the engine's auto-bookmark and the
+  // player sheet's list.
+  const bookmarksStore = useMemo(() => new PlayerBookmarksStore(), [])
   const localStore = useMemo(() => new LocalListeningStateStore(hybrid), [])
   const [boot, setBoot] = useState<{ snapshots: number; evicted: boolean } | null>(null)
   useEffect(() => {
@@ -170,7 +175,7 @@ export function App({ profile: initialProfile }: { profile: ListenerProfile | nu
   }, [localStore, ledger, settings, syncStore])
 
   if (!engineRef.current) {
-    engineRef.current = new AudioEngine({ relayBase: '/api', store: localStore })
+    engineRef.current = new AudioEngine({ relayBase: '/api', store: localStore, bookmarks: bookmarksStore })
   }
   const engine = engineRef.current
   // Keep engine's sync controller in sync with current profile/settings.
@@ -216,7 +221,7 @@ export function App({ profile: initialProfile }: { profile: ListenerProfile | nu
       chapterDurations: durationsKnown ? chapterDurations : null,
     })
     const playing = await engine.loadBookAndAwaitPlaying(
-      { title: detail.title, chapters: detail.chapters, editionId },
+      { title: detail.title, chapters: detail.chapters, editionId, workId: mergeKey },
       chapterIndex,
     )
     if (playing) setPlayerOpen(true)
@@ -318,6 +323,7 @@ export function App({ profile: initialProfile }: { profile: ListenerProfile | nu
           lastPlayed={lastPlayedRef.current}
           profile={profile}
           reviewsStore={reviewsStore}
+          bookmarksStore={bookmarksStore}
         />
       )}
       {book === null && (

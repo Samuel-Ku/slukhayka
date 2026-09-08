@@ -59,6 +59,26 @@ class SubmissionPolicy(
         return Decision(allowed = true, reason = null, remainingToday = remaining)
     }
 
+    /**
+     * Decides a METADATA-ONLY submission (the TG red prototype — ADR-0035
+     * п. 13): no playback verdict is POSSIBLE (the public preview exposes no
+     * audio), so the verdict barrier does not apply — the parse itself is
+     * the quality bar, checked by the door before the publish. The anti-spam
+     * stays the same: the per-device daily budget and the normalized-URL
+     * dedup, sharing ONE budget with playable submissions.
+     */
+    suspend fun decideMetadataOnly(url: String, deviceId: String): Decision {
+        val count = sharedStore.getSubmissionCount(deviceId, dayKeyOf(clock()))
+        val remaining = (DAILY_SUBMISSION_LIMIT - count).coerceAtLeast(0).toInt()
+        if (count >= DAILY_SUBMISSION_LIMIT) {
+            return Decision(allowed = false, reason = Reason.DAILY_LIMIT_REACHED, remainingToday = remaining)
+        }
+        if (sharedStore.getSubmission(url.trim()) != null) {
+            return Decision(allowed = false, reason = Reason.ALREADY_PUBLISHED, remainingToday = remaining)
+        }
+        return Decision(allowed = true, reason = null, remainingToday = remaining)
+    }
+
     /** Consumes one slot of the per-device daily budget (after a successful publish). */
     suspend fun consume(deviceId: String) {
         sharedStore.incrementSubmissionCount(deviceId, dayKeyOf(clock()))

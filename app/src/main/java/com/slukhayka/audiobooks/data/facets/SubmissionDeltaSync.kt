@@ -16,6 +16,7 @@ import com.slukhayka.audiobooks.data.metadata.SubmissionAccessMode
 import com.slukhayka.audiobooks.data.metadata.SubmissionCursor
 import com.slukhayka.audiobooks.data.metadata.SubmissionPageLimits
 import com.slukhayka.audiobooks.data.metadata.SubmissionPublication
+import com.slukhayka.audiobooks.data.source.SourceIds
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -186,9 +187,14 @@ class RoomSubmissionProjectionWriter(private val dao: AudiobookDao) : Submission
         val normalizedUrl = publication.sourceUrl.trim()
         // The same link already present — a no-op (ADR-0007).
         if (dao.getSourceByUrl(normalizedUrl) != null) return
-        // Only known playable modes materialize; unknown modes are skipped
-        // honestly (an old app must not guess at a future mode).
-        if (publication.accessMode != SubmissionAccessMode.YOUTUBE) return
+        // Only KNOWN modes materialize; unknown modes are skipped honestly
+        // (an old app must not guess at a future mode). TG_PREVIEW is the
+        // red-prototype metadata-only mode: the identity and the WorkSource
+        // claim land, Source rows and tracks NEVER do (below).
+        val isPlayableMode = publication.accessMode == SubmissionAccessMode.YOUTUBE
+        val isMetadataOnlyMode = publication.accessMode == SubmissionAccessMode.TG_PREVIEW
+        if (!isPlayableMode && !isMetadataOnlyMode) return
+        val sourceType = if (isPlayableMode) "youtube" else SourceIds.TELEGRAM
 
         // mergeKey dedup — the same narration lands on ONE Work.
         val mergeKey = MergeKey.keyFor(publication.title, publication.author.orEmpty())
@@ -197,8 +203,9 @@ class RoomSubmissionProjectionWriter(private val dao: AudiobookDao) : Submission
             mergeKey
         } else {
             // Blank identity — its own stable Work (the writeWorkEdition
-            // precedent); it never merges, by definition.
-            "w-youtube-${Integer.toHexString(normalizedUrl.hashCode())}"
+            // precedent); it never merges, by definition. The mode prefix
+            // keeps YouTube and TG blanks apart (their URLs differ anyway).
+            "w-$sourceType-${Integer.toHexString(normalizedUrl.hashCode())}"
         }
         // ADR-0005: a shared delta never resurrects a locally tombstoned
         // Work — only the explicit add clears the tombstone. Checked BEFORE
@@ -216,7 +223,8 @@ class RoomSubmissionProjectionWriter(private val dao: AudiobookDao) : Submission
             )
         }
 
-        val narrator = publication.narrator?.takeIf { it.isNotBlank() } ?: SUBMISSION_NARRATOR
+        val narrator = publication.narrator?.takeIf { it.isNotBlank() }
+            ?: if (isPlayableMode) SUBMISSION_NARRATOR else ""
         val editionId = EditionId.forBook(mergeKey, workId, narrator)
         val existingEdition = dao.getEditionById(editionId)
         if (existingEdition == null) {
@@ -259,9 +267,9 @@ class RoomSubmissionProjectionWriter(private val dao: AudiobookDao) : Submission
         // «Джерело недоступне» claim: the source exists, playback does not.
         dao.safeUpsertWorkSource(
             WorkSourceEntity(
-                id = "$workId|youtube|${Integer.toHexString(normalizedUrl.hashCode())}",
+                id = "$workId|$sourceType|${Integer.toHexString(normalizedUrl.hashCode())}",
                 workId = workId,
-                sourceId = "youtube",
+                sourceId = sourceType,
                 sourceUrl = normalizedUrl,
                 streamOnly = false,
                 coverImageUrl = publication.coverUrl,
@@ -279,10 +287,11 @@ class RoomSubmissionProjectionWriter(private val dao: AudiobookDao) : Submission
             updatedAt = publication.submittedAt
         )
 
-        // A metadata-only publication materializes identity only — NO Source
+        // A metadata-only publication (TG_PREVIEW by construction, or an
+        // unplayable YouTube one) materializes identity only — NO Source
         // rows, NO tracks: playback honestly finds nothing (ADR-0019), never
         // a fabricated stream.
-        if (publication.chapters.isEmpty()) return
+        if (!isPlayableMode || publication.chapters.isEmpty()) return
 
         val sourceId = "youtube-$editionId-${Integer.toHexString(normalizedUrl.hashCode())}"
         dao.insertSources(

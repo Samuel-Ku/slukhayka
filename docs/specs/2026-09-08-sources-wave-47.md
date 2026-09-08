@@ -180,7 +180,7 @@
 - **T4 — UkrainianaudiobooksAdapter** (task): WebView-pattern за
   лікуванням sluhay — `sessionBound`, `parseCapturedPage`, двері
   debug/release за `BrowserGating`; фікстурні тести шва. Блокується T1,
-  блокує T5.
+  блокує T5. Профіль Browser Recovery — за спекою 48 T3.
 - **T5 — реєстрація трьох джерел** (task): реєстр репозиторія,
   `sourceDisplayName`, мапа URL → джерело, `DownloadPolicy` за вердиктами,
   device check. Блокується T2–T4, блокує T6.

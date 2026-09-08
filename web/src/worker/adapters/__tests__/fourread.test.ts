@@ -4,6 +4,7 @@ import {
   collectAudioRefs,
   expandPlaylist,
   fourread,
+  parseGenreNav,
   parseNextPageUrl,
   parsePeopleList,
   parsePopularBooks,
@@ -231,5 +232,42 @@ describe('fourread indexes (W3.2)', () => {
     expect(parsePeopleList('<html><body><p>no people</p></body></html>')).toEqual([])
     // A person label without a count still parses (honest: no count).
     expect(parsePeopleList('<li><a href="/xfsearch/chitaet/Ім\'я/">Ім\'я</a></li>')[0]?.count).toBeUndefined()
+  })
+})
+
+describe('fourread genre nav (W3.3)', () => {
+  it('parses the homepage sidebar into absolute genre links, skipping ЗНО and «Додати книгу»', () => {
+    const html = `
+      <aside class="cols__right">
+        <div class="sb js-this-in-mobile-menu">
+          <div class="sb__title"><span class="fal fa-book"></span>Аудіокниги жанру:</div>
+          <ul class="sb__content sb__nav">
+            <li><a href="/kazka/">Казка</a></li>
+            <li><a href="/fentezi/">Фентезі</a></li>
+            <li><a href="/dytlit/">Дитячі</a></li>
+            <li><a href="/zno-ukrajinska-literatura.html">ЗНО</a></li>
+            <li><a href="/addnews.html"><i class="fal fa-pencil-square-o" style="color:red"></i> Додати книгу</a></li>
+          </ul>
+        </div>
+      </aside>
+    `
+    const genres = parseGenreNav(html)
+
+    expect(genres).toHaveLength(3)
+    expect(genres[0]).toMatchObject({ title: 'Казка', url: 'https://4read.org/kazka/' })
+    expect(genres[1]).toMatchObject({ title: 'Фентезі', url: 'https://4read.org/fentezi/' })
+    expect(genres[2]).toMatchObject({ title: 'Дитячі', url: 'https://4read.org/dytlit/' })
+  })
+
+  it('exposes the genre nav as the homepage «Жанри» section and degrades on malformed html', () => {
+    const home = fourread.parseCatalog(
+      '<ul class="sb__content sb__nav"><li><a href="/kazka/">Казка</a></li></ul>',
+      'https://4read.org/',
+    )
+    expect(home?.sections.find((s) => s.id === 'genres')?.cards).toHaveLength(1)
+
+    expect(parseGenreNav('')).toEqual([])
+    expect(parseGenreNav('<html><body><p>no nav</p></body></html>')).toEqual([])
+    expect(parseGenreNav('<ul class="sb__content sb__nav"></ul>')).toEqual([])
   })
 })

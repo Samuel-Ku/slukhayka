@@ -8,6 +8,7 @@
   --fg-dim: #9a9a9a;
   --accent: #7fa8d9;
   --accent-contrast: #000;
+  --bad: #e57373;
 }
 
 * {
@@ -315,6 +316,23 @@ span.bookrow-body {
   gap: 6px;
 }
 
+.bookrow-dismiss {
+  min-width: 48px;
+  min-height: 48px;
+  background: none;
+  border: none;
+  color: var(--fg-dim);
+  font-size: 15px;
+  cursor: pointer;
+  border-radius: 8px;
+}
+
+.bookrow-dismiss:hover,
+.bookrow-dismiss:focus-visible {
+  color: var(--fg);
+  background: var(--line);
+}
+
 .bookrow-actions button {
   min-width: 48px;
   min-height: 48px;
@@ -399,4 +417,245 @@ span.bookrow-body {
   background: var(--surface);
   color: var(--fg);
   font: inherit;
+}
+
+/* --- #583 W1.1: the Налаштування directions list (Android SettingsScreen) -- */
+
+.dest-header {
+  margin-top: 4px;
+}
+
+/* A direction row: flat like Android's ListItem + divider, ≥ 48 px target. */
+.settings-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+
+.settings-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 56px;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  color: var(--fg);
+  font: inherit;
+  font-size: 16px;
+  text-align: left;
+  cursor: pointer;
+  padding: 8px 0;
+}
+
+.settings-row-static {
+  cursor: default;
+}
+
+.settings-row-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.settings-row-sub {
+  font-size: 13px;
+  color: var(--fg-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-restore {
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: none;
+  color: var(--fg);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.settings-restore:hover,
+.settings-restore:focus-visible {
+  background: var(--line);
+}
+
+.settings-row-chevron {
+  color: var(--fg-dim);
+  font-size: 20px;
+}
+
+/* --- #584 W1.2/W1.3: Медіатека delete-options sheet + confirmation -------- */
+
+.lib-sheet {
+  width: 100%;
+  max-width: 480px;
+  margin: 0 auto;
+  background: var(--surface-raised);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.lib-sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.lib-sheet-title {
+  margin: 0;
+  font-size: 16px;
+}
+
+.lib-sheet-title:focus {
+  outline: none;
+}
+
+.lib-sheet-hint {
+  color: var(--fg-dim);
+  font-size: 13px;
+  margin: 4px 0 12px;
+}
+
+.lib-sheet-option {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 48px;
+  text-align: left;
+  padding: 12px 4px;
+  background: none;
+  border: none;
+  border-top: 1px solid var(--line);
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+
+.lib-sheet-icon {
+  font-size: 20px;
+  flex: none;
+}
+
+.lib-sheet-option-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.lib-sheet-option-title {
+  font-weight: 600;
+}
+
+.lib-sheet-option-consequence {
+  font-size: 13px;
+  color: var(--fg-dim);
+}
+
+.lib-sheet-option-primary {
+  color: var(--accent);
+}
+
+.lib-sheet-option-danger,
+.lib-sheet-option-danger .lib-sheet-option-consequence {
+  color: var(--bad);
+}
+
+.lib-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgb(0 0 0 / 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  z-index: 30;
+}
+
+.lib-dialog {
+  width: 100%;
+  max-width: 420px;
+  background: var(--surface-raised);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.lib-dialog-title {
+  margin: 0;
+  font-size: 16px;
+}
+
+.lib-dialog-scope {
+  color: var(--fg-dim);
+  font-size: 14px;
+  margin: 8px 0 0;
+}
+
+.lib-dialog-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+.lib-dialog-actions button {
+  min-height: 48px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+
+/* Destructive actions never look neutral (ADR-0014 UX rules): red, explicit. */
+.lib-dialog-actions .lib-dialog-danger {
+  color: var(--bad);
+  border-color: var(--bad);
+  font-weight: 600;
+}
+
+/* --- #585 W2.1: «Керувати полицями» rows ---------------------------------- */
+
+.manage-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.manage-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 48px;
+  border-bottom: 1px solid var(--line);
+}
+
+.manage-row-title {
+  flex: 1;
+  font-size: 15px;
+}
+
+.manage-row button {
+  min-width: 48px;
+  min-height: 48px;
+  background: none;
+  border: none;
+  color: var(--fg);
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.manage-row .manage-danger {
+  color: var(--bad);
 }

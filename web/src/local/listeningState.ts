@@ -26,7 +26,7 @@
  * async IDB↔memory bridge that feeds it.
  */
 import { openListenerDatabase, type IdbDatabase } from './idb'
-import { LISTENER_STORES, LISTENING_STATE_STORE } from './schema'
+import { LISTENER_DB_VERSION, LISTENER_STORES, LISTENING_STATE_STORE } from './schema'
 import { parseSnapshotValue, type LocalListeningStateSnapshot } from '../player/localState'
 
 const STORE = LISTENING_STATE_STORE
@@ -64,7 +64,7 @@ export class IdbListeningStateStore implements ListenerDatabase {
 
   constructor(
     private readonly open: () => Promise<IdbDatabase | null> = () =>
-      openListenerDatabase(1, LISTENER_STORES),
+      openListenerDatabase(LISTENER_DB_VERSION, LISTENER_STORES),
     private readonly now: () => number = () => Date.now(),
   ) {}
 

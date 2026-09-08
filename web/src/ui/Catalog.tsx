@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { api } from '../api/client'
 import { readWarmEntry, WARM_CACHE_TTL_MS, warmKey, writeWarm } from '../api/warmCache'
-import type { BookDetail, CatalogCard, SourceId, UnifiedSource, UnifiedWork, UnifiedWorkPage } from '../worker/types'
+import type { BookDetail, CatalogCard, SourceId, UnifiedEdition, UnifiedSource, UnifiedWork, UnifiedWorkPage } from '../worker/types'
 import {
   availabilitySortRank,
   isAvailabilityFresh,
@@ -16,6 +16,7 @@ import { sourceNeedsBrowserSession } from './bookPlaybackAvailability'
 import { SOURCE_METADATA, SOURCE_ORDER } from '../worker/sourceMetadata'
 import { rankEditionsForPlayback } from '../worker/workFeed'
 import { useTranslate } from '../i18n/locale'
+import type { DomainStore } from '../local/domain'
 import {
   availableLanguagesOf,
   filterWorksByLanguage,
@@ -42,9 +43,13 @@ function pillStyle(active: boolean): CSSProperties {
 }
 
 /** spec-43/T3+T4 — огляд із перемикачем джерел і пошуком. */
-export function Catalog({ onOpenBook, onPlay }: {
+export function Catalog({ onOpenBook, onPlay, onSaveWork, domainStore }: {
   onOpenBook: (url: string, source: SourceId) => void
   onPlay: (detail: BookDetail, chapterIndex: number) => Promise<boolean>
+  /** #584 W1.2 — «зберегти»: creates the Library Entry for this Work. */
+  onSaveWork?: (work: UnifiedWork, edition: UnifiedEdition) => void
+  /** #584 W1.3 — tombstones: a hidden Work never returns to Огляд. */
+  domainStore?: DomainStore
 }) {
   const t = useTranslate()
   const [source, setSource] = useState<'all' | SourceId>('all')
@@ -62,10 +67,23 @@ export function Catalog({ onOpenBook, onPlay }: {
   const [contentLanguages, setContentLanguages] = useState<string[]>(() => loadContentLanguagePrefs())
   const applyLanguages = (next: string[]): void => setContentLanguages(saveContentLanguagePrefs(next))
   const loadMoreMarker = useRef<HTMLDivElement | null>(null)
+  // #584 W1.3 — the listener's deliberate hides: a tombstoned Work never
+  // re-enters discovery, whatever the catalog refresh brings back.
+  const [tombstoned, setTombstoned] = useState<ReadonlySet<string>>(new Set())
 
-  const visibleWorks = filterWorksByLanguage(works ?? [], contentLanguages)
-  const visibleSearch = filterWorksByLanguage(searchWorks ?? [], contentLanguages)
+  const visibleWorks = filterWorksByLanguage((works ?? []).filter((work) => !tombstoned.has(work.mergeKey)), contentLanguages)
+  const visibleSearch = filterWorksByLanguage((searchWorks ?? []).filter((work) => !tombstoned.has(work.mergeKey)), contentLanguages)
   const languageOptions = availableLanguagesOf([...(works ?? []), ...(searchWorks ?? [])], contentLanguages)
+
+  useEffect(() => {
+    // The tombstone read rides the same trigger as the feed, so a hide made
+    // in Медіатека is honored the next time Огляд renders.
+    let tombstonesAlive = true
+    void domainStore?.tombstones().then((rows) => {
+      if (tombstonesAlive) setTombstoned(new Set(rows.map((row) => row.mergeKey)))
+    })
+    return () => { tombstonesAlive = false }
+  }, [domainStore])
 
   useEffect(() => {
     if (query.trim().length >= 2) return
@@ -209,7 +227,7 @@ export function Catalog({ onOpenBook, onPlay }: {
           <section>
             <SectionHeader level="group" title={t('allSources')} />
             <ul className="card-list">
-              {visibleSearch.map((work) => <UnifiedWorkRow key={work.id} work={work} onOpenBook={onOpenBook} onPlay={onPlay} />)}
+              {visibleSearch.map((work) => <UnifiedWorkRow key={work.id} work={work} onOpenBook={onOpenBook} onPlay={onPlay} onSaveWork={onSaveWork} />)}
             </ul>
           </section>
         )
@@ -228,7 +246,7 @@ export function Catalog({ onOpenBook, onPlay }: {
             <EmptyStateRow message={t('cachedCatalogNotice', { date: cachedAt ? ` від ${new Date(cachedAt).toLocaleString('uk-UA')}` : '' })} />
           )}
           <ul className="card-list">
-            {visibleWorks.map((work) => <UnifiedWorkRow key={work.id} work={work} onOpenBook={onOpenBook} onPlay={onPlay} />)}
+            {visibleWorks.map((work) => <UnifiedWorkRow key={work.id} work={work} onOpenBook={onOpenBook} onPlay={onPlay} onSaveWork={onSaveWork} />)}
           </ul>
         </section>
       )}
@@ -250,10 +268,11 @@ export function appendWorks(current: UnifiedWork[], incoming: UnifiedWork[]): Un
 }
 
 /** One Work card with explicit Edition selection; changing it never mutates progress. */
-function UnifiedWorkRow({ work, onOpenBook, onPlay }: {
+function UnifiedWorkRow({ work, onOpenBook, onPlay, onSaveWork }: {
   work: UnifiedWork
   onOpenBook: (url: string, source: SourceId) => void
   onPlay: (detail: BookDetail, chapterIndex: number) => Promise<boolean>
+  onSaveWork?: (work: UnifiedWork, edition: UnifiedEdition) => void
 }) {
   const t = useTranslate()
   const [editionIndex, setEditionIndex] = useState(0)
@@ -300,6 +319,7 @@ function UnifiedWorkRow({ work, onOpenBook, onPlay }: {
         sources={edition.sources}
         onOpenBook={onOpenBook}
         onPlay={onPlay}
+        onSave={onSaveWork === undefined ? undefined : (saved) => { if (!saved) onSaveWork(work, edition) }}
       />
       {editions.length > 1 && (
         <li style={{ padding: '0 8px 8px' }}>
@@ -332,16 +352,19 @@ function sourceHome(source: SourceId): string {
   return SOURCE_METADATA[source].homeUrl
 }
 
-/** A card's body opens details; its neighbouring action alone starts playback. */
-export function CatalogCardRow({ card, editionId, sources, onOpenBook, onPlay }: {
+/** A card's body opens details; its neighbouring actions alone start playback or save. */
+export function CatalogCardRow({ card, editionId, sources, onOpenBook, onPlay, onSave }: {
   card: CatalogCard
   editionId: string
   sources: UnifiedSource[]
   onOpenBook: (url: string, source: SourceId) => void
   onPlay: (detail: BookDetail, chapterIndex: number) => Promise<boolean>
+  /** #584 W1.2 — the «зберегти» slot renders only when the action is real. */
+  onSave?: (alreadySaved: boolean) => void
 }) {
   const t = useTranslate()
   const [state, setState] = useState<CardActionState>('idle')
+  const [saved, setSaved] = useState(false)
   const [rankedSources, setRankedSources] = useState(sources)
   const [sessionSource, setSessionSource] = useState<SourceId | null>(null)
   const generation = useRef(0)
@@ -503,14 +526,26 @@ export function CatalogCardRow({ card, editionId, sources, onOpenBook, onPlay }:
       onOpen={() => onOpenBook(primarySource.url, source)}
       openAriaLabel={t('openBookAria', { title: card.title })}
       actions={
-        <button
-          onClick={state === 'checking' ? cancel : play}
-          aria-label={state === 'checking' ? t('cancelCheckAria', { title: card.title }) : t('listenAria', { title: card.title })}
-          aria-live="polite"
-          style={{ background: 'var(--accent)', color: 'var(--accent-contrast)', border: 'none', borderRadius: 999, padding: '8px 12px' }}
-        >
-          {state === 'checking' ? t('cancel') : '▶'}
-        </button>
+        <>
+          {onSave !== undefined && (
+            <button
+              onClick={() => { onSave(saved); setSaved(true) }}
+              aria-label={saved ? t('saveDone') : t('saveAria', { title: card.title })}
+              aria-pressed={saved}
+              style={{ background: 'var(--surface)', color: 'var(--fg)', border: '1px solid var(--line)', borderRadius: 999, padding: '8px 12px' }}
+            >
+              {saved ? '✓' : '🔖'}
+            </button>
+          )}
+          <button
+            onClick={state === 'checking' ? cancel : play}
+            aria-label={state === 'checking' ? t('cancelCheckAria', { title: card.title }) : t('listenAria', { title: card.title })}
+            aria-live="polite"
+            style={{ background: 'var(--accent)', color: 'var(--accent-contrast)', border: 'none', borderRadius: 999, padding: '8px 12px' }}
+          >
+            {state === 'checking' ? t('cancel') : '▶'}
+          </button>
+        </>
       }
       trailing={
         <>

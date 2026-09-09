@@ -25,7 +25,7 @@ import com.slukhayka.audiobooks.ui.screens.ListenBlockShelf
 import com.slukhayka.audiobooks.ui.screens.ListenShelvesSheetContent
 import com.slukhayka.audiobooks.ui.screens.ListenEmptyState
 import com.slukhayka.audiobooks.ui.screens.ListenHeroCard
-import com.slukhayka.audiobooks.ui.screens.OpenWebSourceRow
+import com.slukhayka.audiobooks.ui.components.OpenWebSourceRow
 import com.slukhayka.audiobooks.ui.screens.RecentlyListenedRow
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers

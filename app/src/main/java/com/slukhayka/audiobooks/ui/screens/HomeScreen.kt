@@ -60,6 +60,7 @@ import coil.request.ImageRequest
 import com.slukhayka.audiobooks.ui.components.BookRow
 import com.slukhayka.audiobooks.ui.components.CycleCard
 import com.slukhayka.audiobooks.ui.components.MetadataChip
+import com.slukhayka.audiobooks.ui.components.OpenWebSourceRow
 import com.slukhayka.audiobooks.ui.components.PosterCard
 import com.slukhayka.audiobooks.ui.components.PosterWidth
 import com.slukhayka.audiobooks.ui.components.applySourceCoverHeaders
@@ -988,59 +989,6 @@ fun PeopleNewArrivalsRail(
         }
     }
 }
-
-/**
- * Spec-13 T3 — compact exit row to a source's browser surface (spec-28 #192:
- * re-homed from Слухати to Огляд as a footer CTA, not a content shelf). One
- * line, not a storefront. [text] defaults to «Більше книг на $displayName»;
- * the 4read search doors (#440) reuse the same row with a custom prompt.
- */
-@Composable
-fun OpenWebSourceRow(
-    displayName: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    text: String = stringResource(R.string.home_more_books_on, displayName),
-    testTag: String = "open_web_source_${displayName.lowercase()}"
-) {
-    Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 5.dp)
-            .clip(RoundedCornerShape(AppDimens.RadiusCardLg))
-            .clickable { onClick() }
-            .testTag(testTag),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                imageVector = Icons.Default.Language,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(20.dp)
-            )
-            Spacer(modifier = Modifier.width(10.dp))
-            Text(
-                text = text,
-                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.weight(1f)
-            )
-            Icon(
-                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-    }
-}
-
 
 /**
  * Card of the on-device «Рекомендовано для вас» row (spec-19 Track A):

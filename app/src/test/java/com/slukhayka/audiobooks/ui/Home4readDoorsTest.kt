@@ -17,7 +17,7 @@ import androidx.paging.PagingData
 import androidx.paging.compose.collectAsLazyPagingItems
 import com.slukhayka.audiobooks.data.db.WorkFeedRow
 import com.slukhayka.audiobooks.data.source.fourReadSearchUrl
-import com.slukhayka.audiobooks.ui.screens.OpenWebSourceRow
+import com.slukhayka.audiobooks.ui.components.OpenWebSourceRow
 import com.slukhayka.audiobooks.ui.screens.homeFeedContent
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
 import kotlinx.coroutines.flow.MutableStateFlow

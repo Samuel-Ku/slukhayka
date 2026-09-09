@@ -26,7 +26,12 @@ object SourceAccessPolicy {
     // HTTPS — a direct source like the other server-fetch adapters.
     // Spec-47 T2: audiobook.co.ua is server-fetch too (T1 spike verdict PASS;
     // audio rides archive.org with ranges).
-    private val directSources = setOf("soundbooks", "audiobookmp3", "lihtar", "sluhayua", "librivox", "audiobookcoua")
+    // Spec-47 T3: chytaylo.com.ua is server-fetch (Next.js SSR, T1 verdict
+    // PASS; audio `/api/audio-local/…mp3` serves ranges directly).
+    private val directSources = setOf(
+        "soundbooks", "audiobookmp3", "lihtar", "sluhayua", "librivox",
+        "audiobookcoua", "chytaylo"
+    )
 
     /**
      * Deterministic sub-order inside the DIRECT capability tier (#465):

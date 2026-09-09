@@ -182,10 +182,14 @@ class SourceReplacementMappingTest {
         val searches = CountingSearches(
             "sluhayua" to listOf(directBook("sluhayua", "https://sluhay.com.ua/42"))
         )
+        // No cache: the MEMO is the only fresh verdict under test. With a
+        // cache the first volley's write-back would legitimately keep
+        // answering after the memo expires — the shared cache outlives the
+        // memo by design (6h vs ~24h), the volley stays at zero.
         val resolver = SourceReplacementMapping(
             directSearches = searches.searches,
             union = { emptyList() },
-            cache = FakeCache(),
+            cache = null,
             clock = { now }
         )
         val mergeKey = MergeKey.keyFor("Книга", "Автор")
@@ -208,10 +212,12 @@ class SourceReplacementMappingTest {
                 directBook("sluhayua", "https://sluhay.com.ua/other", title = "Інша книга", author = "Інший автор")
             )
         )
+        // No cache, same reason as the positive-TTL test: the memo is the
+        // verdict under test, and negatives are never cached anyway.
         val resolver = SourceReplacementMapping(
             directSearches = searches.searches,
             union = { emptyList() },
-            cache = FakeCache(),
+            cache = null,
             clock = { now }
         )
         val mergeKey = MergeKey.keyFor("Книга", "Автор")
@@ -362,6 +368,31 @@ class SourceReplacementMappingTest {
         }
 
         assertEquals("https://sound-books.net/1", match?.url)
+    }
+
+    @Test
+    fun `the shared cache outlives the memo - expired positive still answered with zero requests`() = runTest {
+        var now = 1_000_000L
+        val searches = CountingSearches(
+            "sluhayua" to listOf(directBook("sluhayua", "https://sluhay.com.ua/42"))
+        )
+        val cache = FakeCache()
+        val resolver = SourceReplacementMapping(
+            directSearches = searches.searches,
+            union = { emptyList() },
+            cache = cache,
+            clock = { now }
+        )
+        val mergeKey = MergeKey.keyFor("Книга", "Автор")
+
+        resolver.resolve("Книга", "Автор", mergeKey)
+        val afterFirst = searches.total // the initial miss volley
+        now += 6L * 60 * 60 * 1_000 + 1
+
+        // Past the memo boundary the fresh shared-cache entry (24h) answers
+        // alone — no further requests, never a fabricated refresh.
+        assertEquals("https://sluhay.com.ua/42", resolver.resolve("Книга", "Автор", mergeKey)?.url)
+        assertEquals(afterFirst, searches.total)
     }
 
     @Test

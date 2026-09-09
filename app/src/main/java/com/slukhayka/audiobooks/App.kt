@@ -84,6 +84,7 @@ import com.slukhayka.audiobooks.data.source.AudiobookCoUaAdapter
 import com.slukhayka.audiobooks.data.source.AudiobookMp3Adapter
 import com.slukhayka.audiobooks.data.source.FourReadAdapter
 import com.slukhayka.audiobooks.data.source.SourceAudioRefusal
+import com.slukhayka.audiobooks.data.watch.SourceWatchStore
 import com.slukhayka.audiobooks.data.source.NewPipeYouTubeExtractor
 import com.slukhayka.audiobooks.data.source.YouTubeStreamResolver
 import com.slukhayka.audiobooks.data.source.LihtarAdapter
@@ -449,6 +450,13 @@ class App : Application() {
 
     /** ADR-0037 (spec-49 T1): the personal Source Audio Refusal preference. */
     val sourceAudioRefusal: SourceAudioRefusal by lazy { SourceAudioRefusal(this) }
+
+    /**
+     * ADR-0037 §6 (spec-49 T4): the personal Source Watch — «Чекає на
+     * джерело». Local, never synced; the appearance check rides the
+     * refreshes and mapping verdicts that already happen.
+     */
+    val sourceWatchStore: SourceWatchStore by lazy { SourceWatchStore(this) }
 
     // Spec-45 (#405) R7 (#514): the persisted App Locale (interface language)
     // — read in MainActivity.attachBaseContext, written by the settings

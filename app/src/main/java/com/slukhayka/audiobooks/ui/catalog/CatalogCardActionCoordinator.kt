@@ -61,6 +61,9 @@ fun editionScopedCatalogSources(
 
 enum class CatalogCardFailure {
     EMPTY_SOURCES,
+
+    /** ADR-0037 — every audio Source of the card is refused: intentional, not a failure. */
+    AUDIO_REFUSED,
     RESOLVE_FAILED,
     IMPORT_FAILED,
     ACTION_FAILED
@@ -104,15 +107,19 @@ interface CatalogCardActionGateway<Book> {
     suspend fun recordAvailability(book: Book, available: Boolean) = Unit
 
     /**
-     * #469 (spec #462 ID7) — the tap-time cross-resolve of a 4read-only card,
-     * reached by the coordinator ONLY right before the browser door: one JSON
-     * search on a direct source (title + author), matched by the Work
-     * MergeKey. Returns the matched direct SourceEntity (only `type`/`url`
-     * are consumed — the caller imports it through [import]), or null when
-     * nothing matches and the honest «потребує браузер» door stays.
+     * #469 (spec #462 ID7), generalized by ADR-0037 (spec-49 T2) — the
+     * tap-time replacement mapping, reached by the coordinator at exactly one
+     * of two doors: right before the browser door of a browser-only card, or
+     * once on a card whose every audio Source is refused. The resolver maps
+     * the Work (title + author, matched by [MergeKey][com.slukhayka.audiobooks.data.merge.MergeKey])
+     * onto a DIRECT source — union/search-cache first, then at most one
+     * parallel search volley. Returns the matched direct SourceEntity (only
+     * `type`/`url` are consumed — the caller imports it through [import],
+     * whose Edition derivation keeps progress when narrators agree), or null
+     * when nothing matches and the honest door stays (browser or refusal).
      * Implementations serve a cached verdict without a request (the same TTL
      * discipline as the Edition Availability Assertion), issue at most one
-     * search per call and never crawl in the background.
+     * request volley per call and never crawl in the background.
      */
     suspend fun crossResolveDirectSource(target: CatalogCardTarget): SourceEntity? = null
 
@@ -138,7 +145,9 @@ class CatalogCardActionCoordinator<Book>(
     private val gateway: CatalogCardActionGateway<Book>,
     private val sourceProbe: SourceSelectionCoordinator.SourceProbe,
     private val clock: SourceSelectionCoordinator.Clock = SourceSelectionCoordinator.DefaultClock,
-    private val budgetMs: Long = CatalogAvailabilityPolicy.SOURCE_BUDGET_MS
+    private val budgetMs: Long = CatalogAvailabilityPolicy.SOURCE_BUDGET_MS,
+    /** ADR-0037 — the listener's Source Audio Refusal, a precondition on every automatic path. */
+    private val refusedSourceIds: () -> Set<String> = { emptySet() }
 ) {
     private val _state = MutableStateFlow<CatalogCardActionState>(CatalogCardActionState.Idle)
     val state: StateFlow<CatalogCardActionState> = _state.asStateFlow()
@@ -199,7 +208,7 @@ class CatalogCardActionCoordinator<Book>(
                     if (!isCurrent(requestGeneration)) return@launch
                 }
 
-                val candidates = try {
+                val resolved = try {
                     gateway.sourceCandidates(target, saved)
                 } catch (cancelled: CancellationException) {
                     throw cancelled
@@ -208,11 +217,45 @@ class CatalogCardActionCoordinator<Book>(
                     return@launch
                 }
                 if (!isCurrent(requestGeneration)) return@launch
+                // spec-49 T1 (648) — the refusal filters before every automatic
+                // path (ADR-0037, inline rule): a refused-only card reads
+                // AUDIO_REFUSED, never a browser door; undo restores the rows
+                // with no re-import.
+                val refused = refusedSourceIds()
+                val candidates = if (refused.isEmpty()) resolved else resolved.filterNot { it.source.type in refused }
                 if (candidates.isEmpty()) {
+                    if (resolved.isNotEmpty()) {
+                        // spec-49 T2 (649) — one replacement-mapping attempt
+                        // before the honest refusal: a found direct Source
+                        // imports and plays/opens through the ordinary doors.
+                        // A miss keeps the T1 refusal; sourceless cards map
+                        // nowhere (their watch story is T4). crossResolveOnce
+                        // memoizes the single resolver call per tap.
+                        val mapped = crossResolveOnce()
+                        if (isCurrent(requestGeneration) && mapped != null) {
+                            val imported = try {
+                                gateway.import(target, mapped)
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (_: Exception) {
+                                null
+                            }
+                            if (isCurrent(requestGeneration) && imported != null) {
+                                lastPlayableBook = imported
+                                if (finishAction(requestGeneration, target, action, imported, mapped)) return@launch
+                                if (!isCurrent(requestGeneration)) return@launch
+                            }
+                        }
+                    }
                     if (action == CatalogCardAction.PLAY && lastPlayableBook != null) {
                         runCatching { gateway.recordAvailability(lastPlayableBook, false) }
                     }
-                    failIfCurrent(requestGeneration, target, action, CatalogCardFailure.EMPTY_SOURCES)
+                    failIfCurrent(
+                        requestGeneration,
+                        target,
+                        action,
+                        if (resolved.isNotEmpty()) CatalogCardFailure.AUDIO_REFUSED else CatalogCardFailure.EMPTY_SOURCES
+                    )
                     return@launch
                 }
                 var lastFailure = CatalogCardFailure.RESOLVE_FAILED

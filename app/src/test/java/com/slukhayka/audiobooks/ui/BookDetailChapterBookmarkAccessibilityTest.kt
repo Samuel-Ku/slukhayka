@@ -47,10 +47,10 @@ import com.slukhayka.audiobooks.data.db.ChapterEntity
 import com.slukhayka.audiobooks.ui.components.BookmarkDialog
 import com.slukhayka.audiobooks.ui.components.accessibilityModalBackground
 import com.slukhayka.audiobooks.ui.components.RestoreFocusAfterModal
-import com.slukhayka.audiobooks.ui.screens.BookmarkDeleteConfirmation
-import com.slukhayka.audiobooks.ui.screens.BookmarkRowItem
-import com.slukhayka.audiobooks.ui.screens.BookDeleteModalLifecycle
-import com.slukhayka.audiobooks.ui.screens.ChapterRowItem
+import com.slukhayka.audiobooks.ui.screens.bookdetail.BookmarkDeleteConfirmation
+import com.slukhayka.audiobooks.ui.screens.bookdetail.BookmarkRowItem
+import com.slukhayka.audiobooks.ui.screens.bookdetail.BookDeleteModalLifecycle
+import com.slukhayka.audiobooks.ui.screens.bookdetail.ChapterRowItem
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse

@@ -13,7 +13,12 @@ parameters from the composition root, not through the ViewModel.
 
 ```
 app/src/main/java/com/slukhayka/audiobooks/ui/screens/HomeScreen.kt            1395 lines
-app/src/main/java/com/slukhayka/audiobooks/ui/screens/BookDetailScreen.kt      1405 lines
+app/src/main/java/com/slukhayka/audiobooks/ui/screens/BookDetailScreen.kt      1264 lines (composition + state)
+app/src/main/java/com/slukhayka/audiobooks/ui/screens/bookdetail/BookDetailActions.kt
+app/src/main/java/com/slukhayka/audiobooks/ui/screens/bookdetail/BookDetailHighlights.kt
+app/src/main/java/com/slukhayka/audiobooks/ui/screens/bookdetail/BookDetailRows.kt
+app/src/main/java/com/slukhayka/audiobooks/ui/screens/bookdetail/BookDetailDeleteModals.kt
+app/src/main/java/com/slukhayka/audiobooks/ui/screens/bookdetail/BookDetailSections.kt
 app/src/main/java/com/slukhayka/audiobooks/ui/screens/LibraryScreen.kt          985 lines
 app/src/main/java/com/slukhayka/audiobooks/ui/screens/PlayerScreen.kt           943 lines
 app/src/main/java/com/slukhayka/audiobooks/ui/screens/ListenScreen.kt           852 lines

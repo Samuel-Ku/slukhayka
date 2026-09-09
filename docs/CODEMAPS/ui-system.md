@@ -19,6 +19,7 @@ app/src/main/java/com/slukhayka/audiobooks/ui/theme/Dimens.kt         39 lines  
 
 app/src/main/java/com/slukhayka/audiobooks/ui/components/PosterCard.kt        ~370 lines  (v1.4 C2 — the ONE 120×168 poster)
 app/src/main/java/com/slukhayka/audiobooks/ui/components/BookRow.kt            ~330 lines  (v1.4 C3 — the ONE flat list row)
+app/src/main/java/com/slukhayka/audiobooks/ui/components/OpenWebSourceRow.kt    ~60 lines   (v1.4 E2 — the ONE browser-door row, BookRow-styled)
 app/src/main/java/com/slukhayka/audiobooks/ui/components/MetadataChip.kt        ~120 lines  (v1.4 C4 — language/source/plain chip)
 app/src/main/java/com/slukhayka/audiobooks/ui/components/SectionHeaders.kt      ~100 lines  (v1.4 C1 — two-level AppSectionHeader)
 app/src/main/java/com/slukhayka/audiobooks/ui/components/AppTabHeader.kt        ~70 lines   (v1.4 C5 — one tab-header model)

@@ -523,4 +523,90 @@ class SourceSelectionCoordinatorTest {
         assertTrue(result is SourceSelectionCoordinator.SelectionResult.Selected)
         assertEquals(500L, (result as SourceSelectionCoordinator.SelectionResult.Selected).elapsedMs)
     }
+
+    // ----------------------------------------------------------------
+    // ADR-0037 — Source Audio Refusal as a selection precondition
+    // ----------------------------------------------------------------
+
+    @Test
+    fun `a refused source never wins and is never probed`() = runBlocking {
+        var probed = 0
+        val countingProbe = SourceSelectionCoordinator.SourceProbe { _, _ ->
+            probed++
+            SourceSelectionCoordinator.ProbeResult.Failure
+        }
+        val refused = candidate(
+            source(id = "refused-1", type = "4read", url = "https://4read.org/book.html"),
+            SourceSelectionCoordinator.SourceCategory.DIRECT
+        )
+        val allowed = candidate(
+            source(id = "allowed-1", type = "sluhayua", url = "https://sluhay.com/book.html"),
+            SourceSelectionCoordinator.SourceCategory.DIRECT
+        )
+        val result = SourceSelectionCoordinator.select(
+            operation = SourceSelectionCoordinator.OperationKind.PLAYBACK,
+            candidates = listOf(refused, allowed),
+            refusedSourceIds = setOf("4read"),
+            probe = countingProbe
+        )
+        assertTrue(result is SourceSelectionCoordinator.SelectionResult.Selected)
+        assertEquals("allowed-1", (result as SourceSelectionCoordinator.SelectionResult.Selected).candidate.source.id)
+        assertEquals("the refused source costs no probe budget", 1, probed)
+    }
+
+    @Test
+    fun `refused-only candidates end unavailable even when a browser source remains`() = runBlocking {
+        var probed = 0
+        val countingProbe = SourceSelectionCoordinator.SourceProbe { _, _ ->
+            probed++
+            SourceSelectionCoordinator.ProbeResult.Success
+        }
+        val refused = candidate(
+            source(id = "refused-browser", type = "4read", url = "https://4read.org/book.html"),
+            SourceSelectionCoordinator.SourceCategory.BROWSER
+        )
+        val result = SourceSelectionCoordinator.select(
+            operation = SourceSelectionCoordinator.OperationKind.PLAYBACK,
+            candidates = listOf(refused),
+            refusedSourceIds = setOf("4read"),
+            probe = countingProbe
+        )
+        assertTrue(
+            "the refusal is absolute - no browser escape hatch",
+            result is SourceSelectionCoordinator.SelectionResult.Unavailable
+        )
+        assertEquals("nothing is probed", 0, probed)
+    }
+
+    @Test
+    fun `a refused LOCAL candidate does not win over an allowed remote`() = runBlocking {
+        val refusedLocal = candidate(
+            source(id = "refused-local", type = "4read", url = ""),
+            SourceSelectionCoordinator.SourceCategory.LOCAL
+        )
+        val allowed = candidate(
+            source(id = "allowed-1", type = "sluhayua", url = "https://sluhay.com/book.html"),
+            SourceSelectionCoordinator.SourceCategory.DIRECT
+        )
+        val result = SourceSelectionCoordinator.select(
+            operation = SourceSelectionCoordinator.OperationKind.PLAYBACK,
+            candidates = listOf(refusedLocal, allowed),
+            refusedSourceIds = setOf("4read"),
+            probe = alwaysSucceed
+        )
+        assertTrue(result is SourceSelectionCoordinator.SelectionResult.Selected)
+        assertEquals("allowed-1", (result as SourceSelectionCoordinator.SelectionResult.Selected).candidate.source.id)
+    }
+
+    @Test
+    fun `an empty refusal set keeps the pre-refusal behaviour`() = runBlocking {
+        val result = SourceSelectionCoordinator.select(
+            operation = SourceSelectionCoordinator.OperationKind.PLAYBACK,
+            candidates = listOf(directCandidate(id = "d1")),
+            refusedSourceIds = emptySet(),
+            probe = alwaysSucceed
+        )
+        assertTrue(result is SourceSelectionCoordinator.SelectionResult.Selected)
+        assertEquals("d1", (result as SourceSelectionCoordinator.SelectionResult.Selected).candidate.source.id)
+    }
 }

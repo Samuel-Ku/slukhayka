@@ -81,6 +81,7 @@ import com.slukhayka.audiobooks.data.privacy.PrivacySettingsStore
 import com.slukhayka.audiobooks.data.privacy.SharedPreferencesPrivacySettingsStore
 import com.slukhayka.audiobooks.data.privacy.TransportPrivacy
 import com.slukhayka.audiobooks.data.source.AudiobookCoUaAdapter
+import com.slukhayka.audiobooks.data.source.ChytayloAdapter
 import com.slukhayka.audiobooks.data.source.AudiobookMp3Adapter
 import com.slukhayka.audiobooks.data.source.FourReadAdapter
 import com.slukhayka.audiobooks.data.source.SourceAudioRefusal

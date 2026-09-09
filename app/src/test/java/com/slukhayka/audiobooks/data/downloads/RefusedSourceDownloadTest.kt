@@ -135,7 +135,7 @@ class RefusedSourceDownloadTest {
         assertEquals(false, dao.getAudiobookById("refuseddl")!!.isDownloaded)
         assertEquals(0f, dao.getAudiobookById("refuseddl")!!.downloadProgress)
         // Nothing was written to disk.
-        assertEquals(0L, tracksOnDisk("refuseddl"))
+        assertEquals(0, tracksOnDisk("refuseddl"))
     }
 
     @Test

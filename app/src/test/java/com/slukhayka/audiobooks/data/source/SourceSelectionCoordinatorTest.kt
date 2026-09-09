@@ -533,7 +533,7 @@ class SourceSelectionCoordinatorTest {
         var probed = 0
         val countingProbe = SourceSelectionCoordinator.SourceProbe { _, _ ->
             probed++
-            SourceSelectionCoordinator.ProbeResult.Failure
+            SourceSelectionCoordinator.ProbeResult.Success
         }
         val refused = candidate(
             source(id = "refused-1", type = "4read", url = "https://4read.org/book.html"),

@@ -309,6 +309,24 @@ interface AudiobookDao {
     @Query("DELETE FROM source_tracks WHERE sourceId = :sourceId")
     suspend fun deleteTracksForSource(sourceId: String)
 
+    /** ADR-0035 / #607 — removes ONE source's rows (shared-tombstone consumption). */
+    @Query("DELETE FROM sources WHERE id = :sourceId")
+    suspend fun deleteSourceById(sourceId: String)
+
+    /** ADR-0035 / #607 — removes one work's whole source surface (shared-tombstone consumption). */
+    @Query("DELETE FROM work_sources WHERE workId = :workId")
+    suspend fun deleteWorkSourcesForWork(workId: String)
+
+    /** ADR-0035 / #607 — removes ONE source's catalog claim by its URL. */
+    @Query("DELETE FROM work_sources WHERE workId = :workId AND sourceUrl = :sourceUrl")
+    suspend fun deleteWorkSourceForUrl(workId: String, sourceUrl: String)
+
+    @Query("SELECT * FROM sources WHERE id = :sourceId LIMIT 1")
+    suspend fun getSourceById(sourceId: String): SourceEntity?
+
+    @Query("SELECT * FROM sources WHERE url = :url LIMIT 1")
+    suspend fun getSourceByUrl(url: String): SourceEntity?
+
     // --- Domain Editions (ADR-0007) ---
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)

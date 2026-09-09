@@ -390,22 +390,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 sourceCatalog.recordBookAvailability(book, available)
             }
 
-            // #469 (spec #462 ID7) — reached only before the browser door:
-            // one sluhayua search (title + author) matched by MergeKey. The
-            // resolver owns the request discipline and the availability-TTL
-            // cache; a null keeps the honest «потребує браузер» door.
+            // #469 (spec #462 ID7), generalized by ADR-0037 (spec-49 T2):
+            // the general replacement mapping behind the same gateway seam —
+            // union-first (zero requests), one parallel volley across direct
+            // sources, MergeKey match. Reached before the browser door AND on
+            // refused-only cards (a miss keeps AUDIO_REFUSED). Only type/url
+            // are consumed — the caller imports through the ordinary door,
+            // whose Edition derivation lands same-narrator Sources on the
+            // existing Edition (progress carries) and others as siblings. A
+            // null keeps the honest door (browser or AUDIO_REFUSED).
             override suspend fun crossResolveDirectSource(
                 target: CatalogCardTarget
             ): SourceEntity? {
-                val match = App.instance.sluhayuaCrossResolve.resolve(
+                val match = App.instance.directSourceResolve.resolve(
                     title = target.title,
                     author = target.author,
                     mergeKey = target.mergeKey
                 ) ?: return null
                 return SourceEntity(
-                    id = "sluhayua-cross",
+                    id = "cross-" + match.sourceId,
                     bookId = "",
-                    type = com.slukhayka.audiobooks.data.source.SourceIds.SLUHAYUA,
+                    type = match.sourceId,
                     url = match.url,
                     streamOnly = false
                 )
@@ -436,7 +441,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             // range preflight immediately before ExoPlayer, which is the only
             // meaningful availability check for a catalogue card.
             SourceSelectionCoordinator.ProbeResult.Success
-        }
+        },
+        // ADR-0037 (spec-49 T1/T2b) — the persisted refusal rides every card
+        // tap as the coordinator's precondition: refused candidates are
+        // dropped before every automatic path, and a refused-only card gets
+        // its one replacement-mapping attempt before the honest refusal.
+        refusedSourceIds = { App.instance.sourceAudioRefusal.refusedSources.value }
     )
     val catalogCardActionState: StateFlow<CatalogCardActionState> = catalogCardCoordinator.state
     private val catalogPreflightKeys = ConcurrentHashMap.newKeySet<String>()
@@ -2215,12 +2225,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
         }
-        // ADR-0037 — a refused source never becomes a candidate, so its
-        // browser door is unreachable and no probe is spent on it. The
-        // empty result fails the card action honestly (EMPTY_SOURCES).
-        val refused = App.instance.sourceAudioRefusal.refusedSources.value
-        val filteredEntities = if (refused.isEmpty()) entities else entities.filterNot { it.type in refused }
-        return filteredEntities.flatMap { entity ->
+        // ADR-0037 — the refusal is the coordinator's precondition
+        // (CatalogCardActionCoordinator.refusedSourceIds), not a gateway
+        // filter: the coordinator must see the refused candidates so a
+        // refused-only card reads AUDIO_REFUSED and gets its one
+        // replacement-mapping attempt (spec-49 T2b) instead of blending into
+        // an EMPTY_SOURCES card. This gateway also serves the preflight
+        // below, which keeps its own refusal guard — a refused source is
+        // never probed as a side effect.
+        return entities.flatMap { entity ->
             catalogSessionCandidates(
                 source = entity,
                 mode = SourceAccessPolicy.modeFor(entity.type),
@@ -2248,8 +2261,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 catalogPreflightSlots.withPermit { preflightCatalogMedia(saved, null) }
                 return@launch
             }
+            val refused = App.instance.sourceAudioRefusal.refusedSources.value
             coroutineScope {
                 catalogSourceCandidates(target)
+                    .filter { candidate ->
+                        // ADR-0037 — the refusal is absolute: a refused source
+                        // is never probed as a preflight side effect either.
+                        refused.isEmpty() || candidate.source.type !in refused
+                    }
                     .filter { candidate ->
                         candidate.category == SourceSelectionCoordinator.SourceCategory.DIRECT ||
                             candidate.category == SourceSelectionCoordinator.SourceCategory.UNKNOWN ||

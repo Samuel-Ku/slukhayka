@@ -15,7 +15,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.test.platform.app.InstrumentationRegistry
 import com.slukhayka.audiobooks.MainActivity
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
-import com.slukhayka.audiobooks.ui.screens.BookDetailIdentityHeader
+import com.slukhayka.audiobooks.ui.screens.bookdetail.BookDetailIdentityHeader
 import com.slukhayka.audiobooks.ui.screens.bookDetailPresentation
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
 import java.io.File

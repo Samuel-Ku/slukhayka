@@ -51,4 +51,17 @@ class BrowserIdentityTest {
         assertTrue("Chrome/" in BrowserIdentity.FALLBACK_USER_AGENT)
         assertTrue("Mobile Safari" in BrowserIdentity.FALLBACK_USER_AGENT)
     }
+
+    @Test
+    fun `embedded browser UA removes only Android WebView markers`() {
+        val ua = "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 " +
+            "(KHTML, like Gecko) Version/4.0 Chrome/151.0.7922.199 Mobile Safari/537.36; wv"
+
+        val embedded = BrowserIdentity.embeddedBrowserUserAgent(ua)
+
+        assertFalse(embedded.contains("Version/4.0"))
+        assertFalse(embedded.contains("; wv"))
+        assertTrue(embedded.contains("Chrome/151.0.7922.199"))
+        assertTrue(embedded.contains("Mobile Safari/537.36"))
+    }
 }

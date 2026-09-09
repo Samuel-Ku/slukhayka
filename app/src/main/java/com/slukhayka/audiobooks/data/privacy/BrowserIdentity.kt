@@ -14,6 +14,20 @@ package com.slukhayka.audiobooks.data.privacy
 object BrowserIdentity {
 
     /**
+     * 4read serves a hard block page to Android WebViews that advertise the
+     * embedded-browser markers (`Version/4.0` and `; wv`). Chrome on the same
+     * device is accepted. Keep the real engine/device/browser version while
+     * removing only those transport-neutral markers from the interactive
+     * source browser; the shared HTTP transport continues to use the genuine
+     * system WebView identity below.
+     */
+    fun embeddedBrowserUserAgent(systemUa: String): String = systemUa
+        .replace("; wv", "", ignoreCase = true)
+        .replace("Version/4.0 ", "", ignoreCase = true)
+        .replace(Regex("\\s{2,}"), " ")
+        .trim()
+
+    /**
      * Chrome's own reduced-Android shape («K» = generic device). Ordinary,
      * unremarkable, shared with millions of real browsers.
      */

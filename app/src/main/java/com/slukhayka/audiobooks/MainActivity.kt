@@ -49,6 +49,7 @@ import com.slukhayka.audiobooks.ui.components.accessibilityModalBackground
 import com.slukhayka.audiobooks.ui.components.accessibilityPane
 import com.slukhayka.audiobooks.ui.screens.BookDetailScreen
 import com.slukhayka.audiobooks.ui.screens.AuthorsIndexScreen
+import com.slukhayka.audiobooks.ui.screens.SourceAudioRefusalScreen
 import com.slukhayka.audiobooks.ui.screens.CanonicalAuthorScreen
 import com.slukhayka.audiobooks.ui.screens.BookDetailLinkOrigin
 import com.slukhayka.audiobooks.ui.screens.CollectionsIndexScreen
@@ -330,6 +331,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     val privacySettingsOpen by viewModel.privacySettingsOpen.collectAsState()
     val recommendationSettingsOpen by viewModel.recommendationSettingsOpen.collectAsState()
     val contentLanguagesOpen by viewModel.contentLanguagesOpen.collectAsState()
+    val sourceAudioRefusalOpen by viewModel.sourceAudioRefusalOpen.collectAsState()
     val appLocaleOpen by viewModel.appLocaleOpen.collectAsState()
     val profileOpen by viewModel.profileOpen.collectAsState()
     val selectedGenre by viewModel.selectedGenre.collectAsState()
@@ -417,7 +419,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     BackHandler(enabled = showFullPlayer || selectedBookId != null ||
         selectedWebSource != null || selectedSeries != null || seriesIndexOpen || collectionsIndexOpen ||
         storageDestinationOpen || privacySettingsOpen || recommendationSettingsOpen || contentLanguagesOpen ||
-        appLocaleOpen || profileOpen || selectedGenre != null ||
+        sourceAudioRefusalOpen || appLocaleOpen || profileOpen || selectedGenre != null ||
         selectedTop100 || selectedPeopleKind != null || selectedPerson != null ||
         authorsIndexOpen || selectedCanonicalAuthor != null) {
         if (showFullPlayer) {
@@ -449,6 +451,8 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
             viewModel.closeRecommendationSettings()
         } else if (contentLanguagesOpen) {
             viewModel.closeContentLanguages()
+        } else if (sourceAudioRefusalOpen) {
+            viewModel.closeSourceAudioRefusal()
         } else if (appLocaleOpen) {
             viewModel.closeAppLocale()
         } else if (profileOpen) {
@@ -733,6 +737,16 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                         prefs = App.instance.contentLanguagePrefs,
                         onBackClick = {
                             viewModel.closeContentLanguages()
+                        }
+                    )
+
+                    // ADR-0037 (spec-49 T1): the «Аудіо джерел»
+                    // destination — the screen reads the PREFERENCE MODULE
+                    // directly (ADR-0008); the ViewModel owns navigation.
+                    sourceAudioRefusalOpen -> SourceAudioRefusalScreen(
+                        prefs = App.instance.sourceAudioRefusal,
+                        onBackClick = {
+                            viewModel.closeSourceAudioRefusal()
                         }
                     )
 
@@ -1035,6 +1049,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                                     SettingsDestination.NetworkPrivacy -> viewModel.openPrivacySettings()
                                     SettingsDestination.Recommendations -> viewModel.openRecommendationSettings()
                                     SettingsDestination.ContentLanguages -> viewModel.openContentLanguages()
+                                    SettingsDestination.SourceAudioRefusal -> viewModel.openSourceAudioRefusal()
                                     SettingsDestination.AppLocale -> viewModel.openAppLocale()
                                 }
                             }

@@ -46,11 +46,16 @@ export interface TombstoneEntity {
 export type PersonRole = 'author' | 'narrator'
 
 export interface PersonBookmarkEntity {
-  /** Deterministic id: role-prefixed normalized identity (no raw names as ids). */
+  /** Deterministic id: Android's boundedId (role prefix + sha256, #582 W0.4). */
   personId: string
   role: PersonRole
   displayName: string
+  /** Set once on first toggle; never changes after (Android's createdAt). */
   createdAt: number
+  /** Refreshed on every toggle or sync — the LWW clock (Android's updatedAt). */
+  updatedAt: number
+  /** Android's per-person notification flag; the wire carries it, web has no notifications UI yet. */
+  notifyEnabled: boolean
 }
 
 export interface WorkRelationshipRow {
@@ -67,10 +72,6 @@ export interface WorkRelationshipRow {
 const WORKS = WORKS_STORE
 const RELATIONSHIPS = WORK_RELATIONSHIPS_STORE
 const BOOKMARKS = PERSON_BOOKMARKS_STORE
-
-export function personIdFor(role: PersonRole, normalizedIdentity: string): string {
-  return `${role}:${normalizedIdentity}`
-}
 
 /** The pure LWW rule with tombstone ties (ADR-0034) — one decision, tested once. */
 export function resolveRelationship(local: WorkRelationshipRow, incoming: WorkRelationshipRow): WorkRelationshipRow {
@@ -198,9 +199,35 @@ export class DomainStore {
   async addPersonBookmark(person: { role: PersonRole; personId: string; displayName: string }): Promise<PersonBookmarkEntity> {
     const db = await this.ready()
     if (db === null) throw new Error('domain store unavailable')
-    const entity: PersonBookmarkEntity = { ...person, createdAt: this.now() }
+    const existing = await this.personBookmarkOf(person.personId)
+    const now = this.now()
+    const entity: PersonBookmarkEntity = {
+      ...person,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+      notifyEnabled: existing?.notifyEnabled ?? true,
+    }
     await db.put(BOOKMARKS, entity)
     return entity
+  }
+
+  /** One bookmark by its deterministic id; null when absent. */
+  async personBookmarkOf(personId: string): Promise<PersonBookmarkEntity | null> {
+    const db = await this.ready()
+    if (db === null) return null
+    const row = await db.get<PersonBookmarkEntity>(BOOKMARKS, personId)
+    return row ?? null
+  }
+
+  /** Applies a remote row through the LWW rule (Android's upsertRemote). */
+  async applyRemotePersonBookmark(remote: PersonBookmarkEntity): Promise<PersonBookmarkEntity> {
+    const db = await this.ready()
+    if (db === null) throw new Error('domain store unavailable')
+    const existing = await this.personBookmarkOf(remote.personId)
+    // Android: the remote wins only when STRICTLY newer; a tie keeps local.
+    if (existing !== null && existing.updatedAt >= remote.updatedAt) return existing
+    await db.put(BOOKMARKS, { ...remote, createdAt: existing?.createdAt ?? remote.createdAt })
+    return remote
   }
 
   async removePersonBookmark(personId: string): Promise<void> {

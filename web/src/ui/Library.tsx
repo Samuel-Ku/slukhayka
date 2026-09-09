@@ -21,7 +21,7 @@
  * show no hairline — never a fabricated percent.
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { LibraryEntryEntity } from '../local/domain'
+import type { LibraryEntryEntity, PersonBookmarkEntity } from '../local/domain'
 import type { DomainStore } from '../local/domain'
 import type { EditionLink, EditionLinkStore } from '../local/editionLinks'
 import type { ListenerDatabase } from '../local/listeningState'
@@ -31,6 +31,7 @@ import type { StringKey } from '../i18n/strings'
 import { BookRow, EmptyState, EmptyStateRow, SectionHeader, TabHeader } from './components'
 import { DeleteBookSheet, type DownloadedCopy } from './DeleteBookSheet'
 import { deleteEverythingScopeText, type DeleteScope } from './deleteModel'
+import type { PersonBookmarkSyncController } from '../sync/personBookmarkController'
 import {
   buildLibraryViews,
   filterLibrary,
@@ -64,19 +65,25 @@ function pillStyle(active: boolean): React.CSSProperties {
   }
 }
 
-export function Library({ domainStore, linkStore, listening, pushAfterChange, downloadsOf }: {
+export function Library({ domainStore, linkStore, listening, pushAfterChange, downloadsOf, personBookmarks }: {
   domainStore: DomainStore
   linkStore: EditionLinkStore
   listening: Pick<ListenerDatabase, 'allSnapshots' | 'clearSnapshot'>
   pushAfterChange: (mergeKey: string) => Promise<void>
   /** The Work's downloaded copy, when the (future) download manager owns one. */
   downloadsOf?: (mergeKey: string) => DownloadedCopy | null
+  /** #582 W0.4 — the «Ваші виконавці/автори» block (absent without the seam). */
+  personBookmarks?: PersonBookmarkSyncController
 }) {
   const t = useTranslate()
   const locale = useUiLocale()
   const [entries, setEntries] = useState<LibraryEntryEntity[] | null>(null)
   const [links, setLinks] = useState<EditionLink[]>([])
   const [snapshots, setSnapshots] = useState<LocalListeningStateSnapshot[]>([])
+  // #582 W0.4 — Android's «Люди» tab adapted as a block under the books:
+  // the web Медіатека has no sub-tabs, so the block is the honest shape.
+  const [people, setPeople] = useState<PersonBookmarkEntity[]>([])
+  const [peopleReady, setPeopleReady] = useState(false)
   const [filter, setFilter] = useState<LibraryFilter>('all')
   const [sort, setSort] = useState<LibrarySort>('recently-listened')
   // The three-tier deletion state: the options sheet first, the exact-scope
@@ -103,14 +110,17 @@ export function Library({ domainStore, linkStore, listening, pushAfterChange, do
   }, [confirmFor, sheetFor])
 
   const load = async (): Promise<void> => {
-    const [loadedEntries, loadedLinks, loadedSnapshots] = await Promise.all([
+    const [loadedEntries, loadedLinks, loadedSnapshots, loadedPeople] = await Promise.all([
       domainStore.libraryEntries(),
       linkStore.all(),
       listening.allSnapshots(),
+      personBookmarks === undefined ? Promise.resolve([]) : domainStore.personBookmarks(),
     ])
     setEntries(loadedEntries)
     setLinks(loadedLinks)
     setSnapshots(loadedSnapshots)
+    setPeople(loadedPeople)
+    setPeopleReady(true)
   }
 
   useEffect(() => {
@@ -181,6 +191,37 @@ export function Library({ domainStore, linkStore, listening, pushAfterChange, do
       </div>
 
       {notice && <EmptyStateRow message={notice} />}
+
+      {/* #582 W0.4 — «Ваші виконавці/автори» on canonical BookRows (the AC's
+          block), below the books; the honest count is the real bookmark
+          total, and the row's ★ removes the bookmark (Android's toggle). */}
+      {personBookmarks !== undefined && peopleReady && people.length > 0 && (
+        <>
+          <SectionHeader level="group" title={t('yourPeople')} count={people.length} />
+          <ul className="card-list">
+            {people.map((person) => (
+              <BookRow
+                key={person.personId}
+                title={person.displayName}
+                subtitle={t(person.role === 'author' ? 'personRoleAuthor' : 'personRolePerformer')}
+                trailing={
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void personBookmarks.toggle(person.role, person.displayName).then(load)
+                    }}
+                    aria-label={t('personBookmarkRemoveAria', { name: person.displayName })}
+                    aria-pressed={true}
+                    style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 999, padding: '4px 10px', color: 'var(--accent)', cursor: 'pointer' }}
+                  >
+                    ★
+                  </button>
+                }
+              />
+            ))}
+          </ul>
+        </>
+      )}
 
       {views === null || visible === null ? (
         <EmptyStateRow message={t('loading')} />

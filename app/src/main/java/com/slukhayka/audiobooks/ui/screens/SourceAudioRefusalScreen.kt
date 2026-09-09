@@ -32,7 +32,7 @@ import com.slukhayka.audiobooks.data.source.SourceAudioRefusal
 import com.slukhayka.audiobooks.data.source.sourceDisplayName
 
 /** The catalogued sources a listener may refuse, in display order. */
-internal val REFUSABLE_SOURCES = listOf("4read", "sluhayua", "soundbooks", "audiobookmp3", "lihtar", "audiobookcoua")
+internal val REFUSABLE_SOURCES = listOf("4read", "sluhayua", "soundbooks", "audiobookmp3", "lihtar", "audiobookcoua", "chytaylo")
 
 /**
  * ADR-0037 (spec-49 T1) — the «Аудіо джерел» destination: one checkbox per

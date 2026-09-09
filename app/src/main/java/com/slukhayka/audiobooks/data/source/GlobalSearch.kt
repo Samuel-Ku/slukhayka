@@ -125,6 +125,8 @@ fun sourceIdForUrl(url: String): String = when {
     // unknown fallback; the site's own host covers pages, the novinki
     // section and the playlist txt files its adapter emits.
     url.contains("audiobook.co.ua") -> "audiobookcoua"
+    // Spec-47 T3/T5 — chytaylo.com.ua (server-fetch, Next.js SSR).
+    url.contains("chytaylo.com.ua") -> "chytaylo"
     url.contains("lihtar.in.ua") -> "lihtar"
     url.contains("sluhay.com.ua") -> "sluhayua"
     url.contains("sluhayknigi.com") -> "sluhayknigi"
@@ -143,6 +145,7 @@ fun sourceDisplayName(sourceId: String): String = when (sourceId) {
     "soundbooks" -> "Sound-Books"
     "audiobookmp3" -> "audiobook-mp3"
     "audiobookcoua" -> "Audiobook.co.ua"
+    "chytaylo" -> "Читайло"
     "lihtar" -> "Lihtar"
     "sluhayua" -> "Sluhay"
     "sluhay" -> "Sluhay"

@@ -3,6 +3,8 @@ package com.slukhayka.audiobooks.data.imports
 import com.slukhayka.audiobooks.data.db.AudiobookDao
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.metadata.SharedBookMetaStore
+import com.slukhayka.audiobooks.data.source.BrowserRecoveryProfiles
+import com.slukhayka.audiobooks.data.source.SourceIds
 import com.slukhayka.audiobooks.data.source.sourceIdForUrl
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -367,32 +369,39 @@ class BrowserRecoveryCoordinator(
                 "cloudflare" in page && "challenge" in page
         }
 
-        /** 4read search URL with prefilled Work title. */
+        /** 4read search URL with prefilled Work title. ADR-0036 (spec-48 T1):
+         * the URL is the source's declared search door — the knowledge lives
+         * on the profile, this is only the 4read-named accessor. */
         fun searchUrlFor(workTitle: String): String {
-            val encoded = java.net.URLEncoder.encode(workTitle.trim(), "UTF-8")
-            return "https://4read.org/index.php?do=search&subaction=search&story=$encoded"
+            val door = requireNotNull(
+                BrowserRecoveryProfiles.forSource(SourceIds.FOUR_READ).searchDoor
+            ) { "4read profile must declare a search door" }
+            return door(workTitle)
         }
 
         /**
          * Recovery entry URL: exact Source URL when present, otherwise the
-         * 4read search with the Work title. #471 — generalized to ANY
-         * browser Source ([sourceId]): a non-4read browser source without a
+         * source's search door with the Work title (ADR-0036 — the door is
+         * profile knowledge). #471 — generalized to ANY
+         * browser Source ([sourceId]): a source without a door and without a
          * stored row yields an empty string (no invented home URL — the
          * caller hides the door instead of opening the wrong site).
          */
         suspend fun recoveryEntryUrl(
             dao: AudiobookDao,
             bookId: String,
-            sourceId: String = "4read"
+            sourceId: String = SourceIds.FOUR_READ
         ): String {
+            val profile = BrowserRecoveryProfiles.forSource(sourceId)
             val book = dao.getAudiobookById(bookId)
-                ?: return if (sourceId == "4read") "https://4read.org/" else ""
+                ?: return profile.homeUrl.orEmpty()
             val sources = dao.getSourcesForBookSync(bookId)
             val exact = sources.firstOrNull { it.type == sourceId }?.url?.takeIf { it.isNotBlank() }
             if (!exact.isNullOrBlank()) return exact
-            if (sourceId == "4read") {
+            val door = profile.searchDoor
+            if (door != null) {
                 val title = book.title.takeIf { it.isNotBlank() } ?: "книга"
-                return searchUrlFor(title)
+                return door(title)
             }
             return book.sourceUrl
                 .takeIf { it.isNotBlank() && sourceIdForUrl(it) == sourceId }

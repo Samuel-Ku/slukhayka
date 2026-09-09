@@ -167,6 +167,14 @@ object SourceSelectionCoordinator {
      * @param operation the operation requesting a source
      * @param candidates the Edition's source candidates (must all share the
      *        same editionId; the coordinator does not validate this)
+     * @param refusedSourceIds ADR-0037 — the listener's Source Audio Refusal
+     *        (by source type/id): candidates of a refused source are dropped
+     *        BEFORE every phase, never probed, never given budget, and a
+     *        refused-only candidate list yields [SelectionResult.Unavailable]
+     *        — never [SelectionResult.BrowserRequired]. The refusal is
+     *        absolute: there is no browser escape hatch for a refused
+     *        source. `"local"` is unaffected by construction — the local
+     *        pseudo-source is the listener's own files, not a source.
      * @param probe the probe function for testing reachability
      * @param clock the monotonic clock for budget tracking
      * @param budgetMs the shared budget for DIRECT/UNKNOWN probes (default 10s)
@@ -175,11 +183,20 @@ object SourceSelectionCoordinator {
     suspend fun select(
         operation: OperationKind,
         candidates: List<SourceCandidate>,
+        refusedSourceIds: Set<String> = emptySet(),
         probe: SourceProbe,
         clock: Clock = DefaultClock,
         budgetMs: Long = DEFAULT_BUDGET_MS
     ): SelectionResult {
-        if (candidates.isEmpty()) return SelectionResult.Unavailable
+        // ADR-0037 — the refusal is a precondition, not a phase: refused
+        // candidates are removed before LOCAL wins anything, before any
+        // probe spends the shared budget, and before BROWSER can become the
+        // answer. A refused-only list ends honest and unavailable.
+        val eligible = if (refusedSourceIds.isEmpty()) candidates else candidates.filterNot { candidate ->
+            candidate.source.type in refusedSourceIds
+        }
+        if (eligible.isEmpty()) return SelectionResult.Unavailable
+        val candidates = eligible
 
         // Phase 1: LOCAL — no probe needed, instant win.
         val locals = candidates.filter { it.category == SourceCategory.LOCAL }

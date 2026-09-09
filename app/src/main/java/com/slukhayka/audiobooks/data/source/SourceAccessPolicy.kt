@@ -18,10 +18,15 @@ data class SourceAccessCandidate(
 )
 
 object SourceAccessPolicy {
-    private val browserSources = setOf("4read", "sluhay", "sluhayknigi")
+    // ADR-0036 (spec-48 T1): the browser family is the set of declared
+    // Browser Recovery Profiles — one registry, not a second list to forget
+    // when the next browser source connects.
+    private val browserSources = BrowserRecoveryProfiles.orderedSourceIds.toSet()
     // Spec-45 (#405) T2 (#490): librivox streams from archive.org over plain
     // HTTPS — a direct source like the other server-fetch adapters.
-    private val directSources = setOf("soundbooks", "audiobookmp3", "lihtar", "sluhayua", "librivox")
+    // Spec-47 T2: audiobook.co.ua is server-fetch too (T1 spike verdict PASS;
+    // audio rides archive.org with ranges).
+    private val directSources = setOf("soundbooks", "audiobookmp3", "lihtar", "sluhayua", "librivox", "audiobookcoua")
 
     /**
      * Deterministic sub-order inside the DIRECT capability tier (#465):

@@ -121,6 +121,10 @@ fun sourceIdForUrl(url: String): String = when {
     url.contains("4read.org") -> "4read"
     url.contains("sound-books.net") -> "soundbooks"
     url.contains("audiobook-mp3.com") -> "audiobookmp3"
+    // Spec-47 T5 — audiobook.co.ua (server-fetch). Registered before the
+    // unknown fallback; the site's own host covers pages, the novinki
+    // section and the playlist txt files its adapter emits.
+    url.contains("audiobook.co.ua") -> "audiobookcoua"
     url.contains("lihtar.in.ua") -> "lihtar"
     url.contains("sluhay.com.ua") -> "sluhayua"
     url.contains("sluhayknigi.com") -> "sluhayknigi"
@@ -138,6 +142,7 @@ fun sourceDisplayName(sourceId: String): String = when (sourceId) {
     "4read" -> "4read"
     "soundbooks" -> "Sound-Books"
     "audiobookmp3" -> "audiobook-mp3"
+    "audiobookcoua" -> "Audiobook.co.ua"
     "lihtar" -> "Lihtar"
     "sluhayua" -> "Sluhay"
     "sluhay" -> "Sluhay"

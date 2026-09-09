@@ -161,6 +161,56 @@ class SubmissionPublisherTest {
         assertEquals("the refused repeat consumed nothing", 0L, store.getSubmissionCount("device-2", "0"))
     }
 
+    // ---------------------------------------------------------------------
+    // The curator door (ADR-0035 п. 12 / #608) — the seeder mode
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `curator publish is verified and never consumes the daily budget`() = runBlocking {
+        verification.record(sourceId, actualPlaybackStarted = true)
+        assertEquals(
+            SubmissionPublisher.Result.PUBLISHED,
+            publisher.publishCurator(playlistUrl, kingPlaylistJson, "@stivenkingua", sourceId, "device-curator")
+        )
+        assertEquals(1, store.submissionPuts.size)
+        assertEquals("the curator has no daily budget", 0L, store.getSubmissionCount("device-curator", "0"))
+        assertEquals(playlistUrl, store.submissionPuts.single().sourceUrl)
+    }
+
+    @Test
+    fun `curator publish without a verdict publishes nothing`() = runBlocking {
+        assertEquals(
+            SubmissionPublisher.Result.NOT_VERIFIED,
+            publisher.publishCurator(playlistUrl, kingPlaylistJson, "@stivenkingua", sourceId, "device-curator")
+        )
+        assertTrue(store.submissionPuts.isEmpty())
+        assertEquals(0L, store.getSubmissionCount("device-curator", "0"))
+    }
+
+    @Test
+    fun `curator repeat of a published url is refused`() = runBlocking {
+        verification.record(sourceId, actualPlaybackStarted = true)
+        assertEquals(
+            SubmissionPublisher.Result.PUBLISHED,
+            publisher.publishCurator(playlistUrl, kingPlaylistJson, "@stivenkingua", sourceId, "device-curator")
+        )
+        assertEquals(
+            SubmissionPublisher.Result.ALREADY_PUBLISHED,
+            publisher.publishCurator(playlistUrl, kingPlaylistJson, "@stivenkingua", sourceId, "device-curator")
+        )
+        assertEquals(1, store.submissionPuts.size)
+    }
+
+    @Test
+    fun `curator garbage metadata publishes nothing`() = runBlocking {
+        verification.record(sourceId, actualPlaybackStarted = true)
+        assertEquals(
+            SubmissionPublisher.Result.METADATA_FAILED,
+            publisher.publishCurator(playlistUrl, "not json", "@stivenkingua", sourceId, "device-curator")
+        )
+        assertTrue(store.submissionPuts.isEmpty())
+    }
+
     @Test
     fun `the tg url dedups against a youtube publication of the same link`() = runBlocking {
         // One shared base: the URL hash is the key regardless of mode.

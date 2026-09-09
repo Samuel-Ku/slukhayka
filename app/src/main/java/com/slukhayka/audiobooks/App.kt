@@ -82,6 +82,7 @@ import com.slukhayka.audiobooks.data.privacy.SharedPreferencesPrivacySettingsSto
 import com.slukhayka.audiobooks.data.privacy.TransportPrivacy
 import com.slukhayka.audiobooks.data.source.AudiobookMp3Adapter
 import com.slukhayka.audiobooks.data.source.FourReadAdapter
+import com.slukhayka.audiobooks.data.source.SourceAudioRefusal
 import com.slukhayka.audiobooks.data.source.NewPipeYouTubeExtractor
 import com.slukhayka.audiobooks.data.source.YouTubeStreamResolver
 import com.slukhayka.audiobooks.data.source.LihtarAdapter
@@ -407,6 +408,9 @@ class App : Application() {
     // WorkFeed Pager with it (both react live to a change).
     val contentLanguagePrefs: ContentLanguagePrefs by lazy { ContentLanguagePrefs(this) }
 
+    /** ADR-0037 (spec-49 T1): the personal Source Audio Refusal preference. */
+    val sourceAudioRefusal: SourceAudioRefusal by lazy { SourceAudioRefusal(this) }
+
     // Spec-45 (#405) R7 (#514): the persisted App Locale (interface language)
     // — read in MainActivity.attachBaseContext, written by the settings
     // toggle through [AppLocaleApplier]. Default = system.
@@ -481,7 +485,11 @@ class App : Application() {
             // Spec-45 (#405) T5/T6: the ephemeral surfaces filter through the
             // persisted content-language preference — an empty selection is
             // inactive («Усі»); every change re-filters the next refresh/read.
-            contentLanguageSelection = contentLanguagePrefs.languages
+            contentLanguageSelection = contentLanguagePrefs.languages,
+            // ADR-0037 (spec-49 T1): playable pairing (and the legacy-page
+            // materialization it rides) excludes every refused source —
+            // metadata flows stay untouched.
+            sourceAudioRefusal = sourceAudioRefusal.refusedSources
         )
     }
 
@@ -491,6 +499,9 @@ class App : Application() {
             database.audiobookDao(),
             this,
             sourceCatalog,
+            // ADR-0037 (spec-49 T1): a refused-only book refuses the download
+            // up front, before any pacing, fetch or file write.
+            sourceAudioRefusal = sourceAudioRefusal.refusedSources,
             // Spec 2026-08-26: YouTube watch URLs resolve per-use before the fetch.
             streamUrlResolver = { url -> youTubeStreamResolver.resolve(url) },
             cookieProvider = {

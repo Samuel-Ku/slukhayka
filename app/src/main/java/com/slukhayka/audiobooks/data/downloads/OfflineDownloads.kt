@@ -76,6 +76,12 @@ class OfflineDownloads(
     // concrete audio stream URL before the fetch — the signed URL expires
     // (~6h) and is never stored. Identity for plain URLs; null (extraction
     // failed) fails the chapter honestly. Injectable so tests pin the seam.
+    // ADR-0037 (spec-49 T1): the personal Source Audio Refusal. A book whose
+    // ONLY audio sources are refused refuses the download up front — before
+    // any pacing, fetch or file write; zero chapters from the pairing path
+    // (which filters refused sources) returns the same honest refusal as
+    // before. Default empty = inactive (tests keep the old behaviour).
+    private val sourceAudioRefusal: StateFlow<Set<String>> = MutableStateFlow(emptySet()),
     // LAST: keeps every pre-existing positional call site valid.
     private val streamUrlResolver: suspend (String) -> String? = { url -> url },
     /** Local WebView cookies, scoped by [headersFor] to 4read audio hosts. */
@@ -303,6 +309,26 @@ class OfflineDownloads(
         requestedChapterIds: Set<String>?
     ): OfflineDownloadResult {
         val streamOnlyBook = dao.getAudiobookById(bookId)
+        // ADR-0037 — the refusal refuses the download up front, before any
+        // pacing, fetch or file write. The pairing path below already
+        // excludes refused sources; this early verdict makes the reason
+        // visible in the log instead of a silent zero-chapter pass.
+        val refused = sourceAudioRefusal.value
+        if (refused.isNotEmpty() && streamOnlyBook != null) {
+            val bookSources = dao.getSourcesForBookSync(bookId)
+            val bookSourceIds = (bookSources.map { it.type } +
+                listOfNotNull(
+                    sourceIdForUrl(streamOnlyBook.sourceUrl)
+                        .takeIf { streamOnlyBook.sourceUrl.isNotBlank() }
+                )).filter { it.isNotBlank() && it != "local" }.distinct()
+            if (bookSourceIds.isNotEmpty() && bookSourceIds.all { it in refused }) {
+                Log.w(
+                    "OfflineDownloads",
+                    "downloadAudiobookOffline refused: book $bookId audio sources $bookSourceIds are refused (ADR-0037)"
+                )
+                return OfflineDownloadResult(0, 0)
+            }
+        }
 
         // Use the fallback-fetching catalog chapter fetch (chapters + their
         // tracks), NOT a raw Room read: a catalogue book's chapters live on

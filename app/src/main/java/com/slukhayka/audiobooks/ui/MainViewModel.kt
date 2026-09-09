@@ -2885,6 +2885,98 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * ADR-0037 §4 (spec-49 T3) — the one-tap Narration Claim: the mapped
+     * sibling Edition is the same narration as the current one. The door
+     * re-anchors the sibling's Sources onto the current Edition (progress
+     * carries) and fills the narrator with the listener's precedence. The
+     * merged row is re-selected so the page reflects the merge at once.
+     */
+    fun claimNarration(siblingBookId: String, claimedNarrator: String) {
+        val currentId = _selectedBookId.value ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                libraryImport.claimSameNarration(currentId, siblingBookId, claimedNarrator)
+            }.onSuccess { merged ->
+                if (merged != null) {
+                    _narrationClaimDone.value = true
+                    selectBook(currentId)
+                }
+            }
+        }
+    }
+
+    /** The Narration Claim confirmation consumed by the book page. */
+    private val _narrationClaimDone = MutableStateFlow(false)
+    val narrationClaimDone: StateFlow<Boolean> = _narrationClaimDone.asStateFlow()
+
+    fun consumeNarrationClaimDone() {
+        _narrationClaimDone.value = false
+    }
+
+    /**
+     * ADR-0037 §2/§4 (spec-49 T3) — the honest unavailable state of the
+     * open book: EVERY source that can play it is refused (there is also
+     * the no-source case: the book carries no Source rows at all). Browser
+     * doors do not exist for refused sources — the page says so and offers
+     * the Source Watch action instead (spec-49 T4 seam).
+     */
+    val bookAudioUnavailable: StateFlow<Boolean> = _selectedBookId
+        .flatMapLatest { bookId ->
+            if (bookId == null) flowOf(false)
+            else {
+                val refused = App.instance.sourceAudioRefusal.refusedSources
+                val sources = App.instance.audiobookDao.getSourcesForBook(bookId)
+                combine(refused, sources) { refusedSet, rows ->
+                    if (refusedSet.isEmpty()) return@combine false
+                    val playable = rows.filter { it.type.isNotBlank() && it.type != "local" }
+                    if (playable.isEmpty()) return@combine false
+                    playable.all { it.type in refusedSet }
+                }
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    /** Whether the open book is on the Source Watch (ADR-0037 §6). */
+    val bookWatched: StateFlow<Boolean> = _selectedBookId
+        .flatMapLatest { bookId ->
+            if (bookId == null) flowOf(false)
+            else {
+                val store = App.instance.sourceWatchStore
+                combine(store.watched, _selectedBookId) { watched, id ->
+                    val book = id?.let { runCatching { App.instance.audiobookDao.getAudiobookById(it) }.getOrNull() }
+                    val key = book?.mergeKey?.takeIf { it.isNotBlank() }
+                    key != null && watched.containsKey(key)
+                }
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    /** Arms the watch for the open book (the Work behind its mergeKey). */
+    fun watchCurrentBook() {
+        val bookId = _selectedBookId.value ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                val book = App.instance.audiobookDao.getAudiobookById(bookId) ?: return@launch
+                val mergeKey = book.mergeKey?.takeIf { it.isNotBlank() } ?: return@launch
+                val workId = App.instance.audiobookDao.getWorkById(mergeKey)?.id ?: mergeKey
+                App.instance.sourceWatchStore.watch(mergeKey, workId)
+            }
+        }
+    }
+
+    /** Drops the watch for the open book. */
+    fun stopWatchingCurrentBook() {
+        val bookId = _selectedBookId.value ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                val book = App.instance.audiobookDao.getAudiobookById(bookId) ?: return@launch
+                val mergeKey = book.mergeKey?.takeIf { it.isNotBlank() } ?: return@launch
+                App.instance.sourceWatchStore.unwatch(mergeKey)
+            }
+        }
+    }
+
     // Spec-26 T9 (#183): the «wrong universe» feedback. The universe line
     // hides immediately; the re-resolution verdict either corrects the
     // cached + shared resolution or clears the complaint.

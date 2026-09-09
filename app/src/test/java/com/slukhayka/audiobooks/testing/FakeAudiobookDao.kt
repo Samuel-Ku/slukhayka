@@ -642,6 +642,10 @@ class FakeAudiobookDao(
         editionsState.update { current -> current.filterNot { it.workId == workId } }
     }
 
+    override suspend fun deleteEditionById(editionId: String) {
+        editionsState.update { current -> current.filterNot { it.id == editionId } }
+    }
+
     override suspend fun upsertLibraryEntry(
         id: String,
         workId: String,

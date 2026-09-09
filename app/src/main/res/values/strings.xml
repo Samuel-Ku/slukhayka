@@ -109,6 +109,14 @@
     <string name="feedback_retry">Повторити</string>
     <string name="feedback_done">Готово</string>
     <string name="feedback_later">Не зараз</string>
+
+    <!-- ADR-0037 §4 (spec-49 T3): Narration Claim + the honest refused-only state. -->
+    <string name="narration_claim_action">Це та сама начитка — об’єднати</string>
+    <string name="narration_claim_done">Об’єднано. Прогрес перенесено.</string>
+    <string name="book_detail_audio_unavailable">Аудіо цієї книги зараз недоступне — шукаємо в інших джерелах.</string>
+    <string name="book_detail_watch_action">Поставити на спостереження</string>
+    <string name="book_detail_watching">Чекаємо на джерело…</string>
+    <string name="book_detail_stop_watching">Прибрати спостереження</string>
     <!-- ADR-0037 (spec-49 T1): the «Аудіо джерел» destination — the personal
          Source Audio Refusal. -->
     <string name="source_audio_refusal_title">Аудіо джерел</string>

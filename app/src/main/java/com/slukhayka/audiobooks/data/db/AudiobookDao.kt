@@ -695,6 +695,15 @@ interface AudiobookDao {
     @Query("DELETE FROM editions WHERE workId = :workId")
     suspend fun deleteEditionsForWork(workId: String)
 
+    /**
+     * ADR-0037 §4 (spec-49 T3) — the Narration Claim re-derives the Edition
+     * id when the listener's claim fills the narrator (the id carries the
+     * narrator); this drops the stale old-id row so one Edition owns the
+     * rendition (chapters re-parent onto the new id by the caller).
+     */
+    @Query("DELETE FROM editions WHERE id = :editionId")
+    suspend fun deleteEditionById(editionId: String)
+
     // Playback Progress (ADR-0007: keyed by Edition; the bookId variants are
     // book-scoped conveniences over the kept expand column).
     @Query("SELECT * FROM playback_progress WHERE bookId = :bookId ORDER BY lastListenedAt DESC LIMIT 1")

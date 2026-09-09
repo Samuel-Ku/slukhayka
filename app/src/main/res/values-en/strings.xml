@@ -173,6 +173,13 @@
 
     <!-- v1.4 (ADR-0033): book-page section headers and source chrome. -->
     <string name="book_detail_other_narrations">Other narrations</string>
+    <!-- ADR-0037 §4 (spec-49 T3): Narration Claim + the honest refused-only state. -->
+    <string name="narration_claim_action">Same narration — merge</string>
+    <string name="narration_claim_done">Merged. Progress carried over.</string>
+    <string name="book_detail_audio_unavailable">No audio for this book right now — we keep looking in other sources.</string>
+    <string name="book_detail_watch_action">Watch for a source</string>
+    <string name="book_detail_watching">Waiting for a source…</string>
+    <string name="book_detail_stop_watching">Stop watching</string>
     <string name="book_detail_maybe_interest">You may also like</string>
     <string name="book_detail_in_series">In the series</string>
     <string name="book_detail_reviews_title">Reviews</string>

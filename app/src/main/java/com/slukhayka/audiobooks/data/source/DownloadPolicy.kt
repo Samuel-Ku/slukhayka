@@ -20,6 +20,10 @@ package com.slukhayka.audiobooks.data.source
  *   («будь-яке відтворення, розповсюдження або інше використання матеріалів
  *   без нашої письмової згоди заборонене») and no download allowance →
  *   **stream-only**.
+ * - `audiobookcoua` — spec-47 T1 verdict: direct archive.org audio answers
+ *   206 audio/mpeg with range requests to plain GETs, robots.txt carries
+ *   `Allow: /` for the generic agent and no ToS prohibition was found →
+ *   **allowed** (the default, no policy entry needed).
  * - `4read` and anything unknown (legacy books, local imports) keep the
  *   existing behaviour — allowed.
  */

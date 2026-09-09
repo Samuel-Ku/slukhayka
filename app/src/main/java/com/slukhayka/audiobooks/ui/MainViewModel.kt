@@ -71,6 +71,7 @@ import com.slukhayka.audiobooks.ui.library.ResumeStart
 import com.slukhayka.audiobooks.ui.library.computeResumeStart
 import com.slukhayka.audiobooks.ui.library.formatBytes
 import com.slukhayka.audiobooks.ui.catalog.CatalogCardAction
+import com.slukhayka.audiobooks.data.watch.SourceWatchNotifier
 import com.slukhayka.audiobooks.ui.catalog.CatalogCardActionCoordinator
 import com.slukhayka.audiobooks.ui.catalog.CatalogCardActionGateway
 import com.slukhayka.audiobooks.ui.catalog.CatalogCardActionState
@@ -406,14 +407,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     title = target.title,
                     author = target.author,
                     mergeKey = target.mergeKey
-                ) ?: return null
-                return SourceEntity(
-                    id = "cross-" + match.sourceId,
-                    bookId = "",
-                    type = match.sourceId,
-                    url = match.url,
-                    streamOnly = false
                 )
+                // ADR-0037 §6 (spec-49 T4) — the mapping verdict feeds the
+                // Source Watch (a watched Work that just gained a non-refused
+                // source announces exactly once). Zero-request rides: the
+                // watch reads the verdict the resolver already produced.
+                if (match != null) {
+                    runCatching {
+                        SourceWatchNotifier.notifyMappingVerdict(
+                            App.instance,
+                            mergeKey = target.mergeKey,
+                            sourceId = match.sourceId
+                        )
+                    }
+                }
+                return match?.let {
+                    SourceEntity(
+                        id = "cross-" + it.sourceId,
+                        bookId = "",
+                        type = it.sourceId,
+                        url = it.url,
+                        streamOnly = false
+                    )
+                }
             }
 
             // #477 — one best-effort direct page fetch before the browser
@@ -752,6 +768,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) {
             sourceCatalog.refreshSourceFeeds()
             sourceCatalog.refreshUnifiedCatalog()
+            // ADR-0037 §6 (spec-49 T4) — the Source Watch scans the union
+            // the refresh just recomputed; zero requests of its own.
+            runCatching {
+                SourceWatchNotifier.evaluateAndNotify(
+                    App.instance,
+                    sourceCatalog.unifiedCatalog.value
+                )
+            }
             // Spec-19 T2: the embedding pass runs right after the catalogue
             // sync, on the background dispatcher — never on the UI thread.
             refreshEmbeddingVectors()

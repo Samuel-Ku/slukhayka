@@ -148,6 +148,36 @@ class SubmissionPolicyTest {
     }
 
     @Test
+    fun `curator needs the verdict - the main barrier never drops`() = runBlocking {
+        val decision = policy.decideCurator(sourceId, url)
+        assertFalse(decision.allowed)
+        assertEquals(SubmissionPolicy.Reason.NOT_VERIFIED, decision.reason)
+    }
+
+    @Test
+    fun `curator passes with a verdict and refuses duplicates`() = runBlocking {
+        verification.record(sourceId, actualPlaybackStarted = true)
+        assertTrue(policy.decideCurator(sourceId, url).allowed)
+        store.publishSubmission(publish("device-1"))
+        val decision = policy.decideCurator(sourceId, url)
+        assertFalse(decision.allowed)
+        assertEquals(SubmissionPolicy.Reason.ALREADY_PUBLISHED, decision.reason)
+    }
+
+    @Test
+    fun `curator ignores the daily limit entirely`() = runBlocking {
+        // ADR-0035 п. 12: the seeder differs ONLY in throughput and the
+        // absent daily limit — a listener would be refused at 10, the
+        // curator seeds on.
+        verification.record(sourceId, actualPlaybackStarted = true)
+        repeat(SubmissionPolicy.DAILY_SUBMISSION_LIMIT.toInt() * 2) {
+            store.incrementSubmissionCount("device-1", SubmissionPolicy.dayKeyOf(now))
+        }
+        assertTrue(policy.decideCurator(sourceId, url).allowed)
+        assertEquals(null, policy.decideCurator(sourceId, url).reason)
+    }
+
+    @Test
     fun `consume spends exactly one slot`() = runBlocking {
         policy.consume("device-1")
         policy.consume("device-1")

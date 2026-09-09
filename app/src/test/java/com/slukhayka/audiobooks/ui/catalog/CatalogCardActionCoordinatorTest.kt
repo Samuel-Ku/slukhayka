@@ -582,4 +582,183 @@ class CatalogCardActionCoordinatorTest {
         assertEquals(listOf("open:book-1", "open:book-1"), effects)
         assertTrue(coordinator.state.value is CatalogCardActionState.Completed)
     }
+
+    // --- spec-49 T2b: refused-only cards try one mapping, then stay honest ---
+
+    @Test
+    fun `refused-only card fails honest without import and still reaches the mapping once`() = runTest {
+        var imports = 0
+        var crosses = 0
+        val gateway = object : CatalogCardActionGateway<String> {
+            override suspend fun savedBook(target: CatalogCardTarget): String? = null
+            override suspend fun sourceCandidates(target: CatalogCardTarget) = listOf(browserSource())
+            override suspend fun crossResolveDirectSource(target: CatalogCardTarget): SourceEntity? {
+                crosses += 1
+                return null
+            }
+            override suspend fun import(target: CatalogCardTarget, source: SourceEntity): String? {
+                imports += 1
+                return "book-1"
+            }
+            override suspend fun open(book: String): Boolean = true
+            override suspend fun play(book: String, source: SourceEntity?): Boolean = true
+        }
+        val coordinator = CatalogCardActionCoordinator(
+            scope = this,
+            gateway = gateway,
+            sourceProbe = successfulProbe,
+            refusedSourceIds = { setOf("4read") }
+        )
+        coordinator.start(
+            CatalogCardTarget("work-1", "Книга", mergeKey = "книга|автор"),
+            CatalogCardAction.PLAY
+        )
+        advanceUntilIdle()
+
+        // ADR-0037: the refusal is the verdict, nothing imports against it;
+        // spec-49 T2b: exactly one mapping attempt precedes it.
+        val state = coordinator.state.value as CatalogCardActionState.Failed
+        assertEquals(CatalogCardFailure.AUDIO_REFUSED, state.reason)
+        assertEquals(0, imports)
+        assertEquals(1, crosses)
+    }
+
+    @Test
+    fun `refused browser source steps aside for an allowed direct source`() = runTest {
+        val effects = mutableListOf<String>()
+        val gateway = object : CatalogCardActionGateway<String> {
+            override suspend fun savedBook(target: CatalogCardTarget): String? = null
+            override suspend fun sourceCandidates(target: CatalogCardTarget) =
+                listOf(browserSource(), directSource())
+            override suspend fun import(target: CatalogCardTarget, source: SourceEntity): String? {
+                effects += "import:${source.type}"
+                return "book-1"
+            }
+            override suspend fun open(book: String): Boolean = true
+            override suspend fun play(book: String, source: SourceEntity?): Boolean {
+                effects += "play:$book"
+                return true
+            }
+        }
+        val coordinator = CatalogCardActionCoordinator(
+            scope = this,
+            gateway = gateway,
+            sourceProbe = successfulProbe,
+            refusedSourceIds = { setOf("4read") }
+        )
+        coordinator.start(
+            CatalogCardTarget("work-1", "Книга", mergeKey = "книга|автор"),
+            CatalogCardAction.PLAY
+        )
+        advanceUntilIdle()
+
+        assertTrue(coordinator.state.value is CatalogCardActionState.Completed)
+        assertTrue(effects.none { it == "import:4read" })
+    }
+
+    @Test
+    fun `refused-only play maps the replacement and completes`() = runTest {
+        val effects = mutableListOf<String>()
+        val mapped = SourceEntity(
+            id = "cross-soundbooks", bookId = "", editionId = "ed-1",
+            type = "soundbooks", url = "https://sound-books.net/k", streamOnly = false, addedAt = 1L
+        )
+        val gateway = object : CatalogCardActionGateway<String> {
+            override suspend fun savedBook(target: CatalogCardTarget): String? = null
+            override suspend fun sourceCandidates(target: CatalogCardTarget) = listOf(browserSource())
+            override suspend fun crossResolveDirectSource(target: CatalogCardTarget): SourceEntity? = mapped
+            override suspend fun import(target: CatalogCardTarget, source: SourceEntity): String? {
+                effects += "import:${source.type}:${source.url}"
+                return "book-1"
+            }
+            override suspend fun open(book: String): Boolean = true
+            override suspend fun play(book: String, source: SourceEntity?): Boolean {
+                effects += "play:$book"
+                return true
+            }
+        }
+        val coordinator = CatalogCardActionCoordinator(
+            scope = this,
+            gateway = gateway,
+            sourceProbe = successfulProbe,
+            refusedSourceIds = { setOf("4read") }
+        )
+        coordinator.start(
+            CatalogCardTarget("work-1", "Книга", mergeKey = "книга|автор"),
+            CatalogCardAction.PLAY
+        )
+        advanceUntilIdle()
+
+        // The found direct Source plays through the ordinary doors — same
+        // import, same finishAction — never a browser door.
+        assertTrue(coordinator.state.value is CatalogCardActionState.Completed)
+        assertTrue(effects.contains("import:soundbooks:https://sound-books.net/k"))
+    }
+
+    @Test
+    fun `refused-only play mapping miss stays honest without importing`() = runTest {
+        var imports = 0
+        val gateway = object : CatalogCardActionGateway<String> {
+            override suspend fun savedBook(target: CatalogCardTarget): String? = null
+            override suspend fun sourceCandidates(target: CatalogCardTarget) = listOf(browserSource())
+            override suspend fun crossResolveDirectSource(target: CatalogCardTarget): SourceEntity? = null
+            override suspend fun import(target: CatalogCardTarget, source: SourceEntity): String? {
+                imports += 1
+                return "book-1"
+            }
+            override suspend fun open(book: String): Boolean = true
+            override suspend fun play(book: String, source: SourceEntity?): Boolean = true
+        }
+        val coordinator = CatalogCardActionCoordinator(
+            scope = this,
+            gateway = gateway,
+            sourceProbe = successfulProbe,
+            refusedSourceIds = { setOf("4read") }
+        )
+        coordinator.start(
+            CatalogCardTarget("work-1", "Книга", mergeKey = "книга|автор"),
+            CatalogCardAction.PLAY
+        )
+        advanceUntilIdle()
+
+        // No mapping → the refusal stays honest; the mapped Source never
+        // imports partially and the browser door never appears.
+        val state = coordinator.state.value as CatalogCardActionState.Failed
+        assertEquals(CatalogCardFailure.AUDIO_REFUSED, state.reason)
+        assertEquals(0, imports)
+    }
+
+    @Test
+    fun `refused-only open maps the replacement and opens`() = runTest {
+        val effects = mutableListOf<String>()
+        val mapped = SourceEntity(
+            id = "cross-soundbooks", bookId = "", editionId = "ed-1",
+            type = "soundbooks", url = "https://sound-books.net/k", streamOnly = false, addedAt = 1L
+        )
+        val gateway = object : CatalogCardActionGateway<String> {
+            override suspend fun savedBook(target: CatalogCardTarget): String? = null
+            override suspend fun sourceCandidates(target: CatalogCardTarget) = listOf(browserSource())
+            override suspend fun crossResolveDirectSource(target: CatalogCardTarget): SourceEntity? = mapped
+            override suspend fun import(target: CatalogCardTarget, source: SourceEntity): String? = "book-1"
+            override suspend fun open(book: String): Boolean {
+                effects += "open:$book"
+                return true
+            }
+            override suspend fun play(book: String, source: SourceEntity?): Boolean = true
+        }
+        val coordinator = CatalogCardActionCoordinator(
+            scope = this,
+            gateway = gateway,
+            sourceProbe = successfulProbe,
+            refusedSourceIds = { setOf("4read") }
+        )
+        coordinator.start(
+            CatalogCardTarget("work-1", "Книга", mergeKey = "книга|автор"),
+            CatalogCardAction.OPEN
+        )
+        advanceUntilIdle()
+
+        assertTrue(coordinator.state.value is CatalogCardActionState.Completed)
+        assertEquals(listOf("open:book-1"), effects)
+    }
 }

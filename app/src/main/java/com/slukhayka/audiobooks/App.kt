@@ -80,6 +80,7 @@ import com.slukhayka.audiobooks.data.privacy.BrowserIdentity
 import com.slukhayka.audiobooks.data.privacy.PrivacySettingsStore
 import com.slukhayka.audiobooks.data.privacy.SharedPreferencesPrivacySettingsStore
 import com.slukhayka.audiobooks.data.privacy.TransportPrivacy
+import com.slukhayka.audiobooks.data.source.AudiobookCoUaAdapter
 import com.slukhayka.audiobooks.data.source.AudiobookMp3Adapter
 import com.slukhayka.audiobooks.data.source.FourReadAdapter
 import com.slukhayka.audiobooks.data.source.SourceAudioRefusal
@@ -212,29 +213,62 @@ class App : Application() {
 
     /**
      * Spec-33 — the shared search-result cache. Hoisted from the
-     * [SourceCatalog] construction so the #469 tap-time cross-resolve reads
-     * and writes the SAME collective channel (a fresh entry serves a tap
-     * without touching the sluhayua search endpoint).
+     * [SourceCatalog] construction so the #469 tap-time cross-resolve (the
+     * general replacement mapping) reads and writes the SAME collective
+     * channel (a fresh entry serves a tap without touching any search
+     * endpoint).
      */
     val searchCache: com.slukhayka.audiobooks.data.search.SearchCache? by lazy {
         com.slukhayka.audiobooks.data.search.FirestoreSearchCache.create(this)
     }
 
     /**
-     * Spec #462 ID7 (#469) — the tap-time cross-resolve of a 4read-only card
-     * onto the direct sluhayua source: one JSON search per tap, matched by
-     * the Work MergeKey, verdict cached with the availability TTL discipline.
-     * Best-effort by contract — without a sluhayua adapter or a shared store
-     * it simply reports «no match» and the browser door stays.
+     * spec-49 T2 (649) — the general tap-time replacement mapping
+     * (ADR-0037): union-first (zero requests), one parallel volley across
+     * every direct source, MergeKey match, verdict memoized with the
+     * availability TTL discipline (positive 6h / negative 15m). The
+     * sluhayua-only #469 door was the first case of this rule. Best-effort by
+     * contract — without direct adapters or a shared store it reports no
+     * match and the honest door (refusal or browser) stays.
+     *
+     * ADR-0037: the refusal filters at composition — the resolver's own
+     * seams stay pure. The refused members leave the union read here, and
+     * the shared-cache entry is filtered behind a refusal-aware view, so a
+     * refused direct source can never surface from any resolution path.
      */
-    val sluhayuaCrossResolve: com.slukhayka.audiobooks.data.catalog.SluhayuaCrossResolve by lazy {
-        com.slukhayka.audiobooks.data.catalog.SluhayuaCrossResolve(
-            search = { query ->
-                sourceAdapters.first {
-                    it.sourceId == com.slukhayka.audiobooks.data.source.SourceIds.SLUHAYUA
-                }.search(query)
+    val directSourceResolve: com.slukhayka.audiobooks.data.catalog.SourceReplacementMapping by lazy {
+        val directAdapters = sourceAdapters.filter {
+            com.slukhayka.audiobooks.data.source.SourceAccessPolicy.modeFor(it.sourceId) ==
+                com.slukhayka.audiobooks.data.source.SourceAccessMode.DIRECT
+        }
+        com.slukhayka.audiobooks.data.catalog.SourceReplacementMapping(
+            directSearches = directAdapters.associate { adapter ->
+                // ADR-0037 — a refused direct source never joins the volley:
+                // its search answers empty (zero requests), so a refused
+                // source can never become the mapped candidate.
+                val search: suspend (String) -> List<com.slukhayka.audiobooks.data.source.SourceBook> =
+                    { query ->
+                        if (adapter.sourceId in sourceAudioRefusal.refusedSources.value) {
+                            emptyList()
+                        } else {
+                            adapter.search(query)
+                        }
+                    }
+                adapter.sourceId to search
             },
-            cache = searchCache
+            union = {
+                val refused = sourceAudioRefusal.refusedSources.value
+                val catalog = sourceCatalog.unifiedCatalog.value
+                if (refused.isEmpty()) {
+                    catalog
+                } else {
+                    catalog.map { result ->
+                        val kept = result.sources.filter { it.sourceId !in refused }
+                        if (kept.size == result.sources.size) result else result.copy(sources = kept)
+                    }
+                }
+            },
+            cache = searchCache?.refusalAware(sourceAudioRefusal.refusedSources)
         )
     }
 
@@ -364,6 +398,11 @@ class App : Application() {
             LihtarAdapter(),
             SluhayuaAdapter(),
             SluhayAdapter(cookieProvider = sharedCookies),
+            // Spec-47 T5 — audiobook.co.ua joins the registry (T1 verdict PASS,
+            // server-fetch): its new feed feeds the «Новинки» rail, its
+            // sitemap enumeration joins the union, and the adapter's search()
+            // is the T1-measured honest empty (no server-side filtering).
+            AudiobookCoUaAdapter(),
             // Spec-45 (#405) T2 (#490): the English source — catalogue/search
             // cards surface in the union and global search next to the
             // Ukrainian ones (book pages are T3 #491).
@@ -933,5 +972,36 @@ class App : Application() {
         private const val CATALOG_HYDRATION_START_DELAY_MILLIS: Long = 20_000L
         private const val PREFS_CATALOG_HYDRATION = "catalog_hydration"
         private const val KEY_LAST_HYDRATED_AT = "last_hydrated_at"
+    }
+}
+
+/**
+ * ADR-0037 (spec-49 T2) — a refusal-aware [SearchCache] view for the
+ * replacement mapping: reads drop every member of a refused source, so a
+ * mixed shared entry can never surface a refused direct Source as the
+ * match. Writes pass through untouched — the shared base stays a metadata
+ * channel for every listener, never shaped by one device's refusal (the
+ * refusal is personal, never synced).
+ */
+private fun com.slukhayka.audiobooks.data.search.SearchCache.refusalAware(
+    refusedSources: kotlinx.coroutines.flow.StateFlow<Set<String>>
+): com.slukhayka.audiobooks.data.search.SearchCache = object : com.slukhayka.audiobooks.data.search.SearchCache {
+    override suspend fun readDocument(queryKey: String): Map<String, Any>? =
+        this@refusalAware.readDocument(queryKey)
+
+    override suspend fun writeDocument(queryKey: String, document: Map<String, Any>) {
+        this@refusalAware.writeDocument(queryKey, document)
+    }
+
+    override fun nowMillis(): Long = this@refusalAware.nowMillis()
+
+    override suspend fun getResults(query: String): List<com.slukhayka.audiobooks.data.source.GlobalSearchResult>? {
+        val refused = refusedSources.value
+        val results = this@refusalAware.getResults(query) ?: return null
+        if (refused.isEmpty()) return results
+        return results.map { result ->
+            val kept = result.sources.filter { it.sourceId !in refused }
+            if (kept.size == result.sources.size) result else result.copy(sources = kept)
+        }
     }
 }

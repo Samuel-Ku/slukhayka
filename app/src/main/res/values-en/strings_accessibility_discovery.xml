@@ -20,6 +20,8 @@
     <string name="catalog_card_open_error">Couldn\'t open the book. Try again.</string>
     <string name="catalog_card_play_error">Couldn\'t start listening. Try again.</string>
     <string name="catalog_card_audio_refused">Audio from this source is turned off in settings.</string>
+    <string name="source_watch_notification_title">A source appeared for this book</string>
+    <string name="source_watch_notification_text">Source: %1$s. Tap to open the book.</string>
     <string name="catalog_card_browser_required">Verification on the website required.</string>
     <string name="catalog_card_open_browser">Open website</string>
     <string name="catalog_card_cancelled">Verification cancelled.</string>

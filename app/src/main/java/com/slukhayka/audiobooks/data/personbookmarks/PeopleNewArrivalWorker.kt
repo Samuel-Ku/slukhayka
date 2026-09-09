@@ -27,6 +27,15 @@ class PeopleNewArrivalWorker(
         return try {
             app.sourceCatalog.refreshUnifiedCatalog()
             notifyIfNeeded(app)
+            // ADR-0037 §6 (spec-49 T4) — the Source Watch rides this already
+            // scheduled union refresh: no polling loop of its own, zero extra
+            // requests. Best-effort — a watch failure is silent.
+            runCatching {
+                com.slukhayka.audiobooks.data.watch.SourceWatchNotifier.evaluateAndNotify(
+                    app,
+                    app.sourceCatalog.unifiedCatalog.value
+                )
+            }
             Result.success()
         } catch (_: Exception) {
             // A source outage must not cause a retry storm or affect playback.

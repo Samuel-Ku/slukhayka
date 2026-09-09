@@ -60,6 +60,23 @@ class SubmissionPolicy(
     }
 
     /**
+     * Decides a CURATOR-batch submission (ADR-0035 п. 12 — the seeder mode):
+     * the same verdict gate and URL dedup as a listener submission, but NO
+     * daily limit — the curator's device seeds the shared base in batches
+     * (the only differences the ADR names: throughput and no budget). The
+     * remaining-today read is meaningless here and stays 0.
+     */
+    suspend fun decideCurator(sourceId: String, url: String): Decision {
+        if (!verification.isVerified(sourceId)) {
+            return Decision(allowed = false, reason = Reason.NOT_VERIFIED, remainingToday = 0)
+        }
+        if (sharedStore.getSubmission(url.trim()) != null) {
+            return Decision(allowed = false, reason = Reason.ALREADY_PUBLISHED, remainingToday = 0)
+        }
+        return Decision(allowed = true, reason = null, remainingToday = 0)
+    }
+
+    /**
      * Decides a METADATA-ONLY submission (the TG red prototype — ADR-0035
      * п. 13): no playback verdict is POSSIBLE (the public preview exposes no
      * audio), so the verdict barrier does not apply — the parse itself is

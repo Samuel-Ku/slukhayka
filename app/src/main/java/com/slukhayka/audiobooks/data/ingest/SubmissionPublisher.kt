@@ -51,14 +51,46 @@ class SubmissionPublisher(
         submitterId: String
     ): Result {
         val decision = policy.decide(sourceId, url, submitterId)
-        if (!decision.allowed) {
-            return when (decision.reason) {
-                SubmissionPolicy.Reason.NOT_VERIFIED -> Result.NOT_VERIFIED
-                SubmissionPolicy.Reason.DAILY_LIMIT_REACHED -> Result.DAILY_LIMIT_REACHED
-                SubmissionPolicy.Reason.ALREADY_PUBLISHED -> Result.ALREADY_PUBLISHED
-                null -> Result.NOT_VERIFIED
-            }
-        }
+        if (!decision.allowed) return refusedResult(decision.reason)
+        val result = assembleAndPublish(url, metadataJson, channelId, sourceId, submitterId)
+        // A published listener submission spends one daily-budget slot.
+        if (result == Result.PUBLISHED) policy.consume(submitterId)
+        return result
+    }
+
+    /**
+     * The curator-batch door (ADR-0035 п. 12 / #608 — the seeder mode): the
+     * SAME assembly and store write as [publish], gated by
+     * [SubmissionPolicy.decideCurator] — the verdict and the URL dedup stay,
+     * the daily limit does not exist for the curator. The daily budget is
+     * never consumed here.
+     */
+    suspend fun publishCurator(
+        url: String,
+        metadataJson: String,
+        channelId: String,
+        sourceId: String,
+        submitterId: String
+    ): Result {
+        val decision = policy.decideCurator(sourceId, url)
+        if (!decision.allowed) return refusedResult(decision.reason)
+        return assembleAndPublish(url, metadataJson, channelId, sourceId, submitterId)
+    }
+
+    private fun refusedResult(reason: SubmissionPolicy.Reason?): Result = when (reason) {
+        SubmissionPolicy.Reason.NOT_VERIFIED -> Result.NOT_VERIFIED
+        SubmissionPolicy.Reason.DAILY_LIMIT_REACHED -> Result.DAILY_LIMIT_REACHED
+        SubmissionPolicy.Reason.ALREADY_PUBLISHED -> Result.ALREADY_PUBLISHED
+        null -> Result.NOT_VERIFIED
+    }
+
+    private suspend fun assembleAndPublish(
+        url: String,
+        metadataJson: String,
+        channelId: String,
+        sourceId: String,
+        submitterId: String
+    ): Result {
         val metadata = YouTubeSubmissionPlanner.parseMetadata(metadataJson) ?: return Result.METADATA_FAILED
         val plan = YouTubeSubmissionPlanner.plan(url, metadata, channelId)
         if (plan.title.isBlank()) return Result.METADATA_FAILED
@@ -76,7 +108,6 @@ class SubmissionPublisher(
             submitterId = submitterId
         )
         sharedStore.publishSubmission(publication)
-        policy.consume(submitterId)
         return Result.PUBLISHED
     }
 

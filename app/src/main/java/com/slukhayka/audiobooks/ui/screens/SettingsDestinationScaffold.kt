@@ -65,6 +65,13 @@ internal enum class SettingsDestination(
         paneTag = "app_locale_screen_pane",
         headingTag = "app_locale_screen_heading"
     ),
+    // ADR-0037 (spec-49 T1): the «Аудіо джерел» destination — the personal
+    // Source Audio Refusal switch.
+    SourceAudioRefusal(
+        titleRes = R.string.source_audio_refusal_title,
+        paneTag = "source_audio_refusal_screen_pane",
+        headingTag = "source_audio_refusal_screen_heading"
+    ),
     Storage(
         titleRes = R.string.storage_title,
         paneTag = "storage_destination_screen_pane",

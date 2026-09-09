@@ -18,6 +18,7 @@ import com.slukhayka.audiobooks.data.db.CorrectionEntity
 import com.slukhayka.audiobooks.data.db.EditionEntity
 import com.slukhayka.audiobooks.data.db.SourceEntity
 import com.slukhayka.audiobooks.data.db.SourceTrackEntity
+import com.slukhayka.audiobooks.data.db.TombstoneEntity
 import com.slukhayka.audiobooks.data.db.WorkEntity
 import com.slukhayka.audiobooks.data.db.WorkSourceEntity
 import com.slukhayka.audiobooks.data.facets.LocalFacetWriter
@@ -516,6 +517,149 @@ class LibraryImport(
             } else detail
             runCatching { importBookFromSource(sourceId, withCover) }.getOrNull()
         }
+
+    /**
+     * ADR-0037 §4 (spec-49 T3) — the Narration Claim door: the listener's
+     * one-tap claim that the mapped sibling Edition IS the same narration
+     * as the current one. The sibling's Sources re-anchor to the current
+     * Edition (ADR-0007 — progress carries), the sibling's work_sources
+     * claim moves to the current Work row, the found page's narrator fills
+     * the current Edition's narrator with LISTENER PRECEDENCE (like
+     * Metadata Override), and the emptied sibling card is removed (its
+     * tombstone keeps it hidden from refreshes; the sources survive on the
+     * current card, so nothing the listener could hear is lost).
+     *
+     * Rejection is not a door — it is the absence of this call: the sibling
+     * Edition stays untouched in «Інші начитки».
+     *
+     * Returns the merged current row, or null when the claim cannot apply
+     * (unknown ids, self-claim, or the sibling row is already gone).
+     */
+    suspend fun claimSameNarration(
+        currentBookId: String,
+        siblingBookId: String,
+        claimedNarrator: String
+    ): AudiobookEntity? = withContext(Dispatchers.IO) {
+        if (currentBookId == siblingBookId) return@withContext null
+        val current = dao.getAudiobookById(currentBookId)?.toAudiobookEntity()
+            ?: return@withContext null
+        val sibling = dao.getAudiobookById(siblingBookId)?.toAudiobookEntity()
+            ?: return@withContext null
+        val currentEdition = dao.getEditionForWork(currentBookId)
+            ?: EditionEntity(
+                id = EditionId.forBook(current.mergeKey, currentBookId, current.narrator, ""),
+                workId = currentBookId,
+                narrator = current.narrator,
+                totalChapters = current.totalChapters,
+                totalDurationSeconds = current.totalDurationSeconds
+            ).also { dao.insertEdition(it) }
+
+        // The listener's claim wins over every source assertion (Metadata
+        // Override precedence): the found page's narrator fills the Edition.
+        val accepted = NarrationClaimPolicy.accept(
+            NarrationClaimPolicy.StoredNarration(
+                narrator = currentEdition.narrator,
+                claimedByListener = false
+            ),
+            NarrationClaimPolicy.Narration(narrator = claimedNarrator)
+        )
+        val newNarrator = accepted.narrator
+        // The narrator rename re-derives the deterministic Edition id
+        // (ADR-0010: the id carries the narrator). The stale old-id Edition
+        // row is removed — one Edition owns this rendition, one Listening
+        // State row anchors its progress.
+        val targetEditionId = if (newNarrator != currentEdition.narrator) {
+            val derived = EditionId.forBook(current.mergeKey, currentBookId, newNarrator, currentEdition.language)
+            if (derived != currentEdition.id) dao.deleteEditionById(currentEdition.id)
+            derived
+        } else {
+            currentEdition.id
+        }
+        val targetEdition = if (targetEditionId != currentEdition.id) {
+            // The Edition id carries the narrator (ADR-0010): the renamed
+            // rendition gets its deterministic id; chapters re-parent onto
+            // it so the logical list and the progress anchor stay one.
+            val chapters = dao.getChaptersListForBook(currentBookId).map {
+                it.copy(editionId = targetEditionId)
+            }
+            dao.insertEdition(
+                currentEdition.copy(
+                    id = targetEditionId,
+                    narrator = newNarrator,
+                    addedAt = 0L
+                )
+            )
+            dao.insertChapters(chapters)
+            // The Listening State row is keyed by the Edition id (ADR-0007):
+            // when the narrator rename re-derives the id, the progress moves
+            // with it — the listener keeps their position. The book-scoped
+            // delete clears the stale old-id row the save leaves behind.
+            val progress = dao.getPlaybackProgressSyncByEdition(currentEdition.id)
+            dao.deletePlaybackProgressForBook(currentBookId)
+            progress?.let { dao.savePlaybackProgress(it.copy(editionId = targetEditionId)) }
+            writeEditionFacet(
+                editionId = targetEditionId,
+                domainWorkId = current.workId?.takeIf { it.isNotBlank() } ?: currentBookId,
+                narrator = newNarrator,
+                language = currentEdition.language,
+                chapterCount = currentEdition.totalChapters
+            )
+            targetEditionId
+        } else {
+            dao.insertEdition(
+                currentEdition.copy(narrator = newNarrator, addedAt = 0L)
+            )
+            writeEditionFacet(
+                editionId = currentEdition.id,
+                domainWorkId = current.workId?.takeIf { it.isNotBlank() } ?: currentBookId,
+                narrator = newNarrator,
+                language = currentEdition.language,
+                chapterCount = currentEdition.totalChapters
+            )
+            currentEdition.id
+        }
+        dao.updateBookMetadata(currentBookId, author = null, narrator = newNarrator, genre = null, rating = null)
+
+        // The sibling's playable Sources re-anchor: same Edition id, the
+        // sibling's own chapters list stays FIRST-source-logical on the
+        // target Edition (ADR-0007 — one Edition owns one list, and the
+        // sibling's physical tracks already pair 1:1 by index with it).
+        val siblingSources = dao.getSourcesForBookSync(siblingBookId)
+        val reAnchored = siblingSources.map { source ->
+            source.copy(id = "${source.type}-$targetEditionId", bookId = currentBookId, editionId = targetEditionId)
+        }
+        val reAnchoredIdsOldToNew = siblingSources.map { it.id } zip reAnchored.map { it.id }
+        val tracks = dao.getTracksForBookSync(siblingBookId).map { track ->
+            val sourceId = track.sourceId
+            val newSourceId = reAnchoredIdsOldToNew.firstOrNull { it.first == sourceId }?.second ?: sourceId
+            track.copy(id = MetadataAssertions.trackId(newSourceId, track.trackIndex), sourceId = newSourceId)
+        }
+        dao.insertSources(reAnchored)
+        dao.insertTracks(tracks)
+
+        // The browse-layer claim needs no move: work_sources hang off the
+        // shared Work row (both cards share one works id), so the sibling's
+        // claim already describes the surviving card.
+
+        // The emptied sibling leaves the library; the tombstone keeps its
+        // row identity hidden from catalogue refreshes (re-imports of the
+        // same page re-anchor onto the surviving card instead of spawning a
+        // duplicate narration).
+        runCatching {
+            sibling.mergeKey?.takeIf { it.isNotBlank() }?.let { workRelationshipsSync?.pushTombstone(it) }
+        }
+        dao.deleteTracksForBook(siblingBookId)
+        dao.deleteSourcesForBook(siblingBookId)
+        dao.deleteChaptersForBook(siblingBookId)
+        dao.deleteBookmarksForBook(siblingBookId)
+        dao.deletePlaybackProgressForBook(siblingBookId)
+        dao.deletePlaybackEventsForBook(siblingBookId)
+        dao.insertTombstone(TombstoneEntity(bookId = siblingBookId))
+        dao.deleteLibraryEntry(siblingBookId)
+        dao.deleteAudiobook(siblingBookId)
+
+        dao.getAudiobookById(currentBookId)?.toAudiobookEntity()
+    }
 
     /**
      * The Edition id of a known card identity — the shared profile key. The

@@ -178,6 +178,13 @@
 
     <!-- v1.4 (ADR-0033): book-page section headers and source chrome. -->
     <string name="book_detail_other_narrations">Інші начитки</string>
+    <!-- ADR-0037 §4 (spec-49 T3): Narration Claim + the honest refused-only state. -->
+    <string name="narration_claim_action">Це та сама начитка — об’єднати</string>
+    <string name="narration_claim_done">Об’єднано. Прогрес перенесено.</string>
+    <string name="book_detail_audio_unavailable">Аудіо цієї книги зараз недоступне — шукаємо в інших джерелах.</string>
+    <string name="book_detail_watch_action">Поставити на спостереження</string>
+    <string name="book_detail_watching">Чекаємо на джерело…</string>
+    <string name="book_detail_stop_watching">Прибрати спостереження</string>
     <string name="book_detail_maybe_interest">Можливо, Тебе зацікавить</string>
     <string name="book_detail_in_series">У серії</string>
     <string name="book_detail_reviews_title">Відгуки</string>

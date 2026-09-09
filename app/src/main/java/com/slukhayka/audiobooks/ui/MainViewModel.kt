@@ -45,8 +45,8 @@ import com.slukhayka.audiobooks.data.reviews.ReviewWriteReceipt
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.data.source.SourceAccessCandidate
 import com.slukhayka.audiobooks.data.source.SourceAccessMode
+import com.slukhayka.audiobooks.data.source.BrowserRecoveryProfiles
 import com.slukhayka.audiobooks.data.source.SourceIds
-import com.slukhayka.audiobooks.data.source.fourReadSearchUrl
 import com.slukhayka.audiobooks.data.source.SourceAccessPolicy
 import com.slukhayka.audiobooks.data.source.SourceSelectionCoordinator
 import com.slukhayka.audiobooks.data.source.sourceIdForUrl
@@ -721,12 +721,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     /**
      * Spec-42 #440 — open the 4read catalogue pre-filled with [query] in the
-     * in-app browser (release-accessible per ADR-0027). The query is URL-encoded
-     * exactly like [FourReadAdapter.search]; 4read resolves to the in-app
+     * in-app browser (release-accessible per ADR-0027). The target URL is the
+     * source's declared search door (ADR-0036); 4read resolves to the in-app
      * browser in every build via [browserDestinationFor].
      */
     fun open4readSearch(query: String) {
-        openWebSource(sourceId = "4read", homeUrl = fourReadSearchUrl(query), displayName = "4read")
+        val searchDoor = BrowserRecoveryProfiles.forSource(SourceIds.FOUR_READ).searchDoor ?: return
+        openWebSource(sourceId = SourceIds.FOUR_READ, homeUrl = searchDoor(query), displayName = "4read")
     }
 
     fun closeWebSource() {
@@ -806,40 +807,77 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Opens 4read search with prefilled Work title — “Знайти на 4read”. */
     fun open4ReadSearch(workTitle: String) {
-        val encoded = java.net.URLEncoder.encode(workTitle.trim(), "UTF-8")
-        val searchUrl = "https://4read.org/index.php?do=search&subaction=search&story=$encoded"
+        val searchDoor = BrowserRecoveryProfiles.forSource(SourceIds.FOUR_READ).searchDoor ?: return
         _selectedWebSource.value = SelectedWebSource(
-            sourceId = "4read",
-            homeUrl = searchUrl,
+            sourceId = SourceIds.FOUR_READ,
+            homeUrl = searchDoor(workTitle),
             displayName = "4read"
         )
     }
 
-    /** Opens 4read recovery hidden behind Player unless explicitly requested. */
+    /**
+     * Spec-42 #425 entry — the 4read door-path recovery (ADR-0036: the
+     * generalized door path is [openDoorRecovery]; the profile supplies the
+     * search door and the last-resort home).
+     */
     fun open4ReadRecovery(
         bookId: String,
         chapterIndex: Int,
         positionMs: Long,
         automatic: Boolean = false
     ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            // ADR-0037: a refused source's recovery door does not exist. An
+            // automatic attempt reports the honest retry-unavailable instead
+            // of opening the browser; an explicit action is silently refused.
+            if (SourceIds.FOUR_READ in refusedAudioSourceIdsOf(
+                    runCatching { libraryEntries.getBookSync(bookId) }.getOrNull()
+                )
+            ) {
+                withContext(Dispatchers.Main) {
+                    if (automatic) playerManager.reportRetryUnavailable()
+                }
+                return@launch
+            }
+            openDoorRecovery(bookId, SourceIds.FOUR_READ, chapterIndex, positionMs, automatic)
+        }
+    }
+
+    /**
+     * ADR-0036 (spec-48 T1) — the door-path recovery for any source whose
+     * profile declares a search door: no stored URL → the pre-filled search;
+     * nothing at all → the profile's declared home (4read only — a source
+     * without a home never gets a URL it was not seen to own).
+     */
+    private fun openDoorRecovery(
+        bookId: String,
+        sourceId: String,
+        chapterIndex: Int,
+        positionMs: Long,
+        automatic: Boolean
+    ) {
         // Automatic recovery keeps the ordinary player in front. An explicit
         // browser action still opens the full source surface.
         _showFullPlayer.value = automatic
         viewModelScope.launch(Dispatchers.IO) {
             val book = libraryEntries.getBookSync(bookId)
+            val profile = BrowserRecoveryProfiles.forSource(sourceId)
             val sourceUrl = try {
                 com.slukhayka.audiobooks.data.imports.BrowserRecoveryCoordinator.recoveryEntryUrl(
                     App.instance.audiobookDao,
-                    bookId
+                    bookId,
+                    sourceId
                 )
             } catch (_: Exception) {
-                book?.sourceUrl?.takeIf { it.contains("4read.org") } ?: "https://4read.org/"
+                // A door source without a declared home (no such source
+                // today) gets blank — never a URL it was not seen to own.
+                book?.sourceUrl?.takeIf { sourceIdForUrl(it) == sourceId } ?: profile.homeUrl.orEmpty()
             }
             withContext(Dispatchers.Main) {
                 _selectedWebSource.value = SelectedWebSource(
-                    sourceId = "4read",
+                    sourceId = sourceId,
                     homeUrl = sourceUrl,
-                    displayName = "4read",
+                    displayName = sourceDisplayName(sourceId),
                     recoveryBookId = bookId,
                     recoveryChapterIndex = chapterIndex,
                     recoveryPositionMs = positionMs,
@@ -995,6 +1033,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
+     * ADR-0037 — the book's source ids whose audio is refused. Browser
+     * doors and automatic recovery end at these: the refusal is absolute,
+     * never an implicit side effect and never a browser escape hatch.
+     */
+    private suspend fun refusedAudioSourceIdsOf(book: com.slukhayka.audiobooks.data.db.AudiobookEntity?): Set<String> {
+        val refused = App.instance.sourceAudioRefusal.refusedSources.value
+        if (refused.isEmpty()) return emptySet()
+        val bookSourceIds = buildList {
+            addAll(
+                runCatching { App.instance.audiobookDao.getSourcesForBookSync(book?.id.orEmpty()) }
+                    .getOrDefault(emptyList())
+                    .map { it.type }
+            )
+            book?.sourceUrl?.takeIf { it.isNotBlank() }
+                ?.let { url -> sourceIdForUrl(url) }
+                ?.let(::add)
+        }
+        return bookSourceIds.filterTo(mutableSetOf()) { it.isNotBlank() && it in refused }
+    }
+
+    /**
      * The Play gesture authorizes recovery through a saved browser source.
      * Without one, show retry and the explicit alternative-search action.
      */
@@ -1020,9 +1079,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * #471 — BROWSER джерела книги, для яких існує явні двері: 4read завжди
-     * має двері (пошук із підставленою назвою), будь-яке інше браузерне
-     * джерело — лише зі збереженим URL (домушок не вигадується).
+     * #471 — BROWSER джерела книги, для яких існує явні двері: джерело з
+     * пошуковою дверима в профілі (ADR-0036) має двері завжди (пошук із
+     * підставленою назвою), будь-яке інше браузерне джерело — лише зі
+     * збереженим URL (домушок не вигадується).
      */
     suspend fun browserRecoverySources(bookId: String): List<String> {
         val book = runCatching { libraryEntries.getBookSync(bookId) }.getOrNull() ?: return emptyList()
@@ -1031,14 +1091,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val candidateIds = sources.map { it.type } +
             listOfNotNull(sourceIdForUrl(book.sourceUrl).takeIf { book.sourceUrl.isNotBlank() })
         return SmartRetryPolicy.browserDoorSourceIds(candidateIds).filter { sourceId ->
-            sourceId == SourceIds.FOUR_READ ||
-                sources.any { it.type == sourceId && it.url.isNotBlank() }
+            // ADR-0037: a refused source's door does not exist.
+            sourceId !in refusedAudioSourceIdsOf(book) &&
+                (BrowserRecoveryProfiles.forSource(sourceId).searchDoor != null ||
+                    sources.any { it.type == sourceId && it.url.isNotBlank() })
         }
     }
 
     /**
      * #471 — відкриває браузер ЛЮБОГО BROWSER джерела як явну дію
-     * відновлення (узагальнює [open4ReadRecovery] beyond 4read).
+     * відновлення (узагальнює [open4ReadRecovery] beyond 4read). ADR-0036:
+     * розгалуження читає профіль, не порівняння рядків — джерело з пошуковою
+     * дверима відновлюється крізь дверний шлях (4read), решта — крізь
+     * збережений URL.
      */
     fun openBrowserRecovery(
         bookId: String,
@@ -1047,8 +1112,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         positionMs: Long,
         automatic: Boolean = false
     ) {
-        if (sourceId == SourceIds.FOUR_READ) {
-            open4ReadRecovery(bookId, chapterIndex, positionMs, automatic)
+        viewModelScope.launch(Dispatchers.IO) {
+            // ADR-0037: a refused source's recovery door does not exist.
+            if (sourceId in refusedAudioSourceIdsOf(
+                    runCatching { libraryEntries.getBookSync(bookId) }.getOrNull()
+                )
+            ) {
+                withContext(Dispatchers.Main) {
+                    if (automatic) playerManager.reportRetryUnavailable()
+                }
+                return@launch
+            }
+            openBrowserRecoveryInner(bookId, sourceId, chapterIndex, positionMs, automatic)
+        }
+    }
+
+    private fun openBrowserRecoveryInner(
+        bookId: String,
+        sourceId: String,
+        chapterIndex: Int,
+        positionMs: Long,
+        automatic: Boolean
+    ) {
+        if (BrowserRecoveryProfiles.forSource(sourceId).searchDoor != null) {
+            openDoorRecovery(bookId, sourceId, chapterIndex, positionMs, automatic)
             return
         }
         _showFullPlayer.value = automatic
@@ -1445,6 +1532,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun closeContentLanguages() {
         _contentLanguagesOpen.value = false
+    }
+
+    // ADR-0037 (spec-49 T1): the «Аудіо джерел» destination (⚙️ overflow) —
+    // navigation only; the screen reads/writes the Source Audio Refusal
+    // module directly (ADR-0008), the same store the coordinator, the
+    // pairing path and the download gate read.
+    private val _sourceAudioRefusalOpen = MutableStateFlow(false)
+    val sourceAudioRefusalOpen: StateFlow<Boolean> = _sourceAudioRefusalOpen.asStateFlow()
+
+    fun openSourceAudioRefusal() {
+        _sourceAudioRefusalOpen.value = true
+    }
+
+    fun closeSourceAudioRefusal() {
+        _sourceAudioRefusalOpen.value = false
     }
 
     fun setContentLanguages(languages: Set<String>) {
@@ -2113,7 +2215,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
         }
-        return entities.flatMap { entity ->
+        // ADR-0037 — a refused source never becomes a candidate, so its
+        // browser door is unreachable and no probe is spent on it. The
+        // empty result fails the card action honestly (EMPTY_SOURCES).
+        val refused = App.instance.sourceAudioRefusal.refusedSources.value
+        val filteredEntities = if (refused.isEmpty()) entities else entities.filterNot { it.type in refused }
+        return filteredEntities.flatMap { entity ->
             catalogSessionCandidates(
                 source = entity,
                 mode = SourceAccessPolicy.modeFor(entity.type),

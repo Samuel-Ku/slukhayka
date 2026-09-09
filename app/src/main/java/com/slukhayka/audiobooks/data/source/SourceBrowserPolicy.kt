@@ -10,8 +10,9 @@ package com.slukhayka.audiobooks.data.source
  * Only `http`/`https` are ever allowed; any other scheme is blocked before the
  * host check (SEC-011). Host comparison is case-insensitive and recognises
  * subdomains: `s1.reasd.org` matches `reasd.org`, `www.4read.org` matches
- * `4read.org`. This is the one place the allowlist lives — callers never
- * hard-code host strings.
+ * `4read.org`. The allowlist itself is per-source knowledge declared on the
+ * source's [BrowserRecoveryProfile] (ADR-0036) — this object is the only
+ * reader of it for the URL boundary; callers never hard-code host strings.
  *
  * Cookie isolation is the companion guarantee: callers read the Cookie header
  * just-in-time for the concrete request host (see [SourceCookieProvider]), so
@@ -20,21 +21,22 @@ package com.slukhayka.audiobooks.data.source
  */
 object SourceBrowserPolicy {
 
-    /** Stable source order shared by browser routing and per-source settings. */
-    val browserSourceIds: List<String> = listOf("4read", "sluhay", "sluhayknigi")
+    /**
+     * Stable source order shared by browser routing and per-source settings.
+     * ADR-0036 (spec-48 T1): the order and membership are declared by the
+     * Browser Recovery Profiles; this keeps the old entry point for callers.
+     */
+    val browserSourceIds: List<String> = BrowserRecoveryProfiles.orderedSourceIds
 
     /**
-     * Base hosts that are considered part of the source. `www.` is stripped
+     * Base hosts that are considered part of the source, from the source's
+     * [BrowserRecoveryProfile.pageHosts]. `www.` is stripped
      * before comparison so both `https://4read.org/...` and
      * `https://www.4read.org/...` match the same entry. Subdomains are allowed
      * transparently (`s1.reasd.org` → `reasd.org`).
      */
-    fun allowedHostsFor(sourceId: String): Set<String> = when (sourceId) {
-        "4read" -> setOf("4read.org", "reasd.org")
-        "sluhay" -> setOf("sluhay.com")
-        "sluhayknigi" -> setOf("sluhayknigi.com")
-        else -> emptySet()
-    }
+    fun allowedHostsFor(sourceId: String): Set<String> =
+        BrowserRecoveryProfiles.forSource(sourceId).pageHosts
 
     /**
      * Whether [url] is allowed for the in-app browser scoped to [sourceId].
@@ -82,17 +84,15 @@ object SourceBrowserPolicy {
      * Audio hosts are observed as subresources, never opened as pages. A
      * source's stream CDN lives outside its page allowlist (4read's player
      * hosts; sluhay/sluhayknigi streams on redirectto.cc or the page's own
-     * host), so capture is judged against this separate, narrower rule.
+     * host), so capture is judged against this separate, narrower rule: the
+     * profile's [BrowserRecoveryProfile.audioHosts] plus the current page's
+     * own host.
      */
     fun allowsAudioHost(sourceId: String, host: String?, pageHost: String?): Boolean {
         if (host.isNullOrBlank()) return false
         val normalized = host.lowercase().removePrefix("www.")
         val page = pageHost?.lowercase()?.removePrefix("www.")?.takeIf { it.isNotBlank() }
-        val allowed = when (sourceId) {
-            "4read" -> allowedHostsFor(sourceId)
-            "sluhay", "sluhayknigi" -> allowedHostsFor(sourceId) + "redirectto.cc"
-            else -> emptySet()
-        }
+        val allowed = BrowserRecoveryProfiles.forSource(sourceId).audioHosts
         val matched = allowed.any { base ->
             normalized == base || normalized.endsWith(".$base")
         }

@@ -36,6 +36,8 @@ import com.slukhayka.audiobooks.data.duration.ChapterDurationProbe
 import com.slukhayka.audiobooks.data.duration.DurationEnrichment
 import com.slukhayka.audiobooks.data.duration.HttpStreamProber
 import com.slukhayka.audiobooks.data.facets.SharedPreferencesFacetSyncCursorStore
+import com.slukhayka.audiobooks.data.facets.SharedPreferencesSharedTombstoneSyncCursorStore
+import com.slukhayka.audiobooks.data.facets.SharedPreferencesSubmissionSyncCursorStore
 import com.slukhayka.audiobooks.data.facets.BilingualPromptEngine
 import com.slukhayka.audiobooks.data.facets.ContentLanguagePrefs
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
@@ -87,6 +89,7 @@ import com.slukhayka.audiobooks.data.source.LibriVoxAdapter
 import com.slukhayka.audiobooks.data.source.SluhayAdapter
 import com.slukhayka.audiobooks.data.source.SluhayuaAdapter
 import com.slukhayka.audiobooks.data.source.SoundBooksAdapter
+import com.slukhayka.audiobooks.data.source.TgPreviewSourceAdapter
 import com.slukhayka.audiobooks.data.source.HttpFetcher
 import com.slukhayka.audiobooks.data.source.SourceAdapter
 import com.slukhayka.audiobooks.data.source.headersFor
@@ -363,7 +366,13 @@ class App : Application() {
             // Spec-45 (#405) T2 (#490): the English source — catalogue/search
             // cards surface in the union and global search next to the
             // Ukrainian ones (book pages are T3 #491).
-            LibriVoxAdapter()
+            LibriVoxAdapter(),
+            // ADR-0035 / #606: the Telegram public-preview adapter — NOT a
+            // browsable catalogue source (search/new are honestly empty); it
+            // rides the captured-page seam so the submission door finds it
+            // by sourceId without a downcast. A RED prototype verdict keeps
+            // it metadata-only until playback without login is proven.
+            TgPreviewSourceAdapter()
         )
     }
 
@@ -463,6 +472,8 @@ class App : Application() {
             },
             sharedFacetStore = sharedMetaStore,
             facetSyncCursorStore = SharedPreferencesFacetSyncCursorStore(this),
+            submissionSyncCursorStore = SharedPreferencesSubmissionSyncCursorStore(this),
+            sharedTombstoneSyncCursorStore = SharedPreferencesSharedTombstoneSyncCursorStore(this),
             // Spec #462 ID6 (#467): the persisted feed snapshots — Огляд's
             // feeds read the database first and hit the network only after
             // the TTL (новинки 6 год, каталог 24 год) or an explicit refresh.

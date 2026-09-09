@@ -154,6 +154,7 @@ fun sourceDisplayName(sourceId: String): String = when (sourceId) {
     "sluhay" -> "Sluhay"
     "sluhayknigi" -> "SluhayKnigi"
     "librivox" -> "LibriVox"
+    "telegram" -> "Telegram"
     "local" -> "Локальна"
     else -> sourceId
 }

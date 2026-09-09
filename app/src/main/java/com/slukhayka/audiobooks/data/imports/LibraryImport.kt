@@ -911,6 +911,179 @@ class LibraryImport(
         return importFromSourceUrl("4read", sourceUrl)
     }
 
+    // ---------------------------------------------------------------------
+    // Door 5: listener-submitted YouTube link (ADR-0035 / #604)
+    // ---------------------------------------------------------------------
+
+    /** The outcome of one [importSubmittedYouTube] call. */
+    enum class SubmittedImportResult {
+        /** A new rendition (or a second Source of an existing one) was added. */
+        IMPORTED,
+        /** The exact same submitted URL is already a Source of this rendition. */
+        ALREADY_ADDED,
+        /** The yt-dlp metadata carried no usable title. */
+        METADATA_FAILED,
+        /** No playable track could be derived (no watch URL). */
+        NO_PLAYABLE_TRACKS
+    }
+
+    /**
+     * ADR-0035 / #604 — imports a listener-submitted YouTube link (single
+     * video or playlist). The yt-dlp `-J` metadata is passed in (fetched by
+     * the caller through [com.slukhayka.audiobooks.data.source.YtDlpStreamExtractor] —
+     * the transport stays outside this door), and the pure
+     * [com.slukhayka.audiobooks.data.ingest.YouTubeSubmissionPlanner] builds the
+     * identity + observed chapter list.
+     *
+     * Materialisation mirrors a source import: the Work is found-or-created
+     * by the normalized mergeKey (a duplicate narration never spawns a second
+     * Work); the Edition is found-or-created by the deterministic rendition id
+     * — the SAME narration submitted as a playlist and as a single file lands
+     * in ONE Edition with TWO Sources (ADR-0007/0035). Tracks carry the
+     * canonical watch URLs, so the existing resolver seam and the download
+     * loop handle streaming/offline exactly like v1.3.6's 4read-embed path
+     * (signed URLs are never persisted). The exact same submitted URL is a
+     * no-op (dedup by URL — the edition id embeds a fresh bookId for
+     * blank-identity submissions, so it cannot be the dedup key).
+     */
+    suspend fun importSubmittedYouTube(
+        url: String,
+        metadataJson: String,
+        channelId: String
+    ): SubmittedImportResult = withContext(Dispatchers.IO) {
+        val metadata = com.slukhayka.audiobooks.data.ingest.YouTubeSubmissionPlanner.parseMetadata(metadataJson)
+            ?: return@withContext SubmittedImportResult.METADATA_FAILED
+        val plan = com.slukhayka.audiobooks.data.ingest.YouTubeSubmissionPlanner.plan(url, metadata, channelId)
+        if (plan.chapters.isEmpty()) return@withContext SubmittedImportResult.NO_PLAYABLE_TRACKS
+
+        val mergeKey = MergeKey.keyFor(plan.title, plan.author.orEmpty())
+        val narrator = plan.narrator?.takeIf { it.isNotBlank() } ?: SUBMISSION_NARRATOR
+        val bookId = "yt-${System.currentTimeMillis()}-${localImportSeq.incrementAndGet()}"
+        val editionId = EditionId.forBook(mergeKey, bookId, narrator)
+        val sourceId = "youtube-$editionId-${Integer.toHexString(url.hashCode())}"
+        // Dedup by the submitted URL (ADR-0007): the same link re-submitted
+        // is a no-op even when the edition id — which embeds a fresh bookId
+        // for blank-identity submissions — differs across calls.
+        if (dao.getSourceByUrl(url.trim()) != null) return@withContext SubmittedImportResult.ALREADY_ADDED
+
+        // Work: found-or-created by identity; blank identity → no Works row.
+        val workId = if (mergeKey.isNotBlank()) {
+            dao.findWorkByMergeKey(mergeKey)?.id ?: mergeKey.also {
+                dao.upsertWork(
+                    WorkEntity(
+                        id = mergeKey,
+                        mergeKey = mergeKey,
+                        title = MetadataAssertions.normalizeTitle(plan.title),
+                        author = plan.author?.trim().orEmpty(),
+                        addedAt = System.currentTimeMillis()
+                    )
+                )
+            }
+        } else ""
+
+        // Edition: found-or-created by rendition id. When it exists (same
+        // narration, different variant) we add a SECOND Source to the SAME
+        // Edition and re-parent the source rows to the existing library copy.
+        val existingEdition = dao.getEditionById(editionId)
+        val editionBookId: String = if (existingEdition != null) {
+            dao.findByMergeKey(mergeKey)?.id ?: bookId
+        } else {
+            bookId
+        }
+        if (existingEdition == null) {
+            dao.insertEdition(
+                EditionEntity(
+                    id = editionId,
+                    workId = workId.ifBlank { bookId },
+                    narrator = narrator,
+                    totalChapters = plan.chapters.size,
+                    totalDurationSeconds = 0L,
+                    addedAt = System.currentTimeMillis()
+                )
+            )
+            dao.insertAudiobooks(
+                listOf(
+                    AudiobookEntity(
+                        id = bookId,
+                        title = plan.title,
+                        author = plan.author.orEmpty(),
+                        narrator = narrator,
+                        description = "Надіслано посиланням: $url",
+                        coverDrawableRes = R.drawable.img_neuromancer_cover_1785247475170,
+                        coverImageUrl = null,
+                        genre = LOCAL_GENRE,
+                        sourceUrl = url,
+                        isDownloaded = false,
+                        totalDurationSeconds = 0L,
+                        totalChapters = plan.chapters.size,
+                        rating = 0f
+                    )
+                )
+            )
+            dao.upsertLibraryEntry(
+                id = bookId,
+                workId = workId.ifBlank { bookId },
+                isFavorite = false,
+                createdAt = System.currentTimeMillis(),
+                downloadProgress = 0f
+            )
+        }
+
+        // Logical chapters: extend to the observed list (chapter → track is
+        // 1:1 by index today, ADR-0007 — per-source topology is future work),
+        // so a variant with more chapters never loses an anchor.
+        val existingChapters = existingEdition?.totalChapters ?: 0
+        if (plan.chapters.size > existingChapters) {
+            dao.insertChapters(
+                plan.chapters.drop(existingChapters).mapIndexed { offset, chapter ->
+                    ChapterEntity(
+                        id = "$editionBookId-ch${existingChapters + offset + 1}",
+                        bookId = editionBookId,
+                        editionId = editionId,
+                        chapterIndex = existingChapters + offset,
+                        title = chapter.title,
+                        durationSeconds = 0L
+                    )
+                }
+            )
+            // Keep the Edition's chapter count honest.
+            dao.replaceEdition(
+                (existingEdition ?: EditionEntity(
+                    id = editionId, workId = workId.ifBlank { bookId }, narrator = narrator
+                )).copy(totalChapters = plan.chapters.size)
+            )
+        }
+
+        dao.insertSources(
+            listOf(
+                SourceEntity(
+                    id = sourceId,
+                    bookId = editionBookId,
+                    editionId = editionId,
+                    type = "youtube",
+                    url = url,
+                    addedAt = System.currentTimeMillis()
+                )
+            )
+        )
+        dao.insertTracks(
+            plan.chapters.mapIndexed { index, chapter ->
+                SourceTrackEntity(
+                    id = MetadataAssertions.trackId(sourceId, index),
+                    sourceId = sourceId,
+                    trackIndex = index,
+                    url = chapter.watchUrl,
+                    localFilePath = null,
+                    contentHash = null,
+                    isDownloaded = false
+                )
+            }
+        )
+        // An explicit add is a user action: a tombstone of the Work is cleared.
+        dao.deleteTombstone(workId.ifBlank { editionBookId })
+        SubmittedImportResult.IMPORTED
+    }
+
     /**
      * Spec-14 T1 — catalogue upsert on import (and on catalogue sync). Inserts
      * or updates a catalogue book row; a known row is enriched with real
@@ -1851,6 +2024,9 @@ class LibraryImport(
         private const val LOCAL_FILE_AUTHOR = "Локальний файл"
         private const val LOCAL_FOLDER_AUTHOR = "Локальна папка"
         private const val LOCAL_GENRE = "Локальні"
+
+        /** Placeholder narrator of a submitted YouTube rendition (unknown until claimed). */
+        private const val SUBMISSION_NARRATOR = "YouTube"
 
         /** Monotonic counter guaranteeing unique local ids/names within a burst of imports. */
         private val localImportSeq = java.util.concurrent.atomic.AtomicInteger(0)

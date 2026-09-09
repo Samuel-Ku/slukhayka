@@ -36,8 +36,8 @@ A device's locator, permission, and availability relationship to a Source. Bindi
 _Avoid_: Source, download
 
 **Source Catalog**:
-The union of browseable Works a Source exposes — sections, genres, series listings, people — fetched as Metadata Assertions on demand rather than stored wholesale.
-_Avoid_: Store, browse cache
+The union of browseable Works a Source exposes — sections, genres, series listings, people — fetched as Metadata Assertions on demand rather than stored wholesale. A Source of a mixed site contributes only its audio: text-only content (e-books, online reading) of the same site never enters the catalog (spec-47: chytaylo) until a separate recorded decision.
+_Avoid_: Store, browse cache, text content of a mixed site as catalog rows
 
 **Chapter**:
 An ordered logical subdivision of one Edition to which positions and bookmarks can be anchored, independent of how a Source divides its files. A Chapter row carries order, title, and duration only — stream URLs, file paths, and content hashes belong to Source tracks.
@@ -61,9 +61,13 @@ _Avoid_: trusted source, fast source, unauthenticated source
 A Source whose Adapter declares browser access — reachable only through the listener's in-app WebView session (4read after its August 2026 change). A declared fallback, never a default: the browser opens only after a listener action and only after direct options fail.
 _Avoid_: broken source, legacy source, system browser
 
-**4read Recovery**:
-The Play-initiated refresh of one existing Edition's Source tracks: the exact 4read book page loads silently behind the Player (a missing page falls back to pre-filled 4read search), and the app captures the real audio. Only a Cloudflare challenge that requires human input is revealed; after it passes, the Player returns automatically. Recovery succeeds only on an actual playback verdict and never forks a duplicate Work, Edition, or Source.
-_Avoid_: full browser chrome during automatic recovery, re-import as a new book, URL-prefix success
+**Browser Recovery Profile**:
+The declared capabilities of one Browser Source that the shared Browser Recovery flow consults — its page hosts, observed audio hosts, search door, entry notice, in-page manifest probe, and whether the source may carry the browser door in a Release build. The source declares its own profile beside its adapter; the recovery engine reads profiles, never hard-coded source ids. Release browser access stays an individually decided privilege (4read only today) — enabling it for another source is a recorded decision, not a switch.
+_Avoid_: hardcoded sourceId branches, a second browser screen per source, release doors by configuration
+
+**Browser Recovery**:
+The Play-initiated refresh of one existing Edition's Source tracks through its Browser Source: the exact source book page loads silently behind the Player (a missing page falls back to pre-filled source search), and the app captures the real audio. Only a Cloudflare challenge that requires human input is revealed; after it passes, the Player returns automatically. Recovery succeeds only on an actual playback verdict and never forks a duplicate Work, Edition, or Source. One shared engine serves every Browser Source — per-source knowledge comes from the source's Browser Recovery Profile, never from a screen fork. 4read was the first instance (v1.3.7) and remains the only release-browser one.
+_Avoid_: full browser chrome during automatic recovery, re-import as a new book, URL-prefix success, per-source recovery implementations
 
 **Verified Source×Edition Profile**:
 An anonymously shared, provenance-bearing claim that one Source URL actually started playback and passed a clean cookie-free probe. Read before recovery so the next listener may skip the browser; it never carries cookies, audio files, browser history, or listener identity, and unavailable shared storage removes only the shortcut, never the local flow.
@@ -89,6 +93,44 @@ _Avoid_: re-fetch on every start, feed deletion, snapshot as the only truth
 **Cross-resolve**:
 The one-request check made when a listener taps a card whose only Source needs the browser: the same Work (by MergeKey) is looked up on a Direct Source, and a match imports and plays/opens without the browser. One search per tap, no background crawling; the verdict is memoized with the Edition Availability Assertion windows.
 _Avoid_: background cross-index, multi-request probe, silent browser fallback
+
+## Listener-submitted sources (ADR-0035)
+
+**Verified Submission**:
+Посилання слухача (публічний пост Telegram-каналу, YouTube-відео чи плейлист),
+яке пристрій подавача реально забрав і програв, — єдине, що будь-коли
+публікується у спільний каталог. Їде як Source (посилання, режим доступу)
+плюс дельти метаданих (ідентичність Твору, тривалість, URL обкладинки) і
+ніколи не несе аудіо: кожна інсталяція добуває звук із джерела-оригіналу
+власним пристроєм крізь свій маршрут (ADR-0028, ADR-0035). Добування
+виконується на пристрої слухача — серверного конвертера немає; «голе»
+вставлення посилання без верифікованого програвання не пише нічого. Локальна
+копія подавача — звичайний локальний Source через наявний шлях імпорту.
+_Avoid_: серверний конвертер, модераторський шлюз, хостинг аудіо, публікація без верифікації
+
+**Observed Chapter Boundary**:
+Межа розділів, яку джерело реально показує: треки плейлиста, часові мітки
+YouTube-розділів в описі, трек-лист TG-посту. Немає спостережених меж — файл
+лишається одним Chapter, межі ніколи не вигадуються (ADR-0014). Один файл і
+плейлист однієї начитки — один Edition із двома Sources: обидві спостережені
+топології описують той самий логічний перелік розділів (ADR-0007).
+_Avoid_: silence-детектор, вигадані часові мітки, окремий Edition на кожен варіант файлу
+
+**Shared Tombstone**:
+Кураторський негативний запис у спільній базі, що блокує опубліковане
+надходження — Source чи ввесь Work — для кожної інсталяції. Це модель
+локального Tombstone (ADR-0005), продовжена на колективний канал: шлюз
+перенесено після публікації, а не скасовано — сміття потрапляє лише після
+верифікованого програвання і вмирає спільним Tombstone.
+_Avoid_: черга модерації, тихе повторне імпортування, видалення спостережених рядків
+
+**Channel Post Pattern**:
+Шаблон постів одного каналу чи джерела, за яким чистий JVM `TitleNormalizer`
+(родич нормалізації MergeKey і `CollectionMatcher`) розбирає заголовок на
+Metadata Assertions про Твір: назва, автор, начитувач, серія, позиція.
+Правила — за шаблоном конкретного каналу, фікстурні тести з реальних постів;
+нерозібраний залишок лишається сирим текстом і ніколи не вигадує автора.
+_Avoid_: серверний LLM-прохід, вигаданий автор, вільний LIKE-пошук як ідентичність
 
 ## Metadata
 
@@ -196,17 +238,8 @@ _Avoid_: free-form `LIKE` filters, genre text as identity, duration on Work, dir
 Captured-page import is a [SourceAdapter] capability — `parseCapturedPage(html, url)` with a "not mine" default; the WebView-pattern adapters (4read, sluhay) override it under one name and no import door downcasts to a concrete adapter. All HTTP goes through the shared [HttpFetcher] on the ONE shared OkHttp client (pool, identity, route, DoH): it serves text (`getText`) and binary streams (`getStream`), and the offline download loop consumes the stream method — every request carries the device's browser identity (the real system WebView User-Agent, static fallback on JVM; superseding ADR-0006's dedicated download agent) and rides the listener's network privacy route (spec-38), never silently falling back to direct. Domain names resolve through encrypted DoH with a transparent system-resolver fallback (spec-38 T4) — one decision independent of the chosen route, on by default. Offline downloads ride the human-rhythm pacing from the privacy door (`PacingPolicy`: random pause + per-domain burst budget; the loop owns no thresholds) so bulk fetching never looks like scraping (spec-38 T5). The relay prototype (spec-38 T6) is just another resolved route: requests are rewritten `<base>?url=<target>` at the transport's single request-shaping seam, never a default; a route WebView cannot carry refuses the browser instead of going direct. The source-browser WebView sessions ride the SAME route through the official webkit proxy controller and keep the same session hygiene (third-party cookies rejected, geolocation/sensors denied). WebView keeps its durable first-party cookie jar across restarts so a solved Source session serves future lists too; cookies stay host/origin-bound in CookieManager and are never copied or serialized by the app. The listener can explicitly clear only one Source's allowlisted hosts. Per-source header rules (Referer) stay beside the transport in the source package.
 _Avoid_: per-adapter captured-page methods, raw HttpURLConnection in modules, app-named User-Agents, system-DNS lookups for transport hosts, special-cased relay branches outside the door, WebView sessions off-route
 
-**4read browser recovery**:
-When Play cannot use a 4read stream or offline chapter, the exact stored book
-page loads silently behind the Player and the app captures its replacement
-audio. Only a Cloudflare challenge that needs human input is revealed; after
-it passes, the Player returns automatically. The hidden attempt is bounded and
-ends in neutral Player actions when no playable audio is verified. An explicit
-“open on site” action still opens the full source browser. Parsed chapter
-identity and order must match the stored Edition before Source tracks are
-updated; valid downloaded files and Listening State are retained. The failed
-download queue is paused and resumes on the next explicit download attempt.
-First-party cookies remain only in WebView's durable, host-bound cookie jar.
+**Browser recovery engine**:
+The one shared recovery flow for every Browser Source: hidden page load behind the Player, bounded attempt, challenge-only reveal, captured-page import through `parseCapturedPage`, coordinator-verified playback verdict, source-scoped cookie jar. Per-source facts (allowlisted hosts, audio hosts, search door, notices, manifest probes, release permission) come from the source's Browser Recovery Profile; no screen or gate branches on a hard-coded source id. First-party cookies remain only in WebView's durable, host-bound cookie jar.
 _Avoid_: unbounded hidden recovery, full browser chrome during automatic
 recovery, track replacement by request-arrival order, cross-source cookies,
 resetting progress during recovery

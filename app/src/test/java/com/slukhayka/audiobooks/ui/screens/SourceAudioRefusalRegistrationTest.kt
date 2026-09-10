@@ -15,9 +15,12 @@ import org.junit.Test
 class SourceAudioRefusalRegistrationTest {
 
     @Test
-    fun `every catalogued audio source is refusable - audiobookcoua joins with spec-47 T5`() {
+    fun `every catalogued audio source is refusable - the spec-47 wave joins`() {
         assertEquals(
-            listOf("4read", "sluhayua", "soundbooks", "audiobookmp3", "lihtar", "audiobookcoua"),
+            listOf(
+                "4read", "sluhayua", "soundbooks", "audiobookmp3", "lihtar",
+                "audiobookcoua", "chytaylo", "ukrainianaudiobooks"
+            ),
             REFUSABLE_SOURCES
         )
     }

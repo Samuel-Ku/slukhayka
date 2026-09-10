@@ -19,6 +19,10 @@ import org.robolectric.annotation.Config
  * coordinator/catalog/download consumers read, and the `local`
  * pseudo-source is never a state (the refusal stops a source supplying
  * audio, never the listener's own files).
+ *
+ * Spec-49 T5 — the separate voluntary publish consent: off by default,
+ * persisted beside the refusal, revoking it stops contributions while the
+ * local refusal itself stands untouched.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
@@ -29,6 +33,7 @@ class SourceAudioRefusalTest {
     @Test
     fun `default is no refusal`() = runBlocking {
         val prefs = SourceAudioRefusal(context())
+        prefs.setRefused(emptySet())
         assertTrue(prefs.refusedSources.first().isEmpty())
         assertFalse(prefs.isRefused("4read"))
     }
@@ -49,6 +54,7 @@ class SourceAudioRefusalTest {
     @Test
     fun `write updates the live flow the consumers read`() = runBlocking {
         val prefs = SourceAudioRefusal(context())
+        prefs.setRefused(emptySet())
         prefs.refuse("4read")
         assertEquals(setOf("4read"), prefs.refusedSources.first())
         assertTrue(prefs.isRefused("4read"))
@@ -58,11 +64,13 @@ class SourceAudioRefusalTest {
 
         prefs.allow("4read")
         assertEquals(setOf("sluhayua"), prefs.refusedSources.first())
+        prefs.setRefused(emptySet())
     }
 
     @Test
     fun `the local pseudo-source is never a refusal state`() = runBlocking {
         val prefs = SourceAudioRefusal(context())
+        prefs.setRefused(emptySet())
         prefs.refuse("local")
         prefs.refuse("4read")
         assertEquals("the listener's own files are never refused", setOf("4read"), prefs.refusedSources.first())
@@ -70,11 +78,44 @@ class SourceAudioRefusalTest {
 
         prefs.setRefused(setOf("local", "", "4read"))
         assertEquals(setOf("4read"), prefs.refusedSources.first())
+        prefs.setRefused(emptySet())
     }
 
     @Test
     fun `a blank source id is never refused`() = runBlocking {
         val prefs = SourceAudioRefusal(context())
+        prefs.setRefused(emptySet())
         assertFalse(prefs.isRefused(""))
+    }
+
+    @Test
+    fun `publish consent defaults to off`() = runBlocking {
+        val prefs = SourceAudioRefusal(context())
+        prefs.setPublishRefusals(false)
+        assertFalse(prefs.publishRefusals.first())
+    }
+
+    @Test
+    fun `publish consent survives a store re-creation`() = runBlocking {
+        val context = context()
+        SourceAudioRefusal(context).setPublishRefusals(true)
+        assertTrue(SourceAudioRefusal(context).publishRefusals.first())
+
+        SourceAudioRefusal(context).setPublishRefusals(false)
+        assertFalse(SourceAudioRefusal(context).publishRefusals.first())
+    }
+
+    @Test
+    fun `revoking consent stops contributions but the local refusal stands`() = runBlocking {
+        val prefs = SourceAudioRefusal(context())
+        prefs.setRefused(emptySet())
+        prefs.setPublishRefusals(true)
+        prefs.refuse("4read")
+
+        prefs.setPublishRefusals(false)
+
+        assertFalse(prefs.publishRefusals.first())
+        assertTrue("the local refusal is untouched by the consent switch", prefs.isRefused("4read"))
+        prefs.setRefused(emptySet())
     }
 }

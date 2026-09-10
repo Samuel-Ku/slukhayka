@@ -174,6 +174,41 @@ interface SharedBookMetaStore {
      * lags one behind, never blocks a real listener).
      */
     suspend fun incrementSubmissionCount(deviceId: String, dayKey: String): Long = 0L
+
+    /**
+     * Spec-49 T5 — the anonymous shared refusal count of ONE source: how
+     * many listeners refused its audio. 0 on a miss or a failure (an
+     * unavailable shared base removes only the badge, never the local
+     * refusal flow).
+     */
+    suspend fun getRefusalCount(sourceId: String): Long = 0L
+
+    /**
+     * Spec-49 T5 — BATCH read for the sources visible on the «Аудіо
+     * джерел» screen: one pass over the given ids, never a request per
+     * row. Only positive counts are reported — a miss, a zero or a
+     * failing id simply lacks its entry, and the badge stays hidden.
+     */
+    suspend fun getRefusalCounts(sourceIds: List<String>): Map<String, Long> {
+        if (sourceIds.isEmpty()) return emptyMap()
+        return buildMap {
+            for (sourceId in sourceIds.distinct().take(SourceRefusalReadLimits.MAX_BATCH)) {
+                val count = runCatching { getRefusalCount(sourceId) }.getOrNull() ?: continue
+                if (count > 0) put(sourceId, count)
+            }
+        }
+    }
+
+    /**
+     * Spec-49 T5 — publishes ONE voluntary refusal vote for [sourceId] from
+     * the device profile [uid]: the per-device vote document
+     * (`{sourceId}_{uid}`) is placed idempotently and the anonymous
+     * per-source counter increments exactly once per device. Returns true
+     * when the vote is counted (or was already), false on blank identities
+     * or any failure. Best-effort by contract: a failing write contributes
+     * nothing and the local refusal stands on its own.
+     */
+    suspend fun publishRefusalVote(sourceId: String, uid: String): Boolean = false
 }
 
 /**

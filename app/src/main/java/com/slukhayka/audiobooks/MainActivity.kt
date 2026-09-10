@@ -745,6 +745,8 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                     // directly (ADR-0008); the ViewModel owns navigation.
                     sourceAudioRefusalOpen -> SourceAudioRefusalScreen(
                         prefs = App.instance.sourceAudioRefusal,
+                        sharedStore = App.instance.sharedMetaStore,
+                        uidProvider = { App.instance.listenerIdentity.current()?.uid },
                         onBackClick = {
                             viewModel.closeSourceAudioRefusal()
                         }

@@ -181,6 +181,14 @@ fun LibraryScreen(
 
     // Import-result feedback (Block 4): one-shot Snackbar from the ViewModel.
     val snackbarHostState = remember { SnackbarHostState() }
+    // Spec-53 T3 — awaiting-verdict badges + the quiet publication notice.
+    val awaitingSubmissionBookIds by viewModel.awaitingSubmissionBookIds.collectAsState()
+    LaunchedEffect(Unit) { viewModel.refreshAwaitingSubmissions() }
+    LaunchedEffect(Unit) {
+        viewModel.submissionPublished.collect {
+            snackbarHostState.showSnackbar(context.getString(com.slukhayka.audiobooks.R.string.submission_published_toast))
+        }
+    }
     val importMessage by viewModel.importMessage.collectAsState()
     LaunchedEffect(importMessage) {
         importMessage?.let { message ->
@@ -583,6 +591,8 @@ fun LibraryScreen(
                                 LibraryBookCard(
                                     book = entry,
                                     grid = gridMode,
+                                    awaitingPlayback = entry.book.id in awaitingSubmissionBookIds,
+                                    onListenNow = { onPlayClick(entry.book) },
                                     onClick = { onBookClick(entry.book.id) },
                                     modifier = if (entry.book.id == restoreFocusBookId) {
                                         Modifier.focusRequester(bookReturnFocusRequester)
@@ -742,6 +752,7 @@ fun LibraryScreen(
             SubmissionSheet(
                 state = submissionState,
                 remainingToday = submissionRemaining,
+                onListen = { viewModel.listenToLastImported() },
                 onSubmit = viewModel::submitLink,
                 onDismiss = {
                     showSubmissionSheet = false
@@ -845,7 +856,11 @@ fun LibraryBookCard(
     modifier: Modifier = Modifier,
     availability: com.slukhayka.audiobooks.data.availability.AvailabilityView? = null,
     onRecheck: (() -> Unit)? = null,
-    downloadCount: com.slukhayka.audiobooks.data.db.BookDownloadCount? = null
+    downloadCount: com.slukhayka.audiobooks.data.db.BookDownloadCount? = null,
+    /** Spec-53 T3 — the submission awaits its real playback verdict. */
+    awaitingPlayback: Boolean = false,
+    /** Spec-53 T3 — badge tap: open the book and start playing it. */
+    onListenNow: (() -> Unit)? = null
 ) {
     val author = book.book.displayAuthor
     val description = if (author.isBlank()) {
@@ -905,7 +920,14 @@ fun LibraryBookCard(
         if (grid) {
             LibraryBookGridContent(book, availability, onRecheck, downloadCount)
         } else {
-            LibraryBookRowContent(book, availability, onRecheck, downloadCount)
+            LibraryBookRowContent(
+                book,
+                availability,
+                onRecheck,
+                downloadCount,
+                awaitingPlayback = awaitingPlayback,
+                onListenNow = onListenNow
+            )
         }
     }
 }
@@ -915,7 +937,9 @@ private fun LibraryBookRowContent(
     book: LibraryBook,
     availability: com.slukhayka.audiobooks.data.availability.AvailabilityView? = null,
     onRecheck: (() -> Unit)? = null,
-    downloadCount: com.slukhayka.audiobooks.data.db.BookDownloadCount? = null
+    downloadCount: com.slukhayka.audiobooks.data.db.BookDownloadCount? = null,
+    awaitingPlayback: Boolean = false,
+    onListenNow: (() -> Unit)? = null
 ) {
     // v1.4 E3 (ADR-0033): the library list row IS the canonical BookRow —
     // the old bespoke 56 dp Row (a fifth row style) is gone. The card's
@@ -933,6 +957,17 @@ private fun LibraryBookRowContent(
             // C4: the canonical provenance chip — the local SourceBadge was
             // a pixel-duplicate of MetadataChip(source=…).
             if (book.sourceName.isNotBlank()) MetadataChip(source = book.sourceName)
+            if (awaitingPlayback && onListenNow != null) {
+                Spacer(modifier = Modifier.width(AppDimens.SpaceXs))
+                Text(
+                    text = stringResource(com.slukhayka.audiobooks.R.string.submission_awaiting_badge),
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .clickable(onClick = onListenNow)
+                        .testTag("submission_awaiting_badge_${book.book.id}")
+                )
+            }
             if (downloadCount != null && downloadCount.downloaded > 0 && downloadCount.downloaded < downloadCount.total) {
                 // #397 — honest partial offline: N of M Source Tracks on disk.
                 Spacer(modifier = Modifier.width(AppDimens.SpaceXs))

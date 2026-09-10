@@ -61,8 +61,6 @@
     <string name="home_more_books_on">Більше книг на %1$s</string>
     <string name="home_library_results">У вашій медіатеці (%1$d)</string>
     <string name="home_all_sources">Усі джерела (%1$d)</string>
-    <string name="home_search_on_4read">Шукати «%1$s» на 4read</string>
-    <string name="home_search_browser_fallback">Нічого на 4read? Шукати в браузері</string>
     <string name="home_browser_only_snackbar">Ця книга лише на 4read — потрібен браузер</string>
     <string name="home_open">Відкрити</string>
     <string name="home_recommendation_updated">Рекомендацію оновлено</string>

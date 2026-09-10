@@ -58,8 +58,6 @@
     <string name="home_more_books_on">More books on %1$s</string>
     <string name="home_library_results">In your library (%1$d)</string>
     <string name="home_all_sources">All sources (%1$d)</string>
-    <string name="home_search_on_4read">Search “%1$s” on 4read</string>
-    <string name="home_search_browser_fallback">Nothing on 4read? Search in browser</string>
     <string name="home_browser_only_snackbar">This book is 4read-only — browser needed</string>
     <string name="home_open">Open</string>
     <string name="home_recommendation_updated">Recommendation updated</string>

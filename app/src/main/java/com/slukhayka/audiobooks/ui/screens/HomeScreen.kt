@@ -423,30 +423,6 @@ fun HomeScreen(
                             resultsEmpty = true
                         )
                     }
-                    // Spec-42 #440: empty result set — offer the 4read catalogue
-                    // pre-filled with the query (release-accessible, ADR-0027).
-                    item {
-                        OpenWebSourceRow(
-                            displayName = "4read",
-                            onClick = { viewModel.open4readSearch(searchQuery) },
-                            text = stringResource(R.string.home_search_on_4read, searchQuery.trim()),
-                            testTag = "open_4read_search_empty"
-                        )
-                    }
-                } else {
-                    // Some sources matched, but none resolved to 4read: surface a
-                    // browser door below the results (spec-42 #440).
-                    val has4read = globalResults.any { it.sources.any { s -> s.sourceId == "4read" } }
-                    if (!has4read) {
-                        item {
-                            OpenWebSourceRow(
-                                displayName = "4read",
-                                onClick = { viewModel.open4readSearch(searchQuery) },
-                                text = stringResource(R.string.home_search_browser_fallback),
-                                testTag = "open_4read_search_footer"
-                            )
-                        }
-                    }
                 }
                 items(globalResults, key = { it.key }) { result ->
                     GlobalSearchResultCard(

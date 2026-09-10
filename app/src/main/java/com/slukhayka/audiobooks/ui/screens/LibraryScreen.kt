@@ -88,6 +88,8 @@ import com.slukhayka.audiobooks.ui.library.formatRemainingTime
 import com.slukhayka.audiobooks.ui.library.stringRemainingTimeUnits
 import com.slukhayka.audiobooks.ui.theme.*
 import kotlin.math.roundToInt
+import androidx.compose.ui.platform.LocalClipboardManager
+import com.slukhayka.audiobooks.data.ingest.sharedSubmissionUrlOf
 
 /**
  * Wayfinder #39 — Медіатека as one unified library. Local files and 4read
@@ -216,6 +218,20 @@ fun LibraryScreen(
     // Spec-601 T3/T5 — the «Надіслати посилання» sheet: paste a YouTube/TG
     // link; publication happens only after the imported copy really plays.
     var showSubmissionSheet by remember { mutableStateOf(false) }
+    // Spec-53 T4 — a shared link opens the sheet prefilled; the clipboard
+    // candidate is offered as a chip once the sheet is open.
+    val sharedSubmissionUrl by viewModel.sharedSubmissionUrl.collectAsState()
+    var submissionClipboardCandidate by remember { mutableStateOf<String?>(null) }
+    val clipboardManager = LocalClipboardManager.current
+    LaunchedEffect(sharedSubmissionUrl) {
+        if (sharedSubmissionUrl != null) showSubmissionSheet = true
+    }
+    LaunchedEffect(showSubmissionSheet) {
+        if (showSubmissionSheet) {
+            val text = runCatching { clipboardManager.getText()?.text }.getOrNull()
+            submissionClipboardCandidate = sharedSubmissionUrlOf(text)
+        }
+    }
     val filterFocusRequester = remember { FocusRequester() }
     val importFocusRequester = remember { FocusRequester() }
     val libraryHeadingFocusRequester = remember { FocusRequester() }
@@ -636,9 +652,13 @@ fun LibraryScreen(
                 state = submissionState,
                 remainingToday = submissionRemaining,
                 onListen = { viewModel.listenToLastImported() },
+                prefillUrl = sharedSubmissionUrl,
+                clipboardCandidate = submissionClipboardCandidate,
                 onSubmit = viewModel::submitLink,
                 onDismiss = {
                     showSubmissionSheet = false
+                    submissionClipboardCandidate = null
+                    viewModel.consumeSharedSubmission()
                     viewModel.dismissSubmission()
                 }
             )

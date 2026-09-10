@@ -269,11 +269,25 @@ class ListenerSubmissionFlow(
     suspend fun awaitingBookIds(): Set<String> =
         store.awaiting().map { it.bookId }.toSet()
 
-    private companion object {
-        val YOUTUBE_URL = Regex("""https?://(?:www\.|m\.|music\.)?(?:youtube\.com|youtu\.be)/""")
-        val TELEGRAM_URL = Regex("""https?://t\.me/""")
-    }
 }
+
+// Spec-53 T4 — the supported submission hosts, shared by the flow's
+// classification and the share/clipboard intake.
+private val YOUTUBE_URL = Regex("""https?://(?:www\.|m\.|music\.)?(?:youtube\.com|youtu\.be)/""")
+private val TELEGRAM_URL = Regex("""https?://t\.me/""")
+
+/**
+ * Spec-53 T4 — the first supported link inside a shared text (a system
+ * ACTION_SEND often carries "Title\nhttps://…"), or null when there is
+ * none. Pure: the share/clipboard intake and its tests share it, so no
+ * unsupported paste ever reaches the submission flow.
+ */
+fun sharedSubmissionUrlOf(text: String?): String? {
+    val candidate = text?.let { RAW_URL.find(it)?.value } ?: return null
+    return candidate.takeIf { YOUTUBE_URL.containsMatchIn(it) || TELEGRAM_URL.containsMatchIn(it) }
+}
+
+private val RAW_URL = Regex("""https?://\S+""")
 
 /**
  * The canonical page the TG preview is read from: an exact post link becomes

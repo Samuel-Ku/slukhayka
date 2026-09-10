@@ -82,6 +82,7 @@ import com.slukhayka.audiobooks.ui.catalog.CatalogBrowserFocusReturn
 import com.slukhayka.audiobooks.ui.catalog.MediaRangeValidator
 import com.slukhayka.audiobooks.ui.catalog.PlaybackReplacementMapping
 import com.slukhayka.audiobooks.data.ingest.ListenerSubmissionFlow
+import com.slukhayka.audiobooks.data.ingest.sharedSubmissionUrlOf
 import com.slukhayka.audiobooks.ui.screens.SubmissionUiState
 import com.slukhayka.audiobooks.ui.catalog.catalogSessionCandidates
 import com.slukhayka.audiobooks.ui.catalog.hasUsableSourceSession
@@ -367,6 +368,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _submissionPublished = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     val submissionPublished: SharedFlow<Unit> = _submissionPublished.asSharedFlow()
     private val lastImportedBookId = MutableStateFlow<String?>(null)
+    // Spec-53 T4 — a link arriving from a system share or the clipboard
+    // chip; the library screen opens the submission sheet with it, then
+    // consumes it.
+    private val _sharedSubmissionUrl = MutableStateFlow<String?>(null)
+    val sharedSubmissionUrl: StateFlow<String?> = _sharedSubmissionUrl.asStateFlow()
+
+    /** Accepts a shared text/link: stores the supported URL and opens the door. */
+    fun onSharedSubmission(text: String?) {
+        val url = sharedSubmissionUrlOf(text) ?: return
+        _sharedSubmissionUrl.value = url
+        selectTab(SelectedTab.LIBRARY)
+    }
+
+    fun consumeSharedSubmission() {
+        _sharedSubmissionUrl.value = null
+    }
 
     fun dismissSubmission() {
         _submissionState.value = SubmissionUiState.Idle

@@ -269,6 +269,7 @@
     <string name="submission_listen_now">Слухати зараз</string>
     <string name="submission_awaiting_badge">Очікує</string>
     <string name="submission_published_toast">Поділилися книгою зі спільнотою</string>
+    <string name="submission_paste_from_clipboard">Вставити з буфера</string>
     <string name="submission_status_unsupported">Це посилання не підтримується. Надішліть YouTube-відео, плейлист або пост Telegram.</string>
     <string name="import_option_link">Надіслати посилання</string>
     <string name="import_option_link_subtitle">YouTube-відео, плейлист або TG-пост</string>

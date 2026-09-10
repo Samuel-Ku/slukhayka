@@ -102,4 +102,37 @@ class SubmissionSheetTest {
             "Це посилання не підтримується. Надішліть YouTube-відео, плейлист або пост Telegram."
         ).assertExists()
     }
+
+    @Test
+    fun `a shared link prefills the field`() {
+        compose.setContent {
+            AudiobookTheme {
+                SubmissionSheetContent(
+                    state = SubmissionUiState.Idle,
+                    remainingToday = 7,
+                    onSubmit = {},
+                    prefillUrl = "https://youtu.be/abc",
+                    includePaneSemantics = false
+                )
+            }
+        }
+        compose.onNodeWithText("https://youtu.be/abc").assertExists()
+    }
+
+    @Test
+    fun `the clipboard chip appears only with a supported candidate and fills the field`() {
+        compose.setContent {
+            AudiobookTheme {
+                SubmissionSheetContent(
+                    state = SubmissionUiState.Idle,
+                    remainingToday = 7,
+                    onSubmit = {},
+                    clipboardCandidate = "https://t.me/bookchannel/42",
+                    includePaneSemantics = false
+                )
+            }
+        }
+        compose.onNodeWithTag("submission_clipboard_chip").performClick()
+        compose.onNodeWithText("https://t.me/bookchannel/42").assertExists()
+    }
 }

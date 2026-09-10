@@ -10,13 +10,28 @@ import org.junit.Test
  * Fixture tests for the spec-50 T2 KnigiOnlineAdapter. Markup mirrors real
  * knigi-online.com.ua pages captured live in the T1 spike (committed under
  * `docs/wayfinder/research/fixtures/knigionline/`): WordPress post-cards,
- * the AudioIgniter `data-tracks-url` block and the playlist JSON. No network.
+ * the AudioIgniter `data-tracks-url` block and the playlist JSON. The search
+ * fixture is the LIVE `/?s=нестайко` capture (2026-09-10; full version:
+ * `search-s-nestayko.html`) — one ebook card and one audiobook card, the
+ * audiobook anchor carrying the site's «Аудіокнига » wrapper. No network.
  */
 class KnigiOnlineAdapterTest {
 
     private val bookUrl = "https://knigi-online.com.ua/audioknyha-toreadory-z-vasiukivky-vsevolod-nestayko/"
     private val searchUrl =
         "https://knigi-online.com.ua/?s=" + java.net.URLEncoder.encode("нестайко", "UTF-8")
+    // Live /?s=нестайко capture (spec-50 T1, 2026-09-10): the ebook card
+    // (URL without /audioknyha-/ prefix) never enters; the audiobook anchor
+    // reads «Аудіокнига «…» — the wrapper is stripped in splitTitleAuthor.
+    // Full capture: research/fixtures/knigionline/search-s-nestayko.html
+    private val searchPage = """
+        <title>Ви шукали нестайко &#8211; Knigi-Online.com.ua</title>
+        <div class="post-card post-card--vertical post-card--thumbnail-meta" itemscope itemtype="http://schema.org/BlogPosting">
+        <div class="post-card__thumbnail"><a href="https://knigi-online.com.ua/neymovirni-detektyvy-knyha-1-taiemnychyy-holos-za-spynoiu-vsevolod-nestayko/"><div class="post-card__icon"><img width="345" height="230" src="https://knigi-online.com.ua/wp-content/uploads/2024/09/Neymovirni-detektyvy.-Knyha-1.-Taiemnychyy-holos-za-spynoiu-Vsevolod-Nestayko-345x230.jpg" class="attachment-yelly_small size-yelly_small wp-post-image" alt="«Неймовірні детективи. Книга 1. Таємничий голос за спиною» Всеволод Нестайко" itemprop="image" decoding="async" fetchpriority="high" /></div><div class="post-card__meta"><span itemprop="articleSection" class="post-card__category">Українські детективи</span><div class="post-card__meta-right"><span class="post-card__comments">0</span><span class="post-card__views">829</span></div></div></a></div><div class="post-card__title" itemprop="name"><span itemprop="headline"><a href="https://knigi-online.com.ua/neymovirni-detektyvy-knyha-1-taiemnychyy-holos-za-spynoiu-vsevolod-nestayko/">«Неймовірні детективи. Книга 1. Таємничий голос за спиною» Всеволод Нестайко</a></span></div></div>
+        <div class="post-card post-card--vertical post-card--thumbnail-meta" itemscope itemtype="http://schema.org/BlogPosting">
+        <div class="post-card__thumbnail"><a href="https://knigi-online.com.ua/audioknyha-toreadory-z-vasiukivky-vsevolod-nestayko/"><div class="post-card__icon"><img width="329" height="230" src="https://knigi-online.com.ua/wp-content/uploads/2024/09/Toreadory-z-Vasiukivky-Vsevolod-Nestayko-329x230.jpg" class="attachment-yelly_small size-yelly_small wp-post-image" alt="Аудіокнига «Тореадори з Васюківки» Всеволод Нестайко слухати онлайн" itemprop="image" decoding="async" /></div><div class="post-card__meta"><span itemprop="articleSection" class="post-card__category">Аудіокниги</span><div class="post-card__meta-right"><span class="post-card__comments">0</span><span class="post-card__views">970</span></div></div></a></div><div class="post-card__title" itemprop="name"><span itemprop="headline"><a href="https://knigi-online.com.ua/audioknyha-toreadory-z-vasiukivky-vsevolod-nestayko/">Аудіокнига «Тореадори з Васюківки» Всеволод Нестайко</a></span></div></div>
+    """.trimIndent()
+
     private val newUrl = "https://knigi-online.com.ua/audioknyhy/"
     private val sitemapUrl = "https://knigi-online.com.ua/post-sitemap.xml"
     private val playlistUrl = "https://knigi-online.com.ua/?audioigniter_playlist_id=531"
@@ -62,13 +77,23 @@ class KnigiOnlineAdapterTest {
     """.trimIndent()
 
     @Test
-    fun `search returns audiobook cards only - the ebook card never enters`() = runBlocking {
-        val adapter = KnigiOnlineAdapter(FakeFetcher(mapOf(searchUrl to newPage)))
+    fun `search parses the live wordpress results - the ebook card never enters`() = runBlocking {
+        val adapter = KnigiOnlineAdapter(FakeFetcher(mapOf(searchUrl to searchPage)))
         val results = adapter.search("нестайко")
-        assertEquals(2, results.size)
-        assertEquals("«Пригоди Тома Соєра»", results[0].title)
-        assertEquals("Марк Твен", results[0].author)
-        assertEquals("https://knigi-online.com.ua/audioknyha-pryhody-toma-soiera-mark-tven/", results[0].url)
+        assertEquals(1, results.size)
+        // The live search anchor carries the site's «Аудіокнига » wrapper;
+        // splitTitleAuthor strips it, so the same book keeps one title across
+        // search, section listing and book page.
+        assertEquals("«Тореадори з Васюківки»", results[0].title)
+        assertEquals("Всеволод Нестайко", results[0].author)
+        assertEquals(
+            "https://knigi-online.com.ua/audioknyha-toreadory-z-vasiukivky-vsevolod-nestayko/",
+            results[0].url
+        )
+        assertEquals(
+            "https://knigi-online.com.ua/wp-content/uploads/2024/09/Toreadory-z-Vasiukivky-Vsevolod-Nestayko-329x230.jpg",
+            results[0].coverImageUrl
+        )
         assertTrue(results.all { it.sourceId == "knigionline" })
     }
 

@@ -8,9 +8,12 @@ import com.slukhayka.audiobooks.data.LanguageCode
  * fixtures in `research/fixtures/knigionline/`).
  *
  * WordPress site, server-fetch, no WebView. Three mechanics:
- * - **Search** (`/?s=<query>`): server-rendered `post-card` results; the
- *   anchor text reads `«Title» Author`. Mixed site — only `/audioknyha-/`
- *   URLs are audio claims; ebook cards never enter.
+ * - **Search** (`/?s=<query>`): server-rendered `post-card` results
+ *   (verified live 2026-09-10 — the T1 spike note claiming search is
+ *   absent was wrong; fixture `search-s-nestayko.html`). Search anchors
+ *   read `Аудіокнига «Title» Author` (section cards drop the wrapper) —
+ *   the prefix is stripped in [splitTitleAuthor]. Mixed site — only
+ *   `/audioknyha-/` URLs are audio claims; ebook cards never enter.
  * - **New** (`/audioknyhy/`): the same post-cards in the site's own order.
  * - **Book page**: og:* metadata (title `Аудіокнига «Title» Author`,
  *   description, image) + the AudioIgniter `data-tracks-url` block; the
@@ -149,20 +152,24 @@ class KnigiOnlineAdapter(
     }
 
     /**
-     * `Аудіокнига «Title» Author` (og:title) or bare `«Title» Author`
-     * (card anchors) → (`«Title»`, `Author`). No `»` → the whole text is
-     * the title, the author stays empty — never split-guessed.
+     * `Аудіокнига «Title» Author` (og:title or search-card anchor) or bare
+     * `«Title» Author` (section-card anchors) → (`«Title»`, `Author`). The
+     * site's «Аудіокнига » wrapper is stripped first — search cards carry
+     * it, section cards do not, so one book keeps one title across the
+     * adapter's surfaces (the book-page path strips it the same way). No
+     * `»` → the whole text is the title, the author stays empty — never
+     * split-guessed.
      */
     private fun titleAndAuthorFrom(html: String): Pair<String, String> {
-        val raw = (ogMeta(html, "og:title") ?: titleTag(html))
-            .removePrefix("Аудіокнига ").trim()
+        val raw = ogMeta(html, "og:title") ?: titleTag(html)
         return splitTitleAuthor(raw)
     }
 
     private fun splitTitleAuthor(anchor: String): Pair<String, String> {
-        val close = anchor.indexOf('»')
-        if (close < 0) return anchor.trim() to ""
-        return anchor.substring(0, close + 1).trim() to anchor.substring(close + 1).trim()
+        val cleaned = anchor.removePrefix("Аудіокнига ").trim()
+        val close = cleaned.indexOf('»')
+        if (close < 0) return cleaned to ""
+        return cleaned.substring(0, close + 1).trim() to cleaned.substring(close + 1).trim()
     }
 
     private fun titleTag(html: String): String =

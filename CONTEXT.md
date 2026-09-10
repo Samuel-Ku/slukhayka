@@ -45,8 +45,16 @@ _Avoid_: спільна база посилань, збережені підпи
 домен, далі глобальне горло «один запит у польоті» з джитер-проміжком. Запити
 бувають дією слухача, оновленням за TTL або фонові; фон палить бюджет лише
 коли кошик повний більш ніж наполовину, дія слухача стрибає в голову черги.
+Токен списується на запит; прохід обмежений кошиком — частковий каталог це
+чесний стан, а не фабрикація (ADR-0040).
 Аудіо-стріми та жива браузерна сесія поза шлюзом (ADR-0039).
 _Avoid_: власний ритм кожної фічі, сплеск до багатьох доменів на старті, паузи для аудіо-стрімів
+
+**Source Request Profile**:
+Декларація адаптера на ендпоінт: клас запиту і TTL кешу, які шов
+ввічливості читає (ADR-0040). Фіча не класифікує запити й не знає чисел;
+нове джерело декларує профіль поруч зі своїм адаптером.
+_Avoid_: requestClass/cacheTtl у викликача, per-feature ритм-політики
 
 
 **Source Registry**:
@@ -70,8 +78,19 @@ A device's locator, permission, and availability relationship to a Source. Bindi
 _Avoid_: Source, download
 
 **Source Catalog**:
-The union of browseable Works a Source exposes — sections, genres, series listings, people — fetched as Metadata Assertions on demand rather than stored wholesale. A Source of a mixed site contributes only its audio: text-only content (e-books, online reading) of the same site never enters the catalog (spec-47: chytaylo) until a separate recorded decision.
+The union of browseable Works a Source exposes — sections, genres, series listings, people — fetched as Metadata Assertions on demand rather than stored wholesale. A Source of a mixed site contributes only its audio: text-only content (e-books, online reading) of the same site never enters the catalog (spec-47: chytaylo; spec-50: chitaka — its fb2/epub/txt pages share the `/knigi/` path but render no `<audio>`) until a separate recorded decision.
 _Avoid_: Store, browse cache, text content of a mixed site as catalog rows
+
+**Search Genre Assertion**:
+Genre-claim, який несе картка пошуку (`SourceBook.genre`) для одного
+Source×Work. Пишеться у фасети крізь `LocalFacetWriter` у формі assertion
+того самого джерела (sourceId, сторінка, exact source text, observedAt) на
+рівні per-adapter результату, ДО об'єднання карток (ADR-0040). Документ з
+enumeration завжди старший за пошуковий для тієї самої пари — каталог не
+зменшується пошуковим хітом; пошук заповнює прогалину творів, які ніколи не
+перелічувалися. Жанр ніколи не вигадується; порожній рядок нічого не пише
+(ADR-0014).
+_Avoid_: жанр лише з каталогу, guessed genre з тексту/URL, запис на рівні об'єднаної картки
 
 **Chapter**:
 An ordered logical subdivision of one Edition to which positions and bookmarks can be anchored, independent of how a Source divides its files. A Chapter row carries order, title, and duration only — stream URLs, file paths, and content hashes belong to Source tracks.

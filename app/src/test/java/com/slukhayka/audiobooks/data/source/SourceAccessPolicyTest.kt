@@ -82,6 +82,17 @@ class SourceAccessPolicyTest {
     }
 
     @Test
+    fun `spec-47 wave sources get their access modes - two direct, one browser`() {
+        // audiobookcoua (T2) and chytaylo (T3) are server-fetch per the T1
+        // spike verdicts — DIRECT. ukrainianaudiobooks is Cloudflare-GATED:
+        // its recovery profile (spec-48 T3) makes it BROWSER, never a direct
+        // fetch that would 403.
+        assertEquals(SourceAccessMode.DIRECT, SourceAccessPolicy.modeFor("audiobookcoua"))
+        assertEquals(SourceAccessMode.DIRECT, SourceAccessPolicy.modeFor("chytaylo"))
+        assertEquals(SourceAccessMode.BROWSER, SourceAccessPolicy.modeFor("ukrainianaudiobooks"))
+    }
+
+    @Test
     fun `4read is explicitly browser backed`() {
         assertEquals(SourceAccessMode.BROWSER, SourceAccessPolicy.modeFor("4read"))
     }

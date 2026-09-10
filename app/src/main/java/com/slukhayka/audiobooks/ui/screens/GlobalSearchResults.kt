@@ -52,6 +52,7 @@ import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.catalog.CatalogCardAction
 import com.slukhayka.audiobooks.ui.catalog.CatalogCardActionState
+import com.slukhayka.audiobooks.ui.catalog.CatalogCardFailure
 import com.slukhayka.audiobooks.ui.catalog.CatalogBrowserFocusReturn
 import com.slukhayka.audiobooks.ui.components.BookCoverSemantics
 import com.slukhayka.audiobooks.ui.theme.AppBadgeScrim
@@ -337,7 +338,8 @@ internal fun CatalogCardStatus(
     val text = when (state) {
         is CatalogCardActionState.Checking -> stringResource(R.string.catalog_card_checking)
         is CatalogCardActionState.Failed -> stringResource(
-            if (state.action == CatalogCardAction.OPEN) R.string.catalog_card_open_error
+            if (state.reason == CatalogCardFailure.AUDIO_REFUSED) R.string.catalog_card_audio_refused
+            else if (state.action == CatalogCardAction.OPEN) R.string.catalog_card_open_error
             else R.string.catalog_card_play_error
         )
         is CatalogCardActionState.BrowserRequired -> stringResource(R.string.catalog_card_browser_required)

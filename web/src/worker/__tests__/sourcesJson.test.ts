@@ -1,0 +1,98 @@
+import { describe, expect, it } from 'vitest'
+import sources from '../../../../sources.json'
+import { REGISTRY } from '../registry'
+import { SOURCE_METADATA, SOURCE_ORDER } from '../sourceMetadata'
+
+/**
+ * ADR-0038 — the web side of the parity gate: the worker's registry and
+ * metadata tables must agree with `sources.json` (repo root), which the
+ * worker imports natively. A fact changed on either side fails this test.
+ */
+describe('sources.json — the one carrier of source facts (ADR-0038)', () => {
+  /** ADR-0038 §5: worker-local keys vs the canonical (persisted) domain ids. */
+  const WEB_KEY_TO_ID: Record<string, string> = {
+    fourread: '4read',
+    'sound-books': 'soundbooks',
+    'audiobook-mp3': 'audiobookmp3',
+  }
+
+  const idOf = (key: string): string => WEB_KEY_TO_ID[key] ?? key
+
+  const jsonById = new Map(sources.sources.map((s) => [s.id, s]))
+
+  it('every web source id exists in the registry', () => {
+    for (const key of SOURCE_ORDER) {
+      expect(jsonById.has(idOf(key)), key).toBe(true)
+    }
+  })
+
+  it('SOURCE_ORDER matches the registry order', () => {
+    const webIds = SOURCE_ORDER.map(idOf)
+    const jsonWebOrder = sources.sources
+      .filter((s) => webIds.includes(s.id))
+      .sort((a, b) => a.order - b.order)
+      .map((s) => s.id)
+    expect(webIds).toEqual(jsonWebOrder)
+  })
+
+  /**
+   * ADR-0038: values the consumer migration will unify onto the registry.
+   * Pinned here so they cannot drift FURTHER while they wait — each entry
+   * disappears in the migration step that changes the code value.
+   */
+  const KNOWN_MIGRATION_DIVERGENCES: ReadonlyArray<[key: string, field: 'label', current: string]> = [
+    // The site's own name is "audiobook-mp3" (the Android badge); the web
+    // label "Audio-MP3" migrates onto it.
+    ['audiobook-mp3', 'label', 'Audio-MP3'],
+  ]
+
+  it('SOURCE_METADATA mirrors the registry facts', () => {
+    for (const key of SOURCE_ORDER) {
+      const json = jsonById.get(idOf(key))!
+      const meta = SOURCE_METADATA[key]
+      const divergence = KNOWN_MIGRATION_DIVERGENCES.find(([k, f]) => k === key && f === 'label')
+      if (divergence) {
+        expect(meta.label, `${key} (pinned ADR-0038 divergence)`).toBe(divergence[2])
+      } else {
+        expect(meta.label, key).toBe(json.displayName)
+      }
+      // Trailing-slash normalization is part of the consumer migration (ADR-0038).
+      expect(meta.homeUrl.replace(/\/$/, ''), key).toBe((json.homeUrl ?? '').replace(/\/$/, ''))
+      expect(meta.contentLanguage, key).toBe(json.contentLanguage)
+    }
+  })
+
+  it('browserSessionRequired agrees with accessMode — except the documented sluhay divergence', () => {
+    for (const key of SOURCE_ORDER) {
+      const json = jsonById.get(idOf(key))!
+      // ADR-0038 §4: session-bound-ness is platform knowledge — sluhay needs
+      // the Android session but the worker fetches it server-side.
+      if (key === 'sluhay') continue
+      expect(SOURCE_METADATA[key].browserSessionRequired, key).toBe(json.accessMode === 'BROWSER')
+    }
+  })
+
+  it('REGISTRY allowedHosts stay within the registry transportHosts', () => {
+    for (const key of SOURCE_ORDER) {
+      const json = jsonById.get(idOf(key))!
+      for (const host of REGISTRY[key].allowedHosts) {
+        expect(json.transportHosts, `${key}: ${host}`).toContain(host)
+      }
+    }
+  })
+
+  it('search URLs and catalogue URLs ride the registry', () => {
+    for (const key of SOURCE_ORDER) {
+      const json = jsonById.get(idOf(key))!
+      const entry = REGISTRY[key]
+      if (entry.searchUrl && json.searchUrl) {
+        const q = 'Кобзар'
+        expect(entry.searchUrl(q), key).toBe(json.searchUrl.replace('{q}', encodeURIComponent(q)))
+      }
+      if (entry.catalogUrl && json.catalogUrl) {
+        // librivox appends limit/offset to the declared base URL.
+        expect(entry.catalogUrl.startsWith(json.catalogUrl), key).toBe(true)
+      }
+    }
+  })
+})

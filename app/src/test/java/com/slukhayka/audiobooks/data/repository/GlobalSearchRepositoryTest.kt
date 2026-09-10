@@ -14,6 +14,7 @@ import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.data.source.GlobalSearchSource
 import com.slukhayka.audiobooks.data.source.SourceAdapter
 import com.slukhayka.audiobooks.data.source.SourceBook
+import com.slukhayka.audiobooks.data.source.sourceDisplayName
 import com.slukhayka.audiobooks.data.source.sourceIdForUrl
 import com.slukhayka.audiobooks.data.source.SourceBookDetail
 import com.slukhayka.audiobooks.data.source.SourceChapter
@@ -99,6 +100,23 @@ class GlobalSearchRepositoryTest {
         // The book's sourceUrl is the PAGE url (never the mp3), but a stray
         // CDN url must still not map to sluhayua or unknown.
         assertEquals("sluhay", sourceIdForUrl("https://sluhay.com/uploads/books/6150/cover.webp"))
+    }
+
+    @Test
+    fun `audiobookcoua urls map to their own source - spec-47 T5 registration`() {
+        // Book page, novinki section and playlist txt all live on the site's
+        // own host — one source identity for every URL the adapter emits. The
+        // audio itself rides archive.org (T1): its /details/ shape stays
+        // librivox's mirror mapping, and /download/ streams need no mapping
+        // because the header seam keys off the book's PAGE url.
+        assertEquals("audiobookcoua", sourceIdForUrl("https://audiobook.co.ua/pid-kupolom-stiven-king/"))
+        assertEquals("audiobookcoua", sourceIdForUrl("https://audiobook.co.ua/novinki-ozvuchivaniya/"))
+        assertEquals("audiobookcoua", sourceIdForUrl("https://audiobook.co.ua/playlist/pid-kupolom-stiven-king.txt"))
+    }
+
+    @Test
+    fun `audiobookcoua badge shows the domain - spec-47 T5 registration`() {
+        assertEquals("Audiobook.co.ua", sourceDisplayName("audiobookcoua"))
     }
 
     @Test

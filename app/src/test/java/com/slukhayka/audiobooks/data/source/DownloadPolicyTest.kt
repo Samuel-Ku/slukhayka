@@ -27,9 +27,12 @@ class DownloadPolicyTest {
         // ToS restriction found, the site tracks downloadedTimes — downloads
         // are intended use. sluhay/sluhayknigi (spec-13): robots open, no
         // download prohibition found in the spike — allowed.
+        // audiobookcoua (spec-47 T1): direct archive.org audio serves ranges
+        // to plain GETs (206 audio/mpeg), robots.txt carries `Allow: /` and no
+        // ToS prohibition was found — allowed.
         listOf(
             "4read", "soundbooks", "audiobookmp3", "sluhayua", "sluhay", "sluhayknigi",
-            "local", "unknown-source"
+            "audiobookcoua", "local", "unknown-source"
         ).forEach { sourceId ->
             assertFalse("$sourceId must allow downloads", streamOnlyFor(sourceId))
         }

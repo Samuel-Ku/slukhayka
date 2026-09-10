@@ -80,6 +80,7 @@ import com.slukhayka.audiobooks.ui.catalog.editionScopedCatalogSources
 import com.slukhayka.audiobooks.ui.catalog.CatalogCardTarget
 import com.slukhayka.audiobooks.ui.catalog.CatalogBrowserFocusReturn
 import com.slukhayka.audiobooks.ui.catalog.MediaRangeValidator
+import com.slukhayka.audiobooks.ui.catalog.PlaybackReplacementMapping
 import com.slukhayka.audiobooks.ui.catalog.catalogSessionCandidates
 import com.slukhayka.audiobooks.ui.catalog.hasUsableSourceSession
 import kotlinx.coroutines.CancellationException
@@ -321,6 +322,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         pendingNarrationSwitchAction = null
         _narrationSwitchPrompt.value = null
     }
+
+    // Spec-49 T2b — the player-preparation twin of the card-tap mapping.
+    // A refused-only (or sourceless) library book asks the resolver once
+    // per touch when resume finds nothing playable; the ordinary import
+    // door lands the found Source (progress carries on narrator agreement,
+    // a sibling otherwise — the T3 doors), and the Source Watch reads the
+    // same verdict the card path feeds it. Miss or failure keeps the honest
+    // path below.
+    private val playbackReplacementMapping = PlaybackReplacementMapping(
+        resolve = { title, author, mergeKey -> App.instance.directSourceResolve.resolve(title, author, mergeKey) },
+        importMatch = { book, match ->
+            libraryImport.importFromSourceUrl(
+                match.sourceId,
+                match.url,
+                KnownBookIdentity(
+                    title = book.title,
+                    author = book.author,
+                    narrator = book.narrator,
+                    coverImageUrl = book.coverImageUrl
+                )
+            )
+        },
+        onMapped = { mergeKey, sourceId ->
+            runCatching { SourceWatchNotifier.notifyMappingVerdict(App.instance, mergeKey, sourceId) }
+        }
+    )
 
     private val catalogCardCoordinator = CatalogCardActionCoordinator(
         scope = viewModelScope,
@@ -3380,23 +3407,57 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val updatedBook = libraryEntries.getBookSync(book.id) ?: book
             // ADR-0007: the chapter→track pairing rides the same fetch — the
             // player resolves chapter → track 1:1 by index.
-            val playable = sourceCatalog.getPlayableChapters(
+            var playable = sourceCatalog.getPlayableChapters(
                 updatedBook.id,
                 preferredSourceType = preferredSource?.type,
                 preferredSourceUrl = preferredSource?.url
             )
-            val chapters = playable.map { it.chapter }
             // Code-review LOW: if the book was deleted while this IO fetch was
             // in flight (e.g. deleteBook on another screen), do not resurrect
             // playback for it.
             if (libraryEntries.getBookSync(updatedBook.id) == null) return
+            // Spec-49 T2b — player preparation asks the replacement mapping
+            // once per touch: resume/auto-play of a refused-only (or
+            // sourceless) book self-heals through the same resolver the card
+            // path uses, and the found Source imports through the ordinary
+            // door (progress carries on narrator agreement — T3). A miss or
+            // a failure keeps the honest path below; an explicit source
+            // choice is always respected, never mapped over.
+            var playbackBook = updatedBook
+            try {
+                playbackReplacementMapping.mapIfNeeded(
+                    book = playbackBook,
+                    playableEmpty = playable.isEmpty(),
+                    hasPreferredSource = preferredSource != null
+                )?.let { imported ->
+                    if (libraryEntries.getBookSync(imported.id) != null) {
+                        playbackBook = imported
+                    }
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            }
+            if (playbackBook.id != updatedBook.id) {
+                playable = try {
+                    sourceCatalog.getPlayableChapters(
+                        playbackBook.id,
+                        preferredSourceType = preferredSource?.type,
+                        preferredSourceUrl = preferredSource?.url
+                    )
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    playable
+                }
+            }
+            val chapters = playable.map { it.chapter }
             // ADR-0023 (spec-43 T6): the cloud mirror lands BEFORE the resume
             // decision — «почав на телефоні — продовж тут». A forced
             // re-listen skips it: the explicit restart intent wins.
             if (!forceRelisten) {
-                runCatching { progressSync.pullBeforeResume(updatedBook.id) }
+                runCatching { progressSync.pullBeforeResume(playbackBook.id) }
             }
-            val progress = listeningState.getProgressSync(updatedBook.id)
+            val progress = listeningState.getProgressSync(playbackBook.id)
 
             // ADR-0008: the ONE pure resume decision — an explicit chapter
             // request vs. the saved progress, then the ADR-0003 smart rewind
@@ -3415,7 +3476,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             // ADR-0007: the pause marker lives on the Edition's progress row;
             // cleared so the same pause never rewinds twice.
             if (progress?.lastPausedAtEpochMs != null) {
-                listeningState.updatePausedAt(updatedBook.id, null)
+                listeningState.updatePausedAt(playbackBook.id, null)
             }
 
             withContext(Dispatchers.Main) {
@@ -3424,10 +3485,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     // session still held an error. Clear that stale emission,
                     // then arm recovery only for the attempt installed below.
                     playerManager.clearPlaybackFailureForNewAttempt()
-                    automaticPlaybackRecoveryGate.arm(updatedBook.id)
+                    automaticPlaybackRecoveryGate.arm(playbackBook.id)
                 }
                 playerManager.loadAndPlayBook(
-                    book = updatedBook,
+                    book = playbackBook,
                     chapters = chapters,
                     playable = playable,
                     initialChapterIndex = resume.chapterIndex,
@@ -3438,7 +3499,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
 
             // Asynchronously refresh metadata/cover in background without delaying audio startup
-            libraryEntries.refreshBookCoverAndDetails(book.id)
+            libraryEntries.refreshBookCoverAndDetails(playbackBook.id)
     }
 
     fun addBookmarkAtCurrentPosition(note: String) {

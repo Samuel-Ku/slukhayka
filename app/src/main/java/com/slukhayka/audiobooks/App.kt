@@ -83,6 +83,8 @@ import com.slukhayka.audiobooks.data.privacy.TransportPrivacy
 import com.slukhayka.audiobooks.data.source.AudiobookCoUaAdapter
 import com.slukhayka.audiobooks.data.source.AudiobookMp3Adapter
 import com.slukhayka.audiobooks.data.source.ChytayloAdapter
+import com.slukhayka.audiobooks.data.source.ChitakaAdapter
+import com.slukhayka.audiobooks.data.source.KnigiOnlineAdapter
 import com.slukhayka.audiobooks.data.source.FourReadAdapter
 import com.slukhayka.audiobooks.data.source.SourceAudioRefusal
 import com.slukhayka.audiobooks.data.watch.SourceWatchStore
@@ -512,6 +514,14 @@ class App : Application() {
             // cards surface in the union and global search next to the
             // Ukrainian ones (book pages are T3 #491).
             LibriVoxAdapter(),
+            // Spec-50 T4 — knigi-online.com.ua joins the registry (T1 verdict
+            // PASS, server-fetch): its sitemap enumeration joins the union
+            // and the AudioIgniter playlist feeds real chapters.
+            KnigiOnlineAdapter(),
+            // Spec-50 T4 — chitaka.com.ua joins the registry (T1 verdict
+            // PASS, server-fetch): the /audioknyhy/ listing feeds the union;
+            // single-file books ride one chapter each (audio-only boundary).
+            ChitakaAdapter(),
             // ADR-0035 / #606: the Telegram public-preview adapter — NOT a
             // browsable catalogue source (search/new are honestly empty); it
             // rides the captured-page seam so the submission door finds it

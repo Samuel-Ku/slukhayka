@@ -156,6 +156,29 @@
       }
     },
     {
+      "id": "knigionline",
+      "displayName": "Knigi-Online",
+      "homeUrl": "https://knigi-online.com.ua",
+      "contentLanguage": "uk",
+      "accessMode": "DIRECT",
+      "order": 12,
+      "streamOnly": false,
+      "catalogUrl": "https://knigi-online.com.ua/audioknyhy/",
+      "searchUrl": "https://knigi-online.com.ua/?s={q}",
+      "transportHosts": ["knigi-online.com.ua"]
+    },
+    {
+      "id": "chitaka",
+      "displayName": "Читака",
+      "homeUrl": "https://chitaka.com.ua",
+      "contentLanguage": "uk",
+      "accessMode": "DIRECT",
+      "order": 13,
+      "streamOnly": false,
+      "catalogUrl": "https://chitaka.com.ua/audioknyhy/",
+      "transportHosts": ["chitaka.com.ua"]
+    },
+    {
       "id": "local",
       "displayName": "Локальна",
       "accessMode": "DIRECT",

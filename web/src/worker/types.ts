@@ -15,7 +15,7 @@ import { getText, getAttributeValue } from 'domutils'
 // Spec-47 T6 — the wave's two server-fetch sources join; ukrainianaudiobooks
 // is deliberately ABSENT (Cloudflare-GATED, the worker has no WebView
 // session — the honest absence per the spec).
-export type SourceId = 'fourread' | 'sound-books' | 'audiobook-mp3' | 'lihtar' | 'sluhayua' | 'sluhay' | 'librivox' | 'audiobookcoua' | 'chytaylo'
+export type SourceId = 'fourread' | 'sound-books' | 'audiobook-mp3' | 'lihtar' | 'sluhayua' | 'sluhay' | 'librivox' | 'audiobookcoua' | 'chytaylo' | 'knigionline' | 'chitaka'
 
 export interface CatalogCard {
   /** Stable page URL of this Work on its Source. */

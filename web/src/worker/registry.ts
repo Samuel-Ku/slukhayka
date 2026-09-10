@@ -22,6 +22,8 @@ import { sluhayuaAdapter, chapterCountOf, chaptersFromPlayResponses } from './ad
 import { archiveSearchUrl, buildBookDetail as buildLibrivoxDetail, catalogUrlOf, identifierOf as librivoxIdentifierOf, librivoxAdapter } from './adapters/librivox'
 import { audiobookcouaAdapter, playlistUrlOf as audiobookcouaPlaylistUrl } from './adapters/audiobookcoua'
 import { chytayloAdapter } from './adapters/chytaylo'
+import { chitakaAdapter } from './adapters/chitaka'
+import { knigionlineAdapter, playlistTracks, playlistUrlOf as knigionlinePlaylistUrl } from './adapters/knigionline'
 import { parsePlayerjsPlaylist } from './adapters/playerjs'
 
 export interface SourceEntry {
@@ -201,6 +203,35 @@ export const REGISTRY: Record<SourceId, SourceEntry> = {
     adapter: chytayloAdapter,
     allowedHosts: ['chytaylo.com.ua'],
     buildBook: async (html, pageUrl) => chytayloAdapter.parseBookPage(html, pageUrl),
+  },
+  // Spec-50 T5 — knigi-online.com.ua: chapters ride the AudioIgniter JSON
+  // playlist (one extra fetch through the guarded transport); the
+  // playlist-less page keeps the detail honestly chapterless.
+  knigionline: {
+    adapter: knigionlineAdapter,
+    allowedHosts: ['knigi-online.com.ua'],
+    catalogUrl: 'https://knigi-online.com.ua/audioknyhy/',
+    searchUrl: (query: string) => `https://knigi-online.com.ua/?s=${encodeURIComponent(query)}`,
+    buildBook: async (html, pageUrl, fetchText) =>
+      await expandViaPlaylist(
+        knigionlineAdapter.parseBookPage(html, pageUrl),
+        html,
+        knigionlinePlaylistUrl,
+        (body) =>
+          playlistTracks(body).map((track) => ({
+            title: track.title,
+            streamUrl: track.url,
+          })),
+        fetchText,
+      ),
+  },
+  // Spec-50 T5 — chitaka.com.ua: single-file books, chapters on the page
+  // (native <audio>); no server search endpoint (robots *?*).
+  chitaka: {
+    adapter: chitakaAdapter,
+    allowedHosts: ['chitaka.com.ua'],
+    catalogUrl: 'https://chitaka.com.ua/audioknyhy/',
+    buildBook: async (html, pageUrl) => chitakaAdapter.parseBookPage(html, pageUrl),
   },
 }
 

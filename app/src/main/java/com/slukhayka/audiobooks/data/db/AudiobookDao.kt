@@ -1450,4 +1450,22 @@ interface AudiobookDao {
     /** Upserts vectors (REPLACE by workId — a changed text overwrites its row). */
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertEmbeddingVectors(rows: List<EmbeddingVectorEntity>)
+
+    // ------------------------------------------------------------------
+    // Spec-53 T3 (#710) — persistent listener-submission states (restart-safe).
+    // ------------------------------------------------------------------
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertSubmissionState(row: SubmissionStateEntity)
+
+    @Query("SELECT * FROM submission_states WHERE sourceId = :sourceId LIMIT 1")
+    suspend fun submissionStateBySourceId(sourceId: String): SubmissionStateEntity?
+
+    @Query("SELECT * FROM submission_states WHERE state = 'AWAITING_PLAY' ORDER BY createdAt")
+    suspend fun awaitingSubmissionStates(): List<SubmissionStateEntity>
+
+    @Query(
+        "UPDATE submission_states SET state = :state, reason = :reason, updatedAt = :updatedAt WHERE sourceId = :sourceId"
+    )
+    suspend fun updateSubmissionState(sourceId: String, state: String, reason: String?, updatedAt: Long)
 }

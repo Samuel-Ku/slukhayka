@@ -13,6 +13,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -23,6 +24,7 @@ import com.slukhayka.audiobooks.data.universe.SeriesRef
 import com.slukhayka.audiobooks.data.universe.SeriesUniverseContext
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.ui.MainViewModel
+import com.slukhayka.audiobooks.ui.components.BookRow
 import com.slukhayka.audiobooks.ui.components.IndexScreenScaffold
 import com.slukhayka.audiobooks.ui.components.SecondaryLoadingState
 import com.slukhayka.audiobooks.ui.components.SecondaryMessageState
@@ -55,13 +57,25 @@ fun SeriesScreen(
     val currentSeries = series ?: return
     val returnFocusRequester = remember { FocusRequester() }
 
-    IndexScreenScaffold(title = currentSeries.title, onBackClick = onBackClick) { padding ->
+    // v1.4 E6 (ADR-0033): the honest count rides the scaffold's subtitle
+    // (R10), rendered only when it is real (ADR-0014).
+    IndexScreenScaffold(
+        title = currentSeries.title,
+        onBackClick = onBackClick,
+        subtitle = if (!isLoading && !loadFailed && books.isNotEmpty()) {
+            pluralStringResource(R.plurals.book_in_cycle_count, books.size, books.size)
+        } else {
+            null
+        }
+    ) { padding ->
         LaunchedEffect(restoreFocusBookId, books, isLoading, loadFailed, seriesUniverse) {
             val bookId = restoreFocusBookId ?: return@LaunchedEffect
             if (isLoading || loadFailed) return@LaunchedEffect
             val bookIndex = books.indexOfFirst { it.id == bookId }
             if (bookIndex < 0) return@LaunchedEffect
-            val headerOffset = 1 + if (seriesUniverse != null) 1 else 0
+            // The count moved into the scaffold's subtitle (v1.4 E6); only
+            // the universe block (when present) precedes the rows now.
+            val headerOffset = if (seriesUniverse != null) 1 else 0
             listState.scrollToItem(bookIndex + headerOffset)
             withFrameNanos { }
             if (runCatching { returnFocusRequester.requestFocus() }.getOrDefault(false)) {
@@ -74,7 +88,7 @@ fun SeriesScreen(
                 .fillMaxSize()
                 .padding(padding)
                 .testTag("series_screen"),
-            contentPadding = PaddingValues(bottom = 120.dp, top = 8.dp)
+            contentPadding = PaddingValues(bottom = AppDimens.SpaceAboveMiniPlayer, top = 8.dp)
         ) {
             when {
                 isLoading -> {
@@ -132,19 +146,11 @@ fun SeriesScreen(
                             )
                         }
                     }
-                    item {
-                        // Spec-27 (#186) BUG-005/006: the count is honest (the
-                        // series page really has N books) and pluralized
-                        // correctly — «1 книга у циклі», «2 книги», «5 книг».
-                        Text(
-                            text = "${books.size} ${ukPlural(books.size, "книга", "книги", "книг")} у циклі",
-                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                            color = MaterialTheme.colorScheme.secondary,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-                        )
-                    }
+                    // The count lives in the scaffold's subtitle (v1.4 E6,
+                    // ADR-0033; spec-27 #186 BUG-005/006 pluralization
+                    // preserved).
                     items(books, key = { it.id }) { book ->
-                        AudiobookListItem(
+                        BookRow(
                             book = book,
                             onClick = { onBookClick(book.id) },
                             onPlayClick = {

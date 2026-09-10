@@ -60,6 +60,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.graphics.drawable.toBitmap
 import com.slukhayka.audiobooks.BuildConfig
 import com.slukhayka.audiobooks.App
+import com.slukhayka.audiobooks.ui.screens.bookdetail.BookmarkDeleteConfirmation
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.BookmarkEntity
@@ -235,6 +236,11 @@ fun PlayerScreen(
     var pendingFeedback by remember { mutableStateOf<String?>(null) }
     val playerContext = LocalContext.current
     val fadeWarningFeedback = stringResource(R.string.a11y_timer_fade_warning)
+    // v1.4 E5: the one-shot confirmations resolved in the composable body so
+    // the sheet callbacks (plain lambdas) can reference them.
+    val chapterEndFeedback = stringResource(R.string.player_feedback_chapter_end)
+    val timerMinutesTemplate = stringResource(R.string.player_feedback_timer_minutes)
+    val bookmarkSavedTemplate = stringResource(R.string.player_feedback_bookmark_saved)
     LaunchedEffect(pendingFeedback) {
         pendingFeedback?.let { message ->
             // Wait for the bottom sheet's dismissal animation before surfacing
@@ -257,7 +263,9 @@ fun PlayerScreen(
     }
 
     val currentChapter = playerState.chapters.getOrNull(playerState.currentChapterIndex)
-    val currentChapterTitle = currentChapter?.title ?: "Розділ ${playerState.currentChapterIndex + 1}"
+    // v1.4 E5: the untitled-chapter fallback rides the EN/UK resource pair.
+    val currentChapterTitle = currentChapter?.title
+        ?: stringResource(R.string.player_chapter_fallback, playerState.currentChapterIndex + 1)
     val progress = remember(
         playerState.chapters,
         playerState.currentChapterIndex,
@@ -398,9 +406,13 @@ fun PlayerScreen(
             // immediately feels tighter and the Snackbar confirms the change.
             onSelectTimer = { minutes ->
                 viewModel.playerManager.setSleepTimer(minutes)
-                pendingFeedback = if (minutes == -1) "До кінця розділу"
-                else if (minutes > 0) "Таймер на $minutes хв"
-                else null
+                // v1.4 E5: the confirmations ride the EN/UK resource pair
+                // (hoisted into the composable body — the callback is not).
+                pendingFeedback = when {
+                    minutes == -1 -> chapterEndFeedback
+                    minutes > 0 -> String.format(timerMinutesTemplate, minutes)
+                    else -> null
+                }
                 activeTool = null
             },
             onExtendTimer = {
@@ -431,7 +443,10 @@ fun PlayerScreen(
                 viewModel.addBookmarkAtCurrentPosition(it)
                 // Spec-27 (#207): the feedback names the position where the
                 // bookmark landed (US-19) — «Закладку додано на 2:35:44».
-                pendingFeedback = "Закладку додано на ${MainViewModel.formatTime(playerState.currentPositionMs / 1000L)}"
+                pendingFeedback = String.format(
+                    bookmarkSavedTemplate,
+                    MainViewModel.formatTime(playerState.currentPositionMs / 1000L)
+                )
                 activeTool = null
             }
         )
@@ -890,7 +905,8 @@ private fun PlayerTopBar(
         }
         Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
-                text = "ЗАРАЗ ЗВУЧИТЬ",
+                // v1.4 (ADR-0033): the overline rides resources, not code.
+                text = stringResource(R.string.player_now_playing),
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onBackground
@@ -911,7 +927,14 @@ private fun PlayerTopBar(
             }
             DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
                 DropdownMenuItem(
-                    text = { Text(if (isFavorite) "Прибрати з обраного" else "Додати в обране") },
+                    text = {
+                        Text(
+                            stringResource(
+                                if (isFavorite) R.string.player_favorite_remove
+                                else R.string.player_favorite_add
+                            )
+                        )
+                    },
                     leadingIcon = { Icon(if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder, null) },
                     onClick = { onToggleFavorite(); showMenu = false }
                 )
@@ -1179,6 +1202,9 @@ private fun TransportControls(
         }
     )
     val forwardDescription = stringResource(R.string.a11y_player_seek_forward, bookTitle, currentChapterTitle)
+    // v1.4 E5: the visible seek labels ride the EN/UK pair too.
+    val seekBackLabel = stringResource(R.string.player_seek_back_label)
+    val seekForwardLabel = stringResource(R.string.player_seek_forward_label)
     val nextDescription = stringResource(
         R.string.a11y_player_next_chapter,
         bookTitle,
@@ -1193,7 +1219,7 @@ private fun TransportControls(
         // Spec-27 (#207, BUG-012): the seek buttons carry a visible label
         // («15 с»/«30 с») below the icon. Mirroring Replay keeps both seek
         // controls visually paired without baking the number into either icon.
-        SeekButton(Icons.Default.Replay, backDescription, "15 с", onBack)
+        SeekButton(Icons.Default.Replay, backDescription, seekBackLabel, onBack)
         FilledIconButton(
             onClick = onPlayPause,
             modifier = Modifier
@@ -1214,7 +1240,7 @@ private fun TransportControls(
         SeekButton(
             icon = Icons.Default.Replay,
             description = forwardDescription,
-            label = "30 с",
+            label = seekForwardLabel,
             onClick = onForward,
             mirrorIcon = true
         )
@@ -1647,7 +1673,7 @@ internal fun ChapterBottomSheet(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
-                    "Розділи",
+                    stringResource(R.string.player_chapters_title),
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier

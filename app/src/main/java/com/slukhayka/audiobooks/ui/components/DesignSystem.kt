@@ -20,8 +20,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -35,38 +38,19 @@ import com.slukhayka.audiobooks.ui.theme.AppDimens
  * Content is separated by spacing and typography, never by nesting cards.
  */
 
-/** Section heading with the standard 24 dp section rhythm and an optional trailing action. */
-@Composable
-fun AppSectionHeader(
-    title: String,
-    modifier: Modifier = Modifier,
-    action: (@Composable RowScope.() -> Unit)? = null
-) {
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = AppDimens.PageSides, vertical = AppDimens.SpaceMd),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            text = title.uppercase(),
-            style = MaterialTheme.typography.titleSmall.copy(
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 1.sp
-            ),
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier
-                .weight(1f)
-                .semantics { heading() }
-        )
-        if (action != null) action()
-    }
-}
+// The canonical section header moved to SectionHeaders.kt (v1.4 C1,
+// ADR-0033): two levels (group/section) with optional counter and action
+// slots. This file keeps the canonical empty states.
 
 /**
  * Full-size empty state: 56 dp icon, title, explanation and (per the house
  * standard) one or two next actions. Pass an [actions] block to render the
  * CTA column; without one the column is omitted entirely.
+ *
+ * v1.4 C4 (ADR-0033): [stateDescription] lets a transient state announce its
+ * nature («Помилка») on the same title node that carries the polite
+ * live-region; [iconContent] replaces the static icon with a live indicator
+ * (a spinner) for the loading facade — one empty-state shape app-wide.
  */
 @Composable
 fun EmptyState(
@@ -75,6 +59,10 @@ fun EmptyState(
     body: String,
     modifier: Modifier = Modifier,
     contentDescription: String? = null,
+    // [iconContent] precedes [actions] deliberately: `actions` must stay the
+    // LAST parameter so trailing-lambda call sites keep binding to it.
+    iconContent: (@Composable () -> Unit)? = null,
+    stateDescription: String? = null,
     actions: (@Composable ColumnScope.() -> Unit)? = null
 ) {
     Column(
@@ -89,27 +77,39 @@ fun EmptyState(
             modifier = Modifier.size(56.dp)
         ) {
             Box(contentAlignment = Alignment.Center) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = contentDescription,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(28.dp)
-                )
+                if (iconContent != null) {
+                    iconContent()
+                } else {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = contentDescription,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
             }
         }
         Spacer(modifier = Modifier.height(AppDimens.SpaceMd))
+        // v1.4 C4 (ADR-0033): an empty state is transient — it announces
+        // itself politely (screen readers) the moment it appears.
         Text(
             text = title,
             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-            color = MaterialTheme.colorScheme.onSurface
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.semantics {
+                liveRegion = LiveRegionMode.Polite
+                if (stateDescription != null) this.stateDescription = stateDescription
+            }
         )
-        Spacer(modifier = Modifier.height(AppDimens.SpaceXs))
-        Text(
-            text = body,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center
-        )
+        if (body.isNotBlank()) {
+            Spacer(modifier = Modifier.height(AppDimens.SpaceXs))
+            Text(
+                text = body,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
+            )
+        }
         if (actions != null) {
             Spacer(modifier = Modifier.height(AppDimens.SpaceXl))
             actions()

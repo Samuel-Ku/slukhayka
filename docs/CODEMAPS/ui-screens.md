@@ -13,7 +13,12 @@ parameters from the composition root, not through the ViewModel.
 
 ```
 app/src/main/java/com/slukhayka/audiobooks/ui/screens/HomeScreen.kt            1395 lines
-app/src/main/java/com/slukhayka/audiobooks/ui/screens/BookDetailScreen.kt      1405 lines
+app/src/main/java/com/slukhayka/audiobooks/ui/screens/BookDetailScreen.kt      1264 lines (composition + state)
+app/src/main/java/com/slukhayka/audiobooks/ui/screens/bookdetail/BookDetailActions.kt
+app/src/main/java/com/slukhayka/audiobooks/ui/screens/bookdetail/BookDetailHighlights.kt
+app/src/main/java/com/slukhayka/audiobooks/ui/screens/bookdetail/BookDetailRows.kt
+app/src/main/java/com/slukhayka/audiobooks/ui/screens/bookdetail/BookDetailDeleteModals.kt
+app/src/main/java/com/slukhayka/audiobooks/ui/screens/bookdetail/BookDetailSections.kt
 app/src/main/java/com/slukhayka/audiobooks/ui/screens/LibraryScreen.kt          985 lines
 app/src/main/java/com/slukhayka/audiobooks/ui/screens/PlayerScreen.kt           943 lines
 app/src/main/java/com/slukhayka/audiobooks/ui/screens/ListenScreen.kt           852 lines
@@ -22,6 +27,9 @@ app/src/main/java/com/slukhayka/audiobooks/ui/screens/GlobalSearchResults.kt    
 app/src/main/java/com/slukhayka/audiobooks/ui/screens/Top100Screen.kt           236 lines
 app/src/main/java/com/slukhayka/audiobooks/ui/screens/PeopleScreen.kt           205 lines
 app/src/main/java/com/slukhayka/audiobooks/ui/screens/SeriesScreen.kt           201 lines
+app/src/main/java/com/slukhayka/audiobooks/ui/screens/SeriesIndexScreen.kt      ~130 lines
+app/src/main/java/com/slukhayka/audiobooks/ui/screens/CollectionsIndexScreen.kt  ~100 lines
+app/src/main/java/com/slukhayka/audiobooks/ui/screens/AuthorDiscovery.kt        ~305 lines  (Автори index + canonical author page)
 app/src/main/java/com/slukhayka/audiobooks/ui/screens/SourceFeeds.kt            152 lines
 app/src/main/java/com/slukhayka/audiobooks/ui/screens/BookListScreen.kt         132 lines
 app/src/main/java/com/slukhayka/audiobooks/ui/screens/GenreScreen.kt             38 lines
@@ -41,7 +49,7 @@ app/src/main/java/com/slukhayka/audiobooks/ui/library/ResumeStart.kt      53 lin
 | Screen | Opened from | Purpose |
 |---|---|---|
 | `ListenScreen` | Tab «Слухати» (first tab, spec-9) | Listening panel: 8 reorderable blocks (continue, next-in-series, recently added, …) via `ListenComposer`; «відкрити джерело» CTA for WebView sources |
-| `HomeScreen` | Tab «Огляд» | Storefront: sections, genres, series, top-100, people, duration buckets, smart collections, unified catalog, source feeds |
+| `HomeScreen` | Tab «Огляд» | Storefront: sections, genres, series, top-100, people, duration buckets, smart collections, union catalog, source feeds — every shelf is the canonical PosterCard/CycleCard, the feed rows the canonical BookRow |
 | `LibraryScreen` | Tab «Медіатека» | Own library: works/editions, downloads, favourites, listening stats |
 | `BookDetailScreen` | Any book card | Work page: editions (rendition cards, ADR-0011), chapters, «Інші начитки», related books, series-universe header |
 | `PlayerScreen` | MiniPlayerBar tap | Full player: transport, bookmark dialog, sleep timer, speed sheet, debug overlay |
@@ -49,7 +57,10 @@ app/src/main/java/com/slukhayka/audiobooks/ui/library/ResumeStart.kt      53 lin
 | `GenreScreen` | Genre chip | «Аудіокниги жанру» listing |
 | `Top100Screen` | Огляд | `/top-100.html` listing |
 | `PeopleScreen` / `PersonBooksScreen` | Огляд | Виконавці/Автори index + one person's books |
-| `GlobalSearchResults` | Search | Cross-source search results (merged) |
+| `GlobalSearchResults` | Search | Cross-source search results (merged) — canonical BookRow + MetadataChip |
+| `SeriesIndexScreen` | Огляд «Серії» chip | Every series aggregated from the catalogue sections, deduplicated by URL |
+| `CollectionsIndexScreen` | Огляд «Колекції» chip | Every matched smart collection, tapping a book resolves-and-plays |
+| `AuthorDiscovery` | Огляд search / nav | Автори index + one author's works page (canonical IndexScreenScaffold) |
 | `SourceFeeds` | Огляд | «Нове з кожного джерела» feed per adapter |
 | `WebSourceBrowserScreen` | Listen CTA (debug only) | In-app WebView for Cloudflare-bound sources (sluhay) |
 | `BookListScreen` | Series/Genre reuse | Generic book grid |
@@ -76,7 +87,7 @@ app/src/main/java/com/slukhayka/audiobooks/ui/library/ResumeStart.kt      53 lin
 | Task | Touch |
 |---|---|
 | Fix a visible screen bug | The screen file itself — most screens are self-contained composables reading module StateFlows |
-| Change a card layout | Shared card composables in `ui/components/DesignSystem.kt` + per-screen cards |
+| Change a card layout | The v1.4 canonical components in `ui/components/` (PosterCard/BookRow/CycleCard/MetadataChip) — never a new per-screen card |
 | Reorder the Слухати panel | `ListenComposer.kt` block order + `MainViewModel` reorder actions |
 | Add a new section to Огляд | `HomeScreen.kt` + `SourceCatalog` cache for the data |
 

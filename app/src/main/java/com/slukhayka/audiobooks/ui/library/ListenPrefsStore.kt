@@ -54,6 +54,11 @@ class ListenPrefsStore(context: Context) : ListenPrefs {
         prefs.edit().putStringSet(KEY_HIDDEN, hiddenBlockIds.map { it.name }.toSet() + id.name).apply()
     }
 
+    /** Restores one hidden block (the sheet's per-row show toggle). */
+    fun unhideBlock(id: ListenComposer.BlockId) {
+        prefs.edit().putStringSet(KEY_HIDDEN, hiddenBlockIds.map { it.name }.toSet() - id.name).apply()
+    }
+
     /** Restores every hidden block. */
     fun restoreHiddenBlocks() {
         prefs.edit().remove(KEY_HIDDEN).apply()

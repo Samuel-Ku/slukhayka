@@ -22,6 +22,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -32,6 +33,7 @@ import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.components.BookCoverImage
 import com.slukhayka.audiobooks.ui.components.BookCoverSemantics
+import com.slukhayka.audiobooks.ui.components.BookRow
 import com.slukhayka.audiobooks.ui.components.IndexScreenScaffold
 import com.slukhayka.audiobooks.ui.components.SecondaryLoadingState
 import com.slukhayka.audiobooks.ui.components.SecondaryMessageState
@@ -59,14 +61,25 @@ fun Top100Screen(
     val loadFailed by viewModel.top100LoadFailed.collectAsState()
     val returnFocusRequester = remember { FocusRequester() }
 
-    IndexScreenScaffold(title = "ТОП 100 АудіоКниг", onBackClick = onBackClick) { padding ->
+    // v1.4 E6 (ADR-0033): the honest count rides the scaffold's subtitle
+    // (R10), rendered only when it is real (ADR-0014).
+    IndexScreenScaffold(
+        title = stringResource(R.string.top100_index_title),
+        onBackClick = onBackClick,
+        subtitle = if (!isLoading && !loadFailed && books.isNotEmpty()) {
+            pluralStringResource(R.plurals.best_book_count, books.size, books.size)
+        } else {
+            null
+        }
+    ) { padding ->
         LaunchedEffect(restoreFocusBookId, books, isLoading, loadFailed) {
             val bookId = restoreFocusBookId ?: return@LaunchedEffect
             if (isLoading || loadFailed) return@LaunchedEffect
             val bookIndex = books.indexOfFirst { it.id == bookId }
             if (bookIndex < 0) return@LaunchedEffect
-            // The count row is item zero; ranked books start at item one.
-            listState.scrollToItem(bookIndex + 1)
+            // The count moved into the scaffold's subtitle (v1.4 E6);
+            // ranked books start at item zero now.
+            listState.scrollToItem(bookIndex)
             withFrameNanos { }
             if (runCatching { returnFocusRequester.requestFocus() }.getOrDefault(false)) {
                 onBookFocusRestored(bookId)
@@ -78,7 +91,7 @@ fun Top100Screen(
                 .fillMaxSize()
                 .padding(padding)
                 .testTag("top100_screen"),
-            contentPadding = PaddingValues(bottom = 120.dp, top = 8.dp)
+            contentPadding = PaddingValues(bottom = AppDimens.SpaceAboveMiniPlayer, top = 8.dp)
         ) {
             when {
                 isLoading -> {
@@ -123,26 +136,56 @@ fun Top100Screen(
                 }
 
                 else -> {
-                    item {
-                        Text(
-                            // Spec-27 (#204) BUG-006: правильна множина —
-                            // «1 найкраща книга», «2 найкращі книги»,
-                            // «5 найкращих книг».
-                            text = "${books.size} ${ukPlural(books.size, "найкраща книга", "найкращі книги", "найкращих книг")}",
-                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                            color = MaterialTheme.colorScheme.secondary,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-                        )
-                    }
+                    // The count lives in the scaffold's subtitle (v1.4 E6,
+                    // ADR-0033; spec-27 #204 BUG-006 pluralization preserved).
                     itemsIndexed(books, key = { _, book -> book.id }) { index, book ->
-                        Top100Row(
-                            rank = index + 1,
+                        // v1.4 C3 (ADR-0033): the canonical flat row — rank
+                        // badge in the leading slot, ▶ as a separate 48 dp
+                        // target, divider instead of a card border.
+                        val rank = index + 1
+                        val podium = rank <= 3
+                        BookRow(
+                            title = book.title,
                             book = book,
+                            author = book.displayAuthor.takeIf { it.isNotBlank() },
+                            // Real duration shown only when known (ADR-0014).
+                            stats = if (book.totalDurationSeconds > 0L) MainViewModel.formatTime(book.totalDurationSeconds) else null,
                             onClick = { onBookClick(book.id) },
-                            onPlayClick = {
-                                viewModel.playAudiobook(book)
-                                viewModel.setShowFullPlayer(true)
+                            leading = {
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(CircleShape)
+                                        .background(
+                                            if (podium) MaterialTheme.colorScheme.primary
+                                            else MaterialTheme.colorScheme.surfaceContainerHigh
+                                        ),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "$rank",
+                                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.ExtraBold),
+                                        color = if (podium) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
                             },
+                            trailing = {
+                                IconButton(
+                                    onClick = {
+                                        viewModel.playAudiobook(book)
+                                        viewModel.setShowFullPlayer(true)
+                                    },
+                                    modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.PlayArrow,
+                                        contentDescription = stringResource(R.string.secondary_play_book, book.title),
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(26.dp)
+                                    )
+                                }
+                            },
+                            testTag = "top100_rank_$rank",
                             modifier = if (book.id == restoreFocusBookId) {
                                 Modifier.focusRequester(returnFocusRequester)
                             } else {
@@ -151,107 +194,6 @@ fun Top100Screen(
                         )
                     }
                 }
-            }
-        }
-    }
-}
-
-/** One ranked row: rank badge + cover + title/author/duration. */
-@Composable
-fun Top100Row(
-    rank: Int,
-    book: AudiobookEntity,
-    onClick: () -> Unit,
-    onPlayClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp)
-            .defaultMinSize(minHeight = 48.dp)
-            .clip(RoundedCornerShape(AppDimens.RadiusPanel))
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(AppDimens.RadiusPanel))
-            .clickable { onClick() }
-            .semantics(mergeDescendants = true) { }
-            .testTag("top100_rank_$rank"),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // Rank badge: gold for the podium, neutral afterwards.
-            val podium = rank <= 3
-            Box(
-                modifier = Modifier
-                    .size(36.dp)
-                    .clip(CircleShape)
-                    .background(
-                        if (podium) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.surfaceContainerHigh
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = "$rank",
-                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.ExtraBold),
-                    color = if (podium) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-
-            Spacer(modifier = Modifier.width(12.dp))
-
-            BookCoverImage(
-                book = book,
-                semantics = BookCoverSemantics.Decorative,
-                modifier = Modifier
-                    .size(56.dp)
-                    .clip(RoundedCornerShape(AppDimens.RadiusCover)),
-                contentScale = ContentScale.Crop
-            )
-
-            Spacer(modifier = Modifier.width(12.dp))
-
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = book.title,
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                if (book.displayAuthor.isNotBlank()) {
-                    Text(
-                        text = book.displayAuthor,
-                        style = MaterialTheme.typography.bodySmall,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                // Real duration from the page's \"Триває:\" — shown only when known.
-                if (book.totalDurationSeconds > 0L) {
-                    Text(
-                        text = MainViewModel.formatTime(book.totalDurationSeconds),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-
-            IconButton(
-                onClick = onPlayClick,
-                modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.PlayArrow,
-                    contentDescription = stringResource(R.string.secondary_play_book, book.title),
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(26.dp)
-                )
             }
         }
     }

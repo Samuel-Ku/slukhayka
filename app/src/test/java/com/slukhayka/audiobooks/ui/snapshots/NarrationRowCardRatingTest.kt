@@ -7,7 +7,7 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
-import com.slukhayka.audiobooks.ui.screens.NarrationRowCard
+import com.slukhayka.audiobooks.ui.screens.bookdetail.NarrationRowCard
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
 import org.junit.Rule
 import org.junit.Test

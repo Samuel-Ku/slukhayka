@@ -1,10 +1,12 @@
 package com.slukhayka.audiobooks.ui.snapshots
 
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import com.slukhayka.audiobooks.ui.components.IndexScreenScaffold
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
@@ -28,7 +30,7 @@ import org.robolectric.annotation.GraphicsMode
 
 /**
  * spec-28 (#189) — snapshot pins for the «Серії» index screen: the browsable
- * grid of [com.slukhayka.audiobooks.ui.screens.CatalogSeriesCard]s and the
+ * grid of [com.slukhayka.audiobooks.ui.components.CycleCard]s and the
  * no-series placeholder. Pure `@Composable` inputs ([SeriesIndexContent] is
  * stateless) — no `MainViewModel`.
  */
@@ -68,13 +70,25 @@ class SeriesIndexSnapshotTest {
         composeTestRule.setContent {
             AudiobookTheme(darkTheme = true) {
                 SeriesIndexSurface {
-                    SeriesIndexContent(series = series, onSeriesClick = {})
+                    // v1.4 E6 (ADR-0033): the count rides the canonical
+                    // scaffold's subtitle — compose the screen chrome.
+                    IndexScreenScaffold(
+                        title = "Серії",
+                        onBackClick = {},
+                        subtitle = "4 серії"
+                    ) { padding ->
+                        SeriesIndexContent(
+                            series = series,
+                            onSeriesClick = {},
+                            modifier = Modifier.padding(padding)
+                        )
+                    }
                 }
             }
         }
 
-        // Self-verifying on top of the image: the count line and one card.
-        composeTestRule.onNodeWithText("4 серій").assertExists()
+        // Self-verifying on top of the image: the count subtitle and one card.
+        composeTestRule.onNodeWithText("4 серії").assertExists()
         composeTestRule.onNodeWithText("Максим Темний").assertExists()
         composeTestRule.onRoot().captureRoboImage(
             filePath = "src/test/snapshots/series_index_grid.png"
@@ -86,7 +100,19 @@ class SeriesIndexSnapshotTest {
         composeTestRule.setContent {
             AudiobookTheme(darkTheme = true) {
                 SeriesIndexSurface {
-                    SeriesIndexContent(series = emptyList(), onSeriesClick = {})
+                    // v1.4 E6 (ADR-0033): screen chrome — the honest «0 серій»
+                    // subtitle stays visible above the placeholder.
+                    IndexScreenScaffold(
+                        title = "Серії",
+                        onBackClick = {},
+                        subtitle = "0 серій"
+                    ) { padding ->
+                        SeriesIndexContent(
+                            series = emptyList(),
+                            onSeriesClick = {},
+                            modifier = Modifier.padding(padding)
+                        )
+                    }
                 }
             }
         }

@@ -15,7 +15,7 @@ import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.foundation.layout.width
-import com.slukhayka.audiobooks.ui.screens.SeriesPill
+import com.slukhayka.audiobooks.ui.screens.bookdetail.SeriesPill
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import androidx.compose.ui.test.onNodeWithText
@@ -26,10 +26,10 @@ import com.github.takahirom.roborazzi.captureRoboImage
 import com.slukhayka.audiobooks.data.catalog.SourceCatalog
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
-import com.slukhayka.audiobooks.ui.screens.BookDetailCanonicalSummary
-import com.slukhayka.audiobooks.ui.screens.BookDetailDescription
+import com.slukhayka.audiobooks.ui.screens.bookdetail.BookDetailCanonicalSummary
+import com.slukhayka.audiobooks.ui.screens.bookdetail.BookDetailDescription
 import com.slukhayka.audiobooks.ui.screens.BookDetailPresentation
-import com.slukhayka.audiobooks.ui.screens.BookDetailSourceSection
+import com.slukhayka.audiobooks.ui.screens.bookdetail.BookDetailSourceSection
 import com.slukhayka.audiobooks.ui.screens.bookDetailPresentation
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
 import org.junit.Rule
@@ -42,7 +42,7 @@ import org.robolectric.annotation.GraphicsMode
 /** The complete canonical metadata region for spec-41, from the screen model. */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
-@Config(qualifiers = RobolectricDeviceQualifiers.Pixel8, sdk = [36])
+@Config(qualifiers = "uk-rUA-" + RobolectricDeviceQualifiers.Pixel8, sdk = [36])
 class BookDetailMetadataSnapshotTest {
 
     @get:Rule
@@ -154,7 +154,6 @@ class BookDetailMetadataSnapshotTest {
             filePath = "src/test/snapshots/book_detail_metadata_multiple_sources.png"
         )
     }
-
     private fun setMetadataRegion(presentation: BookDetailPresentation) {
         composeTestRule.setContent {
             AudiobookTheme(darkTheme = true) {

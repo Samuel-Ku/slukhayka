@@ -23,8 +23,8 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.slukhayka.audiobooks.MainActivity
 import com.slukhayka.audiobooks.data.catalog.SourceCatalog
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
-import com.slukhayka.audiobooks.ui.screens.BookDetailCanonicalSummary
-import com.slukhayka.audiobooks.ui.screens.BookDetailSourceSection
+import com.slukhayka.audiobooks.ui.screens.bookdetail.BookDetailCanonicalSummary
+import com.slukhayka.audiobooks.ui.screens.bookdetail.BookDetailSourceSection
 import com.slukhayka.audiobooks.ui.screens.PersonBookmarkControl
 import com.slukhayka.audiobooks.ui.screens.bookDetailPresentation
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme

@@ -3,22 +3,29 @@ package com.slukhayka.audiobooks.ui.screens
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -30,12 +37,16 @@ import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.PlaybackProgressEntity
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
 import com.slukhayka.audiobooks.ui.MainViewModel
-import com.slukhayka.audiobooks.ui.components.CompactBookCard
+import com.slukhayka.audiobooks.ui.components.AppSectionHeader
+import com.slukhayka.audiobooks.ui.components.PosterCard
 import com.slukhayka.audiobooks.ui.components.EmptyState
+import com.slukhayka.audiobooks.ui.components.accessibilityPane
 import com.slukhayka.audiobooks.ui.displayAuthor
 import com.slukhayka.audiobooks.ui.library.ListenComposer
 import com.slukhayka.audiobooks.ui.library.LibraryBook
+import com.slukhayka.audiobooks.ui.library.RemainingTimeUnits
 import com.slukhayka.audiobooks.ui.library.deduplicateListenShelves
+import com.slukhayka.audiobooks.ui.library.formatRemainingTime
 import com.slukhayka.audiobooks.ui.library.nextSeriesPartCaption
 import com.slukhayka.audiobooks.ui.theme.*
 
@@ -73,6 +84,9 @@ fun ListenScreen(
     // unrendered here.
     val listenBlocks by viewModel.listenBlocks.collectAsState()
     val hiddenBlocks by viewModel.hiddenListenBlocks.collectAsState()
+    // v1.4 E1: the single shelf-management door — the eight per-block ⋮
+    // menus are gone; one sheet owns reorder/hide/restore (ADR-0033).
+    var manageShelvesOpen by rememberSaveable { mutableStateOf(false) }
 
     // Refresh the "continue the series" suggestion whenever the hero book
     // changes (keyed on its id so position updates don't refetch).
@@ -85,7 +99,7 @@ fun ListenScreen(
         modifier = Modifier
             .fillMaxSize()
             .testTag("listen_screen"),
-        contentPadding = PaddingValues(bottom = 120.dp)
+        contentPadding = PaddingValues(bottom = AppDimens.SpaceAboveMiniPlayer)
     ) {
         // Fresh install: placeholder hero + clear next actions.
         if (allBooks.isEmpty()) {
@@ -129,22 +143,24 @@ fun ListenScreen(
                             onBookClick = { onBookClick(hero.book.id) }
                         )
                     }
+                    // v1.4 E1: the ONE shelf-management door, right after the
+                    // hero (the spec's «шапка таба або після hero»).
+                    item(key = "block-manage") {
+                        ListenShelvesManageEntry(onClick = { manageShelvesOpen = true })
+                    }
                 }
                 // The seven remaining blocks — one horizontal shelf of
-                // compact posters each (spec-28 #191), replacing the
-                // full-width vertical cards. Reorder and hide stay on the
-                // block header (ADR-0015); a block with no books left after
+                // compact posters each (spec-28 #191). v1.4 E1: the header IS
+                // the canonical section header (no ⋮ menu — reorder and hide
+                // live in the shelf sheet); a block with no books left after
                 // dedup renders nothing.
                 else -> {
                     if (block.books.isEmpty()) continue
                     item(key = "block-${block.id.name}") {
-                        ListenBlockHeader(
+                        AppSectionHeader(
                             title = block.title,
-                            reason = block.reason,
-                            blockId = block.id,
-                            onMoveUp = { viewModel.moveListenBlockUp(block.id) },
-                            onMoveDown = { viewModel.moveListenBlockDown(block.id) },
-                            onHide = { viewModel.hideListenBlock(block.id) }
+                            subtitle = block.reason,
+                            modifier = Modifier.testTag("listen_block_heading_${block.id.name}")
                         )
                     }
                     item(key = "block-${block.id.name}-shelf") {
@@ -166,20 +182,12 @@ fun ListenScreen(
             }
         }
 
-        // Every eligible block hidden — one restore row instead of a dead screen.
-        if (visibleBlocks.isEmpty() && listenBlocks.isNotEmpty()) {
-            item(key = "block-restore") {
-                TextButton(
-                    onClick = { viewModel.restoreHiddenListenBlocks() },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp)
-                        .testTag("restore_listen_blocks")
-                ) {
-                    Icon(Icons.Default.SettingsBackupRestore, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(stringResource(R.string.profile_unhide_blocks))
-                }
+        // No hero on screen (hidden via the sheet, or no resume book) — the
+        // management door moves to the top so it can never be unreachable
+        // (it replaces the old all-hidden restore row).
+        if (dedupedBlocks.none { it.id == ListenComposer.BlockId.HERO }) {
+            item(key = "block-manage") {
+                ListenShelvesManageEntry(onClick = { manageShelvesOpen = true })
             }
         }
 
@@ -187,88 +195,251 @@ fun ListenScreen(
         // «Новинки» rail and the «Більше книг на Sluhay» CTA now live on
         // Огляд, and the 4read sections render there only.
     }
+
+    if (manageShelvesOpen) {
+        ListenShelvesSheet(
+            blocks = listenBlocks,
+            hiddenIds = hiddenBlocks,
+            onMoveUp = viewModel::moveListenBlockUp,
+            onMoveDown = viewModel::moveListenBlockDown,
+            onHide = viewModel::hideListenBlock,
+            onUnhide = viewModel::unhideListenBlock,
+            onRestoreAll = viewModel::restoreHiddenListenBlocks,
+            onDismiss = { manageShelvesOpen = false }
+        )
+    }
 }
 
 /**
- * One block header (wayfinder #62): the section title, its reason line
- * («чому це тут?») and the block menu — move up/down (user's order wins) and
- * hide (restorable from the restore row).
+ * v1.4 E1 — the single «Керувати полицями» door (tab header or after-hero
+ * per the spec): opens the shelf-management sheet. The eight per-block ⋮
+ * menus are gone; the blocks themselves render the canonical
+ * [AppSectionHeader] (no action slot).
  */
 @Composable
-fun ListenBlockHeader(
-    title: String,
-    reason: String?,
-    blockId: ListenComposer.BlockId,
+fun ListenShelvesManageEntry(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    TextButton(
+        onClick = onClick,
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .testTag("listen_manage_shelves")
+    ) {
+        Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(18.dp))
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(stringResource(R.string.listen_manage_shelves))
+    }
+}
+
+/**
+ * v1.4 E1 — the shelf-management sheet: every block listed in display order
+ * with ↑↓ reorder, hide and per-row restore, plus a restore-all footer. All
+ * mutations reuse the existing [ListenPrefsStore] mechanics through the
+ * ViewModel — the same SharedPreferences file the ⋮ menus wrote to.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ListenShelvesSheet(
+    blocks: List<ListenComposer.Block>,
+    hiddenIds: Set<ListenComposer.BlockId>,
+    onMoveUp: (ListenComposer.BlockId) -> Unit,
+    onMoveDown: (ListenComposer.BlockId) -> Unit,
+    onHide: (ListenComposer.BlockId) -> Unit,
+    onUnhide: (ListenComposer.BlockId) -> Unit,
+    onRestoreAll: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val headingFocusRequester = remember { FocusRequester() }
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        // fix(accessibility): #371 — the decorative drag handle must not
+        // create an extra TalkBack focus stop (same ruling as the library
+        // filter sheet).
+        dragHandle = { BottomSheetDefaults.DragHandle(modifier = Modifier.clearAndSetSemantics {}) },
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        modifier = Modifier.accessibilityPane(stringResource(R.string.a11y_listen_shelves_pane))
+    ) {
+        ListenShelvesSheetContent(
+            blocks = blocks,
+            hiddenIds = hiddenIds,
+            onMoveUp = onMoveUp,
+            onMoveDown = onMoveDown,
+            onHide = onHide,
+            onUnhide = onUnhide,
+            onRestoreAll = onRestoreAll,
+            onClose = onDismiss,
+            headingFocusRequester = headingFocusRequester,
+            includePaneSemantics = false
+        )
+    }
+}
+
+/**
+ * The sheet body, extracted so the snapshot harness pins it without hosting
+ * a `ModalBottomSheet` window (the library filter sheet's pattern).
+ */
+@Composable
+fun ListenShelvesSheetContent(
+    blocks: List<ListenComposer.Block>,
+    hiddenIds: Set<ListenComposer.BlockId>,
+    onMoveUp: (ListenComposer.BlockId) -> Unit,
+    onMoveDown: (ListenComposer.BlockId) -> Unit,
+    onHide: (ListenComposer.BlockId) -> Unit,
+    onUnhide: (ListenComposer.BlockId) -> Unit,
+    onRestoreAll: () -> Unit,
+    onClose: (() -> Unit)? = null,
+    headingFocusRequester: FocusRequester? = null,
+    includePaneSemantics: Boolean = true
+) {
+    val localHeadingFocusRequester = remember { FocusRequester() }
+    val effectiveHeadingFocusRequester = headingFocusRequester ?: localHeadingFocusRequester
+    LaunchedEffect(effectiveHeadingFocusRequester) {
+        withFrameNanos { }
+        effectiveHeadingFocusRequester.requestFocus()
+    }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(
+                if (includePaneSemantics) {
+                    Modifier.accessibilityPane(stringResource(R.string.a11y_listen_shelves_pane))
+                } else {
+                    Modifier
+                }
+            )
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 24.dp)
+            .padding(bottom = 32.dp)
+            .testTag("listen_shelves_sheet_content")
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = stringResource(R.string.listen_manage_shelves),
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier
+                    .weight(1f)
+                    .focusRequester(effectiveHeadingFocusRequester)
+                    .focusable()
+                    .semantics { heading() }
+                    .testTag("listen_shelves_sheet_heading")
+            )
+            if (onClose != null) {
+                IconButton(onClick = onClose, modifier = Modifier.size(48.dp)) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = stringResource(R.string.a11y_listen_shelves_close)
+                    )
+                }
+            }
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        blocks.forEachIndexed { index, block ->
+            ListenShelfRow(
+                block = block,
+                hidden = block.id in hiddenIds,
+                canMoveUp = index > 0,
+                canMoveDown = index < blocks.lastIndex,
+                onMoveUp = { onMoveUp(block.id) },
+                onMoveDown = { onMoveDown(block.id) },
+                onToggleVisibility = { if (block.id in hiddenIds) onUnhide(block.id) else onHide(block.id) }
+            )
+        }
+        if (hiddenIds.isNotEmpty()) {
+            TextButton(
+                onClick = onRestoreAll,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp)
+                    .testTag("listen_shelves_restore_all")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.SettingsBackupRestore,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(stringResource(R.string.listen_shelves_restore_all))
+            }
+        }
+    }
+}
+
+/** One sheet row: the block's title (+ reason or «Приховано»), ↑↓ and the hide/show toggle. */
+@Composable
+private fun ListenShelfRow(
+    block: ListenComposer.Block,
+    hidden: Boolean,
+    canMoveUp: Boolean,
+    canMoveDown: Boolean,
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
-    onHide: () -> Unit
+    onToggleVisibility: () -> Unit
 ) {
-    var menuOpen by remember { mutableStateOf(false) }
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 16.dp, end = 8.dp, top = 10.dp, bottom = 2.dp),
+            .padding(vertical = 4.dp)
+            .testTag("listen_shelf_row_${block.id.name}"),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .semantics { heading() }
-                .testTag("listen_block_heading_${blockId.name}")
-        ) {
+        Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = title,
-                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                color = MaterialTheme.colorScheme.onSurface
+                text = block.title,
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
-            reason?.let {
-                Text(
-                    text = it,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.secondary
-                )
-            }
+            Text(
+                text = if (hidden) stringResource(R.string.listen_shelves_hidden) else (block.reason ?: ""),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         }
-        Box {
-            IconButton(
-                onClick = { menuOpen = true },
-                modifier = Modifier
-                    .size(AppDimens.TouchTarget)
-                    .testTag("listen_block_menu_${blockId.name}")
-            ) {
-                Icon(
-                    imageVector = Icons.Default.MoreVert,
-                    contentDescription = stringResource(R.string.a11y_listen_block_actions, title),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+        IconButton(
+            onClick = onMoveUp,
+            enabled = canMoveUp,
+            modifier = Modifier
+                .size(AppDimens.TouchTarget)
+                .testTag("listen_shelf_up_${block.id.name}")
+        ) {
+            Icon(
+                imageVector = Icons.Default.ArrowUpward,
+                contentDescription = stringResource(R.string.a11y_listen_shelf_move_up, block.title)
+            )
+        }
+        IconButton(
+            onClick = onMoveDown,
+            enabled = canMoveDown,
+            modifier = Modifier
+                .size(AppDimens.TouchTarget)
+                .testTag("listen_shelf_down_${block.id.name}")
+        ) {
+            Icon(
+                imageVector = Icons.Default.ArrowDownward,
+                contentDescription = stringResource(R.string.a11y_listen_shelf_move_down, block.title)
+            )
+        }
+        IconButton(
+            onClick = onToggleVisibility,
+            modifier = Modifier
+                .size(AppDimens.TouchTarget)
+                .testTag("listen_shelf_toggle_${block.id.name}")
+        ) {
+            Icon(
+                imageVector = if (hidden) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                contentDescription = stringResource(
+                    if (hidden) R.string.a11y_listen_shelf_show else R.string.a11y_listen_shelf_hide,
+                    block.title
                 )
-            }
-            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.profile_move_up)) },
-                    onClick = {
-                        menuOpen = false
-                        onMoveUp()
-                    },
-                    leadingIcon = { Icon(Icons.Default.ArrowUpward, contentDescription = null) }
-                )
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.profile_move_down)) },
-                    onClick = {
-                        menuOpen = false
-                        onMoveDown()
-                    },
-                    leadingIcon = { Icon(Icons.Default.ArrowDownward, contentDescription = null) }
-                )
-                HorizontalDivider()
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.profile_hide_block)) },
-                    onClick = {
-                        menuOpen = false
-                        onHide()
-                    },
-                    leadingIcon = { Icon(Icons.Default.VisibilityOff, contentDescription = null) }
-                )
-            }
+            )
         }
     }
 }
@@ -296,7 +467,7 @@ fun ListenBlockShelf(
         modifier = Modifier.testTag("listen_block_shelf")
     ) {
         items(books, key = { it.book.id }) { entry ->
-            CompactBookCard(
+            PosterCard(
                 book = entry.book,
                 onClick = { onBookClick(entry.book.id) },
                 onNotInterested = { onNotInterested(entry.book.id) },
@@ -350,7 +521,7 @@ fun ListenHeroCard(
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                    text = "ПРОДОВЖИТИ СЛУХАТИ",
+                    text = stringResource(R.string.listen_hero_overline),
                     style = MaterialTheme.typography.labelMedium.copy(
                         fontWeight = FontWeight.Bold,
                         letterSpacing = 1.sp
@@ -394,7 +565,11 @@ fun ListenHeroCard(
                     )
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
-                        text = "Розділ ${progress.currentChapterIndex + 1} із ${book.totalChapters.coerceAtLeast(1)}",
+                        text = stringResource(
+                            R.string.listen_chapter_of,
+                            progress.currentChapterIndex + 1,
+                            book.totalChapters.coerceAtLeast(1)
+                        ),
                         style = MaterialTheme.typography.labelMedium,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -403,7 +578,11 @@ fun ListenHeroCard(
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
                         text = if (hasDuration) {
-                            "${(progressFraction * 100).toInt()}% · ${formatRemaining((totalSec - positionSec).coerceAtLeast(0L))}"
+                            stringResource(
+                                R.string.listen_progress_percent_remaining,
+                                (progressFraction * 100).toInt(),
+                                formatRemainingLocalized((totalSec - positionSec).coerceAtLeast(0L))
+                            )
                         } else {
                             MainViewModel.formatTime(positionSec)
                         },
@@ -509,7 +688,11 @@ fun RecentlyListenedRow(
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = "Розділ ${progress.currentChapterIndex + 1} · ${MainViewModel.formatTime(positionSec)}",
+                        text = stringResource(
+                            R.string.listen_chapter_position,
+                            progress.currentChapterIndex + 1,
+                            MainViewModel.formatTime(positionSec)
+                        ),
                         // Spec-22 T2: tabular figures — the live position ticks
                         // without shifting the row's digit widths.
                         style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
@@ -594,14 +777,21 @@ fun ListenEmptyState(
     }
 }
 
-/** "Залишилося X год Y хв" remaining-time label for the hero card. */
-internal fun formatRemaining(totalSeconds: Long): String {
-    val hrs = totalSeconds / 3600
-    val mins = (totalSeconds % 3600) / 60
-    return when {
-        hrs > 0 && mins > 0 -> "Залишилося $hrs год $mins хв"
-        hrs > 0 -> "Залишилося $hrs год"
-        mins > 0 -> "Залишилося $mins хв"
-        else -> "Залишилося менше хвилини"
-    }
+/** Localized remaining-time label for the hero card (v1.4, ADR-0033). */
+@Composable
+internal fun formatRemainingLocalized(totalSeconds: Long): String {
+    // v1.4: the same bucket logic as the library — the «Залишилося …» phrasing
+    // lives in its own listen_remaining_* EN/UK pair (it prefixes, the
+    // library's library_remaining wraps). Templates resolve eagerly in this
+    // composable body; the units impl does plain formatting.
+    val hm = stringResource(R.string.listen_remaining_hm)
+    val h = stringResource(R.string.listen_remaining_h)
+    val m = stringResource(R.string.listen_remaining_m)
+    val single = stringResource(R.string.listen_remaining_less_than_minute)
+    return formatRemainingTime(totalSeconds, object : RemainingTimeUnits {
+        override fun hoursMinutes(hours: Long, minutes: Long) = String.format(hm, hours, minutes)
+        override fun hours(hours: Long) = String.format(h, hours)
+        override fun minutes(minutes: Long) = String.format(m, minutes)
+        override fun singleMinute() = single
+    })
 }

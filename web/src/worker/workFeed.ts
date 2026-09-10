@@ -1,25 +1,19 @@
 import type { CatalogCard, SourceId, UnifiedEdition, UnifiedSource, UnifiedWork, UnifiedWorkPage } from './types'
-import { sourceContentLanguage } from './sourceMetadata'
+import { SOURCE_ORDER, sourceContentLanguage } from './sourceMetadata'
 import { normalizeLanguage } from './language'
 
 export type SourceCards = { sourceId: SourceId; cards: CatalogCard[] }
 
-// Browser-only 4read comes last for automatic source choice. This is a
-// capability preference *inside the selected Edition*, never a reason to
-// replace that Edition with a different narrator.
-const SOURCE_PRIORITY: Record<SourceId, number> = {
-  'sound-books': 0,
-  sluhayua: 1,
-  'audiobook-mp3': 2,
-  lihtar: 3,
-  // Spec-47 T6 — the two direct server-fetch sources join the direct tier
-  // (after the known direct order, name-ordered like SourceAccessPolicy).
-  audiobookcoua: 4,
-  chytaylo: 5,
-  sluhay: 6,
-  fourread: 7,
-  librivox: 8,
-}
+// Browser-only 4read comes last for automatic source choice; the direct
+// sources follow the registry order (ADR-0038), and the capability tier
+// still wins over it. This is a capability preference *inside the selected
+// Edition*, never a reason to replace that Edition with a different narrator.
+const SOURCE_PRIORITY: Record<SourceId, number> = Object.fromEntries(
+  [
+    ...SOURCE_ORDER.filter((sourceId) => sourceId !== "fourread"),
+    ...SOURCE_ORDER.filter((sourceId) => sourceId === "fourread"),
+  ].map((sourceId, index) => [sourceId, index]),
+) as Record<SourceId, number>
 
 function isDirect(source: UnifiedSource): boolean {
   return source.sourceId !== 'fourread'

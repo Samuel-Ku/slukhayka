@@ -6,6 +6,10 @@ package com.slukhayka.audiobooks.data.source
  * direct HTTP request, then legacy/unknown sources, and browser-only sources
  * are last. This is deliberately a capability order, not a health score: a
  * transient 403 must not permanently demote a source.
+ *
+ * ADR-0038 — the facts are the [SourceRegistry] (`sources.json`): the mode
+ * comes from each entry's `accessMode`, the within-tier order from its
+ * `order`. The tier RULE (LOCAL < DIRECT < UNKNOWN < BROWSER) stays code.
  */
 enum class SourceAccessMode { DIRECT, UNKNOWN, BROWSER }
 
@@ -18,38 +22,20 @@ data class SourceAccessCandidate(
 )
 
 object SourceAccessPolicy {
-    // ADR-0036 (spec-48 T1): the browser family is the set of declared
-    // Browser Recovery Profiles — one registry, not a second list to forget
-    // when the next browser source connects.
-    private val browserSources = BrowserRecoveryProfiles.orderedSourceIds.toSet()
-    // Spec-45 (#405) T2 (#490): librivox streams from archive.org over plain
-    // HTTPS — a direct source like the other server-fetch adapters.
-    // Spec-47 T2: audiobook.co.ua is server-fetch too (T1 spike verdict PASS;
-    // audio rides archive.org with ranges).
-    // Spec-47 T3: chytaylo.com.ua is server-fetch (Next.js SSR, T1 verdict
-    // PASS; audio `/api/audio-local/…mp3` serves ranges directly).
-    // Spec-47 T5: ukrainianaudiobooks.com is NOT here — Cloudflare-gated
-    // (T1 GATED), it resolves to BROWSER through its recovery profile below.
-    private val directSources = setOf(
-        "soundbooks", "audiobookmp3", "lihtar", "sluhayua", "librivox",
-        "audiobookcoua", "chytaylo"
-    )
 
     /**
-     * Deterministic sub-order inside the DIRECT capability tier (#465):
-     * soundbooks → sluhayua → audiobookmp3 → lihtar — parity with the web
-     * worker's SOURCE_PRIORITY (`web/src/worker/workFeed.ts`). Direct sources
-     * absent from a list keep this relative order; a direct id not listed here
-     * (a future adapter) falls after the known ones and then ties by name.
+     * Deterministic sub-order inside the DIRECT capability tier: the
+     * registry's `order` list (soundbooks → sluhayua → audiobookmp3 →
+     * lihtar → librivox → audiobookcoua → chytaylo). Direct sources absent
+     * from the registry fall after the known ones and then tie by name.
      */
-    private val directOrder = listOf("soundbooks", "sluhayua", "audiobookmp3", "lihtar")
+    private val directOrder: List<String> =
+        SourceRegistry.entries
+            .filter { it.accessMode == SourceAccessMode.DIRECT && it.id != "local" }
+            .sortedBy { it.order }
+            .map { it.id }
 
-    fun modeFor(sourceId: String): SourceAccessMode = when {
-        sourceId in browserSources -> SourceAccessMode.BROWSER
-        sourceId in directSources -> SourceAccessMode.DIRECT
-        sourceId == "local" -> SourceAccessMode.DIRECT
-        else -> SourceAccessMode.UNKNOWN
-    }
+    fun modeFor(sourceId: String): SourceAccessMode = SourceRegistry.modeFor(sourceId)
 
     fun priority(candidate: SourceAccessCandidate): Int = when {
         candidate.localAvailable || candidate.sourceId == "local" -> 0

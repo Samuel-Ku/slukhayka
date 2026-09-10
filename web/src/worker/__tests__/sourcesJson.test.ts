@@ -5,8 +5,8 @@ import { SOURCE_METADATA, SOURCE_ORDER } from '../sourceMetadata'
 
 /**
  * ADR-0038 — the web side of the parity gate: the worker's registry and
- * metadata tables must agree with `sources.json` (repo root), which the
- * worker imports natively. A fact changed on either side fails this test.
+ * metadata tables agree with `sources.json` (repo root), which the worker
+ * imports natively. A fact changed on either side fails this test.
  */
 describe('sources.json — the one carrier of source facts (ADR-0038)', () => {
   /** ADR-0038 §5: worker-local keys vs the canonical (persisted) domain ids. */
@@ -35,28 +35,12 @@ describe('sources.json — the one carrier of source facts (ADR-0038)', () => {
     expect(webIds).toEqual(jsonWebOrder)
   })
 
-  /**
-   * ADR-0038: values the consumer migration will unify onto the registry.
-   * Pinned here so they cannot drift FURTHER while they wait — each entry
-   * disappears in the migration step that changes the code value.
-   */
-  const KNOWN_MIGRATION_DIVERGENCES: ReadonlyArray<[key: string, field: 'label', current: string]> = [
-    // The site's own name is "audiobook-mp3" (the Android badge); the web
-    // label "Audio-MP3" migrates onto it.
-    ['audiobook-mp3', 'label', 'Audio-MP3'],
-  ]
-
   it('SOURCE_METADATA mirrors the registry facts', () => {
     for (const key of SOURCE_ORDER) {
       const json = jsonById.get(idOf(key))!
       const meta = SOURCE_METADATA[key]
-      const divergence = KNOWN_MIGRATION_DIVERGENCES.find(([k, f]) => k === key && f === 'label')
-      if (divergence) {
-        expect(meta.label, `${key} (pinned ADR-0038 divergence)`).toBe(divergence[2])
-      } else {
-        expect(meta.label, key).toBe(json.displayName)
-      }
-      // Trailing-slash normalization is part of the consumer migration (ADR-0038).
+      expect(meta.label, key).toBe(json.displayName)
+      // Trailing-slash normalization is not a fact difference.
       expect(meta.homeUrl.replace(/\/$/, ''), key).toBe((json.homeUrl ?? '').replace(/\/$/, ''))
       expect(meta.contentLanguage, key).toBe(json.contentLanguage)
     }

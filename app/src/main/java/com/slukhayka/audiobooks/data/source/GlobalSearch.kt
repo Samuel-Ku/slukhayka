@@ -116,51 +116,28 @@ fun catalogCardDownloadAllowed(result: GlobalSearchResult): Boolean =
  * `sluhayknigi.com` before `sluhay.com` (the CDN is shared, the Referer
  * differs).
  */
-fun sourceIdForUrl(url: String): String = when {
-    url.isBlank() -> "local"
-    url.contains("4read.org") -> "4read"
-    url.contains("sound-books.net") -> "soundbooks"
-    url.contains("audiobook-mp3.com") -> "audiobookmp3"
-    // Spec-47 T5 — the wave's three new sources. audiobook.co.ua covers its
-    // book pages, the novinki section and the playlist txt files the adapter
-    // emits — one identity per host; the audio itself rides archive.org,
-    // whose /details/ shape stays the LibriVox mirror mapping below.
-    url.contains("audiobook.co.ua") -> "audiobookcoua"
-    url.contains("chytaylo.com.ua") -> "chytaylo"
-    // Spec-47 T5 — ukrainianaudiobooks.com (WebView-pattern, T1 verdict
-    // GATED): its page URL is what the captured-page import door keys on.
-    url.contains("ukrainianaudiobooks.com") -> "ukrainianaudiobooks"
-    url.contains("lihtar.in.ua") -> "lihtar"
-    url.contains("sluhay.com.ua") -> "sluhayua"
-    url.contains("sluhayknigi.com") -> "sluhayknigi"
-    url.contains("sluhay.com") -> "sluhay"
-    // Spec-45 (#405) T2 (#490): archive.org/details is the LibriVox MIRROR
-    // transport — the same sourceId, never a second catalogue row. Only
-    // librivoxaudio items reach the library through this adapter, so the URL
-    // shape maps to librivox, not to a generic archive source.
-    url.contains("archive.org/details/") -> "librivox"
-    else -> "unknown"
+fun sourceIdForUrl(url: String): String {
+    if (url.isBlank()) return "local"
+    val host = hostOfUrl(url) ?: return "unknown"
+    return SourceRegistry.entries.firstOrNull { facts ->
+        hostsOfFacts(facts).any { fact -> host == fact || host.endsWith(".$fact") }
+    }?.id ?: "unknown"
 }
 
-/** Human-readable source label for badges. */
-fun sourceDisplayName(sourceId: String): String = when (sourceId) {
-    "4read" -> "4read"
-    "soundbooks" -> "Sound-Books"
-    "audiobookmp3" -> "audiobook-mp3"
-    // Spec-47 T5 — the badges of the wave's sources, per the spec's identity
-    // decisions (source id in the `sources` table, display name on cards).
-    "audiobookcoua" -> "Audiobook.co.ua"
-    "chytaylo" -> "Читайло"
-    "ukrainianaudiobooks" -> "Ukrainian Audiobooks"
-    "lihtar" -> "Lihtar"
-    "sluhayua" -> "Sluhay"
-    "sluhay" -> "Sluhay"
-    "sluhayknigi" -> "SluhayKnigi"
-    "librivox" -> "LibriVox"
-    "telegram" -> "Telegram"
-    "local" -> "Локальна"
-    else -> sourceId
+/** The registry hosts of one source: its home host plus every transport host. */
+private fun hostsOfFacts(facts: SourceFacts): Set<String> = buildSet {
+    hostOfUrl(facts.homeUrl)?.let(::add)
+    addAll(facts.transportHosts.map { it.lowercase() })
 }
+
+private fun hostOfUrl(url: String): String? = try {
+    java.net.URI(url).host?.lowercase()?.removePrefix("www.")
+} catch (_: Exception) {
+    null
+}
+
+/** Human-readable source label for badges — the registry display name. */
+fun sourceDisplayName(sourceId: String): String = SourceRegistry.displayName(sourceId)
 
 /**
  * Merges raw per-source matches into one card per Work. Deterministic: cards

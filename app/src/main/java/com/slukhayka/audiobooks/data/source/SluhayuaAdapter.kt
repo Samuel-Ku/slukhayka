@@ -62,6 +62,38 @@ class SluhayuaAdapter(
         fetchNewPage(FIRST_PAGE).take(limit)
 
     /**
+     * Ф2 (spec `2026-09-10-remove-4read-source`) — catalogue depth for the
+     * union: the T1-verified `/find/allcards` endpoint is paged with `page=N`
+     * (the exact shape the feed cursor already drives), bounded by [limit]
+     * and the response's own `pageCount`. An empty page or the reported last
+     * page ends the pass — never an unbounded crawl.
+     */
+    override suspend fun fetchCatalog(limit: Int): List<SourceBook> {
+        if (limit <= 0) return emptyList()
+        val books = mutableListOf<SourceBook>()
+        var page = FIRST_PAGE
+        var lastPage = Int.MAX_VALUE
+        while (books.size < limit && page <= lastPage) {
+            val json = fetcher.getText(
+                allCardsUrl("sort=time&order=desc", page),
+                XHR,
+                SourceRequestClass.TTL_REFRESH,
+                FeedSnapshotPolicy.CATALOG_TTL_MS
+            )
+            val cards = cardsFrom(json)
+            if (cards.isEmpty()) break
+            pageCountFrom(json)?.let { lastPage = it }
+            books += cards.map { it.toSourceBook() }
+            page++
+        }
+        return books.take(limit)
+    }
+
+    /** The response's own `"pageCount": N` — null when absent. */
+    private fun pageCountFrom(json: String): Int? =
+        Regex(""""pageCount"\s*:\s*(\d+)""").find(json)?.groupValues?.get(1)?.toIntOrNull()
+
+    /**
      * Spec #462 ID4 (#466) — one page of the newest-first feed
      * (`/find/allcards?sort=time&order=desc&page=N`): the seam the feed
      * cursor ([FeedCursor]) drives on a USER action (scroll / pull-to-refresh)

@@ -33,6 +33,22 @@ order, not a health score, so a transient HTTP failure does not permanently
 demote a Source.
 _Avoid_: health-ranked Source order, silent browser launch
 
+**Source Registry**:
+Одна декларативна таблиця статичних фактів кожного Source — стабільний id,
+назва, домашня URL, content language, режим доступу (Source Access Mode),
+внутрішній порядок усередині tier, stream-only, header-правила з
+host-скоупінгом, door-шаблони, hosts транспорту і браузерні факти профілю
+відновлення. Носій — один `sources.json` на рівні репо: web-воркер імпортує
+його напряму, Android тримає типовий `SourceRegistry`-читач, припінаний
+JVM conformance-тестом проти того самого файлу — паритет платформ
+будується, а не коментується. Browser Recovery Profiles лишаються
+декларованими per-source (ADR-0036) і читаються з того самого носія. Правило
+порядку (LOCAL < DIRECT < UNKNOWN < BROWSER) — це код у `SourceAccessPolicy`;
+дані (tier і порядок) — реєстр. Персистовані `source`-рядки свідомо
+tримають plain-string id: реєстр — це ідентичність, не сховище.
+_Avoid_: факти джерела в політиках (SourceAccessPolicy/DownloadPolicy/GlobalSearch),
+другий список порядку на web, браузерні факти поза реєстром
+
 **Source Binding**:
 A device's locator, permission, and availability relationship to a Source. Bindings are device-specific even when the Source identity is shared. No Binding rows exist yet — with a single device, locator and permission stay on the Source row; the Binding table arrives with device sync, not before. NOTE (spec-40): the Firestore collection `device_bindings` is NOT this domain concept — it is the reinstall-recovery anchor mapping a device id to the listener's own uid.
 _Avoid_: Source, download

@@ -340,6 +340,37 @@ class FirestoreBookMetaStore(private val firestore: FirebaseFirestore) : SharedB
         }
     }
 
+    override suspend fun getRefusalCount(sourceId: String): Long {
+        if (sourceId.isBlank()) return 0L
+        return try {
+            val snapshot = firestore.collection(REFUSAL_COLLECTION).document(sourceId).get()
+                .awaitOrNull() ?: return 0L
+            if (!snapshot.exists()) 0L
+            else SourceRefusalCountCodec.fromMap(snapshot.data ?: return 0L) ?: 0L
+        } catch (e: Exception) {
+            0L
+        }
+    }
+
+    override suspend fun publishRefusalVote(sourceId: String, uid: String): Boolean {
+        val vote = SourceRefusalVoteCodec.toMap(sourceId, uid) ?: return false
+        val voteId = SourceRefusalVoteCodec.documentId(sourceId, uid)
+        return try {
+            firestore.runTransaction { transaction ->
+                val voteRef = firestore.collection(REFUSAL_VOTE_COLLECTION).document(voteId)
+                if (transaction.get(voteRef).exists()) return@runTransaction true
+                transaction.set(voteRef, vote)
+                val aggregateRef = firestore.collection(REFUSAL_COLLECTION).document(sourceId)
+                val aggregateSnapshot = transaction.get(aggregateRef)
+                val next = (aggregateSnapshot.data?.let(SourceRefusalCountCodec::fromMap) ?: 0L) + 1
+                transaction.set(aggregateRef, SourceRefusalCountCodec.toMap(next))
+                true
+            }.awaitOrNull() ?: false
+        } catch (e: Exception) {
+            false
+        }
+    }
+
     /** The deterministic document key of one Source×Edition profile. */
     private fun profileKey(sourceId: String, editionId: String): String = "$sourceId|$editionId"
 
@@ -390,6 +421,13 @@ class FirestoreBookMetaStore(private val firestore: FirebaseFirestore) : SharedB
          */
         private const val COUNTER_COLLECTION = "submission_daily_counters"
         private const val COUNTER_FIELD = "count"
+        /**
+         * Spec-49 T5 — the anonymous per-source refusal counters (one
+         * document per sourceId) and the per-device vote documents
+         * (`{sourceId}_{uid}`) behind the one-device-once gate.
+         */
+        private const val REFUSAL_COLLECTION = "source_refusals"
+        private const val REFUSAL_VOTE_COLLECTION = "source_refusal_votes"
 
         /** Firestore's `whereIn` value bound — the batch chunk size. */
         private const val MAX_WHERE_IN = 10

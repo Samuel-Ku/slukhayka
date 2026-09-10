@@ -18,10 +18,15 @@ import kotlinx.coroutines.flow.asStateFlow
  * the metadata this preference preserves) and never synced — the refusal
  * is personal, exactly like the Content Language Preference (ADR-0029).
  *
+ * Spec-49 T5 — the same store carries the SEPARATE voluntary publish
+ * consent: sharing the refusal means adding one anonymous vote per refused
+ * source to the shared counter, nothing else. Off by default; revoking it
+ * stops contributions while the local refusal itself stands untouched.
+ *
  * SharedPreferences-backed; writes are synchronous and immediate, the
- * [refusedSources] flow carries every change so the selection coordinator,
- * the catalog pairing, the download gate and the settings screen all react
- * to ONE source of truth. The `local` pseudo-source is never a state: a
+ * flows carry every change so the selection coordinator, the catalog
+ * pairing, the download gate and the settings screen all react to ONE
+ * source of truth. The `local` pseudo-source is never a state: a
  * refusal stops the SOURCE supplying audio, never the listener's own
  * downloaded files.
  */
@@ -32,6 +37,9 @@ class SourceAudioRefusal(context: Context) {
 
     private val _refusedSources = MutableStateFlow(read())
     val refusedSources: StateFlow<Set<String>> = _refusedSources.asStateFlow()
+
+    private val _publishRefusals = MutableStateFlow(readPublish())
+    val publishRefusals: StateFlow<Boolean> = _publishRefusals.asStateFlow()
 
     /** Whether audio of [sourceId] is refused right now. */
     fun isRefused(sourceId: String): Boolean =
@@ -54,11 +62,21 @@ class SourceAudioRefusal(context: Context) {
         _refusedSources.value = normalized
     }
 
+    /** Sets the voluntary anonymous-publish consent (idempotent). */
+    fun setPublishRefusals(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_PUBLISH_REFUSALS, enabled).apply()
+        _publishRefusals.value = enabled
+    }
+
     private fun read(): Set<String> =
         normalize(prefs.getStringSet(KEY_REFUSED, null).orEmpty().toSet())
 
+    private fun readPublish(): Boolean =
+        prefs.getBoolean(KEY_PUBLISH_REFUSALS, false)
+
     companion object {
         private const val KEY_REFUSED = "refused_sources"
+        private const val KEY_PUBLISH_REFUSALS = "publish_refusals"
 
         /**
          * The refusal is about a SOURCE supplying audio. The local

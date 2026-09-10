@@ -296,6 +296,51 @@ service cloud.firestore {
         && resource.data.uid == request.auth.uid;
     }
 
+    // Spec-49 T5 — the anonymous per-source refusal counters: readable by
+    // everyone (the audio-sources badge), writable only as honest +1 steps
+    // on the eight catalogued sources under App Check. The document key IS
+    // the sourceId and 'count' is the ONLY field — a refusal is a source
+    // property even in the data. Ordinary clients are create-or-increment.
+    function isKnownRefusalSource(document) {
+      return document in ['4read', 'sluhayua', 'soundbooks', 'audiobookmp3', 'lihtar', 'audiobookcoua', 'chytaylo', 'ukrainianaudiobooks'];
+    }
+
+    match /source_refusals/{document} {
+      allow read: if true;
+      allow create: if isAppCheckValid()
+        && request.auth != null
+        && isKnownRefusalSource(document)
+        && request.resource.data.keys().hasOnly(['count'])
+        && request.resource.data.count == 1;
+      allow update: if isAppCheckValid()
+        && request.auth != null
+        && isKnownRefusalSource(document)
+        && request.resource.data.keys().hasOnly(['count'])
+        && request.resource.data.count == resource.data.count + 1;
+      allow delete: if false;
+    }
+
+    // Spec-49 T5 — the per-device refusal votes ('{sourceId}_{uid}') behind
+    // the one-device-once gate: readable by everyone like the reviews, but
+    // each listener may only place their own vote, once, under App Check.
+    // The document key pins the ownership — no second vote for the same
+    // source from the same profile is writable.
+    function isWellFormedRefusalVote(d) {
+      return d.keys().hasOnly(['sourceId', 'uid'])
+        && d.sourceId is string && d.sourceId.size() > 0 && d.sourceId.size() <= 64
+        && d.uid is string && d.uid.size() > 0;
+    }
+
+    match /source_refusal_votes/{document} {
+      allow read: if true;
+      allow create: if isAppCheckValid()
+        && request.auth != null
+        && request.resource.data.uid == request.auth.uid
+        && document == request.resource.data.sourceId + '_' + request.auth.uid
+        && isWellFormedRefusalVote(request.resource.data);
+      allow update, delete: if false;
+    }
+
     match /universe_resolutions/{document} {
       allow read: if true;
       allow write: if isAppCheckValid();

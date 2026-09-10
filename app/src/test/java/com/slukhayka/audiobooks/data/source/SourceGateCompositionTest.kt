@@ -1,5 +1,6 @@
 package com.slukhayka.audiobooks.data.source
 
+import kotlinx.coroutines.test.runTest
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Protocol
 import okhttp3.Request
@@ -129,6 +130,37 @@ class SourceGateCompositionTest {
         val transport = FakeTransport()
 
         assertTrue(transport.getText("https://query.wikidata.org/sparql?q=x").isNotEmpty())
+        assertEquals(1, transport.calls)
+    }
+
+    @Test
+    fun `a cookie bearing request bypasses the gate`() {
+        val transport = FakeTransport(sourceGate = dryGate(FakeClock()))
+
+        val body = transport.getText(
+            "https://4read.org/book",
+            mapOf("Cookie" to "cf_clearance=live"),
+            SourceRequestClass.LISTENER_ACTION,
+            0L
+        )
+
+        assertEquals("<html>page</html>", body)
+        assertEquals(1, transport.calls)
+    }
+
+    @Test
+    fun `a cookie bearing gated fetch stays outside the throat`() = runTest {
+        val transport = FakeTransport(sourceGate = dryGate(FakeClock()))
+
+        val live = transport.fetchText(
+            "https://4read.org/book",
+            SourceRequestClass.LISTENER_ACTION,
+            extraHeaders = mapOf("Cookie" to "cf_clearance=live")
+        )
+        val clean = transport.fetchText("https://4read.org/book", SourceRequestClass.BACKGROUND)
+
+        assertEquals(GateOutcome.Fetched("<html>page</html>"), live)
+        assertTrue(clean is GateOutcome.Deferred)
         assertEquals(1, transport.calls)
     }
 }

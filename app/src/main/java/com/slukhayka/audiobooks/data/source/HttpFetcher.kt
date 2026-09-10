@@ -80,7 +80,7 @@ open class HttpFetcher(
         requestClass: SourceRequestClass,
         cacheTtlMillis: Long
     ): String {
-        val gate = effectiveGate(url) ?: return getTextResult(url, extraHeaders).second
+        val gate = effectiveGate(url, extraHeaders) ?: return getTextResult(url, extraHeaders).second
         val outcome = runBlocking {
             gate.run(url, requestClass, cacheTtlMillis) { executeText(url, extraHeaders) }
         }
@@ -122,16 +122,23 @@ open class HttpFetcher(
         cacheTtlMillis: Long = 0L,
         extraHeaders: Map<String, String> = emptyMap()
     ): GateOutcome<String> {
-        val gate = sourceGate ?: return rawTextOutcome(url, extraHeaders)
+        val gate = effectiveGate(url, extraHeaders) ?: return rawTextOutcome(url, extraHeaders)
         return gate.run(url, requestClass, cacheTtlMillis) { executeText(url, extraHeaders) }
     }
 
     /**
-     * The gate guards HTML/API requests to registered Source hosts only; a
-     * fetcher whose URL is enrichment or update traffic stays raw, as does a
-     * process with no gate installed (fixtures, unit tests).
+     * The gate guards clean HTML/API requests to registered Source hosts only.
+     * ADR-0039 §8 — a cookie-bearing request IS the live Source session: it
+     * spends no tokens and stands in no throat, and its knowledge stays local.
+     * Enrichment/update hosts and a process with no gate stay raw too.
      */
-    private fun effectiveGate(url: String): SourceRequestGate? {
+    private fun effectiveGate(url: String, extraHeaders: Map<String, String>): SourceRequestGate? {
+        if (extraHeaders.any { (name, value) ->
+                name.equals("Cookie", ignoreCase = true) && value.isNotBlank()
+            }
+        ) {
+            return null
+        }
         val gate = sourceGate ?: SourceGateProvider.current ?: return null
         val host = try {
             URI(url).host?.lowercase()

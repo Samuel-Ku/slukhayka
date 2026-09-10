@@ -20,6 +20,9 @@ import { audiobookMp3Adapter, parsePlayerjsPlaylist as abMp3Playlist, playlistUr
 import { lihtarAdapter, parsePlayerPage as lihtarPlayer, playerUrlOf as lihtarPlayerUrl } from './adapters/lihtar'
 import { sluhayuaAdapter, chapterCountOf, chaptersFromPlayResponses } from './adapters/sluhayua'
 import { archiveSearchUrl, buildBookDetail as buildLibrivoxDetail, catalogUrlOf, identifierOf as librivoxIdentifierOf, librivoxAdapter } from './adapters/librivox'
+import { audiobookcouaAdapter, playlistUrlOf as audiobookcouaPlaylistUrl } from './adapters/audiobookcoua'
+import { chytayloAdapter } from './adapters/chytaylo'
+import { parsePlayerjsPlaylist } from './adapters/playerjs'
 
 export interface SourceEntry {
   readonly adapter: SourceAdapter
@@ -172,6 +175,32 @@ export const REGISTRY: Record<SourceId, SourceEntry> = {
       if (body === null) return null
       return buildLibrivoxDetail(body, pageUrl)
     },
+  },
+  // Spec-47 T6 — audiobook.co.ua (T2 port): the page's Playerjs init points
+  // to the site's own playlist txt; the playerjs chapters then ride
+  // archive.org (already allowlisted via the librivox mirror). No search
+  // endpoint (T1 verdict: the keyword form does not filter server-side).
+  audiobookcoua: {
+    adapter: audiobookcouaAdapter,
+    allowedHosts: ['audiobook.co.ua'],
+    // The novinki grid is the catalogue feed's starting page.
+    catalogUrl: 'https://audiobook.co.ua/novinki-ozvuchivaniya/',
+    buildBook: async (html, pageUrl, fetchText) =>
+      await expandViaPlaylist(
+        audiobookcouaAdapter.parseBookPage(html, pageUrl),
+        html,
+        audiobookcouaPlaylistUrl,
+        parsePlayerjsPlaylist,
+        fetchText,
+      ),
+  },
+  // Spec-47 T6 — chytaylo.com.ua (T3 port): the chapters live INSIDE the
+  // page's escaped player payload — no extra fetch, the audio-only boundary
+  // is per-page (no tracks payload → nothing playable).
+  chytaylo: {
+    adapter: chytayloAdapter,
+    allowedHosts: ['chytaylo.com.ua'],
+    buildBook: async (html, pageUrl) => chytayloAdapter.parseBookPage(html, pageUrl),
   },
 }
 

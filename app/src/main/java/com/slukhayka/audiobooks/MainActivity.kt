@@ -150,6 +150,7 @@ class MainActivity : FragmentActivity() {
 
     override fun onNewIntent(intent: android.content.Intent) {
         super.onNewIntent(intent)
+        setIntent(intent)
         handleDownloadIntent(intent)
     }
 
@@ -157,6 +158,21 @@ class MainActivity : FragmentActivity() {
         if (intent.getBooleanExtra(EXTRA_OPEN_PEOPLE_NEW, false)) pendingPeopleNew = true
         if (intent.getBooleanExtra("openBookDetail", false)) {
             intent.getStringExtra("bookId")?.let { pendingBookId = it }
+        }
+        // Spec-53 T4 — a system share ("Поділитися → Слухайка") or a VIEW of
+        // a supported link opens the submission door with the link prefilled.
+        val shared = when (intent.action) {
+            android.content.Intent.ACTION_SEND ->
+                com.slukhayka.audiobooks.data.ingest.sharedSubmissionUrlOf(
+                    intent.getStringExtra(android.content.Intent.EXTRA_TEXT)
+                )
+            android.content.Intent.ACTION_VIEW ->
+                com.slukhayka.audiobooks.data.ingest.sharedSubmissionUrlOf(intent.dataString)
+            else -> null
+        }
+        if (shared != null) {
+            androidx.lifecycle.ViewModelProvider(this)[com.slukhayka.audiobooks.ui.MainViewModel::class.java]
+                .onSharedSubmission(shared)
         }
     }
 

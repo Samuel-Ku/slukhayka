@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.slukhayka.audiobooks.data.db.AudiobookDatabase
+import com.slukhayka.audiobooks.data.db.GenreAssertionProvenance
 import com.slukhayka.audiobooks.data.metadata.FacetDurationBucket
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -301,5 +302,115 @@ class LocalFacetWriterTest {
         val remainingAssertions = db.audiobookDao().genreAssertionsForWork("work-remote")
         assertEquals(setOf("b-fantasy", "shared-document"), remainingAssertions.map { it.assertionId }.toSet())
         assertTrue(remainingAssertions.all { it.sourceId == "remote-b" })
+    }
+
+    // --- ADR-0040: the provenance rank (enumeration > search) --------------
+
+    private suspend fun writeGenre(
+        workId: String,
+        sourceId: String,
+        provenance: GenreAssertionProvenance,
+        rawText: String,
+        observedAt: Long
+    ) {
+        writer.apply(
+            listOf(
+                LocalFacetDelta(
+                    WorkFacetDelta(
+                        workId = workId,
+                        genres = listOf(
+                            GenreFacetAssertion(
+                                rawText = rawText,
+                                sourceId = sourceId,
+                                observedAt = observedAt,
+                                provenance = provenance
+                            )
+                        ),
+                        updatedAt = observedAt
+                    )
+                )
+            )
+        )
+    }
+
+    @Test
+    fun `a search document never replaces an enumeration document regardless of time`() = runBlocking {
+        writeGenre("work-rank-a", "4read", GenreAssertionProvenance.ENUMERATION, "Фентезі", 100)
+        writeGenre("work-rank-a", "4read", GenreAssertionProvenance.SEARCH, "Детектив", 1_000_000)
+
+        assertEquals(
+            listOf("fantasy"),
+            db.audiobookDao().observeGenreFacetOptions().first().map { it.id }
+        )
+        assertEquals(
+            listOf("Фентезі"),
+            db.audiobookDao().genreAssertionsForWork("work-rank-a").map { it.rawText }
+        )
+    }
+
+    @Test
+    fun `an enumeration document replaces a search document regardless of time`() = runBlocking {
+        writeGenre("work-rank-b", "4read", GenreAssertionProvenance.SEARCH, "Детектив", 1_000_000)
+        writeGenre("work-rank-b", "4read", GenreAssertionProvenance.ENUMERATION, "Фентезі", 100)
+
+        assertEquals(
+            listOf("fantasy"),
+            db.audiobookDao().observeGenreFacetOptions().first().map { it.id }
+        )
+    }
+
+    @Test
+    fun `an empty enumeration document removes a search document`() = runBlocking {
+        writeGenre("work-rank-c", "4read", GenreAssertionProvenance.SEARCH, "Детектив", 1_000_000)
+        writer.apply(
+            listOf(
+                LocalFacetDelta(
+                    WorkFacetDelta(
+                        workId = "work-rank-c",
+                        genreSourceReplacements = listOf(
+                            GenreSourceFacetReplacement(
+                                sourceId = "4read",
+                                documentUpdatedAt = 101,
+                                assertions = emptyList()
+                            )
+                        ),
+                        updatedAt = 101
+                    )
+                )
+            )
+        )
+
+        assertEquals(
+            emptyList<String>(),
+            db.audiobookDao().observeGenreFacetOptions().first().map { it.id }
+        )
+    }
+
+    @Test
+    fun `one Source genre set must share one provenance`() = runBlocking {
+        val mixed = LocalFacetDelta(
+            WorkFacetDelta(
+                workId = "work-mixed-prov",
+                genres = listOf(
+                    GenreFacetAssertion(
+                        "Фантастика", "4read", 1,
+                        provenance = GenreAssertionProvenance.ENUMERATION
+                    ),
+                    GenreFacetAssertion(
+                        "Детектив", "4read", 1,
+                        provenance = GenreAssertionProvenance.SEARCH
+                    )
+                ),
+                updatedAt = 1
+            )
+        )
+
+        try {
+            writer.apply(listOf(mixed))
+            fail("one Source genre set must share one provenance")
+        } catch (_: IllegalArgumentException) {
+            // Rejected before the Room transaction.
+        }
+        assertTrue(db.audiobookDao().observeGenreFacetOptions().first().isEmpty())
     }
 }

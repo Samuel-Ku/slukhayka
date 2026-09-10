@@ -77,6 +77,37 @@ class KnigiOnlineAdapterTest {
     """.trimIndent()
 
     @Test
+    fun `search rides the politeness seam with the declared profile`() = runBlocking {
+        // ADR-0040 — the adapter declares per-endpoint profiles; the seam
+        // forwards the endpoint, the gate decides. Zero jitter + a full
+        // bucket keep the run deterministic (no real sleeps).
+        val gate = SourceRequestGate(
+            params = SourceGateParams(jitterMinMs = 0, jitterMaxMs = 0),
+            budgetStore = InMemorySourceGateBudgetStore()
+        )
+        val transport = FakeFetcher(mapOf(searchUrl to searchPage))
+        val profileSource = object : SourceAdapter {
+            override val sourceId: String = "knigionline"
+            override suspend fun search(query: String): List<SourceBook> = emptyList()
+            override suspend fun fetchBookPage(url: String): SourceBookDetail =
+                SourceBookDetail("", "", url = url, chapters = emptyList())
+            override suspend fun fetchNew(limit: Int): List<SourceBook> = emptyList()
+        }
+        val adapter = KnigiOnlineAdapter(
+            fetcher = transport,
+            gatedFetcher = SourceGateFetcher(transport, gate) { endpoint ->
+                profileSource.requestProfile(endpoint)
+            }
+        )
+
+        val results = adapter.search("нестайко")
+
+        assertEquals(1, results.size)
+        assertEquals("«Тореадори з Васюківки»", results[0].title)
+        assertEquals("Всеволод Нестайко", results[0].author)
+    }
+
+    @Test
     fun `search parses the live wordpress results - the ebook card never enters`() = runBlocking {
         val adapter = KnigiOnlineAdapter(FakeFetcher(mapOf(searchUrl to searchPage)))
         val results = adapter.search("нестайко")
@@ -94,6 +125,10 @@ class KnigiOnlineAdapterTest {
             "https://knigi-online.com.ua/wp-content/uploads/2024/09/Toreadory-z-Vasiukivky-Vsevolod-Nestayko-329x230.jpg",
             results[0].coverImageUrl
         )
+        // The live card carries the site's own category span as the claimed
+        // genre (ADR-0040) — the search write path lands it as a SEARCH-rank
+        // facet assertion.
+        assertEquals("Аудіокниги", results[0].genre)
         assertTrue(results.all { it.sourceId == "knigionline" })
     }
 

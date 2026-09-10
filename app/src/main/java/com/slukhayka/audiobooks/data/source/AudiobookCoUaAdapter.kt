@@ -64,12 +64,27 @@ class AudiobookCoUaAdapter(
     override suspend fun fetchCatalog(limit: Int): List<SourceBook> {
         if (limit <= 0) return emptyList()
         val books = mutableListOf<SourceBook>()
+        // G (spec `2026-09-10-remove-4read-source`) — the gate returns "" both
+        // for a dead page and for a budget deferral, so a whole-sitemap walk
+        // (2192 locs) must stop after a bounded run of misses instead of one
+        // gated request per loc. A real card resets the run.
+        val maxMisses = 10
+        var misses = 0
         for (sitemapUrl in POST_SITEMAPS) {
             for (loc in sitemapLocs(fetcher.getText(sitemapUrl, emptyMap(), SourceRequestClass.TTL_REFRESH, FeedSnapshotPolicy.CATALOG_TTL_MS))) {
                 if (books.size >= limit) return books
                 val page = fetcher.getText(loc, emptyMap(), SourceRequestClass.TTL_REFRESH, FeedSnapshotPolicy.CATALOG_TTL_MS)
-                if (page.isEmpty()) continue
-                bookFromPage(page, loc)?.let { books += it }
+                if (page.isEmpty()) {
+                    if (++misses >= maxMisses) return books
+                    continue
+                }
+                val card = bookFromPage(page, loc)
+                if (card == null) {
+                    if (++misses >= maxMisses) return books
+                    continue
+                }
+                misses = 0
+                books += card
             }
         }
         return books

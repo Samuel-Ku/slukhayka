@@ -12,8 +12,11 @@ import com.slukhayka.audiobooks.data.LanguageCode
  *   (verified live 2026-09-10 — the T1 spike note claiming search is
  *   absent was wrong; fixture `search-s-nestayko.html`). Search anchors
  *   read `Аудіокнига «Title» Author` (section cards drop the wrapper) —
- *   the prefix is stripped in [splitTitleAuthor]. Mixed site — only
- *   `/audioknyha-/` URLs are audio claims; ebook cards never enter.
+ *   the prefix is stripped in [splitTitleAuthor]. Cards also carry the
+ *   site's own category span (`post-card__category`) as the claimed genre
+ *   (ADR-0040). Mixed site — only `/audioknyha-/` URLs are audio claims;
+ *   ebook cards never enter. Every request rides the declared request
+ *   profile through [SourceGateFetcher] when wired (ADR-0040).
  * - **New** (`/audioknyhy/`): the same post-cards in the site's own order.
  * - **Book page**: og:* metadata (title `Аудіокнига «Title» Author`,
  *   description, image) + the AudioIgniter `data-tracks-url` block; the
@@ -26,7 +29,14 @@ import com.slukhayka.audiobooks.data.LanguageCode
  *   rendered.
  */
 class KnigiOnlineAdapter(
-    private val fetcher: HttpFetcher = HttpFetcher()
+    private val fetcher: HttpFetcher = HttpFetcher(),
+    /**
+     * ADR-0040 — the politeness seam when wired (production T2); null keeps
+     * the plain transport so fixture tests serve canned content directly.
+     * The adapter only declares its [SourceRequestProfile]s — the seam
+     * classifies, features never do.
+     */
+    private val gatedFetcher: GatedSourceFetcher? = null
 ) : SourceAdapter {
 
     override val sourceId: String = "knigionline"
@@ -34,10 +44,14 @@ class KnigiOnlineAdapter(
     /** The catalogue speaks Ukrainian (`og:locale: uk_UA`). */
     override val contentLanguage = LanguageCode.UKRAINIAN
 
+    /** One HTML fetch: through the politeness seam when wired, else the transport. */
+    private suspend fun fetch(url: String, endpoint: SourceEndpoint): String =
+        gatedFetcher?.getText(url, endpoint) ?: fetcher.getText(url)
+
     /** Server-side WordPress search, audiobook cards only. */
     override suspend fun search(query: String): List<SourceBook> {
         if (query.isBlank()) return emptyList()
-        val html = fetcher.getText("$SITE_ORIGIN/?s=${urlEncode(query)}")
+        val html = fetch("$SITE_ORIGIN/?s=${urlEncode(query)}", SourceEndpoint.SEARCH)
         if (html.isEmpty()) return emptyList()
         return listingBooks(html)
     }
@@ -45,7 +59,7 @@ class KnigiOnlineAdapter(
     /** Page 1 of `/audioknyhy/` in the site's own order. */
     override suspend fun fetchNew(limit: Int): List<SourceBook> {
         if (limit <= 0) return emptyList()
-        val html = fetcher.getText(NEW_URL)
+        val html = fetch(NEW_URL, SourceEndpoint.NEW_FEED)
         if (html.isEmpty()) return emptyList()
         return listingBooks(html).take(limit)
     }
@@ -59,18 +73,33 @@ class KnigiOnlineAdapter(
     override suspend fun fetchCatalog(limit: Int): List<SourceBook> {
         if (limit <= 0) return emptyList()
         val books = mutableListOf<SourceBook>()
-        for (loc in sitemapLocs(fetcher.getText(SITEMAP_URL))) {
+        // G (spec `2026-09-10-remove-4read-source`) — the gate returns "" both
+        // for a dead page and for a budget deferral, so a whole-sitemap walk
+        // would issue one gated request per loc (401-for-400 on device). Stop
+        // after a bounded run of misses; a real card resets the run.
+        val maxMisses = 10
+        var misses = 0
+        for (loc in sitemapLocs(fetch(SITEMAP_URL, SourceEndpoint.CATALOG))) {
             if (books.size >= limit) return books
             if (AUDIO_PATH !in loc) continue
-            val page = fetcher.getText(loc)
-            if (page.isEmpty()) continue
-            cardFromPage(page, loc)?.let { books += it }
+            val page = fetch(loc, SourceEndpoint.CATALOG)
+            if (page.isEmpty()) {
+                if (++misses >= maxMisses) return books
+                continue
+            }
+            val card = cardFromPage(page, loc)
+            if (card == null) {
+                if (++misses >= maxMisses) return books
+                continue
+            }
+            misses = 0
+            books += card
         }
         return books
     }
 
     override suspend fun fetchBookPage(url: String): SourceBookDetail {
-        val html = fetcher.getText(url)
+        val html = fetch(url, SourceEndpoint.BOOK_PAGE)
         if (html.isEmpty()) return SourceBookDetail("", "", url = url, chapters = emptyList())
         val (title, author) = titleAndAuthorFrom(html)
         val cover = ogMeta(html, "og:image")
@@ -82,7 +111,7 @@ class KnigiOnlineAdapter(
                 coverImageUrl = cover,
                 chapters = emptyList()
             )
-        val tracks = playlistTracks(fetcher.getText(playlistUrl))
+        val tracks = playlistTracks(fetch(playlistUrl, SourceEndpoint.BOOK_PAGE))
         return SourceBookDetail(
             title = title,
             author = author,
@@ -106,8 +135,8 @@ class KnigiOnlineAdapter(
 
     // --- parsing helpers -----------------------------------------------------
 
-    /** One `post-card` block: url, cover, `«Title» Author` anchor text. */
-    private data class Card(val url: String, val cover: String?, val title: String, val author: String)
+    /** One `post-card` block: url, cover, `«Title» Author` anchor, category. */
+    private data class Card(val url: String, val cover: String?, val title: String, val author: String, val genre: String)
 
     private fun listingCards(html: String): List<Card> {
         val starts = CARD.findAll(html).map { it.range.first }.toList()
@@ -122,7 +151,12 @@ class KnigiOnlineAdapter(
             val (title, author) = splitTitleAuthor(anchor)
             if (title.isBlank()) continue
             val cover = CARD_IMG.find(block)?.groupValues?.get(1)
-            cards += Card(url, cover, title, author)
+            // The site's own category span («Українські детективи», «Аудіокниги»,
+            // …) — raw source text, never guessed (ADR-0014); feeds the
+            // genre facets of search/listing cards (ADR-0040).
+            val genre = CARD_CATEGORY.find(block)?.groupValues?.get(1)
+                ?.let(::decodeEntities)?.trim().orEmpty()
+            cards += Card(url, cover, title, author, genre)
         }
         return cards
     }
@@ -134,6 +168,7 @@ class KnigiOnlineAdapter(
                 author = card.author,
                 url = card.url,
                 coverImageUrl = card.cover,
+                genre = card.genre,
                 sourceId = sourceId
             )
         }
@@ -188,7 +223,6 @@ class KnigiOnlineAdapter(
         if (json.isBlank()) return emptyList()
         val arrayStart = json.indexOf('[')
         val array = balancedBounds(json, arrayStart) ?: return emptyList()
-        println("DEBUG504 arrayLen=${array.length}")
         val tracks = mutableListOf<PlaylistTrack>()
         var pos = 0
         while (true) {
@@ -275,6 +309,9 @@ class KnigiOnlineAdapter(
 
         /** The card cover (first `<img>` of the block). */
         val CARD_IMG = Regex("""<img[^>]*?src="([^"]+)"""")
+
+        /** The card's site category span (the source's own genre claim). */
+        val CARD_CATEGORY = Regex("""<span itemprop="articleSection" class="post-card__category">([^<]+)</span>""")
 
         /** The AudioIgniter tracks endpoint of a book page. */
         val TRACKS_URL = Regex("""data-tracks-url="([^"]+)"""")

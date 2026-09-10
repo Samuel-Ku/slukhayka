@@ -510,6 +510,13 @@ class App : Application() {
             // captured-page seam (ADR-0006). In release builds the browser
             // door stays closed (ADR-0027) — the profile says so.
             UkrainianaudiobooksAdapter(cookieProvider = sharedCookies),
+            // Spec-50 T2 — knigi-online.com.ua joins the registry (T1 verdict
+            // PASS, server-fetch; search verified live 2026-09-10 — fixture
+            // `research/fixtures/knigionline/search-s-nestayko.html`, ADR-0040):
+            // its search feeds global search and the cross-resolve volley, its
+            // sitemap enumeration joins the union, and the cards' category
+            // spans feed the Search Genre Assertion lane (ADR-0040).
+            KnigiOnlineAdapter(),
             // Spec-45 (#405) T2 (#490): the English source — catalogue/search
             // cards surface in the union and global search next to the
             // Ukrainian ones (book pages are T3 #491).

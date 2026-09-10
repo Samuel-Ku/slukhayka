@@ -83,3 +83,17 @@ union уже був повний (інакше каталог просяде м�
 ## Tracks
 
 Тікети (послідовні, з блокуючими ребрами): Ф2 ✅ → Ф1 → Ф3 → Ф4 → Ф5 → Ф6.
+
+## G — результат (Implemented)
+
+- **Обмежено sitemap-обходи** (`KnigiOnlineAdapter.fetchCatalog`,
+  `AudiobookCoUaAdapter.fetchCatalog`): прохід спиняється після 10 послідовних
+  порожніх/битих сторінок, а не за один gated-запит на кожен `<loc>`.
+  Раніше — 401 запит на sitemap із 400 loc-ів (діагноз на пристрої).
+  Тест: `CatalogWalkBoundsTest`.
+- **Обмежено пошуковий запис** (`SourceCatalog.persistSearchGenreAssertions`):
+  не більше 50 жанрових документів на один пошуковий прохід — раніше рядок на
+  кожен результат. Наявні тести `SearchGenreAssertionTest` лишаються зеленими.
+- **Відкладено (follow-up):** G1 — сам `SourceRequestGate` усе ще бере throat
+  і jitter для запиту, який потім Deferred; перенести jitter на «допущені»
+  запити — окремий тікет (зміна спільного шлюзу, вищий ризик).

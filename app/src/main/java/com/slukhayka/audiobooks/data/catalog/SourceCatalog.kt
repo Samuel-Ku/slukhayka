@@ -14,6 +14,7 @@ import com.slukhayka.audiobooks.data.db.SourceEntity
 import com.slukhayka.audiobooks.data.db.SourceTrackEntity
 import com.slukhayka.audiobooks.data.db.WorkEntity
 import com.slukhayka.audiobooks.data.db.WorkFeedRow
+import com.slukhayka.audiobooks.data.db.GenreAssertionProvenance
 import com.slukhayka.audiobooks.data.db.WorkSourceEntity
 import com.slukhayka.audiobooks.data.metadata.FacetPageLimits
 import com.slukhayka.audiobooks.data.metadata.SharedTombstonePageLimits
@@ -697,6 +698,16 @@ class SourceCatalog(
                         .map { book -> if (book.author.isBlank()) enrichFeedMatch(adapter, book).effectiveFor(adapter) else book }
                 }
             }
+            // ADR-0040 — search cards carrying a claimed genre land a
+            // SEARCH-rank genre document through the one facet door (fill-gap;
+            // an enumeration document always supersedes it by provenance rank,
+            // never the other way). Best-effort and silent — facet
+            // bookkeeping never breaks or delays search.
+            try {
+                persistSearchGenreAssertions(matched)
+            } catch (e: Exception) {
+                Log.w("SourceCatalog", "search genre assertions skipped", e)
+            }
             val merged = mergeGlobalSearchResults(matched)
             // Spec-30 T2 (#217): attach the resolved durations (local DB →
             // shared cache) to the visible cards. Best-effort and silent — a
@@ -740,6 +751,63 @@ class SourceCatalog(
             }
         } catch (e: Exception) {
             book
+        }
+    }
+
+    /**
+     * ADR-0040 — a search card carrying a claimed genre lands a SEARCH-rank
+     * genre document through the ONE facet door ([LocalFacetWriter]). The
+     * Work is anchored through the same merge-on-write door as catalogue
+     * enumeration ([writeWorkEdition] without a genre document), so a work
+     * never enumerated still becomes genre-filterable; an enumeration
+     * document that lands later always supersedes this one (provenance
+     * rank, not observation time — a fuller catalogue set is never shrunk
+     * by a single-genre search hit). Never guessed: a blank genre writes
+     * nothing (ADR-0014). Tombstoned works are skipped — a search hit never
+     * resurrects a tombstone (ADR-0005). Best-effort and silent.
+     */
+    private suspend fun persistSearchGenreAssertions(books: List<SourceBook>) {
+        val observedAt = System.currentTimeMillis()
+        // G (spec `2026-09-10-remove-4read-source`) — bounded: a search pass
+        // must never write a row per matched result (the device stall).
+        // The genre fill-gap is served by the first slice; a wider catalogue
+        // enumeration supersedes it by rank anyway (ADR-0040).
+        val maxWrites = 50
+        for (book in books.take(maxWrites)) {
+            val genre = book.genre.trim()
+            if (genre.isBlank() || book.title.isBlank() || book.url.isBlank()) continue
+            val mergeKey = MergeKey.keyFor(book.title, book.author)
+            val existing = if (mergeKey.isNotBlank()) dao.findWorkByMergeKey(mergeKey) else null
+            if (existing != null && dao.isBookTombstoned(existing.id)) continue
+            val write = writeWorkEdition(
+                sourceId = book.sourceId,
+                title = book.title,
+                author = book.author,
+                narrator = book.narrator,
+                sourceUrl = book.url,
+                streamOnly = streamOnlyFor(book.sourceId),
+                coverImageUrl = book.coverImageUrl,
+                durationSeconds = book.totalDurationSeconds.takeIf { it > 0 },
+                language = book.language
+            )
+            facetWriter.apply(
+                listOf(
+                    LocalFacetDelta(
+                        work = WorkFacetDelta(
+                            workId = write.work.id,
+                            genres = listOf(
+                                GenreFacetAssertion(
+                                    rawText = genre,
+                                    sourceId = book.sourceId,
+                                    observedAt = observedAt,
+                                    provenance = GenreAssertionProvenance.SEARCH
+                                )
+                            ),
+                            updatedAt = observedAt
+                        )
+                    )
+                )
+            )
         }
     }
 

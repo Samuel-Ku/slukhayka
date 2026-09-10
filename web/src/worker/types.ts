@@ -12,7 +12,10 @@ import type { Document, AnyNode, Element } from 'domhandler'
 import { selectAll, selectOne } from 'css-select'
 import { getText, getAttributeValue } from 'domutils'
 
-export type SourceId = 'fourread' | 'sound-books' | 'audiobook-mp3' | 'lihtar' | 'sluhayua' | 'sluhay' | 'librivox'
+// Spec-47 T6 — the wave's two server-fetch sources join; ukrainianaudiobooks
+// is deliberately ABSENT (Cloudflare-GATED, the worker has no WebView
+// session — the honest absence per the spec).
+export type SourceId = 'fourread' | 'sound-books' | 'audiobook-mp3' | 'lihtar' | 'sluhayua' | 'sluhay' | 'librivox' | 'audiobookcoua' | 'chytaylo'
 
 export interface CatalogCard {
   /** Stable page URL of this Work on its Source. */

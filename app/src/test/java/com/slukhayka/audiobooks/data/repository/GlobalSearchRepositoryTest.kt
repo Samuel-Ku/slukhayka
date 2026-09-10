@@ -102,6 +102,13 @@ class GlobalSearchRepositoryTest {
         assertEquals("sluhay", sourceIdForUrl("https://sluhay.com/uploads/books/6150/cover.webp"))
     }
 
+    // ---------------------------------------------------------------------
+    // spec-47 T5 (#633): the wave's three sources registered in the seam —
+    // URL → source map and display-name badges, the same pins spec-11 T3
+    // added for the original sources. Started by a contributor; finished
+    // here with chytaylo and ukrainianaudiobooks.
+    // ---------------------------------------------------------------------
+
     @Test
     fun `audiobookcoua urls map to their own source - spec-47 T5 registration`() {
         // Book page, novinki section and playlist txt all live on the site's
@@ -112,11 +119,36 @@ class GlobalSearchRepositoryTest {
         assertEquals("audiobookcoua", sourceIdForUrl("https://audiobook.co.ua/pid-kupolom-stiven-king/"))
         assertEquals("audiobookcoua", sourceIdForUrl("https://audiobook.co.ua/novinki-ozvuchivaniya/"))
         assertEquals("audiobookcoua", sourceIdForUrl("https://audiobook.co.ua/playlist/pid-kupolom-stiven-king.txt"))
+        // The adapter's audio rides the LibriVox mirror transport — the URL
+        // mapping must not claim it (it stays librivox, or unknown outside
+        // /details/): the header seam keys off the book's PAGE url.
+        assertEquals("librivox", sourceIdForUrl("https://archive.org/details/librivoxaudio-pid-kupolom"))
     }
 
     @Test
-    fun `audiobookcoua badge shows the domain - spec-47 T5 registration`() {
+    fun `chytaylo urls map to the chytaylo source - spec-47 T5 registration`() {
+        // Listing, category and book pages all live on the site's own host;
+        // the root-relative track URLs the adapter prefixes resolve there too.
+        assertEquals("chytaylo", sourceIdForUrl("https://chytaylo.com.ua/audiobooks"))
+        assertEquals("chytaylo", sourceIdForUrl("https://chytaylo.com.ua/audiobooks?categoryKey=roman"))
+        assertEquals("chytaylo", sourceIdForUrl("https://chytaylo.com.ua/books/dzheyn-eyr"))
+        assertEquals("chytaylo", sourceIdForUrl("https://chytaylo.com.ua/api/audio-local/book-dzheyn-eyr-part-001-76af7d7b3a3b.mp3"))
+    }
+
+    @Test
+    fun `ukrainianaudiobooks urls map to their own source - spec-47 T5 registration`() {
+        // The captured-page import door keys on the book's PAGE url (T1
+        // verdict GATED — Cloudflare; the site's own host is the whole
+        // identity today).
+        assertEquals("ukrainianaudiobooks", sourceIdForUrl("https://ukrainianaudiobooks.com/books/some-book"))
+        assertEquals("ukrainianaudiobooks", sourceIdForUrl("https://www.ukrainianaudiobooks.com/"))
+    }
+
+    @Test
+    fun `wave badges show the display names - spec-47 T5 registration`() {
         assertEquals("Audiobook.co.ua", sourceDisplayName("audiobookcoua"))
+        assertEquals("Читайло", sourceDisplayName("chytaylo"))
+        assertEquals("Ukrainian Audiobooks", sourceDisplayName("ukrainianaudiobooks"))
     }
 
     @Test

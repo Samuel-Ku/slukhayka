@@ -121,10 +121,15 @@ fun sourceIdForUrl(url: String): String = when {
     url.contains("4read.org") -> "4read"
     url.contains("sound-books.net") -> "soundbooks"
     url.contains("audiobook-mp3.com") -> "audiobookmp3"
-    // Spec-47 T5 — audiobook.co.ua (server-fetch). Registered before the
-    // unknown fallback; the site's own host covers pages, the novinki
-    // section and the playlist txt files its adapter emits.
+    // Spec-47 T5 — the wave's three new sources. audiobook.co.ua covers its
+    // book pages, the novinki section and the playlist txt files the adapter
+    // emits — one identity per host; the audio itself rides archive.org,
+    // whose /details/ shape stays the LibriVox mirror mapping below.
     url.contains("audiobook.co.ua") -> "audiobookcoua"
+    url.contains("chytaylo.com.ua") -> "chytaylo"
+    // Spec-47 T5 — ukrainianaudiobooks.com (WebView-pattern, T1 verdict
+    // GATED): its page URL is what the captured-page import door keys on.
+    url.contains("ukrainianaudiobooks.com") -> "ukrainianaudiobooks"
     url.contains("lihtar.in.ua") -> "lihtar"
     url.contains("sluhay.com.ua") -> "sluhayua"
     url.contains("sluhayknigi.com") -> "sluhayknigi"
@@ -142,7 +147,11 @@ fun sourceDisplayName(sourceId: String): String = when (sourceId) {
     "4read" -> "4read"
     "soundbooks" -> "Sound-Books"
     "audiobookmp3" -> "audiobook-mp3"
+    // Spec-47 T5 — the badges of the wave's sources, per the spec's identity
+    // decisions (source id in the `sources` table, display name on cards).
     "audiobookcoua" -> "Audiobook.co.ua"
+    "chytaylo" -> "Читайло"
+    "ukrainianaudiobooks" -> "Ukrainian Audiobooks"
     "lihtar" -> "Lihtar"
     "sluhayua" -> "Sluhay"
     "sluhay" -> "Sluhay"

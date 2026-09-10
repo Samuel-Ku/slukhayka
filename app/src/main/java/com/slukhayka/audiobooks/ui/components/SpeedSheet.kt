@@ -167,7 +167,7 @@ fun SpeedSheet(
                     onSpeedChange(it)
                 },
                 valueRange = AudioPlayerManager.SPEED_MIN..AudioPlayerManager.SPEED_MAX,
-                steps = 9, // 0.25 increments between 0.5 and 3.0
+                steps = 49, // 0.05 increments between 0.5 and 3.0
                 track = { sliderState ->
                     SliderDefaults.Track(
                         sliderState = sliderState,
@@ -206,11 +206,11 @@ fun SpeedSheet(
 
 /** Formats a speed value with one or two decimals, e.g. 1.0 → "1.0", 1.25 → "1.25". */
 internal fun formatSpeed(speed: Float): String {
-    val tenth = (speed * 10f).toInt()
-    return if ((speed * 100f).toInt() % 10 == 0) {
-        "${tenth / 10}.${tenth % 10}"
+    val hundredths = Math.round(speed * 100f)
+    return if (hundredths % 10 == 0) {
+        "${hundredths / 100}.${(hundredths / 10) % 10}"
     } else {
-        String.format(java.util.Locale.US, "%.2f", speed)
+        String.format(java.util.Locale.US, "%.2f", hundredths / 100f)
     }
 }
 

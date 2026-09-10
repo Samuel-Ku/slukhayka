@@ -16,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.FileUpload
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -55,6 +56,7 @@ import com.slukhayka.audiobooks.ui.components.accessibilityPane
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LibraryImportSheet(
+    onSubmitLink: () -> Unit = {},
     onImportFile: () -> Unit,
     onImportFolder: () -> Unit,
     onDismiss: () -> Unit
@@ -68,6 +70,7 @@ fun LibraryImportSheet(
         LibraryImportSheetContent(
             onImportFile = onImportFile,
             onImportFolder = onImportFolder,
+            onSubmitLink = onSubmitLink,
             headingFocusRequester = headingFocusRequester,
             includePaneSemantics = false,
             onClose = onDismiss
@@ -81,6 +84,7 @@ fun LibraryImportSheet(
  */
 @Composable
 fun LibraryImportSheetContent(
+    onSubmitLink: () -> Unit = {},
     onImportFile: () -> Unit,
     onImportFolder: () -> Unit,
     headingFocusRequester: FocusRequester? = null,
@@ -139,6 +143,14 @@ fun LibraryImportSheetContent(
             subtitle = "Усі аудіофайли у вибраній папці",
             tag = "import_option_folder",
             onClick = onImportFolder
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        ImportOptionRow(
+            icon = Icons.Default.Link,
+            title = stringResource(R.string.import_option_link),
+            subtitle = stringResource(R.string.import_option_link_subtitle),
+            tag = "import_option_link",
+            onClick = onSubmitLink
         )
     }
 }

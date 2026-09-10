@@ -276,6 +276,84 @@ class App : Application() {
     }
 
     /**
+     * Spec-601 T3/T5 — the listener-submission seam: verification is the
+     * player-verdict gate, the policy the anti-spam door, the publisher the
+     * shared-base writer. A missing shared base (no Firebase keys) keeps the
+     * local import alive and disables publication honestly.
+     */
+    val submissionVerification: com.slukhayka.audiobooks.data.ingest.SubmissionVerification by lazy {
+        com.slukhayka.audiobooks.data.ingest.SubmissionVerification()
+    }
+    val submissionPolicy: com.slukhayka.audiobooks.data.ingest.SubmissionPolicy? by lazy {
+        sharedMetaStore?.let {
+            com.slukhayka.audiobooks.data.ingest.SubmissionPolicy(it, submissionVerification)
+        }
+    }
+    val submissionPublisher: com.slukhayka.audiobooks.data.ingest.SubmissionPublisher? by lazy {
+        sharedMetaStore?.let { store ->
+            submissionPolicy?.let {
+                com.slukhayka.audiobooks.data.ingest.SubmissionPublisher(store, it)
+            }
+        }
+    }
+    val listenerSubmissionFlow: com.slukhayka.audiobooks.data.ingest.ListenerSubmissionFlow by lazy {
+        com.slukhayka.audiobooks.data.ingest.ListenerSubmissionFlow(
+            fetchMetadata = { url ->
+                com.slukhayka.audiobooks.data.source.YtDlpStreamExtractor.fetchMetadataJson(url)
+            },
+            importYouTube = { url, metadataJson, channelId ->
+                val imported = libraryImport.importSubmittedYouTube(url, metadataJson, channelId)
+                com.slukhayka.audiobooks.data.ingest.ListenerSubmissionFlow.ImportOutcome(
+                    result = when (imported.result) {
+                        LibraryImport.SubmittedImportResult.IMPORTED ->
+                            com.slukhayka.audiobooks.data.ingest.ListenerSubmissionFlow.ImportResult.IMPORTED
+                        LibraryImport.SubmittedImportResult.ALREADY_ADDED ->
+                            com.slukhayka.audiobooks.data.ingest.ListenerSubmissionFlow.ImportResult.ALREADY_ADDED
+                        LibraryImport.SubmittedImportResult.METADATA_FAILED ->
+                            com.slukhayka.audiobooks.data.ingest.ListenerSubmissionFlow.ImportResult.METADATA_FAILED
+                        LibraryImport.SubmittedImportResult.NO_PLAYABLE_TRACKS ->
+                            com.slukhayka.audiobooks.data.ingest.ListenerSubmissionFlow.ImportResult.NO_PLAYABLE_TRACKS
+                    },
+                    bookId = imported.bookId,
+                    sourceId = imported.sourceId
+                )
+            },
+            fetchTgIdentity = { url ->
+                val fetchUrl = com.slukhayka.audiobooks.data.ingest.tgPreviewFetchUrl(url)
+                if (fetchUrl == null) {
+                    null
+                } else {
+                    val html = runCatching { HttpFetcher().getText(fetchUrl) }.getOrNull()
+                    val detail = html?.let { body ->
+                        runCatching {
+                            sourceAdapters.filterIsInstance<TgPreviewSourceAdapter>().first()
+                                .parseCapturedPage(body, url)
+                        }.getOrNull()
+                    }
+                    detail?.let {
+                        com.slukhayka.audiobooks.data.ingest.ListenerSubmissionFlow.TgIdentity(
+                            title = it.title,
+                            author = it.author.takeIf { value -> value.isNotBlank() },
+                            narrator = it.narrator.takeIf { value -> value.isNotBlank() },
+                            coverUrl = it.coverImageUrl,
+                            description = it.description.takeIf { value -> value.isNotBlank() }
+                        )
+                    }
+                }
+            },
+            publisher = submissionPublisher,
+            verification = submissionVerification,
+            remainingToday = {
+                val policy = submissionPolicy
+                val uid = listenerIdentity.current()?.uid
+                if (policy != null && !uid.isNullOrBlank()) policy.remainingToday(uid) else Int.MAX_VALUE
+            },
+            submitterId = { listenerIdentity.current()?.uid }
+        )
+    }
+
+
+    /**
      * #431 — one clean, cookie-free transport check shared by every recovered
      * 4read profile. A successful local WebView session is never itself a
      * reason to publish its URLs to another listener.

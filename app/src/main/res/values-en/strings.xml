@@ -228,4 +228,26 @@
     <string name="source_audio_refusal_publish_title">Share my refusals anonymously</string>
     <string name="source_audio_refusal_publish_description">When on, the app adds one anonymous vote to the shared counter of each ticked source — a count only, no name, books or links. Turning it off stops new votes.</string>
     <string name="source_audio_refusal_shared_count">Anonymous refusals: %1$d</string>
+    <string name="a11y_submission_pane">Submit a link</string>
+    <string name="a11y_submission_close">Close</string>
+    <string name="submission_sheet_title">Submit a link</string>
+    <string name="submission_sheet_subtitle">A YouTube video or playlist, or a Telegram post. The book lands in your library right away and in the shared catalog after it really plays.</string>
+    <string name="submission_url_label">Link</string>
+    <string name="submission_remaining">Submissions left today: %1$d</string>
+    <string name="submission_submit_action">Submit</string>
+    <string name="submission_status_working">Processing the link…</string>
+    <string name="submission_status_imported">Book added. Listen to it — once it really plays, it joins the shared catalog.</string>
+    <string name="submission_status_imported_local">Book added locally. The shared base is unavailable — nothing will be published.</string>
+    <string name="submission_status_published">Published to the shared catalog.</string>
+    <string name="submission_status_metadata_published">Metadata published. Audio behind this link needs a login — others will see the honest unavailable state.</string>
+    <string name="submission_status_refused_limit">The daily submission limit is reached.</string>
+    <string name="submission_status_refused_metadata">Could not read the link — no usable metadata.</string>
+    <string name="submission_status_refused_no_tracks">The link carries no playable chapter.</string>
+    <string name="submission_status_refused_import">Could not add the book from this link.</string>
+    <string name="submission_status_refused_duplicate">This link is already published.</string>
+    <string name="submission_status_refused_not_verified">Publishing needs a real playback.</string>
+    <string name="submission_status_refused_unavailable">The shared base is unavailable.</string>
+    <string name="submission_status_unsupported">This link is not supported. Submit a YouTube video, a playlist or a Telegram post.</string>
+    <string name="import_option_link">Submit a link</string>
+    <string name="import_option_link_subtitle">YouTube video, playlist or TG post</string>
 </resources>

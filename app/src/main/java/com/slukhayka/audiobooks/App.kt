@@ -351,6 +351,8 @@ class App : Application() {
             },
             publisher = submissionPublisher,
             verification = submissionVerification,
+            // Spec-53 T3 — restart-safe submission states (multi-slot).
+            store = com.slukhayka.audiobooks.data.ingest.RoomSubmissionStateStore(audiobookDao),
             remainingToday = {
                 val policy = submissionPolicy
                 val uid = listenerIdentity.current()?.uid

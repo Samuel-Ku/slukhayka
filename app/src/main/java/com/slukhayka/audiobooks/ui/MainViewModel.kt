@@ -359,9 +359,37 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val submissionState: StateFlow<SubmissionUiState> = _submissionState.asStateFlow()
     private val _submissionRemaining = MutableStateFlow<Int?>(null)
     val submissionRemaining: StateFlow<Int?> = _submissionRemaining.asStateFlow()
+    // Spec-53 T3 — the book ids still awaiting their playback verdict; the
+    // library badge and the sheet read this.
+    private val _awaitingSubmissionBookIds = MutableStateFlow<Set<String>>(emptySet())
+    val awaitingSubmissionBookIds: StateFlow<Set<String>> = _awaitingSubmissionBookIds.asStateFlow()
+    // One-shot quiet notice after a submission really published (snackbar).
+    private val _submissionPublished = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val submissionPublished: SharedFlow<Unit> = _submissionPublished.asSharedFlow()
+    private val lastImportedBookId = MutableStateFlow<String?>(null)
 
     fun dismissSubmission() {
         _submissionState.value = SubmissionUiState.Idle
+    }
+
+    /** Spec-53 T3 — refresh the awaiting badges from the persistent store. */
+    fun refreshAwaitingSubmissions() {
+        viewModelScope.launch(Dispatchers.IO) {
+            _awaitingSubmissionBookIds.value =
+                runCatching { listenerSubmissionFlow.awaitingBookIds() }.getOrDefault(emptySet())
+        }
+    }
+
+    /**
+     * Spec-53 T3 — the sheet's one big «Слухати зараз»: an explicit tap,
+     * never autoplay. Starts the imported copy so the verdict can fire.
+     */
+    fun listenToLastImported() {
+        val bookId = lastImportedBookId.value ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            val book = libraryEntries.getBookSync(bookId) ?: return@launch
+            withContext(Dispatchers.Main) { playAudiobook(book) }
+        }
     }
 
     fun refreshSubmissionRemaining() {
@@ -384,10 +412,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         _submissionState.value =
                             SubmissionUiState.Refused(ListenerSubmissionFlow.Reason.IMPORT_FAILED)
                     } else {
-                        withContext(Dispatchers.Main) {
-                            _submissionState.value = SubmissionUiState.Imported(start.publishable)
-                            playAudiobook(book)
-                        }
+                        lastImportedBookId.value = start.bookId
+                        // Spec-53 T3 — no autoplay: the sheet offers one
+                        // explicit «Слухати зараз» action; the awaiting badge
+                        // keeps the promise visible until then.
+                        _submissionState.value = SubmissionUiState.Imported(start.publishable)
                     }
                 }
                 ListenerSubmissionFlow.Start.MetadataPublished ->
@@ -397,6 +426,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 ListenerSubmissionFlow.Start.Unsupported ->
                     _submissionState.value = SubmissionUiState.Unsupported
             }
+            refreshAwaitingSubmissions()
             _submissionRemaining.value =
                 runCatching { listenerSubmissionFlow.remainingToday() }.getOrNull()
         }
@@ -584,12 +614,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val submissionSourceId = playerState.value.currentSourceId
                 if (submissionSourceId.isNotBlank()) {
                     when (val submissionVerdict = listenerSubmissionFlow.onPlaybackStarted(submissionSourceId)) {
-                        ListenerSubmissionFlow.Verdict.Published ->
+                        ListenerSubmissionFlow.Verdict.Published -> {
                             _submissionState.value = SubmissionUiState.Published
-                        is ListenerSubmissionFlow.Verdict.Refused ->
+                            _submissionPublished.tryEmit(Unit)
+                            refreshAwaitingSubmissions()
+                        }
+                        is ListenerSubmissionFlow.Verdict.Refused -> {
                             if (_submissionState.value is SubmissionUiState.Imported) {
                                 _submissionState.value = SubmissionUiState.Refused(submissionVerdict.reason)
                             }
+                            refreshAwaitingSubmissions()
+                        }
                         ListenerSubmissionFlow.Verdict.NoPending -> Unit
                     }
                 }

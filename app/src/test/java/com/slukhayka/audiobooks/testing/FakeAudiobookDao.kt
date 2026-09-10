@@ -1294,4 +1294,26 @@ class FakeAudiobookDao(
 
     override suspend fun popularityAssertions(kind: String): List<PopularityAssertionEntity> =
         popularityState.value.filter { it.kind == kind }
+
+    // Spec-53 T3 — the persistent submission states, in-memory.
+    val submissionStates = LinkedHashMap<String, com.slukhayka.audiobooks.data.db.SubmissionStateEntity>()
+
+    override suspend fun upsertSubmissionState(row: com.slukhayka.audiobooks.data.db.SubmissionStateEntity) {
+        submissionStates[row.sourceId] = row
+    }
+
+    override suspend fun submissionStateBySourceId(
+        sourceId: String
+    ): com.slukhayka.audiobooks.data.db.SubmissionStateEntity? = submissionStates[sourceId]
+
+    override suspend fun awaitingSubmissionStates(): List<com.slukhayka.audiobooks.data.db.SubmissionStateEntity> =
+        submissionStates.values.filter { it.state == "AWAITING_PLAY" }
+
+    override suspend fun updateSubmissionState(
+        sourceId: String, state: String, reason: String?, updatedAt: Long
+    ) {
+        submissionStates[sourceId]?.let { existing ->
+            submissionStates[sourceId] = existing.copy(state = state, reason = reason, updatedAt = updatedAt)
+        }
+    }
 }

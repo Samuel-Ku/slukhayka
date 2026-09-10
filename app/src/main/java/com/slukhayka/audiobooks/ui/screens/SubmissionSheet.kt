@@ -60,7 +60,8 @@ fun SubmissionSheet(
     state: SubmissionUiState,
     remainingToday: Int?,
     onSubmit: (String) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onListen: (() -> Unit)? = null
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -72,6 +73,7 @@ fun SubmissionSheet(
             remainingToday = remainingToday,
             onSubmit = onSubmit,
             onClose = onDismiss,
+            onListen = onListen,
             includePaneSemantics = false
         )
     }
@@ -84,6 +86,7 @@ fun SubmissionSheetContent(
     remainingToday: Int?,
     onSubmit: (String) -> Unit,
     onClose: (() -> Unit)? = null,
+    onListen: (() -> Unit)? = null,
     includePaneSemantics: Boolean = true
 ) {
     var url by rememberSaveable { mutableStateOf("") }
@@ -150,6 +153,18 @@ fun SubmissionSheetContent(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.testTag("submission_status")
             )
+        }
+        // Spec-53 T3 — the one explicit action after an import; no autoplay.
+        if (state is SubmissionUiState.Imported && onListen != null) {
+            Spacer(modifier = Modifier.height(12.dp))
+            Button(
+                onClick = onListen,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("submission_listen_now")
+            ) {
+                Text(stringResource(R.string.submission_listen_now))
+            }
         }
         Spacer(modifier = Modifier.height(16.dp))
         Button(

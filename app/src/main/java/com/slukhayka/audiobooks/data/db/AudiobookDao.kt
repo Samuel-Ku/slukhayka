@@ -1251,4 +1251,22 @@ interface AudiobookDao {
     /** Every assertion of one kind — expiry is the caller's ([com.slukhayka.audiobooks.data.metadata.PopularityAssertionPolicy.isFresh]). */
     @Query("SELECT * FROM popularity_assertions WHERE kind = :kind")
     suspend fun popularityAssertions(kind: String): List<PopularityAssertionEntity>
+
+    // ------------------------------------------------------------------
+    // Spec-53 T3 — persistent listener-submission states (restart-safe).
+    // ------------------------------------------------------------------
+
+    @androidx.room.Insert(onConflict = androidx.room.OnConflictStrategy.REPLACE)
+    suspend fun upsertSubmissionState(row: SubmissionStateEntity)
+
+    @androidx.room.Query("SELECT * FROM submission_states WHERE sourceId = :sourceId LIMIT 1")
+    suspend fun submissionStateBySourceId(sourceId: String): SubmissionStateEntity?
+
+    @androidx.room.Query("SELECT * FROM submission_states WHERE state = 'AWAITING_PLAY' ORDER BY createdAt")
+    suspend fun awaitingSubmissionStates(): List<SubmissionStateEntity>
+
+    @androidx.room.Query(
+        "UPDATE submission_states SET state = :state, reason = :reason, updatedAt = :updatedAt WHERE sourceId = :sourceId"
+    )
+    suspend fun updateSubmissionState(sourceId: String, state: String, reason: String?, updatedAt: Long)
 }

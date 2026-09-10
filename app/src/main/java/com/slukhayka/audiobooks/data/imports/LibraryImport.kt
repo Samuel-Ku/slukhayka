@@ -1210,7 +1210,8 @@ class LibraryImport(
                         editionId = editionId,
                         chapterIndex = existingChapters + offset,
                         title = chapter.title,
-                        durationSeconds = 0L
+                        // Spec-53 T2 — the engine's real entry duration.
+                        durationSeconds = chapter.durationSeconds
                     )
                 }
             )

@@ -139,7 +139,7 @@ object NewPipeYouTubeExtractor {
         }
     }
 
-    private fun ensureInitialized() {
+    internal fun ensureInitialized() {
         if (initialized) return
         synchronized(this) {
             if (initialized) return

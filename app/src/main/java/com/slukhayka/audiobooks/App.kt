@@ -404,6 +404,11 @@ class App : Application() {
             // sitemap enumeration joins the union, and the adapter's search()
             // is the T1-measured honest empty (no server-side filtering).
             AudiobookCoUaAdapter(),
+            // Spec-47 T3/T5 — chytaylo.com.ua joins the registry (T1 verdict
+            // PASS, Next.js SSR): the /audiobooks listing feeds the union and
+            // the new-arrivals rail, and its search() is the measured honest
+            // empty (the site filters nothing server-side).
+            ChytayloAdapter(),
             // Spec-45 (#405) T2 (#490): the English source — catalogue/search
             // cards surface in the union and global search next to the
             // Ukrainian ones (book pages are T3 #491).

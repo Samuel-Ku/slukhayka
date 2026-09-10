@@ -185,7 +185,11 @@ class SourceReplacementMappingTest {
         val resolver = SourceReplacementMapping(
             directSearches = searches.searches,
             union = { emptyList() },
-            cache = FakeCache(),
+            // The memo TTL is the subject here; a live shared cache would
+            // legitimately serve its still-fresh hit (cache-first is the
+            // production order), so the cache is disabled to isolate the
+            // 6-hour memo boundary.
+            cache = null,
             clock = { now }
         )
         val mergeKey = MergeKey.keyFor("Книга", "Автор")

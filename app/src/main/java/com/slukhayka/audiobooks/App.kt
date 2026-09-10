@@ -305,7 +305,9 @@ class App : Application() {
     val listenerSubmissionFlow: com.slukhayka.audiobooks.data.ingest.ListenerSubmissionFlow by lazy {
         com.slukhayka.audiobooks.data.ingest.ListenerSubmissionFlow(
             fetchMetadata = { url ->
-                com.slukhayka.audiobooks.data.source.YtDlpStreamExtractor.fetchMetadataJson(url)
+                // Spec-53 T2 — the in-app NewPipe engine; the yt-dlp binary
+                // is no longer on the listener path.
+                com.slukhayka.audiobooks.data.source.NewPipeMetadata.fetchMetadataJson(url)
             },
             importYouTube = { url, metadataJson, channelId ->
                 val imported = libraryImport.importSubmittedYouTube(url, metadataJson, channelId)

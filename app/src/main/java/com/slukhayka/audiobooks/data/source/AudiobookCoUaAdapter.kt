@@ -1,5 +1,7 @@
 package com.slukhayka.audiobooks.data.source
 
+import com.slukhayka.audiobooks.data.catalog.FeedSnapshotPolicy
+
 /**
  * audiobook.co.ua [SourceAdapter] (spec-47 T2; endpoints verified live in the
  * T1 spike — `docs/wayfinder/research/sources-wave-47-spike.md`, fixtures in
@@ -48,7 +50,7 @@ class AudiobookCoUaAdapter(
     override suspend fun search(query: String): List<SourceBook> = emptyList()
 
     override suspend fun fetchNew(limit: Int): List<SourceBook> {
-        val html = fetcher.getText(NOVELTIES_URL)
+        val html = fetcher.getText(NOVELTIES_URL, emptyMap(), SourceRequestClass.TTL_REFRESH, FeedSnapshotPolicy.NEW_ARRIVALS_TTL_MS)
         if (html.isEmpty()) return emptyList()
         return noveltiesFrom(html).take(limit)
     }
@@ -63,9 +65,9 @@ class AudiobookCoUaAdapter(
         if (limit <= 0) return emptyList()
         val books = mutableListOf<SourceBook>()
         for (sitemapUrl in POST_SITEMAPS) {
-            for (loc in sitemapLocs(fetcher.getText(sitemapUrl))) {
+            for (loc in sitemapLocs(fetcher.getText(sitemapUrl, emptyMap(), SourceRequestClass.TTL_REFRESH, FeedSnapshotPolicy.CATALOG_TTL_MS))) {
                 if (books.size >= limit) return books
-                val page = fetcher.getText(loc)
+                val page = fetcher.getText(loc, emptyMap(), SourceRequestClass.TTL_REFRESH, FeedSnapshotPolicy.CATALOG_TTL_MS)
                 if (page.isEmpty()) continue
                 bookFromPage(page, loc)?.let { books += it }
             }
@@ -74,7 +76,7 @@ class AudiobookCoUaAdapter(
     }
 
     override suspend fun fetchBookPage(url: String): SourceBookDetail {
-        val html = fetcher.getText(url)
+        val html = fetcher.getText(url, emptyMap(), SourceRequestClass.LISTENER_ACTION, 0L)
         if (html.isEmpty()) return SourceBookDetail("", "", url = url, chapters = emptyList())
         val (title, author) = titleAndAuthorFrom(html)
         val cover = ogMeta(html, "og:image")
@@ -86,7 +88,7 @@ class AudiobookCoUaAdapter(
                 coverImageUrl = cover,
                 chapters = emptyList()
             )
-        val tracks = tracksFrom(fetcher.getText(playlistUrl))
+        val tracks = tracksFrom(fetcher.getText(playlistUrl, emptyMap(), SourceRequestClass.LISTENER_ACTION, 0L))
         return SourceBookDetail(
             title = title,
             author = author,

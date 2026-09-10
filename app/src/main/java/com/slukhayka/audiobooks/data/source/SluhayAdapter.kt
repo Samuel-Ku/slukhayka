@@ -1,5 +1,7 @@
 package com.slukhayka.audiobooks.data.source
 
+import com.slukhayka.audiobooks.data.catalog.FeedSnapshotPolicy
+
 /**
  * sluhay.com [SourceAdapter] (spec-13 T2; format verified live in the spec-13
  * T1 spike, 2026-08-12).
@@ -109,7 +111,7 @@ class SluhayAdapter(
         val cookies = cookieProvider.cookieFor(site.homeUrl).trim()
         // No live session: Cloudflare would 403, so there is nothing to parse.
         if (cookies.isBlank()) return emptyList()
-        val html = fetcher.getText(site.homeUrl, mapOf("Cookie" to cookies))
+        val html = fetcher.getText(site.homeUrl, mapOf("Cookie" to cookies), SourceRequestClass.TTL_REFRESH, FeedSnapshotPolicy.NEW_ARRIVALS_TTL_MS)
         if (html.isEmpty()) return emptyList()
         return parsePosterRows(html, limit)
     }
@@ -166,9 +168,9 @@ class SluhayAdapter(
         // Referer (the fetcher always sends it) — no Cookie header.
         val cookies = cookieProvider.cookieFor(url).trim()
         val html = if (cookies.isBlank()) {
-            fetcher.getText(url)
+            fetcher.getText(url, emptyMap(), SourceRequestClass.LISTENER_ACTION, 0L)
         } else {
-            fetcher.getText(url, mapOf("Cookie" to cookies))
+            fetcher.getText(url, mapOf("Cookie" to cookies), SourceRequestClass.LISTENER_ACTION, 0L)
         }
         return parseCapturedPage(html, url) ?: SourceBookDetail("", "", url = url, chapters = emptyList())
     }
@@ -187,7 +189,7 @@ class SluhayAdapter(
         // cookie just-in-time, never copying one host's cookie onto another.
         val homeCookies = cookieProvider.cookieFor(site.homeUrl).trim()
         if (homeCookies.isBlank()) return emptyList()
-        val home = fetcher.getText(site.homeUrl, mapOf("Cookie" to homeCookies))
+        val home = fetcher.getText(site.homeUrl, mapOf("Cookie" to homeCookies), SourceRequestClass.TTL_REFRESH, FeedSnapshotPolicy.CATALOG_TTL_MS)
         if (home.isEmpty()) return emptyList()
         val seen = mutableSetOf<String>()
         val books = mutableListOf<SourceBook>()
@@ -212,7 +214,7 @@ class SluhayAdapter(
             val categoryUrl = "${site.origin}/$category/"
             val catCookies = cookieProvider.cookieFor(categoryUrl).trim()
             val headers = if (catCookies.isBlank()) emptyMap() else mapOf("Cookie" to catCookies)
-            val html = fetcher.getText(categoryUrl, headers)
+            val html = fetcher.getText(categoryUrl, headers, SourceRequestClass.TTL_REFRESH, FeedSnapshotPolicy.CATALOG_TTL_MS)
             if (html.isEmpty()) continue
             for (book in parsePosterRows(html, limit - books.size)) {
                 if (seen.add(book.url)) books += book
@@ -241,7 +243,7 @@ class SluhayAdapter(
                 chapters = emptyList(),
                 description = page.description
             )
-        val chapters = parsePlaylist(fetcher.getText(playlistUrl))
+        val chapters = parsePlaylist(fetcher.getText(playlistUrl, emptyMap(), SourceRequestClass.LISTENER_ACTION, 0L))
         return SourceBookDetail(
             title = page.title,
             author = page.author,

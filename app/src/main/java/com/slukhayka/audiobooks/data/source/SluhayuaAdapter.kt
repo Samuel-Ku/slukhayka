@@ -1,5 +1,6 @@
 package com.slukhayka.audiobooks.data.source
 
+import com.slukhayka.audiobooks.data.catalog.FeedSnapshotPolicy
 import java.net.URLEncoder
 
 /**
@@ -53,7 +54,7 @@ class SluhayuaAdapter(
     override suspend fun search(query: String): List<SourceBook> {
         val cleanQuery = query.trim()
         if (cleanQuery.isBlank()) return emptyList()
-        return cardsFrom(fetcher.getText(allCardsUrl("search=${urlEncode(cleanQuery)}"), XHR))
+        return cardsFrom(fetcher.getText(allCardsUrl("search=${urlEncode(cleanQuery)}"), XHR, SourceRequestClass.LISTENER_ACTION, FeedSnapshotPolicy.CATALOG_TTL_MS))
             .map { it.toSourceBook() }
     }
 
@@ -69,11 +70,11 @@ class SluhayuaAdapter(
      * (TransportPrivacy, spec-38).
      */
     suspend fun fetchNewPage(page: Int): List<SourceBook> =
-        cardsFrom(fetcher.getText(allCardsUrl("sort=time&order=desc", page), XHR))
+        cardsFrom(fetcher.getText(allCardsUrl("sort=time&order=desc", page), XHR, SourceRequestClass.TTL_REFRESH, FeedSnapshotPolicy.NEW_ARRIVALS_TTL_MS))
             .map { it.toSourceBook() }
 
     override suspend fun fetchBookPage(url: String): SourceBookDetail {
-        val html = fetcher.getText(encodedPageUrl(url))
+        val html = fetcher.getText(encodedPageUrl(url), emptyMap(), SourceRequestClass.LISTENER_ACTION, 0L)
         if (html.isEmpty()) return SourceBookDetail("", "", url = url, chapters = emptyList())
 
         // Spec-35 T6: the page-level profile rows — «Час запису:» (MM:SS or
@@ -101,7 +102,7 @@ class SluhayuaAdapter(
 
         val chapters = mutableListOf<SourceChapter>()
         for (fileId in 0 until chapterCount) {
-            val stream = fetcher.getText("https://sluhay.com.ua/play?bookId=$bookId&fileId=$fileId", XHR).trim()
+            val stream = fetcher.getText("https://sluhay.com.ua/play?bookId=$bookId&fileId=$fileId", XHR, SourceRequestClass.LISTENER_ACTION, 0L).trim()
             if (stream.isEmpty() || stream == "0" || stream == "404" || !stream.startsWith("http")) break
             chapters += SourceChapter(title = "Глава ${chapters.size + 1}", streamUrl = stream)
         }

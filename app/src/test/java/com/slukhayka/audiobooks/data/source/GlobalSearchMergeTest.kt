@@ -96,7 +96,7 @@ class GlobalSearchMergeTest {
         assertEquals(1, merged.size)
         val card = merged.single()
         assertEquals(listOf("sluhayua", "4read"), card.sources.map { it.sourceId })
-        assertEquals(listOf("Sluhay", "4read"), card.sources.map { it.sourceName })
+        assertEquals(listOf("Sluhay UA", "4read"), card.sources.map { it.sourceName })
     }
 
     @Test

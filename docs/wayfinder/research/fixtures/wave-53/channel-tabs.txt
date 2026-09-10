@@ -1,0 +1,9 @@
+SPIKE FIXTURE (spec-53 T1): NewPipeExtractor v0.26.5 live capture 2026-09-10, channel @-Kalidor.
+CHANNEL name=Аудіокниги Українською - Студія КАЛІДОР subs=91500
+TAB filters=[videos] url=/@-Kalidor/videos
+TAB filters=[shorts] url=https://www.youtube.com/UCTBfAXuNphu7OJNPJJfNu2g/shorts
+TAB filters=[livestreams] url=https://www.youtube.com/UCTBfAXuNphu7OJNPJJfNu2g/streams
+TAB filters=[playlists] url=https://www.youtube.com/UCTBfAXuNphu7OJNPJJfNu2g/playlists
+VIDEOS_TAB=/@-Kalidor/videos
+VIDEOS_TAB items=30
+PLAYLISTS_TAB items=30

@@ -93,6 +93,7 @@ import com.slukhayka.audiobooks.ui.displayAuthor
 import com.slukhayka.audiobooks.ui.durationBooksFrom
 import com.slukhayka.audiobooks.ui.catalog.CatalogCardAction
 import com.slukhayka.audiobooks.ui.catalog.CatalogCardActionState
+import com.slukhayka.audiobooks.ui.catalog.CatalogCardFailure
 import com.slukhayka.audiobooks.ui.theme.*
 
 /**
@@ -1943,10 +1944,10 @@ fun WorkFeedCard(
             is CatalogCardActionState.Checking -> stringResource(R.string.catalog_card_checking)
             is CatalogCardActionState.BrowserRequired -> stringResource(R.string.catalog_card_browser_required)
             is CatalogCardActionState.Failed -> stringResource(
-                if (state.action == CatalogCardAction.OPEN) {
-                    R.string.catalog_card_open_error
-                } else {
-                    R.string.catalog_card_play_error
+                when {
+                    state.reason == CatalogCardFailure.AUDIO_REFUSED -> R.string.catalog_card_audio_refused
+                    state.action == CatalogCardAction.OPEN -> R.string.catalog_card_open_error
+                    else -> R.string.catalog_card_play_error
                 }
             )
             is CatalogCardActionState.Cancelled -> stringResource(R.string.catalog_card_cancelled)

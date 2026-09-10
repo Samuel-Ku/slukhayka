@@ -36,10 +36,15 @@ import java.io.InputStream
  * body` semantics, streams that disconnect-on-close. Per-source [referer]
  * rules (spec-13) are unaffected. Explicit [userAgent] overrides exist only
  * for tests; production callers leave it null.
+ *
+ * ADR-0039 / spec #681 T2 (#683): the optional [sourceGate] routes text
+ * requests through the ONE politeness gate ([fetchText]); streams
+ * ([getStream], [getRangeStream]) never pass it.
  */
 open class HttpFetcher(
     private val userAgent: String? = null,
-    private val referer: String? = null
+    private val referer: String? = null,
+    private val sourceGate: SourceRequestGate? = null
 ) {
 
     /** Open so adapter fixture tests can serve canned content without network. */
@@ -64,30 +69,40 @@ open class HttpFetcher(
 
     /** Like [getTextResult] with additional request headers. */
     open fun getTextResult(url: String, extraHeaders: Map<String, String>): Pair<Int, String> {
-        val viaPrivacyRoute = TransportPrivacy.currentJavaProxy() != null ||
-            TransportPrivacy.isRelayActive()
-        return try {
-            TransportClients.okHttp.newCall(buildRequest(url, extraHeaders)).execute()
-                .use { response ->
-                    val status = response.code
-                    if (status == HTTP_OK) status to response.body.stringOrEmpty()
-                    else status to ""
-                }
-        } catch (e: Exception) {
-            // Failures degrade to an empty body by design (adapters never throw),
-            // but they MUST be logged: the catalogue silently going empty on
-            // device-side DNS failures was undiagnosable before (device
-            // debugging, 2026-08-17). With a privacy route enabled this is ALSO
-            // where its honest failure lands: the request failed THROUGH the
-            // chosen route — no direct retry.
-            Log.w(
-                "HttpFetcher",
-                "GET $url failed" +
-                    if (viaPrivacyRoute) " (privacy route active — no direct fallback)" else "",
-                e
-            )
-            0 to ""
+        val response = executeRequest(url, extraHeaders) ?: return 0 to ""
+        return response.use {
+            if (it.code == HTTP_OK) it.code to it.body.stringOrEmpty() else it.code to ""
         }
+    }
+
+    /**
+     * ADR-0039 / spec #681 T2 (#683) — the gated text door: the ONE place an
+     * HTML/API request to a Source domain crosses the [SourceRequestGate]
+     * (fresh cache -> class-aware token -> single-flight -> one-in-flight
+     * throat with jitter). Without a configured gate it degrades to the raw
+     * transport; failures and deferrals are honest [GateOutcome]s, never
+     * exceptions. Streams stay on [getStream] and never pass the gate.
+     */
+    suspend fun fetchText(
+        url: String,
+        requestClass: SourceRequestClass,
+        cacheTtlMillis: Long = 0L,
+        extraHeaders: Map<String, String> = emptyMap()
+    ): GateOutcome<String> {
+        val gate = sourceGate ?: return rawTextOutcome(url, extraHeaders)
+        return gate.run(url, requestClass, cacheTtlMillis) { executeText(url, extraHeaders) }
+    }
+
+    private fun executeText(url: String, extraHeaders: Map<String, String>): String? {
+        val response = executeRequest(url, extraHeaders) ?: return null
+        return response.use {
+            if (it.code == HTTP_OK) it.body.stringOrEmpty().ifEmpty { null } else null
+        }
+    }
+
+    private fun rawTextOutcome(url: String, extraHeaders: Map<String, String>): GateOutcome<String> {
+        val body = executeText(url, extraHeaders)
+        return if (body == null) GateOutcome.Unavailable else GateOutcome.Fetched(body)
     }
 
     /**
@@ -169,7 +184,7 @@ open class HttpFetcher(
         url: String,
         extraHeaders: Map<String, String> = emptyMap()
     ): SizedStreamResult {
-        val response = execute(url, extraHeaders) ?: return SizedStreamResult(0, null)
+        val response = executeRequest(url, extraHeaders) ?: return SizedStreamResult(0, null)
         return try {
             if (response.code == HTTP_OK) {
                 val length = response.header("Content-Length")
@@ -196,7 +211,7 @@ open class HttpFetcher(
      * throws. Open so fixture fakes can serve in-memory bytes.
      */
     open fun getStream(url: String, extraHeaders: Map<String, String> = emptyMap()): InputStream? {
-        val response = execute(url, extraHeaders) ?: return null
+        val response = executeRequest(url, extraHeaders) ?: return null
         return try {
             if (response.code == HTTP_OK) ownedStream(response)
             else {
@@ -240,7 +255,7 @@ open class HttpFetcher(
      * any failure; caller owns reading and closing.
      */
     open fun getRangeStream(url: String, extraHeaders: Map<String, String> = emptyMap()): RangeResponse? {
-        val response = execute(url, extraHeaders) ?: return null
+        val response = executeRequest(url, extraHeaders) ?: return null
         return try {
             if (response.code == HTTP_OK || response.code == HTTP_PARTIAL) {
                 RangeResponse(
@@ -260,8 +275,12 @@ open class HttpFetcher(
         }
     }
 
-    /** One network attempt; any failure degrades to null (never throws). */
-    private fun execute(url: String, extraHeaders: Map<String, String>): Response? = try {
+    /**
+     * One network attempt; any failure degrades to null (never throws).
+     * Protected and open so the T2 seam test serves canned responses without
+     * network; production never overrides it.
+     */
+    protected open fun executeRequest(url: String, extraHeaders: Map<String, String>): Response? = try {
         TransportClients.okHttp.newCall(buildRequest(url, extraHeaders)).execute()
     } catch (e: Exception) {
         val viaPrivacyRoute = TransportPrivacy.currentJavaProxy() != null ||

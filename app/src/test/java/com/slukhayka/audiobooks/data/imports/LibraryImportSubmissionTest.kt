@@ -57,8 +57,8 @@ class LibraryImportSubmissionTest {
           "id": "PLabcd1234",
           "title": "Гаррі Поттер 1 — АудіоКниги Українською",
           "entries": [
-            {"_type": "url", "ie_key": "Youtube", "id": "6XIPkMFZf-0", "url": "https://www.youtube.com/watch?v=6XIPkMFZf-0", "title": "Гаррі Поттер 1. Розділ 1"},
-            {"_type": "url", "ie_key": "Youtube", "id": "biwxkjI06KA", "url": "https://www.youtube.com/watch?v=biwxkjI06KA", "title": "Гаррі Поттер 1. Розділ 2"}
+            {"_type": "url", "ie_key": "Youtube", "id": "6XIPkMFZf-0", "url": "https://www.youtube.com/watch?v=6XIPkMFZf-0", "title": "Гаррі Поттер 1. Розділ 1", "duration": 4285},
+            {"_type": "url", "ie_key": "Youtube", "id": "biwxkjI06KA", "url": "https://www.youtube.com/watch?v=biwxkjI06KA", "title": "Гаррі Поттер 1. Розділ 2", "duration": 4075}
           ]
         }
     """.trimIndent()
@@ -99,6 +99,9 @@ class LibraryImportSubmissionTest {
         assertEquals(2, tracks.size)
         assertTrue("tracks carry watch URLs, never signed URLs", tracks.all { it.url.startsWith("https://www.youtube.com/watch?v=") })
         assertTrue("nothing is downloaded at submit time", tracks.all { !it.isDownloaded })
+        // Spec-53 T2 — real entry durations ride the import.
+        val chapters = dao.getChaptersListForBook(book.id)
+        assertEquals(listOf(4285L, 4075L), chapters.map { it.durationSeconds })
     }
 
     @Test

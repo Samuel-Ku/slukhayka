@@ -26,7 +26,7 @@ import com.slukhayka.audiobooks.data.source.YouTubeTracks
 object YouTubeSubmissionPlanner {
 
     /** One chapter of the submitted book: a display title and a watch URL. */
-    data class SubmittedChapter(val title: String, val watchUrl: String)
+    data class SubmittedChapter(val title: String, val watchUrl: String, val durationSeconds: Long = 0L)
 
     /** The import plan: identity + the observed chapter list. */
     data class SubmissionPlan(
@@ -38,7 +38,13 @@ object YouTubeSubmissionPlanner {
     )
 
     /** One playlist entry as yt-dlp's flat-playlist JSON carries it. */
-    data class MetadataEntry(val id: String?, val url: String?, val title: String?)
+    data class MetadataEntry(
+        val id: String?,
+        val url: String?,
+        val title: String?,
+        /** Spec-53 T2 — the REAL entry duration the engine observed, or null. */
+        val durationSeconds: Long? = null
+    )
 
     /** The parsed `-J` document: title plus entries (empty = single video). */
     data class Metadata(
@@ -69,7 +75,11 @@ object YouTubeSubmissionPlanner {
             MetadataEntry(
                 id = entry["id"] as? String,
                 url = entry["url"] as? String,
-                title = entry["title"] as? String
+                title = entry["title"] as? String,
+                // Spec-53 T2 — per-entry durations from either engine (yt-dlp
+                // and NewPipe both emit seconds here); plausibility-bounded.
+                durationSeconds = (entry["duration"] as? Number)?.toLong()
+                    ?.takeIf { it > 0 && it <= MAX_PLAUSIBLE_DURATION_SECONDS }
             )
         } ?: emptyList()
         val durationSeconds = if (entries.isEmpty()) {
@@ -103,7 +113,8 @@ object YouTubeSubmissionPlanner {
                 val watchUrl = watchUrlOf(entry.url, entry.id) ?: return@mapIndexedNotNull null
                 SubmittedChapter(
                     title = entry.title?.trim()?.takeIf { it.isNotBlank() } ?: "Розділ ${index + 1}",
-                    watchUrl = watchUrl
+                    watchUrl = watchUrl,
+                    durationSeconds = entry.durationSeconds ?: 0L
                 )
             }
         } else {
@@ -114,7 +125,7 @@ object YouTubeSubmissionPlanner {
                 sourceUrl = sourceUrl,
                 chapters = emptyList()
             )
-            listOf(SubmittedChapter(title = title, watchUrl = watchUrl))
+            listOf(SubmittedChapter(title = title, watchUrl = watchUrl, durationSeconds = metadata.durationSeconds ?: 0L))
         }
         return SubmissionPlan(
             title = title,

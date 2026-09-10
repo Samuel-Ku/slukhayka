@@ -277,6 +277,7 @@ const uk = {
   prev: '‹ Попередній',
   next: 'Наступний ›',
   speed: 'Швидкість:',
+  speedExact: 'Точна швидкість',
   bookUnavailable: 'Книга недоступна',
   // player extras — W5.1 (ticket 12: chapters, sleep timer, bookmarks)
   chaptersCount: 'Розділи ({n})',
@@ -608,6 +609,7 @@ const en: Strings = {
   prev: '‹ Previous',
   next: 'Next ›',
   speed: 'Speed:',
+  speedExact: 'Exact speed',
   bookUnavailable: 'Book unavailable',
   // player extras — W5.1 (ticket 12: chapters, sleep timer, bookmarks)
   chaptersCount: 'Chapters ({n})',

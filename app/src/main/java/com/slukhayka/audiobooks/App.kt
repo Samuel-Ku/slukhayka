@@ -7,6 +7,7 @@ import com.google.firebase.FirebaseApp
 import com.google.firebase.appcheck.FirebaseAppCheck
 import com.google.firebase.appcheck.recaptcha.RecaptchaAppCheckProviderFactory
 import com.slukhayka.audiobooks.data.catalog.FeedSnapshotStore
+import com.slukhayka.audiobooks.data.catalog.PlaybackFallbackResolver
 import com.slukhayka.audiobooks.data.catalog.PopularityAssertionStore
 import com.slukhayka.audiobooks.data.catalog.SourceCatalog
 import com.slukhayka.audiobooks.data.collections.CollectionAssets
@@ -572,6 +573,20 @@ class App : Application() {
      */
     val sourceWatchStore: SourceWatchStore by lazy { SourceWatchStore(this) }
 
+    /**
+     * #504 — the same-narration direct fallback resolver behind the
+     * player's [chapterFallback] seam: sibling editions (Room rows),
+     * chapter lists (the catalog path) and the refusal set (never fall
+     * back onto a refused source).
+     */
+    val playbackFallbackResolver: PlaybackFallbackResolver by lazy {
+        PlaybackFallbackResolver(
+            allBooks = { audiobookDao.getAllAudiobooksOnce() },
+            chaptersFor = sourceCatalog::getPlayableChapters,
+            refusedSourceIds = { sourceAudioRefusal.refusedSources.value },
+        )
+    }
+
     // Spec-45 (#405) R7 (#514): the persisted App Locale (interface language)
     // — read in MainActivity.attachBaseContext, written by the settings
     // toggle through [AppLocaleApplier]. Default = system.
@@ -885,6 +900,13 @@ class App : Application() {
             sourceCatalog::getPlayableChapters,
             streamUrlHealer = { bookId, chapterIndex, failedUrl ->
                 libraryImport.refreshStreamUrl(bookId, chapterIndex, failedUrl)
+            },
+            // #504: a proven-remote 403/404 swaps the same chapter from a
+            // direct source of the same narration (verified sibling), once
+            // per chapter prepare. The manager still decides; this only
+            // answers the lookup.
+            chapterFallback = { book, chapterCount, chapterIndex, failedSourceId ->
+                playbackFallbackResolver.resolve(book, chapterCount, chapterIndex, failedSourceId)
             },
             progressSync = progressSync,
             onBookCompleted = bookFeedbackStore::completed,

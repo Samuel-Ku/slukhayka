@@ -42,6 +42,7 @@ import androidx.webkit.WebViewFeature
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.privacy.WebViewSessionPrivacy
 import com.slukhayka.audiobooks.data.privacy.BrowserDnsProxy
+import com.slukhayka.audiobooks.data.privacy.BrowserIdentity
 import com.slukhayka.audiobooks.data.privacy.WebViewRouteApplyOutcome
 import com.slukhayka.audiobooks.data.privacy.awaitWebViewRouteApplied
 import com.slukhayka.audiobooks.data.source.BrowserRecoveryProfiles
@@ -958,6 +959,13 @@ fun WebSourceBrowserScreen(
                             mediaPlaybackRequiresUserGesture = true
                             useWideViewPort = false
                             loadWithOverviewMode = false
+                            // 4read rejects the Android WebView markers even
+                            // though Chrome on the same device is accepted.
+                            // Keep the real Chrome/device version and remove
+                            // only `Version/4.0` and `; wv` for this page.
+                            userAgentString = BrowserIdentity.embeddedBrowserUserAgent(
+                                userAgentString.orEmpty().ifBlank { BrowserIdentity.currentUserAgent() }
+                            )
                             allowFileAccess = false
                             allowContentAccess = false
                             // Spec-38 T3: geolocation JS-API hard-off; the
@@ -965,11 +973,9 @@ fun WebSourceBrowserScreen(
                             // (setter only — no getter to synthesize from)
                             @Suppress("DEPRECATION")
                             setGeolocationEnabled(false)
-                            // Spec-38 T3: NO UA override — the WebView sends
-                            // its own genuine system UA, which is exactly the
-                            // identity the transport reports into
-                            // BrowserIdentity (spec-38 T1). The old hardcoded
-                            // Chrome/124 string was itself a fingerprint.
+                            // The shared transport keeps the genuine system UA;
+                            // this interactive page removes only Android
+                            // WebView markers that 4read blocks.
                         }
                         webChromeClient = object : android.webkit.WebChromeClient() {
                             override fun onGeolocationPermissionsShowPrompt(

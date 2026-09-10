@@ -724,4 +724,72 @@ class SoundBooksAdapterTest {
         assertEquals("Книга 1", books[0].title)
         assertEquals("Книга 2", books[1].title)
     }
+
+    // #558 — site promo articles (/reklama/…) ride the same tiles as books and
+    // leaked into the feeds, the collective catalogue and the recommendation
+    // row as non-audiobook cards that fail on open. The report's live url:
+    // https://sound-books.net/reklama/2820-velosypedy-chy-treba-vidumuvaty-koleso.html
+    private val homepageWithPromo = """
+        <html><body>
+        <a class="short-img img-fit" href="https://sound-books.net/reklama/2820-velosypedy-chy-treba-vidumuvaty-koleso.html"><img data-src="/uploads/posts/2026-09/velosypedy.jpg" alt="Велосипеді — чи треба «видумувати» колесо"></a>
+        <a class="short-title" href="https://sound-books.net/reklama/2820-velosypedy-chy-treba-vidumuvaty-koleso.html">Велосипеді — чи треба «видумувати» колесо</a>
+        <a class="short-img img-fit" href="https://sound-books.net/zarubizhna-literatura/2851-temna-materiia.html"><img data-src="/uploads/posts/2026-07/bleik-krauch-temna-materiia.webp" alt="Темна матерія"></a>
+        <a class="short-title" href="https://sound-books.net/zarubizhna-literatura/2851-temna-materiia.html">Темна матерія - Блейк Крауч</a>
+        </body></html>
+    """.trimIndent()
+
+    @Test
+    fun `promo articles never enter the feed even ahead of real books`() = runBlocking {
+        // The promo tile renders FIRST, so a filter applied after take(limit)
+        // would let an ad crowd out the real book under a tight limit.
+        val adapter = SoundBooksAdapter(FakeFetcher(mapOf("https://sound-books.net/" to homepageWithPromo)))
+
+        val books = adapter.fetchNew(limit = 1)
+
+        assertEquals(1, books.size)
+        assertEquals("Темна матерія", books[0].title)
+        assertEquals("https://sound-books.net/zarubizhna-literatura/2851-temna-materiia.html", books[0].url)
+    }
+
+    @Test
+    fun `catalogue walk never enters the promo section`() = runBlocking {
+        val home = """
+            <html><body>
+            <a href="https://sound-books.net/reklama/">Реклама</a>
+            <a href="https://sound-books.net/fantastyka/">Фантастика</a>
+            </body></html>
+        """.trimIndent()
+        val promoPage = homepageWithPromo
+        val fetcher = FakeFetcher(
+            mapOf(
+                "https://sound-books.net/" to home,
+                "https://sound-books.net/reklama/" to promoPage,
+                "https://sound-books.net/fantastyka/" to fantastykaPage
+            ),
+            fallback = "<html><body></body></html>"
+        )
+        val adapter = SoundBooksAdapter(fetcher, categoryPageLimit = 1, pauseMillis = {})
+
+        val books = adapter.fetchCatalog(limit = 40)
+
+        // The walk skips /reklama/ entirely and spends its page budget on the
+        // real category: the promo articles behind it never surface.
+        assertEquals(2, books.size)
+        assertTrue(books.none { it.url.contains("/reklama/") })
+    }
+
+    @Test
+    fun `promo book page hydrates to an honest empty detail`() = runBlocking {
+        // An older build may have stored the promo row already: its open must
+        // fail honestly (no fake playless book), without even fetching.
+        val promoUrl = "https://sound-books.net/reklama/2820-velosypedy-chy-treba-vidumuvaty-koleso.html"
+        val adapter = SoundBooksAdapter(
+            FakeFetcher(mapOf(promoUrl to bookPage)) // a full book page with a playlist
+        )
+
+        val detail = adapter.fetchBookPage(promoUrl)
+
+        assertEquals("", detail.title)
+        assertEquals(0, detail.chapters.size)
+    }
 }

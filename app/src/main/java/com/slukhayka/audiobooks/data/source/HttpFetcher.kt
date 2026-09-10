@@ -4,11 +4,13 @@ import android.util.Log
 import com.slukhayka.audiobooks.data.privacy.BrowserIdentity
 import com.slukhayka.audiobooks.data.privacy.TransportClients
 import com.slukhayka.audiobooks.data.privacy.TransportPrivacy
+import kotlinx.coroutines.runBlocking
 import okhttp3.Request
 import okhttp3.Response
 import okhttp3.ResponseBody
 import java.io.FilterInputStream
 import java.io.InputStream
+import java.net.URI
 
 /**
  * Minimal JVM HTTP GET used by [SourceAdapter]s. Configurable [referer] so the
@@ -44,19 +46,50 @@ import java.io.InputStream
 open class HttpFetcher(
     private val userAgent: String? = null,
     private val referer: String? = null,
-    private val sourceGate: SourceRequestGate? = null
+    private val sourceGate: SourceRequestGate? = null,
+    /** Class used by the plain [getText] door; explicit calls override it. */
+    private val defaultRequestClass: SourceRequestClass = SourceRequestClass.BACKGROUND,
+    /** Gate-cache TTL of the plain [getText] door; 0 = current truth. */
+    private val defaultCacheTtlMillis: Long = 0L
 ) {
 
     /** Open so adapter fixture tests can serve canned content without network. */
-    open fun getText(url: String): String = getTextResult(url, emptyMap()).second
+    open fun getText(url: String): String = getText(url, emptyMap())
 
     /**
      * Like [getText] with additional request headers (e.g. the sluhayua
      * `X-Requested-With: XMLHttpRequest` gate). Open so fixture fakes can serve
      * canned content by URL, ignoring headers.
+     *
+     * ADR-0039 / spec #681 T3 (#684): with a gate installed this door crosses
+     * the ONE [SourceRequestGate] with the fetcher's default class; streams,
+     * HEAD probes and non-Source hosts stay raw.
      */
     open fun getText(url: String, extraHeaders: Map<String, String>): String =
-        getTextResult(url, extraHeaders).second
+        getText(url, extraHeaders, defaultRequestClass, defaultCacheTtlMillis)
+
+    /**
+     * The explicit-intent variant: the caller names the request class and the
+     * cache TTL (0 = current truth). Blocking because [getText] is the legacy
+     * transport door; the wait semantics live in the gate's injected sleeper.
+     * A deferral or failure degrades to an empty body, never a crash.
+     */
+    open fun getText(
+        url: String,
+        extraHeaders: Map<String, String>,
+        requestClass: SourceRequestClass,
+        cacheTtlMillis: Long
+    ): String {
+        val gate = effectiveGate(url) ?: return getTextResult(url, extraHeaders).second
+        val outcome = runBlocking {
+            gate.run(url, requestClass, cacheTtlMillis) { executeText(url, extraHeaders) }
+        }
+        return when (outcome) {
+            is GateOutcome.Fresh -> outcome.value
+            is GateOutcome.Fetched -> outcome.value
+            is GateOutcome.Deferred, GateOutcome.Unavailable -> ""
+        }
+    }
 
     /**
      * The HTTP status + body of one GET — the status-aware variant of
@@ -91,6 +124,21 @@ open class HttpFetcher(
     ): GateOutcome<String> {
         val gate = sourceGate ?: return rawTextOutcome(url, extraHeaders)
         return gate.run(url, requestClass, cacheTtlMillis) { executeText(url, extraHeaders) }
+    }
+
+    /**
+     * The gate guards HTML/API requests to registered Source hosts only; a
+     * fetcher whose URL is enrichment or update traffic stays raw, as does a
+     * process with no gate installed (fixtures, unit tests).
+     */
+    private fun effectiveGate(url: String): SourceRequestGate? {
+        val gate = sourceGate ?: SourceGateProvider.current ?: return null
+        val host = try {
+            URI(url).host?.lowercase()
+        } catch (_: Exception) {
+            null
+        } ?: return null
+        return gate.takeIf { SourceRegistry.isSourceHost(host) }
     }
 
     private fun executeText(url: String, extraHeaders: Map<String, String>): String? {

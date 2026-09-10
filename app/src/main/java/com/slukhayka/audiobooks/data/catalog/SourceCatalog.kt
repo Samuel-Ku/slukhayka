@@ -93,7 +93,11 @@ class SourceCatalog(
     // top-100/people). Same HttpFetcher the adapters use; the module owns no
     // HTTP client of its own. Injectable so the hydration tests serve canned
     // pages without network.
-    private val fourReadFetcher: HttpFetcher = HttpFetcher(referer = "https://4read.org/"),
+    private val fourReadFetcher: HttpFetcher = HttpFetcher(
+        referer = "https://4read.org/",
+        defaultRequestClass = com.slukhayka.audiobooks.data.source.SourceRequestClass.TTL_REFRESH,
+        defaultCacheTtlMillis = FeedSnapshotPolicy.CATALOG_TTL_MS
+    ),
     // #516 — availability probes of ANY source ride a NEUTRAL fetcher: the
     // per-source Referer comes from the headersFor seam per probe, and a
     // constructor default (like fourReadFetcher's) must never leak onto

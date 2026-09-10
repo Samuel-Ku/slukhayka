@@ -82,11 +82,25 @@ class VerifiedSourceProfilePublisher(
             return ProfilePublication.LOCAL_ONLY
         }
         val target = store ?: return ProfilePublication.LOCAL_ONLY
+        // ADR-0039 §7 — signed/expiring chapter links never leave the device.
+        val stableProfile = ProfileUrlPolicy.stableChapters(candidate.profile)
+            ?: return ProfilePublication.LOCAL_ONLY
+        // ADR-0039 §7 — an unchanged verified record is not rewritten: a
+        // second write would roll `resolvedAt` forward and burn quota without
+        // adding a fact.
+        val existing = runCatching {
+            target.getProfileEntry(candidate.sourceId, candidate.editionId)
+        }.getOrNull()
+        if (existing?.provenanceSource == ProfileProvenance.SOURCE_VERIFIED &&
+            existing.profile == stableProfile
+        ) {
+            return ProfilePublication.PUBLISHED
+        }
         return runCatching {
             target.putProfile(
                 sourceId = candidate.sourceId,
                 editionId = candidate.editionId,
-                profile = candidate.profile,
+                profile = stableProfile,
                 provenance = ProfileProvenance(ProfileProvenance.SOURCE_VERIFIED, nowMillis())
             )
             ProfilePublication.PUBLISHED

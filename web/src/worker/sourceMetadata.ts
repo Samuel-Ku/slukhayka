@@ -29,6 +29,8 @@ const WEB_IDS = new Set([
   'librivox',
   'audiobookcoua',
   'chytaylo',
+  'knigionline',
+  'chitaka',
 ])
 
 const factsById = new Map(sources.sources.map((source) => [source.id, source]))

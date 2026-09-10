@@ -32,6 +32,7 @@ import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
 import java.io.File
 import java.io.FileInputStream
+import java.io.FileOutputStream
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.ConcurrentHashMap
@@ -507,6 +508,23 @@ class OfflineDownloads(
                                         if (targetFile.exists() && targetFile.length() <= 100) {
                                             try { targetFile.delete() } catch (_: Exception) {}
                                         }
+                                        // #387: adopt a kept partial from a previous run
+                                        // under this run's session temp. The resume temp
+                                        // is keyed by chapter AND track url, never ends
+                                        // with `.tmp` (pause/cancel cleanup untouched),
+                                        // and dies here when empty or unmovable.
+                                        var resumeFrom = 0L
+                                        val resumeTemp = File(
+                                            audioDir,
+                                            DownloadResumePolicy.resumeTempName(chapter.id, track.url)
+                                        )
+                                        if (resumeTemp.exists() && resumeTemp.length() > 0 &&
+                                            resumeTemp.renameTo(tempFile)
+                                        ) {
+                                            resumeFrom = tempFile.length()
+                                        } else if (resumeTemp.exists()) {
+                                            try { resumeTemp.delete() } catch (_: Exception) {}
+                                        }
                                         // Spec 2026-08-26: YouTube watch URLs resolve
                                         // right before the fetch; null = honest
                                         // failed chapter (never a fabricated file).
@@ -528,18 +546,66 @@ class OfflineDownloads(
                                             while (!pacing.allowsRequest(domainOf(streamUrl), nowMillis())) {
                                                 pauseFor(pacing.nextPauseMillis())
                                             }
-                                            // Spec-37 T1: use the sized transport so the
-                                            // declared Content-Length can be verified.
-                                            val response = fetcher.getSizedStreamResult(
-                                                streamUrl,
-                                                headersFor(sourceId, streamUrl, cookieProvider())
-                                            )
+                                            val headers = headersFor(sourceId, streamUrl, cookieProvider())
+                                            // #387: a kept partial resumes through Range —
+                                            // the 206 slice appends and verifies against
+                                            // its own total. A 200/mismatched 206 falls
+                                            // back to the fresh path below; a transport
+                                            // failure keeps the partial and fails honest.
+                                            var appendCopy = false
+                                            var expectedOverride: Long? = null
+                                            var lenientMin = 100L
+                                            var rangeKeptFailure = false
+                                            val response: HttpFetcher.SizedStreamResult
+                                            if (resumeFrom > 0) {
+                                                val ranged = fetcher.getRangeStream(
+                                                    streamUrl,
+                                                    headers + ("Range" to "bytes=$resumeFrom-")
+                                                )
+                                                val decision = ranged?.let {
+                                                    DownloadResumePolicy.decide(resumeFrom, it.status, it.contentRange)
+                                                }
+                                                if (ranged != null && decision is DownloadResumePolicy.Decision.Resume) {
+                                                    response = HttpFetcher.SizedStreamResult(
+                                                        206,
+                                                        HttpFetcher.SizedStream(ranged.stream, -1)
+                                                    )
+                                                    expectedOverride = decision.totalBytes
+                                                    lenientMin = resumeFrom
+                                                    appendCopy = true
+                                                } else {
+                                                    try { ranged?.stream?.close() } catch (_: Exception) {}
+                                                    if (ranged == null) {
+                                                        stashResumeTemp(tempFile, chapter.id, track.url)
+                                                        Log.w(
+                                                            "OfflineDownloads",
+                                                            "Resume probe failed for chapter ${chapter.id}: " +
+                                                                "kept $resumeFrom bytes for the next run"
+                                                        )
+                                                        chapterOk = false
+                                                        rangeKeptFailure = true
+                                                        response = HttpFetcher.SizedStreamResult(0, null)
+                                                    } else {
+                                                        try { tempFile.delete() } catch (_: Exception) {}
+                                                        resumeFrom = 0
+                                                        response = fetcher.getSizedStreamResult(streamUrl, headers)
+                                                    }
+                                                }
+                                            } else {
+                                                // Spec-37 T1: use the sized transport so the
+                                                // declared Content-Length can be verified.
+                                                response = fetcher.getSizedStreamResult(streamUrl, headers)
+                                            }
                                             val sized = response.sizedStream
                                             if (sized != null) {
                                                 var streamClosed = false
                                                 try {
                                                     BufferedInputStream(sized.stream, 65536).use { input ->
-                                                        BufferedOutputStream(tempFile.outputStream(), 65536).use { output ->
+                                                        BufferedOutputStream(
+                                                            if (appendCopy) FileOutputStream(tempFile, true)
+                                                            else tempFile.outputStream(),
+                                                            65536
+                                                        ).use { output ->
                                                             val buffer = ByteArray(65536)
                                                             var read: Int
                                                             while (true) {
@@ -554,12 +620,12 @@ class OfflineDownloads(
                                                     streamClosed = true
                                                     try { sized.stream.close() } catch (_: Exception) {}
                                                     ensureCurrentRun()
-                                                    val expected = sized.contentLength
+                                                    val expected = expectedOverride ?: sized.contentLength
                                                     val actual = tempFile.length()
                                                     val valid = if (expected != null && expected >= 0) {
                                                         actual == expected
                                                     } else {
-                                                        actual > 100
+                                                        actual > lenientMin
                                                     }
                                                     if (valid) {
                                                         if (targetFile.exists()) {
@@ -614,18 +680,18 @@ class OfflineDownloads(
                                                         chapterOk = false
                                                     }
                                                 } catch (e: CancellationException) {
-                                                    tempFile.delete()
+                                                    stashResumeTemp(tempFile, chapter.id, track.url)
                                                     runCatching { sized.stream.close() }
                                                     throw e
                                                 } catch (e: Exception) {
                                                     Log.w("OfflineDownloads", "Download failed for chapter ${chapter.id}: ${e.message}")
-                                                    try { tempFile.delete() } catch (_: Exception) {}
+                                                    stashResumeTemp(tempFile, chapter.id, track.url)
                                                     if (!streamClosed) {
                                                         try { sized.stream.close() } catch (_: Exception) {}
                                                     }
                                                     chapterOk = false
                                                 }
-                                            } else {
+                                            } else if (!rangeKeptFailure) {
                                                 if (tempFile.exists()) {
                                                     try { tempFile.delete() } catch (_: Exception) {}
                                                 }
@@ -637,9 +703,10 @@ class OfflineDownloads(
                                                 }
                                             }
                                         } else {
-                                            if (tempFile.exists()) {
-                                                try { tempFile.delete() } catch (_: Exception) {}
-                                            }
+                                            // #387: an unresolvable URL keeps an adopted
+                                            // partial (nothing was fetched to contradict
+                                            // it) instead of deleting it.
+                                            stashResumeTemp(tempFile, chapter.id, track.url)
                                             chapterOk = false
                                         }
                                     }
@@ -647,19 +714,30 @@ class OfflineDownloads(
                             } catch (e: CancellationException) {
                                 // Spec-38 T5 (#257): a cancel during a pacing pause
                                 // (or mid-stream) must stop the loop honestly, not
-                                // be miscounted as a failed chapter.
-                                tempFile.delete()
+                                // be miscounted as a failed chapter. The partial
+                                // stays as a resume temp for the next run.
+                                stashResumeTemp(tempFile, chapter.id, track?.url)
                                 throw e
                             } catch (e: Exception) {
                                 Log.w("OfflineDownloads", "Download failed for chapter ${chapter.id}: ${e.message}")
-                                if (tempFile.exists()) {
-                                    try { tempFile.delete() } catch (_: Exception) {}
-                                }
+                                stashResumeTemp(tempFile, chapter.id, track?.url)
                             }
 
                             ensureCurrentRun()
                             // #392 — MB progress: sum actual file lengths for completed chapters
                             if (chapterOk) {
+                                // #387: a completed chapter needs no resume
+                                // partials under any url key (a refreshed track
+                                // url orphans the previous key).
+                                try {
+                                    audioDir.listFiles()?.forEach { file ->
+                                        if (file.name.startsWith("${chapter.id}.") &&
+                                            file.name.endsWith(".mp3.resume")
+                                        ) {
+                                            try { file.delete() } catch (_: Exception) {}
+                                        }
+                                    }
+                                } catch (_: Exception) {}
                                 val bytesForChapter = try {
                                     when {
                                         targetFile.exists() && targetFile.length() > 0 -> targetFile.length()
@@ -1008,6 +1086,33 @@ class OfflineDownloads(
     }
 
     /** Delete interrupted chapter copies for one book without touching other queues. */
+    /**
+     * #387 — keeps a partial chapter download for the next run: the run's
+     * session temp becomes the stable resume temp (keyed by chapter AND
+     * track url, never `*.tmp` so pause/cancel cleanup keeps its contract).
+     * No-op when there is nothing worth keeping; never throws — a stash
+     * must never fail a chapter. On rename failure the temp is deleted
+     * (an orphan session temp is today's behavior, not a new leak: the
+     * next run's cleanup removes it).
+     */
+    private fun stashResumeTemp(tempFile: File, chapterId: String, trackUrl: String?) {
+        try {
+            if (trackUrl.isNullOrBlank()) {
+                try { tempFile.delete() } catch (_: Exception) {}
+                return
+            }
+            if (!tempFile.exists() || tempFile.length() <= 0) return
+            val resumeTemp = File(tempFile.parentFile, DownloadResumePolicy.resumeTempName(chapterId, trackUrl))
+            if (tempFile.absolutePath == resumeTemp.absolutePath) return
+            try { resumeTemp.delete() } catch (_: Exception) {}
+            if (!tempFile.renameTo(resumeTemp)) {
+                try { tempFile.delete() } catch (_: Exception) {}
+            }
+        } catch (_: Exception) {
+            try { tempFile.delete() } catch (_: Exception) {}
+        }
+    }
+
     private suspend fun deleteTemporaryFilesForBook(bookId: String, beforeGeneration: Long) {
         // Offline filenames are derived from logical Chapter IDs, not SourceTrack IDs.
         val chapterIds = dao.getChaptersListForBook(bookId).mapTo(mutableSetOf()) { it.id }

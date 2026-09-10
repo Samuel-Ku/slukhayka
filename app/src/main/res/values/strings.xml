@@ -244,4 +244,7 @@
         <item quantity="many">%1$d виконавців</item>
         <item quantity="other">%1$d виконавців</item>
     </plurals>
+    <string name="source_audio_refusal_publish_title">Анонімно ділитися моїми відмовами</string>
+    <string name="source_audio_refusal_publish_description">Коли ввімкнено, застосунок додає один анонімний голос до спільного лічильника кожного позначеного джерела — лише кількість, без імені, книг чи посилань. Вимкнення зупиняє нові голоси.</string>
+    <string name="source_audio_refusal_shared_count">Анонімних відмов: %1$d</string>
 </resources>

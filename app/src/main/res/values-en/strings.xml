@@ -225,4 +225,7 @@
         <item quantity="one">%1$d narrator</item>
         <item quantity="other">%1$d narrators</item>
     </plurals>
+    <string name="source_audio_refusal_publish_title">Share my refusals anonymously</string>
+    <string name="source_audio_refusal_publish_description">When on, the app adds one anonymous vote to the shared counter of each ticked source — a count only, no name, books or links. Turning it off stops new votes.</string>
+    <string name="source_audio_refusal_shared_count">Anonymous refusals: %1$d</string>
 </resources>

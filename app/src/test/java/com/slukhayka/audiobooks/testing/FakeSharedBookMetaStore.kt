@@ -17,6 +17,7 @@ import com.slukhayka.audiobooks.data.metadata.SharedTombstoneCodec
 import com.slukhayka.audiobooks.data.metadata.SharedTombstoneCursor
 import com.slukhayka.audiobooks.data.metadata.SharedTombstonePage
 import com.slukhayka.audiobooks.data.metadata.SharedTombstonePageLimits
+import com.slukhayka.audiobooks.data.metadata.SourceRefusalVoteCodec
 import com.slukhayka.audiobooks.data.metadata.SubmissionCursor
 import com.slukhayka.audiobooks.data.metadata.SubmissionPage
 import com.slukhayka.audiobooks.data.metadata.SubmissionPageLimits
@@ -31,7 +32,8 @@ import com.slukhayka.audiobooks.data.metadata.SubmissionPublicationCodec
 class FakeSharedBookMetaStore(
     var throwOnPut: Boolean = false,
     var throwOnSubmissionPage: Boolean = false,
-    var throwOnTombstonePage: Boolean = false
+    var throwOnTombstonePage: Boolean = false,
+    var refusalsDown: Boolean = false
 ) : SharedBookMetaStore {
 
     private val facets = linkedMapOf<String, FacetAssertion>()
@@ -150,5 +152,28 @@ class FakeSharedBookMetaStore(
         val next = (submissionCounts[deviceId to dayKey] ?: 0L) + 1
         submissionCounts[deviceId to dayKey] = next
         return next
+    }
+
+    /**
+     * Spec-49 T5 — refusal votes (`{sourceId}_{uid}`) and the anonymous
+     * per-source counters. The vote set is the one-device-once gate: a
+     * repeat vote REPLACE-no-ops instead of incrementing.
+     */
+    private val refusalVotes = mutableSetOf<String>()
+    private val refusalCounts = mutableMapOf<String, Long>()
+
+    override suspend fun getRefusalCount(sourceId: String): Long {
+        if (refusalsDown) return 0L
+        if (sourceId.isBlank()) return 0L
+        return refusalCounts[sourceId] ?: 0L
+    }
+
+    override suspend fun publishRefusalVote(sourceId: String, uid: String): Boolean {
+        if (refusalsDown) return false
+        if (SourceRefusalVoteCodec.toMap(sourceId, uid) == null) return false
+        val voteId = SourceRefusalVoteCodec.documentId(sourceId, uid)
+        if (!refusalVotes.add(voteId)) return true
+        refusalCounts[sourceId] = (refusalCounts[sourceId] ?: 0L) + 1
+        return true
     }
 }

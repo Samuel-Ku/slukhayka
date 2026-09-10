@@ -230,6 +230,27 @@ object SourceRegistry {
             )
         ),
         SourceFacts(
+            id = "knigionline",
+            displayName = "Knigi-Online",
+            homeUrl = "https://knigi-online.com.ua",
+            contentLanguage = "uk",
+            accessMode = SourceAccessMode.DIRECT,
+            order = 12,
+            catalogUrl = "https://knigi-online.com.ua/audioknyhy/",
+            searchUrl = "https://knigi-online.com.ua/?s={q}",
+            transportHosts = setOf("knigi-online.com.ua")
+        ),
+        SourceFacts(
+            id = "chitaka",
+            displayName = "Читака",
+            homeUrl = "https://chitaka.com.ua",
+            contentLanguage = "uk",
+            accessMode = SourceAccessMode.DIRECT,
+            order = 13,
+            catalogUrl = "https://chitaka.com.ua/audioknyhy/",
+            transportHosts = setOf("chitaka.com.ua")
+        ),
+        SourceFacts(
             id = "local",
             displayName = "Локальна",
             accessMode = SourceAccessMode.DIRECT,

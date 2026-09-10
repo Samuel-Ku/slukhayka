@@ -25,7 +25,9 @@ The static capability of a Source: `DIRECT` for a native HTTP path, `UNKNOWN`
 for a legacy/unclassified path, or `BROWSER` when a live in-app browser
 session is required (4read and the Cloudflare-backed sources). Recommendations
 and automatic playback try local files first, then direct, unknown and browser
-in that order. A browser Source is never opened as an implicit side effect of
+in that order — each filterable by the listener's Source Audio Refusal
+(ADR-0037), which removes a source from every automatic path before any
+probing. A browser Source is never opened as an implicit side effect of
 a card tap; it is an explicit recovery/import action. This is a capability
 order, not a health score, so a transient HTTP failure does not permanently
 demote a Source.
@@ -91,7 +93,7 @@ A persisted copy of one Source feed response (homepage sections or page cards) s
 _Avoid_: re-fetch on every start, feed deletion, snapshot as the only truth
 
 **Cross-resolve**:
-The one-request check made when a listener taps a card whose only Source needs the browser: the same Work (by MergeKey) is looked up on a Direct Source, and a match imports and plays/opens without the browser. One search per tap, no background crawling; the verdict is memoized with the Edition Availability Assertion windows.
+The one-request check made when a listener taps a card whose only Source needs the browser: the same Work (by MergeKey) is looked up on a Direct Source, and a match imports and plays/opens without the browser. One search per tap, no background crawling; the verdict is memoized with the Edition Availability Assertion windows. Generalized by Replacement Mapping (ADR-0037): all direct sources instead of one, whenever a Work's audio is refused or absent.
 _Avoid_: background cross-index, multi-request probe, silent browser fallback
 
 ## Listener-submitted sources (ADR-0035)
@@ -131,6 +133,47 @@ Metadata Assertions про Твір: назва, автор, начитувач,
 Правила — за шаблоном конкретного каналу, фікстурні тести з реальних постів;
 нерозібраний залишок лишається сирим текстом і ніколи не вигадує автора.
 _Avoid_: серверний LLM-прохід, вигаданий автор, вільний LIKE-пошук як ідентичність
+
+## Source refusal and replacement (ADR-0037)
+
+**Source Audio Refusal**:
+Особисте, несинхронізоване рішення слухача, що одне джерело (за `sourceId`)
+більше не постачає аудіо: його Sources ніколи не пропонуються — жоден probe,
+жоден автоматичний Play, жодне завантаження, — але джерело лишається
+повноцінним джерелом метаданих: секції, «Новинки», union, обкладинки,
+збагачення тривалості. Наявні Source рядки лишаються приспаними; відміна
+відмови повертає їх без повторного імпорту. Джерело-специфічне й абсолютне —
+не Tombstone (той блокує ввесь Твір разом із метаданими), не відмова на клас
+браузерних джерел, без браузерного виходу всупереч відмові.
+_Avoid_: Tombstone за Твором, відмова на клас, синхронізація, браузерний вихід всупереч відмові
+
+**Replacement Mapping**:
+Мапування Твору, чиє аудіо відмовлене чи відсутнє, на джерела інших джерел —
+лише при торканні книжки: спершу нуль запитів по локальній union і спільному
+SearchCache, за промахом один паралельний пошуковий залп усіма прямими
+джерелами, зведений за MergeKey і мемоїзований 6h/15m як вердикт Твору.
+Узагальнення Cross-resolve (#469): той самий шов і дисципліна, всі прямі
+джерела замість одного. Медіатека мапується поступово сама; фонового обходу
+й пакетного мапування не існує. Чесна невдача — «аудіо недоступне» плюс
+Source Watch, а не браузерні двері.
+_Avoid_: фоновий обхід, пакетне мапування, пошук на кожне джерело окремо, вигадане аудіо
+
+**Narration Claim**:
+Явна претензія слухача, що Source, знайдений мапуванням, — та сама начитка,
+що й наявний Edition без назви наратора: так пере-прив'язує Source до
+наявного Edition (прогрес несесться), а начитувач заповнюється твердженням
+знайденої сторінки. Без претензії знайдена начитка лишається власним Edition
+у «Інших начитках». Збіг кількості розділів ніколи не є доказом тотожності
+начитки — це фабрикація; збіг названих нараторів причіплюється сам (ADR-0007).
+_Avoid_: автозлепка за топологією, вигаданий наратор, другий прогрес для тієї самої начитки
+
+**Source Watch**:
+Локальне, несинхронізоване спостереження за Твором, чиє аудіо зараз ніде не
+грає: перевіряється безкоштовно на вже наявних оновленнях union/фідів і
+вердиктах мапування, без власного циклу опитування. Поява джерела
+(збіг за MergeKey) — локальне повідомлення; тап імпортує звичайними дверима.
+Мовчазного авто-імпорту не буває.
+_Avoid_: мовчазний авто-імпорт, власний опитувальний цикл, спільна вимога
 
 ## Metadata
 

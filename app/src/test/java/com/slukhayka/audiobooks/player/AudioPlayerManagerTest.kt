@@ -6,6 +6,7 @@ import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.HttpDataSource
 import androidx.test.core.app.ApplicationProvider
 import com.slukhayka.audiobooks.data.catalog.SourceCatalog
+import com.slukhayka.audiobooks.data.catalog.PlaybackFallbackResolver
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.ChapterEntity
 import com.slukhayka.audiobooks.data.db.PlaybackEventKind
@@ -1289,12 +1290,195 @@ class AudioPlayerManagerTest {
         }
     }
 
+    // ---------------------------------------------------------------------
+    // #504: playback fallback to a direct source of the same narration. A
+    // proven-remote 403/404 swaps the SAME chapter from a VERIFIED sibling
+    // (same real narrator, same chapter count) automatically, once per
+    // chapter prepare. The pure pieces ([PlaybackFallbackPolicy], the
+    // sibling [PlaybackFallbackResolver]) are JVM-tested in isolation; here
+    // we verify the wiring: the swap, the budget, the honest miss, and that
+    // Listening State never forks.
+    // ---------------------------------------------------------------------
+
+    private fun fallbackSeam(
+        url: String? = FALLBACK_URL,
+        sourceId: String = "soundbooks",
+        seen: MutableList<Triple<Int, String?, String?>>? = null,
+    ) = FallbackSeam { _, chapterCount, chapterIndex, failedSourceId ->
+        seen?.add(Triple(chapterCount, failedSourceId, url))
+        url?.let { PlaybackFallbackResolver.FallbackChapter(url = it, sourceId = sourceId) }
+    }
+
+    @Test
+    fun `a 403 swaps the same chapter from the verified direct sibling`() =
+        playerTest(fallback = fallbackSeam()) { manager, factory ->
+            manager.loadAndPlayBook(book, chapters, playable = playable, initialChapterIndex = 0, autoPlay = true)
+            val engine = factory.current
+
+            engine.simulateError(streamErrorOf(403))
+            runCurrent() // the fallback runs on the test dispatcher
+
+            assertEquals("one fallback swap", 2, engine.prepareCount)
+            assertEquals(FALLBACK_URL, engine.lastMediaItemUri)
+            assertEquals(FALLBACK_URL, manager.playerState.value.currentStreamUrl)
+            // ADR-0007: the same book, the same logical chapter — Listening
+            // State keeps its Edition and index, nothing forks.
+            assertEquals(book.id, manager.playerState.value.currentBook?.id)
+            assertEquals(0, manager.playerState.value.currentChapterIndex)
+            assertEquals(chapters.size, manager.playerState.value.chapters.size)
+            assertTrue(manager.playerState.value.isBuffering)
+            assertEquals("a recovered chapter is not a failure", 0, manager.playbackMetrics.failures())
+            assertTrue(
+                "the swap leaves a signed trail, got: ${manager.playbackEventLog.export()}",
+                manager.playbackEventLog.export().contains("FALLBACK 403")
+            )
+
+            engine.simulateReady(90_000L)
+            assertTrue(manager.playerState.value.isPlaying)
+            assertEquals(FALLBACK_URL, manager.playerState.value.currentStreamUrl)
+        }
+
+    @Test
+    fun `a server error never reaches the fallback seam`() =
+        playerTest(
+            fallback = FallbackSeam { _, _, _, _ ->
+                throw AssertionError("a 500 must never reach the fallback seam")
+            },
+        ) { manager, factory ->
+            manager.loadAndPlayBook(book, chapters, playable = playable, initialChapterIndex = 0, autoPlay = true)
+            val engine = factory.current
+
+            engine.simulateError(streamErrorOf(500))
+            runCurrent()
+
+            assertEquals("no swap on an unproven failure", 1, engine.prepareCount)
+            assertEquals(1, manager.playbackMetrics.failures())
+            assertEquals(PlaybackErrorKind.TRANSIENT, manager.playerState.value.errorKind)
+        }
+
+    @Test
+    fun `a fallback miss keeps the honest failure`() =
+        playerTest(fallback = fallbackSeam(url = null)) { manager, factory ->
+            manager.loadAndPlayBook(book, chapters, playable = playable, initialChapterIndex = 0, autoPlay = true)
+            val engine = factory.current
+
+            engine.simulateError(streamErrorOf(404))
+            runCurrent()
+
+            assertEquals("no retry without a verified sibling", 1, engine.prepareCount)
+            val state = manager.playerState.value
+            assertFalse(state.isBuffering)
+            assertEquals(1, manager.playbackMetrics.failures())
+            awaitLedgerRows(1)
+        }
+
+    @Test
+    fun `a dead fallback URL does not loop - one swap per chapter prepare`() =
+        playerTest(fallback = fallbackSeam()) { manager, factory ->
+            manager.loadAndPlayBook(book, chapters, playable = playable, initialChapterIndex = 0, autoPlay = true)
+            val engine = factory.current
+
+            engine.simulateError(streamErrorOf(404))
+            runCurrent()
+            assertEquals("the fallback swap happened", 2, engine.prepareCount)
+
+            // The fallback URL is dead too — the spent budget forbids a
+            // second swap; the honest failure surfaces instead.
+            engine.simulateError(streamErrorOf(404))
+            runCurrent()
+
+            assertEquals("no fallback loop", 2, engine.prepareCount)
+            assertEquals(1, manager.playbackMetrics.failures())
+            assertFalse(manager.playerState.value.isBuffering)
+            assertFalse(manager.playerState.value.isPlaying)
+        }
+
+    @Test
+    fun `heal runs before fallback, then the honest unavailable state`() =
+        playerTest(
+            healer = HealerSeam { _, _, _ -> HEALED_URL },
+            fallback = fallbackSeam(),
+        ) { manager, factory ->
+            manager.loadAndPlayBook(book, chapters, playable = playable, initialChapterIndex = 0, autoPlay = true)
+            val engine = factory.current
+
+            // First 404: the same-source heal (cheaper, narration trivially kept).
+            engine.simulateError(streamErrorOf(404))
+            runCurrent()
+            assertEquals("heal first", 2, engine.prepareCount)
+            assertEquals(HEALED_URL, engine.lastMediaItemUri)
+
+            // The fresh URL is dead too: the spent heal budget yields to the
+            // verified direct sibling.
+            engine.simulateError(streamErrorOf(404))
+            runCurrent()
+            assertEquals("fallback second", 3, engine.prepareCount)
+            assertEquals(FALLBACK_URL, engine.lastMediaItemUri)
+            assertEquals(0, manager.playbackMetrics.failures())
+
+            // The fallback URL is dead as well: both budgets spent, no third
+            // attempt — the honest unavailable state with the ledger row.
+            engine.simulateError(streamErrorOf(404))
+            runCurrent()
+            assertEquals("no third attempt", 3, engine.prepareCount)
+            assertEquals(1, manager.playbackMetrics.failures())
+            assertFalse(manager.playerState.value.isBuffering)
+            assertTrue(
+                "honest unavailable message, got: ${manager.playerState.value.lastErrorMsg}",
+                manager.playerState.value.lastErrorMsg.contains("недоступн")
+            )
+            awaitLedgerRows(1)
+            assertEquals("STREAM_HEAL_FAILED", dao.savedFailures.first().errorCodeName)
+        }
+
+    @Test
+    fun `local playback never falls back`() =
+        playerTest(fallback = fallbackSeam()) { manager, factory ->
+            val localFile = java.io.File.createTempFile("fallback-local", ".mp3", context.cacheDir)
+                .also { it.writeBytes(ByteArray(256)) }
+            try {
+                val localPlayable = playable.mapIndexed { index, item ->
+                    if (index == 0) {
+                        item.copy(
+                            track = item.track!!.copy(
+                                url = "file://${localFile.absolutePath}",
+                                localFilePath = localFile.absolutePath,
+                            )
+                        )
+                    } else item
+                }
+                manager.loadAndPlayBook(book, chapters, playable = localPlayable, initialChapterIndex = 0, autoPlay = true)
+                val engine = factory.current
+
+                engine.simulateError(streamErrorOf(404))
+                runCurrent()
+
+                assertEquals("a local chapter never swaps sources", 1, engine.prepareCount)
+                assertEquals(1, manager.playbackMetrics.failures())
+            } finally {
+                localFile.delete()
+            }
+        }
+
     /** Spec-32 T4 (#234): non-function-typed holder so the trailing lambda stays the body. */
     private class HealerSeam(val heal: (suspend (String, Int, String) -> String?)?)
+
+    /** #504: the same holder shape for the fallback seam under test. */
+    private class FallbackSeam(
+        val resolve: (suspend (
+            AudiobookEntity,
+            Int,
+            Int,
+            String?,
+        ) -> PlaybackFallbackResolver.FallbackChapter?)?,
+    )
 
     private fun playerTest(
         clock: TestClock? = null,
         healer: HealerSeam? = null,
+        // #504: the verified-sibling lookup under test. Null keeps the
+        // honest failure exactly as before.
+        fallback: FallbackSeam? = null,
         // Spec 2026-08-26: the per-use stream resolution seam (YouTube watch
         // URLs). Null keeps the identity resolver (plain URL pass-through).
         resolver: (suspend (String) -> String?)? = null,
@@ -1312,6 +1496,7 @@ class AudioPlayerManagerTest {
             // Spec-32 T4 (#234): the self-healing seam — production wires
             // LibraryImport.refreshStreamUrl here; tests inject a fake.
             streamUrlHealer = healer?.heal,
+            chapterFallback = fallback?.resolve,
             // Spec 2026-08-26: the YouTube per-use resolution seam.
             streamUrlResolver = resolver ?: { url -> url },
             // Spec-16 T3 flake (#101): the undo-candidate restore runs on the
@@ -1407,5 +1592,6 @@ class AudioPlayerManagerTest {
         /** The URL the fake healer "finds" after a 404/403 (spec-32 T4). */
         const val HEALED_URL = "https://cdn.sound-books.net/kobzar/healed-1.mp3"
         const val HEALED_URL_2 = "https://cdn.sound-books.net/kobzar/healed-2.mp3"
+        const val FALLBACK_URL = "https://sound-books.net/kobzar/fallback-1.mp3"
     }
 }

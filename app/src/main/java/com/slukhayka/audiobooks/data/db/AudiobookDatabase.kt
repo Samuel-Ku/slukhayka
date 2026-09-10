@@ -46,9 +46,10 @@ import com.slukhayka.audiobooks.data.metadata.EditionDurationPolicy
         AuthorAliasEntity::class,
         PersonBookmarkEntity::class,
         FeedSnapshotEntity::class,
-        PopularityAssertionEntity::class
+        PopularityAssertionEntity::class,
+        SubmissionStateEntity::class
     ],
-    version = 28,
+    version = 29,
     exportSchema = true
 )
 abstract class AudiobookDatabase : RoomDatabase() {
@@ -72,7 +73,7 @@ abstract class AudiobookDatabase : RoomDatabase() {
                     // upgrades, so a schema change fails loudly at runtime
                     // instead of silently dropping the database.
                     .addMigrations(
-                        MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28
+                        MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29
                     )
                     .build()
                 INSTANCE = instance
@@ -1249,6 +1250,25 @@ abstract class AudiobookDatabase : RoomDatabase() {
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_popularity_assertions_mergeKey ON popularity_assertions(mergeKey)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_popularity_assertions_sourceId ON popularity_assertions(sourceId)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_popularity_assertions_kind ON popularity_assertions(kind)")
+            }
+        }
+
+        /** Spec-53 T3 — the persistent listener-submission states table. */
+        internal val MIGRATION_28_29 = object : Migration(28, 29) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS submission_states (" +
+                        "sourceId TEXT NOT NULL, " +
+                        "url TEXT NOT NULL, " +
+                        "bookId TEXT NOT NULL, " +
+                        "metadataJson TEXT NOT NULL, " +
+                        "channelId TEXT NOT NULL, " +
+                        "state TEXT NOT NULL, " +
+                        "reason TEXT, " +
+                        "createdAt INTEGER NOT NULL, " +
+                        "updatedAt INTEGER NOT NULL, " +
+                        "PRIMARY KEY(sourceId))"
+                )
             }
         }
     }

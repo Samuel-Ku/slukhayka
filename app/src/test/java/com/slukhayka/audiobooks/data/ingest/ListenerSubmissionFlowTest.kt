@@ -28,7 +28,8 @@ class ListenerSubmissionFlowTest {
         tgIdentity: ListenerSubmissionFlow.TgIdentity? = null,
         remaining: Int = 10,
         submitter: String? = "uid-1",
-        withSharedBase: Boolean = true
+        withSharedBase: Boolean = true,
+        stateStore: SubmissionStateStore = InMemorySubmissionStateStore()
     ) {
         val store = FakeSharedBookMetaStore()
         val verification = SubmissionVerification { 1_000L }
@@ -46,7 +47,8 @@ class ListenerSubmissionFlowTest {
             publisher = if (withSharedBase) publisher else null,
             verification = if (withSharedBase) verification else null,
             remainingToday = { remaining },
-            submitterId = { submitter }
+            submitterId = { submitter },
+            store = stateStore
         )
     }
 
@@ -284,5 +286,74 @@ class ListenerSubmissionFlowTest {
             documentId,
             SubmissionPublicationCodec.documentId(harness.store.submissionPuts.single().sourceUrl)
         )
+    }
+
+    @Test
+    fun `two awaiting submissions settle independently`() = runTest {
+        val store = InMemorySubmissionStateStore()
+        val harnessStore = FakeSharedBookMetaStore()
+        val verification = SubmissionVerification { 1_000L }
+        val policy = SubmissionPolicy(harnessStore, verification) { 1_000L }
+        val publisher = SubmissionPublisher(harnessStore, policy) { 1_000L }
+        var index = 0
+        val outcomes = listOf(
+            ListenerSubmissionFlow.ImportOutcome(
+                ListenerSubmissionFlow.ImportResult.IMPORTED, bookId = "book-1", sourceId = "source-1"
+            ),
+            ListenerSubmissionFlow.ImportOutcome(
+                ListenerSubmissionFlow.ImportResult.IMPORTED, bookId = "book-2", sourceId = "source-2"
+            )
+        )
+        val flow = ListenerSubmissionFlow(
+            fetchMetadata = { """{"id":"v1","title":"Книга"}""" },
+            importYouTube = { _, _, _ -> outcomes[index++] },
+            fetchTgIdentity = { null },
+            publisher = publisher,
+            verification = verification,
+            remainingToday = { 10 },
+            submitterId = { "uid-1" },
+            store = store
+        )
+        val second = "https://www.youtube.com/playlist?list=PLsecond"
+
+        flow.submit(youtube)
+        flow.submit(second)
+
+        assertEquals(setOf("book-1", "book-2"), flow.awaitingBookIds())
+
+        assertEquals(ListenerSubmissionFlow.Verdict.Published, flow.onPlaybackStarted("source-1"))
+        assertEquals(setOf("book-2"), flow.awaitingBookIds())
+
+        assertEquals(ListenerSubmissionFlow.Verdict.Published, flow.onPlaybackStarted("source-2"))
+        assertTrue(flow.awaitingBookIds().isEmpty())
+        assertEquals(2, harnessStore.submissionPuts.size)
+    }
+
+    @Test
+    fun `a restart sharing the store still settles the awaiting submission`() = runTest {
+        val store = InMemorySubmissionStateStore()
+        val harnessStore = FakeSharedBookMetaStore()
+        val verification = SubmissionVerification { 1_000L }
+        val policy = SubmissionPolicy(harnessStore, verification) { 1_000L }
+        val publisher = SubmissionPublisher(harnessStore, policy) { 1_000L }
+        fun flow() = ListenerSubmissionFlow(
+            fetchMetadata = { """{"id":"v1","title":"Книга"}""" },
+            importYouTube = { _, _, _ ->
+                ListenerSubmissionFlow.ImportOutcome(
+                    ListenerSubmissionFlow.ImportResult.IMPORTED, bookId = "book-1", sourceId = "source-1"
+                )
+            },
+            fetchTgIdentity = { null },
+            publisher = publisher,
+            verification = verification,
+            remainingToday = { 10 },
+            submitterId = { "uid-1" },
+            store = store
+        )
+        flow().submit(youtube)
+
+        // The process restarted: a fresh flow over the same store.
+        assertEquals(ListenerSubmissionFlow.Verdict.Published, flow().onPlaybackStarted("source-1"))
+        assertEquals(1, harnessStore.submissionPuts.size)
     }
 }

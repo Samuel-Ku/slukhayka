@@ -170,6 +170,14 @@ fun LibraryScreen(
 
     // Import-result feedback (Block 4): one-shot Snackbar from the ViewModel.
     val snackbarHostState = remember { SnackbarHostState() }
+    // Spec-53 T3 — awaiting-verdict badges + the quiet publication notice.
+    val awaitingSubmissionBookIds by viewModel.awaitingSubmissionBookIds.collectAsState()
+    LaunchedEffect(Unit) { viewModel.refreshAwaitingSubmissions() }
+    LaunchedEffect(Unit) {
+        viewModel.submissionPublished.collect {
+            snackbarHostState.showSnackbar(context.getString(com.slukhayka.audiobooks.R.string.submission_published_toast))
+        }
+    }
     val importMessage by viewModel.importMessage.collectAsState()
     LaunchedEffect(importMessage) {
         importMessage?.let { message ->
@@ -469,6 +477,8 @@ fun LibraryScreen(
                                 LibraryBookCard(
                                     book = entry,
                                     grid = gridMode,
+                                    awaitingPlayback = entry.book.id in awaitingSubmissionBookIds,
+                                    onListenNow = { onPlayClick(entry.book) },
                                     onClick = { onBookClick(entry.book.id) },
                                     modifier = if (entry.book.id == restoreFocusBookId) {
                                         Modifier.focusRequester(bookReturnFocusRequester)
@@ -625,6 +635,7 @@ fun LibraryScreen(
             SubmissionSheet(
                 state = submissionState,
                 remainingToday = submissionRemaining,
+                onListen = { viewModel.listenToLastImported() },
                 onSubmit = viewModel::submitLink,
                 onDismiss = {
                     showSubmissionSheet = false
@@ -697,6 +708,10 @@ fun LibraryBookCard(
     book: LibraryBook,
     grid: Boolean,
     onClick: () -> Unit,
+    /** Spec-53 T3 — the submission awaits its real playback verdict. */
+    awaitingPlayback: Boolean = false,
+    /** Spec-53 T3 — badge tap: open the book and start playing it. */
+    onListenNow: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val author = book.book.displayAuthor
@@ -755,13 +770,17 @@ fun LibraryBookCard(
         if (grid) {
             LibraryBookGridContent(book)
         } else {
-            LibraryBookRowContent(book)
+            LibraryBookRowContent(book, awaitingPlayback = awaitingPlayback, onListenNow = onListenNow)
         }
     }
 }
 
 @Composable
-private fun LibraryBookRowContent(book: LibraryBook) {
+private fun LibraryBookRowContent(
+    book: LibraryBook,
+    awaitingPlayback: Boolean = false,
+    onListenNow: (() -> Unit)? = null
+) {
     // v1.4 E3 (ADR-0033): the library list row IS the canonical BookRow —
     // the old bespoke 56 dp Row (a fifth row style) is gone. The card's
     // own a11y contract (tag, content/state description, role) still rides
@@ -778,6 +797,17 @@ private fun LibraryBookRowContent(book: LibraryBook) {
             // C4: the canonical provenance chip — the local SourceBadge was
             // a pixel-duplicate of MetadataChip(source=…).
             MetadataChip(source = book.sourceName)
+            if (awaitingPlayback && onListenNow != null) {
+                Spacer(modifier = Modifier.width(AppDimens.SpaceXs))
+                Text(
+                    text = stringResource(com.slukhayka.audiobooks.R.string.submission_awaiting_badge),
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .clickable(onClick = onListenNow)
+                        .testTag("submission_awaiting_badge_${book.book.id}")
+                )
+            }
             if (book.book.isDownloaded) {
                 Spacer(modifier = Modifier.width(AppDimens.SpaceXs))
                 Icon(

@@ -33,6 +33,8 @@ class ListenerSubmissionFlow(
     private val remainingToday: suspend () -> Int,
     /** The anonymous device profile id (also the daily-budget key), or null. */
     private val submitterId: suspend () -> String?,
+    /** Spec-53 T3 — the restart-safe state carrier (multi-slot). */
+    private val store: SubmissionStateStore = InMemorySubmissionStateStore(),
 ) {
 
     /** The shape of the paste. */
@@ -92,16 +94,6 @@ class ListenerSubmissionFlow(
         data object NoPending : Verdict
     }
 
-    private data class Pending(
-        val url: String,
-        val metadataJson: String,
-        val channelId: String,
-        val sourceId: String,
-        val submitterId: String
-    )
-
-    @Volatile
-    private var pending: Pending? = null
 
     /** YouTube hosts (watch, short, playlist, music) versus Telegram preview links. */
     fun classify(rawUrl: String): Kind {
@@ -163,14 +155,21 @@ class ListenerSubmissionFlow(
                 val submitter = runCatching { submitterId.invoke() }.getOrNull()
                 val publishable = publisher != null && verification != null && !submitter.isNullOrBlank()
                 if (publishable) {
-                    // Only a verified, publishable submission holds a pending
-                    // slot; the verdict publishes it exactly once.
-                    pending = Pending(
-                        url = url,
-                        metadataJson = metadataJson,
-                        channelId = "",
-                        sourceId = sourceId,
-                        submitterId = submitter!!
+                    // Only a verified, publishable submission awaits a
+                    // verdict; the store keeps it across restarts and
+                    // multiple links await side by side.
+                    val now = System.currentTimeMillis()
+                    store.save(
+                        SubmissionState(
+                            sourceId = sourceId,
+                            url = url,
+                            bookId = bookId,
+                            metadataJson = metadataJson,
+                            channelId = "",
+                            state = SubmissionState.State.AWAITING_PLAY,
+                            createdAt = now,
+                            updatedAt = now
+                        )
                     )
                 }
                 Start.Imported(
@@ -225,11 +224,12 @@ class ListenerSubmissionFlow(
      */
     suspend fun onPlaybackStarted(sourceId: String): Verdict {
         if (sourceId.isBlank()) return Verdict.NoPending
-        val active = pending ?: return Verdict.NoPending
-        if (active.sourceId != sourceId) return Verdict.NoPending
-        pending = null
+        val active = store.bySourceId(sourceId) ?: return Verdict.NoPending
+        if (active.state != SubmissionState.State.AWAITING_PLAY) return Verdict.NoPending
         verification?.record(sourceId, actualPlaybackStarted = true)
-        val pub = publisher ?: return Verdict.Refused(Reason.SHARED_BASE_UNAVAILABLE)
+        val submitter = runCatching { submitterId.invoke() }.getOrNull()
+            ?: return settleRefused(sourceId, Reason.SHARED_BASE_UNAVAILABLE)
+        val pub = publisher ?: return settleRefused(sourceId, Reason.SHARED_BASE_UNAVAILABLE)
         return try {
             when (
                 pub.publish(
@@ -237,21 +237,37 @@ class ListenerSubmissionFlow(
                     metadataJson = active.metadataJson,
                     channelId = active.channelId,
                     sourceId = active.sourceId,
-                    submitterId = active.submitterId
+                    submitterId = submitter
                 )
             ) {
-                SubmissionPublisher.Result.PUBLISHED -> Verdict.Published
-                SubmissionPublisher.Result.ALREADY_PUBLISHED -> Verdict.Refused(Reason.ALREADY_PUBLISHED)
-                SubmissionPublisher.Result.DAILY_LIMIT_REACHED -> Verdict.Refused(Reason.DAILY_LIMIT_REACHED)
-                SubmissionPublisher.Result.METADATA_FAILED -> Verdict.Refused(Reason.METADATA_FAILED)
-                SubmissionPublisher.Result.NOT_VERIFIED -> Verdict.Refused(Reason.NOT_VERIFIED)
+                SubmissionPublisher.Result.PUBLISHED -> {
+                    store.updateState(sourceId, SubmissionState.State.PUBLISHED, null, System.currentTimeMillis())
+                    Verdict.Published
+                }
+                SubmissionPublisher.Result.ALREADY_PUBLISHED ->
+                    settleRefused(sourceId, Reason.ALREADY_PUBLISHED)
+                SubmissionPublisher.Result.DAILY_LIMIT_REACHED ->
+                    settleRefused(sourceId, Reason.DAILY_LIMIT_REACHED)
+                SubmissionPublisher.Result.METADATA_FAILED ->
+                    settleRefused(sourceId, Reason.METADATA_FAILED)
+                SubmissionPublisher.Result.NOT_VERIFIED ->
+                    settleRefused(sourceId, Reason.NOT_VERIFIED)
             }
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {
-            Verdict.Refused(Reason.SHARED_BASE_UNAVAILABLE)
+            settleRefused(sourceId, Reason.SHARED_BASE_UNAVAILABLE)
         }
     }
+
+    private suspend fun settleRefused(sourceId: String, reason: Reason): Verdict {
+        store.updateState(sourceId, SubmissionState.State.REFUSED, reason.name, System.currentTimeMillis())
+        return Verdict.Refused(reason)
+    }
+
+    /** Spec-53 T3 — the book ids still awaiting their playback verdict. */
+    suspend fun awaitingBookIds(): Set<String> =
+        store.awaiting().map { it.bookId }.toSet()
 
     private companion object {
         val YOUTUBE_URL = Regex("""https?://(?:www\.|m\.|music\.)?(?:youtube\.com|youtu\.be)/""")

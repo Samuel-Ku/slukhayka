@@ -52,8 +52,23 @@ package com.slukhayka.audiobooks.data.source
  * Cloudflare gate, no bypass). Without a live session the fetch would 403, so
  * [fetchNew] stays empty and the feed pipeline shows the stale-session CTA.
  */
+/**
+ * ADR-0038 — the static facts of one Sluhay-family source. sluhay.com and
+ * sluhayknigi.com share the DLE/poster/playerjs machinery byte for byte;
+ * only the id, origin and Referer differ, so ONE adapter serves both.
+ */
+data class SluhaySite(
+    val sourceId: String,
+    /** Site origin without a trailing slash, e.g. `https://sluhay.com`. */
+    val origin: String
+) {
+    val homeUrl: String get() = "$origin/"
+}
+
 class SluhayAdapter(
     private val fetcher: HttpFetcher = HttpFetcher(referer = "https://sluhay.com/"),
+    /** The site facts (ADR-0038): id and origin; the default is sluhay.com. */
+    private val site: SluhaySite = SluhaySite(sourceId = "sluhay", origin = "https://sluhay.com"),
     /**
      * Spec-42 #427 — the shared host-aware Cookie provider. It reads just-in-time
      * for the concrete request host (never copying a cookie from one host to
@@ -70,13 +85,17 @@ class SluhayAdapter(
     /** Spec-45 (#405) — the catalogue speaks Ukrainian. */
     override val contentLanguage = "uk"
 
-    override val sourceId: String = "sluhay"
+    override val sourceId: String = site.sourceId
     override val accessMode: SourceAccessMode = SourceAccessMode.BROWSER
 
     /** Spec-13 T4: discovery is session-bound — the feed pipeline shows a CTA, never dead data. */
     override val sessionBound: Boolean = true
 
     override suspend fun search(query: String): List<SourceBook> = emptyList()
+
+    /** Poster links of THIS site (host-scoped by the origin). */
+    private val posterHref: Regex =
+        Regex("""href="(${Regex.escape(site.origin)}/[^"]+\.html)"""", RegexOption.IGNORE_CASE)
 
     /**
      * The «Нове з Sluhay» feed: the homepage poster rows, hydrated through the
@@ -87,10 +106,10 @@ class SluhayAdapter(
     override suspend fun fetchNew(limit: Int): List<SourceBook> {
         // Spec-42 #427 — host-aware: read the Cookie header just-in-time for
         // HOME_URL's host, never reusing another host's cookie.
-        val cookies = cookieProvider.cookieFor(HOME_URL).trim()
+        val cookies = cookieProvider.cookieFor(site.homeUrl).trim()
         // No live session: Cloudflare would 403, so there is nothing to parse.
         if (cookies.isBlank()) return emptyList()
-        val html = fetcher.getText(HOME_URL, mapOf("Cookie" to cookies))
+        val html = fetcher.getText(site.homeUrl, mapOf("Cookie" to cookies))
         if (html.isEmpty()) return emptyList()
         return parsePosterRows(html, limit)
     }
@@ -111,7 +130,7 @@ class SluhayAdapter(
             val to = if (i + 1 < starts.size) starts[i + 1] else html.length
             val block = html.substring(from, to)
 
-            val url = POSTER_HREF.find(block)?.groupValues?.get(1) ?: continue
+            val url = posterHref.find(block)?.groupValues?.get(1) ?: continue
             val rawTitle = POSTER_TITLE.find(block)?.groupValues?.get(1)?.trim().orEmpty()
             if (rawTitle.length < 3) continue
             // Title is «Назва - Автор»; split on the LAST separator so a title
@@ -120,7 +139,7 @@ class SluhayAdapter(
             val title = rawTitle.substringBeforeLast(" - ").trim().ifBlank { rawTitle }
             val cover = POSTER_COVER.find(block)?.groupValues?.get(1)
                 ?.takeIf { it.startsWith("/uploads/") }
-                ?.let { "https://sluhay.com$it" }
+                ?.let { site.origin + it }
             val genres = POSTER_META.find(block)?.groupValues?.get(1)?.trim().orEmpty()
 
             books.add(
@@ -166,9 +185,9 @@ class SluhayAdapter(
     override suspend fun fetchCatalog(limit: Int): List<SourceBook> {
         // Spec-42 #427 — host-aware cookies: each request reads its own host's
         // cookie just-in-time, never copying one host's cookie onto another.
-        val homeCookies = cookieProvider.cookieFor(HOME_URL).trim()
+        val homeCookies = cookieProvider.cookieFor(site.homeUrl).trim()
         if (homeCookies.isBlank()) return emptyList()
-        val home = fetcher.getText(HOME_URL, mapOf("Cookie" to homeCookies))
+        val home = fetcher.getText(site.homeUrl, mapOf("Cookie" to homeCookies))
         if (home.isEmpty()) return emptyList()
         val seen = mutableSetOf<String>()
         val books = mutableListOf<SourceBook>()
@@ -179,10 +198,10 @@ class SluhayAdapter(
         // Category sections: the first path segment of the poster book URLs
         // (`https://sluhay.com/<category>/<id>-<slug>.html`). Each category
         // page reuses the same poster-row markup, so walk a few and dedupe.
-        val categories = POSTER_HREF.findAll(home)
+        val categories = posterHref.findAll(home)
             .mapNotNull { m ->
                 m.groupValues[1]
-                    .substringAfter("https://sluhay.com/")
+                    .substringAfter("${site.origin}/")
                     .substringBefore('/')
                     .takeIf { it.isNotBlank() }
             }
@@ -190,7 +209,7 @@ class SluhayAdapter(
             .take(MAX_CATEGORIES)
         for (category in categories) {
             if (books.size >= limit) break
-            val categoryUrl = "https://sluhay.com/$category/"
+            val categoryUrl = "${site.origin}/$category/"
             val catCookies = cookieProvider.cookieFor(categoryUrl).trim()
             val headers = if (catCookies.isBlank()) emptyMap() else mapOf("Cookie" to catCookies)
             val html = fetcher.getText(categoryUrl, headers)
@@ -252,7 +271,7 @@ class SluhayAdapter(
         val title = metaTitle.ifBlank { ogTitle.substringBeforeLast(" - ").trim() }.ifBlank { ogTitle }
 
         val cover = coverPath(html)
-            ?.let { if (it.startsWith("http")) it else "https://sluhay.com$it" }
+            ?.let { if (it.startsWith("http")) it else site.origin + it }
 
         return SluhayBookPage(
             title = title,
@@ -300,7 +319,6 @@ class SluhayAdapter(
             .find(html)?.groupValues?.get(1)
 
     private companion object {
-        const val HOME_URL = "https://sluhay.com/"
 
         // Spec-15 T3: how many category pages the hydration crawl samples.
         const val MAX_CATEGORIES = 6
@@ -309,7 +327,6 @@ class SluhayAdapter(
         // `<a class="poster-item grid-item" href=…>`, the title/meta live in
         // poster-item__* divs and the cover in the first lazy-loaded data-src.
         val POSTER_START = Regex("""<a class="poster-item grid-item"""", RegexOption.IGNORE_CASE)
-        val POSTER_HREF = Regex("""href="(https://sluhay\.com/[^"]+\.html)"""", RegexOption.IGNORE_CASE)
         val POSTER_TITLE = Regex("""poster-item__title[^>]*>\s*([^<]+?)\s*<""", RegexOption.IGNORE_CASE)
         val POSTER_META = Regex("""poster-item__meta[^>]*>\s*([^<]+?)\s*<""", RegexOption.IGNORE_CASE)
         val POSTER_COVER = Regex("""<img[^>]+data-src="(/uploads/[^"]+)"[^>]*>""", RegexOption.IGNORE_CASE)

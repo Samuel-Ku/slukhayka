@@ -91,6 +91,7 @@ import com.slukhayka.audiobooks.data.source.YouTubeStreamResolver
 import com.slukhayka.audiobooks.data.source.LihtarAdapter
 import com.slukhayka.audiobooks.data.source.LibriVoxAdapter
 import com.slukhayka.audiobooks.data.source.SluhayAdapter
+import com.slukhayka.audiobooks.data.source.SluhaySite
 import com.slukhayka.audiobooks.data.source.SluhayuaAdapter
 import com.slukhayka.audiobooks.data.source.SoundBooksAdapter
 import com.slukhayka.audiobooks.data.source.TgPreviewSourceAdapter
@@ -479,6 +480,14 @@ class App : Application() {
             LihtarAdapter(),
             SluhayuaAdapter(),
             SluhayAdapter(cookieProvider = sharedCookies),
+            // ADR-0038 — the same adapter, the sibling site: sluhayknigi.com
+            // shares the DLE/playerjs machinery (spec-13); its own Referer
+            // and cookie jar ride the SluhaySite config.
+            SluhayAdapter(
+                fetcher = HttpFetcher(referer = "https://sluhayknigi.com/"),
+                site = SluhaySite(sourceId = "sluhayknigi", origin = "https://sluhayknigi.com"),
+                cookieProvider = sharedCookies
+            ),
             // Spec-47 T5 — audiobook.co.ua joins the registry (T1 verdict PASS,
             // server-fetch): its new feed feeds the «Новинки» rail, its
             // sitemap enumeration joins the union, and the adapter's search()

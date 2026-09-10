@@ -244,4 +244,7 @@
          Source Audio Refusal. -->
     <string name="source_audio_refusal_title">Аудіо джерел</string>
     <string name="source_audio_refusal_description">Позначені джерела більше не пропонуються для прослуховування й завантаження — метадані, каталог і підбірки лишаються. Зніміть прапорець, щоб повернути джерело без повторного імпорту.</string>
+    <string name="source_audio_refusal_publish_title">Анонімно ділитися моїми відмовами</string>
+    <string name="source_audio_refusal_publish_description">Коли ввімкнено, застосунок додає один анонімний голос до спільного лічильника кожного позначеного джерела — лише кількість, без імені, книг чи посилань. Вимкнення зупиняє нові голоси.</string>
+    <string name="source_audio_refusal_shared_count">Анонімних відмов: %1$d</string>
 </resources>

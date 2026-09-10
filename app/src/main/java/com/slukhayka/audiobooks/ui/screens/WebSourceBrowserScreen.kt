@@ -45,6 +45,7 @@ import com.slukhayka.audiobooks.data.privacy.BrowserDnsProxy
 import com.slukhayka.audiobooks.data.privacy.BrowserIdentity
 import com.slukhayka.audiobooks.data.privacy.WebViewRouteApplyOutcome
 import com.slukhayka.audiobooks.data.privacy.awaitWebViewRouteApplied
+import com.slukhayka.audiobooks.data.source.BrowserRecoveryProfiles
 import com.slukhayka.audiobooks.data.source.SourceBrowserPolicy
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.theme.*
@@ -143,14 +144,16 @@ fun WebSourceBrowserScreen(
     val sessionPrefs = remember {
         context.getSharedPreferences("source_browser_session", Context.MODE_PRIVATE)
     }
+    val recoveryProfile = remember(sourceId) { BrowserRecoveryProfiles.forSource(sourceId) }
+    val entryNotice = recoveryProfile.entryNotice
     var showMethodNotice by remember(sourceId) {
         mutableStateOf(
-            sourceId == "4read" &&
+            entryNotice != null &&
                 !sessionPrefs.getBoolean("4read_method_notice_seen", false)
         )
     }
     LaunchedEffect(sourceId) {
-        if (sourceId == "4read") {
+        if (entryNotice != null) {
             sessionPrefs.edit().putBoolean("4read_method_notice_seen", true).apply()
         }
     }
@@ -344,13 +347,20 @@ fun WebSourceBrowserScreen(
         importResult = ""
         structureMismatch = null
         blockedNavMessage = ""
-        instance.evaluateJavascript(
+        // ADR-0036 (spec-48 T1) — the capture JS is assembled from the source
+        // profile: the manifest hunt and the obfuscation transform run only
+        // when the profile declares [BrowserRecoveryProfile.manifestProbe].
+        // For 4read the assembled script is identical to the previous literal.
+        val manifestSignal = recoveryProfile.manifestSignal
+        val manifestPlaceholder = recoveryProfile.manifestPlaceholder
+        val manifestReplacement = recoveryProfile.manifestPlaceholderReplacement.orEmpty()
+        val captureJs = if (recoveryProfile.manifestProbe) {
             """(function(){
                 const html = document.documentElement.outerHTML;
-                const urls = [...html.matchAll(/file\s*:\s*["']([^"']*(?:\{v1\}|\.(?:m3u|txt|json))(?:\?[^"']*)?)["']/gi)].map(m => m[1]);
+                const urls = [...html.matchAll(/file\s*:\s*["']([^"']*(?:$manifestSignal)(?:\?[^"']*)?)["']/gi)].map(m => m[1]);
                 const manifests = [...new Set(urls)].map(url => {
                     try {
-                        const targetUrl = url.replace(/\{v1\}/g, 'https://4read.org/m3u/');
+                        const targetUrl = url.replace(/$manifestPlaceholder/g, '$manifestReplacement');
                         const fullUrl = targetUrl.startsWith('http') ? targetUrl : (targetUrl.startsWith('/') ? window.location.origin + targetUrl : window.location.origin + '/' + targetUrl);
                         const request = new XMLHttpRequest();
                         request.open('GET', fullUrl, false);
@@ -368,7 +378,18 @@ fun WebSourceBrowserScreen(
                 });
                 return html + manifests.join('') + inlineJsons.join('');
             })()"""
-        ) { raw ->
+        } else {
+            """(function(){
+                const html = document.documentElement.outerHTML;
+                const inlineJsons = [...html.matchAll(/file\s*:\s*["'](\[\s*\{.*?\}\s*\])["']/gis)].map(m => {
+                    try {
+                        return '<i data-slukhayka-playlist="' + btoa(unescape(encodeURIComponent(m[1]))) + '"></i>';
+                    } catch (_) { return ''; }
+                });
+                return html + inlineJsons.join('');
+            })()"""
+        }
+        instance.evaluateJavascript(captureJs) { raw ->
             val decoded = raw?.trim()?.let { r ->
                 val inner = if (r.startsWith("\"") && r.endsWith("\"")) {
                     r.substring(1, r.length - 1)
@@ -836,7 +857,9 @@ fun WebSourceBrowserScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Метод 4read змінився: для прослуховування потрібен браузер.",
+                        // ADR-0036 — the announcement text is the source
+                        // profile's [entryNotice]; 4read stays its only bearer.
+                        text = entryNotice.orEmpty(),
                         style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier.weight(1f)
                     )

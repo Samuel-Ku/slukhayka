@@ -7,6 +7,7 @@ import org.gradle.api.DefaultTask
 import org.gradle.api.GradleException
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.provider.Property
+import org.gradle.api.provider.Provider
 import org.gradle.api.tasks.InputDirectory
 import org.gradle.api.tasks.Internal
 import org.gradle.api.tasks.PathSensitive
@@ -39,6 +40,24 @@ kover {
         rule {
           minBound(intProperty("kover.branchThreshold") ?: 70, coverageUnits = kotlinx.kover.gradle.plugin.dsl.CoverageUnit.BRANCH)
         }
+      }
+    }
+  }
+}
+
+// The Kover JVM agent rewrites every class a test JVM loads. Robolectric loads
+// the Android framework and the Room cohorts fork a fresh JVM per class, so
+// local test loops pay that instrumentation tax for a binary report only CI
+// consumes. Keep coverage in CI and for invocations that explicitly ask for a
+// Kover task; ordinary local test and build runs skip it.
+val coverageRequested =
+  !System.getenv("CI").isNullOrEmpty() ||
+    gradle.startParameter.taskNames.any { it.contains("kover", ignoreCase = true) }
+if (!coverageRequested) {
+  kover {
+    currentProject {
+      instrumentation {
+        disabledForAll = true
       }
     }
   }
@@ -433,24 +452,22 @@ fun partitionTestClasses(
   }.standardOutput.asText.get().lineSequence().filter(String::isNotBlank).toList()
 }
 
-val pureJvmClasses = partitionTestClasses("pure-jvm")
-val roomRobolectricClasses = partitionTestClasses("room-robolectric")
-val roomNativeSdk35Classes = partitionTestClasses("room-robolectric", "native-sdk35")
-val roomNativeSdk36Classes = partitionTestClasses("room-robolectric", "native-sdk36")
-val roomNativeDefaultClasses = partitionTestClasses("room-robolectric", "native-default")
-val roomRobolectricOnlyClasses = partitionTestClasses("room-robolectric", "non-native")
-val composeRoborazziClasses = partitionTestClasses("compose-roborazzi")
+// The classifier shells out to Python and reads every test source, so resolve
+// the lists lazily: a build pays for at most the one partition it runs, and
+// non-test invocations (assemble, install, IDE sync) pay nothing at all.
+fun partitionClasses(partition: String, cohort: String = "all"): Provider<List<String>> =
+  providers.provider { partitionTestClasses(partition, cohort) }
 
 // These aliases reuse AGP's standard Test task. Kover 0.9.9 instruments that
 // task and emits one portable testDebugUnitTest.ic report in each CI job.
 val partitionAliases = mapOf(
-  "testPureJvm" to pureJvmClasses,
-  "testRoomRobolectric" to roomRobolectricClasses,
-  "testRoomNativeSdk35" to roomNativeSdk35Classes,
-  "testRoomNativeSdk36" to roomNativeSdk36Classes,
-  "testRoomNativeDefault" to roomNativeDefaultClasses,
-  "testRoomRobolectricOnly" to roomRobolectricOnlyClasses,
-  "testComposeRoborazzi" to composeRoborazziClasses,
+  "testPureJvm" to partitionClasses("pure-jvm"),
+  "testRoomRobolectric" to partitionClasses("room-robolectric"),
+  "testRoomNativeSdk35" to partitionClasses("room-robolectric", "native-sdk35"),
+  "testRoomNativeSdk36" to partitionClasses("room-robolectric", "native-sdk36"),
+  "testRoomNativeDefault" to partitionClasses("room-robolectric", "native-default"),
+  "testRoomRobolectricOnly" to partitionClasses("room-robolectric", "non-native"),
+  "testComposeRoborazzi" to partitionClasses("compose-roborazzi"),
 )
 val requestedPartitionAliases = gradle.startParameter.taskNames
   .map { it.substringAfterLast(':') }
@@ -481,7 +498,7 @@ afterEvaluate {
     val selectedClasses = providers.gradleProperty("test.selectedClasses").orNull
       ?.split(',')
       ?.filter(String::isNotBlank)
-      ?: partitionAliases.getValue(requestedAlias)
+      ?: partitionAliases.getValue(requestedAlias).get()
     baseJvmTest.configure {
       systemProperty("slukhayka.test.workerCohort", requestedAlias)
       if (requestedAlias == "testRoomRobolectric") {

@@ -89,6 +89,9 @@ import com.slukhayka.audiobooks.data.watch.SourceWatchStore
 import com.slukhayka.audiobooks.data.source.NewPipeYouTubeExtractor
 import com.slukhayka.audiobooks.data.source.YouTubeStreamResolver
 import com.slukhayka.audiobooks.data.source.LihtarAdapter
+import com.slukhayka.audiobooks.data.source.SharedPreferencesSourceGateBudgetStore
+import com.slukhayka.audiobooks.data.source.SourceGateProvider
+import com.slukhayka.audiobooks.data.source.SourceRequestGate
 import com.slukhayka.audiobooks.data.source.LibriVoxAdapter
 import com.slukhayka.audiobooks.data.source.SluhayAdapter
 import com.slukhayka.audiobooks.data.source.SluhaySite
@@ -928,6 +931,12 @@ class App : Application() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        // ADR-0039 / spec #681 T3 (#684): the ONE politeness gate for every
+        // HTML/API request to a Source host, with the persisted per-domain
+        // budget. Installed before any module can touch the network.
+        SourceGateProvider.install(
+            SourceRequestGate(budgetStore = SharedPreferencesSourceGateBudgetStore(this))
+        )
         crashReporting.start()
         unexpectedExitReporter.inspectLatest()
         PeopleNewArrivalWorker.schedule(this)

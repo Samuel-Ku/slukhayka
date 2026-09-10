@@ -284,6 +284,20 @@ object SourceRegistry {
         }
     }
 
+    /**
+     * ADR-0039 / spec #681 T3 (#684) — true when [host] belongs to a
+     * registered Source's transport allowlist (exact or subdomain). The gate
+     * guards only Source hosts; enrichment and update hosts stay raw.
+     */
+    fun isSourceHost(host: String): Boolean {
+        val normalized = host.lowercase()
+        return entries.any { facts ->
+            facts.transportHosts.any { allowed ->
+                normalized == allowed || normalized.endsWith(".$allowed")
+            }
+        }
+    }
+
     private fun hostOf(streamUrl: String): String? = try {
         java.net.URI(streamUrl).host?.lowercase()
     } catch (_: Exception) {

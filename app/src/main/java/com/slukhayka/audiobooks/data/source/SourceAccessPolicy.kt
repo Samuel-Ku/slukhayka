@@ -28,6 +28,8 @@ object SourceAccessPolicy {
     // audio rides archive.org with ranges).
     // Spec-47 T3: chytaylo.com.ua is server-fetch (Next.js SSR, T1 verdict
     // PASS; audio `/api/audio-local/…mp3` serves ranges directly).
+    // Spec-47 T5: ukrainianaudiobooks.com is NOT here — Cloudflare-gated
+    // (T1 GATED), it resolves to BROWSER through its recovery profile below.
     private val directSources = setOf(
         "soundbooks", "audiobookmp3", "lihtar", "sluhayua", "librivox",
         "audiobookcoua", "chytaylo"

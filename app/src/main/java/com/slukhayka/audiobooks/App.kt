@@ -95,6 +95,7 @@ import com.slukhayka.audiobooks.data.source.SluhayAdapter
 import com.slukhayka.audiobooks.data.source.SluhayuaAdapter
 import com.slukhayka.audiobooks.data.source.SoundBooksAdapter
 import com.slukhayka.audiobooks.data.source.TgPreviewSourceAdapter
+import com.slukhayka.audiobooks.data.source.UkrainianaudiobooksAdapter
 import com.slukhayka.audiobooks.data.source.HttpFetcher
 import com.slukhayka.audiobooks.data.source.SourceAdapter
 import com.slukhayka.audiobooks.data.source.headersFor
@@ -411,6 +412,13 @@ class App : Application() {
             // the new-arrivals rail, and its search() is the measured honest
             // empty (the site filters nothing server-side).
             ChytayloAdapter(),
+            // Spec-47 T4/T5 — ukrainianaudiobooks.com joins the registry as a
+            // WebView-pattern source (T1 verdict GATED — Cloudflare): its feed
+            // hydrates through the live session cookies, discovery rides the
+            // browser surface, and the import door works through the
+            // captured-page seam (ADR-0006). In release builds the browser
+            // door stays closed (ADR-0027) — the profile says so.
+            UkrainianaudiobooksAdapter(cookieProvider = sharedCookies),
             // Spec-45 (#405) T2 (#490): the English source — catalogue/search
             // cards surface in the union and global search next to the
             // Ukrainian ones (book pages are T3 #491).

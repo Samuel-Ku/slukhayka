@@ -17,8 +17,13 @@ import org.junit.Test
 class DownloadPolicyTest {
 
     @Test
-    fun `lihtar is stream-only - its ToS forbids reproduction`() {
+    fun `lihtar and ukrainianaudiobooks are stream-only - no download proof`() {
+        // lihtar: the ToS forbids reproduction. ukrainianaudiobooks (spec-47
+        // T5): the T1 verdict is GATED — every request sits behind the
+        // Cloudflare challenge, so no direct audio URL was ever observed to
+        // serve plain GETs; no proof, no download (honest stream-only).
         assertTrue(streamOnlyFor("lihtar"))
+        assertTrue(streamOnlyFor("ukrainianaudiobooks"))
     }
 
     @Test
@@ -28,11 +33,13 @@ class DownloadPolicyTest {
         // are intended use. sluhay/sluhayknigi (spec-13): robots open, no
         // download prohibition found in the spike — allowed.
         // audiobookcoua (spec-47 T1): direct archive.org audio serves ranges
-        // to plain GETs (206 audio/mpeg), robots.txt carries `Allow: /` and no
-        // ToS prohibition was found — allowed.
+        // to plain GETs (206 audio/mpeg), robots.txt carries `Allow: /` and
+        // no ToS prohibition was found — allowed.
+        // chytaylo (spec-47 T1): `/api/audio-local/…mp3` serves 206 audio/mpeg
+        // to plain range GETs, no challenge, no ToS prohibition — allowed.
         listOf(
             "4read", "soundbooks", "audiobookmp3", "sluhayua", "sluhay", "sluhayknigi",
-            "audiobookcoua", "local", "unknown-source"
+            "audiobookcoua", "chytaylo", "local", "unknown-source"
         ).forEach { sourceId ->
             assertFalse("$sourceId must allow downloads", streamOnlyFor(sourceId))
         }
@@ -95,7 +102,11 @@ class DownloadPolicyTest {
     @Test
     fun `sources that serve plain GETs need no extra headers`() {
         val anyUrl = "https://cdn.example.invalid/s05/1/2/3/track-0.mp3"
-        listOf("soundbooks", "sluhayua", "lihtar", "local", "unknown-source").forEach { sourceId ->
+        // The spec-47 sources included: audiobookcoua's audio rides archive.org
+        // (no Referer — SEC-004), chytaylo's /api/audio-local/…mp3 answers
+        // plain GETs, and ukrainianaudiobooks never reaches a stream URL at
+        // all (its audio is GATED behind the session — nothing to header).
+        listOf("soundbooks", "sluhayua", "lihtar", "audiobookcoua", "chytaylo", "ukrainianaudiobooks", "local", "unknown-source").forEach { sourceId ->
             assertTrue("$sourceId must send no headers", headersFor(sourceId, anyUrl).isEmpty())
         }
     }

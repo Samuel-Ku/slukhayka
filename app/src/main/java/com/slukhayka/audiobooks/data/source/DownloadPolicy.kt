@@ -24,11 +24,21 @@ package com.slukhayka.audiobooks.data.source
  *   206 audio/mpeg with range requests to plain GETs, robots.txt carries
  *   `Allow: /` for the generic agent and no ToS prohibition was found →
  *   **allowed** (the default, no policy entry needed).
+ * - `chytaylo` — spec-47 T1 verdict: `/api/audio-local/…mp3` answers
+ *   206 audio/mpeg to plain range GETs, no challenge, no ToS prohibition
+ *   found → **allowed** (the default, no policy entry needed).
+ * - `ukrainianaudiobooks` — spec-47 T1 verdict GATED: every request sits
+ *   behind the Cloudflare challenge, so NO direct audio URL was ever
+ *   observed to serve plain GETs — no proof, no download → **stream-only**.
  * - `4read` and anything unknown (legacy books, local imports) keep the
  *   existing behaviour — allowed.
  */
 fun streamOnlyFor(sourceId: String): Boolean = when (sourceId) {
     "lihtar" -> true
+    // Spec-47 T5 — the T1 spike never saw a direct audio URL from this
+    // source (Cloudflare-gated transport); honest stream-only until a
+    // device session proves ranges work.
+    "ukrainianaudiobooks" -> true
     else -> false
 }
 

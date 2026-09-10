@@ -12,9 +12,13 @@ const SOURCE_PRIORITY: Record<SourceId, number> = {
   sluhayua: 1,
   'audiobook-mp3': 2,
   lihtar: 3,
-  sluhay: 4,
-  fourread: 5,
-  librivox: 6,
+  // Spec-47 T6 — the two direct server-fetch sources join the direct tier
+  // (after the known direct order, name-ordered like SourceAccessPolicy).
+  audiobookcoua: 4,
+  chytaylo: 5,
+  sluhay: 6,
+  fourread: 7,
+  librivox: 8,
 }
 
 function isDirect(source: UnifiedSource): boolean {

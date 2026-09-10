@@ -33,7 +33,8 @@ internal fun SettingsScreen(
         listOf(
             SettingsDestination.Profile, SettingsDestination.Storage,
             SettingsDestination.NetworkPrivacy, SettingsDestination.Recommendations,
-            SettingsDestination.ContentLanguages, SettingsDestination.AppLocale
+            SettingsDestination.ContentLanguages, SettingsDestination.AppLocale,
+            SettingsDestination.SourceAudioRefusal
         )
     }
     val headingFocus = remember { FocusRequester() }

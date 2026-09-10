@@ -162,10 +162,20 @@ class SourceCatalog(
     // surface (union, collections, new arrivals, per-source feeds, search,
     // and the recommendation row built over the union) filters through this
     // ONE source of truth at publish/read time.
-    private val contentLanguageSelection: StateFlow<Set<String>> = MutableStateFlow(emptySet())
+    private val contentLanguageSelection: StateFlow<Set<String>> = MutableStateFlow(emptySet()),
+    // ADR-0037 (spec-49 T1): the personal Source Audio Refusal (by source
+    // id). Metadata flows stay untouched — sections, «Новинки», union,
+    // covers, duration enrichment — while PLAYABLE pairing (and the
+    // legacy-page materialization it rides) excludes every refused source,
+    // so nothing refused is ever probed, streamed or downloaded. Empty set
+    // = no refusal = exactly the pre-ADR-0037 behaviour.
+    private val sourceAudioRefusal: StateFlow<Set<String>> = MutableStateFlow(emptySet())
 ) {
     /** Frozen local-write seam consumed by the later shared delta lane. */
     val facetWriter: LocalFacetWriter = RoomLocalFacetWriter(dao)
+
+    /** ADR-0037 — the source ids whose AUDIO the listener has refused. */
+    private fun refusedAudioSources(): Set<String> = sourceAudioRefusal.value
 
     private val facetDeltaSync: FacetDeltaSync? =
         if (sharedFacetStore != null && facetSyncCursorStore != null) {
@@ -898,7 +908,10 @@ class SourceCatalog(
         // 54 chapter rows for one 6-chapter seed book, scrambled order, and
         // the player picking up reasd.org streams instead of the seeded ones.
         if (chapters.isEmpty() && sourceUrl.isNotBlank() && sourceUrl.contains("4read.org") &&
-            SourceAccessPolicy.modeFor(sourceIdForUrl(sourceUrl)) != com.slukhayka.audiobooks.data.source.SourceAccessMode.BROWSER
+            SourceAccessPolicy.modeFor(sourceIdForUrl(sourceUrl)) != com.slukhayka.audiobooks.data.source.SourceAccessMode.BROWSER &&
+            // ADR-0037: a refused source's page is never fetched for audio
+            // materialization either — the refusal covers the fallback too.
+            "4read" !in refusedAudioSources()
         ) {
             // Spec-14 T5: the adapter owns the page parse; the catalog only
             // persists what the seam's SourceBookDetail carries.
@@ -1032,7 +1045,12 @@ class SourceCatalog(
         // opened as a side effect here.
         val editionId = dao.getEditionForWork(bookId)?.id
         val sources = dao.getSourcesForBookSync(bookId).filter { source ->
-            editionId == null || source.editionId == null || source.editionId == editionId
+            // ADR-0037: audio of a refused source never pairs — its streams
+            // and its downloads vanish from this Edition. The local
+            // pseudo-source ("local", the listener's own files) is exempt
+            // by the refusal store's normalization and stays playable.
+            (editionId == null || source.editionId == null || source.editionId == editionId) &&
+                source.type !in refusedAudioSources()
         }
         val tracksBySource = sources.associateWith { dao.getTracksForSourceSync(it.id) }
         val orderedSources = SourceAccessPolicy.order(
@@ -1150,7 +1168,10 @@ class SourceCatalog(
      * source with proper priority (LOCAL → DIRECT → UNKNOWN → BROWSER).
      */
     private suspend fun primarySourceOf(bookId: String, book: com.slukhayka.audiobooks.data.db.BookRow?): SourceEntity? {
-        val sources = dao.getSourcesForBookSync(bookId)
+        // ADR-0037: a refused source is never the primary source — not via
+        // the selection coordinator and not via the last-resort fallback
+        // below (an empty filtered pool returns null honestly).
+        val sources = dao.getSourcesForBookSync(bookId).filter { it.type !in refusedAudioSources() }
         if (sources.isEmpty()) return null
 
         val candidates = sources.map { source ->

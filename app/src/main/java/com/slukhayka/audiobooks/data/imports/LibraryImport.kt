@@ -1072,6 +1072,18 @@ class LibraryImport(
     }
 
     /**
+     * The import outcome WITH the ids the verdict/publication seam needs:
+     * [bookId] addresses the stored copy, [sourceId] is the physical Source
+     * id the player reports on its real `playing` event (the publication
+     * verdict key). Null on every honest failure.
+     */
+    data class SubmittedImport(
+        val result: SubmittedImportResult,
+        val bookId: String? = null,
+        val sourceId: String? = null
+    )
+
+    /**
      * ADR-0035 / #604 — imports a listener-submitted YouTube link (single
      * video or playlist). The yt-dlp `-J` metadata is passed in (fetched by
      * the caller through [com.slukhayka.audiobooks.data.source.YtDlpStreamExtractor] —
@@ -1081,6 +1093,7 @@ class LibraryImport(
      *
      * Materialisation mirrors a source import: the Work is found-or-created
      * by the normalized mergeKey (a duplicate narration never spawns a second
+
      * Work); the Edition is found-or-created by the deterministic rendition id
      * — the SAME narration submitted as a playlist and as a single file lands
      * in ONE Edition with TWO Sources (ADR-0007/0035). Tracks carry the
@@ -1094,11 +1107,11 @@ class LibraryImport(
         url: String,
         metadataJson: String,
         channelId: String
-    ): SubmittedImportResult = withContext(Dispatchers.IO) {
+    ): SubmittedImport = withContext(Dispatchers.IO) {
         val metadata = com.slukhayka.audiobooks.data.ingest.YouTubeSubmissionPlanner.parseMetadata(metadataJson)
-            ?: return@withContext SubmittedImportResult.METADATA_FAILED
+            ?: return@withContext SubmittedImport(SubmittedImportResult.METADATA_FAILED)
         val plan = com.slukhayka.audiobooks.data.ingest.YouTubeSubmissionPlanner.plan(url, metadata, channelId)
-        if (plan.chapters.isEmpty()) return@withContext SubmittedImportResult.NO_PLAYABLE_TRACKS
+        if (plan.chapters.isEmpty()) return@withContext SubmittedImport(SubmittedImportResult.NO_PLAYABLE_TRACKS)
 
         val mergeKey = MergeKey.keyFor(plan.title, plan.author.orEmpty())
         val narrator = plan.narrator?.takeIf { it.isNotBlank() } ?: SUBMISSION_NARRATOR
@@ -1108,7 +1121,9 @@ class LibraryImport(
         // Dedup by the submitted URL (ADR-0007): the same link re-submitted
         // is a no-op even when the edition id — which embeds a fresh bookId
         // for blank-identity submissions — differs across calls.
-        if (dao.getSourceByUrl(url.trim()) != null) return@withContext SubmittedImportResult.ALREADY_ADDED
+        dao.getSourceByUrl(url.trim())?.let { existing ->
+            return@withContext SubmittedImport(SubmittedImportResult.ALREADY_ADDED, existing.bookId, existing.id)
+        }
 
         // Work: found-or-created by identity; blank identity → no Works row.
         val workId = if (mergeKey.isNotBlank()) {
@@ -1225,7 +1240,7 @@ class LibraryImport(
         )
         // An explicit add is a user action: a tombstone of the Work is cleared.
         dao.deleteTombstone(workId.ifBlank { editionBookId })
-        SubmittedImportResult.IMPORTED
+        SubmittedImport(SubmittedImportResult.IMPORTED, editionBookId, sourceId)
     }
 
     /**

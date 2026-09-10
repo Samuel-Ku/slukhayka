@@ -90,9 +90,11 @@ class LibraryImportSubmissionTest {
     fun `playlist imports a book with chapters from observed entries`() = runBlocking {
         val result = libraryImport.importSubmittedYouTube(playlistUrl, playlistJson, "@youtube")
 
-        assertEquals(SubmittedImportResult.IMPORTED, result)
+        assertEquals(SubmittedImportResult.IMPORTED, result.result)
         val book = dao.getAllBookTitleRows().single()
         assertEquals("Гаррі Поттер 1", book.title)
+        assertEquals(book.id, result.bookId)
+        assertEquals(dao.getSourceByUrl(playlistUrl)?.id, result.sourceId)
         val tracks = dao.getTracksForBookSync(book.id)
         assertEquals(2, tracks.size)
         assertTrue("tracks carry watch URLs, never signed URLs", tracks.all { it.url.startsWith("https://www.youtube.com/watch?v=") })
@@ -105,7 +107,7 @@ class LibraryImportSubmissionTest {
 
         val result = libraryImport.importSubmittedYouTube(playlistUrl, playlistJson, "@youtube")
 
-        assertEquals(SubmittedImportResult.ALREADY_ADDED, result)
+        assertEquals(SubmittedImportResult.ALREADY_ADDED, result.result)
         assertEquals(1, dao.getAllBookTitleRows().size)
     }
 
@@ -119,7 +121,7 @@ class LibraryImportSubmissionTest {
         // same mergeKey → same Edition id → a SECOND Source, NO second card.
         val result = libraryImport.importSubmittedYouTube(videoUrl, kingSingleJson, "@stivenkingua")
 
-        assertEquals(SubmittedImportResult.IMPORTED, result)
+        assertEquals(SubmittedImportResult.IMPORTED, result.result)
         assertEquals(1, dao.getAllBookTitleRows().size)
         assertEquals(firstBookId, dao.getAllBookTitleRows().single().id)
         val mergeKey = MergeKey.keyFor("Острів Дума", "Стівен Кінг")
@@ -132,7 +134,7 @@ class LibraryImportSubmissionTest {
 
     @Test
     fun `broken metadata imports nothing`() = runBlocking {
-        assertEquals(SubmittedImportResult.METADATA_FAILED, libraryImport.importSubmittedYouTube(playlistUrl, "not json", "@youtube"))
+        assertEquals(SubmittedImportResult.METADATA_FAILED, libraryImport.importSubmittedYouTube(playlistUrl, "not json", "@youtube").result)
         assertTrue(dao.getAllBookTitleRows().isEmpty())
     }
 
@@ -143,7 +145,7 @@ class LibraryImportSubmissionTest {
         // IS derivable, so it imports).
         assertEquals(
             SubmittedImportResult.NO_PLAYABLE_TRACKS,
-            libraryImport.importSubmittedYouTube("https://example.com/not-a-video", """{"title":"Книга"}""", "@youtube")
+            libraryImport.importSubmittedYouTube("https://example.com/not-a-video", """{"title":"Книга"}""", "@youtube").result
         )
         assertTrue(dao.getAllBookTitleRows().isEmpty())
     }

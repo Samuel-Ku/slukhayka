@@ -247,4 +247,26 @@
     <string name="source_audio_refusal_publish_title">Анонімно ділитися моїми відмовами</string>
     <string name="source_audio_refusal_publish_description">Коли ввімкнено, застосунок додає один анонімний голос до спільного лічильника кожного позначеного джерела — лише кількість, без імені, книг чи посилань. Вимкнення зупиняє нові голоси.</string>
     <string name="source_audio_refusal_shared_count">Анонімних відмов: %1$d</string>
+    <string name="a11y_submission_pane">Надіслати посилання</string>
+    <string name="a11y_submission_close">Закрити</string>
+    <string name="submission_sheet_title">Надіслати посилання</string>
+    <string name="submission_sheet_subtitle">YouTube-відео, плейлист або пост Telegram. Книга з’явиться у медіатеці одразу, а в спільному каталозі — після реального програвання.</string>
+    <string name="submission_url_label">Посилання</string>
+    <string name="submission_remaining">Залишилось надсилань сьогодні: %1$d</string>
+    <string name="submission_submit_action">Надіслати</string>
+    <string name="submission_status_working">Обробляємо посилання…</string>
+    <string name="submission_status_imported">Книгу додано. Слухайте — після програвання вона потрапить у спільний каталог.</string>
+    <string name="submission_status_imported_local">Книгу додано локально. Спільна база недоступна — публікації не буде.</string>
+    <string name="submission_status_published">Опубліковано в спільному каталозі.</string>
+    <string name="submission_status_metadata_published">Метадані опубліковано. Аудіо з цього посилання недоступне без логіну — інші побачать чесний недоступний стан.</string>
+    <string name="submission_status_refused_limit">Денний ліміт надсилань вичерпано.</string>
+    <string name="submission_status_refused_metadata">Не вдалося розібрати посилання — метаданих немає.</string>
+    <string name="submission_status_refused_no_tracks">У посиланні немає жодного розділу для прослуховування.</string>
+    <string name="submission_status_refused_import">Не вдалося додати книгу з цього посилання.</string>
+    <string name="submission_status_refused_duplicate">Це посилання вже опубліковано.</string>
+    <string name="submission_status_refused_not_verified">Публікація потребує реального програвання.</string>
+    <string name="submission_status_refused_unavailable">Спільна база недоступна.</string>
+    <string name="submission_status_unsupported">Це посилання не підтримується. Надішліть YouTube-відео, плейлист або пост Telegram.</string>
+    <string name="import_option_link">Надіслати посилання</string>
+    <string name="import_option_link_subtitle">YouTube-відео, плейлист або TG-пост</string>
 </resources>

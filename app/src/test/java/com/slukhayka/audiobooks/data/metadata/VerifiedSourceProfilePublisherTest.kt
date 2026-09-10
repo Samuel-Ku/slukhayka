@@ -107,6 +107,57 @@ class VerifiedSourceProfilePublisherTest {
         )
     }
 
+    @Test
+    fun `signed chapter urls are never published`() = runBlocking {
+        val store = RecordingStore()
+        val probe = RecordingProbe(CleanProfileProbeVerdict.PLAYABLE)
+        val outcome = VerifiedSourceProfilePublisher(store, probe, nowMillis = { 1L }).publish(
+            verified(playerOpened = true).copy(
+                profile = BookProfile(
+                    chapters = listOf(ProfileChapter("1", "https://cdn.redirectto.cc/x.mp3?expire=1"))
+                )
+            )
+        )
+
+        assertEquals(ProfilePublication.LOCAL_ONLY, outcome)
+        assertEquals(0, store.writes)
+    }
+
+    @Test
+    fun `an unchanged verified record is not rewritten`() = runBlocking {
+        val entry = SharedProfileEntry(profile(), 5L, ProfileProvenance.SOURCE_VERIFIED)
+        val store = EntryStore(entry)
+        val outcome = VerifiedSourceProfilePublisher(
+            store,
+            RecordingProbe(CleanProfileProbeVerdict.PLAYABLE),
+            nowMillis = { 999L }
+        ).publish(verified(playerOpened = true))
+
+        assertEquals(ProfilePublication.PUBLISHED, outcome)
+        assertEquals(0, store.writes)
+        assertEquals(5L, store.getProfileEntry("4read", "edition-a").resolvedAt)
+    }
+
+    @Test
+    fun `a changed verified profile is rewritten with a fresh stamp`() = runBlocking {
+        val entry = SharedProfileEntry(profile(), 5L, ProfileProvenance.SOURCE_VERIFIED)
+        val store = EntryStore(entry)
+        val changed = verified(playerOpened = true).copy(
+            profile = BookProfile(
+                chapters = listOf(ProfileChapter("1", "https://s1.reasd.org/book-v2.mp3", 60L))
+            )
+        )
+        val outcome = VerifiedSourceProfilePublisher(
+            store,
+            RecordingProbe(CleanProfileProbeVerdict.PLAYABLE),
+            nowMillis = { 7L }
+        ).publish(changed)
+
+        assertEquals(ProfilePublication.PUBLISHED, outcome)
+        assertEquals(1, store.writes)
+        assertEquals(7L, store.provenance?.resolvedAt)
+    }
+
     private fun verified(playerOpened: Boolean) = VerifiedSourceProfile(
         sourceId = "4read",
         editionId = "edition-a",

@@ -1,0 +1,11 @@
+SPIKE FIXTURE (spec-53 T1): one playlist open — ordered entries with real durations + single stream info.
+PLAYLIST name=АНТИУТОПІЯ МАНІФЕСТ том ІІ ІЛЛЮЗІЯ ДОСКОНАЛОСТІ! #аудіокнигиукраїнською #фантастика #текаавторів #антиутопія #маніфест #студіякалідор #збірка streamCount=12 related=12
+PLAYLIST_ENTRY type=STREAM name=Катерина Скрипка РЕСТАРТ#текаавторів #фантастика #аудіокнига #антиутопія #збірка #читаювголос url=https://www.youtube.com/watch?v=CPFYJKpY9ak duration=4285
+PLAYLIST_ENTRY type=STREAM name=Анастасія Вовк ВМИРАЮТЬ ІНШІ #текаавторів #фантастика #аудіокнига #антиутопія #збірка #читаювголос url=https://www.youtube.com/watch?v=x3hsYbD-1qk duration=4075
+PLAYLIST_ENTRY type=STREAM name=Арсен Гребенюк СЕКРЕТ УСПІХУ #текаавторів #фантастика #аудіокнига #антиутопія #збірка #читаювголос url=https://www.youtube.com/watch?v=QMO_9kM0YYA duration=1966
+PLAYLIST_ENTRY type=STREAM name=Наталя Козелецька Я БУВ АНТОНОМ ТЕРНОМ #текаавторів #фантастика #аудіокнига #антиутопія #читаювголос url=https://www.youtube.com/watch?v=vRWXo9lC1cg duration=1749
+PLAYLIST_ENTRY type=STREAM name=Руслана Марченко СВІТ ЗНИКЛИХ ОЧЕЙ #текаавторів #фантастика #аудіокнига #антиутопія #читаювголос url=https://www.youtube.com/watch?v=LWAcIpmNV48 duration=4083
+PLAYLIST_ENTRY type=STREAM name=Катерина Тішенська БІЛЬ #текаавторів #фантастика #аудіокнига #антиутопія #читаювголос #контроль url=https://www.youtube.com/watch?v=j7QCvzOWpuM duration=5754
+PLAYLIST_ENTRY type=STREAM name=Ольга Зимна КОМУНІКАЦІЯ #текаавторів #фантастика #аудіокнига #антиутопія #читаювголос #контроль url=https://www.youtube.com/watch?v=cbyhGx9zIzQ duration=2576
+PLAYLIST_ENTRY type=STREAM name=Мія Релідж ЗАНУРЕННЯ текаавторів #фантастика #аудіокнига #антиутопія #читаювголос #контроль #бункер url=https://www.youtube.com/watch?v=7lpFdr_euMs duration=4641
+STREAM title=Катерина Скрипка РЕСТАРТ#текаавторів #фантастика #аудіокнига #антиутопія #збірка #читаювголос duration=4284 uploader=Аудіокниги Українською - Студія КАЛІДОР

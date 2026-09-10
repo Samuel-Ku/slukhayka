@@ -244,8 +244,4 @@
         <item quantity="many">%1$d виконавців</item>
         <item quantity="other">%1$d виконавців</item>
     </plurals>
-    <!-- ADR-0037 (spec-49 T1): the «Аудіо джерел» destination — the personal
-         Source Audio Refusal. -->
-    <string name="source_audio_refusal_title">Аудіо джерел</string>
-    <string name="source_audio_refusal_description">Позначені джерела більше не пропонуються для прослуховування й завантаження — метадані, каталог і підбірки лишаються. Зніміть прапорець, щоб повернути джерело без повторного імпорту.</string>
 </resources>

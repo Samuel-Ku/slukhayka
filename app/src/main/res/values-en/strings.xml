@@ -107,6 +107,14 @@
     <string name="feedback_retry">Retry</string>
     <string name="feedback_done">Done</string>
     <string name="feedback_later">Not now</string>
+
+    <!-- ADR-0037 §4 (spec-49 T3): Narration Claim + the honest refused-only state. -->
+    <string name="narration_claim_action">Same narration — merge</string>
+    <string name="narration_claim_done">Merged. Progress carried over.</string>
+    <string name="book_detail_audio_unavailable">No audio for this book right now — we keep looking in other sources.</string>
+    <string name="book_detail_watch_action">Watch for a source</string>
+    <string name="book_detail_watching">Waiting for a source…</string>
+    <string name="book_detail_stop_watching">Stop watching</string>
     <!-- ADR-0037 (spec-49 T1): the «Source audio» destination — the personal
          Source Audio Refusal. -->
     <string name="source_audio_refusal_title">Source audio</string>

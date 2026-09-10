@@ -34,9 +34,11 @@ import com.slukhayka.audiobooks.data.metadata.ProfileProvenance
 import com.slukhayka.audiobooks.data.metadata.SharedBookMetaStore
 import com.slukhayka.audiobooks.data.metadata.VerifiedProfileReadOutcome
 import com.slukhayka.audiobooks.data.metadata.VerifiedSourceProfileReader
+import com.slukhayka.audiobooks.data.source.SourceAccessMode
 import com.slukhayka.audiobooks.data.source.SourceAdapter
 import com.slukhayka.audiobooks.data.source.SourceBookDetail
 import com.slukhayka.audiobooks.data.source.SourceChapter
+import com.slukhayka.audiobooks.data.source.SourceRegistry
 import com.slukhayka.audiobooks.data.source.SeriesRef
 import com.slukhayka.audiobooks.data.source.sourceIdForUrl
 import com.slukhayka.audiobooks.data.source.streamOnlyFor
@@ -807,8 +809,15 @@ class LibraryImport(
                 val detail = parsed.withCapturedAudioUrls(capturedAudioUrls)
                 if (detail.chapters.isEmpty()) return@withContext null
                 if (detail.chapters.any { !it.streamUrl.isPlayableSourceUrl() }) return@withContext null
-                // 4read captured pages stay local until Player verdict; avoid publishing challenge artefacts.
-                importBookFromSource(sourceId, detail, writeBackProfile = sourceId != "4read")
+                // ADR-0039 §8 — a captured page comes from the live cookie
+                // session: Browser Sources never publish it to the shared base
+                // (only a clean, player-verified resolve may). The mode comes
+                // from the registry, never a hard-coded source id.
+                importBookFromSource(
+                    sourceId,
+                    detail,
+                    writeBackProfile = SourceRegistry.modeFor(sourceId) != SourceAccessMode.BROWSER
+                )
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {

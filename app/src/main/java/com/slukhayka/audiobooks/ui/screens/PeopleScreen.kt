@@ -67,6 +67,8 @@ fun PeopleScreen(
     val people by viewModel.peopleEntries.collectAsState()
     val isLoading by viewModel.isPeopleLoading.collectAsState()
     val loadFailed by viewModel.peopleLoadFailed.collectAsState()
+    // #559 — індекс ще добудовується: список людей ростиме ще хвилини.
+    val indexBackfillPending by viewModel.authorIndexBackfillPending.collectAsState()
 
     val currentKind = kind ?: return
 
@@ -81,6 +83,7 @@ fun PeopleScreen(
             people = people,
             isLoading = isLoading,
             loadFailed = loadFailed,
+            indexBackfillPending = indexBackfillPending,
             onPersonClick = onPersonClick,
             restoreFocusPersonPath = restoreFocusPersonPath,
             onPersonFocusRestored = onPersonFocusRestored,
@@ -99,6 +102,9 @@ fun PeopleContent(
     loadFailed: Boolean,
     onPersonClick: (CatalogPerson) -> Unit,
     modifier: Modifier = Modifier,
+    // #559 — the local people index is still backfilling: the list grows for
+    // a few minutes, so the count row says so instead of posing as complete.
+    indexBackfillPending: Boolean = false,
     restoreFocusPersonPath: String? = null,
     onPersonFocusRestored: (String) -> Unit = {},
     listState: LazyListState = rememberLazyListState()
@@ -110,8 +116,9 @@ fun PeopleContent(
         if (isLoading || loadFailed) return@LaunchedEffect
         val personIndex = people.indexOfFirst { it.path == path }
         if (personIndex < 0) return@LaunchedEffect
-        // The count row is item zero; people start at item one.
-        listState.scrollToItem(personIndex + 1)
+        // The notice row (if the index is still backfilling) is item
+        // zero; people start at item one without it.
+        listState.scrollToItem(personIndex + if (indexBackfillPending) 1 else 0)
         withFrameNanos { }
         if (runCatching { returnFocusRequester.requestFocus() }.getOrDefault(false)) {
             onPersonFocusRestored(path)
@@ -155,9 +162,22 @@ fun PeopleContent(
                             .padding(48.dp)
                     )
                 }
-            }                else -> {
-                // The count lives in the scaffold's subtitle (v1.4 E6,
-                // ADR-0033).
+            }
+
+            else -> {
+                // #559 + v1.4 E6: the count rides the scaffold's subtitle;
+                // while the local index is still backfilling, a notice row
+                // says so instead of posing as complete.
+                if (indexBackfillPending) {
+                    item {
+                        Text(
+                            text = "Список поповнюється…",
+                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                            color = MaterialTheme.colorScheme.secondary,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                        )
+                    }
+                }
                 items(people, key = { it.path }) { person ->
                     // v1.4 C3 (ADR-0033): the canonical flat row — avatar in
                     // the leading slot, count in the trailing slot, divider

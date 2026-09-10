@@ -27,6 +27,7 @@ import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.catalog.SourceCatalog
+import com.slukhayka.audiobooks.data.catalog.PlaybackFallbackResolver
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.BookmarkEntity
 import com.slukhayka.audiobooks.data.db.ChapterEntity
@@ -193,6 +194,21 @@ class AudioPlayerManager(
      * exercise the pre-heal behaviour.
      */
     private val streamUrlHealer: (suspend (String, Int, String) -> String?)? = null,
+    /**
+     * #504 — the playback-fallback seam: on a proven-remote 403/404 the
+     * manager asks for the SAME chapter from a direct source of the SAME
+     * narration ((book, chapterCount, chapterIndex, failedSourceId) ->
+     * verified [PlaybackFallbackResolver.FallbackChapter] or null) and swaps
+     * it in automatically, once per chapter prepare. Production wires the
+     * sibling-edition resolver; null keeps the honest failure exactly as
+     * before ([PlaybackFallbackPolicy] still decides).
+     */
+    private val chapterFallback: (suspend (
+        AudiobookEntity,
+        Int,
+        Int,
+        String?,
+    ) -> PlaybackFallbackResolver.FallbackChapter?)? = null,
     private val injectedPlayerFactory: PlayerFactory? = null,
     /** Wall clock, injectable for deterministic smart-rewind tests. */
     private val now: () -> Long = System::currentTimeMillis,
@@ -422,6 +438,14 @@ class AudioPlayerManager(
      */
     private var healAttemptsForChapter = 0
 
+    /**
+     * #504 — how many fallback swaps the CURRENT chapter prepare has already
+     * spent ([PlaybackFallbackPolicy.MAX_FALLBACK_ATTEMPTS] at most). Reset
+     * together with the heal budget by every user-initiated prepare; the
+     * fallback re-prepare passes FALSE so a dead fallback URL cannot loop.
+     */
+    private var fallbackAttemptsForChapter = 0
+
     // Issue #381: user-facing failure texts moved out of code into
     // strings_accessibility_player.xml (Ukrainian-first, TalkBack-friendly).
     // The UNAVAILABLE ones keep «недоступна» in their wording even though the
@@ -609,27 +633,50 @@ class AudioPlayerManager(
                 attemptSelfHeal()
                 return
             }
-            // Spec-32 T4 (#234): a 404/403 that already spent the heal budget
-            // is the honest «book unavailable» state — the file moved, was
-            // retried once with a fresh URL, and is still dead. Any other
-            // status keeps the generic primary-stream message.
-            if (StreamHealPolicy.budgetExhausted(responseCode, healAttemptsForChapter)) {
-                reportHealFailed()
+            // #504: a proven-remote 403/404 the heal did not (or could not)
+            // fix falls back — the SAME chapter from a direct source of the
+            // SAME narration swaps in automatically, once per chapter
+            // prepare. Anything unproven (timeouts, decoder, offline — no
+            // status code) keeps the honest path below: the fallback must
+            // never mask a local bug (the #479 answer without doing #479).
+            if (PlaybackFallbackPolicy.shouldAttempt(responseCode, fallbackAttemptsForChapter) &&
+                chapterFallback != null &&
+                isNetworkStream(currentTrack)
+            ) {
+                attemptPlaybackFallback(responseCode, error.errorCodeName)
                 return
             }
-            // Issue #381: Ukrainian-first wording (string resource) + the
-            // TRANSIENT category — this failure may recover on a retry.
-            val errorMessage = context.getString(R.string.a11y_player_error_stream)
-            _playerState.value = _playerState.value.copy(
-                lastErrorMsg = errorMessage,
-                errorKind = PlaybackErrorKind.TRANSIENT
-            )
-            reportPlaybackFailure(
-                errorCodeName = error.errorCodeName,
-                detail = errorMessage,
-                kind = PlaybackErrorKind.TRANSIENT
-            )
+            reportPrimaryFailure(responseCode, error.errorCodeName)
         }
+    }
+
+    /**
+     * #504 — the honest tail of [onPlayerError] shared by the direct path
+     * and the fallback miss: a 404/403 with a spent heal budget is the
+     * «book unavailable» state, anything else keeps the generic
+     * primary-stream message.
+     */
+    private fun reportPrimaryFailure(responseCode: Int?, errorCodeName: String) {
+        // Spec-32 T4 (#234): a 404/403 that already spent the heal budget
+        // is the honest «book unavailable» state — the file moved, was
+        // retried once with a fresh URL, and is still dead. Any other
+        // status keeps the generic primary-stream message.
+        if (StreamHealPolicy.budgetExhausted(responseCode, healAttemptsForChapter)) {
+            reportHealFailed()
+            return
+        }
+        // Issue #381: Ukrainian-first wording (string resource) + the
+        // TRANSIENT category — this failure may recover on a retry.
+        val errorMessage = context.getString(R.string.a11y_player_error_stream)
+        _playerState.value = _playerState.value.copy(
+            lastErrorMsg = errorMessage,
+            errorKind = PlaybackErrorKind.TRANSIENT
+        )
+        reportPlaybackFailure(
+            errorCodeName = errorCodeName,
+            detail = errorMessage,
+            kind = PlaybackErrorKind.TRANSIENT
+        )
     }
 
     /**
@@ -758,6 +805,79 @@ class AudioPlayerManager(
             playableChapters = playableChapters.mapIndexed { index, pair ->
                 if (index == chapterIndex && pair.track?.url == failedUrl) {
                     pair.copy(track = pair.track!!.copy(url = freshUrl))
+                } else {
+                    pair
+                }
+            }
+            prepareChapter(
+                chapterIndex,
+                startPositionMs = _playerState.value.currentPositionMs,
+                autoPlay = shouldAutoPlay,
+                resetHealBudget = false
+            )
+        }
+    }
+
+    /**
+     * #504 — swaps in the SAME chapter from a direct source of the SAME
+     * narration after a proven-remote 403/404, then re-prepares the same
+     * chapter from the last known position. Runs off the player thread (the
+     * sibling lookup is a suspend catalog call). ADR-0007: only the physical
+     * locator swaps — the book, the chapter list and the index stay put, so
+     * Listening State never forks; the pairing also carries the new
+     * [PlayerState.currentSourceId] for headers/cookies. The budget stays
+     * spent and the re-prepare passes FALSE, so a dead fallback URL falls
+     * through to [reportPrimaryFailure] instead of looping. A miss (no
+     * verified sibling) reports the honest failure with the ORIGINAL code.
+     */
+    private fun attemptPlaybackFallback(responseCode: Int?, errorCodeName: String) {
+        val requestId = prepareRequestId
+        val state = _playerState.value
+        val book = state.currentBook
+        val chapterIndex = state.currentChapterIndex
+        val chapterCount = state.chapters.size
+        val fallback = chapterFallback
+        val failedTrack = currentTrack
+        if (book == null || fallback == null || failedTrack == null) {
+            reportPrimaryFailure(responseCode, errorCodeName)
+            return
+        }
+        val failedSourceId = playableChapters.getOrNull(chapterIndex)?.sourceId
+            ?: sourceIdForUrl(book.sourceUrl)
+        fallbackAttemptsForChapter++
+        _playerState.value = state.copy(
+            isBuffering = true,
+            lastErrorMsg = "",
+            errorKind = PlaybackErrorKind.NONE
+        )
+        scope.launch {
+            if (requestId != prepareRequestId) return@launch
+            val candidate = runCatching {
+                fallback.invoke(book, chapterCount, chapterIndex, failedSourceId)
+            }.getOrNull()
+            if (requestId != prepareRequestId) return@launch
+            if (candidate == null) {
+                reportPrimaryFailure(responseCode, errorCodeName)
+                return@launch
+            }
+            // A signed fallback trail: code, both source ids, chapter. A
+            // masked local bug would still show up here with its real code.
+            playbackEventLog.record(
+                "FALLBACK $responseCode $failedSourceId -> ${candidate.sourceId} ch$chapterIndex"
+            )
+            Log.w(
+                "AudioPlayer",
+                "Playback fallback: ch$chapterIndex ${failedTrack.url} -> ${candidate.url} (${candidate.sourceId})"
+            )
+            playableChapters = playableChapters.mapIndexed { index, pair ->
+                if (index == chapterIndex && pair.track?.url == failedTrack.url) {
+                    pair.copy(
+                        track = pair.track!!.copy(
+                            url = candidate.url,
+                            localFilePath = candidate.localFilePath,
+                        ),
+                        sourceId = candidate.sourceId,
+                    )
                 } else {
                     pair
                 }
@@ -970,7 +1090,10 @@ class AudioPlayerManager(
         val chapters = _playerState.value.chapters
         if (chapters.isEmpty() || chapterIndex !in chapters.indices) return
         val requestId = ++prepareRequestId
-        if (resetHealBudget) healAttemptsForChapter = 0
+        if (resetHealBudget) {
+            healAttemptsForChapter = 0
+            fallbackAttemptsForChapter = 0
+        }
 
         // Spec-16 T2: a deliberate chapter change (next/previous/select or the
         // auto-advance after a chapter ends) is a discrete transition. The

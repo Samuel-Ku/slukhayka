@@ -271,7 +271,12 @@ fun BookDetailCanonicalSummary(
     }
     if (presentation.narrator.isNotBlank()) {
         BoxWithConstraints(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                // User report (#561 follow-up): two stacked 48 dp link rows read
+                // as a hole between Автор and Озвучує. The overlap keeps every
+                // target its full 48 dp while the visible text pitch tightens.
+                .offset(y = (-8).dp)
+                .fillMaxWidth(),
             contentAlignment = Alignment.Center
         ) {
             val textMaxWidth = (maxWidth - 48.dp).coerceAtLeast(0.dp)

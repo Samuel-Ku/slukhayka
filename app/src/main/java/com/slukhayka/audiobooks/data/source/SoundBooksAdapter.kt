@@ -50,6 +50,10 @@ class SoundBooksAdapter(
     override suspend fun search(query: String): List<SourceBook> = emptyList()
 
     override suspend fun fetchBookPage(url: String): SourceBookDetail {
+        // #558: a promo article stored by an older build fails hydration
+        // honestly — the same empty detail as an unreachable page — instead of
+        // posing as a playless book forever.
+        if (isPromoUrl(url)) return SourceBookDetail("", "", url = url, chapters = emptyList())
         val html = fetcher.getText(url, emptyMap(), SourceRequestClass.LISTENER_ACTION, 0L)
         if (html.isEmpty()) return SourceBookDetail("", "", url = url, chapters = emptyList())
 
@@ -144,6 +148,9 @@ class SoundBooksAdapter(
         val categories = CATEGORY_LINK.findAll(home)
             .map { it.groupValues[1] }
             .distinct()
+            // #558: the promo section (/reklama/) is a first-class link on the
+            // homepage — never a catalogue category to walk into.
+            .filterNot { isPromoUrl(it) }
             .take(categoryPageLimit)
         val seen = mutableSetOf<String>()
         val books = mutableListOf<SourceBook>()
@@ -242,7 +249,9 @@ class SoundBooksAdapter(
         // so a lazy-loaded cover never outranks the real title.
         altTitles.forEach { (url, alt) -> if (!best.containsKey(url)) best[url] = alt to false }
         val extras = cardExtras(html)
-        return best.entries.take(limit).map { entry ->
+        // #558: promo tiles ride the same markup as books; they are dropped
+        // BEFORE the limit so an ad can never crowd out a real book.
+        return best.entries.filter { !isPromoUrl(it.key) }.take(limit).map { entry ->
             val url = entry.key
             val anchor = entry.value.first
             val sep = if (entry.value.second) anchor.indexOf(" - ") else -1
@@ -345,6 +354,21 @@ class SoundBooksAdapter(
         val COVER_TILE = Regex("""<a\s+class="short-img[^"]*"\s+href="(https://sound-books\.net/[^"]+\.html)"[^>]*>\s*<img[^>]*(?:data-src|src)="([^"]+)"(?:[^>]*\s+alt="([^"]*)")?""", RegexOption.IGNORE_CASE)
         // Category sections of the full catalogue (`https://sound-books.net/<slug>/`).
         val CATEGORY_LINK = Regex("""href="(https://sound-books\.net/[a-z-]+/)"""", RegexOption.IGNORE_CASE)
+
+        /**
+         * #558 — site promo sections that render in the same tiles as books.
+         * `reklama` articles leaked into the catalogue feeds and the on-device
+         * recommendation row as non-audiobook cards that fail on open
+         * («Couldn't open the book»). The first path segment decides; new
+         * promo sections join this set when reported.
+         */
+        val PROMO_SEGMENTS = setOf("reklama")
+
+        /** Whether a sound-books.net url is a promo article, not a book. */
+        fun isPromoUrl(url: String): Boolean {
+            val path = url.substringAfter("sound-books.net", "").removePrefix("/")
+            return path.substringBefore('/') in PROMO_SEGMENTS
+        }
         val AUTHOR_MARK = Regex("""Автор:\s*([^.<]{2,80})""", RegexOption.IGNORE_CASE)
         val NARRATOR_MARK = Regex("""Читає:\s*([^.<]{2,80})""", RegexOption.IGNORE_CASE)
         val JSONLD_AUTHOR = Regex(""""author"\s*:\s*"([^"]+)"""", RegexOption.IGNORE_CASE)

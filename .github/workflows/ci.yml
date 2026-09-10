@@ -405,7 +405,12 @@ jobs:
   signed-smoke-apk:
     name: Signed smoke APK
     needs: [jvm-partitions, accessibility-api35]
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/release/')
+    # Release lanes get the smoke on push; a manual dispatch builds it on any
+    # branch (e.g. a fix lane needs a production-signed install for on-device
+    # verification — the artifact stays private, nothing publishes).
+    if: >-
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/release/'))
+      || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 30
 

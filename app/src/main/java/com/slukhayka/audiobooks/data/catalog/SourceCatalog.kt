@@ -64,6 +64,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -245,6 +246,9 @@ class SourceCatalog(
 
     /** Canonical cross-Source author read model; provider people pages never own it. */
     private val authorIndex: AuthorIndex = RoomAuthorIndex(dao)
+
+    /** #559 — індекс людей ще добудовується; екрани людей показують стан. */
+    val authorIndexBackfillPending: Flow<Boolean> get() = authorIndex.backfillPending
     val authors = authorIndex.authors
 
     suspend fun searchAuthors(query: String, limit: Int = AuthorIndex.DEFAULT_SEARCH_LIMIT): List<AuthorSummary> =

@@ -21,6 +21,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -29,11 +30,22 @@ import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.data.catalog.CatalogPerson
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.ui.MainViewModel
+import com.slukhayka.audiobooks.ui.components.BookRow
 import com.slukhayka.audiobooks.ui.components.IndexScreenScaffold
 import com.slukhayka.audiobooks.ui.components.SecondaryLoadingState
 import com.slukhayka.audiobooks.ui.components.SecondaryMessageState
+import com.slukhayka.audiobooks.ui.PeopleKind
 import com.slukhayka.audiobooks.ui.library.ukPlural
 import com.slukhayka.audiobooks.ui.theme.*
+
+/** v1.4 E6 (ADR-0033): the people-tab count in the scaffold's subtitle. */
+@Composable
+private fun peopleCountLabel(kind: PeopleKind, size: Int): String =
+    pluralStringResource(
+        if (kind.title == "Виконавці") R.plurals.performer_count else R.plurals.author_count,
+        size,
+        size
+    )
 
 /**
  * Full-screen Виконавці (`/readers.html`) or Автори (`/avtors.html`) index:
@@ -60,12 +72,17 @@ fun PeopleScreen(
 
     val currentKind = kind ?: return
 
-    IndexScreenScaffold(title = currentKind.title, onBackClick = onBackClick) { padding ->
+    // v1.4 E6 (ADR-0033): the count rides the scaffold's subtitle (R10),
+    // never a free-standing list row.
+    IndexScreenScaffold(
+        title = currentKind.title,
+        onBackClick = onBackClick,
+        subtitle = peopleCountLabel(currentKind, people.size)
+    ) { padding ->
         PeopleContent(
             people = people,
             isLoading = isLoading,
             loadFailed = loadFailed,
-            peopleCountLabel = "${people.size} ${if (currentKind.title == "Виконавці") "виконавців" else "авторів"}",
             indexBackfillPending = indexBackfillPending,
             onPersonClick = onPersonClick,
             restoreFocusPersonPath = restoreFocusPersonPath,
@@ -83,7 +100,6 @@ fun PeopleContent(
     people: List<CatalogPerson>,
     isLoading: Boolean,
     loadFailed: Boolean,
-    peopleCountLabel: String,
     onPersonClick: (CatalogPerson) -> Unit,
     modifier: Modifier = Modifier,
     // #559 — the local people index is still backfilling: the list grows for
@@ -100,8 +116,9 @@ fun PeopleContent(
         if (isLoading || loadFailed) return@LaunchedEffect
         val personIndex = people.indexOfFirst { it.path == path }
         if (personIndex < 0) return@LaunchedEffect
-        // The count row is item zero; people start at item one.
-        listState.scrollToItem(personIndex + 1)
+        // The notice row (if the index is still backfilling) is item
+        // zero; people start at item one without it.
+        listState.scrollToItem(personIndex + if (indexBackfillPending) 1 else 0)
         withFrameNanos { }
         if (runCatching { returnFocusRequester.requestFocus() }.getOrDefault(false)) {
             onPersonFocusRestored(path)
@@ -111,7 +128,7 @@ fun PeopleContent(
     LazyColumn(
         state = listState,
         modifier = modifier.testTag("people_screen"),
-        contentPadding = PaddingValues(bottom = 120.dp, top = 8.dp)
+        contentPadding = PaddingValues(bottom = AppDimens.SpaceAboveMiniPlayer, top = 8.dp)
     ) {
         when {
             isLoading -> {
@@ -148,22 +165,57 @@ fun PeopleContent(
             }
 
             else -> {
-                item {
-                    Text(
-                        text = if (indexBackfillPending) {
-                            "$peopleCountLabel · список поповнюється…"
-                        } else {
-                            peopleCountLabel
-                        },
-                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                        color = MaterialTheme.colorScheme.secondary,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-                    )
+                // #559 + v1.4 E6: the count rides the scaffold's subtitle;
+                // while the local index is still backfilling, a notice row
+                // says so instead of posing as complete.
+                if (indexBackfillPending) {
+                    item {
+                        Text(
+                            text = "Список поповнюється…",
+                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                            color = MaterialTheme.colorScheme.secondary,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                        )
+                    }
                 }
                 items(people, key = { it.path }) { person ->
-                    PersonRow(
-                        person = person,
+                    // v1.4 C3 (ADR-0033): the canonical flat row — avatar in
+                    // the leading slot, count in the trailing slot, divider
+                    // instead of a card border.
+                    BookRow(
+                        title = person.name,
                         onClick = { onPersonClick(person) },
+                        leading = {
+                            Box(
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Person,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        },
+                        trailing = {
+                            Text(
+                                text = "${person.bookCount} ${ukPlural(person.bookCount, "книга", "книги", "книг")}",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Icon(
+                                imageVector = Icons.Default.ChevronRight,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        },
+                        testTag = "person_${person.path.hashCode()}",
                         modifier = if (person.path == restoreFocusPersonPath) {
                             Modifier.focusRequester(returnFocusRequester)
                         } else {
@@ -172,76 +224,6 @@ fun PeopleContent(
                     )
                 }
             }
-        }
-    }
-}
-
-/** One person: avatar-initial, name and book count. */
-@Composable
-fun PersonRow(
-    person: CatalogPerson,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp)
-            .defaultMinSize(minHeight = 48.dp)
-            .clip(RoundedCornerShape(AppDimens.RadiusCardLg))
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(AppDimens.RadiusCardLg))
-            .clickable { onClick() }
-            .semantics(mergeDescendants = true) { }
-            .testTag("person_${person.path.hashCode()}"),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Person,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-
-            Spacer(modifier = Modifier.width(12.dp))
-
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = person.name,
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-            }
-
-            Text(
-                text = "${person.bookCount} ${ukPlural(person.bookCount, "книга", "книги", "книг")}",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            Spacer(modifier = Modifier.width(4.dp))
-
-            Icon(
-                imageVector = Icons.Default.ChevronRight,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(20.dp)
-            )
         }
     }
 }

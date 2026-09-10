@@ -1,9 +1,25 @@
 package com.slukhayka.audiobooks.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material3.Button
@@ -41,16 +57,18 @@ import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.PersonRole
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.data.source.GlobalSearchSource
+import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.universe.SeriesRef
 import com.slukhayka.audiobooks.data.universe.SeriesUniverseContext
+import com.slukhayka.audiobooks.ui.MainViewModel
+import com.slukhayka.audiobooks.ui.components.BookRow
+import com.slukhayka.audiobooks.ui.library.ukPlural
 import com.slukhayka.audiobooks.ui.components.IndexScreenScaffold
 import com.slukhayka.audiobooks.ui.screens.BookListScreen
 import com.slukhayka.audiobooks.ui.screens.CollectionsIndexContent
-import com.slukhayka.audiobooks.ui.screens.PersonRow
 import com.slukhayka.audiobooks.ui.screens.PeopleContent
 import com.slukhayka.audiobooks.ui.screens.SeriesIndexContent
 import com.slukhayka.audiobooks.ui.screens.SeriesUniverseHeader
-import com.slukhayka.audiobooks.ui.screens.Top100Row
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
 import org.junit.Assert.assertEquals
 import org.junit.Rule
@@ -241,7 +259,43 @@ class SecondaryScreensAccessibilityTest {
             CompositionLocalProvider(LocalDensity provides Density(density.density, 2f)) {
                 AudiobookTheme(darkTheme = true) {
                     Box(Modifier.width(320.dp).height(480.dp)) {
-                        PersonRow(person = person, onClick = { clicked = true })
+                        // v1.4: the canonical row — avatar/count ride the
+                        // slots exactly as PeopleScreen composes them.
+                        BookRow(
+                            title = person.name,
+                            onClick = { clicked = true },
+                            leading = {
+                                Box(
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .clip(CircleShape)
+                                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Person,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            },
+                            trailing = {
+                                Text(
+                                    text = "${person.bookCount} ${ukPlural(person.bookCount, "книга", "книги", "книг")}",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Icon(
+                                    imageVector = Icons.Default.ChevronRight,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            },
+                            testTag = "person_${person.path.hashCode()}"
+                        )
                     }
                 }
             }
@@ -282,12 +336,15 @@ class SecondaryScreensAccessibilityTest {
                         Text("Назад")
                     }
                 } else {
-                    IndexScreenScaffold(title = "Автори", onBackClick = {}) { padding ->
+                    IndexScreenScaffold(
+                        title = "Автори",
+                        onBackClick = {},
+                        subtitle = "20 авторів"
+                    ) { padding ->
                         PeopleContent(
                             people = people,
                             isLoading = false,
                             loadFailed = false,
-                            peopleCountLabel = "20 авторів",
                             onPersonClick = { person ->
                                 returnPath = person.path
                                 childOpen = true
@@ -453,11 +510,44 @@ class SecondaryScreensAccessibilityTest {
             CompositionLocalProvider(LocalDensity provides Density(density.density, 2f)) {
                 AudiobookTheme(darkTheme = true) {
                     Box(Modifier.width(320.dp).height(480.dp)) {
-                        Top100Row(
-                            rank = 1,
+                        // v1.4: the canonical row — rank badge rides the
+                        // leading slot, ▶ the trailing slot, exactly as
+                        // Top100Screen composes them.
+                        BookRow(
+                            title = book.title,
                             book = book,
+                            author = book.author,
+                            stats = if (book.totalDurationSeconds > 0L) MainViewModel.formatTime(book.totalDurationSeconds) else null,
                             onClick = { opened = true },
-                            onPlayClick = { played = true }
+                            leading = {
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(CircleShape)
+                                        .background(MaterialTheme.colorScheme.primary),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "1",
+                                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.ExtraBold),
+                                        color = MaterialTheme.colorScheme.onPrimary
+                                    )
+                                }
+                            },
+                            trailing = {
+                                IconButton(
+                                    onClick = { played = true },
+                                    modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.PlayArrow,
+                                        contentDescription = stringResource(R.string.secondary_play_book, book.title),
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(26.dp)
+                                    )
+                                }
+                            },
+                            testTag = "top100_rank_1"
                         )
                     }
                 }
@@ -522,7 +612,17 @@ class SecondaryScreensAccessibilityTest {
             CompositionLocalProvider(LocalDensity provides Density(density.density, 2f)) {
                 AudiobookTheme(darkTheme = true) {
                     Box(Modifier.width(320.dp).height(480.dp)) {
-                        SeriesIndexContent(series = listOf(series), onSeriesClick = {})
+                        IndexScreenScaffold(
+                            title = "Серії",
+                            onBackClick = {},
+                            subtitle = "1 серія"
+                        ) { padding ->
+                            SeriesIndexContent(
+                                series = listOf(series),
+                                onSeriesClick = {},
+                                modifier = Modifier.padding(padding)
+                            )
+                        }
                     }
                 }
             }
@@ -531,7 +631,7 @@ class SecondaryScreensAccessibilityTest {
         composeTestRule.onNodeWithTag("catalog_series_${series.url.hashCode()}")
             .assertIsDisplayed()
             .assertHeightIsAtLeast(48.dp)
-        composeTestRule.onNodeWithText("1 серій").assertIsDisplayed()
+        composeTestRule.onNodeWithText("1 серія").assertIsDisplayed()
     }
 
     @Test

@@ -11,9 +11,9 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.dp
-import com.slukhayka.audiobooks.ui.screens.BookUniverseLine
-import com.slukhayka.audiobooks.ui.screens.FavoriteButton
-import com.slukhayka.audiobooks.ui.screens.SeriesPill
+import com.slukhayka.audiobooks.ui.screens.bookdetail.BookUniverseLine
+import com.slukhayka.audiobooks.ui.screens.bookdetail.FavoriteButton
+import com.slukhayka.audiobooks.ui.screens.bookdetail.SeriesPill
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
 import com.github.takahirom.roborazzi.captureRoboImage

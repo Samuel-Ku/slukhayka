@@ -50,7 +50,9 @@ import org.robolectric.annotation.GraphicsMode
  */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
-@Config(qualifiers = RobolectricDeviceQualifiers.Pixel8, sdk = [36])
+// uk-rUA: explicit qualifiers replace robolectric.properties' default `uk`,
+// so the card pins resolve the Ukrainian resources (v1.4 E3).
+@Config(qualifiers = "uk-rUA-" + RobolectricDeviceQualifiers.Pixel8, sdk = [36])
 class LibraryComponentsSnapshotTest {
 
     @get:Rule

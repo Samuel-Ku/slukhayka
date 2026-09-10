@@ -51,7 +51,10 @@ import org.robolectric.annotation.GraphicsMode
  */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
-@Config(qualifiers = "w411dp-h4000dp-normal-long-notround-any-420dpi-keyshidden-nonav", sdk = [36])
+// uk-rUA: explicit qualifiers replace robolectric.properties' default `uk`,
+// and the feed chrome is resource-backed since v1.4 (E3) — without the
+// qualifier the assertions would resolve values-en.
+@Config(qualifiers = "uk-rUA-w411dp-h4000dp-normal-long-notround-any-420dpi-keyshidden-nonav", sdk = [36])
 class HomeFeedOrderSnapshotTest {
 
     @get:Rule

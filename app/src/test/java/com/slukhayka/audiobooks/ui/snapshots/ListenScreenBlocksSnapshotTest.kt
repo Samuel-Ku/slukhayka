@@ -8,6 +8,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
@@ -15,15 +16,16 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.unit.Density
 import com.slukhayka.audiobooks.testing.TestDataFactory
-import com.slukhayka.audiobooks.ui.components.CompactBookCard
+import com.slukhayka.audiobooks.ui.components.AppSectionHeader
+import com.slukhayka.audiobooks.ui.components.PosterCard
 import com.slukhayka.audiobooks.ui.library.ListenComposer
 import com.slukhayka.audiobooks.ui.library.buildLibraryBooks
 import com.slukhayka.audiobooks.ui.library.nextSeriesPartCaption
-import com.slukhayka.audiobooks.ui.screens.ListenBlockHeader
 import com.slukhayka.audiobooks.ui.screens.ListenBlockShelf
+import com.slukhayka.audiobooks.ui.screens.ListenShelvesSheetContent
 import com.slukhayka.audiobooks.ui.screens.ListenEmptyState
 import com.slukhayka.audiobooks.ui.screens.ListenHeroCard
-import com.slukhayka.audiobooks.ui.screens.OpenWebSourceRow
+import com.slukhayka.audiobooks.ui.components.OpenWebSourceRow
 import com.slukhayka.audiobooks.ui.screens.RecentlyListenedRow
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
@@ -42,7 +44,7 @@ import org.robolectric.annotation.GraphicsMode
  */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
-@Config(qualifiers = RobolectricDeviceQualifiers.Pixel8, sdk = [36])
+@Config(qualifiers = "uk-rUA-" + RobolectricDeviceQualifiers.Pixel8, sdk = [36])
 class ListenScreenBlocksSnapshotTest {
 
     @get:Rule
@@ -151,13 +153,10 @@ class ListenScreenBlocksSnapshotTest {
             AudiobookTheme(darkTheme = true) {
                 ListenSurface {
                     Column {
-                        ListenBlockHeader(
+                        AppSectionHeader(
                             title = "Щось коротке",
-                            reason = "~1 год прослуховування",
-                            blockId = ListenComposer.BlockId.SHORT,
-                            onMoveUp = {},
-                            onMoveDown = {},
-                            onHide = {}
+                            subtitle = "~1 год прослуховування",
+                            modifier = Modifier.testTag("listen_block_heading_SHORT")
                         )
                         ListenBlockShelf(
                             books = shelfBooks,
@@ -197,13 +196,10 @@ class ListenScreenBlocksSnapshotTest {
             AudiobookTheme(darkTheme = true) {
                 ListenSurface {
                     Column {
-                        ListenBlockHeader(
+                        AppSectionHeader(
                             title = "Далі по серії",
-                            reason = "книги, які ви почали",
-                            blockId = ListenComposer.BlockId.NEXT_IN_SERIES,
-                            onMoveUp = {},
-                            onMoveDown = {},
-                            onHide = {}
+                            subtitle = "книги, які ви почали",
+                            modifier = Modifier.testTag("listen_block_heading_NEXT_IN_SERIES")
                         )
                         ListenBlockShelf(
                             books = shelfBooks,
@@ -241,13 +237,10 @@ class ListenScreenBlocksSnapshotTest {
             AudiobookTheme(darkTheme = true) {
                 ListenSurface {
                     Column {
-                        ListenBlockHeader(
+                        AppSectionHeader(
                             title = "Продовжити серію",
-                            reason = "Наступний том: Максим Темний",
-                            blockId = ListenComposer.BlockId.NEXT_IN_SERIES,
-                            onMoveUp = {},
-                            onMoveDown = {},
-                            onHide = {}
+                            subtitle = "Наступний том: Максим Темний",
+                            modifier = Modifier.testTag("listen_block_heading_NEXT_IN_SERIES")
                         )
                         ListenBlockShelf(
                             books = next,
@@ -275,7 +268,7 @@ class ListenScreenBlocksSnapshotTest {
         composeTestRule.setContent {
             AudiobookTheme(darkTheme = true) {
                 ListenSurface {
-                    CompactBookCard(book = book, onClick = {}, onNotInterested = {})
+                    PosterCard(book = book, onClick = {}, onNotInterested = {})
                 }
             }
         }
@@ -292,7 +285,7 @@ class ListenScreenBlocksSnapshotTest {
             AtFontScale(1.15f) {
                 AudiobookTheme(darkTheme = true) {
                     ListenSurface {
-                        CompactBookCard(book = book, onClick = {}, onNotInterested = {})
+                        PosterCard(book = book, onClick = {}, onNotInterested = {})
                     }
                 }
             }
@@ -319,13 +312,10 @@ class ListenScreenBlocksSnapshotTest {
                 AudiobookTheme(darkTheme = true) {
                     ListenSurface {
                         Column {
-                            ListenBlockHeader(
+                            AppSectionHeader(
                                 title = "Щось коротке",
-                                reason = "~1 год прослуховування",
-                                blockId = ListenComposer.BlockId.SHORT,
-                                onMoveUp = {},
-                                onMoveDown = {},
-                                onHide = {}
+                                subtitle = "~1 год прослуховування",
+                                modifier = Modifier.testTag("listen_block_heading_SHORT")
                             )
                             ListenBlockShelf(
                                 books = shelfBooks,
@@ -375,6 +365,47 @@ class ListenScreenBlocksSnapshotTest {
         }
         composeTestRule.onRoot().captureRoboImage(
             filePath = "src/test/snapshots/listen_open_web_source.png"
+        )
+    }
+
+    // v1.4 E1: the shelf-management sheet — every block listed in display
+    // order with ↑↓ reorder and hide/show, a hidden block marked «Приховано»,
+    // and the restore-all footer when anything is hidden. The ⋮ menus are
+    // gone; this pin is the sheet's only visual contract.
+    @Test
+    fun listen_shelves_sheet() {
+        val blocks = listOf(
+            ListenComposer.Block(
+                ListenComposer.BlockId.ALMOST_DONE, "Майже дочитали", "До кінця 12 хв", books = emptyList()
+            ),
+            ListenComposer.Block(
+                ListenComposer.BlockId.RETURN, "Поверніться", "Давно не слухали", books = emptyList()
+            ),
+            ListenComposer.Block(
+                ListenComposer.BlockId.SHORT, "Щось коротке", "~1 год прослуховування", books = emptyList()
+            )
+        )
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                ListenSurface {
+                    ListenShelvesSheetContent(
+                        blocks = blocks,
+                        hiddenIds = setOf(ListenComposer.BlockId.RETURN),
+                        onMoveUp = {},
+                        onMoveDown = {},
+                        onHide = {},
+                        onUnhide = {},
+                        onRestoreAll = {},
+                        includePaneSemantics = false
+                    )
+                }
+            }
+        }
+        composeTestRule.onNodeWithTag("listen_shelves_sheet_heading").assertExists()
+        composeTestRule.onNodeWithText("Приховано").assertExists()
+        composeTestRule.onNodeWithTag("listen_shelves_restore_all").assertExists()
+        composeTestRule.onRoot().captureRoboImage(
+            filePath = "src/test/snapshots/listen_shelves_sheet.png"
         )
     }
 }

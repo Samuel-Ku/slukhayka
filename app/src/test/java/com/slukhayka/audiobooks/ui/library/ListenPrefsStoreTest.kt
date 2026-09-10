@@ -55,6 +55,21 @@ class ListenPrefsStoreTest {
     }
 
     @Test
+    fun `unhide restores ONE block and round-trips through a fresh store`() {
+        val store = store()
+        store.hideBlock(ListenComposer.BlockId.TRAVEL)
+        store.hideBlock(ListenComposer.BlockId.SHORT)
+        store.unhideBlock(ListenComposer.BlockId.TRAVEL)
+        assertFalse(store.hiddenBlockIds.contains(ListenComposer.BlockId.TRAVEL))
+        assertTrue(store.hiddenBlockIds.contains(ListenComposer.BlockId.SHORT))
+
+        // A fresh store over the same prefs file sees the same state — the
+        // sheet's per-row show toggle survives a process restart.
+        val reloaded = store()
+        assertEquals(setOf(ListenComposer.BlockId.SHORT), reloaded.hiddenBlockIds)
+    }
+
+    @Test
     fun `hide and restore round-trips through a fresh store`() {
         val store = store()
         store.hideBlock(ListenComposer.BlockId.ALMOST_DONE)

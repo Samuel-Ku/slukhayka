@@ -2,8 +2,14 @@ package com.slukhayka.audiobooks.ui.screens
 
 import android.content.Intent
 import android.util.Log
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -25,6 +31,7 @@ import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -64,7 +71,9 @@ import com.slukhayka.audiobooks.ui.bookPersonPath
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.components.BookCoverSemantics
 import com.slukhayka.audiobooks.ui.components.BookCoverImage
+import com.slukhayka.audiobooks.ui.components.BookRow
 import com.slukhayka.audiobooks.ui.components.EmptyState
+import com.slukhayka.audiobooks.ui.components.MetadataChip
 import com.slukhayka.audiobooks.ui.components.RestoreFocusAfterModal
 import com.slukhayka.audiobooks.ui.components.accessibilityPane
 import com.slukhayka.audiobooks.ui.components.accessibilityModalBackground
@@ -76,6 +85,7 @@ import com.slukhayka.audiobooks.ui.library.clearCacheConfirmText
 import com.slukhayka.audiobooks.ui.library.SHEET_FILTERS
 import com.slukhayka.audiobooks.ui.library.filterAndSortLibrary
 import com.slukhayka.audiobooks.ui.library.formatRemainingTime
+import com.slukhayka.audiobooks.ui.library.stringRemainingTimeUnits
 import com.slukhayka.audiobooks.ui.theme.*
 import kotlin.math.roundToInt
 
@@ -175,7 +185,20 @@ fun LibraryScreen(
     var activeTab by remember { mutableStateOf(0) } // 0 = Книги, 1 = Закладки, 2 = Статистика, 3 = Люди
     var filter by remember { mutableStateOf(LibraryFilter.ALL) }
     var sort by remember { mutableStateOf(LibrarySort.RECENTLY_LISTENED) }
-    var query by remember { mutableStateOf("") }
+    var query by rememberSaveable { mutableStateOf("") }
+    // v1.4 C5 (ADR-0033): the collapsible search — 🔍 in the tab header,
+    // ✕/Back clears (US-2, the same gesture as Огляд); the always-visible
+    // field is gone.
+    var searchRequested by rememberSaveable { mutableStateOf(false) }
+    val searchExpanded = searchRequested || query.isNotBlank()
+    val librarySearchFocusRequester = remember { FocusRequester() }
+    LaunchedEffect(searchExpanded) {
+        if (searchExpanded) librarySearchFocusRequester.requestFocus()
+    }
+    BackHandler(enabled = searchExpanded) {
+        searchRequested = false
+        if (query.isNotBlank()) query = ""
+    }
     var gridMode by remember { mutableStateOf(false) }
     // Spec-28 #193: the rare filters, sort and view toggle live in the sheet.
     var showFilterSheet by remember { mutableStateOf(false) }
@@ -242,67 +265,64 @@ fun LibraryScreen(
                 .testTag("library_screen")
                 .accessibilityPane(stringResource(com.slukhayka.audiobooks.R.string.a11y_library_pane))
         ) {
-            // Top Header — one row: title + subtitle, «+ Додати» (the import
-            // sheet) and the ⋮ overflow (the storage destination). Collapsing
-            // the two import buttons into one action and dropping the storage
-            // row (spec-28 #194) lifts the first book above the fold.
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "Медіатека",
-                        style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 2,
+            // Top Header — the canonical tab header (v1.4 C5, ADR-0033):
+            // title + subtitle through AppTabHeader, the 🔍 collapsible search
+            // (the same gesture as Огляд) and «+ Додати» as header actions.
+            // Import stays one action — a sheet with the two source options
+            // (files / folder) per spec-28 #194.
+            com.slukhayka.audiobooks.ui.components.AppTabHeader(
+                title = "Медіатека",
+                // Spec-15 T6: one library for local files and every
+                // online source, not just 4read.
+                subtitle = "Всі книги — в одному місці",
+                headingTestTag = "library_heading",
+                returnFocusRequester = libraryHeadingFocusRequester,
+                actions = {
+                    IconButton(
+                        onClick = {
+                            searchRequested = !searchExpanded
+                            if (!searchRequested && query.isNotBlank()) query = ""
+                        },
                         modifier = Modifier
-                            .focusRequester(libraryHeadingFocusRequester)
-                            .focusable()
-                            .testTag("library_heading")
-                            .semantics { heading() }
-                    )
-                    Text(
-                        // Spec-15 T6: one library for local files and every
-                        // online source, not just 4read.
-                        text = "Всі книги — в одному місці",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 2
-                    )
+                            .size(AppDimens.TouchTarget)
+                            .testTag("library_search_toggle")
+                    ) {
+                        Icon(
+                            imageVector = if (searchExpanded) Icons.Default.Close else Icons.Default.Search,
+                            contentDescription = stringResource(
+                                if (searchExpanded) {
+                                    com.slukhayka.audiobooks.R.string.a11y_close_search
+                                } else {
+                                    com.slukhayka.audiobooks.R.string.a11y_open_search
+                                }
+                            )
+                        )
+                    }
+                    Button(
+                        onClick = { showImportSheet = true },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                        shape = RoundedCornerShape(AppDimens.RadiusCardLg),
+                        contentPadding = PaddingValues(horizontal = 12.dp),
+                        modifier = Modifier
+                            .heightIn(min = 48.dp)
+                            .focusRequester(importFocusRequester)
+                            .testTag("library_add_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Add,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onPrimary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Додати",
+                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.onPrimary
+                        )
+                    }
                 }
-
-                // Spec-28 #194: import is one action — a sheet with the two
-                // source options (files / folder). Per ADR-0018 the add-audio
-                // picker is a sheet, not two competing buttons.
-                Button(
-                    onClick = { showImportSheet = true },
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                    shape = RoundedCornerShape(AppDimens.RadiusCardLg),
-                    modifier = Modifier
-                        .heightIn(min = 48.dp)
-                        .focusRequester(importFocusRequester)
-                        .testTag("library_add_button")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Add,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onPrimary,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = "Додати",
-                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                        color = MaterialTheme.colorScheme.onPrimary
-                    )
-                }
-                Spacer(modifier = Modifier.width(4.dp))
-
-
-            }
+            )
 
             // Sub-tabs: the unified book list, bookmarks, listening stats.
             ScrollableTabRow(
@@ -336,30 +356,39 @@ fun LibraryScreen(
             }
 
             if (activeTab == 0) {
-                // Library chrome (wayfinder #39): search, quick filters, sort + view toggle.
-                OutlinedTextField(
-                    value = query,
-                    onValueChange = { query = it },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp)
-                        .testTag("library_search"),
-                    label = { Text(stringResource(com.slukhayka.audiobooks.R.string.a11y_library_search)) },
-                    placeholder = { Text(stringResource(R.string.lib_search_placeholder)) },
-                    leadingIcon = { Icon(imageVector = Icons.Default.Search, contentDescription = null) },
-                    trailingIcon = if (query.isNotEmpty()) {
-                        {
-                            IconButton(onClick = { query = "" }) {
-                                Icon(
-                                    imageVector = Icons.Default.Clear,
-                                    contentDescription = stringResource(R.string.a11y_library_clear_search)
-                                )
+                // Library chrome (wayfinder #39): the collapsible search (v1.4
+                // C5 — the same gesture as Огляд), quick filters, sort + view
+                // toggle.
+                AnimatedVisibility(
+                    visible = searchExpanded,
+                    enter = fadeIn() + expandVertically(),
+                    exit = fadeOut() + shrinkVertically()
+                ) {
+                    OutlinedTextField(
+                        value = query,
+                        onValueChange = { query = it },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                            .focusRequester(librarySearchFocusRequester)
+                            .testTag("library_search"),
+                        label = { Text(stringResource(com.slukhayka.audiobooks.R.string.a11y_library_search)) },
+                        placeholder = { Text(stringResource(R.string.lib_search_placeholder)) },
+                        leadingIcon = { Icon(imageVector = Icons.Default.Search, contentDescription = null) },
+                        trailingIcon = if (query.isNotEmpty()) {
+                            {
+                                IconButton(onClick = { query = "" }) {
+                                    Icon(
+                                        imageVector = Icons.Default.Clear,
+                                        contentDescription = stringResource(R.string.a11y_library_clear_search)
+                                    )
+                                }
                             }
-                        }
-                    } else null,
-                    singleLine = true,
-                    shape = RoundedCornerShape(AppDimens.RadiusCard)
-                )
+                        } else null,
+                        singleLine = true,
+                        shape = RoundedCornerShape(AppDimens.RadiusCard)
+                    )
+                }
 
                 // Spec-28 #193: the five one-tap statuses as a segmented row.
                 LibraryStatusRow(selected = filter, onSelect = { filter = it })
@@ -432,7 +461,7 @@ fun LibraryScreen(
                             columns = if (gridMode) GridCells.Fixed(2) else GridCells.Fixed(1),
                             state = libraryGridState,
                             modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 120.dp),
+                            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = AppDimens.SpaceAboveMiniPlayer),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
@@ -462,7 +491,7 @@ fun LibraryScreen(
                     } else {
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(bottom = 120.dp, top = 12.dp)
+                            contentPadding = PaddingValues(bottom = AppDimens.SpaceAboveMiniPlayer, top = 12.dp)
                         ) {
                             items(allBookmarks, key = { it.id }) { bookmark ->
                                 val book = allBooks.find { it.id == bookmark.bookId }
@@ -482,7 +511,7 @@ fun LibraryScreen(
                 2 -> {
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(bottom = 120.dp)
+                        contentPadding = PaddingValues(bottom = AppDimens.SpaceAboveMiniPlayer)
                     ) {
                         item {
                             ListeningStatsCard(listeningStats = listeningStats, totalBooks = libraryBooks.size)
@@ -502,7 +531,7 @@ fun LibraryScreen(
                     } else {
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(bottom = 120.dp, top = 8.dp)
+                            contentPadding = PaddingValues(bottom = AppDimens.SpaceAboveMiniPlayer, top = 8.dp)
                         ) {
                             items(
                                 bookmarkedPeople,
@@ -664,7 +693,7 @@ fun LibraryBookCard(
         stringResource(
             com.slukhayka.audiobooks.R.string.a11y_library_progress,
             (book.percent * 100f).roundToInt(),
-            formatRemainingTime(book.remainingSeconds)
+            formatRemainingTime(book.remainingSeconds, stringRemainingTimeUnits())
         )
     } else {
         stringResource(com.slukhayka.audiobooks.R.string.a11y_library_progress_unknown)
@@ -713,85 +742,51 @@ fun LibraryBookCard(
 
 @Composable
 private fun LibraryBookRowContent(book: LibraryBook) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(12.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        BookCoverImage(
-            book = book.book,
-            semantics = BookCoverSemantics.Decorative,
-            modifier = Modifier
-                .size(56.dp)
-                .clip(MaterialTheme.shapes.medium),
-            contentScale = ContentScale.Crop
-        )
-
-        Spacer(modifier = Modifier.width(12.dp))
-
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = book.book.title,
-                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            if (book.book.displayAuthor.isNotBlank()) {
-                Text(
-                    text = book.book.displayAuthor,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+    // v1.4 E3 (ADR-0033): the library list row IS the canonical BookRow —
+    // the old bespoke 56 dp Row (a fifth row style) is gone. The card's
+    // own a11y contract (tag, content/state description, role) still rides
+    // on the Card wrapper above; the inner row only carries the visuals.
+    BookRow(
+        title = book.book.title,
+        book = book.book,
+        author = book.book.displayAuthor.takeIf { it.isNotBlank() },
+        // The series line is a known fact about the edition, so it rides
+        // the stats slot (label line under the author).
+        stats = book.seriesLabel,
+        progress = book.percent,
+        badges = {
+            // C4: the canonical provenance chip — the local SourceBadge was
+            // a pixel-duplicate of MetadataChip(source=…).
+            MetadataChip(source = book.sourceName)
+            if (book.book.isDownloaded) {
+                Spacer(modifier = Modifier.width(AppDimens.SpaceXs))
+                Icon(
+                    imageVector = Icons.Default.CloudDone,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.secondary,
+                    modifier = Modifier.size(14.dp)
                 )
             }
-            book.seriesLabel?.let { series ->
+        },
+        footnote = {
+            if (book.totalDurationSeconds > 0L) {
+                // Aligned under the text column (canonical footnote rhythm:
+                // the honest remaining line, right under the progress hairline).
                 Text(
-                    text = series,
-                    style = MaterialTheme.typography.labelMedium,
+                    text = stringResource(
+                        R.string.library_remaining,
+                        formatRemainingTime(book.remainingSeconds, stringRemainingTimeUnits())
+                    ),
+                    style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    modifier = Modifier.padding(
+                        start = AppDimens.PageSides + 64.dp + AppDimens.SpaceMd,
+                        bottom = AppDimens.SpaceXs
+                    )
                 )
-            }
-            Spacer(modifier = Modifier.height(6.dp))
-            LinearProgressIndicator(
-                progress = { book.percent },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(4.dp)
-                    .clip(RoundedCornerShape(AppDimens.RadiusProgress))
-                    .clearAndSetSemantics { },
-                color = MaterialTheme.colorScheme.primary,
-                trackColor = MaterialTheme.colorScheme.outlineVariant
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (book.totalDurationSeconds > 0L) {
-                    Text(
-                        text = "Залишилось ${formatRemainingTime(book.remainingSeconds)}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.weight(1f)
-                    )
-                } else {
-                    Spacer(modifier = Modifier.weight(1f))
-                }
-                SourceBadge(book)
-                if (book.book.isDownloaded) {
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Icon(
-                        imageVector = Icons.Default.CloudDone,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.secondary,
-                        modifier = Modifier.size(14.dp)
-                    )
-                }
             }
         }
-    }
+    )
 }
 
 @Composable
@@ -849,12 +844,14 @@ private fun LibraryBookGridContent(book: LibraryBook) {
             ) {
                 if (book.totalDurationSeconds > 0L) {
                     Text(
-                        text = formatRemainingTime(book.remainingSeconds),
+                        text = formatRemainingTime(book.remainingSeconds, stringRemainingTimeUnits()),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                SourceBadge(book)
+                // C4: the canonical provenance chip (the local SourceBadge
+                // was a pixel-duplicate of MetadataChip(source=…)).
+                MetadataChip(source = book.sourceName)
                 if (book.book.isDownloaded) {
                     Spacer(modifier = Modifier.width(6.dp))
                     Icon(
@@ -866,26 +863,6 @@ private fun LibraryBookGridContent(book: LibraryBook) {
                 }
             }
         }
-    }
-}
-
-/**
- * Small unobtrusive source badge: «Локальна» for local imports, else the
- * book's real source (4read, Sluhay, Sound-Books, …) — spec-15 T6, one badge
- * for the whole multi-source library.
- */
-@Composable
-private fun SourceBadge(book: LibraryBook) {
-    Surface(
-        color = MaterialTheme.colorScheme.primaryContainer,
-        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-        shape = RoundedCornerShape(AppDimens.RadiusXs)
-    ) {
-        Text(
-            text = book.sourceName,
-            style = MaterialTheme.typography.labelSmall,
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-        )
     }
 }
 

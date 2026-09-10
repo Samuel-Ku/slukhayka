@@ -109,7 +109,10 @@ object ListenComposer {
             .filter { it.progress != null && !it.isCompleted && it.percent >= 0.8f && it.percent < 1f }
             .sortedByDescending { it.percent }
         if (books.isEmpty()) return null
-        val reason = books.first().let { "До кінця ${formatRemainingTime(it.remainingSeconds)}" }
+        val reason = books.first().let {
+            // UK product copy (pure module, JVM-tested — see UK_REMAINING_TIME_UNITS).
+            "До кінця ${formatRemainingTime(it.remainingSeconds, UK_REMAINING_TIME_UNITS)}"
+        }
         return Block(BlockId.ALMOST_DONE, "Майже дочитали", reason = reason, books = books)
     }
 

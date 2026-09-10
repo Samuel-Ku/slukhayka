@@ -17,7 +17,9 @@ import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.data.source.GlobalSearchSource
-import com.slukhayka.audiobooks.ui.screens.UnifiedCatalogCard
+// The union-card contract (the old UnifiedCatalogCard) now renders through
+// the canonical PosterCard's GlobalSearchResult overload (v1.4 C2, ADR-0033).
+import com.slukhayka.audiobooks.ui.components.PosterCard
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
 import com.github.takahirom.roborazzi.captureRoboImage
@@ -67,7 +69,7 @@ class UnifiedCatalogCardSnapshotTest {
     @Test
     fun unified_catalog_card_download_affordance() {
         row {
-            UnifiedCatalogCard(
+            PosterCard(
                 result = result,
                 onClick = {},
                 downloadAllowed = true,
@@ -83,7 +85,7 @@ class UnifiedCatalogCardSnapshotTest {
     @Test
     fun unified_catalog_card_download_progress() {
         row {
-            UnifiedCatalogCard(
+            PosterCard(
                 result = result,
                 onClick = {},
                 downloadAllowed = true,
@@ -99,7 +101,7 @@ class UnifiedCatalogCardSnapshotTest {
     @Test
     fun unified_catalog_card_downloaded() {
         row {
-            UnifiedCatalogCard(
+            PosterCard(
                 result = result,
                 onClick = {},
                 downloadAllowed = true,
@@ -115,7 +117,7 @@ class UnifiedCatalogCardSnapshotTest {
     @Test
     fun unified_catalog_card_stream_only_no_affordance() {
         row {
-            UnifiedCatalogCard(
+            PosterCard(
                 result = result.copy(
                     sources = listOf(GlobalSearchSource("lihtar", "Lihtar", "https://lihtar.in.ua/pasazhir"))
                 ),
@@ -136,7 +138,7 @@ class UnifiedCatalogCardSnapshotTest {
             Column {
                 Text("Card layout baseline", style = MaterialTheme.typography.labelMedium)
                 Spacer(modifier = Modifier.height(8.dp))
-                UnifiedCatalogCard(result = result, onClick = {}, downloadAllowed = false)
+                PosterCard(result = result, onClick = {}, downloadAllowed = false)
             }
         }
         composeTestRule.onRoot().captureRoboImage(

@@ -14,7 +14,9 @@ import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.data.collections.CollectionMatcher
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.ui.MainViewModel
+import com.slukhayka.audiobooks.ui.components.AppSectionHeader
 import com.slukhayka.audiobooks.ui.components.IndexEmptyState
+import com.slukhayka.audiobooks.ui.components.PosterCard
 import com.slukhayka.audiobooks.ui.components.IndexScreenScaffold
 import com.slukhayka.audiobooks.ui.theme.*
 
@@ -73,12 +75,12 @@ fun CollectionsIndexContent(
 
     LazyColumn(
         modifier = modifier.testTag("collections_index_screen"),
-        contentPadding = PaddingValues(bottom = 120.dp, top = 8.dp)
+        contentPadding = PaddingValues(bottom = AppDimens.SpaceAboveMiniPlayer, top = 8.dp)
     ) {
         collections.forEach { collection ->
             item(key = "header_${collection.id}") {
                 Box(Modifier.semantics(mergeDescendants = true) { heading() }) {
-                    CatalogRowHeader(title = collection.name)
+                    AppSectionHeader(title = collection.name)
                 }
             }
             item(key = "row_${collection.id}") {
@@ -87,9 +89,12 @@ fun CollectionsIndexContent(
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     items(collection.books, key = { it.key }) { result ->
-                        CollectionBookCard(
+                        // v1.4 C2 (ADR-0033): the canonical PosterCard; the
+                        // index carries no action state — plain card contract.
+                        PosterCard(
                             result = result,
-                            onClick = { onBookClick(result) }
+                            onClick = { onBookClick(result) },
+                            testTag = "collection_book_${result.key.hashCode()}"
                         )
                     }
                 }

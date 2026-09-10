@@ -1,6 +1,11 @@
 <resources>
     <string name="a11y_not_interested_work">Не цікаво: %1$s</string>
-    <string name="a11y_listen_block_actions">Дії блоку: %1$s</string>
+    <string name="a11y_listen_shelves_pane">Керування полицями</string>
+    <string name="a11y_listen_shelves_close">Закрити керування полицями</string>
+    <string name="a11y_listen_shelf_move_up">Пересунути вище: %1$s</string>
+    <string name="a11y_listen_shelf_move_down">Пересунути нижче: %1$s</string>
+    <string name="a11y_listen_shelf_hide">Сховати полицю: %1$s</string>
+    <string name="a11y_listen_shelf_show">Показати полицю: %1$s</string>
     <string name="a11y_resume_work">Продовжити слухати: %1$s</string>
     <string name="a11y_open_work">Відкрити книгу: %1$s</string>
     <string name="a11y_open_series">Відкрити серію: %1$s</string>

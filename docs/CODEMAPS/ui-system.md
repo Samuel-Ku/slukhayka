@@ -1,6 +1,6 @@
 # UI System Module
 
-<!-- Generated: 2026-08-16 | Files scanned: 13 | Kotlin lines: ~1,640 -->
+<!-- Generated: 2026-08-16 | Updated: 2026-09-07 (v1.4 canonical components, ADR-0033) -->
 
 ## Purpose
 
@@ -15,15 +15,26 @@ typography or any cross-screen component.
 app/src/main/java/com/slukhayka/audiobooks/ui/theme/Color.kt          78 lines  (palette)
 app/src/main/java/com/slukhayka/audiobooks/ui/theme/Type.kt          123 lines  (typography)
 app/src/main/java/com/slukhayka/audiobooks/ui/theme/Theme.kt         112 lines  (AudiobookTheme, dark scheme)
-app/src/main/java/com/slukhayka/audiobooks/ui/theme/Dimens.kt         39 lines  (spacing/sizes)
+app/src/main/java/com/slukhayka/audiobooks/ui/theme/Dimens.kt         39 lines  (spacing/sizes, SpaceAboveMiniPlayer)
 
-app/src/main/java/com/slukhayka/audiobooks/ui/components/MiniPlayerBar.kt        166 lines
-app/src/main/java/com/slukhayka/audiobooks/ui/components/DesignSystem.kt         161 lines  (shared surfaces/cards)
+app/src/main/java/com/slukhayka/audiobooks/ui/components/PosterCard.kt        ~370 lines  (v1.4 C2 — the ONE 120×168 poster)
+app/src/main/java/com/slukhayka/audiobooks/ui/components/BookRow.kt            ~330 lines  (v1.4 C3 — the ONE flat list row)
+app/src/main/java/com/slukhayka/audiobooks/ui/components/OpenWebSourceRow.kt    ~60 lines   (v1.4 E2 — the ONE browser-door row, BookRow-styled)
+app/src/main/java/com/slukhayka/audiobooks/ui/components/MetadataChip.kt        ~120 lines  (v1.4 C4 — language/source/plain chip)
+app/src/main/java/com/slukhayka/audiobooks/ui/components/SectionHeaders.kt      ~100 lines  (v1.4 C1 — two-level AppSectionHeader)
+app/src/main/java/com/slukhayka/audiobooks/ui/components/AppTabHeader.kt        ~70 lines   (v1.4 C5 — one tab-header model)
+app/src/main/java/com/slukhayka/audiobooks/ui/components/DesignSystem.kt         141 lines  (canonical EmptyState / EmptyStateRow)
+app/src/main/java/com/slukhayka/audiobooks/ui/components/CatalogCoverImage.kt
 app/src/main/java/com/slukhayka/audiobooks/ui/components/BookCoverImage.kt       139 lines  (Coil)
+app/src/main/java/com/slukhayka/audiobooks/ui/components/IndexScreenScaffold.kt  (one pushed-index chrome; Secondary states)
+app/src/main/java/com/slukhayka/audiobooks/ui/components/NavigationChip.kt
 app/src/main/java/com/slukhayka/audiobooks/ui/components/BookmarkDialog.kt       120 lines
 app/src/main/java/com/slukhayka/audiobooks/ui/components/SleepTimerSheet.kt      121 lines
 app/src/main/java/com/slukhayka/audiobooks/ui/components/SpeedSheet.kt           139 lines
 app/src/main/java/com/slukhayka/audiobooks/ui/components/PlayerDebugOverlay.kt   371 lines
+app/src/main/java/com/slukhayka/audiobooks/ui/components/MiniPlayerBar.kt        166 lines
+app/src/main/java/com/slukhayka/audiobooks/ui/components/CastButton.kt
+app/src/main/java/com/slukhayka/audiobooks/ui/components/UpdateBanner.kt
 
 app/src/main/java/com/slukhayka/audiobooks/ui/BookDisplay.kt          40 lines  (displayAuthor extension)
 app/src/main/java/com/slukhayka/audiobooks/ui/DurationBooks.kt        32 lines  (short/long bucket DTO)
@@ -36,14 +47,31 @@ app/src/main/java/com/slukhayka/audiobooks/ui/DurationBooks.kt        32 lines  
   scale in `Type.kt`, the color roles in `Color.kt`, spacing/dimens in `Dimens.kt`.
 
 ### Components (`ui/components/`)
-- `MiniPlayerBar` — the persistent floating bar in the Scaffold bottom area;
-  shows current book + play/pause/skip, tap opens the full `PlayerScreen`.
-- `DesignSystem` — shared card/surface composables reused across screens.
-- `BookCoverImage` — Coil image with placeholder/fallback handling.
-- `BookmarkDialog`, `SleepTimerSheet`, `SpeedSheet` — modal overlays driven by
-  `PlayerScreen` state.
-- `PlayerDebugOverlay` — debug-only overlay exposing player internals
-  (state, events, playback metrics).
+The v1.4 canonical vocabulary (ADR-0033) is a closed set — new surfaces build
+on these, never a fourth card/chip/header. The old twins (CatalogBookCard,
+CompactBookCard, UnifiedCatalogCard, CollectionBookCard, CatalogSeriesCard,
+AudiobookListItem, LanguageBadge, SourceBadgePill, TagPill, OverviewGroupHeader,
+CatalogRowHeader, AuthorDiscoveryScaffold) are deleted, not deprecated.
+- `PosterCard` — the ONE portrait card (120×168): title/author/duration/
+  progress-hairline/caption/dismiss/download slots + entity and
+  GlobalSearchResult convenience overloads.
+- `CycleCard` — the ONE landscape series card (in PosterCard.kt).
+- `BookRow` — the ONE flat list row: 64 dp cover (URL or entity), genre,
+  badges, stats, progress hairline, leading/trailing slots, footnote slot;
+  entity overload carries the library-list row contract.
+- `MetadataChip` — the ONE non-interactive chip (language/source/plain slots).
+- `AppSectionHeader` — the ONE two-level section header (group/section,
+  count + action slots) in SectionHeaders.kt.
+- `AppTabHeader` — the ONE tab-header model (title + optional action + the
+  collapsible search pattern on Огляд/Медіатека).
+- `DesignSystem` — the canonical `EmptyState` / `EmptyStateRow`.
+- `IndexScreenScaffold` — the ONE pushed-index chrome (title + optional
+  count subtitle + actions); hosts the index empty/loading/message states.
+- `CatalogCoverImage` / `BookCoverImage` — cover rendering (URL / entity).
+- `MiniPlayerBar` — the persistent floating bar; `BookmarkDialog`,
+  `SleepTimerSheet`, `SpeedSheet` — modal overlays; `PlayerDebugOverlay` —
+  debug-only internals; `CastButton`, `UpdateBanner`, `NavigationChip`,
+  `Accessibility` — misc chrome.
 
 ### UI helpers (`ui/` root)
 - `AudiobookEntity.displayAuthor` — blanks seeded placeholder authors
@@ -63,7 +91,7 @@ app/src/main/java/com/slukhayka/audiobooks/ui/DurationBooks.kt        32 lines  
 |---|---|
 | Change brand color / palette | `Color.kt` + `Theme.kt` |
 | Change type scale | `Type.kt` |
-| Add a shared component | `components/`, register in `DesignSystem.kt` if it's a surface |
+| Add a shared component | `components/` — but first check the v1.4 canonical set (ADR-0033); a new variation without collapsing an old one is a defect |
 | Tune spacing | `Dimens.kt` |
 | Add a debug diagnostic panel | extend `PlayerDebugOverlay.kt` |
 

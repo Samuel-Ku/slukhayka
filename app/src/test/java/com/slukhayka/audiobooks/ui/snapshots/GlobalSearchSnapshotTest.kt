@@ -17,7 +17,7 @@ import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.data.source.GlobalSearchSource
 import com.slukhayka.audiobooks.ui.screens.GlobalSearchResultCard
-import com.slukhayka.audiobooks.ui.screens.SourceBadgePill
+import com.slukhayka.audiobooks.ui.components.MetadataChip
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
 import com.github.takahirom.roborazzi.captureRoboImage
@@ -143,9 +143,9 @@ class GlobalSearchSnapshotTest {
             AudiobookTheme(darkTheme = true) {
                 GlobalSearchSurface {
                     Column {
-                        SourceBadgePill(label = "4read")
+                        MetadataChip(source = "4read")
                         Spacer(modifier = Modifier.padding(4.dp))
-                        SourceBadgePill(label = "Локальна")
+                        MetadataChip(source = "Локальна")
                     }
                 }
             }

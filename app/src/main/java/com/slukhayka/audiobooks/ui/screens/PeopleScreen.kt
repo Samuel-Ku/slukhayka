@@ -116,8 +116,9 @@ fun PeopleContent(
         if (isLoading || loadFailed) return@LaunchedEffect
         val personIndex = people.indexOfFirst { it.path == path }
         if (personIndex < 0) return@LaunchedEffect
-        // The count row is item zero; people start at item one.
-        listState.scrollToItem(personIndex + 1)
+        // The notice row (if the index is still backfilling) is item
+        // zero; people start at item one without it.
+        listState.scrollToItem(personIndex + if (indexBackfillPending) 1 else 0)
         withFrameNanos { }
         if (runCatching { returnFocusRequester.requestFocus() }.getOrDefault(false)) {
             onPersonFocusRestored(path)
@@ -170,7 +171,7 @@ fun PeopleContent(
                 if (indexBackfillPending) {
                     item {
                         Text(
-                            text = "${peopleCountLabel(currentKind, people.size)} · список поповнюється…",
+                            text = "Список поповнюється…",
                             style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
                             color = MaterialTheme.colorScheme.secondary,
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)

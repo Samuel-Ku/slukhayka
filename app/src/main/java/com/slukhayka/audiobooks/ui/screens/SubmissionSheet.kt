@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.ingest.ListenerSubmissionFlow
 import com.slukhayka.audiobooks.ui.components.accessibilityPane
+import androidx.compose.material3.TextButton
 
 /**
  * Spec-601 T3/T5 — the «Надіслати посилання» surface state. One paste can
@@ -61,7 +62,11 @@ fun SubmissionSheet(
     remainingToday: Int?,
     onSubmit: (String) -> Unit,
     onDismiss: () -> Unit,
-    onListen: (() -> Unit)? = null
+    onListen: (() -> Unit)? = null,
+    /** Spec-53 T4 — a link arriving from a system share. */
+    prefillUrl: String? = null,
+    /** Spec-53 T4 — a supported link already in the clipboard (chip). */
+    clipboardCandidate: String? = null
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -74,6 +79,8 @@ fun SubmissionSheet(
             onSubmit = onSubmit,
             onClose = onDismiss,
             onListen = onListen,
+            prefillUrl = prefillUrl,
+            clipboardCandidate = clipboardCandidate,
             includePaneSemantics = false
         )
     }
@@ -87,9 +94,11 @@ fun SubmissionSheetContent(
     onSubmit: (String) -> Unit,
     onClose: (() -> Unit)? = null,
     onListen: (() -> Unit)? = null,
+    prefillUrl: String? = null,
+    clipboardCandidate: String? = null,
     includePaneSemantics: Boolean = true
 ) {
-    var url by rememberSaveable { mutableStateOf("") }
+    var url by rememberSaveable(prefillUrl) { mutableStateOf(prefillUrl.orEmpty()) }
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -136,6 +145,17 @@ fun SubmissionSheetContent(
                 .fillMaxWidth()
                 .testTag("submission_url_field")
         )
+        // Spec-53 T4 — one-tap paste when the clipboard already carries a
+        // supported link (never a silent read: the chip IS the offer).
+        if (clipboardCandidate != null && url.isBlank()) {
+            Spacer(modifier = Modifier.height(8.dp))
+            TextButton(
+                onClick = { url = clipboardCandidate },
+                modifier = Modifier.testTag("submission_clipboard_chip")
+            ) {
+                Text(stringResource(R.string.submission_paste_from_clipboard))
+            }
+        }
         if (remainingToday != null) {
             Spacer(modifier = Modifier.height(8.dp))
             Text(

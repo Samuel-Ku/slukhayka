@@ -1,14 +1,11 @@
 package com.slukhayka.audiobooks.data.source
 
-import com.slukhayka.audiobooks.data.privacy.PacingParams
-import com.slukhayka.audiobooks.data.privacy.PacingPolicy
 import com.slukhayka.audiobooks.testing.FakeFetcher
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import kotlin.random.Random
 
 /**
  * Fixture tests for the spec-10 T3 AudiobookMp3Adapter. Markup mirrors real
@@ -385,8 +382,7 @@ class AudiobookMp3AdapterTest {
                     "https://audiobook-mp3.com/uk-genre-3-roman" to ""
                 ),
                 fallback = "<html><body></body></html>"
-            ),
-            pauseMillis = {}
+            )
         )
 
         val books = adapter.fetchCatalog(limit = 40)
@@ -418,7 +414,7 @@ class AudiobookMp3AdapterTest {
     """.trimIndent()
 
     @Test
-    fun `catalogue walks past the old six genre pages with pacing pauses`() = runBlocking {
+    fun `catalogue walks past the old six genre pages through one gate`() = runBlocking {
         val n = 8 // more than the old hard-coded take(6)
         val genres = (1..n).joinToString("") { i ->
             """<a href="/uk-genre-$i-zhanr-$i">Жанр $i</a>"""
@@ -430,12 +426,7 @@ class AudiobookMp3AdapterTest {
                 for (i in 1..n) put("https://audiobook-mp3.com/uk-genre-$i-zhanr-$i", genrePage(i))
             }
         )
-        val pauses = mutableListOf<Long>()
-        val adapter = AudiobookMp3Adapter(
-            fetcher,
-            pauseMillis = { pauses += it },
-            pacing = PacingPolicy(PacingParams(minPauseMillis = 100, maxPauseMillis = 100), Random(42))
-        )
+        val adapter = AudiobookMp3Adapter(fetcher)
 
         val books = adapter.fetchCatalog(limit = 100)
 
@@ -443,8 +434,6 @@ class AudiobookMp3AdapterTest {
         assertEquals(n, books.size)
         assertEquals("Книга 7", books[6].title)
         assertEquals("Книга 8", books[7].title)
-        // One pause BETWEEN consecutive requests only: 8 pages → 7 pauses.
-        assertEquals(List(n - 1) { 100L }, pauses)
     }
 
     @Test
@@ -459,7 +448,7 @@ class AudiobookMp3AdapterTest {
             },
             fallback = "<html><body></body></html>"
         )
-        val adapter = AudiobookMp3Adapter(fetcher, genrePageLimit = 2, pauseMillis = {})
+        val adapter = AudiobookMp3Adapter(fetcher, genrePageLimit = 2)
 
         val books = adapter.fetchCatalog(limit = 100)
 

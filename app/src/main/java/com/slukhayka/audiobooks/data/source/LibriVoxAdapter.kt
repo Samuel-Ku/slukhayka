@@ -1,5 +1,6 @@
 package com.slukhayka.audiobooks.data.source
 
+import com.slukhayka.audiobooks.data.catalog.FeedSnapshotPolicy
 import com.slukhayka.audiobooks.data.LanguageCode
 import com.slukhayka.audiobooks.data.collections.MiniJson
 
@@ -45,7 +46,7 @@ class LibriVoxAdapter(
     override suspend fun search(query: String): List<SourceBook> {
         val cleanQuery = query.trim().replace("\"", "")
         if (cleanQuery.isBlank()) return emptyList()
-        val json = fetcher.getText(archiveSearchUrl("\"$cleanQuery\"", newestFirst = false))
+        val json = fetcher.getText(archiveSearchUrl("\"$cleanQuery\"", newestFirst = false), emptyMap(), SourceRequestClass.LISTENER_ACTION, FeedSnapshotPolicy.CATALOG_TTL_MS)
         return archiveDocsFrom(json).mapNotNull { it.toSourceBook() }
     }
 
@@ -54,7 +55,7 @@ class LibriVoxAdapter(
      * (`addeddate desc`) — the archive is the only transport with a date.
      */
     override suspend fun fetchNew(limit: Int): List<SourceBook> {
-        val json = fetcher.getText(archiveSearchUrl("", newestFirst = true, limit = limit))
+        val json = fetcher.getText(archiveSearchUrl("", newestFirst = true, limit = limit), emptyMap(), SourceRequestClass.TTL_REFRESH, FeedSnapshotPolicy.NEW_ARRIVALS_TTL_MS)
         return archiveDocsFrom(json).mapNotNull { it.toSourceBook() }.take(limit)
     }
 
@@ -67,7 +68,7 @@ class LibriVoxAdapter(
     override suspend fun fetchCatalog(limit: Int): List<SourceBook> {
         val json = fetcher.getText(
             "https://librivox.org/api/feed/audiobooks/?format=json&limit=$limit&offset=0"
-        )
+        , emptyMap(), SourceRequestClass.TTL_REFRESH, FeedSnapshotPolicy.CATALOG_TTL_MS)
         return apiBooksFrom(json).mapNotNull { it.toSourceBook() }.take(limit)
     }
 
@@ -83,7 +84,7 @@ class LibriVoxAdapter(
      */
     override suspend fun fetchBookPage(url: String): SourceBookDetail {
         val identifier = identifierOf(url) ?: return SourceBookDetail("", "", url = url, chapters = emptyList())
-        val json = fetcher.getText("https://archive.org/metadata/$identifier")
+        val json = fetcher.getText("https://archive.org/metadata/$identifier", emptyMap(), SourceRequestClass.LISTENER_ACTION, 0L)
         if (json.isBlank()) return SourceBookDetail("", "", url = url, chapters = emptyList())
         return metadataDetail(json, url)
     }

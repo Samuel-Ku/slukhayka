@@ -1,5 +1,6 @@
 package com.slukhayka.audiobooks.data.imports
 
+import com.slukhayka.audiobooks.data.source.SourceRequestClass
 import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
@@ -100,6 +101,14 @@ class FourReadRecoveryIdentityTest {
             override fun getText(url: String): String = error("Fixture must not use network")
             override fun getText(url: String, extraHeaders: Map<String, String>): String =
                 error("Fixture must not use network")
+
+            override fun getText(
+                url: String,
+                extraHeaders: Map<String, String>,
+                requestClass: SourceRequestClass,
+                cacheTtlMillis: Long
+            ): String = getText(url)
+
         })
         val imports = LibraryImport(dao, context, listOf(adapter))
         val book = requireNotNull(imports.importWebSourcePage("4read", url, html))

@@ -1,5 +1,7 @@
 package com.slukhayka.audiobooks.data.source
 
+import com.slukhayka.audiobooks.data.catalog.FeedSnapshotPolicy
+
 /**
  * lihtar.in.ua [SourceAdapter] (spec-10 T1 verdict: PASS, niche).
  *
@@ -41,7 +43,7 @@ class LihtarAdapter(
     override suspend fun search(query: String): List<SourceBook> = emptyList()
 
     override suspend fun fetchBookPage(url: String): SourceBookDetail {
-        val html = fetcher.getText(url)
+        val html = fetcher.getText(url, emptyMap(), SourceRequestClass.LISTENER_ACTION, 0L)
         if (html.isEmpty()) return SourceBookDetail("", "", url = url, chapters = emptyList())
 
         val title = decodeEntities(ogMeta(html, "og:title") ?: h1(html) ?: "").ifBlank { slugTitle(url) }
@@ -65,7 +67,7 @@ class LihtarAdapter(
                 chapters = emptyList()
             )
 
-        val playerHtml = fetcher.getText(playerUrl)
+        val playerHtml = fetcher.getText(playerUrl, emptyMap(), SourceRequestClass.LISTENER_ACTION, 0L)
         val audioSrc = AUDIO_SRC.find(playerHtml)?.groupValues?.get(1)
         val chapters = if (audioSrc != null) {
             listOf(
@@ -95,14 +97,14 @@ class LihtarAdapter(
         // Cyrillic title and the author live on the book page (og:title and
         // og:description), so every feed entry is enriched from it — otherwise
         // a Ukrainian query would never match the slug and no merge key forms.
-        val html = fetcher.getText("https://lihtar.in.ua/biblioteka")
+        val html = fetcher.getText("https://lihtar.in.ua/biblioteka", emptyMap(), SourceRequestClass.TTL_REFRESH, FeedSnapshotPolicy.NEW_ARRIVALS_TTL_MS)
         if (html.isEmpty()) return emptyList()
         val categories = CATEGORY_LINK.findAll(html).map { it.groupValues[1] }.toList()
         val seen = mutableSetOf<String>()
         val books = mutableListOf<SourceBook>()
         for (category in categories) {
             if (books.size >= limit) break
-            val categoryHtml = fetcher.getText(category)
+            val categoryHtml = fetcher.getText(category, emptyMap(), SourceRequestClass.TTL_REFRESH, FeedSnapshotPolicy.NEW_ARRIVALS_TTL_MS)
             for (m in BOOK_LINK.findAll(categoryHtml)) {
                 val url = m.groupValues[1]
                 if (!seen.add(url)) continue
@@ -139,7 +141,7 @@ class LihtarAdapter(
      */
     private suspend fun pageMeta(url: String): PageMeta {
         return try {
-            val html = fetcher.getText(url)
+            val html = fetcher.getText(url, emptyMap(), SourceRequestClass.LISTENER_ACTION, 0L)
             if (html.isEmpty()) return PageMeta("", "", "", null)
             PageMeta(
                 decodeEntities(ogMeta(html, "og:title") ?: h1(html) ?: ""),

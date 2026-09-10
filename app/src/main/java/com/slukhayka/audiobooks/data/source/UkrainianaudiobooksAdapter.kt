@@ -1,5 +1,7 @@
 package com.slukhayka.audiobooks.data.source
 
+import com.slukhayka.audiobooks.data.catalog.FeedSnapshotPolicy
+
 /**
  * ukrainianaudiobooks.com [SourceAdapter] (spec-47 T4; WebView-pattern, the
  * sluhay treatment of spec-13 T2).
@@ -85,7 +87,7 @@ class UkrainianaudiobooksAdapter(
         val cookies = cookieProvider.cookieFor(HOME_URL).trim()
         // No live session: Cloudflare would 403, so there is nothing to parse.
         if (cookies.isBlank()) return emptyList()
-        val html = fetcher.getText(HOME_URL, mapOf("Cookie" to cookies))
+        val html = fetcher.getText(HOME_URL, mapOf("Cookie" to cookies), SourceRequestClass.TTL_REFRESH, FeedSnapshotPolicy.NEW_ARRIVALS_TTL_MS)
         if (html.isEmpty()) return emptyList()
         return parseShortItems(html, limit)
     }
@@ -149,7 +151,7 @@ class UkrainianaudiobooksAdapter(
         // cookie just-in-time, never copying one host's cookie onto another.
         val homeCookies = cookieProvider.cookieFor(HOME_URL).trim()
         if (homeCookies.isBlank()) return emptyList()
-        val home = fetcher.getText(HOME_URL, mapOf("Cookie" to homeCookies))
+        val home = fetcher.getText(HOME_URL, mapOf("Cookie" to homeCookies), SourceRequestClass.TTL_REFRESH, FeedSnapshotPolicy.CATALOG_TTL_MS)
         if (home.isEmpty()) return emptyList()
         val seen = mutableSetOf<String>()
         val books = mutableListOf<SourceBook>()
@@ -169,7 +171,7 @@ class UkrainianaudiobooksAdapter(
             val categoryUrl = "https://ukrainianaudiobooks.com/$category/"
             val catCookies = cookieProvider.cookieFor(categoryUrl).trim()
             val headers = if (catCookies.isBlank()) emptyMap() else mapOf("Cookie" to catCookies)
-            val html = fetcher.getText(categoryUrl, headers)
+            val html = fetcher.getText(categoryUrl, headers, SourceRequestClass.TTL_REFRESH, FeedSnapshotPolicy.CATALOG_TTL_MS)
             if (html.isEmpty()) continue
             for (book in parseShortItems(html, limit - books.size)) {
                 if (seen.add(book.url)) books += book
@@ -187,9 +189,9 @@ class UkrainianaudiobooksAdapter(
         // the source Referer (the fetcher always sends it) — no Cookie header.
         val cookies = cookieProvider.cookieFor(url).trim()
         val html = if (cookies.isBlank()) {
-            fetcher.getText(url)
+            fetcher.getText(url, emptyMap(), SourceRequestClass.LISTENER_ACTION, 0L)
         } else {
-            fetcher.getText(url, mapOf("Cookie" to cookies))
+            fetcher.getText(url, mapOf("Cookie" to cookies), SourceRequestClass.LISTENER_ACTION, 0L)
         }
         return parseCapturedPage(html, url)
     }
@@ -216,7 +218,7 @@ class UkrainianaudiobooksAdapter(
                 chapters = emptyList(),
                 description = page.description
             )
-        val chapters = parsePlaylist(fetcher.getText(playlistUrl))
+        val chapters = parsePlaylist(fetcher.getText(playlistUrl, emptyMap(), SourceRequestClass.LISTENER_ACTION, 0L))
         return SourceBookDetail(
             title = page.title,
             author = page.author,

@@ -1,5 +1,6 @@
 package com.slukhayka.audiobooks.data.source
 
+import com.slukhayka.audiobooks.data.catalog.FeedSnapshotPolicy
 import com.slukhayka.audiobooks.data.LanguageCode
 
 /**
@@ -46,13 +47,13 @@ class ChitakaAdapter(
     /** Page 1 of `/audioknyhy/` in the site's own order. */
     override suspend fun fetchNew(limit: Int): List<SourceBook> {
         if (limit <= 0) return emptyList()
-        val html = fetcher.getText(NEW_URL)
+        val html = fetcher.getText(NEW_URL, emptyMap(), SourceRequestClass.TTL_REFRESH, FeedSnapshotPolicy.NEW_ARRIVALS_TTL_MS)
         if (html.isEmpty()) return emptyList()
         return listingBooks(html).take(limit)
     }
 
     override suspend fun fetchBookPage(url: String): SourceBookDetail {
-        val html = fetcher.getText(url)
+        val html = fetcher.getText(url, emptyMap(), SourceRequestClass.LISTENER_ACTION, 0L)
         if (html.isEmpty()) return SourceBookDetail("", "", url = url, chapters = emptyList())
         val (title, author) = titleAndAuthorFrom(html)
         val cover = ogMeta(html, "og:image")

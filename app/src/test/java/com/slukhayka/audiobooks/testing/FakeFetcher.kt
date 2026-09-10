@@ -1,5 +1,6 @@
 package com.slukhayka.audiobooks.testing
 
+import com.slukhayka.audiobooks.data.source.SourceRequestClass
 import com.slukhayka.audiobooks.data.source.HttpFetcher
 import java.io.ByteArrayInputStream
 import java.io.InputStream
@@ -74,6 +75,18 @@ open class FakeFetcher(
 
     override fun getText(url: String, extraHeaders: Map<String, String>): String {
         recordedHeaders += extraHeaders
+        return responses[url] ?: fallback
+    }
+
+    override fun getText(
+        url: String,
+        extraHeaders: Map<String, String>,
+        requestClass: SourceRequestClass,
+        cacheTtlMillis: Long
+    ): String {
+        // Header-less requests are not part of the recorded-headers contract
+        // (the pre-gate getText(url) door recorded nothing either).
+        if (extraHeaders.isNotEmpty()) recordedHeaders += extraHeaders
         return responses[url] ?: fallback
     }
 

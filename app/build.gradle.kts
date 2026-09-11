@@ -135,6 +135,15 @@ android {
     buildConfig = true
   }
   testOptions { unitTests { isIncludeAndroidResources = true } }
+  lint {
+    // #386 — the inherited lint debt is accepted as a checked-in baseline so
+    // `lintDebug` passes and CI can adopt it. The app UI is intentionally
+    // Ukrainian (CONTEXT.md) and `values-pl` is only a partial Material3
+    // override for TalkBack, so MissingTranslation there is a false positive;
+    // the remaining UnsafeOptInUsageError/NewApi entries are pinned for a
+    // separate cleanup. A NEW issue outside the baseline still fails.
+    baseline = file("lint-baseline.xml")
+  }
 }
 
 // spec-29 T1 (#210): the release artifact carries the version in its name

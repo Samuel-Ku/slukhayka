@@ -1184,6 +1184,47 @@ class OfflineDownloads(
         dao.updateDownloadStateWithState(bookId, isDownloaded = false, progress = 0f, state = DownloadState.IDLE)
     }
 
+    /**
+     * #397 — removes the offline copy of ONE chapter (its Source Tracks) and
+     * keeps the rest. Reference-counted like [removeOfflineDownload]: a file
+     * shared with another downloaded track is not deleted. The book-level
+     * `isDownloaded` becomes true only when every track is still on disk, so
+     * a partial removal leaves an honest «Офлайн (N/M)» state.
+     */
+    suspend fun removeChapterDownload(bookId: String, chapterIndex: Int) {
+        val tracks = dao.getTracksForBookSync(bookId)
+            .filter { it.trackIndex == chapterIndex && it.isDownloaded }
+        for (track in tracks) {
+            val path = track.localFilePath
+            if (path != null) {
+                val referencing = try { dao.getTracksByFilePath(path) } catch (e: Exception) { emptyList() }
+                val otherRefs = referencing.filter { it.id != track.id }
+                if (otherRefs.isEmpty()) {
+                    val file = File(path)
+                    if (file.exists()) {
+                        try { file.delete() } catch (_: Exception) {}
+                    }
+                }
+            }
+            dao.updateTrackDownloadState(track.id, isDownloaded = false, filePath = null)
+            dao.updateTrackContentHash(track.id, null)
+        }
+        recomputeBookDownloadState(bookId)
+    }
+
+    private suspend fun recomputeBookDownloadState(bookId: String) {
+        val tracks = dao.getTracksForBookSync(bookId)
+        val total = tracks.size
+        val downloaded = tracks.count { it.isDownloaded }
+        val all = total > 0 && downloaded == total
+        dao.updateDownloadStateWithState(
+            bookId,
+            isDownloaded = all,
+            progress = if (all) 1f else 0f,
+            state = DownloadState.IDLE
+        )
+    }
+
     fun getAudioCacheSizeBytes(): Long {
         val baseDir = resolveBaseDir() ?: return 0L
         var total = 0L

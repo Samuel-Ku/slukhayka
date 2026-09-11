@@ -4033,6 +4033,35 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * #397 — per-book Source Track download counts for the honest partial
+     * offline badge («Офлайн (N/M)»); full offline stays `downloaded == total`.
+     */
+    val bookDownloadCounts: StateFlow<Map<String, com.slukhayka.audiobooks.data.db.BookDownloadCount>> =
+        App.instance.audiobookDao.observeBookDownloadCounts()
+            .map { counts -> counts.associateBy { it.bookId } }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    /** #397 — deletes the offline copy of ONE chapter, keeping the rest. */
+    fun removeChapterDownload(bookId: String, chapterIndex: Int) {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { offlineDownloads.removeChapterDownload(bookId, chapterIndex) }
+            refreshCacheSize()
+        }
+    }
+
+    /** #397 — chapters of the open book whose Source Tracks are on disk. */
+    val selectedBookDownloadedIndices: StateFlow<Set<Int>> = _selectedBookId
+        .flatMapLatest { bookId ->
+            if (bookId == null) {
+                flowOf(emptySet())
+            } else {
+                App.instance.audiobookDao.getTracksForBook(bookId)
+                    .map { tracks -> tracks.filter { it.isDownloaded }.map { it.trackIndex }.toSet() }
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
     // #393 — download notification helpers
     private var downloadProgressJob: kotlinx.coroutines.Job? = null
     private fun startDownloadNotification(bookId: String, title: String, author: String) {

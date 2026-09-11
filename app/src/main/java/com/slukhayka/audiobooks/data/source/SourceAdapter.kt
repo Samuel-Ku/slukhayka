@@ -118,6 +118,30 @@ interface SourceAdapter {
     val accessMode: SourceAccessMode get() = SourceAccessPolicy.modeFor(sourceId)
 
     /**
+     * ADR-0040 — the politeness profile this adapter declares for one
+     * request endpoint. The gate seam ([SourceGateFetcher]) reads the
+     * declaration; features never classify requests or know the numbers. The
+     * defaults follow the ADR: search is a listener action cached 24 h,
+     * enumeration rides the TTL refresh lane (новинки 6 h, каталог 24 h), a
+     * book page is a listener resolve with no cache (current truth — pages
+     * are never served stale), covers are the lowest class. An adapter whose
+     * reality differs overrides one endpoint (e.g. a session-bound source
+     * whose feeds always re-enumerate declares a zero TTL).
+     */
+    fun requestProfile(endpoint: SourceEndpoint): SourceRequestProfile = when (endpoint) {
+        SourceEndpoint.SEARCH ->
+            SourceRequestProfile(SourceRequestClass.LISTENER_ACTION, SourceRequestProfile.SEARCH_TTL_MS)
+        SourceEndpoint.NEW_FEED ->
+            SourceRequestProfile(SourceRequestClass.TTL_REFRESH, SourceRequestProfile.NEW_FEED_TTL_MS)
+        SourceEndpoint.CATALOG ->
+            SourceRequestProfile(SourceRequestClass.TTL_REFRESH, SourceRequestProfile.CATALOG_TTL_MS)
+        SourceEndpoint.BOOK_PAGE ->
+            SourceRequestProfile(SourceRequestClass.LISTENER_ACTION, 0L)
+        SourceEndpoint.COVER ->
+            SourceRequestProfile(SourceRequestClass.COVER, 0L)
+    }
+
+    /**
      * Best-effort site search. Sources without a usable search endpoint (or
      * whose search is robots-discouraged) return an empty list; discovery then
      * happens through [fetchNew] and category enumeration.

@@ -224,6 +224,15 @@ class FourReadAdapterTest {
 
             override fun getText(url: String, extraHeaders: Map<String, String>): String =
                 "<html>session challenge</html>"
+
+            override fun getText(
+                url: String,
+                extraHeaders: Map<String, String>,
+                requestClass: SourceRequestClass,
+                cacheTtlMillis: Long
+            ): String =
+                if (extraHeaders.isEmpty()) getText(url) else getText(url, extraHeaders)
+
         }
         val adapter = FourReadAdapter(
             fetcher = fetcher,
@@ -252,6 +261,15 @@ class FourReadAdapterTest {
 
             override fun getText(url: String, extraHeaders: Map<String, String>): String =
                 if (url == playlistUrl) manifest else "<html>Just a moment...</html>"
+
+            override fun getText(
+                url: String,
+                extraHeaders: Map<String, String>,
+                requestClass: SourceRequestClass,
+                cacheTtlMillis: Long
+            ): String =
+                if (extraHeaders.isEmpty()) getText(url) else getText(url, extraHeaders)
+
         }
         val adapter = FourReadAdapter(
             fetcher = fetcher,

@@ -5,6 +5,7 @@ import com.slukhayka.audiobooks.data.db.AuthorFacetEntity
 import com.slukhayka.audiobooks.data.db.AudiobookDao
 import com.slukhayka.audiobooks.data.db.EditionFacetEntity
 import com.slukhayka.audiobooks.data.db.GenreAssertionEntity
+import com.slukhayka.audiobooks.data.db.GenreAssertionProvenance
 import com.slukhayka.audiobooks.data.db.GenreFacetEntity
 import com.slukhayka.audiobooks.data.db.GenreSourceFacetRows
 import com.slukhayka.audiobooks.data.db.WorkFacetEntity
@@ -18,7 +19,9 @@ data class GenreFacetAssertion(
     val rawText: String,
     val sourceId: String,
     val observedAt: Long,
-    val documentUpdatedAt: Long = observedAt
+    val documentUpdatedAt: Long = observedAt,
+    /** ADR-0040 — the document's provenance rank; enumeration supersedes search. */
+    val provenance: GenreAssertionProvenance = GenreAssertionProvenance.ENUMERATION
 )
 
 /** Canonical shared assertion input; the stable id is never re-derived from display text. */
@@ -35,7 +38,9 @@ data class CanonicalGenreFacetAssertion(
 data class GenreSourceFacetReplacement(
     val sourceId: String,
     val documentUpdatedAt: Long,
-    val assertions: List<CanonicalGenreFacetAssertion>
+    val assertions: List<CanonicalGenreFacetAssertion>,
+    /** ADR-0040 — the document's provenance rank; enumeration supersedes search. */
+    val provenance: GenreAssertionProvenance = GenreAssertionProvenance.ENUMERATION
 )
 
 data class WorkFacetDelta(
@@ -163,9 +168,12 @@ class RoomLocalFacetWriter(private val dao: AudiobookDao) : LocalFacetWriter {
                 }
                 val documentUpdatedAt = assertions.map { it.documentUpdatedAt }.distinct().singleOrNull()
                 requireNotNull(documentUpdatedAt) { "One Source genre set must share one documentUpdatedAt" }
+                val provenance = assertions.map { it.provenance }.distinct().singleOrNull()
+                requireNotNull(provenance) { "One Source genre set must share one provenance" }
                 GenreSourceFacetReplacement(
                     sourceId = sourceId,
                     documentUpdatedAt = documentUpdatedAt,
+                    provenance = provenance,
                     assertions = assertions.flatMap { assertion ->
                         GenreIdentity.fromSourceText(assertion.rawText).map { genre ->
                             CanonicalGenreFacetAssertion(
@@ -227,6 +235,7 @@ class RoomLocalFacetWriter(private val dao: AudiobookDao) : LocalFacetWriter {
                     workId = delta.work.workId,
                     sourceId = replacement.sourceId,
                     documentUpdatedAt = replacement.documentUpdatedAt,
+                    provenance = replacement.provenance.wireName,
                     genres = genres.values.toList(),
                     memberships = memberships.toList(),
                     assertions = assertions.values.toList()

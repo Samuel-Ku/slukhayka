@@ -79,7 +79,10 @@ class IntegratedPeopleMigrationTest {
         )
         helper.close()
         val migrated = Room.databaseBuilder(context, AudiobookDatabase::class.java, name)
-            .addMigrations(AudiobookDatabase.MIGRATION_25_26, AudiobookDatabase.MIGRATION_26_27, AudiobookDatabase.MIGRATION_27_28)
+            .addMigrations(
+                AudiobookDatabase.MIGRATION_25_26, AudiobookDatabase.MIGRATION_26_27,
+                AudiobookDatabase.MIGRATION_27_28, AudiobookDatabase.MIGRATION_28_29
+            )
             .allowMainThreadQueries().build()
         try {
             // Opening through Room validates every entity and index, not only the added column.

@@ -35,12 +35,36 @@ data class GenreFacetEntity(val id: String, val displayName: String, val normali
 )
 data class WorkGenreEntity(val workId: String, val genreId: String, val sourceId: String)
 
+/**
+ * The origin rank of one Source-owned genre document (ADR-0040). An
+ * ENUMERATION document always supersedes a SEARCH document for the same
+ * (Work, Source) pair regardless of observation time — a fuller catalogue
+ * set is never shrunk by a single-genre search hit; search fills only the
+ * gap of works never enumerated. Equal ranks fall back to the strictly-
+ * newer documentUpdatedAt rule.
+ */
+enum class GenreAssertionProvenance(val wireName: String, val rank: Int) {
+    /** Catalogue/hydration/import/shared-sync writes — the default. */
+    ENUMERATION("enumeration", 1),
+
+    /** A genre claim carried by a search card (ADR-0040). */
+    SEARCH("search", 0);
+
+    companion object {
+        /** Legacy rows (and any unknown wire value) read as enumeration. */
+        fun fromWireName(name: String?): GenreAssertionProvenance =
+            entries.firstOrNull { it.wireName == name } ?: ENUMERATION
+    }
+}
+
 /** Cursor for one Source-owned genre assertion document on one Work. */
 @Entity(tableName = "genre_assertion_states", primaryKeys = ["workId", "sourceId"])
 data class GenreAssertionStateEntity(
     val workId: String,
     val sourceId: String,
-    val documentUpdatedAt: Long
+    val documentUpdatedAt: Long,
+    /** [GenreAssertionProvenance.wireName]; legacy rows default to enumeration. */
+    val provenance: String
 )
 
 /** Raw provenance-bearing input retained beside its derived genre relation. */
@@ -106,6 +130,8 @@ data class GenreSourceFacetRows(
     val workId: String,
     val sourceId: String,
     val documentUpdatedAt: Long,
+    /** [GenreAssertionProvenance.wireName] of the incoming document. */
+    val provenance: String,
     val genres: List<GenreFacetEntity>,
     val memberships: List<WorkGenreEntity>,
     val assertions: List<GenreAssertionEntity>

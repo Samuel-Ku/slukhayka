@@ -1091,8 +1091,8 @@ class FakeAudiobookDao(
         genreAssertionsState.update { current -> current.filterNot { old -> rows.any { it.id == old.id } } + rows }
     }
 
-    override suspend fun genreDocumentUpdatedAt(workId: String, sourceId: String): Long? =
-        genreAssertionStatesState.value.firstOrNull { it.workId == workId && it.sourceId == sourceId }?.documentUpdatedAt
+    override suspend fun genreSourceState(workId: String, sourceId: String): GenreAssertionStateEntity? =
+        genreAssertionStatesState.value.firstOrNull { it.workId == workId && it.sourceId == sourceId }
 
     override suspend fun deleteWorkGenresForSource(workId: String, sourceId: String) {
         workGenresState.update { rows -> rows.filterNot { it.workId == workId && it.sourceId == sourceId } }

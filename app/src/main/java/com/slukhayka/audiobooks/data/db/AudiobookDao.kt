@@ -1018,8 +1018,8 @@ interface AudiobookDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertGenreAssertions(rows: List<GenreAssertionEntity>)
 
-    @Query("SELECT documentUpdatedAt FROM genre_assertion_states WHERE workId=:workId AND sourceId=:sourceId")
-    suspend fun genreDocumentUpdatedAt(workId: String, sourceId: String): Long?
+    @Query("SELECT * FROM genre_assertion_states WHERE workId=:workId AND sourceId=:sourceId")
+    suspend fun genreSourceState(workId: String, sourceId: String): GenreAssertionStateEntity?
 
     @Query("DELETE FROM work_genres WHERE workId=:workId AND sourceId=:sourceId")
     suspend fun deleteWorkGenresForSource(workId: String, sourceId: String)
@@ -1140,15 +1140,28 @@ interface AudiobookDao {
         works.forEach { mergeWorkFacet(it.workId, it.canonicalAuthorId, it.updatedAt) }
         insertWorkFacetSeries(workSeries)
         genreSources.forEach { sourceRows ->
-            val currentUpdatedAt = genreDocumentUpdatedAt(sourceRows.workId, sourceRows.sourceId)
-            if (currentUpdatedAt == null || sourceRows.documentUpdatedAt > currentUpdatedAt) {
+            // ADR-0040 — rank before time: an enumeration document always
+            // supersedes a search document for the same (Work, Source); equal
+            // ranks keep the strictly-newer documentUpdatedAt rule.
+            val current = genreSourceState(sourceRows.workId, sourceRows.sourceId)
+            val incoming = GenreAssertionProvenance.fromWireName(sourceRows.provenance)
+            val currentProvenance = current?.let { GenreAssertionProvenance.fromWireName(it.provenance) }
+            val replaces = current == null ||
+                incoming.rank > currentProvenance!!.rank ||
+                (incoming.rank == currentProvenance.rank && sourceRows.documentUpdatedAt > current.documentUpdatedAt)
+            if (replaces) {
                 deleteWorkGenresForSource(sourceRows.workId, sourceRows.sourceId)
                 deleteGenreAssertionsForSource(sourceRows.workId, sourceRows.sourceId)
                 insertGenreFacets(sourceRows.genres)
                 insertWorkGenres(sourceRows.memberships)
                 insertGenreAssertions(sourceRows.assertions)
                 upsertGenreAssertionState(
-                    GenreAssertionStateEntity(sourceRows.workId, sourceRows.sourceId, sourceRows.documentUpdatedAt)
+                    GenreAssertionStateEntity(
+                        sourceRows.workId,
+                        sourceRows.sourceId,
+                        sourceRows.documentUpdatedAt,
+                        sourceRows.provenance
+                    )
                 )
             }
         }

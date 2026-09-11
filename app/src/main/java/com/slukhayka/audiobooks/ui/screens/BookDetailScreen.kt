@@ -8,6 +8,7 @@ import androidx.compose.foundation.focusable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.collectAsState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
@@ -169,6 +170,12 @@ fun BookDetailScreen(
     val narrationRatingDeleteFocusRequester = remember { FocusRequester() }
 
     val currentBook = book ?: return
+    // ADR-0037 §2/§4 (spec-49 T3) — the honest unavailable state and the
+    // Source Watch (§6, the T4 seam): the refused-only page offers the
+    // watch, never a browser door.
+    val audioUnavailable by viewModel.bookAudioUnavailable.collectAsState()
+    val bookWatched by viewModel.bookWatched.collectAsState()
+    val narrationClaimDone by viewModel.narrationClaimDone.collectAsState()
     var initialTitleFocusPending by remember(currentBook.id) { mutableStateOf(true) }
     val isDownloadingThis = downloadingBookId == currentBook.id
     val isDownloadPaused = currentBook.downloadState == DownloadState.PAUSED
@@ -345,6 +352,15 @@ fun BookDetailScreen(
     // a catalogue book whose page could not be fetched — surface that instead
     // of the button silently doing nothing.
     val snackbarHostState = remember { SnackbarHostState() }
+    // ADR-0037 §4 — the merged-confirmation snackbar, consumed once so a
+    // rotation never repeats it.
+    val context = LocalContext.current
+    LaunchedEffect(narrationClaimDone) {
+        if (narrationClaimDone) {
+            snackbarHostState.showSnackbar(context.getString(R.string.narration_claim_done))
+            viewModel.consumeNarrationClaimDone()
+        }
+    }
     LaunchedEffect(downloadMessage, downloadRecoveryBookId) {
         downloadMessage?.let { message ->
             val recoveryBookId = downloadRecoveryBookId
@@ -777,6 +793,43 @@ fun BookDetailScreen(
 
                     BookDetailDescription(detailPresentation)
 
+                    // ADR-0037 §4 (spec-49 T3) — the honest «аудіо недоступне»
+                    // state: every source that can play this book is refused.
+                    // No browser door exists for a refusal — the page offers
+                    // the Source Watch action instead.
+                    if (audioUnavailable) {
+                        val unavailable = stringResource(R.string.book_detail_audio_unavailable)
+                        Surface(
+                            shape = RoundedCornerShape(AppDimens.RadiusPanel),
+                            color = MaterialTheme.colorScheme.surfaceContainer,
+                            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                                .semantics { contentDescription = unavailable }
+                        ) {
+                            Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
+                                Text(
+                                    text = unavailable,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                if (bookWatched) {
+                                    TextButton(onClick = { viewModel.stopWatchingCurrentBook() }) {
+                                        Text(stringResource(R.string.book_detail_watching))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(stringResource(R.string.book_detail_stop_watching))
+                                    }
+                                } else {
+                                    TextButton(onClick = { viewModel.watchCurrentBook() }) {
+                                        Text(stringResource(R.string.book_detail_watch_action))
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     // ADR-0011: «Інші начитки» — the other rendition cards of
                     // the same Work. Tapping one opens that card (its own
                     // narrator, chapters, progress) — the narration selection.
@@ -800,6 +853,24 @@ fun BookDetailScreen(
                                 voteCount = siblingStats?.second ?: 0,
                                 onClick = { viewModel.openNarration(sibling) }
                             )
+                            // ADR-0037 §4 (spec-49 T3): the one-tap claim that
+                            // this sibling IS the same narration. Offered when
+                            // the sibling names a narrator (the found side's
+                            // page assertion); absent stays absent (ADR-0014).
+                            if (NarrationClaimPolicy.claimable(
+                                    NarrationClaimPolicy.Narration(narrator = currentBook.narrator),
+                                    NarrationClaimPolicy.Narration(narrator = sibling.narrator)
+                                ).available
+                            ) {
+                                TextButton(
+                                    onClick = { viewModel.claimNarration(sibling.id, sibling.narrator) },
+                                    modifier = Modifier
+                                        .padding(start = 8.dp)
+                                        .testTag("narration_claim_${sibling.id}")
+                                ) {
+                                    Text(stringResource(R.string.narration_claim_action))
+                                }
+                            }
                         }
                     }
 

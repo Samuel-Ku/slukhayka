@@ -1,5 +1,6 @@
 package com.slukhayka.audiobooks.data.source
 
+import com.slukhayka.audiobooks.data.catalog.FeedSnapshotPolicy
 import com.slukhayka.audiobooks.data.privacy.PacingPolicy
 import kotlinx.coroutines.delay
 
@@ -53,7 +54,7 @@ class SoundBooksAdapter(
         // honestly — the same empty detail as an unreachable page — instead of
         // posing as a playless book forever.
         if (isPromoUrl(url)) return SourceBookDetail("", "", url = url, chapters = emptyList())
-        val html = fetcher.getText(url)
+        val html = fetcher.getText(url, emptyMap(), SourceRequestClass.LISTENER_ACTION, 0L)
         if (html.isEmpty()) return SourceBookDetail("", "", url = url, chapters = emptyList())
 
         val title = ogMeta(html, "og:title") ?: slugTitle(url)
@@ -98,7 +99,7 @@ class SoundBooksAdapter(
             rating = rating
         )
 
-        val playlist = fetcher.getText(m3uUrl)
+        val playlist = fetcher.getText(m3uUrl, emptyMap(), SourceRequestClass.LISTENER_ACTION, 0L)
         val chapters = playlist.split("\n")
             .map { it.trim() }
             .filter { it.startsWith("http") }
@@ -124,7 +125,7 @@ class SoundBooksAdapter(
     }
 
     override suspend fun fetchNew(limit: Int): List<SourceBook> {
-        val html = fetcher.getText("https://sound-books.net/")
+        val html = fetcher.getText("https://sound-books.net/", emptyMap(), SourceRequestClass.TTL_REFRESH, FeedSnapshotPolicy.NEW_ARRIVALS_TTL_MS)
         if (html.isEmpty()) return emptyList()
         return parseTiles(html, limit)
     }
@@ -142,7 +143,7 @@ class SoundBooksAdapter(
      * listener's privacy transport route (TransportPrivacy).
      */
     override suspend fun fetchCatalog(limit: Int): List<SourceBook> {
-        val home = fetcher.getText("https://sound-books.net/")
+        val home = fetcher.getText("https://sound-books.net/", emptyMap(), SourceRequestClass.TTL_REFRESH, FeedSnapshotPolicy.CATALOG_TTL_MS)
         if (home.isEmpty()) return emptyList()
         val categories = CATEGORY_LINK.findAll(home)
             .map { it.groupValues[1] }
@@ -158,7 +159,7 @@ class SoundBooksAdapter(
             if (books.size >= limit) break
             if (paced) pauseMillis(pacing.nextPauseMillis())
             paced = true
-            val html = fetcher.getText(category)
+            val html = fetcher.getText(category, emptyMap(), SourceRequestClass.TTL_REFRESH, FeedSnapshotPolicy.CATALOG_TTL_MS)
             if (html.isEmpty()) continue
             for (book in parseTiles(html, limit - books.size)) {
                 if (seen.add(book.url)) books += book

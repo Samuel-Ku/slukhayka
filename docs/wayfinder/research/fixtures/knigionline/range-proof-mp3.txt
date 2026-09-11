@@ -1,0 +1,11 @@
+HTTP/2 206 
+server: nginx
+date: Thu, 10 Sep 2026 14:00:43 GMT
+content-type: audio/mpeg
+content-length: 100
+last-modified: Sat, 14 Sep 2024 20:31:18 GMT
+etag: "66e5f296-c4b010"
+expires: Thu, 31 Dec 2037 23:55:55 GMT
+cache-control: max-age=315360000
+content-range: bytes 0-99/12890128
+

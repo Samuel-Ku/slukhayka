@@ -82,16 +82,22 @@ import com.slukhayka.audiobooks.data.privacy.PrivacySettingsStore
 import com.slukhayka.audiobooks.data.privacy.SharedPreferencesPrivacySettingsStore
 import com.slukhayka.audiobooks.data.privacy.TransportPrivacy
 import com.slukhayka.audiobooks.data.source.AudiobookCoUaAdapter
-import com.slukhayka.audiobooks.data.source.ChytayloAdapter
 import com.slukhayka.audiobooks.data.source.AudiobookMp3Adapter
+import com.slukhayka.audiobooks.data.source.ChytayloAdapter
+import com.slukhayka.audiobooks.data.source.ChitakaAdapter
+import com.slukhayka.audiobooks.data.source.KnigiOnlineAdapter
 import com.slukhayka.audiobooks.data.source.FourReadAdapter
 import com.slukhayka.audiobooks.data.source.SourceAudioRefusal
 import com.slukhayka.audiobooks.data.watch.SourceWatchStore
 import com.slukhayka.audiobooks.data.source.NewPipeYouTubeExtractor
 import com.slukhayka.audiobooks.data.source.YouTubeStreamResolver
 import com.slukhayka.audiobooks.data.source.LihtarAdapter
+import com.slukhayka.audiobooks.data.source.SharedPreferencesSourceGateBudgetStore
+import com.slukhayka.audiobooks.data.source.SourceGateProvider
+import com.slukhayka.audiobooks.data.source.SourceRequestGate
 import com.slukhayka.audiobooks.data.source.LibriVoxAdapter
 import com.slukhayka.audiobooks.data.source.SluhayAdapter
+import com.slukhayka.audiobooks.data.source.SluhaySite
 import com.slukhayka.audiobooks.data.source.SluhayuaAdapter
 import com.slukhayka.audiobooks.data.source.SoundBooksAdapter
 import com.slukhayka.audiobooks.data.source.TgPreviewSourceAdapter
@@ -277,6 +283,84 @@ class App : Application() {
     }
 
     /**
+     * Spec-601 T3/T5 — the listener-submission seam: verification is the
+     * player-verdict gate, the policy the anti-spam door, the publisher the
+     * shared-base writer. A missing shared base (no Firebase keys) keeps the
+     * local import alive and disables publication honestly.
+     */
+    val submissionVerification: com.slukhayka.audiobooks.data.ingest.SubmissionVerification by lazy {
+        com.slukhayka.audiobooks.data.ingest.SubmissionVerification()
+    }
+    val submissionPolicy: com.slukhayka.audiobooks.data.ingest.SubmissionPolicy? by lazy {
+        sharedMetaStore?.let {
+            com.slukhayka.audiobooks.data.ingest.SubmissionPolicy(it, submissionVerification)
+        }
+    }
+    val submissionPublisher: com.slukhayka.audiobooks.data.ingest.SubmissionPublisher? by lazy {
+        sharedMetaStore?.let { store ->
+            submissionPolicy?.let {
+                com.slukhayka.audiobooks.data.ingest.SubmissionPublisher(store, it)
+            }
+        }
+    }
+    val listenerSubmissionFlow: com.slukhayka.audiobooks.data.ingest.ListenerSubmissionFlow by lazy {
+        com.slukhayka.audiobooks.data.ingest.ListenerSubmissionFlow(
+            fetchMetadata = { url ->
+                com.slukhayka.audiobooks.data.source.YtDlpStreamExtractor.fetchMetadataJson(url)
+            },
+            importYouTube = { url, metadataJson, channelId ->
+                val imported = libraryImport.importSubmittedYouTube(url, metadataJson, channelId)
+                com.slukhayka.audiobooks.data.ingest.ListenerSubmissionFlow.ImportOutcome(
+                    result = when (imported.result) {
+                        LibraryImport.SubmittedImportResult.IMPORTED ->
+                            com.slukhayka.audiobooks.data.ingest.ListenerSubmissionFlow.ImportResult.IMPORTED
+                        LibraryImport.SubmittedImportResult.ALREADY_ADDED ->
+                            com.slukhayka.audiobooks.data.ingest.ListenerSubmissionFlow.ImportResult.ALREADY_ADDED
+                        LibraryImport.SubmittedImportResult.METADATA_FAILED ->
+                            com.slukhayka.audiobooks.data.ingest.ListenerSubmissionFlow.ImportResult.METADATA_FAILED
+                        LibraryImport.SubmittedImportResult.NO_PLAYABLE_TRACKS ->
+                            com.slukhayka.audiobooks.data.ingest.ListenerSubmissionFlow.ImportResult.NO_PLAYABLE_TRACKS
+                    },
+                    bookId = imported.bookId,
+                    sourceId = imported.sourceId
+                )
+            },
+            fetchTgIdentity = { url ->
+                val fetchUrl = com.slukhayka.audiobooks.data.ingest.tgPreviewFetchUrl(url)
+                if (fetchUrl == null) {
+                    null
+                } else {
+                    val html = runCatching { HttpFetcher().getText(fetchUrl) }.getOrNull()
+                    val detail = html?.let { body ->
+                        runCatching {
+                            sourceAdapters.filterIsInstance<TgPreviewSourceAdapter>().first()
+                                .parseCapturedPage(body, url)
+                        }.getOrNull()
+                    }
+                    detail?.let {
+                        com.slukhayka.audiobooks.data.ingest.ListenerSubmissionFlow.TgIdentity(
+                            title = it.title,
+                            author = it.author.takeIf { value -> value.isNotBlank() },
+                            narrator = it.narrator.takeIf { value -> value.isNotBlank() },
+                            coverUrl = it.coverImageUrl,
+                            description = it.description.takeIf { value -> value.isNotBlank() }
+                        )
+                    }
+                }
+            },
+            publisher = submissionPublisher,
+            verification = submissionVerification,
+            remainingToday = {
+                val policy = submissionPolicy
+                val uid = listenerIdentity.current()?.uid
+                if (policy != null && !uid.isNullOrBlank()) policy.remainingToday(uid) else Int.MAX_VALUE
+            },
+            submitterId = { listenerIdentity.current()?.uid }
+        )
+    }
+
+
+    /**
      * #431 — one clean, cookie-free transport check shared by every recovered
      * 4read profile. A successful local WebView session is never itself a
      * reason to publish its URLs to another listener.
@@ -402,6 +486,14 @@ class App : Application() {
             LihtarAdapter(),
             SluhayuaAdapter(),
             SluhayAdapter(cookieProvider = sharedCookies),
+            // ADR-0038 — the same adapter, the sibling site: sluhayknigi.com
+            // shares the DLE/playerjs machinery (spec-13); its own Referer
+            // and cookie jar ride the SluhaySite config.
+            SluhayAdapter(
+                fetcher = HttpFetcher(referer = "https://sluhayknigi.com/"),
+                site = SluhaySite(sourceId = "sluhayknigi", origin = "https://sluhayknigi.com"),
+                cookieProvider = sharedCookies
+            ),
             // Spec-47 T5 — audiobook.co.ua joins the registry (T1 verdict PASS,
             // server-fetch): its new feed feeds the «Новинки» rail, its
             // sitemap enumeration joins the union, and the adapter's search()
@@ -423,6 +515,14 @@ class App : Application() {
             // cards surface in the union and global search next to the
             // Ukrainian ones (book pages are T3 #491).
             LibriVoxAdapter(),
+            // Spec-50 T4 — knigi-online.com.ua joins the registry (T1 verdict
+            // PASS, server-fetch): its sitemap enumeration joins the union
+            // and the AudioIgniter playlist feeds real chapters.
+            KnigiOnlineAdapter(),
+            // Spec-50 T4 — chitaka.com.ua joins the registry (T1 verdict
+            // PASS, server-fetch): the /audioknyhy/ listing feeds the union;
+            // single-file books ride one chapter each (audio-only boundary).
+            ChitakaAdapter(),
             // ADR-0035 / #606: the Telegram public-preview adapter — NOT a
             // browsable catalogue source (search/new are honestly empty); it
             // rides the captured-page seam so the submission door finds it
@@ -684,6 +784,25 @@ class App : Application() {
     }
 
     /**
+     * Авто-сід медіатеки (spec `2026-09-10-remove-4read-source`): bounded
+     * verified pass over the catalogue union — resolve → preflight the first
+     * stream → import through the ordinary door. The probe rides the shared
+     * transport (HEAD, streams are outside the gate per ADR-0039); the
+     * already-known check keeps repeat passes nearly free.
+     */
+    val librarySeeder: com.slukhayka.audiobooks.data.catalog.LibrarySeeder by lazy {
+        com.slukhayka.audiobooks.data.catalog.LibrarySeeder(
+            candidates = { sourceCatalog.unifiedCatalog.value },
+            adapterFor = { sourceId -> sourceAdapters.firstOrNull { it.sourceId == sourceId } },
+            streamProbe = { url -> HttpFetcher().isReachable(url) },
+            known = { mergeKey -> database.audiobookDao().findByMergeKey(mergeKey) != null },
+            import = { sourceId, detail ->
+                libraryImport.importBookFromSource(sourceId, detail)
+            }
+        )
+    }
+
+    /**
      * Spec-25 (#171/#173): the lazy series-universe resolution — the curated
      * universe assets first (offline-capable for the seeded universes), then
      * the Wikidata provider for unseeded series, behind the same seam. The
@@ -863,6 +982,12 @@ class App : Application() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        // ADR-0039 / spec #681 T3 (#684): the ONE politeness gate for every
+        // HTML/API request to a Source host, with the persisted per-domain
+        // budget. Installed before any module can touch the network.
+        SourceGateProvider.install(
+            SourceRequestGate(budgetStore = SharedPreferencesSourceGateBudgetStore(this))
+        )
         crashReporting.start()
         unexpectedExitReporter.inspectLatest()
         PeopleNewArrivalWorker.schedule(this)

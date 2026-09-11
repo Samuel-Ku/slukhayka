@@ -23,9 +23,10 @@ import com.slukhayka.audiobooks.data.source.streamOnlyFor
  *   their timestamps to `System.currentTimeMillis()`, which makes equality
  *   assertions and snapshot tests flaky. Every fixture passes [FIXED_CLOCK_MS]
  *   explicitly.
- * - **Unroutable stream URLs.** Hosts use the RFC 2606 reserved `.invalid` TLD,
- *   so a test that accidentally performs real I/O fails fast on DNS instead of
- *   quietly reaching the internet.
+ * - **Registry-shaped fixture hosts.** Hosts are real subdomains of
+ *   `4read.org`, so registry identity (`sourceIdForUrl`) badges these
+ *   fixtures honestly as «4read» exactly like production URLs (spec-15 T6,
+ *   ADR-0038). Tests never perform real I/O — everything rides fakes.
  */
 object TestDataFactory {
 
@@ -53,11 +54,10 @@ object TestDataFactory {
      */
     private const val PER_BOOK_SECONDS_STEP: Long = 300L
     private const val PER_CHAPTER_SECONDS_STEP: Long = 60L
-    // The host still ends in `.invalid` (RFC 2606 — unroutable, fails fast on
-    // accidental real I/O) but contains `4read.org` so the library model's
-    // `sourceIdForUrl` badges these 4read-catalogue fixtures honestly as
-    // «4read» instead of «unknown» (spec-15 T6).
-    private const val FIXTURE_HOST: String = "https://fixtures.4read.org.invalid"
+    // A real 4read.org subdomain so the registry identity badges these
+    // 4read-catalogue fixtures honestly as «4read» instead of «unknown»
+    // (spec-15 T6, ADR-0038). Never fetched — tests ride fakes.
+    private const val FIXTURE_HOST: String = "https://fixtures.4read.org"
 
     private data class BookSpec(
         val id: String,

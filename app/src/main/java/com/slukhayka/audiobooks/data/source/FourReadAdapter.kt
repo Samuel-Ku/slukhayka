@@ -1,5 +1,6 @@
 package com.slukhayka.audiobooks.data.source
 
+import com.slukhayka.audiobooks.data.catalog.FeedSnapshotPolicy
 import com.slukhayka.audiobooks.data.catalog.CatalogParser
 
 /**
@@ -37,7 +38,7 @@ class FourReadAdapter(
         val encodedQuery = java.net.URLEncoder.encode(cleanQuery, "UTF-8")
         val searchUrl = "https://4read.org/index.php?do=search&subaction=search&story=$encodedQuery"
         val cookie = cookieProvider.cookieFor(searchUrl).trim()
-        val html = if (cookie.isBlank()) fetcher.getText(searchUrl) else fetcher.getText(searchUrl, mapOf("Cookie" to cookie))
+        val html = if (cookie.isBlank()) fetcher.getText(searchUrl, emptyMap(), SourceRequestClass.LISTENER_ACTION, FeedSnapshotPolicy.CATALOG_TTL_MS) else fetcher.getText(searchUrl, mapOf("Cookie" to cookie), SourceRequestClass.LISTENER_ACTION, FeedSnapshotPolicy.CATALOG_TTL_MS)
         if (html.isEmpty()) return emptyList()
 
         // 4read renders each hit as a .poster block. In the current search
@@ -91,14 +92,14 @@ class FourReadAdapter(
         // Spec-42 #427 — host-aware cookie: read just-in-time for the concrete
         // [url] host, never copied to another host (e.g. reasd.org audio).
         val cookie = cookieProvider.cookieFor(url).trim()
-        val html = if (cookie.isBlank()) fetcher.getText(url) else fetcher.getText(url, mapOf("Cookie" to cookie))
+        val html = if (cookie.isBlank()) fetcher.getText(url, emptyMap(), SourceRequestClass.LISTENER_ACTION, 0L) else fetcher.getText(url, mapOf("Cookie" to cookie), SourceRequestClass.LISTENER_ACTION, 0L)
         // Spec-40 #282 — visitors' comments ride the SAME response: parsed
         // once from the html this detail was built from, never a second fetch.
         return WebViewHtmlParser().parse(html, url, resolveContent = { urlToResolve ->
             // Playlist / iframe resolves also stay host-aware: only attach cookie
             // when the resolved host is the same as the page host's allowlist.
             val c = cookieProvider.cookieFor(urlToResolve).trim()
-            if (c.isBlank()) fetcher.getText(urlToResolve) else fetcher.getText(urlToResolve, mapOf("Cookie" to c))
+            if (c.isBlank()) fetcher.getText(urlToResolve, emptyMap(), SourceRequestClass.LISTENER_ACTION, 0L) else fetcher.getText(urlToResolve, mapOf("Cookie" to c), SourceRequestClass.LISTENER_ACTION, 0L)
         })
             .let { it.copy(visitorComments = parseComments(html), language = it.language.ifBlank { contentLanguage }) }
     }
@@ -126,17 +127,17 @@ class FourReadAdapter(
             // mentioning `.mp3` still takes the first branch, exactly as in
             // #443 — the fallback cannot promote a poisoned read.
             if (isPublicPlaylistUrl(toResolve)) {
-                val open = fetcher.getText(toResolve)
+                val open = fetcher.getText(toResolve, emptyMap(), SourceRequestClass.LISTENER_ACTION, 0L)
                 if (open.hasPlaylistEvidence()) open
                 else {
                     val c = cookieProvider.cookieFor(toResolve).trim()
                     if (c.isBlank()) open
-                    else runCatching { fetcher.getText(toResolve, mapOf("Cookie" to c)) }.getOrDefault(open)
+                    else runCatching { fetcher.getText(toResolve, mapOf("Cookie" to c), SourceRequestClass.LISTENER_ACTION, 0L) }.getOrDefault(open)
                 }
             } else {
                 val c = cookieProvider.cookieFor(toResolve).trim()
-                val withSession = if (c.isBlank()) fetcher.getText(toResolve)
-                else fetcher.getText(toResolve, mapOf("Cookie" to c))
+                val withSession = if (c.isBlank()) fetcher.getText(toResolve, emptyMap(), SourceRequestClass.LISTENER_ACTION, 0L)
+                else fetcher.getText(toResolve, mapOf("Cookie" to c), SourceRequestClass.LISTENER_ACTION, 0L)
                 // A playlist is public on 4read, while a stale browser cookie can
                 // make its CDN reply with an empty/challenge page. The captured
                 // page already passed the browser gate; retrying this read without
@@ -145,7 +146,7 @@ class FourReadAdapter(
                 if (c.isBlank() || withSession.contains(".mp3", ignoreCase = true)) {
                     withSession
                 } else {
-                    fetcher.getText(toResolve)
+                    fetcher.getText(toResolve, emptyMap(), SourceRequestClass.LISTENER_ACTION, 0L)
                 }
             }
         }).let { it.copy(language = it.language.ifBlank { contentLanguage }) }
@@ -223,7 +224,7 @@ class FourReadAdapter(
     }
 
     override suspend fun fetchNew(limit: Int): List<SourceBook> {
-        val html = fetcher.getText("https://4read.org/")
+        val html = fetcher.getText("https://4read.org/", emptyMap(), SourceRequestClass.TTL_REFRESH, FeedSnapshotPolicy.NEW_ARRIVALS_TTL_MS)
         if (html.isEmpty()) return emptyList()
         return CatalogParser.parseHomepage(html)
             .flatMap { it.books }

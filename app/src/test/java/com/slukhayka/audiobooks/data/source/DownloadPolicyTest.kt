@@ -39,7 +39,7 @@ class DownloadPolicyTest {
         // to plain range GETs, no challenge, no ToS prohibition — allowed.
         listOf(
             "4read", "soundbooks", "audiobookmp3", "sluhayua", "sluhay", "sluhayknigi",
-            "audiobookcoua", "chytaylo", "local", "unknown-source"
+            "audiobookcoua", "chytaylo", "knigionline", "chitaka", "local", "unknown-source"
         ).forEach { sourceId ->
             assertFalse("$sourceId must allow downloads", streamOnlyFor(sourceId))
         }
@@ -106,7 +106,7 @@ class DownloadPolicyTest {
         // (no Referer — SEC-004), chytaylo's /api/audio-local/…mp3 answers
         // plain GETs, and ukrainianaudiobooks never reaches a stream URL at
         // all (its audio is GATED behind the session — nothing to header).
-        listOf("soundbooks", "sluhayua", "lihtar", "audiobookcoua", "chytaylo", "ukrainianaudiobooks", "local", "unknown-source").forEach { sourceId ->
+        listOf("soundbooks", "sluhayua", "lihtar", "audiobookcoua", "chytaylo", "ukrainianaudiobooks", "knigionline", "chitaka", "local", "unknown-source").forEach { sourceId ->
             assertTrue("$sourceId must send no headers", headersFor(sourceId, anyUrl).isEmpty())
         }
     }

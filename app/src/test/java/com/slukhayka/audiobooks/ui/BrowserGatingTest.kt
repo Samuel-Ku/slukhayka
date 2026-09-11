@@ -70,7 +70,7 @@ class BrowserGatingTest {
         assertNull(profile.searchDoor)
         assertNull(profile.homeUrl)
         assertEquals("ukrainianaudiobooks.com", SourceBrowserPolicy.allowedHostsFor("ukrainianaudiobooks").single())
-        assertEquals("ukrainianaudiobooks", SourceBrowserPolicy.browserSourceIds.last())
+        assertEquals("sluhayknigi", SourceBrowserPolicy.browserSourceIds.last())
         // The allowlist boundary admits the host (and subdomains), nobody else.
         assertTrue(SourceBrowserPolicy.isUrlAllowed("https://ukrainianaudiobooks.com/book/abc", "ukrainianaudiobooks"))
         assertTrue(SourceBrowserPolicy.isUrlAllowed("https://cdn.ukrainianaudiobooks.com/x.mp3", "ukrainianaudiobooks"))

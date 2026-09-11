@@ -67,8 +67,9 @@ class LibriVoxAdapterTest {
     }
 
     @Test
-    fun `fetchCatalog parses the api feed and keeps English records only`() = runBlocking {
-        // offset 4390 mixes English and German — the English filter's fixture.
+    fun fetchCatalogAdmitsMappedLanguages() = runBlocking {
+        // offset 4390 mixes English and German — both mapped; the wider
+        // catalogue (A) keeps the German records with their real language.
         val adapter = LibriVoxAdapter(
             FakeFetcher(
                 mapOf(
@@ -80,9 +81,9 @@ class LibriVoxAdapterTest {
 
         val cards = adapter.fetchCatalog(8)
 
-        // 6 English records survive; the 2 German ones are dropped.
-        assertEquals(6, cards.size)
-        assertTrue(cards.none { it.title.contains("Gemüthsruhe") || it.title.contains("Vogelöd") })
+        // All 8 records survive: 6 English + 2 German (mapped, not hidden).
+        assertEquals(8, cards.size)
+        assertTrue(cards.all { it.language.isNotBlank() })
         val littleMen = cards.first { it.title == "Little Men (version 2)" }
         assertEquals("Louisa May Alcott", littleMen.author)
         // Cards carry the archive.org mirror page (T3 #491 plays from it) —
@@ -235,12 +236,13 @@ class LibriVoxAdapterTest {
 
         val cards = adapter.fetchCatalog(5)
 
-        // The escaped-quote-brace record survives whole; the German one drops.
-        assertEquals(1, cards.size)
-        assertEquals("A \"Quoted\" {Title} with braces", cards.single().title)
-        assertEquals("Quoted Author", cards.single().author)
-        assertEquals(36000L, cards.single().totalDurationSeconds)
-        assertEquals("en", cards.single().language)
+        // Both records survive whole: the escaped-quote-brace one and the
+        // German one (mapped language, not hidden).
+        assertEquals(2, cards.size)
+        assertEquals("A \"Quoted\" {Title} with braces", cards.first().title)
+        assertEquals("Quoted Author", cards.first().author)
+        assertEquals(36000L, cards.first().totalDurationSeconds)
+        assertEquals("en", cards.first().language)
     }
 
     @Test

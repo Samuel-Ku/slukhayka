@@ -1,5 +1,6 @@
 package com.slukhayka.audiobooks.data.repository
 
+import com.slukhayka.audiobooks.data.source.SourceRequestClass
 import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
@@ -258,6 +259,14 @@ class TombstoneCatalogGuardTest {
     fun `transport exception is a failed fetch`() = runBlocking {
         val fetcher = object : HttpFetcher() {
             override fun getText(url: String): String = throw IOException("offline")
+
+            override fun getText(
+                url: String,
+                extraHeaders: Map<String, String>,
+                requestClass: SourceRequestClass,
+                cacheTtlMillis: Long
+            ): String = getText(url)
+
         }
 
         val result = catalog(fetcher).fetchSeriesBooksResult(seriesUrl)
@@ -269,6 +278,14 @@ class TombstoneCatalogGuardTest {
     fun `fetch cancellation is propagated`() {
         val fetcher = object : HttpFetcher() {
             override fun getText(url: String): String = throw CancellationException("closed")
+
+            override fun getText(
+                url: String,
+                extraHeaders: Map<String, String>,
+                requestClass: SourceRequestClass,
+                cacheTtlMillis: Long
+            ): String = getText(url)
+
         }
 
         assertThrows(CancellationException::class.java) {

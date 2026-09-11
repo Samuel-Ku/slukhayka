@@ -145,10 +145,28 @@ class GlobalSearchRepositoryTest {
     }
 
     @Test
+    fun `knigionline urls map to their own source - spec-50 T4 registration`() {
+        // Book pages, the novinki section and the AudioIgniter playlist all
+        // live on the site's own host — one identity per host.
+        assertEquals("knigionline", sourceIdForUrl("https://knigi-online.com.ua/audioknyha-toreadory-z-vasiukivky-vsevolod-nestayko/"))
+        assertEquals("knigionline", sourceIdForUrl("https://knigi-online.com.ua/audioknyhy/"))
+        assertEquals("knigionline", sourceIdForUrl("https://knigi-online.com.ua/?audioigniter_playlist_id=531"))
+    }
+
+    @Test
+    fun `chitaka urls map to their own source - spec-50 T4 registration`() {
+        assertEquals("chitaka", sourceIdForUrl("https://chitaka.com.ua/audioknyhy/"))
+        assertEquals("chitaka", sourceIdForUrl("https://chitaka.com.ua/knigi/1984/"))
+        assertEquals("chitaka", sourceIdForUrl("https://chitaka.com.ua/wp-content/uploads/2022/10/1984.mp3"))
+    }
+
+    @Test
     fun `wave badges show the display names - spec-47 T5 registration`() {
         assertEquals("Audiobook.co.ua", sourceDisplayName("audiobookcoua"))
         assertEquals("Читайло", sourceDisplayName("chytaylo"))
         assertEquals("Ukrainian Audiobooks", sourceDisplayName("ukrainianaudiobooks"))
+        assertEquals("Knigi-Online", sourceDisplayName("knigionline"))
+        assertEquals("Читака", sourceDisplayName("chitaka"))
     }
 
     @Test

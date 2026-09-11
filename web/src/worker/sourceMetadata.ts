@@ -1,18 +1,52 @@
+import sources from '../../../sources.json'
 import type { SourceId } from './types'
 
-export const SOURCE_ORDER: readonly SourceId[] = [
-  'fourread',
-  'sound-books',
+/**
+ * ADR-0038 — worker-local key aliases of the canonical persisted ids
+ * (`sources.json`). Kept until the consumer migration that changes call
+ * sites to the domain ids; the parity test holds the alias map.
+ */
+export const WEB_KEY_TO_ID: Record<string, string> = {
+  fourread: '4read',
+  'sound-books': 'soundbooks',
+  'audiobook-mp3': 'audiobookmp3',
+}
+
+export const ID_TO_WEB_KEY: Record<string, SourceId> = {
+  '4read': 'fourread',
+  soundbooks: 'sound-books',
+  audiobookmp3: 'audiobook-mp3',
+}
+
+/** The ids the WEB client actually serves (local/telegram/sluhayknigi are not worker sources). */
+const WEB_IDS = new Set([
+  '4read',
+  'soundbooks',
+  'audiobookmp3',
   'sluhayua',
   'sluhay',
-  'audiobook-mp3',
   'lihtar',
   'librivox',
-  // Spec-47 T6 — the wave's two server-fetch sources (ukrainianaudiobooks
-  // stays absent: Cloudflare-GATED, no WebView session in the worker).
   'audiobookcoua',
   'chytaylo',
-]
+  'knigionline',
+  'chitaka',
+  // Spec-47 T6: ukrainianaudiobooks is a browser-gated web source too.
+  'ukrainianaudiobooks',
+])
+
+const factsById = new Map(sources.sources.map((source) => [source.id, source]))
+
+function factsOf(webId: SourceId) {
+  return factsById.get(WEB_KEY_TO_ID[webId] ?? webId)
+}
+
+/**
+ * The registry order (ADR-0038): every web source in the carrier's `order`.
+ */
+export const SOURCE_ORDER: readonly SourceId[] = sources.sources
+  .filter((source) => WEB_IDS.has(source.id))
+  .map((source) => ID_TO_WEB_KEY[source.id] ?? (source.id as SourceId))
 
 export const SOURCE_METADATA: Record<SourceId, {
   label: string
@@ -25,19 +59,28 @@ export const SOURCE_METADATA: Record<SourceId, {
    * source never has to tag every parse site. '' = unknown.
    */
   contentLanguage: string
-}> = {
-  fourread: { label: '4read', homeUrl: 'https://4read.org', browserSessionRequired: true, contentLanguage: 'uk' },
-  'sound-books': { label: 'Sound-Books', homeUrl: 'https://sound-books.net', browserSessionRequired: false, contentLanguage: 'uk' },
-  sluhayua: { label: 'Sluhay UA', homeUrl: 'https://sluhay.com.ua', browserSessionRequired: false, contentLanguage: 'uk' },
-  sluhay: { label: 'Sluhay', homeUrl: 'https://sluhay.com', browserSessionRequired: false, contentLanguage: 'uk' },
-  'audiobook-mp3': { label: 'Audio-MP3', homeUrl: 'https://audiobook-mp3.com', browserSessionRequired: false, contentLanguage: 'uk' },
-  lihtar: { label: 'Lihtar', homeUrl: 'https://lihtar.in.ua', browserSessionRequired: false, contentLanguage: 'uk' },
-  librivox: { label: 'LibriVox', homeUrl: 'https://librivox.org', browserSessionRequired: false, contentLanguage: 'en' },
-  // Spec-47 T6 — per the spec's identity decisions (id in the sources table,
-  // display name on cards), mirroring the Android sourceDisplayName.
-  audiobookcoua: { label: 'Audiobook.co.ua', homeUrl: 'https://audiobook.co.ua', browserSessionRequired: false, contentLanguage: 'uk' },
-  chytaylo: { label: 'Читайло', homeUrl: 'https://chytaylo.com.ua', browserSessionRequired: false, contentLanguage: 'uk' },
-}
+}> = Object.fromEntries(
+  SOURCE_ORDER.map((webId) => {
+    const facts = factsOf(webId)!
+    return [
+      webId,
+      {
+        label: facts.displayName,
+        // ADR-0038: trailing-slash normalization rides the consumer migration.
+        homeUrl: (facts.homeUrl ?? '').replace(/\/$/, ''),
+        // ADR-0038 §4: session-bound-ness is platform knowledge — sluhay
+        // needs the Android session while the worker fetches it server-side.
+        browserSessionRequired: webId === 'sluhay' ? false : facts.accessMode === 'BROWSER',
+        contentLanguage: facts.contentLanguage ?? '',
+      },
+    ]
+  }),
+) as Record<SourceId, {
+  label: string
+  homeUrl: string
+  browserSessionRequired: boolean
+  contentLanguage: string
+}>
 
 /** The content language a source's cards default to when a card carries none. */
 export function sourceContentLanguage(sourceId: SourceId): string {

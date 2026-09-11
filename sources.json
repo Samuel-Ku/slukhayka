@@ -1,0 +1,190 @@
+{
+  "sources": [
+    {
+      "id": "4read",
+      "displayName": "4read",
+      "homeUrl": "https://4read.org/",
+      "contentLanguage": "uk",
+      "accessMode": "BROWSER",
+      "order": 0,
+      "streamOnly": false,
+      "referer": { "value": "https://4read.org/", "scopeHosts": ["4read.org", "reasd.org"] },
+      "searchUrl": "https://4read.org/index.php?do=search&subaction=search&story={q}",
+      "transportHosts": ["4read.org", "reasd.org"],
+      "browserProfile": {
+        "pageHosts": ["4read.org", "reasd.org"],
+        "audioHosts": ["4read.org", "reasd.org"],
+        "homeUrl": "https://4read.org/",
+        "entryNotice": "Метод 4read змінився: для прослуховування потрібен браузер.",
+        "manifestProbe": true,
+        "manifestPlaceholder": "\\{v1\\}",
+        "manifestPlaceholderReplacement": "https://4read.org/m3u/",
+        "searchDoor": "https://4read.org/index.php?do=search&subaction=search&story={q}",
+        "releaseBrowserDoor": true
+      }
+    },
+    {
+      "id": "soundbooks",
+      "displayName": "Sound-Books",
+      "homeUrl": "https://sound-books.net",
+      "contentLanguage": "uk",
+      "accessMode": "DIRECT",
+      "order": 1,
+      "streamOnly": false,
+      "referer": { "value": "https://sound-books.net/", "scopeHosts": ["arch.sound-books.net"] },
+      "transportHosts": ["sound-books.net", "arch.sound-books.net"]
+    },
+    {
+      "id": "sluhayua",
+      "displayName": "Sluhay UA",
+      "homeUrl": "https://sluhay.com.ua",
+      "contentLanguage": "uk",
+      "accessMode": "DIRECT",
+      "order": 2,
+      "streamOnly": false,
+      "searchUrl": "https://sluhay.com.ua/find/allcards?search={q}&page=1",
+      "searchHeaders": { "x-requested-with": "XMLHttpRequest" },
+      "transportHosts": ["sluhay.com.ua"]
+    },
+    {
+      "id": "sluhay",
+      "displayName": "Sluhay",
+      "homeUrl": "https://sluhay.com",
+      "contentLanguage": "uk",
+      "accessMode": "BROWSER",
+      "order": 3,
+      "streamOnly": false,
+      "referer": { "value": "https://sluhay.com/", "scopeHosts": [] },
+      "transportHosts": ["sluhay.com", "redirectto.cc"],
+      "browserProfile": {
+        "pageHosts": ["sluhay.com"],
+        "audioHosts": ["sluhay.com", "redirectto.cc"],
+        "manifestProbe": true
+      }
+    },
+    {
+      "id": "audiobookmp3",
+      "displayName": "audiobook-mp3",
+      "homeUrl": "https://audiobook-mp3.com",
+      "contentLanguage": "uk",
+      "accessMode": "DIRECT",
+      "order": 4,
+      "streamOnly": false,
+      "referer": { "value": "https://audiobook-mp3.com/uk", "scopeHosts": [] },
+      "transportHosts": ["audiobook-mp3.com"]
+    },
+    {
+      "id": "lihtar",
+      "displayName": "Lihtar",
+      "homeUrl": "https://lihtar.in.ua",
+      "contentLanguage": "uk",
+      "accessMode": "DIRECT",
+      "order": 5,
+      "streamOnly": true,
+      "transportHosts": ["lihtar.in.ua"]
+    },
+    {
+      "id": "librivox",
+      "displayName": "LibriVox",
+      "homeUrl": "https://librivox.org",
+      "contentLanguage": "en",
+      "accessMode": "DIRECT",
+      "order": 6,
+      "streamOnly": false,
+      "catalogUrl": "https://librivox.org/api/feed/audiobooks/?format=json",
+      "transportHosts": ["librivox.org", "archive.org"]
+    },
+    {
+      "id": "audiobookcoua",
+      "displayName": "Audiobook.co.ua",
+      "homeUrl": "https://audiobook.co.ua",
+      "contentLanguage": "uk",
+      "accessMode": "DIRECT",
+      "order": 7,
+      "streamOnly": false,
+      "catalogUrl": "https://audiobook.co.ua/novinki-ozvuchivaniya/",
+      "transportHosts": ["audiobook.co.ua"]
+    },
+    {
+      "id": "chytaylo",
+      "displayName": "Читайло",
+      "homeUrl": "https://chytaylo.com.ua",
+      "contentLanguage": "uk",
+      "accessMode": "DIRECT",
+      "order": 8,
+      "streamOnly": false,
+      "transportHosts": ["chytaylo.com.ua"]
+    },
+    {
+      "id": "ukrainianaudiobooks",
+      "displayName": "Ukrainian Audiobooks",
+      "contentLanguage": "uk",
+      "accessMode": "BROWSER",
+      "order": 9,
+      "streamOnly": true,
+      "transportHosts": ["ukrainianaudiobooks.com"],
+      "browserProfile": {
+        "pageHosts": ["ukrainianaudiobooks.com"],
+        "audioHosts": ["ukrainianaudiobooks.com"],
+        "manifestProbe": true,
+        "releaseBrowserDoor": false
+      }
+    },
+    {
+      "id": "telegram",
+      "displayName": "Telegram",
+      "contentLanguage": "uk",
+      "accessMode": "UNKNOWN",
+      "order": 10,
+      "streamOnly": false,
+      "transportHosts": []
+    },
+    {
+      "id": "sluhayknigi",
+      "displayName": "SluhayKnigi",
+      "homeUrl": "https://sluhayknigi.com",
+      "contentLanguage": "uk",
+      "accessMode": "BROWSER",
+      "order": 11,
+      "streamOnly": false,
+      "referer": { "value": "https://sluhayknigi.com/", "scopeHosts": [] },
+      "transportHosts": ["sluhayknigi.com", "redirectto.cc"],
+      "browserProfile": {
+        "pageHosts": ["sluhayknigi.com"],
+        "audioHosts": ["sluhayknigi.com", "redirectto.cc"],
+        "manifestProbe": true
+      }
+    },
+    {
+      "id": "knigionline",
+      "displayName": "Knigi-Online",
+      "homeUrl": "https://knigi-online.com.ua",
+      "contentLanguage": "uk",
+      "accessMode": "DIRECT",
+      "order": 12,
+      "streamOnly": false,
+      "catalogUrl": "https://knigi-online.com.ua/audioknyhy/",
+      "searchUrl": "https://knigi-online.com.ua/?s={q}",
+      "transportHosts": ["knigi-online.com.ua"]
+    },
+    {
+      "id": "chitaka",
+      "displayName": "Читака",
+      "homeUrl": "https://chitaka.com.ua",
+      "contentLanguage": "uk",
+      "accessMode": "DIRECT",
+      "order": 13,
+      "streamOnly": false,
+      "catalogUrl": "https://chitaka.com.ua/audioknyhy/",
+      "transportHosts": ["chitaka.com.ua"]
+    },
+    {
+      "id": "local",
+      "displayName": "Локальна",
+      "accessMode": "DIRECT",
+      "order": -1,
+      "streamOnly": false,
+      "transportHosts": []
+    }
+  ]
+}

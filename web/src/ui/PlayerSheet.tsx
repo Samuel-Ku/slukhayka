@@ -11,6 +11,15 @@ import type { ListenerReview } from '../reviews/reviewModel'
 import { BookmarksPane, ChapterList, formatClock, SleepTimerPane } from './playerExtras'
 import { useOnline } from '../offline/status'
 
+const SPEED_MIN = 0.5
+const SPEED_MAX = 3
+const SPEED_STEP = 0.05
+const SPEED_PRESETS = [0.75, 1, 1.25, 1.5, 1.75, 2]
+
+function formatSpeed(speed: number): string {
+  return String(Math.round(speed * 100) / 100)
+}
+
 export type PlayerTab = 'chapters' | 'timer' | 'bookmarks'
 
 export function PlayerSheet({
@@ -40,6 +49,9 @@ export function PlayerSheet({
 
   const isPlaying = state.status === 'playing'
   const finished = state.isCompleted && lastPlayed !== null && reviewsStore !== null
+  const speedOptions = SPEED_PRESETS.includes(state.speed)
+    ? SPEED_PRESETS
+    : [...SPEED_PRESETS, state.speed].sort((a, b) => a - b)
 
   const chapters = engine.chaptersOf()
   const workId = engine.workIdOf()
@@ -135,13 +147,23 @@ export function PlayerSheet({
       <label style={{ marginTop: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
         {t('speed')}
         <select value={state.speed} onChange={(e) => engine.setSpeed(Number(e.target.value))}>
-          {[0.75, 1, 1.25, 1.5, 1.75, 2].map((s) => (
+          {speedOptions.map((s) => (
             <option key={s} value={s}>
-              {s}×
+              {formatSpeed(s)}×
             </option>
           ))}
         </select>
       </label>
+      <input
+        type="range"
+        min={SPEED_MIN}
+        max={SPEED_MAX}
+        step={SPEED_STEP}
+        value={state.speed}
+        aria-label={t('speedExact')}
+        onChange={(e) => engine.setSpeed(Math.round(Number(e.target.value) * 20) / 20)}
+        style={{ width: '100%', margin: '8px 0' }}
+      />
       {state.status === 'unavailable' && <p style={{ color: 'var(--bad)', marginTop: 12 }}>{t('bookUnavailable')}</p>}
 
       {/* W5.1 — the three panes, Android's sheet geometry: chapters list,

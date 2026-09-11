@@ -2814,8 +2814,33 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         recommendationPersonalization.preferences
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    /**
+     * #481 — the library as the recommendation row sees it: re-emitted only
+     * when a signal BOUNDARY moves (started / completed / favourite / a Work
+     * added-removed), never on an intermediate 5-second progress tick. The
+     * pure [RecommendationRefreshPolicy] owns the key.
+     */
+    private val recommendationLibrarySignals: StateFlow<List<com.slukhayka.audiobooks.ui.library.LibraryBook>> =
+        libraryBooks
+            .map { books ->
+                books to com.slukhayka.audiobooks.data.recommend.RecommendationRefreshPolicy.libraryKey(
+                    books.map { lb ->
+                        com.slukhayka.audiobooks.data.recommend.RecommendationRefreshPolicy.WorkSignal(
+                            id = lb.book.mergeKey.ifBlank { lb.book.workId.orEmpty().ifBlank { lb.book.id } },
+                            isFavorite = lb.book.isFavorite,
+                            started = lb.percent > 0f,
+                            completed = lb.isCompleted
+                        )
+                    }
+                )
+            }
+            .distinctUntilChanged { old, new -> old.second == new.second }
+            .map { it.first }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), libraryBooks.value)
+
+    @OptIn(kotlinx.coroutines.FlowPreview::class)
     val recommendedBooks: StateFlow<List<com.slukhayka.audiobooks.data.recommend.RecommendationEngine.Recommendation>> = combine(
-        libraryBooks,
+        recommendationLibrarySignals,
         sourceCatalog.unifiedCatalog,
         catalogVectors,
         recommendationPreferences,
@@ -2934,7 +2959,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             popularityByWorkId = popularityByWorkId,
             sourceLabelsByWorkId = sourceLabelsByWorkId
         )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    }.debounce(1_000L).flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val pendingRecommendationBookId = java.util.concurrent.atomic.AtomicReference<String?>(null)
 

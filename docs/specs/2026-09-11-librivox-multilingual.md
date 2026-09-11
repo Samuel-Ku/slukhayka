@@ -1,6 +1,6 @@
 # Спека: LibriVox багатомовний — admission, мовні фільтри, перший вибір мов
 
-> Status: Proposed (shared understanding зафіксовано 2026-09-11; коду ще нема).
+> Status: Proposed. Опубліковано в issue tracker: **#742** (`ready-for-agent`).
 > Номер: **spec-51**. Гілка: `spec-51-librivox-multilingual` (від `main`).
 
 ## Problem Statement

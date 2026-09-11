@@ -776,6 +776,25 @@ class App : Application() {
     }
 
     /**
+     * Авто-сід медіатеки (spec `2026-09-10-remove-4read-source`): bounded
+     * verified pass over the catalogue union — resolve → preflight the first
+     * stream → import through the ordinary door. The probe rides the shared
+     * transport (HEAD, streams are outside the gate per ADR-0039); the
+     * already-known check keeps repeat passes nearly free.
+     */
+    val librarySeeder: com.slukhayka.audiobooks.data.catalog.LibrarySeeder by lazy {
+        com.slukhayka.audiobooks.data.catalog.LibrarySeeder(
+            candidates = { sourceCatalog.unifiedCatalog.value },
+            adapterFor = { sourceId -> sourceAdapters.firstOrNull { it.sourceId == sourceId } },
+            streamProbe = { url -> HttpFetcher().isReachable(url) },
+            known = { mergeKey -> database.audiobookDao().findByMergeKey(mergeKey) != null },
+            import = { sourceId, detail ->
+                libraryImport.importBookFromSource(sourceId, detail)
+            }
+        )
+    }
+
+    /**
      * Spec-25 (#171/#173): the lazy series-universe resolution — the curated
      * universe assets first (offline-capable for the seeded universes), then
      * the Wikidata provider for unseeded series, behind the same seam. The

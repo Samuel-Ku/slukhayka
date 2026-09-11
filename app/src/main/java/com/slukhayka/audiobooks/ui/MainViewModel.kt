@@ -270,6 +270,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val chapterDurationProbe: ChapterDurationProbe = App.instance.chapterDurationProbe
     // Spec-25 (#171): the lazy series-universe resolution over the curated assets.
     val seriesUniverses: SeriesUniverses = App.instance.seriesUniverses
+
+    // Авто-сід медіатеки (spec `2026-09-10-remove-4read-source`): the bounded
+    // verified catalogue pass, same module field idiom as the probes above.
+    val librarySeeder: com.slukhayka.audiobooks.data.catalog.LibrarySeeder = App.instance.librarySeeder
+
+    /**
+     * Один обмежений прохід на добу: каталог → перевірка стріму → імпорт.
+     * Від'єднаний, ніколи не блокує Огляд; throttle по SharedPreferences.
+     */
+    fun seedLibraryIfDue() {
+        val prefs = App.instance.getSharedPreferences("library_seeder", android.content.Context.MODE_PRIVATE)
+        val now = System.currentTimeMillis()
+        if (now - prefs.getLong("last_run_at", 0L) < 24 * 60 * 60 * 1000L) return
+        prefs.edit().putLong("last_run_at", now).apply()
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { librarySeeder.seedOnce() }
+        }
+    }
     // Spec-42 #431: shared metadata store for verified profile publish
     val sharedMetaStore: FirestoreBookMetaStore? = App.instance.sharedMetaStore
     val playerManager: AudioPlayerManager = App.instance.playerManager

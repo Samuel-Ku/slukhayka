@@ -331,6 +331,7 @@ export function App({ profile: initialProfile }: { profile: ListenerProfile | nu
             recommendationPrefs={recommendationPrefsStore}
             participation={participation}
             personBookmarks={personBookmarks}
+            showFirstLanguageChoice
           />
         ) : tab === 'library' ? (
           <Library

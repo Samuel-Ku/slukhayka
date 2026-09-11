@@ -87,7 +87,7 @@
       "id": "librivox",
       "displayName": "LibriVox",
       "homeUrl": "https://librivox.org",
-      "contentLanguage": "en",
+      "contentLanguage": "",
       "accessMode": "DIRECT",
       "order": 6,
       "streamOnly": false,

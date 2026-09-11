@@ -85,6 +85,13 @@ describe('the one-time {uk,en} → «Усі» migration', () => {
     expect(storage.raw(KEY)).toBe('[]')
   })
 
+  it('recognises the legacy default regardless of stored order', () => {
+    const storage = new FakeStorage()
+    storage.setItem(KEY, JSON.stringify(['en', 'uk']))
+    expect(loadContentLanguagePrefs(storage)).toEqual([])
+    expect(storage.raw(KEY)).toBe('[]')
+  })
+
   it('never re-widens a later deliberate uk+en selection', () => {
     const storage = new FakeStorage()
     // First load marks the migration as done.

@@ -20,6 +20,7 @@ import com.slukhayka.audiobooks.data.db.SeriesEntity
 import com.slukhayka.audiobooks.data.db.SeriesMemberEntity
 import com.slukhayka.audiobooks.data.db.SourceEntity
 import com.slukhayka.audiobooks.data.db.SourceTrackEntity
+import com.slukhayka.audiobooks.data.db.BookDownloadCount
 import com.slukhayka.audiobooks.data.db.DescriptionRow
 import com.slukhayka.audiobooks.data.db.TitleRow
 import com.slukhayka.audiobooks.data.db.UniverseEntity
@@ -414,6 +415,26 @@ class FakeAudiobookDao(
         val sourceIds = sourcesState.value.filter { it.bookId == bookId }.map { it.id }.toSet()
         return tracksState.value.filter { it.sourceId in sourceIds }.sortedBy { it.trackIndex }
     }
+
+    override fun getTracksForBook(bookId: String): Flow<List<SourceTrackEntity>> =
+        tracksState.map { tracks ->
+            val sourceIds = sourcesState.value.filter { it.bookId == bookId }.map { it.id }.toSet()
+            tracks.filter { it.sourceId in sourceIds }.sortedBy { it.trackIndex }
+        }
+
+    override fun observeBookDownloadCounts(): Flow<List<BookDownloadCount>> =
+        combine(tracksState, sourcesState) { tracks, sources ->
+            val bookBySource = sources.associate { it.id to it.bookId }
+            tracks.groupBy { bookBySource[it.sourceId] }
+                .filterKeys { it != null }
+                .map { (bookId, bookTracks) ->
+                    BookDownloadCount(
+                        bookId = bookId!!,
+                        total = bookTracks.size,
+                        downloaded = bookTracks.count { it.isDownloaded }
+                    )
+                }
+        }
 
     override suspend fun insertTracks(tracks: List<SourceTrackEntity>) {
         val incomingIds = tracks.map { it.id }.toSet()

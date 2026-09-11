@@ -131,6 +131,10 @@ fun BookDetailScreen(
     val sourceProfiles by viewModel.sourceProfiles.collectAsState()
     // Spec-23 T5: every Edition carrying the Work — the «Джерела» section.
     val bookSources by viewModel.bookSources.collectAsState()
+    // #397 — partial-offline counts (badge) and the open book's downloaded
+    // chapter indices (per-chapter delete).
+    val bookDownloadCounts by viewModel.bookDownloadCounts.collectAsState()
+    val downloadedIndices by viewModel.selectedBookDownloadedIndices.collectAsState()
 
     // #40 decision 1: the favourite toggle lives on the book page itself.
     val favoriteBooks by viewModel.libraryEntries.getFavoriteAudiobooks()
@@ -145,6 +149,8 @@ fun BookDetailScreen(
     var showDeleteDialog by remember { mutableStateOf(false) }
     var bookmarkToDelete by remember { mutableStateOf<BookmarkEntity?>(null) }
     var bookmarkDeleteOrigin by remember { mutableStateOf<FocusRequester?>(null) }
+    // #397 — the chapter whose offline copy is pending deletion.
+    var pendingChapterDeleteIndex by remember { mutableStateOf<Int?>(null) }
     var playerReturnFocusChapterId by remember { mutableStateOf<String?>(null) }
     var playerReturnFocusRequester by remember { mutableStateOf<FocusRequester?>(null) }
     val deleteTriggerFocusRequester = remember { FocusRequester() }
@@ -789,6 +795,22 @@ fun BookDetailScreen(
                         )
                     }
 
+                    // #397 — honest partial offline on the Edition header.
+                    bookDownloadCounts[currentBook.id]
+                        ?.takeIf { it.downloaded > 0 && it.downloaded < it.total }
+                        ?.let { count ->
+                            Text(
+                                text = stringResource(
+                                    R.string.offline_partial_badge,
+                                    count.downloaded,
+                                    count.total
+                                ),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.secondary,
+                                modifier = Modifier.padding(start = 4.dp, top = 4.dp)
+                            )
+                        }
+
                     Spacer(modifier = Modifier.height(AppDimens.SpaceLg))
 
                     BookDetailDescription(detailPresentation)
@@ -961,7 +983,9 @@ fun BookDetailScreen(
                             }
                             viewModel.setShowFullPlayer(true)
                         },
-                        onPauseClick = { viewModel.playerManager.pause() }
+                        onPauseClick = { viewModel.playerManager.pause() },
+                        isDownloadedCopy = downloadedIndices.contains(index),
+                        onDeleteCopy = { pendingChapterDeleteIndex = index }
                     )
                 }
             } else {
@@ -1256,6 +1280,28 @@ fun BookDetailScreen(
                 }
             },
             onDismiss = { bookmarkToDelete = null }
+        )
+    }
+
+    // #397 — deleting ONE chapter's offline copy keeps the rest of the book.
+    pendingChapterDeleteIndex?.let { chapterIndex ->
+        AlertDialog(
+            onDismissRequest = { pendingChapterDeleteIndex = null },
+            title = { Text(stringResource(R.string.book_detail_chapter_delete_copy)) },
+            text = { Text(stringResource(R.string.book_detail_chapter_delete_copy_confirm)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    pendingChapterDeleteIndex = null
+                    viewModel.removeChapterDownload(currentBook.id, chapterIndex)
+                }) {
+                    Text(stringResource(R.string.book_detail_bookmark_delete_confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingChapterDeleteIndex = null }) {
+                    Text(stringResource(R.string.book_detail_cancel))
+                }
+            }
         )
     }
 

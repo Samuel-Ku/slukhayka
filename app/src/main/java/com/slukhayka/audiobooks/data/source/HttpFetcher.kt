@@ -82,7 +82,12 @@ open class HttpFetcher(
     ): String {
         val gate = effectiveGate(url, extraHeaders) ?: return getTextResult(url, extraHeaders).second
         val outcome = runBlocking {
-            gate.run(url, requestClass, cacheTtlMillis) { executeText(url, extraHeaders) }
+            // The blocking door never waits: a dry bucket defers immediately
+            // and the jitter gap is skipped, so taps and global search stay
+            // responsive (the 2026-09-10 device regression).
+            gate.run(url, requestClass, cacheTtlMillis, canWait = false) {
+                executeText(url, extraHeaders)
+            }
         }
         return when (outcome) {
             is GateOutcome.Fresh -> outcome.value

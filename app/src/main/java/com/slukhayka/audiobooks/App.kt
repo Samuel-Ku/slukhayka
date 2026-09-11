@@ -290,14 +290,23 @@ class App : Application() {
                         coverImageUrl = null
                     )
                 }
+            },
+            // #725 — a session-backed BROWSER match is usable only while the
+            // listener's first-party session exists (ADR-0037 amendment).
+            sessionAlive = { sourceId ->
+                val home = com.slukhayka.audiobooks.data.source.SourceRegistry
+                    .facts(sourceId)?.homeUrl.orEmpty()
+                home.isNotBlank() && com.slukhayka.audiobooks.ui.catalog.hasUsableSourceSession(
+                    com.slukhayka.audiobooks.data.source.AndroidSourceCookieProvider.cookieFor(home)
+                )
             }
         )
     }
 
     /**
-     * ADR-0042 — the local Work index: sitemap URLs (audiobook.co.ua,
-     * chytaylo) plus catalogue-card enumeration for the sources without a book
-     * sitemap (knigi-online, sound-books, sluhayua), persisted between
+     * The local Work index: sitemap URLs (audiobook.co.ua, chytaylo,
+     * sluhay.com) plus catalogue-card enumeration for the sources without a
+     * book sitemap (knigi-online, sound-books, sluhayua), persisted between
      * launches under the catalog TTL. Consulted by [directSourceResolve] with
      * zero requests.
      */
@@ -313,7 +322,12 @@ class App : Application() {
             store = com.slukhayka.audiobooks.data.catalog.WorkIndexStore(
                 java.io.File(filesDir, "work_index.tsv")
             ),
-            cardSources = cards
+            cardSources = cards,
+            // #725 — sluhay's book sitemap is session-bound (Cloudflare): the
+            // ONE shared host-aware provider reads the live WebView cookie
+            // just-in-time; without a session the carrier contributes nothing.
+            // ADR-0039 §8 traffic: one request per source per catalog TTL.
+            cookieProvider = com.slukhayka.audiobooks.data.source.AndroidSourceCookieProvider
         )
     }
 

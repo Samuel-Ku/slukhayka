@@ -20,6 +20,7 @@ import com.slukhayka.audiobooks.data.db.SeriesEntity
 import com.slukhayka.audiobooks.data.db.SeriesMemberEntity
 import com.slukhayka.audiobooks.data.db.SourceEntity
 import com.slukhayka.audiobooks.data.db.SourceTrackEntity
+import com.slukhayka.audiobooks.data.db.EmbeddingVectorEntity
 import com.slukhayka.audiobooks.data.db.BookDownloadCount
 import com.slukhayka.audiobooks.data.db.DescriptionRow
 import com.slukhayka.audiobooks.data.db.TitleRow
@@ -1315,4 +1316,18 @@ class FakeAudiobookDao(
 
     override suspend fun popularityAssertions(kind: String): List<PopularityAssertionEntity> =
         popularityState.value.filter { it.kind == kind }
+
+    // --- Embedding vectors (#482) -------------------------------------------
+
+    private val embeddingVectorsState = MutableStateFlow(emptyList<EmbeddingVectorEntity>())
+
+    override suspend fun embeddingVectors(workIds: List<String>): List<EmbeddingVectorEntity> =
+        embeddingVectorsState.value.filter { it.workId in workIds }
+
+    override suspend fun allEmbeddingVectors(): List<EmbeddingVectorEntity> = embeddingVectorsState.value
+
+    override suspend fun upsertEmbeddingVectors(rows: List<EmbeddingVectorEntity>) {
+        val byId = rows.associateBy { it.workId }
+        embeddingVectorsState.update { current -> current.filterNot { it.workId in byId.keys } + rows }
+    }
 }

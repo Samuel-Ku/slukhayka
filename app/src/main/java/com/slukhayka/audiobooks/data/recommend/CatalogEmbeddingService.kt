@@ -17,11 +17,13 @@ class CatalogEmbeddingService(
 ) {
     /**
      * The vectors for [catalog]: fresh cache hits serve without the embedder;
-     * only new/changed books are computed and persisted. Never throws.
+     * only new/changed books are computed — at most [limit] per pass, so a
+     * cold 10k pool warms gradually instead of in one storm. Never throws.
      */
     suspend fun vectorsFor(
         catalog: List<RecommendationEngine.Candidate>,
-        embedder: TextEmbedder
+        embedder: TextEmbedder,
+        limit: Int = Int.MAX_VALUE
     ): Map<String, FloatArray> {
         if (catalog.isEmpty()) return emptyMap()
         val texts = catalog.associate { it.id to it.text }
@@ -31,7 +33,7 @@ class CatalogEmbeddingService(
 
         val computed = LinkedHashMap(cached)
         val persist = LinkedHashMap<String, Pair<String, FloatArray>>()
-        for (candidate in missing) {
+        for (candidate in missing.take(limit)) {
             try {
                 val vector = embedder.embed(candidate.text)
                 computed[candidate.id] = vector

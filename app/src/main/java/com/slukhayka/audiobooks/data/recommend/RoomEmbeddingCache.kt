@@ -43,9 +43,14 @@ class RoomEmbeddingCache(
     /** The vectors whose stored text hash still matches the given text. */
     suspend fun loadFresh(texts: Map<String, String>): Map<String, FloatArray> {
         if (texts.isEmpty()) return emptyMap()
-        val rows = runCatching { dao.embeddingVectors(texts.keys.toList()) }
-            .getOrDefault(emptyList())
-            .associateBy { it.workId }
+        // The pool can be the whole Room catalogue (10k+); query in chunks so
+        // the SQLite variable limit is never hit.
+        val rows = LinkedHashMap<String, EmbeddingVectorEntity>()
+        for (chunk in texts.keys.chunked(IN_CHUNK)) {
+            runCatching { dao.embeddingVectors(chunk) }
+                .getOrDefault(emptyList())
+                .forEach { rows[it.workId] = it }
+        }
         val result = LinkedHashMap<String, FloatArray>()
         for ((id, text) in texts) {
             val row = rows[id] ?: continue
@@ -69,5 +74,9 @@ class RoomEmbeddingCache(
             )
         }
         runCatching { dao.upsertEmbeddingVectors(rows) }
+    }
+
+    private companion object {
+        const val IN_CHUNK = 900
     }
 }

@@ -3979,6 +3979,61 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         offlineDownloads.registerDownloadJob(bookId, job)
     }
 
+    // #396 — selective download of chosen chapters. The size preview is a
+    // separate, cancelable HEAD sweep restricted to the selected chapters.
+    private val _selectedDownloadSize = MutableStateFlow<OfflineDownloads.EstimatedSize?>(null)
+    val selectedDownloadSize: StateFlow<OfflineDownloads.EstimatedSize?> = _selectedDownloadSize.asStateFlow()
+    private var selectedSizeJob: kotlinx.coroutines.Job? = null
+
+    fun estimateSelectedChaptersSize(bookId: String, chapterIds: Set<String>) {
+        selectedSizeJob?.cancel()
+        if (chapterIds.isEmpty()) {
+            _selectedDownloadSize.value = null
+            return
+        }
+        selectedSizeJob = viewModelScope.launch(Dispatchers.IO) {
+            _selectedDownloadSize.value = runCatching {
+                offlineDownloads.estimateOfflineSize(bookId, chapterIds)
+            }.getOrNull()
+        }
+    }
+
+    fun downloadSelectedChapters(bookId: String, chapterIds: Set<String>) {
+        if (chapterIds.isEmpty()) return
+        if (_downloadingBookId.value != null) {
+            android.widget.Toast.makeText(getApplication(), "Вже завантажується інша книга", android.widget.Toast.LENGTH_SHORT).show()
+            return
+        }
+        _downloadingBookId.value = bookId
+        val job = viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val book = libraryEntries.getBookSync(bookId)
+                startDownloadNotification(bookId, book?.title ?: "", book?.author ?: "")
+                offlineDownloads.registerDownloadJob(bookId, kotlinx.coroutines.currentCoroutineContext()[kotlinx.coroutines.Job]!!)
+                val result = offlineDownloads.downloadSelectedChapters(bookId, chapterIds)
+                if (_selectedBookId.value == bookId) {
+                    _downloadMessage.value = OutcomeMessages.downloadOutcome(result)
+                    _downloadRecoveryBookId.value = bookId.takeIf { result.requiresBrowserRefresh }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                android.util.Log.w("MainViewModel", "Selective download failed", e)
+                if (_selectedBookId.value == bookId) {
+                    _downloadMessage.value = OutcomeMessages.downloadFailure()
+                    _downloadRecoveryBookId.value = null
+                }
+            } finally {
+                if (offlineDownloads.unregisterDownloadJob(bookId, kotlinx.coroutines.currentCoroutineContext()[kotlinx.coroutines.Job]!!)) {
+                    _downloadingBookId.value = null
+                    stopDownloadNotification()
+                }
+                refreshCacheSize()
+            }
+        }
+        offlineDownloads.registerDownloadJob(bookId, job)
+    }
+
     // #394 — Download controls: pause / continue / cancel
     fun pauseDownload(bookId: String) {
         viewModelScope.launch(Dispatchers.IO) {

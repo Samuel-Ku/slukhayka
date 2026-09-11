@@ -4298,7 +4298,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         newBooks = acc.newBooks + r.newBooks,
                         missingFiles = acc.missingFiles + r.missingFiles,
                         movedFiles = acc.movedFiles + r.movedFiles,
-                        duplicateFiles = acc.duplicateFiles + r.duplicateFiles
+                        duplicateFiles = acc.duplicateFiles + r.duplicateFiles,
+                        structuralChangeRejected = acc.structuralChangeRejected || r.structuralChangeRejected
                     )
                 }
                 _importMessage.value = OutcomeMessages.rescanOutcome(totals)

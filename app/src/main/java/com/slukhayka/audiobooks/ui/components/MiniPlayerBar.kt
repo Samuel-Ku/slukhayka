@@ -12,6 +12,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -23,6 +24,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
@@ -39,6 +41,8 @@ fun MiniPlayerBar(
     onSkipNextClick: () -> Unit,
     onBarClick: () -> Unit,
     modifier: Modifier = Modifier,
+    // Issue #752: the same -15 s step the full player and the widget offer.
+    onRewindClick: () -> Unit,
     // ADR-0024 (#362): the second (and last) home of the cast affordance —
     // the same shared tool as on the player screen, never a duplicate.
     castReady: Boolean = false,
@@ -60,6 +64,7 @@ fun MiniPlayerBar(
         playbackState,
         stringResource(R.string.a11y_available_offline).takeIf { playerState.isOfflineMode }
     ).joinToString(". ")
+    val rewindDescription = stringResource(R.string.a11y_player_seek_back, book.title, chapterTitle)
 
     // Phase 2.5 hotfix (compile warning at MiniPlayerBar.kt:46): the parent
     // already early-returns when currentBook is null, so the AnimatedVisibility
@@ -160,6 +165,22 @@ fun MiniPlayerBar(
 
                 // ADR-0024 (#362): cast affordance in the mini-player too.
                 CastButton(castReady = castReady)
+
+                // Rewind Button (issue #752): -15 s, matching the full player.
+                IconButton(
+                    onClick = onRewindClick,
+                    modifier = Modifier
+                        .size(AppDimens.TouchTarget)
+                        .semantics { contentDescription = rewindDescription }
+                        .testTag("mini_player_rewind")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Replay,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
 
                 // Play/Pause Button
                 IconButton(

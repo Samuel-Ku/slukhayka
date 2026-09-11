@@ -846,6 +846,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    /**
+     * Issue #752 — the manual «Прослухано» toggle. Sets the completion flag on
+     * the Edition's Listening State (no new entity, no position change) and
+     * pushes it so it mirrors across the listener's linked devices.
+     */
+    fun setCompleted(bookId: String, completed: Boolean) {
+        viewModelScope.launch {
+            listeningState.setCompleted(bookId, completed)
+            progressSync.pushAfterSave(bookId, immediate = true)
+        }
+    }
+
     // Spec-15 T2: direct sources may still leave the app through ACTION_VIEW.
     fun openWebFallback(url: String) {
         openInSystemBrowser(url)

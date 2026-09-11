@@ -314,4 +314,22 @@ class SourceRequestGateTest {
         assertTrue("gap $gap below the minimum", gap >= 200)
         assertTrue("gap $gap above the maximum", gap <= 800)
     }
+
+    @Test
+    fun `a budget-deferred request sleeps no jitter`() = runTest {
+        val harness = Harness(SourceGateParams(jitterMinMs = 200, jitterMaxMs = 800))
+        // An actual fetch establishes the last-finished timestamp the gap is
+        // measured from.
+        harness.gate.run("https://a.example/1", SourceRequestClass.TTL_REFRESH) { "1" }
+        val afterFirst = harness.now
+        // b.example's bucket is empty and BACKGROUND needs strictly more than
+        // half the bucket -> Deferred: it must consume no throat slot and no
+        // jitter gap.
+        harness.store.save("b.example", SourceBucketState(tokens = 0, lastRefillAtMs = harness.now))
+
+        val outcome = harness.gate.run("https://b.example/2", SourceRequestClass.BACKGROUND) { "2" }
+
+        assertTrue(outcome is GateOutcome.Deferred)
+        assertEquals(afterFirst, harness.now)
+    }
 }

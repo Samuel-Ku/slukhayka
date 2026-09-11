@@ -94,6 +94,7 @@ union уже був повний (інакше каталог просяде м�
 - **Обмежено пошуковий запис** (`SourceCatalog.persistSearchGenreAssertions`):
   не більше 50 жанрових документів на один пошуковий прохід — раніше рядок на
   кожен результат. Наявні тести `SearchGenreAssertionTest` лишаються зеленими.
-- **Відкладено (follow-up):** G1 — сам `SourceRequestGate` усе ще бере throat
-  і jitter для запиту, який потім Deferred; перенести jitter на «допущені»
-  запити — окремий тікет (зміна спільного шлюзу, вищий ризик).
+- **G1 — реалізовано теж:** jitter застосовується лише до допущених запитів
+  (`SourceRequestGate.fetchUnderBudget`, після admission); Deferred-запит
+  більше не спить і не тримає спільний throat. Тест:
+  `SourceRequestGateTest` («a budget-deferred request sleeps no jitter»).

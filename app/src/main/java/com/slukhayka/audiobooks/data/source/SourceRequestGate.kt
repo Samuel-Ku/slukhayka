@@ -169,6 +169,12 @@ class SourceRequestGate(
             is Admission.Granted -> budgetStore.save(host, admission.state)
         }
 
+        // G1 (spec `2026-09-10-remove-4read-source`) — the jitter spaces out
+        // real fetches only: a request the budget defers returns above,
+        // before this gap, so it takes no throat slot and never sleeps — a
+        // caller walking many URLs on an exhausted budget cannot stall the
+        // shared gate.
+        pauseJitterGap()
         val value = fetch()
         if (value == null) {
             if (cacheTtlMillis > 0L && params.negativeTtlMs > 0L) {
@@ -261,9 +267,7 @@ class SourceRequestGate(
                 waiters.add(Waiter(requestClass, granted, ++waiterSeq))
             }
         }
-        if (direct) {
-            pauseJitterGap()
-        } else {
+        if (!direct) {
             granted.await()
         }
     }
@@ -284,7 +288,6 @@ class SourceRequestGate(
             lastFinishedAtMs = clock()
             return
         }
-        pauseJitterGap()
         next.granted.complete(Unit)
     }
 

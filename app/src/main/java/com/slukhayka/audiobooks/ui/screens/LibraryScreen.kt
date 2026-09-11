@@ -122,6 +122,9 @@ fun LibraryScreen(
 ) {
     val libraryBooks by viewModel.libraryBooks.collectAsState()
     val libraryAvailability by viewModel.libraryAvailability.collectAsState()
+    // Spec-56 T2 (#729) — every problem Work joins the Source Watch
+    // automatically, idempotently and without a listener action.
+    LaunchedEffect(libraryBooks) { viewModel.ensureProblemWorksWatched() }
     // ADR-0008: module flows are read directly — no forwarding StateFlow on
     // the ViewModel. getAllListeningStats() builds the (cold) flow, so it is
     // remembered once per composition instead of re-created on every frame.
@@ -482,7 +485,8 @@ fun LibraryScreen(
                                     } else {
                                         Modifier
                                     },
-                                    availability = libraryAvailability[entry.book.mergeKey]
+                                    availability = libraryAvailability[entry.book.mergeKey],
+                                    onRecheck = { viewModel.recheckAvailability(entry.book.id) }
                                 )
                             }
                         }
@@ -734,7 +738,8 @@ fun LibraryBookCard(
     grid: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    availability: com.slukhayka.audiobooks.data.availability.AvailabilityView? = null
+    availability: com.slukhayka.audiobooks.data.availability.AvailabilityView? = null,
+    onRecheck: (() -> Unit)? = null
 ) {
     val author = book.book.displayAuthor
     val description = if (author.isBlank()) {
@@ -792,9 +797,9 @@ fun LibraryBookCard(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
     ) {
         if (grid) {
-            LibraryBookGridContent(book, availability)
+            LibraryBookGridContent(book, availability, onRecheck)
         } else {
-            LibraryBookRowContent(book, availability)
+            LibraryBookRowContent(book, availability, onRecheck)
         }
     }
 }
@@ -802,7 +807,8 @@ fun LibraryBookCard(
 @Composable
 private fun LibraryBookRowContent(
     book: LibraryBook,
-    availability: com.slukhayka.audiobooks.data.availability.AvailabilityView? = null
+    availability: com.slukhayka.audiobooks.data.availability.AvailabilityView? = null,
+    onRecheck: (() -> Unit)? = null
 ) {
     // v1.4 E3 (ADR-0033): the library list row IS the canonical BookRow —
     // the old bespoke 56 dp Row (a fifth row style) is gone. The card's
@@ -834,14 +840,17 @@ private fun LibraryBookRowContent(
             availabilityLabel(availability)?.let { label ->
                 // ADR-0042 §1 — the honest availability state of a problem
                 // Work, under the progress hairline; a clean Work has none.
+                // Spec-56 T2: a tap asks for a fresh, bounded re-check.
                 Text(
                     text = label,
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(
-                        start = AppDimens.PageSides + 64.dp + AppDimens.SpaceMd,
-                        bottom = AppDimens.SpaceXs
-                    )
+                    modifier = Modifier
+                        .padding(
+                            start = AppDimens.PageSides + 64.dp + AppDimens.SpaceMd,
+                            bottom = AppDimens.SpaceXs
+                        )
+                        .clickable(enabled = onRecheck != null) { onRecheck?.invoke() }
                 )
             }
             if (book.totalDurationSeconds > 0L) {
@@ -867,7 +876,8 @@ private fun LibraryBookRowContent(
 @Composable
 private fun LibraryBookGridContent(
     book: LibraryBook,
-    availability: com.slukhayka.audiobooks.data.availability.AvailabilityView? = null
+    availability: com.slukhayka.audiobooks.data.availability.AvailabilityView? = null,
+    onRecheck: (() -> Unit)? = null
 ) {
     Column {
         BookCoverImage(
@@ -924,7 +934,8 @@ private fun LibraryBookGridContent(
                     Text(
                         text = label,
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.clickable(enabled = onRecheck != null) { onRecheck?.invoke() }
                     )
                 }
                 if (book.totalDurationSeconds > 0L) {

@@ -96,16 +96,21 @@ class SourceReplacementMapping(
      * The direct counterpart of the Work, or null. Fires no network request
      * while a fresh memo, the union, the shared cache or the local Work index
      * answers — and at most ONE parallel volley when they all miss.
+     *
+     * [force] bypasses the verdict memo for a listener-initiated re-check
+     * (spec-56 T2): the tap asks for current truth, not the cached verdict.
      */
-    suspend fun resolve(title: String, author: String, mergeKey: String): Match? {
+    suspend fun resolve(title: String, author: String, mergeKey: String, force: Boolean = false): Match? {
         if (mergeKey.isBlank()) return null
         val now = clock()
-        verdicts[mergeKey]?.let { verdict ->
-            if (CatalogAvailabilityPolicy.isFresh(verdict.matched, verdict.observedAtMillis, now)) {
-                return verdict.match
+        if (!force) {
+            verdicts[mergeKey]?.let { verdict ->
+                if (CatalogAvailabilityPolicy.isFresh(verdict.matched, verdict.observedAtMillis, now)) {
+                    return verdict.match
+                }
             }
-            verdicts.remove(mergeKey, verdict)
         }
+        verdicts.remove(mergeKey)
 
         val query = listOf(title.trim(), author.trim())
             .filter { it.isNotEmpty() }

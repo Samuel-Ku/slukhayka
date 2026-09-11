@@ -177,6 +177,24 @@ class SourceReplacementMappingTest {
     }
 
     @Test
+    fun `a forced re-check bypasses a fresh memo`() = runTest {
+        val searches = CountingSearches(
+            "sluhayua" to listOf(directBook("sluhayua", "https://sluhay.com.ua/42"))
+        )
+        val resolver = SourceReplacementMapping(
+            directSearches = searches.searches,
+            union = { emptyList() },
+            clock = { 1_000_000L }
+        )
+        val mergeKey = MergeKey.keyFor("Книга", "Автор")
+
+        resolver.resolve("Книга", "Автор", mergeKey)
+        resolver.resolve("Книга", "Автор", mergeKey, force = true)
+
+        assertEquals(2, searches.total)
+    }
+
+    @Test
     fun `positive verdict is stale at exactly six hours`() = runTest {
         var now = 1_000_000L
         val searches = CountingSearches(

@@ -27,6 +27,7 @@ import com.slukhayka.audiobooks.data.universe.SeriesUniverses
 import com.slukhayka.audiobooks.data.update.UpdateChecker
 import com.slukhayka.audiobooks.data.catalog.SourceCatalog
 import com.slukhayka.audiobooks.data.catalog.CatalogAvailabilityPolicy
+import com.slukhayka.audiobooks.data.availability.AvailabilityStatus
 import com.slukhayka.audiobooks.data.availability.AvailabilityView
 import com.slukhayka.audiobooks.data.availability.LibraryAvailabilityPolicy
 import com.slukhayka.audiobooks.data.downloads.OfflineDownloads
@@ -714,10 +715,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     ) { books, verdicts, refused ->
         buildMap {
             for (entry in books) {
-                val mergeKey = entry.book.mergeKey
+                val book = entry.book
+                // A local copy or an offline download always plays.
+                if (entry.isLocal || book.isDownloaded) continue
+                val mergeKey = book.mergeKey
                 if (mergeKey.isBlank()) continue
-                val available = LibraryAvailabilityPolicy.hasAvailableAudio(entry.book.sourceUrl, refused)
-                val refusedId = LibraryAvailabilityPolicy.refusedSourceId(entry.book.sourceUrl, refused)
+                val available = LibraryAvailabilityPolicy.hasAvailableAudio(book.sourceUrl, refused)
+                val refusedId = LibraryAvailabilityPolicy.refusedSourceId(book.sourceUrl, refused)
                 LibraryAvailabilityPolicy.viewFor(available, refusedId, verdicts[mergeKey])
                     ?.let { view -> put(mergeKey, view) }
             }
@@ -3116,6 +3120,84 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val book = App.instance.audiobookDao.getAudiobookById(bookId) ?: return@launch
                 val mergeKey = book.mergeKey?.takeIf { it.isNotBlank() } ?: return@launch
                 App.instance.sourceWatchStore.unwatch(mergeKey)
+            }
+        }
+    }
+
+    /**
+     * Spec-56 T2 (#729) — every problem Work joins the Source Watch
+     * automatically, without a listener action and idempotently: a Work
+     * whose audio is not available anywhere is exactly the Work the watch
+     * exists for. Zero-request (state + store only); the manual watch and
+     * notification paths stay untouched, so the two ways in never duplicate
+     * an entry.
+     */
+    fun ensureProblemWorksWatched() {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                val refused = App.instance.sourceAudioRefusal.refusedSources.value
+                val store = App.instance.sourceWatchStore
+                for (entry in libraryBooks.value) {
+                    val book = entry.book
+                    // A local copy or an offline download already plays; the
+                    // watch is for Works whose audio is genuinely absent.
+                    if (entry.isLocal || book.isDownloaded) continue
+                    val mergeKey = book.mergeKey.takeIf { it.isNotBlank() } ?: continue
+                    if (store.isWatched(mergeKey)) continue
+                    if (LibraryAvailabilityPolicy.hasAvailableAudio(book.sourceUrl, refused)) continue
+                    val workId = book.workId?.takeIf { it.isNotBlank() } ?: mergeKey
+                    store.watch(mergeKey, workId)
+                }
+            }
+        }
+    }
+
+    /**
+     * Spec-56 T2 (#729) — a tap on the availability status asks for current
+     * truth: a fresh resolve that bypasses the memo, bounded by the catalog
+     * source budget so the tap can never hang, while the card shows
+     * «перевіряємо». Offline (a bounded attempt that never completed) keeps
+     * the last honest verdict instead of fabricating a fresh one; a
+     * completed miss records an honest, time-stamped «джерел не знайдено».
+     * A found source notifies Source Watch exactly as the tap path does.
+     */
+    fun recheckAvailability(bookId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                val book = App.instance.audiobookDao.getAudiobookById(bookId) ?: return@launch
+                val mergeKey = book.mergeKey?.takeIf { it.isNotBlank() } ?: return@launch
+                val store = App.instance.libraryAvailabilityStore
+                val previous = store.verdictFor(mergeKey)
+                store.record(mergeKey, AvailabilityStatus.CHECKING, observedAtMs = 0L)
+                var completed = false
+                val match = withTimeoutOrNull(CatalogAvailabilityPolicy.SOURCE_BUDGET_MS) {
+                    val resolved = App.instance.directSourceResolve
+                        .resolve(book.title, book.author, mergeKey, force = true)
+                    completed = true
+                    resolved
+                }
+                if (!completed) {
+                    // Offline / over deadline: keep the last honest verdict.
+                    if (previous != null) {
+                        store.record(mergeKey, previous.status, previous.sourceId, previous.observedAtMs)
+                    }
+                    return@launch
+                }
+                if (match != null) {
+                    store.record(
+                        mergeKey,
+                        AvailabilityStatus.FOUND,
+                        sourceId = match.sourceId,
+                        observedAtMs = System.currentTimeMillis()
+                    )
+                    SourceWatchNotifier.notifyMappingVerdict(App.instance, mergeKey, match.sourceId)
+                } else {
+                    store.record(
+                        mergeKey,
+                        AvailabilityStatus.NOT_FOUND,
+                        observedAtMs = System.currentTimeMillis()
+                    )
+                }
             }
         }
     }

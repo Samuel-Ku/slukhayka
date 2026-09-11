@@ -379,6 +379,10 @@ class AudioPlayerManager(
             .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
             .setAudioAttributes(audioAttr, true)
             .setWakeMode(C.WAKE_MODE_LOCAL)
+            // Issue #752: the notification's system transport must match the
+            // in-app and widget seek controls (-15 s / +30 s).
+            .setSeekBackIncrementMs(SEEK_BACK_INCREMENT_MS)
+            .setSeekForwardIncrementMs(SEEK_FORWARD_INCREMENT_MS)
             .build()
     }
 
@@ -498,6 +502,9 @@ class AudioPlayerManager(
     }
 
     private var updateProgressJob: Job? = null
+    /** Issue #752: debounces the automatic per-book speed save. */
+    private var preferredSpeedSaveJob: Job? = null
+    private var preferredSpeedSaveBookId: String? = null
     private var sleepTimer: CountDownTimer? = null
     private var shakeDetector: ShakeDetector? = null
     private var fadeWarningEmitted = false
@@ -1633,15 +1640,22 @@ class AudioPlayerManager(
     fun setPlaybackSpeed(speed: Float) {
         _playerState.value = _playerState.value.copy(playbackSpeed = speed)
         castEngineHook?.takeIf { it.isActive }?.let { it.setPlaybackSpeed(speed) } ?: applyPlaybackSpeed(speed)
+        schedulePreferredSpeedSave(speed)
     }
 
     /**
-     * Remembers [speed] for the current book (wayfinder #26) so the next time
-     * this book loads it resumes at that speed. No-op when nothing is playing.
+     * Issue #752: the chosen speed is a property of the book, so it is
+     * remembered automatically. Debounced so dragging the slider writes once,
+     * not on every tick. The debounce is per book: a switch to another book
+     * must not cancel an unsaved speed for the one that just left. No-op when
+     * nothing is playing.
      */
-    fun savePreferredSpeed(speed: Float) {
+    private fun schedulePreferredSpeedSave(speed: Float) {
         val book = _playerState.value.currentBook ?: return
-        scope.launch(ioDispatcher) {
+        if (preferredSpeedSaveBookId == book.id) preferredSpeedSaveJob?.cancel()
+        preferredSpeedSaveBookId = book.id
+        preferredSpeedSaveJob = scope.launch(ioDispatcher) {
+            delay(PREFERRED_SPEED_SAVE_DEBOUNCE_MS)
             listeningState.setPreferredSpeed(book.id, speed)
         }
     }
@@ -2110,5 +2124,12 @@ class AudioPlayerManager(
 
         const val SPEED_MIN: Float = 0.5f
         const val SPEED_MAX: Float = 3.0f
+
+        /** Issue #752: how long a speed change settles before it is saved. */
+        const val PREFERRED_SPEED_SAVE_DEBOUNCE_MS: Long = 500L
+
+        /** Issue #752: MediaSession notification seek steps, matching the UI. */
+        const val SEEK_BACK_INCREMENT_MS: Long = 15_000L
+        const val SEEK_FORWARD_INCREMENT_MS: Long = 30_000L
     }
 }

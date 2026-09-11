@@ -15,7 +15,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -52,16 +51,15 @@ import com.slukhayka.audiobooks.player.AudioPlayerManager
 
 /**
  * Playback-speed bottom sheet (wayfinder #26): preset chips plus a precise
- * 0.5x–3.0x slider, and the two memory actions — save the speed for the
- * current book, or set it as the global default. The slider applies the speed
- * live; the memory actions persist it.
+ * 0.5x–3.0x slider. Issue #752: the speed is remembered for the current book
+ * automatically; the one explicit action here sets the global default applied
+ * to books that have no speed of their own.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SpeedSheet(
     currentSpeed: Float,
     onSpeedChange: (Float) -> Unit,
-    onSaveForBook: () -> Unit,
     onSetDefault: () -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -187,17 +185,13 @@ fun SpeedSheet(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                // Issue #752: the speed is remembered for the book automatically,
+                // so only the global default remains an explicit action.
                 OutlinedButton(
                     onClick = onSetDefault,
                     modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
                 ) {
                     Text(stringResource(R.string.speed_default_for_all))
-                }
-                Button(
-                    onClick = onSaveForBook,
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                ) {
-                    Text(stringResource(R.string.speed_remember_for_book))
                 }
             }
         }

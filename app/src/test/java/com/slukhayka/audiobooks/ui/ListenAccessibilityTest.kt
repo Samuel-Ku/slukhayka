@@ -14,6 +14,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsFocused
@@ -277,6 +278,7 @@ class ListenAccessibilityTest {
     @Test
     fun miniPlayerHasASeparateSummaryAndContextualControls() {
         val chapters = TestDataFactory.dataChapters(listOf(book))
+        var rewinds = 0
         compose.setContent {
             AudiobookTheme(darkTheme = true) {
                 MiniPlayerBar(
@@ -289,6 +291,7 @@ class ListenAccessibilityTest {
                     ),
                     onPlayPauseClick = {},
                     onSkipNextClick = {},
+                    onRewindClick = { rewinds++ },
                     onBarClick = {}
                 )
             }
@@ -307,6 +310,11 @@ class ListenAccessibilityTest {
             .assertHeightIsAtLeast(48.dp)
         compose.onNodeWithContentDescription("Наступний розділ: ${book.title}")
             .assertHeightIsAtLeast(48.dp)
+        compose.onNodeWithTag("mini_player_rewind")
+            .assertHeightIsAtLeast(48.dp)
+            .assertContentDescriptionEquals("Назад на 15 секунд. ${book.title}, ${chapters[1].title}")
+            .performClick()
+        assertEquals(1, rewinds)
         compose.onNodeWithContentDescription(book.title, useUnmergedTree = true)
             .assertDoesNotExist()
     }
@@ -319,7 +327,7 @@ class ListenAccessibilityTest {
                 MiniPlayerBar(
                     playerState = PlayerState(currentBook = book),
                     viewedBookId = "another-book",
-                    onPlayPauseClick = { toggles++ }, onSkipNextClick = {}, onBarClick = {}
+                    onPlayPauseClick = { toggles++ }, onSkipNextClick = {}, onRewindClick = {}, onBarClick = {}
                 )
             }
         }

@@ -98,3 +98,16 @@ union уже був повний (інакше каталог просяде м�
   (`SourceRequestGate.fetchUnderBudget`, після admission); Deferred-запит
   більше не спить і не тримає спільний throat. Тест:
   `SourceRequestGateTest` («a budget-deferred request sleeps no jitter»).
+
+## A — результат (Implemented)
+
+- **LibriVox admitted до mapped-мов:** `ApiBook.toSourceBook()` більше не
+  відкидає не-English записи — мапінг `API_LANGUAGE_TAGS` (уже містить
+  «Ukrainian» → uk) нормалізує реальну мову карти; невідома мова лишає
+  карту з чесно відсутньою мовою (видима за будь-якого відбору, US17), а не
+  прихованою. Це свідоме розширення англомовного-only MVP spec-45.
+- **Каталог пагінований** крізь власний `offset` параметр того самого
+  T1-верифікованого endpoint — сторінки `limit`-розміру до досягнення ліміту
+  або порожньої сторінки (жодного безмежного краулу).
+- Тести: `LibriVoxCatalogTest` (uk/mapped admitted, unknown → "", offset-
+  пагінація), оновлені очікування `LibriVoxAdapterTest`.

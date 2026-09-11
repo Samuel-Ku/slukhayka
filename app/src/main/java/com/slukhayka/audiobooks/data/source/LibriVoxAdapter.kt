@@ -60,16 +60,27 @@ class LibriVoxAdapter(
     }
 
     /**
-     * A broad sample of the librivox.org catalogue through its JSON API
-     * (English records only — the API has no language filter, so the parse
-     * drops the other ~10%). The API has no date ordering; the sample starts
-     * at the catalogue head, which is what the source exposes without search.
+     * A (spec `2026-09-10-remove-4read-source`) — a broad slice of the
+     * librivox.org catalogue through its T1-verified JSON API, PAGINATED
+     * through the api's own `offset` parameter: pages of [limit] records
+     * until the limit is reached or a page contributes nothing. Bounded by
+     * [limit] and the empty-page stop — never an unbounded crawl.
      */
     override suspend fun fetchCatalog(limit: Int): List<SourceBook> {
-        val json = fetcher.getText(
-            "https://librivox.org/api/feed/audiobooks/?format=json&limit=$limit&offset=0"
-        , emptyMap(), SourceRequestClass.TTL_REFRESH, FeedSnapshotPolicy.CATALOG_TTL_MS)
-        return apiBooksFrom(json).mapNotNull { it.toSourceBook() }.take(limit)
+        if (limit <= 0) return emptyList()
+        val books = mutableListOf<SourceBook>()
+        var offset = 0
+        while (books.size < limit) {
+            val json = fetcher.getText(
+                "https://librivox.org/api/feed/audiobooks/?format=json&limit=$limit&offset=$offset",
+                emptyMap(), SourceRequestClass.TTL_REFRESH, FeedSnapshotPolicy.CATALOG_TTL_MS
+            )
+            val page = apiBooksFrom(json).mapNotNull { it.toSourceBook() }
+            if (page.isEmpty()) break
+            books += page
+            offset += limit
+        }
+        return books.take(limit)
     }
 
     /**
@@ -156,8 +167,15 @@ class LibriVoxAdapter(
          * carry the archive.org mirror page (T3 #491 plays from it), the
          * identifier the api embeds in `url_zip_file`.
          */
+        /**
+         * A (spec `2026-09-10-remove-4read-source`) — the api's language word
+         * is the source's own claim; a MAPPED language keeps its real BCP-47
+         * tag, an UNMAPPED one keeps the card with an absent language —
+         * visible under any selection, never hidden, never guessed (US17,
+         * ADR-0014). This widens the spec-45 English-only MVP; the wider
+         * catalogue supersedes the English-only decision by volume.
+         */
         fun toSourceBook(): SourceBook? {
-            if (language != "English") return null
             if (title.isBlank() || archiveIdentifier.isBlank()) return null
             return SourceBook(
                 title = title,

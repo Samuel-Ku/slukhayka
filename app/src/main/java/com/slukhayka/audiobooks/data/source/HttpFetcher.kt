@@ -201,6 +201,13 @@ open class HttpFetcher(
      * Open so fixture fakes can decide without network.
      */
     open fun isReachable(url: String, extraHeaders: Map<String, String> = emptyMap()): Boolean {
+        // A cleartext URL can never pass the platform's network security policy
+        // (UnknownServiceException). Probing it only burns the socket budget and
+        // spams the log with a stack trace per seed candidate — skip it honestly.
+        if (url.startsWith("http://", ignoreCase = true)) {
+            Log.d("HttpFetcher", "reachability probe skipped for cleartext URL: $url")
+            return false
+        }
         val request = buildRequest(url, extraHeaders).newBuilder().head().build()
         return try {
             TransportClients.okHttp.newCall(request).execute().use { response ->

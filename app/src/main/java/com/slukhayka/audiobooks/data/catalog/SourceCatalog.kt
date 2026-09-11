@@ -58,6 +58,7 @@ import com.slukhayka.audiobooks.data.source.mergeGlobalSearchResults
 import com.slukhayka.audiobooks.data.source.sourceDisplayName
 import com.slukhayka.audiobooks.data.source.sourceIdForUrl
 import com.slukhayka.audiobooks.data.source.SourceSelectionCoordinator
+import com.slukhayka.audiobooks.data.source.SourceRegistry
 import com.slukhayka.audiobooks.data.source.contentLanguageVisible
 import com.slukhayka.audiobooks.data.source.streamOnlyFor
 import com.slukhayka.audiobooks.data.source.visibleInContentLanguages
@@ -866,6 +867,10 @@ class SourceCatalog(
      */
     suspend fun hydrateWebSourceCatalog(sourceId: String, limit: Int = 40): HydrationResult =
         withContext(Dispatchers.IO) {
+            // A scam source is never hydrated (no page fetch, no mirror row).
+            if (SourceRegistry.isScam(sourceId)) {
+                return@withContext HydrationResult(sourceId, found = 0, imported = 0, merged = 0, failed = 0)
+            }
             val adapter = sourceAdapters.firstOrNull { it.sourceId == sourceId }
                 ?: return@withContext HydrationResult(sourceId, found = 0, imported = 0, merged = 0, failed = 0)
             val catalog = try {
@@ -1017,12 +1022,17 @@ class SourceCatalog(
         // live page's chapters on EVERY play/refresh -- observed on-device as
         // 54 chapter rows for one 6-chapter seed book, scrambled order, and
         // the player picking up reasd.org streams instead of the seeded ones.
+        // The empty-chapter warning below must name 4read only when the 4read
+        // fallback actually ran; a mirror work (e.g. LibriVox) has no chapters
+        // yet for its own reasons — the mirror is not an import.
+        var attemptedFourReadFallback = false
         if (chapters.isEmpty() && sourceUrl.isNotBlank() && sourceUrl.contains("4read.org") &&
             SourceAccessPolicy.modeFor(sourceIdForUrl(sourceUrl)) != com.slukhayka.audiobooks.data.source.SourceAccessMode.BROWSER &&
             // ADR-0037: a refused source's page is never fetched for audio
             // materialization either — the refusal covers the fallback too.
             "4read" !in refusedAudioSources()
         ) {
+            attemptedFourReadFallback = true
             // Spec-14 T5: the adapter owns the page parse; the catalog only
             // persists what the seam's SourceBookDetail carries.
             val detail = fourReadAdapter.fetchBookPage(sourceUrl)
@@ -1139,7 +1149,7 @@ class SourceCatalog(
         // sci-fi while the UI showed their selected book. We refuse to fabricate
         // audio and surface an empty chapter list — the player / UI sees the
         // absence and shows a "no chapters available" message instead.
-        if (chapters.isEmpty()) {
+        if (chapters.isEmpty() && attemptedFourReadFallback) {
             Log.w(
                 "SourceCatalog",
                 "No chapters for bookId=$bookId and 4read fetch returned none; " +
@@ -1496,8 +1506,11 @@ class SourceCatalog(
      * enumeration writes nothing.
      */
     private suspend fun persistEnumerated(books: List<SourceBook>) {
+        // A scam source never enters the Catalog Mirror: its audio is not the
+        // book, and the mirror feeds every discovery surface.
         val mergeable = books.filter {
-            it.title.isNotBlank() && it.author.isNotBlank() && it.url.isNotBlank()
+            !SourceRegistry.isScam(it.sourceId) &&
+                it.title.isNotBlank() && it.author.isNotBlank() && it.url.isNotBlank()
         }
         if (mergeable.isEmpty()) return
         try {
@@ -1562,6 +1575,11 @@ class SourceCatalog(
      */
     suspend fun hydrateFourReadCatalog(): HydrationResult = withContext(Dispatchers.IO) {
         val sourceId = SourceIds.FOUR_READ
+        // A scam source is never crawled: this legacy door would only write
+        // its 52-second artifact into the mirror and the library.
+        if (SourceRegistry.isScam(sourceId)) {
+            return@withContext HydrationResult(sourceId, found = 0, imported = 0, merged = 0, failed = 0)
+        }
         val homepage = try {
             fourReadFetcher.getText("https://4read.org/")
         } catch (e: Exception) {

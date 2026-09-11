@@ -92,6 +92,29 @@ class CatalogMirrorWriteThroughTest {
     }
 
     @Test
+    fun `a union refresh lands the card's language in the known set (spec-51 T5)`() = runBlocking {
+        // #744 — the «Мови контенту» options read every Edition, not just the
+        // Library: a multilingual enumeration must widen the offered set.
+        val repository = catalog(
+            FakeAdapter(
+                "librivox",
+                listOf(
+                    book(
+                        "Die Schatzinsel",
+                        "Robert Louis Stevenson",
+                        "librivox",
+                        "https://archive.org/details/die_schatzinsel_2212_librivox"
+                    ).copy(language = "de")
+                )
+            )
+        )
+
+        repository.refreshUnifiedCatalog()
+
+        assertTrue("admitted language reaches the preference options", dao.knownEditionLanguages().contains("de"))
+    }
+
+    @Test
     fun `a repeated refresh is idempotent`() = runBlocking {
         val card = book("Кобзар", "Тарас Шевченко", "soundbooks")
         val repository = catalog(FakeAdapter("soundbooks", listOf(card)))

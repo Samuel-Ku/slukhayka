@@ -64,6 +64,11 @@
     <string name="home_open">Open</string>
     <string name="home_recommendation_updated">Recommendation updated</string>
     <string name="library_remaining">%1$s left</string>
+    <!-- ADR-0042 §1 (spec-56 T1): the honest availability state on the card. -->
+    <string name="library_availability_checking">Checking availability…</string>
+    <string name="library_availability_not_found">No sources found · checked %1$s</string>
+    <string name="library_availability_found">Found in %1$s</string>
+    <string name="library_availability_refused">Source audio is off</string>
     <!-- v1.4 E5: player chrome off hardcoded strings (English twins). -->
     <string name="player_chapter_fallback">Chapter %1$d</string>
     <string name="player_feedback_chapter_end">Until chapter end</string>

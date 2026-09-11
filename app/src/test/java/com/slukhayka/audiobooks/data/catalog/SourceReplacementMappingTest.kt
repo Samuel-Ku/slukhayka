@@ -177,6 +177,64 @@ class SourceReplacementMappingTest {
     }
 
     @Test
+    fun `a forced re-check bypasses a fresh memo`() = runTest {
+        val searches = CountingSearches(
+            "sluhayua" to listOf(directBook("sluhayua", "https://sluhay.com.ua/42"))
+        )
+        val resolver = SourceReplacementMapping(
+            directSearches = searches.searches,
+            union = { emptyList() },
+            clock = { 1_000_000L }
+        )
+        val mergeKey = MergeKey.keyFor("Книга", "Автор")
+
+        resolver.resolve("Книга", "Автор", mergeKey)
+        resolver.resolve("Книга", "Автор", mergeKey, force = true)
+
+        assertEquals(2, searches.total)
+    }
+
+    @Test
+    fun `a local-only resolve never fires the volley`() = runTest {
+        val searches = CountingSearches(
+            "sluhayua" to listOf(directBook("sluhayua", "https://sluhay.com.ua/42"))
+        )
+        val resolver = SourceReplacementMapping(
+            directSearches = searches.searches,
+            union = { emptyList() },
+            clock = { 1_000_000L }
+        )
+        val mergeKey = MergeKey.keyFor("Книга", "Автор")
+
+        assertNull(resolver.resolveLocalOnly("Книга", "Автор", mergeKey))
+        assertEquals(0, searches.total)
+    }
+
+    @Test
+    fun `a local-only resolve answers from the work index with zero requests`() = runTest {
+        val searches = CountingSearches("sluhayua" to emptyList())
+        val resolver = SourceReplacementMapping(
+            directSearches = searches.searches,
+            union = { emptyList() },
+            workIndex = { _, _, _ ->
+                SourceReplacementMapping.Match(
+                    sourceId = "sluhayua",
+                    url = "https://sluhay.com.ua/42",
+                    title = "Книга",
+                    author = "Автор",
+                    narrator = "",
+                    coverImageUrl = null
+                )
+            },
+            clock = { 1_000_000L }
+        )
+        val mergeKey = MergeKey.keyFor("Книга", "Автор")
+
+        assertEquals("https://sluhay.com.ua/42", resolver.resolveLocalOnly("Книга", "Автор", mergeKey)?.url)
+        assertEquals(0, searches.total)
+    }
+
+    @Test
     fun `positive verdict is stale at exactly six hours`() = runTest {
         var now = 1_000_000L
         val searches = CountingSearches(

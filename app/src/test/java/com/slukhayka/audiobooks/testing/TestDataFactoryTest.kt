@@ -1,5 +1,6 @@
 package com.slukhayka.audiobooks.testing
 
+import com.slukhayka.audiobooks.data.source.sourceIdForUrl
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -81,16 +82,20 @@ class TestDataFactoryTest {
     }
 
     @Test
-    fun `stream urls are unroutable so accidental network io fails fast`() {
+    fun `stream urls are registry-shaped 4read hosts`() {
         // Arrange / Act — the physical playback fixture is the Source tracks
         // (ADR-0007): chapter rows no longer carry stream URLs.
+        // ADR-0038: identity is exact-or-subdomain, so the fixture host is a
+        // real 4read.org subdomain — registry identity must badge books and
+        // tracks as 4read exactly like production URLs (spec-15 T6).
         val book = TestDataFactory.dataBooks().first()
         val tracks = TestDataFactory.tracksFor(book, "4read")
 
         // Assert
+        assertEquals("4read", sourceIdForUrl(book.sourceUrl))
         assertTrue(
-            "fixtures must not point at a resolvable host",
-            tracks.all { it.url.contains(".invalid/") }
+            "fixtures must badge as 4read through registry identity",
+            tracks.all { sourceIdForUrl(it.url) == "4read" }
         )
         assertEquals(tracks.size, tracks.map { it.url }.distinct().size)
         assertTrue("fixtures must not pretend to be downloaded", tracks.none { it.isDownloaded })

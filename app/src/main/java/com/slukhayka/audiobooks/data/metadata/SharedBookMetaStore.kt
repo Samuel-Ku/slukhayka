@@ -417,8 +417,8 @@ object BookProfileLimits {
  * chapters:          [ {title, streamUrl, durationSeconds} ]
  * ```
  *
- * [toMap] bounds the write (chapter cap, field caps, http(s)-only stream
- * URLs); [fromMap] is defensive: a missing/mistyped chapters list, an
+ * [toMap] bounds the write (chapter cap, field caps, stable http(s) stream
+ * URLs — signed/expiring links are dropped, ADR-0039 §7); [fromMap] is defensive: a missing/mistyped chapters list, an
  * oversized chapter list, a non-http stream URL, or a corrupt chapter entry
  * is dropped or yields null — a corrupt document is a miss, never a crash.
  */
@@ -433,7 +433,7 @@ object BookProfileCodec {
         "narrator" to profile.narrator.take(BookProfileLimits.MAX_TITLE_LEN),
         "genres" to profile.genres.take(BookProfileLimits.MAX_GENRES).map { it.take(BookProfileLimits.MAX_TITLE_LEN) },
         "chapters" to profile.chapters
-            .filter { BookProfileLimits.isHttpUrl(it.streamUrl) }
+            .filter { ProfileUrlPolicy.isStableChapterUrl(it.streamUrl) }
             .take(BookProfileLimits.MAX_CHAPTERS)
             .map { chapterToMap(it) }
     ) + optionalFields(profile)

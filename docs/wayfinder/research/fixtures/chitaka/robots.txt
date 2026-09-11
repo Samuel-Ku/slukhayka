@@ -1,0 +1,19 @@
+User-agent: *
+Disallow: *?*
+Disallow: /wp-content/uploads/*.txt
+Disallow: *.epub
+Disallow: *.fb2
+Disallow: *.rtf
+Disallow: */page/*
+Allow: /wp-admin/admin-ajax.php
+Allow: /wp-*.jpeg
+Allow: /wp-*.webp
+Allow: /wp-*.png
+Allow: /wp-*.jpg
+Allow: /wp-*.svg
+Allow: *.xml
+Allow: *.js
+Allow: *.css
+Allow: *jQuery*
+
+Sitemap: https://chitaka.com.ua/sitemap_index.xml

@@ -350,6 +350,15 @@ class SluhayAdapterTest {
 
             override fun getText(url: String, extraHeaders: Map<String, String>): String =
                 if (extraHeaders["Cookie"] == "cf_clearance=fresh") bookPage else ""
+
+            override fun getText(
+                url: String,
+                extraHeaders: Map<String, String>,
+                requestClass: SourceRequestClass,
+                cacheTtlMillis: Long
+            ): String =
+                if (extraHeaders.isEmpty()) getText(url) else getText(url, extraHeaders)
+
         }
         val adapter = SluhayAdapter(fetcher, cookieProvider = provider)
 

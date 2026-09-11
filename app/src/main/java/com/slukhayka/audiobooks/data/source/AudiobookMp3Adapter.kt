@@ -1,7 +1,6 @@
 package com.slukhayka.audiobooks.data.source
 
-import com.slukhayka.audiobooks.data.privacy.PacingPolicy
-import kotlinx.coroutines.delay
+import com.slukhayka.audiobooks.data.catalog.FeedSnapshotPolicy
 
 /**
  * audiobook-mp3.com/uk [SourceAdapter] (spec-10 T1 verdict: PASS, server-fetch).
@@ -39,11 +38,7 @@ import kotlinx.coroutines.delay
 class AudiobookMp3Adapter(
     private val fetcher: HttpFetcher = HttpFetcher(referer = "https://audiobook-mp3.com/uk"),
     /** Spec #462 ID5 (#468) — how many genre pages one catalogue walk opens. */
-    private val genrePageLimit: Int = GENRE_PAGE_LIMIT,
-    /** Spec #462 ID5 (#468) — the human-rhythm pause source between pages. */
-    private val pacing: PacingPolicy = PacingPolicy(),
-    /** Injectable pause so tests pin the rhythm without sleeping (spec-38). */
-    private val pauseMillis: suspend (Long) -> Unit = { delay(it) }
+    private val genrePageLimit: Int = GENRE_PAGE_LIMIT
 ) : SourceAdapter {
 
     /** Spec-45 (#405) — the catalogue speaks Ukrainian. */
@@ -54,7 +49,7 @@ class AudiobookMp3Adapter(
     override suspend fun search(query: String): List<SourceBook> = emptyList()
 
     override suspend fun fetchBookPage(url: String): SourceBookDetail {
-        val html = fetcher.getText(url)
+        val html = fetcher.getText(url, emptyMap(), SourceRequestClass.LISTENER_ACTION, 0L)
         if (html.isEmpty()) return SourceBookDetail("", "", url = url, chapters = emptyList())
 
         // og:title is «Автор — Назва <seo-суфікс> <сайт>»; take the part after
@@ -102,7 +97,7 @@ class AudiobookMp3Adapter(
                 description = description
             )
 
-        val playlistJson = fetcher.getText(playlistUrl)
+        val playlistJson = fetcher.getText(playlistUrl, emptyMap(), SourceRequestClass.LISTENER_ACTION, 0L)
         val chapters = mutableListOf<SourceChapter>()
         // The playerjs playlist is a small JSON array of {title, file} objects;
         // a regex parse (same approach as the 4read playlist expansion) keeps
@@ -144,7 +139,7 @@ class AudiobookMp3Adapter(
     }
 
     override suspend fun fetchNew(limit: Int): List<SourceBook> {
-        val html = fetcher.getText("https://audiobook-mp3.com/uk")
+        val html = fetcher.getText("https://audiobook-mp3.com/uk", emptyMap(), SourceRequestClass.TTL_REFRESH, FeedSnapshotPolicy.NEW_ARRIVALS_TTL_MS)
         if (html.isEmpty()) return emptyList()
         return parseTiles(html, limit)
     }
@@ -156,13 +151,12 @@ class AudiobookMp3Adapter(
      * genre pages and dedupes by url.
      *
      * Spec #462 ID5 (#468): the walk is no longer a hard-coded `take(6)` —
-     * it opens up to [genrePageLimit] pages, paced by [PacingPolicy] pauses
-     * between consecutive requests (spec-38: bulk fetching never looks like
-     * scraping). Requests ride the shared [HttpFetcher] — the listener's
-     * privacy transport route (TransportPrivacy).
+     * it opens up to [genrePageLimit] pages through the shared [HttpFetcher].
+     * ADR-0039's Source Request Gate owns the rhythm (class TTL_REFRESH, the
+     * domain bucket and the jitter), so the walk keeps no pace of its own.
      */
     override suspend fun fetchCatalog(limit: Int): List<SourceBook> {
-        val home = fetcher.getText("https://audiobook-mp3.com/uk")
+        val home = fetcher.getText("https://audiobook-mp3.com/uk", emptyMap(), SourceRequestClass.TTL_REFRESH, FeedSnapshotPolicy.CATALOG_TTL_MS)
         if (home.isEmpty()) return emptyList()
         val genres = GENRE_LINK.findAll(home)
             .map { it.groupValues[1] }
@@ -170,12 +164,9 @@ class AudiobookMp3Adapter(
             .take(genrePageLimit)
         val seen = mutableSetOf<String>()
         val books = mutableListOf<SourceBook>()
-        var paced = false
         for (genre in genres) {
             if (books.size >= limit) break
-            if (paced) pauseMillis(pacing.nextPauseMillis())
-            paced = true
-            val html = fetcher.getText("https://audiobook-mp3.com$genre")
+            val html = fetcher.getText("https://audiobook-mp3.com$genre", emptyMap(), SourceRequestClass.TTL_REFRESH, FeedSnapshotPolicy.CATALOG_TTL_MS)
             if (html.isEmpty()) continue
             for (book in parseTiles(html, limit - books.size)) {
                 if (seen.add(book.url)) books += book
@@ -311,8 +302,8 @@ class AudiobookMp3Adapter(
          * Spec #462 ID5 (#468) — the named (and per-instance configurable,
          * via [genrePageLimit]) genre limit that replaced the old magic
          * `take(6)`: one user-initiated catalogue refresh walks this many
-         * genre pages, with [PacingPolicy] pauses between consecutive
-         * requests so the wider walk keeps the human rhythm (spec-38).
+         * genre pages; the Source Request Gate owns the rhythm (ADR-0039),
+         * so the walk itself carries none.
          */
         const val GENRE_PAGE_LIMIT: Int = 20
         val PLAYLIST_URL = Regex("""(https://[a-z0-9]+\.redirectto\.cc/[^"'<> ]+\.pl\.txt)""", RegexOption.IGNORE_CASE)

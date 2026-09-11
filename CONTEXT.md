@@ -33,13 +33,66 @@ order, not a health score, so a transient HTTP failure does not permanently
 demote a Source.
 _Avoid_: health-ranked Source order, silent browser launch
 
+**Resolution Recipe**:
+Знання, як одне Source дає аудіо для одного Edition: URL сторінки плюс
+ідентичність адаптера, що її розбирає, разом із вердиктом, коли це востаннє
+реально програвалося чистим cookie-free шляхом. Медіа-URL у рецепті немає —
+підписані та cookie-bound стріми виводяться на вимогу й ніколи не діляться
+(ADR-0019, ADR-0028, ADR-0032).
+_Avoid_: спільна база посилань, збережені підписані URL, cookie-bound знання в спільній базі
+
+**Source Request Gate**:
+Один шлюз ввічливості, крізь який проходить кожен HTML/API-запит до домену
+джерела: спершу свіжий кеш (нуль запитів), далі персистентний token bucket на
+домен, далі глобальне горло «один запит у польоті» з джитер-проміжком. Запити
+бувають дією слухача, оновленням за TTL або фонові; фон палить бюджет лише
+коли кошик повний більш ніж наполовину, дія слухача стрибає в голову черги.
+Токен списується на запит; прохід обмежений кошиком — частковий каталог це
+чесний стан, а не фабрикація (ADR-0040).
+Аудіо-стріми та жива браузерна сесія поза шлюзом (ADR-0039).
+_Avoid_: власний ритм кожної фічі, сплеск до багатьох доменів на старті, паузи для аудіо-стрімів
+
+**Source Request Profile**:
+Декларація адаптера на ендпоінт: клас запиту і TTL кешу, які шов
+ввічливості читає (ADR-0040). Фіча не класифікує запити й не знає чисел;
+нове джерело декларує профіль поруч зі своїм адаптером.
+_Avoid_: requestClass/cacheTtl у викликача, per-feature ритм-політики
+
+
+**Source Registry**:
+Одна декларативна таблиця статичних фактів кожного Source — стабільний id,
+назва, домашня URL, content language, режим доступу (Source Access Mode),
+внутрішній порядок усередині tier, stream-only, header-правила з
+host-скоупінгом, door-шаблони, hosts транспорту і браузерні факти профілю
+відновлення. Носій — один `sources.json` на рівні репо: web-воркер імпортує
+його напряму, Android тримає типовий `SourceRegistry`-читач, припінаний
+JVM conformance-тестом проти того самого файлу — паритет платформ
+будується, а не коментується. Browser Recovery Profiles лишаються
+декларованими per-source (ADR-0036) і читаються з того самого носія. Правило
+порядку (LOCAL < DIRECT < UNKNOWN < BROWSER) — це код у `SourceAccessPolicy`;
+дані (tier і порядок) — реєстр. Персистовані `source`-рядки свідомо
+tримають plain-string id: реєстр — це ідентичність, не сховище.
+_Avoid_: факти джерела в політиках (SourceAccessPolicy/DownloadPolicy/GlobalSearch),
+другий список порядку на web, браузерні факти поза реєстром
+
 **Source Binding**:
 A device's locator, permission, and availability relationship to a Source. Bindings are device-specific even when the Source identity is shared. No Binding rows exist yet — with a single device, locator and permission stay on the Source row; the Binding table arrives with device sync, not before. NOTE (spec-40): the Firestore collection `device_bindings` is NOT this domain concept — it is the reinstall-recovery anchor mapping a device id to the listener's own uid.
 _Avoid_: Source, download
 
 **Source Catalog**:
-The union of browseable Works a Source exposes — sections, genres, series listings, people — fetched as Metadata Assertions on demand rather than stored wholesale. A Source of a mixed site contributes only its audio: text-only content (e-books, online reading) of the same site never enters the catalog (spec-47: chytaylo) until a separate recorded decision.
+The union of browseable Works a Source exposes — sections, genres, series listings, people — fetched as Metadata Assertions on demand rather than stored wholesale. A Source of a mixed site contributes only its audio: text-only content (e-books, online reading) of the same site never enters the catalog (spec-47: chytaylo; spec-50: chitaka — its fb2/epub/txt pages share the `/knigi/` path but render no `<audio>`) until a separate recorded decision.
 _Avoid_: Store, browse cache, text content of a mixed site as catalog rows
+
+**Search Genre Assertion**:
+Genre-claim, який несе картка пошуку (`SourceBook.genre`) для одного
+Source×Work. Пишеться у фасети крізь `LocalFacetWriter` у формі assertion
+того самого джерела (sourceId, сторінка, exact source text, observedAt) на
+рівні per-adapter результату, ДО об'єднання карток (ADR-0040). Документ з
+enumeration завжди старший за пошуковий для тієї самої пари — каталог не
+зменшується пошуковим хітом; пошук заповнює прогалину творів, які ніколи не
+перелічувалися. Жанр ніколи не вигадується; порожній рядок нічого не пише
+(ADR-0014).
+_Avoid_: жанр лише з каталогу, guessed genre з тексту/URL, запис на рівні об'єднаної картки
 
 **Chapter**:
 An ordered logical subdivision of one Edition to which positions and bookmarks can be anchored, independent of how a Source divides its files. A Chapter row carries order, title, and duration only — stream URLs, file paths, and content hashes belong to Source tracks.

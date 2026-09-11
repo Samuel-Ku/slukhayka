@@ -1,5 +1,6 @@
 package com.slukhayka.audiobooks.data.source
 
+import com.slukhayka.audiobooks.data.catalog.FeedSnapshotPolicy
 import com.slukhayka.audiobooks.data.LanguageCode
 
 /**
@@ -56,7 +57,7 @@ class ChytayloAdapter(
     /** Page 1 of the audio listing — the site's own order. */
     override suspend fun fetchNew(limit: Int): List<SourceBook> {
         if (limit <= 0) return emptyList()
-        val html = fetcher.getText(AUDIOBOOKS_URL)
+        val html = fetcher.getText(AUDIOBOOKS_URL, emptyMap(), SourceRequestClass.TTL_REFRESH, FeedSnapshotPolicy.NEW_ARRIVALS_TTL_MS)
         if (html.isEmpty()) return emptyList()
         return listingBooks(html).take(limit)
     }
@@ -72,7 +73,7 @@ class ChytayloAdapter(
         var page = 1
         while (books.size < limit) {
             val url = if (page == 1) AUDIOBOOKS_URL else "$AUDIOBOOKS_URL?page=$page"
-            val html = fetcher.getText(url)
+            val html = fetcher.getText(url, emptyMap(), SourceRequestClass.TTL_REFRESH, FeedSnapshotPolicy.CATALOG_TTL_MS)
             if (html.isEmpty()) break
             val cards = listingBooks(html)
             if (cards.isEmpty()) break
@@ -86,7 +87,7 @@ class ChytayloAdapter(
     }
 
     override suspend fun fetchBookPage(url: String): SourceBookDetail {
-        val html = fetcher.getText(url)
+        val html = fetcher.getText(url, emptyMap(), SourceRequestClass.LISTENER_ACTION, 0L)
         if (html.isEmpty()) return SourceBookDetail("", "", url = url, chapters = emptyList())
         val ld = bookJsonLd(html)
         val player = playerPropsFrom(html)

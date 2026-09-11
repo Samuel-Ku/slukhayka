@@ -205,12 +205,15 @@ fun LibraryScreen(
     // Spec-28 #194: import is one «+ Додати» action opening a sheet; the
     // storage destination is reached from Settings.
     var showImportSheet by remember { mutableStateOf(false) }
+    // Spec-601 T3/T5 — the «Надіслати посилання» sheet: paste a YouTube/TG
+    // link; publication happens only after the imported copy really plays.
+    var showSubmissionSheet by remember { mutableStateOf(false) }
     val filterFocusRequester = remember { FocusRequester() }
     val importFocusRequester = remember { FocusRequester() }
     val libraryHeadingFocusRequester = remember { FocusRequester() }
     val bookReturnFocusRequester = remember { FocusRequester() }
     val libraryGridState = rememberLazyGridState()
-    val modalVisible = showFilterSheet || showImportSheet || importPreview != null
+    val modalVisible = showFilterSheet || showImportSheet || showSubmissionSheet || importPreview != null
 
     RestoreFocusAfterModal(
         modalVisible = showFilterSheet,
@@ -599,6 +602,12 @@ fun LibraryScreen(
                     showImportSheet = false
                     folderLauncher.launch(null)
                 },
+                onSubmitLink = {
+                    showImportSheet = false
+                    viewModel.dismissSubmission()
+                    viewModel.refreshSubmissionRemaining()
+                    showSubmissionSheet = true
+                },
                 onDismiss = { showImportSheet = false }
             )
         }
@@ -610,6 +619,20 @@ fun LibraryScreen(
                 onRejectMerge = viewModel::rejectMergeInPreview,
                 onConfirm = viewModel::confirmImportPreview,
                 onDismiss = viewModel::dismissImportPreview
+            )
+        }
+
+        if (showSubmissionSheet) {
+            val submissionState by viewModel.submissionState.collectAsState()
+            val submissionRemaining by viewModel.submissionRemaining.collectAsState()
+            SubmissionSheet(
+                state = submissionState,
+                remainingToday = submissionRemaining,
+                onSubmit = viewModel::submitLink,
+                onDismiss = {
+                    showSubmissionSheet = false
+                    viewModel.dismissSubmission()
+                }
             )
         }
     }

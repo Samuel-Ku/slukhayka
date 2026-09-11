@@ -1,0 +1,21 @@
+// SPIKE FIXTURE (spec-50 T1): ?audioigniter_playlist_id=531, trimmed to 2 of N tracks.
+[
+ {
+  "title": "1",
+  "subtitle": "Всеволод Нестайко",
+  "audio": "https://knigi-online.com.ua/wp-content/uploads/2024/09/01.-Toreadory-z-Vasiukivky.mp3",
+  "buyUrl": "",
+  "downloadUrl": "",
+  "downloadFilename": "",
+  "cover": "https://knigi-online.com.ua/wp-content/uploads/2024/09/06-Toreadory-z-Vasiukivky-mp3-image.jpg"
+ },
+ {
+  "title": "2",
+  "subtitle": "Всеволод Нестайко",
+  "audio": "https://knigi-online.com.ua/wp-content/uploads/2024/09/02.-Toreadory-z-Vasiukivky.mp3",
+  "buyUrl": "",
+  "downloadUrl": "",
+  "downloadFilename": "",
+  "cover": "https://knigi-online.com.ua/wp-content/uploads/2024/09/06-Toreadory-z-Vasiukivky-mp3-image.jpg"
+ }
+]

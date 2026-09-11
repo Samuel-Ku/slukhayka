@@ -104,16 +104,16 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup JDK 21 (Temurin)
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
 
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6
         with:
           gradle-version: wrapper
           # PR legs only read caches written by push runs; otherwise every
@@ -122,7 +122,7 @@ jobs:
           cache-read-only: ${{ github.event_name == 'pull_request' }}
 
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
         with:
           # compileSdk is 36.1 — install it explicitly everywhere so AGP
           # never pays an implicit sdkmanager download per job.
@@ -133,14 +133,14 @@ jobs:
 
       - name: Cache e5 model
         if: matrix.needs-model
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: app/src/main/assets/models/e5
           key: e5-model-v1
 
       - name: Cache Robolectric android-all jars
         if: matrix.needs-robolectric
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           # Robolectric resolves its ~100 MB-per-SDK android-all jars at test
           # runtime into the local Maven repo, which setup-gradle does not
@@ -160,7 +160,7 @@ jobs:
 
       - name: Upload worker-identity fragment
         if: matrix.uploads-worker-id
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: worker-ids-${{ matrix.id }}
           path: app/build/test-worker-identities.tsv
@@ -168,7 +168,7 @@ jobs:
           retention-days: 2
 
       - name: Upload partition coverage
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: kover-${{ matrix.id }}
           path: app/build/kover/partition/
@@ -177,7 +177,7 @@ jobs:
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: test-results-${{ matrix.id }}
           path: app/build/test-results/
@@ -186,7 +186,7 @@ jobs:
 
       - name: Upload Roborazzi failure artifacts
         if: always() && matrix.id == 'compose-roborazzi'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: roborazzi-results
           path: |
@@ -203,33 +203,33 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup JDK 21 (Temurin)
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
 
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6
         with:
           gradle-version: wrapper
           cache-read-only: ${{ github.event_name == 'pull_request' }}
 
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
         with:
           packages: 'platforms;android-36.1 build-tools;36.0.0 platform-tools'
 
       - name: Download all partition coverage
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: kover-*
           path: app/build/kover/ci
 
       - name: Download worker-identity fragments
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: worker-ids-*
           path: app/build/worker-ids
@@ -266,7 +266,7 @@ jobs:
 
       - name: Upload Kover HTML report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: kover-html-report
           path: app/build/reports/kover/html/
@@ -274,7 +274,7 @@ jobs:
 
       - name: Upload Kover XML report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: kover-xml-report
           path: app/build/reports/kover/report.xml
@@ -288,27 +288,27 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup JDK 21 (Temurin)
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
 
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6
         with:
           gradle-version: wrapper
           cache-read-only: ${{ github.event_name == 'pull_request' }}
 
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
         with:
           packages: 'platforms;android-36.1 build-tools;36.0.0 platform-tools'
 
       - name: Cache e5 model
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: app/src/main/assets/models/e5
           key: e5-model-v1
@@ -335,22 +335,22 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup JDK 21 (Temurin)
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
 
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6
         with:
           gradle-version: wrapper
           cache-read-only: ${{ github.event_name == 'pull_request' }}
 
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
         with:
           packages: 'platforms;android-36.1 build-tools;36.0.0 platform-tools'
 
@@ -390,7 +390,7 @@ jobs:
 
       - name: Upload API 35 accessibility results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: accessibility-api35-results
           path: |
@@ -416,22 +416,22 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup JDK 21 (Temurin)
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
 
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6
         with:
           gradle-version: wrapper
           cache-read-only: ${{ github.event_name == 'pull_request' }}
 
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
         with:
           packages: 'platforms;android-36.1 build-tools;36.0.0 platform-tools'
 
@@ -467,7 +467,7 @@ jobs:
           echo "artifact-name=$(basename "$apk" .apk)-signed-smoke" >> "$GITHUB_OUTPUT"
 
       - name: Upload signed smoke APK
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ steps.apk.outputs.artifact-name }}
           path: ${{ steps.apk.outputs.path }}

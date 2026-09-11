@@ -37,7 +37,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Require configured OIDC federation
         env:
           PROVIDER: ${{ vars.CRASHLYTICS_WIF_PROVIDER }}
@@ -68,7 +68,7 @@ jobs:
           # memory and writes one allowlisted projection for downstream jobs.
           python3 scripts/crash_collect.py --project "$PROJECT" --app "$APP" --output crash-groups.json
       - name: Upload sanitized handoff only
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: crash-sanitized-groups
           path: crash-groups.json
@@ -83,14 +83,14 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v8
         with:
           name: crash-sanitized-groups
       - name: Prioritize at most three proven diagnosis candidates
         run: python3 scripts/crash_queue.py --input crash-groups.json --output crash-queue.json
       - name: Upload bounded queue handoff
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: crash-priority-queue
           path: crash-queue.json
@@ -109,13 +109,13 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
       - name: Install the pinned non-interactive OpenCode CLI
         run: npm install --global opencode-ai@1.18.25
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: crash-priority-queue
       - name: Detect the dedicated diagnosis proxy
@@ -149,7 +149,7 @@ jobs:
             python3 scripts/crash_diagnose_batch.py --input crash-queue.json --output crash-diagnoses.json
           fi
       - name: Upload bounded diagnosis statuses
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: crash-diagnoses
           path: crash-diagnoses.json
@@ -171,11 +171,11 @@ jobs:
       issues: write
       pull-requests: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v8
         with:
           name: crash-priority-queue
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         id: download-diagnoses
         continue-on-error: true
         with:
@@ -191,7 +191,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: python3 scripts/crash_publish.py --input crash-queue.json --diagnoses crash-diagnoses.json --repo "${{ github.repository }}" --output crash-issues.json
       - name: Upload public Issue mapping
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: crash-public-issues
           path: crash-issues.json
@@ -210,7 +210,7 @@ jobs:
       issues: read
       id-token: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: main
           fetch-depth: 0
@@ -219,15 +219,15 @@ jobs:
           node-version: '22'
       - name: Install the pinned non-interactive OpenCode CLI
         run: npm install --global opencode-ai@1.18.25
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: crash-priority-queue
           path: ${{ runner.temp }}
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: crash-diagnoses
           path: ${{ runner.temp }}
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: crash-public-issues
           path: ${{ runner.temp }}

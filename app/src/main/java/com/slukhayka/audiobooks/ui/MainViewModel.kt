@@ -81,6 +81,8 @@ import com.slukhayka.audiobooks.ui.catalog.CatalogCardTarget
 import com.slukhayka.audiobooks.ui.catalog.CatalogBrowserFocusReturn
 import com.slukhayka.audiobooks.ui.catalog.MediaRangeValidator
 import com.slukhayka.audiobooks.ui.catalog.PlaybackReplacementMapping
+import com.slukhayka.audiobooks.data.ingest.ListenerSubmissionFlow
+import com.slukhayka.audiobooks.ui.screens.SubmissionUiState
 import com.slukhayka.audiobooks.ui.catalog.catalogSessionCandidates
 import com.slukhayka.audiobooks.ui.catalog.hasUsableSourceSession
 import kotlinx.coroutines.CancellationException
@@ -268,6 +270,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val chapterDurationProbe: ChapterDurationProbe = App.instance.chapterDurationProbe
     // Spec-25 (#171): the lazy series-universe resolution over the curated assets.
     val seriesUniverses: SeriesUniverses = App.instance.seriesUniverses
+
+    // Авто-сід медіатеки (spec `2026-09-10-remove-4read-source`): the bounded
+    // verified catalogue pass, same module field idiom as the probes above.
+    val librarySeeder: com.slukhayka.audiobooks.data.catalog.LibrarySeeder = App.instance.librarySeeder
+
+    /**
+     * Один обмежений прохід на добу: каталог → перевірка стріму → імпорт.
+     * Від'єднаний, ніколи не блокує Огляд; throttle по SharedPreferences.
+     */
+    fun seedLibraryIfDue() {
+        val prefs = App.instance.getSharedPreferences("library_seeder", android.content.Context.MODE_PRIVATE)
+        val now = System.currentTimeMillis()
+        if (now - prefs.getLong("last_run_at", 0L) < 24 * 60 * 60 * 1000L) return
+        prefs.edit().putLong("last_run_at", now).apply()
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { librarySeeder.seedOnce() }
+        }
+    }
     // Spec-42 #431: shared metadata store for verified profile publish
     val sharedMetaStore: FirestoreBookMetaStore? = App.instance.sharedMetaStore
     val playerManager: AudioPlayerManager = App.instance.playerManager
@@ -348,6 +368,58 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             runCatching { SourceWatchNotifier.notifyMappingVerdict(App.instance, mergeKey, sourceId) }
         }
     )
+
+    // Spec-601 T3/T5 — the listener-submission surface: the flow owns the
+    // request discipline and the verdict rule; the VM only bridges it to the
+    // sheet and to the player's factual playing event.
+    private val listenerSubmissionFlow = App.instance.listenerSubmissionFlow
+    private val _submissionState = MutableStateFlow<SubmissionUiState>(SubmissionUiState.Idle)
+    val submissionState: StateFlow<SubmissionUiState> = _submissionState.asStateFlow()
+    private val _submissionRemaining = MutableStateFlow<Int?>(null)
+    val submissionRemaining: StateFlow<Int?> = _submissionRemaining.asStateFlow()
+
+    fun dismissSubmission() {
+        _submissionState.value = SubmissionUiState.Idle
+    }
+
+    fun refreshSubmissionRemaining() {
+        viewModelScope.launch(Dispatchers.IO) {
+            _submissionRemaining.value =
+                runCatching { listenerSubmissionFlow.remainingToday() }.getOrNull()
+        }
+    }
+
+    fun submitLink(rawUrl: String) {
+        if (_submissionState.value == SubmissionUiState.Working) return
+        _submissionState.value = SubmissionUiState.Working
+        viewModelScope.launch(Dispatchers.IO) {
+            val start = runCatching { listenerSubmissionFlow.submit(rawUrl) }.getOrNull()
+                ?: ListenerSubmissionFlow.Start.Refused(ListenerSubmissionFlow.Reason.IMPORT_FAILED, 0)
+            when (start) {
+                is ListenerSubmissionFlow.Start.Imported -> {
+                    val book = libraryEntries.getBookSync(start.bookId)
+                    if (book == null) {
+                        _submissionState.value =
+                            SubmissionUiState.Refused(ListenerSubmissionFlow.Reason.IMPORT_FAILED)
+                    } else {
+                        withContext(Dispatchers.Main) {
+                            _submissionState.value = SubmissionUiState.Imported(start.publishable)
+                            playAudiobook(book)
+                        }
+                    }
+                }
+                ListenerSubmissionFlow.Start.MetadataPublished ->
+                    _submissionState.value = SubmissionUiState.MetadataPublished
+                is ListenerSubmissionFlow.Start.Refused ->
+                    _submissionState.value = SubmissionUiState.Refused(start.reason)
+                ListenerSubmissionFlow.Start.Unsupported ->
+                    _submissionState.value = SubmissionUiState.Unsupported
+            }
+            _submissionRemaining.value =
+                runCatching { listenerSubmissionFlow.remainingToday() }.getOrNull()
+        }
+    }
+
 
     private val catalogCardCoordinator = CatalogCardActionCoordinator(
         scope = viewModelScope,
@@ -524,6 +596,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             playerManager.playbackStarted.collect { started ->
                 automaticPlaybackRecoveryGate.arm(started.bookId)
+                // Spec-601 T3 — the ONE publication verdict: only the engine's
+                // real playing event, with the physical source id it reports,
+                // may publish the pending listener submission.
+                val submissionSourceId = playerState.value.currentSourceId
+                if (submissionSourceId.isNotBlank()) {
+                    when (val submissionVerdict = listenerSubmissionFlow.onPlaybackStarted(submissionSourceId)) {
+                        ListenerSubmissionFlow.Verdict.Published ->
+                            _submissionState.value = SubmissionUiState.Published
+                        is ListenerSubmissionFlow.Verdict.Refused ->
+                            if (_submissionState.value is SubmissionUiState.Imported) {
+                                _submissionState.value = SubmissionUiState.Refused(submissionVerdict.reason)
+                            }
+                        ListenerSubmissionFlow.Verdict.NoPending -> Unit
+                    }
+                }
             }
         }
         // Recovery belongs to the playback workflow, not to one screen. This

@@ -137,6 +137,37 @@ class FacetMigrationTest {
         helper.close()
     }
 
+    @Test
+    fun `migration 28 to 29 adds the genre provenance rank as enumeration for legacy rows`() {
+        context.deleteDatabase("facet-migration-28-29.db")
+        val helper = FrameworkSQLiteOpenHelperFactory().create(
+            SupportSQLiteOpenHelper.Configuration.builder(context)
+                .name("facet-migration-28-29.db")
+                .callback(object : SupportSQLiteOpenHelper.Callback(28) {
+                    override fun onCreate(db: SupportSQLiteDatabase) {
+                        db.execSQL(
+                            "CREATE TABLE genre_assertion_states (workId TEXT NOT NULL, sourceId TEXT NOT NULL, " +
+                                "documentUpdatedAt INTEGER NOT NULL, PRIMARY KEY(workId, sourceId))"
+                        )
+                        db.execSQL("INSERT INTO genre_assertion_states VALUES ('w1','4read',1234)")
+                    }
+
+                    override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+                })
+                .build()
+        )
+        val sqlite = helper.writableDatabase
+
+        AudiobookDatabase.MIGRATION_28_29.migrate(sqlite)
+
+        assertTrue(columnExists(sqlite, "genre_assertion_states", "provenance"))
+        sqlite.query("SELECT provenance FROM genre_assertion_states WHERE workId='w1' AND sourceId='4read'").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("enumeration", cursor.getString(0))
+        }
+        helper.close()
+    }
+
     private fun tableExists(db: SupportSQLiteDatabase, name: String): Boolean =
         db.query("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", arrayOf(name)).use { it.moveToFirst() }
 

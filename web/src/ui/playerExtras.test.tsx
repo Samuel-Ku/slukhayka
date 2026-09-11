@@ -383,6 +383,29 @@ describe('PlayerSheet panes (W5.1)', () => {
     expect(screen.queryByText('Офлайн — грає з кешу')).toBeNull()
   })
 
+  it('offers the exact 0.05 speed step beside the presets (1.1 / 1.15)', async () => {
+    const engine = freshEngine()
+    await engine.loadBook({ title: 'Книга', chapters: CHAPTERS, editionId: 'ed-1', workId: 'Книга|Автор' }, 0, { forceChapter: true })
+    engine.pause()
+    render(
+      <PlayerSheet
+        engine={engine}
+        onClose={vi.fn()}
+        lastPlayed={null}
+        profile={null}
+        reviewsStore={null}
+        bookmarksStore={null}
+      />,
+    )
+
+    const exact = screen.getByLabelText('Точна швидкість')
+    fireEvent.change(exact, { target: { value: '1.1' } })
+    expect(engine.getState().speed).toBe(1.1)
+    fireEvent.change(exact, { target: { value: '1.15' } })
+    expect(engine.getState().speed).toBe(1.15)
+    expect((screen.getByRole('combobox') as HTMLSelectElement).value).toBe('1.15')
+  })
+
   it('shows the honest empty bookmarks state without a loaded book', () => {
     render(
       <PlayerSheet

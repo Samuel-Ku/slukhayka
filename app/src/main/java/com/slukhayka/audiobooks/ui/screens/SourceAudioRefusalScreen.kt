@@ -46,7 +46,7 @@ import kotlinx.coroutines.launch
  * adds a second home for the same list: the `source_refusals` rules
  * allowlist — a source missing there can never publish its counter.
  */
-internal val REFUSABLE_SOURCES = listOf("4read", "sluhayua", "soundbooks", "audiobookmp3", "lihtar", "audiobookcoua", "chytaylo", "ukrainianaudiobooks", "knigionline", "chitaka")
+internal val REFUSABLE_SOURCES = listOf("sluhayua", "soundbooks", "audiobookmp3", "lihtar", "audiobookcoua", "chytaylo", "ukrainianaudiobooks", "knigionline", "chitaka")
 
 /**
  * ADR-0037 (spec-49 T1) — the «Аудіо джерел» destination: one checkbox per

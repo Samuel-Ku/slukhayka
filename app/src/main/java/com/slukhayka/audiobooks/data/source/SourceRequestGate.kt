@@ -12,14 +12,20 @@ import java.util.concurrent.ConcurrentHashMap
  * ADR-0039 / spec #681 T1 (#682) — the ONE politeness gate for every
  * HTML/API request to a Source domain. T2 wires it into `HttpFetcher`; this
  * file is the pure-JVM decision module so the classes, the persistent budget,
- * the fresh cache, single-flight coalescing and the one-in-flight throat are
+ * the fresh cache, single-flight coalescing and the per-host throat are
  * testable with a fake clock before any transport touches them.
  *
  * Order of every request: fresh cache (zero requests, zero tokens) -> token
- * from the per-domain bucket -> single-flight -> global throat with a minimum
- * jitter gap between any two source requests. Listener actions take the head
- * of the queue; background spends budget only when the bucket is more than
- * half full. Audio streams never pass through here (ADR-0039 §9).
+ * from the per-domain bucket -> single-flight -> ONE in-flight request Per
+ * Source host with a minimum jitter gap between that host's own consecutive
+ * requests. The throat is per host, never global: different Sources fetch
+ * concurrently, so a tap or a global search can never queue behind unrelated
+ * hosts (the 2026-09-10 responsiveness regression: a global throat + blocking
+ * waits serialized the whole app).
+ *
+ * Listener actions take the head of their host's queue; background spends
+ * budget only when the bucket is more than half full. Audio streams never
+ * pass through here (ADR-0039 §9).
  */
 enum class SourceRequestClass {
     /** A tap, import, play or re-resolve: never starves behind background work. */
@@ -38,14 +44,15 @@ enum class SourceRequestClass {
 /**
  * The initial numbers ADR-0039 §Числа calls settings to verify, not measured
  * results: capacity 6, one token per 10 s, background strictly above half the
- * bucket (4 of 6), a listener action waits at most 5 s before the honest
- * deferred state, and consecutive requests are separated by 200–800 ms.
+ * bucket (4 of 6), and consecutive same-host requests separated by 200–800 ms.
+ * The listener wait cap is deliberately short: a blocking transport call may
+ * not freeze the UI for seconds.
  */
 data class SourceGateParams(
     val bucketCapacity: Int = 6,
     val refillIntervalMs: Long = 10_000,
     val backgroundMinTokens: Int = 4,
-    val listenerWaitCapMs: Long = 5_000,
+    val listenerWaitCapMs: Long = 1_500,
     val jitterMinMs: Long = 200,
     val jitterMaxMs: Long = 800,
     /**
@@ -103,9 +110,19 @@ class SourceRequestGate(
 
     private class Waiter(
         val requestClass: SourceRequestClass,
+        val canWait: Boolean,
         val granted: CompletableDeferred<Unit>,
         val seq: Long
     )
+
+    /** One source host's queue: one request in flight, priority waiters, jitter gap. */
+    private class HostMouth {
+        val mutex = Mutex()
+        val waiters = mutableListOf<Waiter>()
+        var busy = false
+        var lastFinishedAtMs: Long? = null
+        var seq = 0L
+    }
 
     private sealed interface Admission {
         data class Granted(val state: SourceBucketState) : Admission
@@ -114,22 +131,20 @@ class SourceRequestGate(
 
     private val cache = ConcurrentHashMap<String, CacheEntry>()
     private val inFlight = ConcurrentHashMap<String, CompletableDeferred<GateOutcome<Any?>>>()
-
-    private val mouthMutex = Mutex()
-    private val waiters = mutableListOf<Waiter>()
-    private var busy = false
-    private var lastFinishedAtMs: Long? = null
-    private var waiterSeq = 0L
+    private val mouths = ConcurrentHashMap<String, HostMouth>()
 
     /**
      * One gated request. [cacheTtlMillis] > 0 opts the call into the fresh
      * cache (positive results for its TTL, failures for [SourceGateParams.negativeTtlMs]);
-     * 0 means "current truth, no cache". [fetch] returns null on any failure.
+     * 0 means "current truth, no cache". [canWait] is FALSE on the legacy
+     * blocking transport door: a dry bucket then defers immediately and the
+     * jitter gap is skipped, so a UI-thread caller is never parked.
      */
     suspend fun <T : Any> run(
         url: String,
         requestClass: SourceRequestClass,
         cacheTtlMillis: Long = 0L,
+        canWait: Boolean = true,
         fetch: suspend () -> T?
     ): GateOutcome<T> {
         cached(url, allowFailure = cacheTtlMillis > 0L)?.let { entry ->
@@ -143,8 +158,8 @@ class SourceRequestGate(
         }
 
         try {
-            val outcome = withThroat(requestClass) {
-                fetchUnderBudget(url, requestClass, cacheTtlMillis, fetch)
+            val outcome = withThroat(hostOf(url), requestClass, canWait) {
+                fetchUnderBudget(url, requestClass, cacheTtlMillis, canWait, fetch)
             }
             leader.complete(outcome)
             return outcome
@@ -160,10 +175,11 @@ class SourceRequestGate(
         url: String,
         requestClass: SourceRequestClass,
         cacheTtlMillis: Long,
+        canWait: Boolean,
         fetch: suspend () -> T?
     ): GateOutcome<T> {
         val host = hostOf(url)
-        val admission = admit(host, requestClass)
+        val admission = admit(host, requestClass, canWait)
         when (admission) {
             is Admission.Deferred -> return GateOutcome.Deferred(admission.retryAfterMs)
             is Admission.Granted -> budgetStore.save(host, admission.state)
@@ -183,7 +199,7 @@ class SourceRequestGate(
     }
 
     /** The class rule: background needs strictly more than half the bucket. */
-    private suspend fun admit(host: String, requestClass: SourceRequestClass): Admission {
+    private suspend fun admit(host: String, requestClass: SourceRequestClass, canWait: Boolean): Admission {
         val now = clock()
         val state = refill(budgetStore.load(host) ?: SourceBucketState(params.bucketCapacity, now), now)
         val minimum =
@@ -193,7 +209,9 @@ class SourceRequestGate(
         }
 
         val retryAfter = retryAfterMs(state, minimum, now)
-        if (requestClass == SourceRequestClass.LISTENER_ACTION && retryAfter <= params.listenerWaitCapMs) {
+        if (canWait && requestClass == SourceRequestClass.LISTENER_ACTION &&
+            retryAfter <= params.listenerWaitCapMs
+        ) {
             sleeper(retryAfter)
             val waited = refill(state, now + retryAfter)
             if (waited.tokens >= 1) {
@@ -239,57 +257,65 @@ class SourceRequestGate(
     @Suppress("UNCHECKED_CAST")
     private fun <T : Any> GateOutcome<Any?>.cast(): GateOutcome<T> = this as GateOutcome<T>
 
-    // --- the one-in-flight throat with class priority and the jitter gap ---
+    // --- the per-host throat with class priority and the jitter gap ---
 
-    private suspend fun <T> withThroat(requestClass: SourceRequestClass, block: suspend () -> T): T {
-        acquireThroat(requestClass)
+    private suspend fun <T> withThroat(
+        host: String,
+        requestClass: SourceRequestClass,
+        canWait: Boolean,
+        block: suspend () -> T
+    ): T {
+        val mouth = mouths.computeIfAbsent(host) { HostMouth() }
+        acquireThroat(mouth, requestClass, canWait)
         try {
             return block()
         } finally {
-            releaseThroat()
+            releaseThroat(mouth)
         }
     }
 
-    private suspend fun acquireThroat(requestClass: SourceRequestClass) {
+    private suspend fun acquireThroat(mouth: HostMouth, requestClass: SourceRequestClass, canWait: Boolean) {
         val granted = CompletableDeferred<Unit>()
         var direct = false
-        mouthMutex.withLock {
-            if (!busy) {
-                busy = true
+        mouth.mutex.withLock {
+            if (!mouth.busy) {
+                mouth.busy = true
                 direct = true
             } else {
-                waiters.add(Waiter(requestClass, granted, ++waiterSeq))
+                mouth.waiters.add(Waiter(requestClass, canWait, granted, ++mouth.seq))
             }
         }
         if (direct) {
-            pauseJitterGap()
+            if (canWait) pauseJitterGap(mouth)
         } else {
             granted.await()
         }
     }
 
-    private suspend fun releaseThroat() {
-        val next = mouthMutex.withLock {
-            if (waiters.isEmpty()) {
-                busy = false
+    private suspend fun releaseThroat(mouth: HostMouth) {
+        val next = mouth.mutex.withLock {
+            if (mouth.waiters.isEmpty()) {
+                mouth.busy = false
                 null
             } else {
-                val index = waiters.indices.minWithOrNull(
-                    compareBy({ priorityOf(waiters[it].requestClass) }, { waiters[it].seq })
+                val index = mouth.waiters.indices.minWithOrNull(
+                    compareBy({ priorityOf(mouth.waiters[it].requestClass) }, { mouth.waiters[it].seq })
                 ) ?: 0
-                waiters.removeAt(index)
+                mouth.waiters.removeAt(index)
             }
         }
         if (next == null) {
-            lastFinishedAtMs = clock()
+            mouth.lastFinishedAtMs = clock()
             return
         }
-        pauseJitterGap()
+        if (next.canWait) {
+            pauseJitterGap(mouth)
+        }
         next.granted.complete(Unit)
     }
 
-    private suspend fun pauseJitterGap() {
-        val last = lastFinishedAtMs ?: return
+    private suspend fun pauseJitterGap(mouth: HostMouth) {
+        val last = mouth.lastFinishedAtMs ?: return
         val span = params.jitterMaxMs - params.jitterMinMs
         val gap = params.jitterMinMs + if (span <= 0L) 0L else random.nextLong(span + 1)
         val elapsed = clock() - last

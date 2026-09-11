@@ -13,7 +13,7 @@ A specific audiobook rendition of one Work, distinguished by language, narrator,
 _Avoid_: Version, copy, source
 
 **Language**:
-The BCP-47 primary tag (`uk`, `en`, `de`, …) of one Edition's narration. The Work stays language-free — `mergeKey` is title|author — while the Edition id hashes `mergeKey|narrator|language`, so two languages of one Work are two Editions, never two cards (ADR-0029). Only a KNOWN claim yields a tag (`LanguageCode.normalize` / web `normalizeLanguage`: «English»→en, `eng`→en, `en-US`→en); unknown = absent, never guessed, and rows without a language are never hidden by any Content Language Preference (US17). A whole-language source declares one `contentLanguage`; a card may override it per book.
+The BCP-47 primary tag (`uk`, `en`, `de`, …) of one Edition's narration. The Work stays language-free — `mergeKey` is title|author — while the Edition id hashes `mergeKey|narrator|language`, so two languages of one Work are two Editions, never two cards (ADR-0029). Only a KNOWN claim yields a tag (`LanguageCode.normalize` / web `normalizeLanguage`: «English»→en, `eng`→en, `en-US`→en); unknown = absent, never guessed, and rows without a language are never hidden by any Content Language Preference (US17). A whole-language source declares one `contentLanguage`; a card may override it per book. Admission is the adapter's own claim mapped to a tag — the catalog admits every language a source really serves. The one standing exclusion is Russian: a `ru` claim never becomes a card or an Edition («усі крім російської» is an admission rule of the catalog, not a listener preference).
 _Avoid_: language on the Work, guessed language from text/URL heuristics
 
 **Source**:
@@ -421,21 +421,25 @@ _Avoid_: клік як доказ задоволення, Recommendation Signal 
 Локальне уточнення персональних рекомендацій за власними вподобаннями й досвідом слухача. Працює незалежно від його участі у спільному навчанні та від наявності серверного Recommendation Profile.
 _Avoid_: Recommendation Profile, пауза або незавершення як явне несхвалення
 
-**Cross-source «Новинки» rail**:
-One Огляд rail merging the new-arrival books of every Source — 4read's «Новинки» section plus the other sources' new feeds — into a single Work-deduplicated list with a per-Source badge on each card (`SourceCatalog.newArrivals`). It is published on both union triggers (`refreshSourceFeeds` + `fetchCatalogSections`) so it always reflects the fresher input, and the 4read «Новинки» catalogue section row is skipped on Огляд so 4read's new arrivals appear exactly once (spec-28 #192).
-_Avoid_: per-source «Нове» rows, duplicate 4read sections
+**«Новинки» медіатеки**:
+The one Огляд rail of recent arrivals: the listener’s recently imported Works (auto-seeded or manual), Work-deduplicated, with a per-Source badge on each card. It is computed from Library Entries alone — a Source’s own new-arrival feed is never rendered (spec-28 #192, Рішення C).
+_Avoid_: per-source «Нове» rows, source new-arrival feeds, duplicate arrival rails
 
 **«Серії» index screen**:
-A pushed screen listing every Series aggregated from the Source Catalog sections (the «Цикли» row), deduplicated by URL via the pure `CatalogSeriesIndex`; tapping one opens the existing series page with its books and universe context. No new series data source — it only indexes what the catalogue parser already produces (spec-28 #189).
-_Avoid_: inline-only series row, new series data source
+A pushed screen listing every Series present in the Media Library, deduplicated; tapping one opens the series page, whose books come from the Media Library while its neighbours may be revealed from the Catalog Mirror as discovery. No new series data source — it only indexes the Works the listener already has (spec-28 #189).
+_Avoid_: inline-only series row, new series data source, a series row with no library book
 
 **«Колекції» index screen**:
-A pushed screen listing every matched smart collection (Нобелівські лауреати, Шевченківська премія, Букер, live lists); tapping a book resolves-and-plays it exactly like the inline collection cards — the move changes location, not behaviour (spec-28 #190).
-_Avoid_: duplicated collection behaviour, new collection data source
+A pushed screen listing every smart collection matched against the Media Library (Нобелівські лауреати, Шевченківська премія, Букер, live lists); a collection shows only Works the listener already has, and tapping a book resolves-and-plays it exactly like the inline collection cards — the move changes location, not behaviour (spec-28 #190).
+_Avoid_: duplicated collection behaviour, new collection data source, a collection row for a book the listener does not have
 
 **Content Language Preference**:
-The local-only set of content languages shown in discovery: «обидві ввімкнені» by default, an empty selection means ALL, and a card is hidden only when every Edition of its Work carries a known language outside the selection. Rows with an unknown language stay visible under any selection (US17, ADR-0029). Android: `ContentLanguagePrefs` → `SourceCatalog.contentLanguageSelection` plus the «Мови контенту» destination and the «Мова» chip. Web: `contentLanguagePrefs.filterWorksByLanguage` plus chips that offer only languages with actual content. It never syncs and never touches Listening State.
-_Avoid_: server-side preference, hiding unknown-language rows, an all-off state
+The local-only set of content languages shown in discovery: every known language on by default («Усі»), an empty selection means ALL, and a card is hidden only when every Edition of its Work carries a known language outside the selection. Rows with an unknown language stay visible under any selection (US17, ADR-0029). The offered languages are the ones with actual content, on both platforms. Android: `ContentLanguagePrefs` → `SourceCatalog.contentLanguageSelection` plus the «Мови контенту» destination and the «Мова» chip opening the same multiselect. Web: `contentLanguagePrefs.filterWorksByLanguage` plus language chips. It never syncs and never touches Listening State.
+_Avoid_: server-side preference, hiding unknown-language rows, an all-off state, a hardcoded two-language toggle
+
+**First Language Choice**:
+The one-time first-run question «якими мовами хочеш книжки»: after the first successful catalog sync the listener is offered every known content language, all on, with the quick actions «Лише українські» and «Усі». Any answer — explicit selection or quick action — is terminal: persisted locally, never re-asked across restarts, and an already-narrowed preference counts as the answer. It replaces the earlier bilingual uk/en prompt and inherits its fires-once discipline. It shapes the Content Language Preference only; it never syncs and never touches Listening State.
+_Avoid_: asking before any content exists, a second prompt after an answer, pre-selecting from the device locale
 
 ## v1.4 UI consistency (spec-27, ADR-0033)
 

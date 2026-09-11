@@ -60,6 +60,15 @@ object LanguageCode {
     private val PRIMARY_TAG = Regex("^[a-z]{2,8}$")
 
     /**
+     * Spec-51 (#742) — every canonical tag this normalizer can produce: the
+     * accepted content-language vocabulary. The preference store intersects
+     * its writes with this set, so a code the app cannot recognize never
+     * becomes a filter state, and the offered-list logic has ONE source for
+     * "which languages exist".
+     */
+    val vocabulary: Set<String> get() = CANONICAL_TAGS
+
+    /**
      * Two-letter canonical tags we know directly (verbatim pass-through).
      * Spec-51 (#742): widened to the LibriVox catalogue vocabulary — a
      * source that really serves 49 languages must not have half of them

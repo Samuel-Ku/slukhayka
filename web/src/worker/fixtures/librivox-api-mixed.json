@@ -49,6 +49,31 @@
           "dod": "1894"
         }
       ]
+    },
+    {
+      "id": "99993",
+      "title": "Война и мир",
+      "description": "Роман Льва Толстого.",
+      "url_text_source": "https://www.gutenberg.org/etext/2600",
+      "language": "Russian",
+      "copyright_year": "1869",
+      "num_sections": "361",
+      "url_rss": "https://librivox.org/rss/99993",
+      "url_zip_file": "https://archive.org/compress/voina_i_mir_2601_librivox/formats=64KBPS MP3&file=/voina_i_mir_2601_librivox.zip",
+      "url_project": "",
+      "url_librivox": "https://librivox.org/voina-i-mir-by-leo-tolstoy/",
+      "url_other": "",
+      "totaltime": "60:00:00",
+      "totaltimesecs": 216000,
+      "authors": [
+        {
+          "id": "997",
+          "first_name": "Лев",
+          "last_name": "Толстой",
+          "dob": "1828",
+          "dod": "1910"
+        }
+      ]
     }
   ]
 }

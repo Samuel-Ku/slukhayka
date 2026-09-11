@@ -34,7 +34,9 @@ import com.slukhayka.audiobooks.data.imports.LibraryImport
 import com.slukhayka.audiobooks.data.listening.ListeningStateStore
 import com.slukhayka.audiobooks.data.imports.ImportPlanner
 import com.slukhayka.audiobooks.data.identity.ListenerIdentity
+import com.slukhayka.audiobooks.data.facets.ContentLanguagePrefs
 import com.slukhayka.audiobooks.data.facets.WorkFacetFilter
+import com.slukhayka.audiobooks.data.facets.orderContentLanguages
 import com.slukhayka.audiobooks.data.personbookmarks.PersonBookmarks
 import com.slukhayka.audiobooks.data.privacy.NetworkPrivacy
 import com.slukhayka.audiobooks.data.privacy.PrivacyPrefs
@@ -635,13 +637,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // #394 — notification button actions are handled by the App-scoped
         // DownloadNotificationActionCoordinator (works with no Activity);
         // the VM-side collect was removed with that change.
-        // Spec-45 (#405) T8 (#496): re-evaluate the one-time bilingual prompt
-        // on every process start — a previous session may have synced the
-        // first English books before the listener ever saw the question
-        // (idempotent: the persisted marker lets it fire at most once ever).
+        // Spec-51 (#742) T2: re-evaluate the one-time First Language Choice on
+        // every process start — a previous session may have synced the first
+        // books before the listener ever saw the question (idempotent: the
+        // persisted marker lets it fire at most once ever).
         viewModelScope.launch(Dispatchers.IO) {
             delay(1_500)
-            App.instance.bilingualPrompt.evaluate()
+            App.instance.firstLanguageChoice.evaluate()
         }
         // Spec-45 (#405) R6 (#513): a content-language change re-filters the
         // ALREADY SHOWN global-search results — the listener never re-enters
@@ -664,14 +666,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * Spec-45 (#405) T8 (#496): called when a catalogue sync completes — the
-     * sync may have written the first known-English rendition, so the
-     * one-time bilingual prompt re-evaluates (idempotent, fires at most once
-     * ever; [BilingualPromptEngine.evaluate] never re-asks after an answer).
+     * Spec-51 (#742) T2: called when a catalogue sync completes — the sync may
+     * have written the first rendition, so the one-time First Language Choice
+     * re-evaluates (idempotent, fires at most once ever;
+     * [FirstLanguageChoiceEngine.evaluate] never re-asks after an answer).
      */
     fun onCatalogueSynced() {
         viewModelScope.launch(Dispatchers.IO) {
-            App.instance.bilingualPrompt.evaluate()
+            App.instance.firstLanguageChoice.evaluate()
         }
     }
 
@@ -1705,17 +1707,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         App.instance.contentLanguagePrefs.setLanguages(languages)
     }
 
-    /** Огляд chip (US8): Усі → Українська → English → Усі. */
-    fun cycleContentLanguages() {
-        val current = App.instance.contentLanguagePrefs.languages.value
-        App.instance.contentLanguagePrefs.setLanguages(
-            when {
-                current == setOf("uk", "en") -> setOf("uk")
-                current == setOf("uk") -> setOf("en")
-                else -> setOf("uk", "en")
+    /**
+     * Spec-51 (#742) T3 — the languages the «Мови контенту» screen offers:
+     * what the catalogue actually holds, in the ONE repo order (uk, en, then
+     * alphabetical). A language nobody has a rendition in is never offered;
+     * the screen appends a still-selected language itself, so a selection is
+     * never stranded invisibly. Replaces the Огляд chip's old cycle, which
+     * only worked while there were exactly two languages.
+     */
+    val contentLanguageOptions: StateFlow<List<String>> =
+        App.instance.audiobookDao.observeKnownEditionLanguages()
+            .map { tags ->
+                orderContentLanguages(tags.filter { it in ContentLanguagePrefs.KNOWN_CONTENT_LANGUAGES })
             }
-        )
-    }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     // Spec-45 (#405) R7 (#514): the «Мова інтерфейсу» destination (⚙️
     // overflow) — navigation only; the screen reads/writes the App Locale

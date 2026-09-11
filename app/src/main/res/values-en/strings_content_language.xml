@@ -1,16 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Spec-45 (#405) T6 (#494): the content-language preference surfaces —
-     the ⚙️ «Мови контенту» destination and the Огляд «Мова» chip (US6/8). -->
+<!-- Spec-45 (#405) T6 (#494), spec-51 (#742): the content-language preference
+     surfaces — the ⚙️ «Content languages» destination, the Огляд «Language»
+     chip and the one-time First Language Choice (US6/US7/US8/US9). -->
 <resources>
     <string name="content_languages_title">Content languages</string>
-    <string name="content_languages_description">Show books only in the chosen narration languages. «All» means both Ukrainian and English. Books with an unknown language always stay visible.</string>
+    <string name="content_languages_description">Show books only in the chosen narration languages. «All» means every language of the catalog. Books with an unknown language always stay visible.</string>
     <string name="content_language_uk">Ukrainian</string>
     <string name="content_language_en">English</string>
     <string name="content_language_all">All</string>
     <string name="content_language_chip_label">Language: %1$s</string>
-    <!-- Spec-45 (#405) T8 (#496): the one-time bilingual prompt (US9). -->
-    <string name="bilingual_prompt_title">English books</string>
-    <string name="bilingual_prompt_body">English audiobooks were found — keep or hide them?</string>
-    <string name="bilingual_prompt_keep">Keep</string>
-    <string name="bilingual_prompt_uk_only">Ukrainian only</string>
+    <!-- Spec-51 (#742) T2: the one-time First Language Choice. -->
+    <string name="first_language_choice_title">Which languages should books be in?</string>
+    <string name="first_language_choice_body">Pick the narration languages — you can change this later in settings. Books with an unknown language always stay visible.</string>
+    <string name="first_language_choice_ukrainian_only">Ukrainian only</string>
+    <string name="first_language_choice_done">Done</string>
 </resources>

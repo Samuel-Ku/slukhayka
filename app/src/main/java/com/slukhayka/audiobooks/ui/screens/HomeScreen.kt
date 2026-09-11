@@ -503,7 +503,7 @@ fun HomeScreen(
                 // Spec-45 (#405) T6 (#494): the «Мова» chip mirrors the ONE
                 // persisted preference (both on = «Усі»); one tap cycles it.
                 contentLanguages = contentLanguages,
-                onCycleContentLanguage = viewModel::cycleContentLanguages,
+                onOpenContentLanguages = viewModel::openContentLanguages,
                 onRefreshCatalog = { scope.launch { sourceCatalog.fetchCatalogSections(forceRefresh = true) } },
                 onGoToLibrary = { viewModel.selectTab(com.slukhayka.audiobooks.ui.SelectedTab.LIBRARY) },
                 onOpenTop100 = { viewModel.openTop100() },
@@ -1362,7 +1362,7 @@ fun WorkFeedFilters(
     // Spec-45 (#405) T6 (#494): the «Мова» chip — one tap cycles the
     // content-language preference (US8); the chip reads the current state.
     contentLanguages: Set<String>? = null,
-    onCycleContentLanguage: () -> Unit = {}
+    onOpenContentLanguages: () -> Unit = {}
 ) {
     var sortExpanded by remember { mutableStateOf(false) }
     var showFilterSheet by rememberSaveable { mutableStateOf(false) }
@@ -1445,7 +1445,7 @@ fun WorkFeedFilters(
                         .testTag("feed_filters")
                 )
                 contentLanguages?.let { languages ->
-                    ContentLanguageChip(languages, onCycleContentLanguage)
+                    ContentLanguageChip(languages, onOpenContentLanguages)
                 }
             }
         }

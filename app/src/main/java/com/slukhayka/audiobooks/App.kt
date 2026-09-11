@@ -39,7 +39,7 @@ import com.slukhayka.audiobooks.data.duration.HttpStreamProber
 import com.slukhayka.audiobooks.data.facets.SharedPreferencesFacetSyncCursorStore
 import com.slukhayka.audiobooks.data.facets.SharedPreferencesSharedTombstoneSyncCursorStore
 import com.slukhayka.audiobooks.data.facets.SharedPreferencesSubmissionSyncCursorStore
-import com.slukhayka.audiobooks.data.facets.BilingualPromptEngine
+import com.slukhayka.audiobooks.data.facets.FirstLanguageChoiceEngine
 import com.slukhayka.audiobooks.data.facets.ContentLanguagePrefs
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
 import com.slukhayka.audiobooks.data.imports.LibraryImport
@@ -597,13 +597,14 @@ class App : Application() {
     val appLocalePrefs: AppLocalePrefs by lazy { AppLocalePrefs(this) }
 
     /**
-     * Spec-45 (#405) T8 (#496): the one-time bilingual prompt — after the
-     * first sync that writes an `en` Edition, the listener answers once
-     * whether to keep or hide English (US9). One app-scoped owner; sync
-     * call sites run [BilingualPromptEngine.evaluate] when they complete.
+     * Spec-51 (#742) T2: the one-time First Language Choice — after the first
+     * sync that writes any rendition, the listener answers once which
+     * languages to show (the spec-45 prompt's fires-once discipline, the
+     * multilingual question). One app-scoped owner; sync call sites run
+     * [FirstLanguageChoiceEngine.evaluate] when they complete.
      */
-    val bilingualPrompt: BilingualPromptEngine by lazy {
-        BilingualPromptEngine(contentLanguagePrefs) { audiobookDao.hasEnglishEditions() }
+    val firstLanguageChoice: FirstLanguageChoiceEngine by lazy {
+        FirstLanguageChoiceEngine(contentLanguagePrefs) { audiobookDao.knownEditionLanguages() }
     }
 
     /** Source Catalog: browse/sync/search + chapter materialisation. */

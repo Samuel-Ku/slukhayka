@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Language
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
@@ -19,44 +21,57 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Language
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.facets.ContentLanguagePrefs
+import com.slukhayka.audiobooks.data.facets.orderContentLanguages
 
 /**
- * Spec-45 (#405) T6 (#494) — the «Мови контенту» destination: one checkbox
- * per known content language, both checked = «Усі» (US6). Every write goes
- * straight to the SAME persisted store the feed Pager and the SourceCatalog
- * surfaces read — no draft state, no separate save step; the Огляд «Мова»
- * chip writes the identical preference (US7/US8). "Both off" is impossible:
- * the last checked language cannot be unchecked (the store enforces the same
- * invariant on any direct write).
+ * Spec-45 (#405) T6 (#494), spec-51 (#742) T3 — the «Мови контенту»
+ * destination: the «Усі» row plus one checkbox per language that actually has
+ * content (plus any still-selected language, so a selection is never stranded
+ * invisibly). The offered list is DATA — the catalogue's real languages, in
+ * the ONE repo order — never a hardcoded pair. Every write goes straight to
+ * the SAME persisted store the feed Pager and the SourceCatalog surfaces read
+ * — no draft state, no separate save step; the Огляд «Мова» chip opens this
+ * screen (spec-51 replaced its cycling with one obvious destination).
+ *
+ * «Усі» is the EMPTY selection (web parity): picking a language while «Усі»
+ * is on narrows to that language, and unpicking the last one returns to «Усі»
+ * — "nothing selected" is not a state, it is every language.
  *
  * Spec-45 (#405) R6 (#513): the screen receives the PREFERENCE MODULE itself
- * (ADR-0008 — screens read module flows and call module actions directly;
- * no ViewModel forwarders). Navigation to the destination stays in the
- * ViewModel ([MainViewModel.contentLanguagesOpen]).
+ * (ADR-0008 — screens read module flows and call module actions directly; no
+ * ViewModel forwarders). Navigation to the destination stays in the ViewModel
+ * ([MainViewModel.contentLanguagesOpen]).
  */
 @Composable
 fun ContentLanguageScreen(
     prefs: ContentLanguagePrefs,
+    availableLanguages: List<String>,
     onBackClick: () -> Unit
 ) {
     val contentLanguages by prefs.languages.collectAsState()
+    val offered = remember(availableLanguages, contentLanguages) {
+        orderContentLanguages(availableLanguages + contentLanguages)
+    }
 
-    fun toggle(language: String, checked: Boolean) {
+    fun toggle(tag: String, checked: Boolean) {
         val current = contentLanguages
-        val next = if (checked) current + language else current - language
-        // Guard against the impossible state rather than letting the store
-        // snap both back on underneath a one-checkbox-off click.
-        if (next.isNotEmpty()) prefs.setLanguages(next)
+        val next = when {
+            // From «Усі» (empty) an explicit pick means exactly that language.
+            current.isEmpty() -> setOf(tag)
+            checked -> current + tag
+            // Unpicking the last language lands back on «Усі».
+            else -> current - tag
+        }
+        prefs.setLanguages(next)
     }
 
     SettingsDestinationScaffold(
@@ -94,17 +109,22 @@ fun ContentLanguageScreen(
             Spacer(modifier = Modifier.height(16.dp))
 
             ContentLanguageRow(
-                tag = "content_language_uk_checkbox",
-                label = stringResource(R.string.content_language_uk),
-                checked = "uk" in contentLanguages,
-                onCheckedChange = { toggle("uk", it) }
+                tag = "content_language_all_checkbox",
+                label = stringResource(R.string.content_language_all),
+                checked = contentLanguages.isEmpty(),
+                // «Нічого не обрано» is not a state — the store normalizes an
+                // empty write back to «Усі», so unpicking this row is a no-op
+                // rather than a silent flip of meaning.
+                onCheckedChange = { checked -> if (checked) prefs.setLanguages(emptySet()) }
             )
-            ContentLanguageRow(
-                tag = "content_language_en_checkbox",
-                label = stringResource(R.string.content_language_en),
-                checked = "en" in contentLanguages,
-                onCheckedChange = { toggle("en", it) }
-            )
+            offered.forEach { tag ->
+                ContentLanguageRow(
+                    tag = "content_language_${tag}_checkbox",
+                    label = contentLanguageLabel(tag),
+                    checked = tag in contentLanguages,
+                    onCheckedChange = { checked -> toggle(tag, checked) }
+                )
+            }
         }
     }
 }

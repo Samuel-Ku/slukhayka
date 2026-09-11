@@ -352,21 +352,31 @@ interface AudiobookDao {
     suspend fun getEditionForWork(bookId: String): EditionEntity?
 
     /**
-     * Spec-45 (#405) T8 (#496): whether the catalogue holds any known-English
-     * rendition (Edition row or facet row) — the one-time bilingual prompt
-     * fires only after the first sync that actually wrote an `en` Edition
-     * (US9). Codes are stored normalized (BCP-47) by the T1 write-through.
+     * Spec-51 (#742) T1/T2 — every content language the catalogue actually
+     * holds: the Edition rows and the facet rows the T1 write-through fills.
+     * The First Language Choice offers exactly this list (a language nobody
+     * has a rendition in is never offered), and an empty answer means no
+     * sync has written anything yet — the question waits. Codes are stored
+     * normalized (BCP-47).
      */
     @Query(
         """
-        SELECT EXISTS(
-            SELECT 1 FROM edition_facets WHERE language = 'en'
-            UNION
-            SELECT 1 FROM editions WHERE language = 'en'
-        )
+        SELECT DISTINCT language FROM edition_facets WHERE language != ''
+        UNION
+        SELECT DISTINCT language FROM editions WHERE language != ''
         """
     )
-    suspend fun hasEnglishEditions(): Boolean
+    suspend fun knownEditionLanguages(): List<String>
+
+    /** The Room flow twin of [knownEditionLanguages] for the settings screen. */
+    @Query(
+        """
+        SELECT DISTINCT language FROM edition_facets WHERE language != ''
+        UNION
+        SELECT DISTINCT language FROM editions WHERE language != ''
+        """
+    )
+    fun observeKnownEditionLanguages(): Flow<List<String>>
 
     /** Every known rendition, for local projections such as person-bookmark news. */
     @Query("SELECT * FROM editions ORDER BY addedAt DESC")

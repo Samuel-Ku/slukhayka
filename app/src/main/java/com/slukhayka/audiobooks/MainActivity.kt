@@ -62,6 +62,7 @@ import com.slukhayka.audiobooks.ui.screens.LibraryScreen
 import com.slukhayka.audiobooks.ui.screens.ListenScreen
 import com.slukhayka.audiobooks.ui.screens.AppLocaleScreen
 import com.slukhayka.audiobooks.ui.screens.ContentLanguageScreen
+import com.slukhayka.audiobooks.ui.screens.FirstLanguageChoiceSheet
 import com.slukhayka.audiobooks.ui.screens.NetworkPrivacyScreen
 import com.slukhayka.audiobooks.ui.screens.PeopleScreen
 import com.slukhayka.audiobooks.ui.screens.PersonBooksScreen
@@ -241,8 +242,9 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     val narrationSwitchPrompt by viewModel.narrationSwitchPrompt.collectAsState()
     val crashReporting = App.instance.crashReporting
     val crashReportingState by crashReporting.state.collectAsState()
-    val bilingualPrompt = App.instance.bilingualPrompt
-    val bilingualPromptVisible by bilingualPrompt.visible.collectAsState()
+    val firstLanguageChoice = App.instance.firstLanguageChoice
+    val firstChoiceVisible by firstLanguageChoice.visible.collectAsState()
+    val firstChoiceLanguages by firstLanguageChoice.languages.collectAsState()
     var appVisibility by remember { mutableStateOf(AppVisibility.FOREGROUND) }
     val lifecycleOwner = LocalLifecycleOwner.current
 
@@ -268,13 +270,14 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
         )
     }
 
-    // Spec-45 (#405) T8 (#496): the one-time bilingual prompt (US9) — shown
-    // after the first sync that found English books; either action dismisses
-    // it permanently (the engine's persisted marker).
-    if (bilingualPromptVisible) {
-        BilingualContentPrompt(
-            onKeepEnglish = bilingualPrompt::keepEnglish,
-            onUkrainianOnly = bilingualPrompt::ukrainianOnly
+    // Spec-51 (#742) T2: the one-time First Language Choice — shown after the
+    // first sync that wrote renditions; EVERY action (including dismissal)
+    // answers permanently through the engine's persisted marker.
+    if (firstChoiceVisible) {
+        FirstLanguageChoiceSheet(
+            languages = firstChoiceLanguages,
+            onUkrainianOnly = firstLanguageChoice::ukrainianOnly,
+            onDone = firstLanguageChoice::apply
         )
     }
 
@@ -331,6 +334,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     val privacySettingsOpen by viewModel.privacySettingsOpen.collectAsState()
     val recommendationSettingsOpen by viewModel.recommendationSettingsOpen.collectAsState()
     val contentLanguagesOpen by viewModel.contentLanguagesOpen.collectAsState()
+    val contentLanguageOptions by viewModel.contentLanguageOptions.collectAsState()
     val sourceAudioRefusalOpen by viewModel.sourceAudioRefusalOpen.collectAsState()
     val appLocaleOpen by viewModel.appLocaleOpen.collectAsState()
     val profileOpen by viewModel.profileOpen.collectAsState()
@@ -483,7 +487,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                 .testTag("app_background")
                 .accessibilityModalBackground(
                     modalVisible = fullPlayerModalActive || crashReportingState.shouldShowPrompt ||
-                        bilingualPromptVisible || narrationSwitchPrompt != null
+                        firstChoiceVisible || narrationSwitchPrompt != null
                 ),
             bottomBar = {
                 Column {
@@ -735,6 +739,9 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                     // the ViewModel only owns navigation.
                     contentLanguagesOpen -> ContentLanguageScreen(
                         prefs = App.instance.contentLanguagePrefs,
+                        // Spec-51 (#742): the offered list is the catalogue's
+                        // real languages, never a hardcoded pair.
+                        availableLanguages = contentLanguageOptions,
                         onBackClick = {
                             viewModel.closeContentLanguages()
                         }
@@ -1087,7 +1094,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     com.slukhayka.audiobooks.ui.screens.BookFeedbackHost(
         viewModel.bookFeedback, viewModel.bookFeedbackStore,
         foreground = appVisibility == AppVisibility.FOREGROUND,
-        allowAutomatic = !crashReportingState.shouldShowPrompt && !bilingualPromptVisible && narrationSwitchPrompt == null
+        allowAutomatic = !crashReportingState.shouldShowPrompt && !firstChoiceVisible && narrationSwitchPrompt == null
     )
 
     }
@@ -1141,35 +1148,6 @@ internal fun NarrationSwitchConfirmationPrompt(
         dismissButton = {
             TextButton(onClick = onDismiss) {
                 Text(stringResource(R.string.narration_switch_cancel))
-            }
-        }
-    )
-}
-
-/**
- * Spec-45 (#405) T8 (#496) — the one-time bilingual prompt (US9): after the
- * first sync that found English books, ask once whether to keep or hide them.
- * No neutral dismissal (system back is inert) — the listener answers, and the
- * choice is terminal. The AlertDialog surfaces the full sentence plus both
- * actions to TalkBack.
- */
-@Composable
-internal fun BilingualContentPrompt(
-    onKeepEnglish: () -> Unit,
-    onUkrainianOnly: () -> Unit
-) {
-    AlertDialog(
-        onDismissRequest = { },
-        title = { Text(stringResource(R.string.bilingual_prompt_title)) },
-        text = { Text(stringResource(R.string.bilingual_prompt_body)) },
-        confirmButton = {
-            TextButton(onClick = onKeepEnglish) {
-                Text(stringResource(R.string.bilingual_prompt_keep))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onUkrainianOnly) {
-                Text(stringResource(R.string.bilingual_prompt_uk_only))
             }
         }
     )

@@ -1,7 +1,8 @@
 /**
- * spec-45 (#405) T12 — the ONE normalizer of Edition content languages on
- * the web, mirroring the Android `LanguageCode` rule (same inputs, same
- * outputs, same maps) so both platforms claim identical BCP-47 tags.
+ * spec-45 (#405) T12, spec-51 (#742) — the ONE normalizer of Edition content
+ * languages on the web, mirroring the Android `LanguageCode` rule (same
+ * inputs, same outputs, same maps) so both platforms claim identical BCP-47
+ * tags.
  *
  * An Edition's `language` is a BCP-47 primary tag (`uk`, `en`, `de`, …).
  * Adapters never invent one: they hand their raw claim (a source's own label
@@ -10,6 +11,12 @@
  * null → the Edition stores no language (unknown), which the language filter
  * NEVER hides — a source that does not declare a language must not make its
  * books vanish under a monoglot's filter.
+ *
+ * Spec-51 widened the vocabulary to the LibriVox catalogue's real set (its
+ * API reports the word, e.g. `Afrikaans`, `Latin`; the archive mirror reports
+ * codes like `dut`, `lat`). The widened entries and their exact tags mirror
+ * `LanguageCode.kt`, and the one standing exclusion (`ru`) is applied by the
+ * LibriVox adapter, not here — the normalizer still honestly maps `Russian`.
  */
 
 const PRIMARY_TAG = /^[a-z]{2,8}$/
@@ -19,6 +26,10 @@ const CANONICAL_TAGS = new Set([
   'uk', 'en', 'de', 'fr', 'es', 'ru', 'pl', 'it', 'pt', 'nl',
   'sv', 'da', 'no', 'fi', 'cs', 'sk', 'hu', 'ro', 'bg', 'el',
   'hr', 'sr', 'sl', 'et', 'lv', 'lt', 'tr', 'ar', 'he', 'zh', 'ja',
+  // Spec-51 (#742) — the rest of the LibriVox catalogue vocabulary.
+  'af', 'hy', 'bn', 'ca', 'eo', 'hi', 'is', 'id', 'ga', 'jv',
+  'kn', 'ko', 'la', 'ml', 'mr', 'fa', 'su', 'tl', 'ta', 'te',
+  'ur', 'vi', 'cy', 'yi',
 ])
 
 /** Full-name (and primary-tag alias) → canonical tag. */
@@ -54,6 +65,32 @@ const BY_NAME: Record<string, string> = {
   hebrew: 'he', he: 'he',
   chinese: 'zh', zh: 'zh',
   japanese: 'ja', ja: 'ja',
+  // Spec-51 (#742) — the rest of the LibriVox language vocabulary.
+  afrikaans: 'af',
+  armenian: 'hy',
+  bengali: 'bn',
+  catalan: 'ca',
+  esperanto: 'eo',
+  hindi: 'hi',
+  icelandic: 'is',
+  indonesian: 'id',
+  irish: 'ga',
+  javanese: 'jv',
+  kannada: 'kn',
+  korean: 'ko',
+  latin: 'la',
+  malayalam: 'ml',
+  marathi: 'mr',
+  persian: 'fa',
+  sundanese: 'su',
+  tagalog: 'tl',
+  filipino: 'tl',
+  tamil: 'ta',
+  telugu: 'te',
+  urdu: 'ur',
+  vietnamese: 'vi',
+  welsh: 'cy',
+  yiddish: 'yi',
 }
 
 /** ISO-639-3 / ISO-639-2 → canonical tag (the `eng`-style claims). */
@@ -65,6 +102,12 @@ const ISO_639_3: Record<string, string> = {
   bul: 'bg', ell: 'el', gre: 'el', hrv: 'hr', srp: 'sr', slv: 'sl',
   est: 'et', lav: 'lv', lit: 'lt', tur: 'tr', ara: 'ar', heb: 'he',
   zho: 'zh', chi: 'zh', jpn: 'ja',
+  // Spec-51 (#742) — ISO-639-2/B and /T codes of the wider vocabulary.
+  afr: 'af', hye: 'hy', arm: 'hy', ben: 'bn', cat: 'ca', epo: 'eo',
+  hin: 'hi', isl: 'is', ice: 'is', ind: 'id', gle: 'ga', jav: 'jv',
+  kan: 'kn', kor: 'ko', lat: 'la', mal: 'ml', mar: 'mr', fas: 'fa',
+  per: 'fa', sun: 'su', tgl: 'tl', tam: 'ta', tel: 'te', urd: 'ur',
+  vie: 'vi', cym: 'cy', wel: 'cy', yid: 'yi',
 }
 
 /**

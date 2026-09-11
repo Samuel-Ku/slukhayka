@@ -1,29 +1,96 @@
 /**
- * spec-45 (#405) T13 (#501) — the web Content Language Preference, mirroring
- * the Android `ContentLanguagePrefs` + the T4/T5 filter rule + the T7 badge
- * contract, in one client module.
+ * spec-45 (#405) T13 (#501), spec-51 (#742) — the web Content Language
+ * Preference, mirroring the Android `ContentLanguagePrefs` + the T4/T5 filter
+ * rule + the T7 badge contract, in one client module.
  *
- * The preference is a persisted set of BCP-47 codes ("both on" default, i.e.
- * `["uk","en"]`); an EMPTY set means ALL languages ("empty = all" — the
- * toggle can never strand the listener with nothing selected). Unknown-
- * language rows stay visible under any selection, because a source that does
- * not declare a language must not make its books vanish (US17).
+ * The preference is a persisted set of BCP-47 codes. An EMPTY set means ALL
+ * languages («Усі» — the shipped default, exactly like Android): the toggle
+ * can never strand the listener with nothing selected. Unknown-language rows
+ * stay visible under any selection, because a source that does not declare a
+ * language must not make its books vanish (US17).
+ *
+ * Spec-51 widened the vocabulary from a hardcoded uk/en pair to the ONE
+ * normalizer's set; the offered list is dynamic (`availableLanguagesOf`) and
+ * an old default selection of exactly `["uk","en"]` widens to «Усі» once
+ * (spec-51 migration), so newly admitted languages are not hidden behind a
+ * choice nobody made. A deliberately narrowed selection (e.g. `["uk"]`) is
+ * never touched.
  *
  * Storage rides an injected Storage-like interface (localStorage in the
- * browser); corrupt payloads degrade to the default, never a crash.
+ * browser); corrupt payloads degrade to «Усі», never a crash.
  */
 
 import type { UnifiedWork } from '../worker/types'
 import { normalizeLanguage } from '../worker/language'
 
 const KEY = 'slukhayka.content_languages'
+const MIGRATED_KEY = 'slukhayka.content_languages.migrated'
 
-/** The languages the toggle offers today (the LibriVox start: uk + en). */
-export const CONTENT_LANGUAGES = ['uk', 'en'] as const
+/** The pre-spec-51 default answer: the only value the migration widens. */
+const LEGACY_DEFAULT = ['uk', 'en']
 
+/**
+ * Reader-facing names for the filter chips. The two flagship languages keep
+ * their curated labels; wider languages show their own name, and an unknown
+ * code falls back to itself (honest, never blank) — the same idea as
+ * Android's `contentLanguageLabel`.
+ */
 export const LANGUAGE_LABELS: Record<string, string> = {
   uk: 'Українська',
   en: 'English',
+  de: 'Deutsch',
+  fr: 'Français',
+  es: 'Español',
+  it: 'Italiano',
+  pt: 'Português',
+  nl: 'Nederlands',
+  pl: 'Polski',
+  ru: 'Русский',
+  sv: 'Svenska',
+  da: 'Dansk',
+  no: 'Norsk',
+  fi: 'Suomi',
+  cs: 'Čeština',
+  sk: 'Slovenčina',
+  hu: 'Magyar',
+  ro: 'Română',
+  bg: 'Български',
+  el: 'Ελληνικά',
+  hr: 'Hrvatski',
+  sr: 'Српски',
+  sl: 'Slovenščina',
+  et: 'Eesti',
+  lv: 'Latviešu',
+  lt: 'Lietuvių',
+  tr: 'Türkçe',
+  ar: 'العربية',
+  he: 'עברית',
+  zh: '中文',
+  ja: '日本語',
+  af: 'Afrikaans',
+  hy: 'Հայերեն',
+  bn: 'বাংলা',
+  ca: 'Català',
+  eo: 'Esperanto',
+  hi: 'हिन्दी',
+  is: 'Íslenska',
+  id: 'Bahasa Indonesia',
+  ga: 'Gaeilge',
+  jv: 'Basa Jawa',
+  kn: 'ಕನ್ನಡ',
+  ko: '한국어',
+  la: 'Latina',
+  ml: 'മലയാളം',
+  mr: 'मराठी',
+  fa: 'فارسی',
+  su: 'Basa Sunda',
+  tl: 'Tagalog',
+  ta: 'தமிழ்',
+  te: 'తెలుగు',
+  ur: 'اردو',
+  vi: 'Tiếng Việt',
+  cy: 'Cymraeg',
+  yi: 'ייִדיש',
 }
 
 export interface StorageLike {
@@ -40,16 +107,44 @@ function defaultStorage(): StorageLike {
   }
 }
 
-/** The persisted selection; absent/corrupt storage falls back to both-on. */
+/** The persisted selection; absent/corrupt storage falls back to «Усі». */
 export function loadContentLanguagePrefs(storage: StorageLike = defaultStorage()): string[] {
   try {
+    migrateLegacyDefault(storage)
     const raw = storage.getItem(KEY)
-    if (raw === null) return [...CONTENT_LANGUAGES]
+    if (raw === null) return []
     const parsed: unknown = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return [...CONTENT_LANGUAGES]
+    if (!Array.isArray(parsed)) return []
     return parsed.filter((code): code is string => typeof code === 'string' && code !== '')
   } catch {
-    return [...CONTENT_LANGUAGES]
+    return []
+  }
+}
+
+/**
+ * Spec-51 (#742) — the one-time migration. A stored selection of exactly
+ * `["uk","en"]` is the OLD default: «both on», the only «Усі» the app had
+ * when those were the only two languages. It widens to «Усі» once, so newly
+ * admitted languages cannot hide behind a choice nobody made. The marker
+ * makes this fire exactly once — a later, deliberate uk+en selection stays
+ * exactly that. A narrowed selection (e.g. `["uk"]`) is never touched.
+ */
+function migrateLegacyDefault(storage: StorageLike): void {
+  try {
+    if (storage.getItem(MIGRATED_KEY) === 'true') return
+    storage.setItem(MIGRATED_KEY, 'true')
+    const raw = storage.getItem(KEY)
+    if (raw === null) return
+    const parsed: unknown = JSON.parse(raw)
+    if (
+      Array.isArray(parsed) &&
+      parsed.length === LEGACY_DEFAULT.length &&
+      parsed.every((code, index) => code === LEGACY_DEFAULT[index])
+    ) {
+      storage.setItem(KEY, JSON.stringify([]))
+    }
+  } catch {
+    // degrade-never: a broken payload is simply left for the reader below
   }
 }
 
@@ -96,7 +191,8 @@ export function filterWorksByLanguage(
 /**
  * The languages the filters UI offers: those present in the loaded content
  * plus any still-selected one (a selection is never stranded invisibly).
- * `uk` first, `en` second, then the rest alphabetically.
+ * `uk` first, `en` second, then the rest alphabetically — the ONE ordering
+ * rule shared with Android's `orderContentLanguages`.
  */
 export function availableLanguagesOf(
   works: readonly UnifiedWork[],
@@ -132,5 +228,5 @@ export function badgeLabel(language: string | undefined): LanguageBadge | null {
   if (code === null) return null
   if (code === 'uk') return { label: 'UA', name: LANGUAGE_LABELS.uk }
   if (code === 'en') return { label: 'EN', name: LANGUAGE_LABELS.en }
-  return { label: code.toUpperCase(), name: code }
+  return { label: code.toUpperCase(), name: LANGUAGE_LABELS[code] ?? code }
 }

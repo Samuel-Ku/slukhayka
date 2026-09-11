@@ -408,12 +408,12 @@ class WorkFeedFilterWiringTest {
         )
     }
 
-    // Spec-45 (#405) T6 (#494): the «Мова» chip cycles the SAME persisted
-    // content-language preference that feeds the Pager — a tap re-filters the
-    // endless feed live, no restart (US8/US7). Mirrors MainViewModel's
-    // cycleContentLanguages + workFeed combine exactly.
+    // Spec-51 (#742): the SAME persisted content-language preference feeds the
+    // Pager, so a change made on the «Мови контенту» screen re-filters the
+    // endless feed live, no restart (US7/US8). The chip no longer cycles — it
+    // opens that screen (pinned by the wiring test below).
     @Test
-    fun tapping_the_language_chip_re_filters_the_feed_without_restart() = runBlocking {
+    fun changing_the_language_preference_re_filters_the_feed_without_restart() = runBlocking {
         catalog.writeWorkEdition("4read", "Pride and Prejudice", "Jane Austen", "", "https://4read.org/p.html")
         catalog.writeWorkEdition("4read", "Кобзар", "Тарас Шевченко", "", "https://4read.org/k.html")
         val works = dao.observeWorks().first().associateBy { it.title }
@@ -422,15 +422,10 @@ class WorkFeedFilterWiringTest {
 
         val genreFilters = MutableStateFlow<Set<String>>(emptySet())
         val sortByTitle = MutableStateFlow(false)
-        val languages = MutableStateFlow(setOf("uk", "en"))
+        // «Усі» is the empty selection (spec-51): both books show at first.
+        val languages = MutableStateFlow(emptySet<String>())
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         lateinit var feed: LazyPagingItems<WorkFeedRow>
-
-        fun cycle(current: Set<String>) = when {
-            current == setOf("uk", "en") -> setOf("uk")
-            current == setOf("uk") -> setOf("en")
-            else -> setOf("uk", "en")
-        }
 
         compose.setContent {
             AudiobookTheme(darkTheme = true) {
@@ -453,7 +448,6 @@ class WorkFeedFilterWiringTest {
                         feedGenreFilters = genreFilters.value,
                         feedSortByTitle = sortByTitle.value,
                         contentLanguages = langs,
-                        onCycleContentLanguage = { languages.value = cycle(languages.value) },
                         onRefreshCatalog = {},
                         onGoToLibrary = {},
                         onOpenTop100 = {},
@@ -479,7 +473,7 @@ class WorkFeedFilterWiringTest {
         // The genre-test idiom: wait for the restarted Pager's refresh to
         // COMPLETE (a raw itemCount can sit on the previous generation's
         // items while refresh is Loading).
-        compose.onNodeWithTag("feed_language").performClick()
+        languages.value = setOf("uk")
         var diag: String = ""
         try {
             compose.waitUntil(30_000) {
@@ -502,11 +496,27 @@ class WorkFeedFilterWiringTest {
         )).assertExists()
 
         // Українська → English: the opposite world, again without restart.
-        compose.onNodeWithTag("feed_language").performClick()
+        languages.value = setOf("en")
         compose.waitUntil(30_000) {
             feed.loadState.refresh !is androidx.paging.LoadState.Loading && languages.value == setOf("en") &&
                 compose.onAllNodesWithText("Pride and Prejudice").fetchSemanticsNodes().size == 1
         }
         assertTrue(compose.onAllNodesWithText("Кобзар").fetchSemanticsNodes().isEmpty())
+    }
+
+    // Spec-51 (#742) T3: the chip stopped cycling (two languages cycled, forty
+    // do not) — a tap opens the one «Мови контенту» destination instead.
+    @Test
+    fun the_language_chip_opens_the_language_screen() {
+        var opened = false
+        compose.setContent {
+            AudiobookTheme(darkTheme = true) {
+                com.slukhayka.audiobooks.ui.screens.ContentLanguageChip(setOf("uk")) { opened = true }
+            }
+        }
+
+        compose.onNodeWithTag("feed_language").performClick()
+
+        assertTrue(opened)
     }
 }

@@ -72,7 +72,7 @@ fun LazyListScope.homeFeedContent(
     feedGenreFilters: Set<String>,
     feedSortByTitle: Boolean,
     contentLanguages: Set<String>? = null,
-    onCycleContentLanguage: () -> Unit = {},
+    onOpenContentLanguages: () -> Unit = {},
     onRefreshCatalog: () -> Unit,
     onGoToLibrary: () -> Unit,
     onOpenTop100: () -> Unit,
@@ -484,7 +484,7 @@ fun LazyListScope.homeFeedContent(
             onOpenFilters = onOpenFeedFilters,
             filterTriggerModifier = feedFilterTriggerModifier,
             contentLanguages = contentLanguages,
-            onCycleContentLanguage = onCycleContentLanguage
+            onOpenContentLanguages = onOpenContentLanguages
         )
     }
     if (workFeedItems.itemCount == 0 && workFeedItems.loadState.refresh is LoadState.Loading) {

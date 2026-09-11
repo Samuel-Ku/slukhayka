@@ -27,6 +27,11 @@ import com.slukhayka.audiobooks.data.universe.SeriesUniverses
 import com.slukhayka.audiobooks.data.update.UpdateChecker
 import com.slukhayka.audiobooks.data.catalog.SourceCatalog
 import com.slukhayka.audiobooks.data.catalog.CatalogAvailabilityPolicy
+import com.slukhayka.audiobooks.data.availability.AvailabilityCheckQueue
+import com.slukhayka.audiobooks.data.availability.AvailabilityDailyScan
+import com.slukhayka.audiobooks.data.availability.AvailabilityStatus
+import com.slukhayka.audiobooks.data.availability.AvailabilityView
+import com.slukhayka.audiobooks.data.availability.LibraryAvailabilityPolicy
 import com.slukhayka.audiobooks.data.downloads.OfflineDownloads
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
 import com.slukhayka.audiobooks.data.imports.KnownBookIdentity
@@ -700,6 +705,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     ) { books, progress, chapters ->
         com.slukhayka.audiobooks.ui.library.buildLibraryBooks(books, progress, chapters.groupBy { it.bookId })
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // ADR-0042 §1 (spec-56 T1) — the availability state per Work, a pure
+    // projection of the book's own source, the persisted verdicts and the
+    // refusal set. Clean books (available audio) are absent from the map, so
+    // the card never gets noise.
+    val libraryAvailability: StateFlow<Map<String, AvailabilityView>> = combine(
+        libraryBooks,
+        App.instance.libraryAvailabilityStore.verdicts,
+        App.instance.sourceAudioRefusal.refusedSources
+    ) { books, verdicts, refused ->
+        buildMap {
+            for (entry in books) {
+                val book = entry.book
+                // A local copy or an offline download always plays.
+                if (entry.isLocal || book.isDownloaded) continue
+                val mergeKey = book.mergeKey
+                if (mergeKey.isBlank()) continue
+                val available = LibraryAvailabilityPolicy.hasAvailableAudio(book.sourceUrl, refused)
+                val refusedId = LibraryAvailabilityPolicy.refusedSourceId(book.sourceUrl, refused)
+                LibraryAvailabilityPolicy.viewFor(available, refusedId, verdicts[mergeKey])
+                    ?.let { view -> put(mergeKey, view) }
+            }
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
     // Wayfinder #62 — the rule-based personalized Listen: local-only prefs
     // (order / hidden / dismissed) feed the pure ListenComposer, whose output
@@ -3097,6 +3126,170 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private val availabilityQueue = AvailabilityCheckQueue()
+    private var availabilityDraining = false
+
+    /**
+     * Spec-56 T2 (#729) — every problem Work joins the Source Watch
+     * automatically, without a listener action and idempotently: a Work
+     * whose audio is not available anywhere is exactly the Work the watch
+     * exists for. Zero-request (state + store only); the manual watch and
+     * notification paths stay untouched, so the two ways in never duplicate
+     * an entry.
+     */
+    fun ensureProblemWorksWatched() {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                val refused = App.instance.sourceAudioRefusal.refusedSources.value
+                val store = App.instance.sourceWatchStore
+                for (entry in libraryBooks.value) {
+                    val book = entry.book
+                    // A local copy or an offline download already plays; the
+                    // watch is for Works whose audio is genuinely absent.
+                    if (entry.isLocal || book.isDownloaded) continue
+                    val mergeKey = book.mergeKey.takeIf { it.isNotBlank() } ?: continue
+                    if (store.isWatched(mergeKey)) continue
+                    if (LibraryAvailabilityPolicy.hasAvailableAudio(book.sourceUrl, refused)) continue
+                    val workId = book.workId?.takeIf { it.isNotBlank() } ?: mergeKey
+                    store.watch(mergeKey, workId)
+                }
+            }
+        }
+    }
+
+    /**
+     * Spec-56 T2 (#729) — a tap on the availability status asks for current
+     * truth: a fresh resolve that bypasses the memo, bounded by the catalog
+     * source budget so the tap can never hang, while the card shows
+     * «перевіряємо». Offline (a bounded attempt that never completed) keeps
+     * the last honest verdict instead of fabricating a fresh one; a
+     * completed miss records an honest, time-stamped «джерел не знайдено».
+     * A found source notifies Source Watch exactly as the tap path does.
+     */
+    fun recheckAvailability(bookId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                val book = App.instance.audiobookDao.getAudiobookById(bookId) ?: return@launch
+                val mergeKey = book.mergeKey?.takeIf { it.isNotBlank() } ?: return@launch
+                checkAndRecord(book.title, book.author, mergeKey, force = true)
+            }
+        }
+    }
+
+    /**
+     * Spec-56 T3 (#730) — the visible cards set the order: they jump the
+     * queue, while the rest of the library is a delta scan due at most once
+     * a day. Nothing checks the whole backlog on start, and a restart inside
+     * the day never repeats the scan.
+     */
+    fun onAvailabilityVisible(visibleMergeKeys: List<String>) {
+        availabilityQueue.requestVisible(visibleMergeKeys)
+        enqueueDailyBacklogIfDue()
+        drainAvailabilityQueue()
+    }
+
+    private fun enqueueDailyBacklogIfDue() {
+        val store = App.instance.libraryAvailabilityStore
+        val now = System.currentTimeMillis()
+        if (!AvailabilityDailyScan.isDue(store.lastDailyScanAtMs(), now)) return
+        val refused = App.instance.sourceAudioRefusal.refusedSources.value
+        val backlog = libraryBooks.value
+            .asSequence()
+            .filter { !it.isLocal && !it.book.isDownloaded }
+            .filterNot { LibraryAvailabilityPolicy.hasAvailableAudio(it.book.sourceUrl, refused) }
+            .mapNotNull { it.book.mergeKey.takeIf { key -> key.isNotBlank() } }
+            .toList()
+        availabilityQueue.requestBacklog(backlog)
+        store.recordDailyScan(now)
+    }
+
+    private fun drainAvailabilityQueue() {
+        if (availabilityDraining) return
+        availabilityDraining = true
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                while (true) {
+                    val mergeKey = availabilityQueue.next() ?: break
+                    val entry = libraryBooks.value.firstOrNull { it.book.mergeKey == mergeKey } ?: continue
+                    runCatching {
+                        checkAndRecord(entry.book.title, entry.book.author, mergeKey, background = true)
+                    }
+                    delay(AVAILABILITY_CHECK_PAUSE_MS)
+                }
+            } finally {
+                availabilityDraining = false
+            }
+        }
+    }
+
+    /**
+     * One bounded check of a Work; records the honest verdict and lets Source
+     * Watch announce a found source.
+     *
+     * - [background] (the queue) is zero-request: union → shared cache → local
+     *   Work index only, so a background scan spends NO source tokens at all.
+     *   A local miss is not a verdict — the previous one stands, and the live
+     *   volley waits for a listener tap.
+     * - listener-initiated (the tap) bypasses the memo ([force]) and runs the
+     *   full resolve under the source budget; a bounded attempt that never
+     *   completed (offline) keeps the previous verdict instead of fabricating
+     *   a fresh one, and a completed miss records an honest «джерел не знайдено».
+     */
+    private suspend fun checkAndRecord(
+        title: String,
+        author: String,
+        mergeKey: String,
+        force: Boolean = false,
+        background: Boolean = false
+    ) {
+        val store = App.instance.libraryAvailabilityStore
+        if (background) {
+            val match = withTimeoutOrNull(CatalogAvailabilityPolicy.SOURCE_BUDGET_MS) {
+                App.instance.directSourceResolve.resolveLocalOnly(title, author, mergeKey)
+            }
+            if (match != null) {
+                store.record(
+                    mergeKey,
+                    AvailabilityStatus.FOUND,
+                    sourceId = match.sourceId,
+                    observedAtMs = System.currentTimeMillis()
+                )
+                SourceWatchNotifier.notifyMappingVerdict(App.instance, mergeKey, match.sourceId)
+            }
+            return
+        }
+        val previous = store.verdictFor(mergeKey)
+        store.record(mergeKey, AvailabilityStatus.CHECKING, observedAtMs = 0L)
+        var completed = false
+        val match = withTimeoutOrNull(CatalogAvailabilityPolicy.SOURCE_BUDGET_MS) {
+            val resolved = App.instance.directSourceResolve
+                .resolve(title, author, mergeKey, force = force)
+            completed = true
+            resolved
+        }
+        if (!completed) {
+            if (previous != null) {
+                store.record(mergeKey, previous.status, previous.sourceId, previous.observedAtMs)
+            }
+            return
+        }
+        if (match != null) {
+            store.record(
+                mergeKey,
+                AvailabilityStatus.FOUND,
+                sourceId = match.sourceId,
+                observedAtMs = System.currentTimeMillis()
+            )
+            SourceWatchNotifier.notifyMappingVerdict(App.instance, mergeKey, match.sourceId)
+        } else {
+            store.record(
+                mergeKey,
+                AvailabilityStatus.NOT_FOUND,
+                observedAtMs = System.currentTimeMillis()
+            )
+        }
+    }
+
     // Spec-26 T9 (#183): the «wrong universe» feedback. The universe line
     // hides immediately; the re-resolution verdict either corrects the
     // cached + shared resolution or clears the complaint.
@@ -4044,6 +4237,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     )
 
     companion object {
+        /** Human rhythm between queued availability checks; the gate throttles requests. */
+        private const val AVAILABILITY_CHECK_PAUSE_MS = 200L
+
         fun formatTime(seconds: Long): String {
             val hrs = seconds / 3600
             val mins = (seconds % 3600) / 60

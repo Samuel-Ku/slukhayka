@@ -58,6 +58,12 @@ class SourceReplacementMapping(
     /** The local union read — zero requests, whatever the catalog already holds. */
     private val union: suspend () -> List<GlobalSearchResult>,
     private val cache: SearchCache? = null,
+    /**
+     * The local sitemap Work index seam (ADR-0042): answers from book URLs
+     * already enumerated, with zero requests. Consulted between the shared
+     * cache and the live volley; a null/absent index changes nothing.
+     */
+    private val workIndex: (suspend (title: String, author: String, mergeKey: String) -> Match?)? = null,
     private val clock: () -> Long = System::currentTimeMillis
 ) {
 
@@ -88,18 +94,23 @@ class SourceReplacementMapping(
 
     /**
      * The direct counterpart of the Work, or null. Fires no network request
-     * while a fresh memo, the union or the shared cache answers — and at most
-     * ONE parallel volley when they all miss.
+     * while a fresh memo, the union, the shared cache or the local Work index
+     * answers — and at most ONE parallel volley when they all miss.
+     *
+     * [force] bypasses the verdict memo for a listener-initiated re-check
+     * (spec-56 T2): the tap asks for current truth, not the cached verdict.
      */
-    suspend fun resolve(title: String, author: String, mergeKey: String): Match? {
+    suspend fun resolve(title: String, author: String, mergeKey: String, force: Boolean = false): Match? {
         if (mergeKey.isBlank()) return null
         val now = clock()
-        verdicts[mergeKey]?.let { verdict ->
-            if (CatalogAvailabilityPolicy.isFresh(verdict.matched, verdict.observedAtMillis, now)) {
-                return verdict.match
+        if (!force) {
+            verdicts[mergeKey]?.let { verdict ->
+                if (CatalogAvailabilityPolicy.isFresh(verdict.matched, verdict.observedAtMillis, now)) {
+                    return verdict.match
+                }
             }
-            verdicts.remove(mergeKey, verdict)
         }
+        verdicts.remove(mergeKey)
 
         val query = listOf(title.trim(), author.trim())
             .filter { it.isNotEmpty() }
@@ -108,6 +119,7 @@ class SourceReplacementMapping(
 
         val match = resolveFromUnion(mergeKey)
             ?: resolveFromSharedCache(query, mergeKey)
+            ?: runCatching { workIndex?.invoke(title, author, mergeKey) }.getOrNull()
             ?: resolveVolley(query, mergeKey)
         verdicts[mergeKey] = Verdict(match != null, now, match)
         return match
@@ -116,6 +128,23 @@ class SourceReplacementMapping(
     /** The union the catalog already holds — a pure local read, zero requests. */
     private suspend fun resolveFromUnion(mergeKey: String): Match? =
         matchIn(runCatching { union() }.getOrDefault(emptyList()), mergeKey)
+
+    /**
+     * The zero-request half of [resolve]: union → shared cache → local Work
+     * index, never the live volley. The background availability queue uses
+     * this so a background scan spends no source tokens at all; the live
+     * volley stays listener-initiated (spec-56 T3).
+     */
+    suspend fun resolveLocalOnly(title: String, author: String, mergeKey: String): Match? {
+        if (mergeKey.isBlank()) return null
+        val query = listOf(title.trim(), author.trim())
+            .filter { it.isNotEmpty() }
+            .joinToString(" ")
+        if (query.isEmpty()) return null
+        return resolveFromUnion(mergeKey)
+            ?: resolveFromSharedCache(query, mergeKey)
+            ?: runCatching { workIndex?.invoke(title, author, mergeKey) }.getOrNull()
+    }
 
     /** Fresh shared-base entry serves the touch without a volley. */
     private suspend fun resolveFromSharedCache(query: String, mergeKey: String): Match? {

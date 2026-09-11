@@ -57,6 +57,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.catalog.CatalogPerson
@@ -67,6 +68,9 @@ import com.slukhayka.audiobooks.data.db.PersonRole
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
 import com.slukhayka.audiobooks.data.listening.ListeningStateStore
 import com.slukhayka.audiobooks.data.personbookmarks.PersonBookmarks
+import com.slukhayka.audiobooks.data.availability.AvailabilityStatus
+import com.slukhayka.audiobooks.data.availability.AvailabilityView
+import com.slukhayka.audiobooks.data.source.sourceDisplayName
 import com.slukhayka.audiobooks.ui.bookPersonPath
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.components.BookCoverSemantics
@@ -118,6 +122,10 @@ fun LibraryScreen(
     onBookFocusRestored: (String) -> Unit = {}
 ) {
     val libraryBooks by viewModel.libraryBooks.collectAsState()
+    val libraryAvailability by viewModel.libraryAvailability.collectAsState()
+    // Spec-56 T2 (#729) — every problem Work joins the Source Watch
+    // automatically, idempotently and without a listener action.
+    LaunchedEffect(libraryBooks) { viewModel.ensureProblemWorksWatched() }
     // ADR-0008: module flows are read directly — no forwarding StateFlow on
     // the ViewModel. getAllListeningStats() builds the (cold) flow, so it is
     // remembered once per composition instead of re-created on every frame.
@@ -230,6 +238,18 @@ fun LibraryScreen(
 
     val visibleBooks = remember(libraryBooks, filter, sort, query) {
         filterAndSortLibrary(libraryBooks, filter, sort, query)
+    }
+
+    // Spec-56 T3 (#730) — tell the view model which Works are visible so their
+    // availability checks jump the queue; the daily backlog waits.
+    LaunchedEffect(activeTab, visibleBooks) {
+        if (activeTab != 0) return@LaunchedEffect
+        snapshotFlow { libraryGridState.layoutInfo.visibleItemsInfo.map { it.index } }
+            .collectLatest { indices ->
+                val keys = indices.mapNotNull { visibleBooks.getOrNull(it)?.book?.mergeKey }
+                    .filter { it.isNotBlank() }
+                viewModel.onAvailabilityVisible(keys)
+            }
     }
 
     LaunchedEffect(
@@ -477,7 +497,9 @@ fun LibraryScreen(
                                         Modifier.focusRequester(bookReturnFocusRequester)
                                     } else {
                                         Modifier
-                                    }
+                                    },
+                                    availability = libraryAvailability[entry.book.mergeKey],
+                                    onRecheck = { viewModel.recheckAvailability(entry.book.id) }
                                 )
                             }
                         }
@@ -690,6 +712,34 @@ fun LibraryEmptyState(
 }
 
 /**
+ * ADR-0042 §1 (spec-56 T1) — the card label for a problem Work, or null when
+ * the Work has available audio (no noise). A pure projection of the policy's
+ * state; the time is formatted here so the policy stays JVM-testable.
+ */
+@Composable
+private fun availabilityLabel(view: AvailabilityView?): String? {
+    if (view == null) return null
+    return when (view.status) {
+        AvailabilityStatus.CHECKING ->
+            stringResource(R.string.library_availability_checking)
+        AvailabilityStatus.NOT_FOUND ->
+            stringResource(R.string.library_availability_not_found, formatCheckedAt(view.observedAtMs))
+        AvailabilityStatus.FOUND ->
+            stringResource(R.string.library_availability_found, sourceDisplayName(view.sourceId))
+        AvailabilityStatus.REFUSED ->
+            stringResource(R.string.library_availability_refused)
+    }
+}
+
+private fun formatCheckedAt(observedAtMs: Long): String =
+    if (observedAtMs <= 0L) {
+        ""
+    } else {
+        java.text.SimpleDateFormat("d MMM, HH:mm", java.util.Locale.getDefault())
+            .format(java.util.Date(observedAtMs))
+    }
+
+/**
  * The unified book card (wayfinder #39): cover, title, author, series+volume,
  * progress, remaining time, download status and a small source badge. The
  * [grid] flag switches between the compact row (list view) and the cover-first
@@ -700,7 +750,9 @@ fun LibraryBookCard(
     book: LibraryBook,
     grid: Boolean,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    availability: com.slukhayka.audiobooks.data.availability.AvailabilityView? = null,
+    onRecheck: (() -> Unit)? = null
 ) {
     val author = book.book.displayAuthor
     val description = if (author.isBlank()) {
@@ -721,7 +773,7 @@ fun LibraryBookCard(
     } else {
         stringResource(com.slukhayka.audiobooks.R.string.a11y_library_progress_unknown)
     }
-    val availability = when {
+    val sourceAvailability = when {
         book.isLocal -> stringResource(com.slukhayka.audiobooks.R.string.a11y_library_local)
         book.book.isDownloaded -> stringResource(com.slukhayka.audiobooks.R.string.a11y_library_offline)
         else -> stringResource(com.slukhayka.audiobooks.R.string.a11y_library_online)
@@ -730,7 +782,9 @@ fun LibraryBookCard(
         com.slukhayka.audiobooks.R.string.a11y_library_source,
         book.sourceName
     )
-    val state = listOf(progressState, availability, sourceState).joinToString(". ")
+    val availabilityState = availabilityLabel(availability)
+    val state = listOfNotNull(progressState, sourceAvailability, sourceState, availabilityState)
+        .joinToString(". ")
     val openLabel = stringResource(
         com.slukhayka.audiobooks.R.string.a11y_library_open_book,
         book.book.title
@@ -756,15 +810,19 @@ fun LibraryBookCard(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
     ) {
         if (grid) {
-            LibraryBookGridContent(book)
+            LibraryBookGridContent(book, availability, onRecheck)
         } else {
-            LibraryBookRowContent(book)
+            LibraryBookRowContent(book, availability, onRecheck)
         }
     }
 }
 
 @Composable
-private fun LibraryBookRowContent(book: LibraryBook) {
+private fun LibraryBookRowContent(
+    book: LibraryBook,
+    availability: com.slukhayka.audiobooks.data.availability.AvailabilityView? = null,
+    onRecheck: (() -> Unit)? = null
+) {
     // v1.4 E3 (ADR-0033): the library list row IS the canonical BookRow —
     // the old bespoke 56 dp Row (a fifth row style) is gone. The card's
     // own a11y contract (tag, content/state description, role) still rides
@@ -792,6 +850,22 @@ private fun LibraryBookRowContent(book: LibraryBook) {
             }
         },
         footnote = {
+            availabilityLabel(availability)?.let { label ->
+                // ADR-0042 §1 — the honest availability state of a problem
+                // Work, under the progress hairline; a clean Work has none.
+                // Spec-56 T2: a tap asks for a fresh, bounded re-check.
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .padding(
+                            start = AppDimens.PageSides + 64.dp + AppDimens.SpaceMd,
+                            bottom = AppDimens.SpaceXs
+                        )
+                        .clickable(enabled = onRecheck != null) { onRecheck?.invoke() }
+                )
+            }
             if (book.totalDurationSeconds > 0L) {
                 // Aligned under the text column (canonical footnote rhythm:
                 // the honest remaining line, right under the progress hairline).
@@ -813,7 +887,11 @@ private fun LibraryBookRowContent(book: LibraryBook) {
 }
 
 @Composable
-private fun LibraryBookGridContent(book: LibraryBook) {
+private fun LibraryBookGridContent(
+    book: LibraryBook,
+    availability: com.slukhayka.audiobooks.data.availability.AvailabilityView? = null,
+    onRecheck: (() -> Unit)? = null
+) {
     Column {
         BookCoverImage(
             book = book.book,
@@ -865,6 +943,14 @@ private fun LibraryBookGridContent(book: LibraryBook) {
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
+                availabilityLabel(availability)?.let { label ->
+                    Text(
+                        text = label,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.clickable(enabled = onRecheck != null) { onRecheck?.invoke() }
+                    )
+                }
                 if (book.totalDurationSeconds > 0L) {
                     Text(
                         text = formatRemainingTime(book.remainingSeconds, stringRemainingTimeUnits()),

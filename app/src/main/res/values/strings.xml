@@ -67,6 +67,11 @@
     <string name="home_open">Відкрити</string>
     <string name="home_recommendation_updated">Рекомендацію оновлено</string>
     <string name="library_remaining">Залишилось %1$s</string>
+    <!-- ADR-0042 §1 (spec-56 T1): the honest availability state on the card. -->
+    <string name="library_availability_checking">Перевіряємо доступність…</string>
+    <string name="library_availability_not_found">Джерел не знайдено · перевірено %1$s</string>
+    <string name="library_availability_found">Знайдено в %1$s</string>
+    <string name="library_availability_refused">Аудіо джерела вимкнено</string>
     <!-- v1.4 E5: player chrome off hardcoded strings. -->
     <string name="player_chapter_fallback">Розділ %1$d</string>
     <string name="player_feedback_chapter_end">До кінця розділу</string>

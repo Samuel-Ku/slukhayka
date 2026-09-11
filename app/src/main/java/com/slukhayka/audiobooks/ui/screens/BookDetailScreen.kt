@@ -78,7 +78,6 @@ import com.slukhayka.audiobooks.ui.reviewWorkIdFor
 import com.slukhayka.audiobooks.ui.components.BookmarkDialog
 import com.slukhayka.audiobooks.ui.components.BookCoverImage
 import com.slukhayka.audiobooks.ui.components.BookCoverSemantics
-import com.slukhayka.audiobooks.data.imports.NarrationClaimPolicy
 import com.slukhayka.audiobooks.ui.components.AppSectionHeader
 import com.slukhayka.audiobooks.ui.components.MetadataChip
 import com.slukhayka.audiobooks.ui.components.PosterCard

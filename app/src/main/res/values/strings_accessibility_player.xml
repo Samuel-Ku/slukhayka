@@ -59,6 +59,11 @@
     <string name="player_recovery_failed">Не вдалося відновити відтворення</string>
     <string name="player_retry">Повторити</string>
     <string name="player_find_another_source">Знайти в іншому джерелі</string>
+    <string name="player_problem_report_view">Переглянути звіт</string>
+    <string name="player_problem_report_title">Звіт про проблему</string>
+    <string name="player_problem_report_share">Поділитися</string>
+    <string name="player_problem_report_close">Закрити</string>
+    <string name="player_problem_report_body_note">Ці поля видно перед надсиланням. Нічого не надсилається автоматично.</string>
 
     <!-- Issue #381: тексти помилок плеєра українською (раніше були hardcoded в
          AudioPlayerManager, зокрема англійські, які TTS читав англійською).

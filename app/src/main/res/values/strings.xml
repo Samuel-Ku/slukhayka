@@ -115,7 +115,10 @@
     <string name="feed_more">Докладніше</string>
     <string name="update_hide">Приховати</string>
     <string name="speed_default_for_all">Стандарт для всіх</string>
-    <string name="speed_remember_for_book">Запам\'ятати для цієї книги</string>
+    <string name="book_detail_mark_listened">Позначити прослуханим</string>
+    <string name="book_detail_unmark_listened">Зняти позначку</string>
+    <string name="book_detail_listened_state_on">Позначено прослуханим</string>
+    <string name="book_detail_listened_state_off">Не позначено прослуханим</string>
     <string name="author_all_found">Усі знайдені автори</string>
     <string name="nav_settings">Налаштування</string>
     <string name="mini_player_other_book_chapter">У плеєрі · %1$s</string>

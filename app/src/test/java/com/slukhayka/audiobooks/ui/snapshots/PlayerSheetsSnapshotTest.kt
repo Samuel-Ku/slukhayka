@@ -54,7 +54,6 @@ class PlayerSheetsSnapshotTest {
                     SpeedSheet(
                         currentSpeed = 1.25f,
                         onSpeedChange = {},
-                        onSaveForBook = {},
                         onSetDefault = {},
                         onDismiss = {}
                     )

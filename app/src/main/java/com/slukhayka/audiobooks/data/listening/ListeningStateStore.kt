@@ -62,16 +62,38 @@ class ListeningStateStore(
      * no longer part of the listening identity — progress belongs to the
      * rendition, so a source switch mid-book keeps the position.
      */
-    suspend fun updateProgress(bookId: String, chapterIndex: Int, positionSeconds: Long) {
+    suspend fun updateProgress(bookId: String, chapterIndex: Int, positionSeconds: Long) =
+        updateRow(bookId) { row ->
+            row.copy(
+                currentChapterIndex = chapterIndex,
+                currentPositionSeconds = positionSeconds,
+                lastListenedAt = System.currentTimeMillis()
+            )
+        }
+
+    /**
+     * Issue #752 — the manual «Прослухано» mark: sets the completion flag on
+     * the Edition's Listening State row (ADR-0001/0010) without touching the
+     * position. The flag is synced by Progress Sync like any other Listening
+     * State field.
+     */
+    suspend fun setCompleted(bookId: String, completed: Boolean) =
+        updateRow(bookId) { row -> row.copy(isCompleted = completed) }
+
+    /**
+     * Read-modify-write over the Edition's Listening State row (issue #752):
+     * the row also carries completion and the per-book preferred speed
+     * (ADR-0009), so a full REPLACE must never wipe the fields it does not own.
+     * Creates the row when none exists yet.
+     */
+    private suspend fun updateRow(
+        bookId: String,
+        transform: (PlaybackProgressEntity) -> PlaybackProgressEntity
+    ) {
         val editionId = editionIdOf(bookId) ?: return
-        val progress = PlaybackProgressEntity(
-            editionId = editionId,
-            bookId = bookId,
-            currentChapterIndex = chapterIndex,
-            currentPositionSeconds = positionSeconds,
-            lastListenedAt = System.currentTimeMillis()
-        )
-        dao.savePlaybackProgress(progress)
+        val existing = dao.getPlaybackProgressSyncByEdition(editionId)
+            ?: PlaybackProgressEntity(editionId = editionId, bookId = bookId)
+        dao.savePlaybackProgress(transform(existing))
     }
 
     /** Last-pause marker for the smart rewind (wayfinder #25); null clears it. */

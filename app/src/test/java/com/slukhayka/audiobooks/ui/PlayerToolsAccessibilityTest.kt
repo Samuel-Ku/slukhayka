@@ -54,7 +54,6 @@ class PlayerToolsAccessibilityTest {
                 SpeedSheet(
                     currentSpeed = 1.25f,
                     onSpeedChange = { changedSpeed = it },
-                    onSaveForBook = {},
                     onSetDefault = {},
                     onDismiss = {}
                 )

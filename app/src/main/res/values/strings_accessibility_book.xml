@@ -37,6 +37,15 @@
     <string name="book_detail_chapter_pause">Пауза: %1$s</string>
     <string name="book_detail_chapter_resume">Продовжити: %1$s</string>
     <string name="book_detail_chapter_play">Відтворити: %1$s</string>
+    <!-- #396 — selective chapter download -->
+    <string name="book_detail_select_chapters">Обрати розділи</string>
+    <string name="book_detail_download_selected">Завантажити обрані (%1$d) • %2$s</string>
+    <string name="book_detail_download_all">Завантажити все</string>
+    <string name="book_detail_selected_count">Обрано %1$d/%2$d</string>
+    <string name="book_detail_selection_cancel">Скасувати вибір</string>
+    <string name="book_detail_chapter_select">Вибрати розділ: %1$s</string>
+    <string name="book_detail_chapter_deselect">Зняти вибір з розділу: %1$s</string>
+    <string name="book_detail_chapter_already_downloaded">Уже завантажено: %1$s</string>
     <string name="book_detail_no_bookmarks">Для цієї книги ще немає закладок.</string>
     <string name="book_detail_bookmark_jump">Перейти до закладки у «%1$s», розділ «%2$s», %3$s</string>
     <string name="book_detail_bookmark_delete">Видалити закладку у «%1$s», розділ «%2$s», %3$s</string>

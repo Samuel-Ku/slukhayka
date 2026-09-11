@@ -37,6 +37,15 @@
     <string name="book_detail_chapter_pause">Pause: %1$s</string>
     <string name="book_detail_chapter_resume">Resume: %1$s</string>
     <string name="book_detail_chapter_play">Play: %1$s</string>
+    <!-- #396 — selective chapter download -->
+    <string name="book_detail_select_chapters">Select chapters</string>
+    <string name="book_detail_download_selected">Download selected (%1$d) • %2$s</string>
+    <string name="book_detail_download_all">Download all</string>
+    <string name="book_detail_selected_count">Selected %1$d/%2$d</string>
+    <string name="book_detail_selection_cancel">Cancel selection</string>
+    <string name="book_detail_chapter_select">Select chapter: %1$s</string>
+    <string name="book_detail_chapter_deselect">Deselect chapter: %1$s</string>
+    <string name="book_detail_chapter_already_downloaded">Already downloaded: %1$s</string>
     <string name="book_detail_no_bookmarks">No bookmarks for this book yet.</string>
     <string name="book_detail_bookmark_jump">Go to the bookmark in “%1$s”, chapter “%2$s”, %3$s</string>
     <string name="book_detail_bookmark_delete">Delete the bookmark in “%1$s”, chapter “%2$s”, %3$s</string>

@@ -65,6 +65,22 @@ class RoomEmbeddingCacheTest {
     }
 
     @Test
+    fun `a pass embeds at most the batch limit and the next continues`() = runBlocking {
+        val dao = FakeAudiobookDao(books = emptyList())
+        val service = CatalogEmbeddingService(RoomEmbeddingCache(dao))
+        var embeds = 0
+        val embedder = countingEmbedder { embeds++ }
+        val catalog = (1..10).map { candidate("c$it", "Книга $it") }
+
+        val first = service.vectorsFor(catalog, embedder, limit = 3)
+        assertEquals(3, embeds)
+        assertEquals(3, first.size)
+
+        service.vectorsFor(catalog, embedder, limit = 3)
+        assertEquals(6, embeds)
+    }
+
+    @Test
     fun `a failing embed is skipped and never throws`() = runBlocking {
         val dao = FakeAudiobookDao(books = emptyList())
         val service = CatalogEmbeddingService(RoomEmbeddingCache(dao))

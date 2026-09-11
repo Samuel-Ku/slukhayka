@@ -49,6 +49,26 @@ class LanguageCodeTest {
     }
 
     @Test
+    fun `the librivox vocabulary maps through the same normalizer`() {
+        // Spec-51 (#742): a source that really serves ~49 languages must not
+        // have half of them fall out of the filter as "unknown".
+        assertEquals("af", LanguageCode.normalize("Afrikaans"))
+        assertEquals("bn", LanguageCode.normalize("Bengali"))
+        assertEquals("eo", LanguageCode.normalize("Esperanto"))
+        assertEquals("fi", LanguageCode.normalize("Finnish"))
+        assertEquals("la", LanguageCode.normalize("Latin"))
+        assertEquals("fa", LanguageCode.normalize("Persian"))
+        assertEquals("tl", LanguageCode.normalize("Tagalog"))
+        assertEquals("cy", LanguageCode.normalize("Welsh"))
+        assertEquals("yi", LanguageCode.normalize("Yiddish"))
+        // The archive mirror's ISO-639-2/B codes of the same vocabulary.
+        assertEquals("is", LanguageCode.normalize("ice"))
+        assertEquals("fa", LanguageCode.normalize("per"))
+        assertEquals("cy", LanguageCode.normalize("wel"))
+        assertEquals("la", LanguageCode.normalize("lat"))
+    }
+
+    @Test
     fun `unknown and blank claims are null - never guessed`() {
         assertNull(LanguageCode.normalize(null))
         assertNull(LanguageCode.normalize(""))
@@ -57,6 +77,8 @@ class LanguageCodeTest {
         assertNull(LanguageCode.normalize("??? "))
         assertNull(LanguageCode.normalize("xx"))
         assertNull(LanguageCode.normalize("Ukrainian Canadian"))
+        // LibriVox's "Multilingual" is a collection label, not a language.
+        assertNull(LanguageCode.normalize("Multilingual"))
     }
 
     @Test

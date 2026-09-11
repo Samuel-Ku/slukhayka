@@ -27,6 +27,8 @@ import com.slukhayka.audiobooks.data.universe.SeriesUniverses
 import com.slukhayka.audiobooks.data.update.UpdateChecker
 import com.slukhayka.audiobooks.data.catalog.SourceCatalog
 import com.slukhayka.audiobooks.data.catalog.CatalogAvailabilityPolicy
+import com.slukhayka.audiobooks.data.availability.AvailabilityCheckQueue
+import com.slukhayka.audiobooks.data.availability.AvailabilityDailyScan
 import com.slukhayka.audiobooks.data.availability.AvailabilityStatus
 import com.slukhayka.audiobooks.data.availability.AvailabilityView
 import com.slukhayka.audiobooks.data.availability.LibraryAvailabilityPolicy
@@ -3124,6 +3126,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private val availabilityQueue = AvailabilityCheckQueue()
+    private var availabilityDraining = false
+
     /**
      * Spec-56 T2 (#729) — every problem Work joins the Source Watch
      * automatically, without a listener action and idempotently: a Work
@@ -3166,39 +3171,122 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             runCatching {
                 val book = App.instance.audiobookDao.getAudiobookById(bookId) ?: return@launch
                 val mergeKey = book.mergeKey?.takeIf { it.isNotBlank() } ?: return@launch
-                val store = App.instance.libraryAvailabilityStore
-                val previous = store.verdictFor(mergeKey)
-                store.record(mergeKey, AvailabilityStatus.CHECKING, observedAtMs = 0L)
-                var completed = false
-                val match = withTimeoutOrNull(CatalogAvailabilityPolicy.SOURCE_BUDGET_MS) {
-                    val resolved = App.instance.directSourceResolve
-                        .resolve(book.title, book.author, mergeKey, force = true)
-                    completed = true
-                    resolved
-                }
-                if (!completed) {
-                    // Offline / over deadline: keep the last honest verdict.
-                    if (previous != null) {
-                        store.record(mergeKey, previous.status, previous.sourceId, previous.observedAtMs)
-                    }
-                    return@launch
-                }
-                if (match != null) {
-                    store.record(
-                        mergeKey,
-                        AvailabilityStatus.FOUND,
-                        sourceId = match.sourceId,
-                        observedAtMs = System.currentTimeMillis()
-                    )
-                    SourceWatchNotifier.notifyMappingVerdict(App.instance, mergeKey, match.sourceId)
-                } else {
-                    store.record(
-                        mergeKey,
-                        AvailabilityStatus.NOT_FOUND,
-                        observedAtMs = System.currentTimeMillis()
-                    )
-                }
+                checkAndRecord(book.title, book.author, mergeKey, force = true)
             }
+        }
+    }
+
+    /**
+     * Spec-56 T3 (#730) — the visible cards set the order: they jump the
+     * queue, while the rest of the library is a delta scan due at most once
+     * a day. Nothing checks the whole backlog on start, and a restart inside
+     * the day never repeats the scan.
+     */
+    fun onAvailabilityVisible(visibleMergeKeys: List<String>) {
+        availabilityQueue.requestVisible(visibleMergeKeys)
+        enqueueDailyBacklogIfDue()
+        drainAvailabilityQueue()
+    }
+
+    private fun enqueueDailyBacklogIfDue() {
+        val store = App.instance.libraryAvailabilityStore
+        val now = System.currentTimeMillis()
+        if (!AvailabilityDailyScan.isDue(store.lastDailyScanAtMs(), now)) return
+        val refused = App.instance.sourceAudioRefusal.refusedSources.value
+        val backlog = libraryBooks.value
+            .asSequence()
+            .filter { !it.isLocal && !it.book.isDownloaded }
+            .filterNot { LibraryAvailabilityPolicy.hasAvailableAudio(it.book.sourceUrl, refused) }
+            .mapNotNull { it.book.mergeKey.takeIf { key -> key.isNotBlank() } }
+            .toList()
+        availabilityQueue.requestBacklog(backlog)
+        store.recordDailyScan(now)
+    }
+
+    private fun drainAvailabilityQueue() {
+        if (availabilityDraining) return
+        availabilityDraining = true
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                while (true) {
+                    val mergeKey = availabilityQueue.next() ?: break
+                    val entry = libraryBooks.value.firstOrNull { it.book.mergeKey == mergeKey } ?: continue
+                    runCatching {
+                        checkAndRecord(entry.book.title, entry.book.author, mergeKey, background = true)
+                    }
+                    delay(AVAILABILITY_CHECK_PAUSE_MS)
+                }
+            } finally {
+                availabilityDraining = false
+            }
+        }
+    }
+
+    /**
+     * One bounded check of a Work; records the honest verdict and lets Source
+     * Watch announce a found source.
+     *
+     * - [background] (the queue) is zero-request: union → shared cache → local
+     *   Work index only, so a background scan spends NO source tokens at all.
+     *   A local miss is not a verdict — the previous one stands, and the live
+     *   volley waits for a listener tap.
+     * - listener-initiated (the tap) bypasses the memo ([force]) and runs the
+     *   full resolve under the source budget; a bounded attempt that never
+     *   completed (offline) keeps the previous verdict instead of fabricating
+     *   a fresh one, and a completed miss records an honest «джерел не знайдено».
+     */
+    private suspend fun checkAndRecord(
+        title: String,
+        author: String,
+        mergeKey: String,
+        force: Boolean = false,
+        background: Boolean = false
+    ) {
+        val store = App.instance.libraryAvailabilityStore
+        if (background) {
+            val match = withTimeoutOrNull(CatalogAvailabilityPolicy.SOURCE_BUDGET_MS) {
+                App.instance.directSourceResolve.resolveLocalOnly(title, author, mergeKey)
+            }
+            if (match != null) {
+                store.record(
+                    mergeKey,
+                    AvailabilityStatus.FOUND,
+                    sourceId = match.sourceId,
+                    observedAtMs = System.currentTimeMillis()
+                )
+                SourceWatchNotifier.notifyMappingVerdict(App.instance, mergeKey, match.sourceId)
+            }
+            return
+        }
+        val previous = store.verdictFor(mergeKey)
+        store.record(mergeKey, AvailabilityStatus.CHECKING, observedAtMs = 0L)
+        var completed = false
+        val match = withTimeoutOrNull(CatalogAvailabilityPolicy.SOURCE_BUDGET_MS) {
+            val resolved = App.instance.directSourceResolve
+                .resolve(title, author, mergeKey, force = force)
+            completed = true
+            resolved
+        }
+        if (!completed) {
+            if (previous != null) {
+                store.record(mergeKey, previous.status, previous.sourceId, previous.observedAtMs)
+            }
+            return
+        }
+        if (match != null) {
+            store.record(
+                mergeKey,
+                AvailabilityStatus.FOUND,
+                sourceId = match.sourceId,
+                observedAtMs = System.currentTimeMillis()
+            )
+            SourceWatchNotifier.notifyMappingVerdict(App.instance, mergeKey, match.sourceId)
+        } else {
+            store.record(
+                mergeKey,
+                AvailabilityStatus.NOT_FOUND,
+                observedAtMs = System.currentTimeMillis()
+            )
         }
     }
 
@@ -4149,6 +4237,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     )
 
     companion object {
+        /** Human rhythm between queued availability checks; the gate throttles requests. */
+        private const val AVAILABILITY_CHECK_PAUSE_MS = 200L
+
         fun formatTime(seconds: Long): String {
             val hrs = seconds / 3600
             val mins = (seconds % 3600) / 60

@@ -1039,34 +1039,11 @@ class App : Application() {
         // open Firestore; bookmark sync starts immediately below.
         installAppCheckIfConfigured()
         CoroutineScope(Dispatchers.IO).launch { personBookmarksSync.sync() }
-        // ADR-0042 — warm the local Work index and the replacement verdicts of
-        // library Works without a direct source, so the listener's tap finds a
-        // warm memo instead of paying for a live search. Resolve-only, bounded,
-        // best-effort: the library changes only on a listener touch.
+        // ADR-0042 — warm the local Work index on start (BACKGROUND traffic
+        // through the Source Request Gate); the per-Work checks are driven by
+        // the availability queue (visible cards first, a daily delta scan).
         CoroutineScope(Dispatchers.IO).launch {
             runCatching { workIndexRefresher.refreshIfStale() }
-            runCatching {
-                com.slukhayka.audiobooks.data.catalog.MappingPrewarm(
-                    books = { audiobookDao.getAllAudiobooksOnce().map { it.toAudiobookEntity() } },
-                    resolve = { title, author, mergeKey ->
-                        directSourceResolve.resolve(title, author, mergeKey)
-                    },
-                    onVerdict = { mergeKey, match ->
-                        // ADR-0042 §1 — persist the honest verdict so the card
-                        // shows it (with its time) now and after a restart.
-                        libraryAvailabilityStore.record(
-                            mergeKey = mergeKey,
-                            status = if (match != null) {
-                                com.slukhayka.audiobooks.data.availability.AvailabilityStatus.FOUND
-                            } else {
-                                com.slukhayka.audiobooks.data.availability.AvailabilityStatus.NOT_FOUND
-                            },
-                            sourceId = match?.sourceId.orEmpty(),
-                            observedAtMs = System.currentTimeMillis()
-                        )
-                    }
-                ).runOnce()
-            }
         }
         // Spec-38 T1 (#253): install the persisted privacy route BEFORE any
         // module can touch the network, and warm the real system WebView

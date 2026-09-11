@@ -129,6 +129,23 @@ class SourceReplacementMapping(
     private suspend fun resolveFromUnion(mergeKey: String): Match? =
         matchIn(runCatching { union() }.getOrDefault(emptyList()), mergeKey)
 
+    /**
+     * The zero-request half of [resolve]: union → shared cache → local Work
+     * index, never the live volley. The background availability queue uses
+     * this so a background scan spends no source tokens at all; the live
+     * volley stays listener-initiated (spec-56 T3).
+     */
+    suspend fun resolveLocalOnly(title: String, author: String, mergeKey: String): Match? {
+        if (mergeKey.isBlank()) return null
+        val query = listOf(title.trim(), author.trim())
+            .filter { it.isNotEmpty() }
+            .joinToString(" ")
+        if (query.isEmpty()) return null
+        return resolveFromUnion(mergeKey)
+            ?: resolveFromSharedCache(query, mergeKey)
+            ?: runCatching { workIndex?.invoke(title, author, mergeKey) }.getOrNull()
+    }
+
     /** Fresh shared-base entry serves the touch without a volley. */
     private suspend fun resolveFromSharedCache(query: String, mergeKey: String): Match? {
         val results = runCatching { cache?.getResults(query) }.getOrNull() ?: return null

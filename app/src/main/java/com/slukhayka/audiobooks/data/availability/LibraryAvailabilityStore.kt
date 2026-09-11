@@ -31,6 +31,14 @@ class LibraryAvailabilityStore(context: Context) {
     fun verdictFor(mergeKey: String): AvailabilityVerdict? =
         if (mergeKey.isBlank()) null else verdicts.value[mergeKey]
 
+    /** The last daily delta scan, for the once-a-day throttle (spec-56 T3). */
+    fun lastDailyScanAtMs(): Long = prefs.getLong(KEY_LAST_DAILY_SCAN, 0L)
+
+    /** Marks the daily delta scan as done so a restart never repeats it. */
+    fun recordDailyScan(atMs: Long) {
+        prefs.edit().putLong(KEY_LAST_DAILY_SCAN, atMs).apply()
+    }
+
     /** Records a fresh verdict for the Work, replacing any previous one. */
     fun record(
         mergeKey: String,
@@ -77,5 +85,6 @@ class LibraryAvailabilityStore(context: Context) {
 
     private companion object {
         const val KEY_VERDICTS = "verdicts"
+        const val KEY_LAST_DAILY_SCAN = "last_daily_scan"
     }
 }

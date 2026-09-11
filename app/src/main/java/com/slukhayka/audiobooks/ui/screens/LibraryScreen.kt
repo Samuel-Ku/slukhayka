@@ -57,6 +57,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.catalog.CatalogPerson
@@ -237,6 +238,18 @@ fun LibraryScreen(
 
     val visibleBooks = remember(libraryBooks, filter, sort, query) {
         filterAndSortLibrary(libraryBooks, filter, sort, query)
+    }
+
+    // Spec-56 T3 (#730) — tell the view model which Works are visible so their
+    // availability checks jump the queue; the daily backlog waits.
+    LaunchedEffect(activeTab, visibleBooks) {
+        if (activeTab != 0) return@LaunchedEffect
+        snapshotFlow { libraryGridState.layoutInfo.visibleItemsInfo.map { it.index } }
+            .collectLatest { indices ->
+                val keys = indices.mapNotNull { visibleBooks.getOrNull(it)?.book?.mergeKey }
+                    .filter { it.isNotBlank() }
+                viewModel.onAvailabilityVisible(keys)
+            }
     }
 
     LaunchedEffect(

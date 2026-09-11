@@ -17,13 +17,16 @@ import org.junit.Test
 class DownloadPolicyTest {
 
     @Test
-    fun `lihtar and ukrainianaudiobooks are stream-only - no download proof`() {
+    fun `lihtar, ukrainianaudiobooks and 4read are stream-only - no download proof`() {
         // lihtar: the ToS forbids reproduction. ukrainianaudiobooks (spec-47
         // T5): the T1 verdict is GATED — every request sits behind the
         // Cloudflare challenge, so no direct audio URL was ever observed to
         // serve plain GETs; no proof, no download (honest stream-only).
+        // 4read: audio is signed/CDN and session-bound; a download produced a
+        // 52-second artefact instead of the book — stream-only.
         assertTrue(streamOnlyFor("lihtar"))
         assertTrue(streamOnlyFor("ukrainianaudiobooks"))
+        assertTrue(streamOnlyFor("4read"))
     }
 
     @Test
@@ -38,7 +41,7 @@ class DownloadPolicyTest {
         // chytaylo (spec-47 T1): `/api/audio-local/…mp3` serves 206 audio/mpeg
         // to plain range GETs, no challenge, no ToS prohibition — allowed.
         listOf(
-            "4read", "soundbooks", "audiobookmp3", "sluhayua", "sluhay", "sluhayknigi",
+            "soundbooks", "audiobookmp3", "sluhayua", "sluhay", "sluhayknigi",
             "audiobookcoua", "chytaylo", "knigionline", "chitaka", "local", "unknown-source"
         ).forEach { sourceId ->
             assertFalse("$sourceId must allow downloads", streamOnlyFor(sourceId))

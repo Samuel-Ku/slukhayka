@@ -246,6 +246,29 @@ class App : Application() {
      * the shared-cache entry is filtered behind a refusal-aware view, so a
      * refused direct source can never surface from any resolution path.
      */
+    /**
+     * Spec-49 follow-up — the local Work index: sitemap URLs (audiobook.co.ua,
+     * chytaylo) plus catalogue-card enumeration for the sources without a book
+     * sitemap (knigi-online, sound-books, sluhayua), persisted between
+     * launches under the catalog TTL. Consulted by [directSourceResolve] with
+     * zero requests.
+     */
+    val workIndexRefresher: com.slukhayka.audiobooks.data.catalog.WorkIndexRefresher by lazy {
+        val cards = HashMap<String, com.slukhayka.audiobooks.data.catalog.WorkIndexRefresher.CardSource>()
+        for (sourceId in listOf("knigionline", "soundbooks", "sluhayua")) {
+            cards[sourceId] = com.slukhayka.audiobooks.data.catalog.WorkIndexRefresher.CardSource { limit ->
+                sourceAdapters.firstOrNull { it.sourceId == sourceId }?.fetchCatalog(limit).orEmpty()
+            }
+        }
+        com.slukhayka.audiobooks.data.catalog.WorkIndexRefresher(
+            fetcher = HttpFetcher(),
+            store = com.slukhayka.audiobooks.data.catalog.WorkIndexStore(
+                java.io.File(filesDir, "work_index.tsv")
+            ),
+            cardSources = cards
+        )
+    }
+
     val directSourceResolve: com.slukhayka.audiobooks.data.catalog.SourceReplacementMapping by lazy {
         val directAdapters = sourceAdapters.filter {
             com.slukhayka.audiobooks.data.source.SourceAccessPolicy.modeFor(it.sourceId) ==
@@ -261,7 +284,7 @@ class App : Application() {
                         if (adapter.sourceId in sourceAudioRefusal.refusedSources.value) {
                             emptyList()
                         } else {
-                            adapter.search(query)
+                            sourceCatalog.searchSource(adapter, query)
                         }
                     }
                 adapter.sourceId to search
@@ -278,7 +301,19 @@ class App : Application() {
                     }
                 }
             },
-            cache = searchCache?.refusalAware(sourceAudioRefusal.refusedSources)
+            cache = searchCache?.refusalAware(sourceAudioRefusal.refusedSources),
+            workIndex = { title, author, _ ->
+                workIndexRefresher.lookup(title, author)?.let { entry ->
+                    com.slukhayka.audiobooks.data.catalog.SourceReplacementMapping.Match(
+                        sourceId = entry.sourceId,
+                        url = entry.url,
+                        title = title,
+                        author = author,
+                        narrator = "",
+                        coverImageUrl = null
+                    )
+                }
+            }
         )
     }
 
@@ -976,6 +1011,22 @@ class App : Application() {
         // open Firestore; bookmark sync starts immediately below.
         installAppCheckIfConfigured()
         CoroutineScope(Dispatchers.IO).launch { personBookmarksSync.sync() }
+        // ADR-0037 follow-up — the mapping prewarm: library Works with no
+        // direct source (4read-only, refused-only, sourceless) get their
+        // replacement verdict resolved in the background, resolve-only and
+        // bounded, so the tap finds a warm memo/shared cache instead of
+        // paying for a live search.
+        CoroutineScope(Dispatchers.IO).launch {
+            runCatching { workIndexRefresher.refreshIfStale() }
+            runCatching {
+                com.slukhayka.audiobooks.data.catalog.MappingPrewarm(
+                    books = { audiobookDao.getAllAudiobooksOnce().map { it.toAudiobookEntity() } },
+                    resolve = { title, author, mergeKey ->
+                        directSourceResolve.resolve(title, author, mergeKey)
+                    }
+                ).runOnce()
+            }
+        }
         // Spec-38 T1 (#253): install the persisted privacy route BEFORE any
         // module can touch the network, and warm the real system WebView
         // User-Agent off the main thread (it initialises the WebView engine;

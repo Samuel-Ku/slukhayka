@@ -87,6 +87,9 @@ object SourceRegistry {
             contentLanguage = "uk",
             accessMode = SourceAccessMode.BROWSER,
             order = 0,
+            // 4read audio is signed/CDN (redirectto.cc) and session-bound;
+            // a naive download yields a 52-second artefact, never the book.
+            streamOnly = true,
             referer = RefererRule("https://4read.org/", setOf("4read.org", "reasd.org")),
             searchUrl = "https://4read.org/index.php?do=search&subaction=search&story={q}",
             transportHosts = setOf("4read.org", "reasd.org"),

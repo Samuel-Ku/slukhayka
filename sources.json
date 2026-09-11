@@ -7,7 +7,7 @@
       "contentLanguage": "uk",
       "accessMode": "BROWSER",
       "order": 0,
-      "streamOnly": false,
+      "streamOnly": true,
       "referer": { "value": "https://4read.org/", "scopeHosts": ["4read.org", "reasd.org"] },
       "searchUrl": "https://4read.org/index.php?do=search&subaction=search&story={q}",
       "transportHosts": ["4read.org", "reasd.org"],

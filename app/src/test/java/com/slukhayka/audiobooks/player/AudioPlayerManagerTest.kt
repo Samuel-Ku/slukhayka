@@ -579,7 +579,10 @@ class AudioPlayerManagerTest {
     @Test
     fun `4read book applies the source referer`() = playerTest { manager, _ ->
         val reasdPlayable = playable.mapIndexed { index, pair ->
-            pair.copy(track = pair.track?.copy(url = "https://s1.reasd.org/5370/chapter-$index.mp3"))
+            pair.copy(
+                track = pair.track?.copy(url = "https://s1.reasd.org/5370/chapter-$index.mp3"),
+                sourceId = "4read"
+            )
         }
         manager.loadAndPlayBook(
             book,

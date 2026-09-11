@@ -3511,7 +3511,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 playbackReplacementMapping.mapIfNeeded(
                     book = playbackBook,
-                    playableEmpty = playable.isEmpty(),
+                    playable = playable,
                     hasPreferredSource = preferredSource != null
                 )?.let { imported ->
                     if (libraryEntries.getBookSync(imported.id) != null) {

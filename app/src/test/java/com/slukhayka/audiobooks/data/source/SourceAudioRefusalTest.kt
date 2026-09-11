@@ -31,39 +31,48 @@ class SourceAudioRefusalTest {
     private fun context(): Context = ApplicationProvider.getApplicationContext()
 
     @Test
-    fun `default is no refusal`() = runBlocking {
+    fun `4read audio is always refused - the 52 second scam never plays`() = runBlocking {
         val prefs = SourceAudioRefusal(context())
+        // A fresh store already refuses 4read.
+        assertTrue(prefs.isRefused("4read"))
+        assertEquals(setOf("4read"), prefs.refusedSources.first())
+        // Neither an explicit allow nor an empty write can re-enable it: the
+        // source's 52-second artefact is never audio, so the refusal is not a
+        // listener toggle.
+        prefs.allow("4read")
+        assertTrue(prefs.isRefused("4read"))
         prefs.setRefused(emptySet())
-        assertTrue(prefs.refusedSources.first().isEmpty())
-        assertFalse(prefs.isRefused("4read"))
+        assertTrue(prefs.isRefused("4read"))
+        assertEquals(setOf("4read"), prefs.refusedSources.first())
     }
 
     @Test
-    fun `state survives a store re-creation`() = runBlocking {
+    fun `state survives a store re-creation and 4read stays refused`() = runBlocking {
         val context = context()
-        SourceAudioRefusal(context).refuse("4read")
+        SourceAudioRefusal(context).refuse("sluhayua")
 
         val recreated = SourceAudioRefusal(context)
-        assertEquals(setOf("4read"), recreated.refusedSources.first())
+        assertEquals(setOf("4read", "sluhayua"), recreated.refusedSources.first())
 
-        // Undoing the refusal wakes the dormant sources with no re-import.
-        recreated.allow("4read")
-        assertTrue(recreated.refusedSources.first().isEmpty())
+        // Undoing a listener-chosen refusal wakes the dormant source with no
+        // re-import; the built-in 4read refusal stays.
+        recreated.allow("sluhayua")
+        assertEquals(setOf("4read"), recreated.refusedSources.first())
     }
 
     @Test
     fun `write updates the live flow the consumers read`() = runBlocking {
         val prefs = SourceAudioRefusal(context())
         prefs.setRefused(emptySet())
-        prefs.refuse("4read")
-        assertEquals(setOf("4read"), prefs.refusedSources.first())
-        assertTrue(prefs.isRefused("4read"))
+        prefs.refuse("sluhayua")
+        assertEquals(setOf("4read", "sluhayua"), prefs.refusedSources.first())
+        assertTrue(prefs.isRefused("sluhayua"))
 
         prefs.refuse("sluhayua")
         assertEquals(setOf("4read", "sluhayua"), prefs.refusedSources.first())
 
         prefs.allow("4read")
-        assertEquals(setOf("sluhayua"), prefs.refusedSources.first())
+        assertEquals(setOf("4read", "sluhayua"), prefs.refusedSources.first())
         prefs.setRefused(emptySet())
     }
 

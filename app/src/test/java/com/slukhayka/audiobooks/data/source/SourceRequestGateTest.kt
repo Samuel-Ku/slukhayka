@@ -226,13 +226,13 @@ class SourceRequestGateTest {
         }
         runCurrent()
         val background = launch {
-            harness.gate.run("https://b.example/2", SourceRequestClass.BACKGROUND) {
+            harness.gate.run("https://a.example/2", SourceRequestClass.BACKGROUND) {
                 starts += "background"
                 "2"
             }
         }
         val listener = launch {
-            harness.gate.run("https://c.example/3", SourceRequestClass.LISTENER_ACTION) {
+            harness.gate.run("https://a.example/3", SourceRequestClass.LISTENER_ACTION) {
                 starts += "listener"
                 "3"
             }
@@ -282,7 +282,7 @@ class SourceRequestGateTest {
 
         val jobs = (1..4).map { index ->
             async {
-                harness.gate.run("https://host$index.example/x", SourceRequestClass.TTL_REFRESH) {
+                harness.gate.run("https://a.example/x$index", SourceRequestClass.TTL_REFRESH) {
                     concurrent++
                     maxConcurrent = maxOf(maxConcurrent, concurrent)
                     delay(25)
@@ -297,6 +297,49 @@ class SourceRequestGateTest {
     }
 
     @Test
+    fun `different hosts never queue behind each other`() = runTest {
+        val harness = Harness()
+        val releaseA = CompletableDeferred<Unit>()
+        var bDone = false
+
+        val a = launch {
+            harness.gate.run("https://a.example/1", SourceRequestClass.TTL_REFRESH) {
+                releaseA.await()
+                "a"
+            }
+        }
+        runCurrent()
+        val b = launch {
+            harness.gate.run("https://b.example/1", SourceRequestClass.TTL_REFRESH) {
+                bDone = true
+                "b"
+            }
+        }
+        runCurrent()
+
+        assertTrue("host B must not wait for a held host A", bDone)
+        releaseA.complete(Unit)
+        joinAll(a, b)
+    }
+
+    @Test
+    fun `a non-waiting request never sleeps - the UI door stays responsive`() = runTest {
+        val harness = Harness(SourceGateParams(refillIntervalMs = 10_000, listenerWaitCapMs = 5_000))
+        harness.store.save("a.example", SourceBucketState(tokens = 0, lastRefillAtMs = harness.now))
+        val startedAt = harness.now
+
+        val outcome = harness.gate.run<String>(
+            url,
+            SourceRequestClass.LISTENER_ACTION,
+            cacheTtlMillis = 0L,
+            canWait = false
+        ) { error("no fetch expected") }
+
+        assertTrue(outcome is GateOutcome.Deferred)
+        assertEquals(0L, harness.now - startedAt)
+    }
+
+    @Test
     fun `consecutive requests are separated by the jitter gap`() = runTest {
         val harness = Harness(SourceGateParams(jitterMinMs = 200, jitterMaxMs = 800))
         val starts = mutableListOf<Long>()
@@ -305,7 +348,7 @@ class SourceRequestGateTest {
             starts += harness.now
             "1"
         }
-        harness.gate.run("https://b.example/2", SourceRequestClass.TTL_REFRESH) {
+        harness.gate.run("https://a.example/2", SourceRequestClass.TTL_REFRESH) {
             starts += harness.now
             "2"
         }

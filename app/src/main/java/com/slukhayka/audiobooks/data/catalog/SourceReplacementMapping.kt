@@ -11,6 +11,7 @@ import com.slukhayka.audiobooks.data.source.mergeGlobalSearchResults
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -37,6 +38,12 @@ import java.util.concurrent.ConcurrentHashMap
  *   ([CatalogAvailabilityPolicy.isFresh]): a positive verdict is fresh for
  *   6 hours, a negative one for 15 minutes; both are stale at the exact
  *   expiry boundary, so repeated taps never re-request inside the window.
+ * - **A replacement attempt always ends with a verdict** (spec-49 follow-up
+ *   #720): the shared-cache read rides its own short deadline — a store that
+ *   retries forever offline must not starve the volley — and the whole
+ *   resolution is capped by [deadlineMs], the catalog source budget. A
+ *   timeout is an honest "no match" and memoizes like any other miss — never
+ *   a hang the card action cannot leave.
  * - **Best-effort and silent by contract.** A failing source, a failing
  *   union read, a failing store or a corrupt document all degrade to
  *   «no match» — no exception ever escapes.
@@ -58,7 +65,16 @@ class SourceReplacementMapping(
     /** The local union read — zero requests, whatever the catalog already holds. */
     private val union: suspend () -> List<GlobalSearchResult>,
     private val cache: SearchCache? = null,
-    private val clock: () -> Long = System::currentTimeMillis
+    /**
+     * The local sitemap Work index seam (spec-49 follow-up): answers from
+     * book URLs already enumerated, with zero requests. Consulted between
+     * the shared cache and the live volley; a null/absent index changes
+     * nothing.
+     */
+    private val workIndex: (suspend (title: String, author: String, mergeKey: String) -> Match?)? = null,
+    private val clock: () -> Long = System::currentTimeMillis,
+    private val sharedCacheTimeoutMs: Long = 2_000L,
+    private val deadlineMs: Long = CatalogAvailabilityPolicy.SOURCE_BUDGET_MS
 ) {
 
     /**
@@ -106,9 +122,12 @@ class SourceReplacementMapping(
             .joinToString(" ")
         if (query.isEmpty()) return null
 
-        val match = resolveFromUnion(mergeKey)
-            ?: resolveFromSharedCache(query, mergeKey)
-            ?: resolveVolley(query, mergeKey)
+        val match = withTimeoutOrNull(deadlineMs) {
+            resolveFromUnion(mergeKey)
+                ?: withTimeoutOrNull(sharedCacheTimeoutMs) { resolveFromSharedCache(query, mergeKey) }
+                ?: runCatching { workIndex?.invoke(title, author, mergeKey) }.getOrNull()
+                ?: resolveVolley(query, mergeKey)
+        }
         verdicts[mergeKey] = Verdict(match != null, now, match)
         return match
     }

@@ -857,7 +857,19 @@ class AudioPlayerManager(
             }.getOrNull()
             if (requestId != prepareRequestId) return@launch
             if (candidate == null) {
-                reportPrimaryFailure(responseCode, errorCodeName)
+                if (responseCode == null) {
+                    // The proactive no-locator attempt: a miss keeps the
+                    // honest UNAVAILABLE state, never a transient stream
+                    // message.
+                    Log.w("AudioPlayer", "No playable locator for chapter $chapterIndex")
+                    reportPlaybackFailure(
+                        errorCodeName = errorCodeName,
+                        detail = context.getString(R.string.a11y_player_error_book_unavailable),
+                        kind = PlaybackErrorKind.UNAVAILABLE
+                    )
+                } else {
+                    reportPrimaryFailure(responseCode, errorCodeName)
+                }
                 return@launch
             }
             // A signed fallback trail: code, both source ids, chapter. A
@@ -1138,6 +1150,17 @@ class AudioPlayerManager(
         // an explicit Play has already armed one bounded recovery pass.
         val hasLocal = SmartRetryPolicy.localFileReady(track?.localFilePath)
         if (track == null || (!hasLocal && track.url.isNullOrBlank())) {
+            // ADR-0037 + #504: 4read's audio is always refused (the
+            // 52-second artefact), so a library row can lose its only pair.
+            // Before the honest terminal state, ask the ONE fallback for the
+            // SAME narration on a direct source — the book then plays from
+            // any available source instead of a scam snippet.
+            if (chapterFallback != null && fallbackAttemptsForChapter == 0 &&
+                !_playerState.value.currentBook?.mergeKey.isNullOrBlank()
+            ) {
+                attemptPlaybackFallback(null, "EMPTY_TRACK")
+                return
+            }
             Log.w("AudioPlayer", "No playable locator for chapter $chapterIndex")
             reportPlaybackFailure(
                 errorCodeName = "EMPTY_TRACK",

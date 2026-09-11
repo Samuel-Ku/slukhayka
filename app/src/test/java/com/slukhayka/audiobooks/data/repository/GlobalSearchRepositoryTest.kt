@@ -18,8 +18,10 @@ import com.slukhayka.audiobooks.data.source.sourceDisplayName
 import com.slukhayka.audiobooks.data.source.sourceIdForUrl
 import com.slukhayka.audiobooks.data.source.SourceBookDetail
 import com.slukhayka.audiobooks.data.source.SourceChapter
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -326,9 +328,11 @@ class GlobalSearchRepositoryTest {
     /** A fake adapter that counts search invocations — to prove suppression. */
     private class CountingAdapter(
         override val sourceId: String,
-        private val searchBooks: List<SourceBook> = emptyList()
+        private val searchBooks: List<SourceBook> = emptyList(),
+        private val feedBooks: List<SourceBook> = emptyList()
     ) : SourceAdapter {
         var searchCalls = 0
+        var feedCalls = 0
 
         override suspend fun search(query: String): List<SourceBook> {
             searchCalls++
@@ -338,7 +342,10 @@ class GlobalSearchRepositoryTest {
         override suspend fun fetchBookPage(url: String): SourceBookDetail =
             SourceBookDetail("", "", url = url, chapters = emptyList())
 
-        override suspend fun fetchNew(limit: Int): List<SourceBook> = emptyList()
+        override suspend fun fetchNew(limit: Int): List<SourceBook> {
+            feedCalls++
+            return feedBooks
+        }
     }
 
     private fun cachedCard() = GlobalSearchResult(
@@ -449,5 +456,72 @@ class GlobalSearchRepositoryTest {
         assertEquals("https://4read.org/uploads/posts/2025-05/medium/shevchenko-taras-kobzar.webp", card.coverImageUrl)
         // Search stays ephemeral — nothing is imported into Room.
         assertEquals(0, dao.getAllAudiobooks().first().size)
+    }
+
+    @Test
+    fun `searchSource falls back to the feed when the endpoint has no search`() = runBlocking {
+        // #721 — a direct source without a usable search endpoint answers
+        // from its recent-arrivals feed, exactly as the aggregated search
+        // always did; the replacement volley consumes the same seam.
+        val adapter = CountingAdapter(
+            "soundbooks",
+            feedBooks = listOf(book("Кобзар", "Тарас Шевченко", "soundbooks"))
+        )
+        val repository = repo(adapter)
+
+        val found = repository.searchSource(adapter, "кобзар")
+
+        assertEquals(1, found.size)
+        assertEquals("soundbooks", found.single().sourceId)
+        assertEquals(1, adapter.feedCalls)
+    }
+
+    @Test
+    fun `searchSource never touches the feed when the endpoint answers`() = runBlocking {
+        val adapter = CountingAdapter(
+            "sluhayua",
+            searchBooks = listOf(book("Кобзар", "Тарас Шевченко", "sluhayua")),
+            feedBooks = listOf(book("Кобзар", "Тарас Шевченко", "sluhayua"))
+        )
+        val repository = repo(adapter)
+
+        val found = repository.searchSource(adapter, "кобзар")
+
+        assertEquals(1, found.size)
+        assertEquals(0, adapter.feedCalls)
+    }
+
+    /** An adapter whose search waits on a gate — proves the sweep is parallel. */
+    private class GatedAdapter(
+        override val sourceId: String,
+        private val gate: CompletableDeferred<Unit>,
+        private val signal: CompletableDeferred<Unit>? = null
+    ) : SourceAdapter {
+        override suspend fun search(query: String): List<SourceBook> {
+            signal?.complete(Unit)
+            gate.await()
+            return emptyList()
+        }
+
+        override suspend fun fetchBookPage(url: String): SourceBookDetail =
+            SourceBookDetail("", "", url = url, chapters = emptyList())
+
+        override suspend fun fetchNew(limit: Int): List<SourceBook> = emptyList()
+    }
+
+    @Test
+    fun `global search queries sources concurrently - never a sequential crawl`() = runBlocking {
+        // #722 — the first adapter cannot finish until the second has
+        // STARTED: only a parallel volley can ever complete this search.
+        val secondStarted = CompletableDeferred<Unit>()
+        val repository = repo(
+            GatedAdapter("aaa", gate = secondStarted),
+            GatedAdapter("zzz", gate = CompletableDeferred(Unit), signal = secondStarted)
+        )
+
+        val results = withTimeout(10_000) {
+            repository.searchAllSources("кобзар")
+        }
+        assertTrue(results.isEmpty())
     }
 }

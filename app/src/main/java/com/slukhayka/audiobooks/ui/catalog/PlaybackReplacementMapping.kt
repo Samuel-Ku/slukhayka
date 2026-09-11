@@ -1,8 +1,10 @@
 package com.slukhayka.audiobooks.ui.catalog
 
+import com.slukhayka.audiobooks.data.catalog.SourceCatalog
 import com.slukhayka.audiobooks.data.catalog.SourceReplacementMapping
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.merge.MergeKey
+import com.slukhayka.audiobooks.player.SmartRetryPolicy
 import kotlinx.coroutines.CancellationException
 
 /**
@@ -13,9 +15,16 @@ import kotlinx.coroutines.CancellationException
  *
  * The resolver owns the request discipline (union-first, the per-Work
  * 6h/15m memo, at most one volley); this unit owns the WHEN — never on a
- * healthy book, never over an explicit source choice, never twice per
- * call. A miss or a failure returns null and the caller keeps its honest
- * path; cancellation is rethrown, never swallowed into a verdict.
+ * book with a real locator, never over an explicit source choice, never
+ * twice per call. A miss or a failure returns null and the caller keeps
+ * its honest path; cancellation is rethrown, never swallowed into a
+ * verdict.
+ *
+ * "Nothing playable" is NOT "an empty chapter list": a refused-only book
+ * (4read is refused built-in) still carries its logical chapters with
+ * every pair unpaired — the plan is non-empty and dead. The verdict is
+ * therefore computed here, over the [SourceCatalog.PlayableChapter] plan
+ * with the same locator rule the Player applies.
  *
  * Pure seams (resolve/import/notify as lambdas, fakes over mocks) so the
  * touch discipline is unit-testable without the Player: the composition in
@@ -34,10 +43,12 @@ class PlaybackReplacementMapping(
      */
     suspend fun mapIfNeeded(
         book: AudiobookEntity,
-        playableEmpty: Boolean,
+        playable: List<SourceCatalog.PlayableChapter>,
         hasPreferredSource: Boolean
     ): AudiobookEntity? {
-        if (!playableEmpty || hasPreferredSource) return null
+        if (hasPreferredSource || playable.any { it.hasPlayableLocator() }) {
+            return null
+        }
         val mergeKey = book.mergeKey.ifBlank { MergeKey.keyFor(book.title, book.author) }
         if (mergeKey.isBlank()) return null
         val match = try {
@@ -62,5 +73,11 @@ class PlaybackReplacementMapping(
         } catch (_: Exception) {
             null
         }
+    }
+
+    /** The Player's own locator rule: a ready local copy or a non-blank URL. */
+    private fun SourceCatalog.PlayableChapter.hasPlayableLocator(): Boolean {
+        val track = track ?: return false
+        return SmartRetryPolicy.localFileReady(track.localFilePath) || track.url.isNotBlank()
     }
 }

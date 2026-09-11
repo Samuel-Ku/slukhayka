@@ -29,6 +29,11 @@ import kotlinx.coroutines.flow.asStateFlow
  * source of truth. The `local` pseudo-source is never a state: a
  * refusal stops the SOURCE supplying audio, never the listener's own
  * downloaded files.
+ *
+ * 4read is refused BUILT-IN, not by listener choice: after the August 2026
+ * change its "audio" for a clean client is a 52-second artefact — a scam,
+ * not the book. No allow/empty write can re-enable it; [ALWAYS_REFUSED]
+ * rides every read and write.
  */
 class SourceAudioRefusal(context: Context) {
 
@@ -83,6 +88,12 @@ class SourceAudioRefusal(context: Context) {
          * pseudo-source is the listener's own files — it is never a state.
          */
         fun normalize(sourceIds: Set<String>): Set<String> =
-            sourceIds.filter { it.isNotBlank() && it != "local" }.toSet()
+            sourceIds.filter { it.isNotBlank() && it != "local" }.toSet() + ALWAYS_REFUSED
+
+        /**
+         * Audio that is never real audio and therefore never playable:
+         * currently 4read, whose clean-client stream is a 52-second artefact.
+         */
+        val ALWAYS_REFUSED: Set<String> = setOf("4read")
     }
 }

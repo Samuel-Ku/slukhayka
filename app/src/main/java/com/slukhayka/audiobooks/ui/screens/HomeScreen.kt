@@ -60,7 +60,6 @@ import coil.request.ImageRequest
 import com.slukhayka.audiobooks.ui.components.BookRow
 import com.slukhayka.audiobooks.ui.components.CycleCard
 import com.slukhayka.audiobooks.ui.components.MetadataChip
-import com.slukhayka.audiobooks.ui.components.OpenWebSourceRow
 import com.slukhayka.audiobooks.ui.components.PosterCard
 import com.slukhayka.audiobooks.ui.components.PosterWidth
 import com.slukhayka.audiobooks.ui.components.applySourceCoverHeaders
@@ -136,10 +135,7 @@ fun HomeScreen(
     onPlayClick: (AudiobookEntity) -> Unit,
     // spec-28 (#192): the «Більше книг на Sluhay» exit CTA — wired from the
     // composition root exactly like on Listen (debug-only, spec-13 T3/T2).
-    onOpenWebSource: (() -> Unit)? = null,
-    // Spec-42 #440: the 4read door is release-accessible (ADR-0027) — wired
-    // unconditionally from the composition root.
-    onOpenWebSource4read: (() -> Unit)? = null
+    onOpenWebSource: (() -> Unit)? = null
 ) {
     // ADR-0008: module flows are read directly — no forwarding StateFlow on
     // the ViewModel. Cold flows need an initial value; the catalogue StateFlows
@@ -227,25 +223,9 @@ fun HomeScreen(
     // the embedding pass stays orchestrated by the ViewModel (single-flight).
     val scope = rememberCoroutineScope()
     val recommendationSnackbar = remember { SnackbarHostState() }
-    // #434: a browser-only search card cannot import silently — offer the
-    // explicit 4read browser door with the work title prefilled.
-    val browserNeededImport by viewModel.browserNeededImport.collectAsState()
-    val browserOnlyMessage = stringResource(R.string.home_browser_only_snackbar)
     val openLabel = stringResource(R.string.home_open)
     val recommendationUpdated = stringResource(R.string.home_recommendation_updated)
     val cancelLabel = stringResource(R.string.download_action_cancel)
-    LaunchedEffect(browserNeededImport) {
-        val needed = browserNeededImport ?: return@LaunchedEffect
-        val result = recommendationSnackbar.showSnackbar(
-            message = browserOnlyMessage,
-            actionLabel = openLabel,
-            withDismissAction = true
-        )
-        if (result == SnackbarResult.ActionPerformed) {
-            viewModel.open4ReadSearch(needed.workTitle)
-        }
-        viewModel.consumeBrowserNeededImport()
-    }
     LaunchedEffect(Unit) {
         // One cancellable delta chain for this active Огляд session. Filters,
         // cards and recompositions only read Room; none of them touch Firestore.
@@ -424,30 +404,6 @@ fun HomeScreen(
                             resultsEmpty = true
                         )
                     }
-                    // Spec-42 #440: empty result set — offer the 4read catalogue
-                    // pre-filled with the query (release-accessible, ADR-0027).
-                    item {
-                        OpenWebSourceRow(
-                            displayName = "4read",
-                            onClick = { viewModel.open4readSearch(searchQuery) },
-                            text = stringResource(R.string.home_search_on_4read, searchQuery.trim()),
-                            testTag = "open_4read_search_empty"
-                        )
-                    }
-                } else {
-                    // Some sources matched, but none resolved to 4read: surface a
-                    // browser door below the results (spec-42 #440).
-                    val has4read = globalResults.any { it.sources.any { s -> s.sourceId == "4read" } }
-                    if (!has4read) {
-                        item {
-                            OpenWebSourceRow(
-                                displayName = "4read",
-                                onClick = { viewModel.open4readSearch(searchQuery) },
-                                text = stringResource(R.string.home_search_browser_fallback),
-                                testTag = "open_4read_search_footer"
-                            )
-                        }
-                    }
                 }
                 items(globalResults, key = { it.key }) { result ->
                     GlobalSearchResultCard(
@@ -538,7 +494,6 @@ fun HomeScreen(
                 onOpenFeedFilters = { showWorkFeedFilters = true },
                 feedFilterTriggerModifier = Modifier.focusRequester(workFeedFilterTriggerFocusRequester),
                 onOpenWebSource = onOpenWebSource,
-                onOpenWebSource4read = onOpenWebSource4read,
                 onRecommendationFeedback = { rec, kind ->
                     scope.launch {
                         val token = withContext(kotlinx.coroutines.Dispatchers.IO) {

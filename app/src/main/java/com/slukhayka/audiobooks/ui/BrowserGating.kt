@@ -7,12 +7,11 @@ import com.slukhayka.audiobooks.data.source.SourceAccessPolicy
  * Spec-15 T2 / Spec-42 #425 — where «Відкрити на сайті» goes. Pure JVM so the
  * debug-gating test can pin both build flavours without an Android build variant.
  *
- * 4read is a WebView-pattern source in release builds (spec-42 #425): the
- * browser is reachable only for 4read and is source-scoped. The 4read legacy
- * browser was removed from the UI entirely, but the v1.3.7 recovery brings it
- * back as a release-accessible WebView surface. WebView-pattern sources
- * (sluhay.com, sluhayknigi.com — behind Cloudflare) keep an in-app browser
- * surface only in debug builds.
+ * 4read's release browser door is retired (#741 — the source is scam): no
+ * profile declares [BrowserRecoveryProfile.releaseBrowserDoor] any more.
+ * WebView-pattern sources (sluhay.com, sluhayknigi.com, ukrainianaudiobooks —
+ * behind Cloudflare) keep an in-app browser surface only in debug builds; the
+ * recovery engine stays dormant for a future release decision.
  */
 enum class BrowserDestination { SYSTEM_BROWSER, IN_APP_BROWSER }
 

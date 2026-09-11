@@ -13,6 +13,7 @@
  *     the adapter module.
  */
 import type { BookDetail, Chapter, SourceAdapter, SourceId } from './types'
+import { isScamSourceKey } from './sourceMetadata'
 import { buildBookDetail, fourread } from './adapters/fourread'
 import { soundBooksAdapter, parseM3u, playlistUrlOf as sbPlaylistUrl } from './adapters/soundbooks'
 import { sluhayAdapter, parsePlayerjsPlaylist as sluhayPlaylist, playlistUrlOf as sluhayPlaylistUrl } from './adapters/sluhay'
@@ -237,8 +238,16 @@ export const REGISTRY: Record<SourceId, SourceEntry> = {
 
 
 export function sourceEntry(id: string): SourceEntry | null {
+  // A scam source (4read) is never dispatched: no catalog, search, feed or
+  // book fetch — its clean-client audio is a 52-second artefact.
+  if (isScamSourceKey(id)) return null
   return (REGISTRY as Record<string, SourceEntry | undefined>)[id] ?? null
 }
+
+/** The served registry — scam sources are excluded from every worker fan-out. */
+export const SERVED_REGISTRY: Record<SourceId, SourceEntry> = Object.fromEntries(
+  Object.entries(REGISTRY).filter(([id]) => !isScamSourceKey(id)),
+) as Record<SourceId, SourceEntry>
 
 export function mayFetch(entry: SourceEntry, url: string): boolean {
   return hostAllowed(entry.allowedHosts, url)

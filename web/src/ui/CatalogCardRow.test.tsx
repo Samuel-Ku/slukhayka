@@ -81,6 +81,23 @@ describe('CatalogCardRow accessibility and actions', () => {
   it('shows a listener-controlled browser door for a session Source', async () => {
     const book = vi.spyOn(api, 'book')
     render(<CatalogCardRow
+      card={{ ...card, url: 'https://ukrainianaudiobooks.com/book' }}
+      editionId="edition-a"
+      sources={[{ sourceId: 'ukrainianaudiobooks', url: 'https://ukrainianaudiobooks.com/book' }]}
+      onOpenBook={vi.fn()}
+      onPlay={vi.fn(async () => true)}
+    />)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Слухати: Книга' }))
+    expect(await screen.findByText(/потребує сесії/)).toBeTruthy()
+    const link = await screen.findByText('Відкрити Ukrainian Audiobooks')
+    expect(link.closest('a')).toBeTruthy()
+    expect(book).not.toHaveBeenCalled()
+  })
+
+  it('offers no browser door for the scam source - the honest missing state stays', async () => {
+    const book = vi.spyOn(api, 'book')
+    render(<CatalogCardRow
       card={{ ...card, url: 'https://4read.org/book' }}
       editionId="edition-a"
       sources={[{ sourceId: 'fourread', url: 'https://4read.org/book' }]}
@@ -89,8 +106,9 @@ describe('CatalogCardRow accessibility and actions', () => {
     />)
 
     await userEvent.click(screen.getByRole('button', { name: 'Слухати: Книга' }))
-    expect(await screen.findByText(/потребує сесії/)).toBeTruthy()
-    expect(screen.getByRole('link', { name: 'Відкрити 4read' }).getAttribute('href')).toBe('https://4read.org')
+
+    expect(await screen.findByText('Джерело не віддає аудіо для цієї книги.')).toBeTruthy()
+    expect(screen.queryByText(/^Відкрити /)).toBeNull()
     expect(book).not.toHaveBeenCalled()
   })
 
@@ -123,13 +141,13 @@ describe('CatalogCardRow accessibility and actions', () => {
       editionId="edition-a"
       sources={[
         { sourceId: 'sound-books', url: card.url },
-        { sourceId: 'fourread', url: 'https://4read.org/book' },
+        { sourceId: 'ukrainianaudiobooks', url: 'https://ukrainianaudiobooks.com/book' },
       ]}
       onOpenBook={vi.fn()}
       onPlay={vi.fn(async () => true)}
     />)
 
     await userEvent.click(screen.getByRole('button', { name: 'Слухати: Книга' }))
-    expect((await screen.findByRole('link', { name: 'Відкрити 4read' })).getAttribute('href')).toBe('https://4read.org')
+    expect(await screen.findByText('Відкрити Ukrainian Audiobooks')).toBeTruthy()
   })
 })

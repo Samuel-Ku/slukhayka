@@ -372,11 +372,11 @@ class TombstoneCatalogGuardTest {
         val detail = SourceBookDetail(
             title = "Неостанній бій",
             author = "Костянтин Шелест",
-            url = "https://4read.org/7589-neostannij-bij.html",
-            chapters = listOf(SourceChapter("Глава 1", "https://4read.org/uploads/audio/7589/01.mp3"))
+            url = "https://sound-books.net/7589-neostannij-bij.html",
+            chapters = listOf(SourceChapter("Глава 1", "https://arch.sound-books.net/7589/01.mp3"))
         )
-        val imports = LibraryImport(dao, context, listOf(FakeAdapter("4read", detail)))
-        val bookId = imports.importFromSourceUrl("4read", detail.url)!!.id
+        val imports = LibraryImport(dao, context, listOf(FakeAdapter("soundbooks", detail)))
+        val bookId = imports.importFromSourceUrl("soundbooks", detail.url)!!.id
 
         // Explicitly delete the imported book (tombstone written) — a catalog
         // upsert of the same poster must be a no-op.
@@ -393,7 +393,7 @@ class TombstoneCatalogGuardTest {
         )
 
         // Re-importing explicitly resurrects it and clears the marker.
-        val resurrected = imports.importFromSourceUrl("4read", detail.url)!!
+        val resurrected = imports.importFromSourceUrl("soundbooks", detail.url)!!
         assertEquals(bookId, resurrected.id)
         assertNotNull(dao.getAudiobookById(bookId))
         assertTrue(!dao.isBookTombstoned(bookId))

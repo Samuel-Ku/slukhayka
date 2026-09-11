@@ -28,7 +28,11 @@ class CatalogCardDownloadTest {
         assertTrue(catalogCardDownloadAllowed(result("soundbooks")))
         assertTrue(catalogCardDownloadAllowed(result("audiobookmp3")))
         assertTrue(catalogCardDownloadAllowed(result("sluhay")))
-        assertTrue(catalogCardDownloadAllowed(result("4read")))
+    }
+
+    @Test
+    fun `the scam source never offers the download affordance`() {
+        assertFalse(catalogCardDownloadAllowed(result("4read")))
     }
 
     @Test

@@ -79,7 +79,7 @@ class RefusedSourceDownloadTest {
                     narrator = "",
                     description = "",
                     coverDrawableRes = 0,
-                    sourceUrl = "https://4read.org/book/$bookId",
+                    sourceUrl = "https://sound-books.net/book/$bookId",
                     genre = ""
                 )
             )
@@ -103,21 +103,21 @@ class RefusedSourceDownloadTest {
         dao.insertSources(
             listOf(
                 SourceEntity(
-                    id = "4read-$bookId",
+                    id = "soundbooks-$bookId",
                     bookId = bookId,
                     editionId = editionId,
-                    type = "4read",
-                    url = "https://4read.org/book/$bookId"
+                    type = "soundbooks",
+                    url = "https://sound-books.net/book/$bookId"
                 )
             )
         )
         dao.insertTracks(
             (0 until 2).map { index ->
                 SourceTrackEntity(
-                    id = "4read-$bookId-tr$index",
-                    sourceId = "4read-$bookId",
+                    id = "soundbooks-$bookId-tr$index",
+                    sourceId = "soundbooks-$bookId",
                     trackIndex = index,
-                    url = "https://4read.org/audio/$bookId/$index.mp3"
+                    url = "https://arch.sound-books.net/audio/$bookId/$index.mp3"
                 )
             }
         )
@@ -126,7 +126,7 @@ class RefusedSourceDownloadTest {
     @Test
     fun `a refused-only book refuses the download before any fetch`() = runBlocking {
         seedBook("refuseddl")
-        refusal.value = setOf("4read")
+        refusal.value = setOf("soundbooks")
 
         val outcome = harness().downloadAudiobookOffline("refuseddl")
 
@@ -141,7 +141,7 @@ class RefusedSourceDownloadTest {
     @Test
     fun `undoing the refusal lets the download run again`() = runBlocking {
         seedBook("refuseddl2")
-        refusal.value = setOf("4read")
+        refusal.value = setOf("soundbooks")
         assertEquals(0, harness().downloadAudiobookOffline("refuseddl2").totalChapters)
 
         refusal.value = emptySet()

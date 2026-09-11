@@ -61,9 +61,6 @@
     <string name="home_more_books_on">Більше книг на %1$s</string>
     <string name="home_library_results">У вашій медіатеці (%1$d)</string>
     <string name="home_all_sources">Усі джерела (%1$d)</string>
-    <string name="home_search_on_4read">Шукати «%1$s» на 4read</string>
-    <string name="home_search_browser_fallback">Нічого на 4read? Шукати в браузері</string>
-    <string name="home_browser_only_snackbar">Ця книга лише на 4read — потрібен браузер</string>
     <string name="home_open">Відкрити</string>
     <string name="home_recommendation_updated">Рекомендацію оновлено</string>
     <string name="library_remaining">Залишилось %1$s</string>
@@ -112,7 +109,6 @@
     <string name="profile_unmute">Розмютити</string>
     <string name="profile_write_review">Написати відгук</string>
     <string name="bookdetail_wrong_universe">Всесвіт неправильний?</string>
-    <string name="bookdetail_open_cycle">Відкрити цикл у 4read</string>
     <string name="bookdetail_precedes">Передує: «%1$s»</string>
     <string name="bookdetail_continues">Продовжує: «%1$s»</string>
     <string name="feed_help_recommendations">Допомогти рекомендаціям ставати кращими?</string>
@@ -120,7 +116,6 @@
     <string name="update_hide">Приховати</string>
     <string name="speed_default_for_all">Стандарт для всіх</string>
     <string name="speed_remember_for_book">Запам\'ятати для цієї книги</string>
-    <string name="top100_open_chart">Відкрити рейтинг у 4read</string>
     <string name="author_all_found">Усі знайдені автори</string>
     <string name="nav_settings">Налаштування</string>
     <string name="mini_player_other_book_chapter">У плеєрі · %1$s</string>

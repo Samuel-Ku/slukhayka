@@ -2,6 +2,8 @@ package com.slukhayka.audiobooks.data.source
 
 import com.slukhayka.audiobooks.data.collections.MiniJson
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 
@@ -56,6 +58,14 @@ class SourceRegistryConformanceTest {
     }
 
     @Test
+    fun `4read is the one scam source - the carrier and the registry agree`() {
+        assertEquals(setOf("4read"), decoded.filter { it.scam }.map { it.id }.toSet())
+        assertEquals(setOf("4read"), SourceRegistry.scamIds())
+        assertTrue(SourceRegistry.isScam("4read"))
+        assertFalse(SourceRegistry.isScam("soundbooks"))
+    }
+
+    @Test
     fun `live fourread search door pins the registry template`() {
         val template = requireNotNull(SourceRegistry.searchDoorTemplate("4read"))
         val query = "Кобзар  Т. Шевченко"
@@ -107,6 +117,7 @@ class SourceRegistryConformanceTest {
         accessMode = SourceAccessMode.valueOf(raw.requireString("accessMode")),
         order = raw.int("order"),
         streamOnly = raw.bool("streamOnly"),
+        scam = raw.bool("scam"),
         referer = raw.map("referer")?.let {
             RefererRule(value = it.requireString("value"), scopeHosts = it.stringSet("scopeHosts"))
         },

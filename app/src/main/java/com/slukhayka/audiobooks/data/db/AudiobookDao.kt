@@ -78,6 +78,10 @@ interface AudiobookDao {
     @Query("SELECT * FROM sources WHERE editionId = :editionId ORDER BY addedAt ASC")
     suspend fun getSourcesForEditionSync(editionId: String): List<SourceEntity>
 
+    /** Every source row of the given types — the scam purge's entry query. */
+    @Query("SELECT * FROM sources WHERE type IN (:types)")
+    suspend fun getSourcesByTypes(types: List<String>): List<SourceEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertSources(sources: List<SourceEntity>)
 
@@ -206,6 +210,10 @@ interface AudiobookDao {
     @Query("UPDATE audiobooks SET totalChapters = :totalChapters, totalDurationSeconds = :totalDurationSeconds WHERE id = :bookId")
     suspend fun updateBookStats(bookId: String, totalChapters: Int, totalDurationSeconds: Long)
 
+    /** The purge's card reset: a scam book keeps its card but loses the fake page URL. */
+    @Query("UPDATE audiobooks SET sourceUrl = :url WHERE id = :bookId")
+    suspend fun updateBookSourceUrl(bookId: String, url: String)
+
     /**
      * Back-fills the real page metadata (author, narrator, genre, rating)
      * onto a catalogue book once its page has been fetched, replacing the
@@ -320,6 +328,10 @@ interface AudiobookDao {
     /** ADR-0035 / #607 — removes ONE source's catalog claim by its URL. */
     @Query("DELETE FROM work_sources WHERE workId = :workId AND sourceUrl = :sourceUrl")
     suspend fun deleteWorkSourceForUrl(workId: String, sourceUrl: String)
+
+    /** The scam purge — removes every catalog claim of the scam source types. */
+    @Query("DELETE FROM work_sources WHERE sourceId IN (:types)")
+    suspend fun deleteWorkSourcesBySourceIds(types: List<String>)
 
     @Query("SELECT * FROM sources WHERE id = :sourceId LIMIT 1")
     suspend fun getSourceById(sourceId: String): SourceEntity?
@@ -664,6 +676,17 @@ interface AudiobookDao {
 
     @Query("DELETE FROM playback_progress WHERE bookId = :bookId")
     suspend fun deletePlaybackProgressForBook(bookId: String)
+
+    // --- The scam purge's Edition-scoped deletes (ADR-0007 keys) -----------
+
+    @Query("DELETE FROM chapters WHERE editionId = :editionId")
+    suspend fun deleteChaptersForEdition(editionId: String)
+
+    @Query("DELETE FROM bookmarks WHERE editionId = :editionId")
+    suspend fun deleteBookmarksForEdition(editionId: String)
+
+    @Query("DELETE FROM playback_progress WHERE editionId = :editionId")
+    suspend fun deletePlaybackProgressForEdition(editionId: String)
 
     /**
      * #445 — the explicitly confirmed repair door for a Chapter topology that
@@ -1033,6 +1056,13 @@ interface AudiobookDao {
 
     @Query("DELETE FROM work_genres WHERE workId=:workId AND sourceId=:sourceId")
     suspend fun deleteWorkGenresForSource(workId: String, sourceId: String)
+
+    /** The scam purge — removes the Edition's facet projection with it. */
+    @Query("DELETE FROM edition_facets WHERE editionId = :editionId")
+    suspend fun deleteEditionFacet(editionId: String)
+
+    @Query("SELECT * FROM edition_facets WHERE editionId = :editionId LIMIT 1")
+    suspend fun getEditionFacet(editionId: String): com.slukhayka.audiobooks.data.db.EditionFacetEntity?
 
     @Query("DELETE FROM genre_assertions WHERE workId=:workId AND sourceId=:sourceId")
     suspend fun deleteGenreAssertionsForSource(workId: String, sourceId: String)

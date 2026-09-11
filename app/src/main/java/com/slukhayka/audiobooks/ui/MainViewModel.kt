@@ -959,20 +959,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 
-    /** Opens 4read search with prefilled Work title — “Знайти на 4read”. */
-    fun open4ReadSearch(workTitle: String) {
-        val searchDoor = BrowserRecoveryProfiles.forSource(SourceIds.FOUR_READ).searchDoor ?: return
-        _selectedWebSource.value = SelectedWebSource(
-            sourceId = SourceIds.FOUR_READ,
-            homeUrl = searchDoor(workTitle),
-            displayName = "4read"
-        )
-    }
-
     /**
      * Spec-42 #425 entry — the 4read door-path recovery (ADR-0036: the
      * generalized door path is [openDoorRecovery]; the profile supplies the
-     * search door and the last-resort home).
+     * search door and the last-resort home). Dormant since #741: no UI wires
+     * this door any more; the engine stays for future browser sources.
      */
     fun open4ReadRecovery(
         bookId: String,
@@ -1540,17 +1531,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _selectedSeriesUniverse.value = null
     }
 
-    /** Explicit 4read browser door for a cycle whose direct page is challenged. */
-    fun openSeriesInBrowser() {
-        val series = _selectedSeries.value ?: return
-        _selectedWebSource.value = SelectedWebSource(
-            sourceId = "4read",
-            homeUrl = series.url,
-            displayName = "4read",
-            captureSeriesUrl = series.url
-        )
-    }
-
     fun importCapturedSeries(html: String, onComplete: (Boolean) -> Unit) {
         val series = _selectedSeries.value
         if (series == null) {
@@ -1802,16 +1782,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun openTop100() {
         _selectedTop100.value = true
         top100Loader.open(Unit)
-    }
-
-    /** Explicit 4read door used when Cloudflare rejects the ranking HTTP call. */
-    fun openTop100InBrowser() {
-        _selectedWebSource.value = SelectedWebSource(
-            sourceId = "4read",
-            homeUrl = "https://4read.org/top-100.html",
-            displayName = "4read",
-            captureTop100 = true
-        )
     }
 
     fun importCapturedTop100(html: String, onComplete: (Boolean) -> Unit) {
@@ -4014,18 +3984,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /** One-shot user-facing message for import outcomes (consumed by the UI). */
     private val _importMessage = MutableStateFlow<String?>(null)
     val importMessage: StateFlow<String?> = _importMessage.asStateFlow()
-
-    /**
-     * Honest refusal for a browser-only search card (#434): the work title is
-     * carried so the UI can open the prefilled 4read browser search.
-     */
-    data class BrowserNeededImport(val workTitle: String)
-    private val _browserNeededImport = MutableStateFlow<BrowserNeededImport?>(null)
-    val browserNeededImport: StateFlow<BrowserNeededImport?> = _browserNeededImport.asStateFlow()
-
-    fun consumeBrowserNeededImport() {
-        _browserNeededImport.value = null
-    }
 
     /** The pending smart-import preview (wayfinder #29), null when none. */
     private val _importPreview = MutableStateFlow<ImportPreviewState?>(null)

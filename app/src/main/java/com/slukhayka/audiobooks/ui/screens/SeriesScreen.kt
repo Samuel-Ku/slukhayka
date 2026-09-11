@@ -112,11 +112,6 @@ fun SeriesScreen(
                                 modifier = Modifier.fillMaxWidth(),
                                 isError = true
                             )
-                            Spacer(modifier = Modifier.height(16.dp))
-                            OutlinedButton(
-                                onClick = { viewModel.openSeriesInBrowser() },
-                                modifier = Modifier.testTag("series_open_browser")
-                            ) { Text(stringResource(R.string.bookdetail_open_cycle)) }
                         }
                     }
                 }

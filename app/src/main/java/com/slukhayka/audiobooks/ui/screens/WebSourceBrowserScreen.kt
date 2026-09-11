@@ -464,7 +464,7 @@ fun WebSourceBrowserScreen(
         val instance = webViewInstance ?: return
         val pageUrl = currentWebUrl
         if (sourceId != "4read" || !pageUrl.substringBefore('?').endsWith("/top-100.html")) {
-            importResult = "Відкрийте сторінку рейтингу 4read"
+            importResult = "Відкрийте сторінку рейтингу"
             return
         }
         isImporting = true
@@ -482,7 +482,7 @@ fun WebSourceBrowserScreen(
                     importResult = "Рейтинг завантажено"
                     onClose()
                 } else {
-                    importResult = "Рейтинг ще не доступний — завершіть перевірку 4read і спробуйте знову"
+                    importResult = "Рейтинг ще не доступний — завершіть перевірку сторінки і спробуйте знову"
                 }
             }
         }
@@ -494,7 +494,7 @@ fun WebSourceBrowserScreen(
         if (sourceId != "4read" || captureSeriesUrl == null ||
             !SourceBrowserPolicy.isUrlAllowed(currentWebUrl, sourceId)
         ) {
-            importResult = "Відкрийте сторінку циклу в 4read"
+            importResult = "Відкрийте сторінку циклу"
             return
         }
         isImporting = true
@@ -510,7 +510,7 @@ fun WebSourceBrowserScreen(
                     importResult = "Цикл завантажено"
                     onClose()
                 } else {
-                    importResult = "Цикл ще не доступний — завершіть перевірку 4read і спробуйте знову"
+                    importResult = "Цикл ще не доступний — завершіть перевірку сторінки і спробуйте знову"
                 }
             }
         }
@@ -743,7 +743,7 @@ fun WebSourceBrowserScreen(
                             Text(
                                 "Розділів було ${mismatch.storedChapterCount}, стане ${mismatch.capturedChapterCount}. " +
                                     "Будуть очищені локальні файли цієї структури, прогрес по розділах і закладки. " +
-                                    "Назва книги, медіатека та джерело 4read залишаться."
+                                    "Назва книги, медіатека та джерело залишаться."
                             )
                         },
                         confirmButton = {

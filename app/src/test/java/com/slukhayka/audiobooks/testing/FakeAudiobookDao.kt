@@ -377,6 +377,12 @@ class FakeAudiobookDao(
         }
     }
 
+    override suspend fun updateBookSourceUrl(bookId: String, url: String) {
+        booksState.update { current ->
+            current.map { book -> if (book.id == bookId) book.copy(sourceUrl = url) else book }
+        }
+    }
+
     override suspend fun updateBookMetadata(
         bookId: String,
         author: String?,
@@ -597,6 +603,9 @@ class FakeAudiobookDao(
     override suspend fun getSourcesForEditionSync(editionId: String): List<SourceEntity> =
         sourcesState.value.filter { it.editionId == editionId }.sortedBy { it.addedAt }
 
+    override suspend fun getSourcesByTypes(types: List<String>): List<SourceEntity> =
+        sourcesState.value.filter { it.type in types }
+
     override suspend fun insertSources(sources: List<SourceEntity>) {
         val incomingIds = sources.map { it.id }.toSet()
         sourcesState.update { current -> current.filterNot { it.id in incomingIds } + sources }
@@ -618,6 +627,10 @@ class FakeAudiobookDao(
         workSourcesState.update { current -> current.filterNot { it.workId == workId && it.sourceUrl == sourceUrl } }
     }
 
+    override suspend fun deleteWorkSourcesBySourceIds(types: List<String>) {
+        workSourcesState.update { current -> current.filterNot { it.sourceId in types } }
+    }
+
     override suspend fun getBookIdBySourceId(sourceId: String): String? =
         sourcesState.value.firstOrNull { it.id == sourceId }?.bookId
 
@@ -633,6 +646,18 @@ class FakeAudiobookDao(
 
     override suspend fun deletePlaybackProgressForBook(bookId: String) {
         progressState.update { current -> current.filterNot { it.bookId == bookId } }
+    }
+
+    override suspend fun deleteChaptersForEdition(editionId: String) {
+        chaptersState.update { current -> current.filterNot { it.editionId == editionId } }
+    }
+
+    override suspend fun deleteBookmarksForEdition(editionId: String) {
+        bookmarksState.update { current -> current.filterNot { it.editionId == editionId } }
+    }
+
+    override suspend fun deletePlaybackProgressForEdition(editionId: String) {
+        progressState.update { current -> current.filterNot { it.editionId == editionId } }
     }
 
     override suspend fun deleteAudiobook(bookId: String) {
@@ -1110,6 +1135,13 @@ class FakeAudiobookDao(
     override suspend fun deleteGenreAssertionsForSource(workId: String, sourceId: String) {
         genreAssertionsState.update { rows -> rows.filterNot { it.workId == workId && it.sourceId == sourceId } }
     }
+
+    override suspend fun deleteEditionFacet(editionId: String) {
+        editionFacetsState.update { current -> current.filterNot { it.editionId == editionId } }
+    }
+
+    override suspend fun getEditionFacet(editionId: String): EditionFacetEntity? =
+        editionFacetsState.value.firstOrNull { it.editionId == editionId }
 
     override suspend fun upsertGenreAssertionState(row: GenreAssertionStateEntity) {
         genreAssertionStatesState.update { rows -> rows.filterNot { it.workId == row.workId && it.sourceId == row.sourceId } + row }

@@ -432,6 +432,8 @@ class LibraryImport(
         known: KnownBookIdentity? = null
     ): AudiobookEntity? =
         withContext(Dispatchers.IO) {
+            // A scam source is never fetched, never profiled, never imported.
+            if (SourceRegistry.isScam(sourceId)) return@withContext null
             val adapter = sourceAdapters.firstOrNull { it.sourceId == sourceId }
                 ?: return@withContext null
             val store = profileStore
@@ -504,6 +506,8 @@ class LibraryImport(
         known: KnownBookIdentity? = null
     ): AudiobookEntity? =
         withContext(Dispatchers.IO) {
+            // A scam source is never fetched through the direct-page door.
+            if (SourceRegistry.isScam(sourceId)) return@withContext null
             val adapter = sourceAdapters.firstOrNull { it.sourceId == sourceId }
                 ?: return@withContext null
             val detail = try {
@@ -716,6 +720,8 @@ class LibraryImport(
             val sourceUrl = book.sourceUrl
             if (sourceUrl.isBlank()) return@withContext null
             val sourceId = sourceIdForUrl(sourceUrl)
+            // A scam source never heals — its artifact is not a book.
+            if (SourceRegistry.isScam(sourceId)) return@withContext null
             val adapter = sourceAdapters.firstOrNull { it.sourceId == sourceId }
                 ?: return@withContext null
             // Fail-open: a dead page contributes nothing — the player keeps

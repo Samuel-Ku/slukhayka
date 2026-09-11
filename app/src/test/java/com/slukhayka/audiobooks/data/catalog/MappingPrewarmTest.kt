@@ -110,4 +110,49 @@ class MappingPrewarmTest {
         assertEquals(0, prewarm.runOnce())
         assertEquals(0, resolveCalls)
     }
+
+    @Test
+    fun `every honest verdict is reported with its work`() = runTest {
+        val books = listOf(
+            book("b1", "Лісова пісня", "Леся Українка", "https://4read.org/book-1"),
+            book("b2", "Кобзар", "Тарас Шевченко", "https://4read.org/book-2")
+        )
+        val reported = mutableListOf<Pair<String, String?>>()
+        val prewarm = MappingPrewarm(
+            books = { books },
+            resolve = { _, _, mergeKey ->
+                if (mergeKey == books[0].mergeKey) match() else null
+            },
+            pauseMillis = {},
+            onVerdict = { mergeKey, match -> reported += mergeKey to match?.sourceId }
+        )
+
+        prewarm.runOnce()
+
+        assertEquals(
+            listOf(books[0].mergeKey to "sluhayua", books[1].mergeKey to null),
+            reported
+        )
+    }
+
+    @Test
+    fun `a throwing resolve is not reported as a verdict`() = runTest {
+        val books = listOf(
+            book("b1", "Лісова пісня", "Леся Українка", "https://4read.org/book-1"),
+            book("b2", "Кобзар", "Тарас Шевченко", "https://4read.org/book-2")
+        )
+        val reported = mutableListOf<String>()
+        val prewarm = MappingPrewarm(
+            books = { books },
+            resolve = { _, _, mergeKey ->
+                if (mergeKey == books[0].mergeKey) error("resolver down") else null
+            },
+            pauseMillis = {},
+            onVerdict = { mergeKey, _ -> reported += mergeKey }
+        )
+
+        prewarm.runOnce()
+
+        assertEquals(listOf(books[1].mergeKey), reported)
+    }
 }

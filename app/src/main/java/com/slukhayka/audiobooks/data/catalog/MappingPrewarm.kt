@@ -36,7 +36,15 @@ class MappingPrewarm(
     private val resolve: suspend (title: String, author: String, mergeKey: String) -> SourceReplacementMapping.Match?,
     private val limit: Int = DEFAULT_LIMIT,
     private val pause: Long = DEFAULT_PAUSE_MILLIS,
-    private val pauseMillis: suspend (Long) -> Unit = { delay(it) }
+    private val pauseMillis: suspend (Long) -> Unit = { delay(it) },
+    /**
+     * ADR-0042 §1 — reports each honest verdict (a miss is null) so the
+     * caller can persist it for the library card. A resolve that THROWS is
+     * not a verdict and is not reported: offline never fabricates a fresh
+     * "not found". Best-effort; a failing recorder never stops the run.
+     */
+    private val onVerdict: suspend (mergeKey: String, match: SourceReplacementMapping.Match?) -> Unit =
+        { _, _ -> }
 ) {
 
     /**
@@ -69,7 +77,9 @@ class MappingPrewarm(
                 }
             }
             try {
-                if (resolve(row.title, row.author, keyOf(row)) != null) warmed++
+                val match = resolve(row.title, row.author, keyOf(row))
+                if (match != null) warmed++
+                reportVerdict(keyOf(row), match)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
@@ -77,6 +87,16 @@ class MappingPrewarm(
             }
         }
         return warmed
+    }
+
+    private suspend fun reportVerdict(mergeKey: String, match: SourceReplacementMapping.Match?) {
+        try {
+            onVerdict(mergeKey, match)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            // Best-effort: recording a verdict never stops the run.
+        }
     }
 
     private fun keyOf(row: AudiobookEntity): String =

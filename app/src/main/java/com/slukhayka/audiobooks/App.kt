@@ -318,6 +318,15 @@ class App : Application() {
     }
 
     /**
+     * ADR-0042 §1 — the persisted last availability verdict per Work, so the
+     * library card keeps showing the honest state (and its time) across
+     * restarts. Local and never synced, like the refusal.
+     */
+    val libraryAvailabilityStore: com.slukhayka.audiobooks.data.availability.LibraryAvailabilityStore by lazy {
+        com.slukhayka.audiobooks.data.availability.LibraryAvailabilityStore(this)
+    }
+
+    /**
      * Spec-601 T3/T5 — the listener-submission seam: verification is the
      * player-verdict gate, the policy the anti-spam door, the publisher the
      * shared-base writer. A missing shared base (no Firebase keys) keeps the
@@ -1041,6 +1050,20 @@ class App : Application() {
                     books = { audiobookDao.getAllAudiobooksOnce().map { it.toAudiobookEntity() } },
                     resolve = { title, author, mergeKey ->
                         directSourceResolve.resolve(title, author, mergeKey)
+                    },
+                    onVerdict = { mergeKey, match ->
+                        // ADR-0042 §1 — persist the honest verdict so the card
+                        // shows it (with its time) now and after a restart.
+                        libraryAvailabilityStore.record(
+                            mergeKey = mergeKey,
+                            status = if (match != null) {
+                                com.slukhayka.audiobooks.data.availability.AvailabilityStatus.FOUND
+                            } else {
+                                com.slukhayka.audiobooks.data.availability.AvailabilityStatus.NOT_FOUND
+                            },
+                            sourceId = match?.sourceId.orEmpty(),
+                            observedAtMs = System.currentTimeMillis()
+                        )
                     }
                 ).runOnce()
             }

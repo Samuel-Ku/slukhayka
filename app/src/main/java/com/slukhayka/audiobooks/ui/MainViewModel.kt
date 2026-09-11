@@ -27,6 +27,8 @@ import com.slukhayka.audiobooks.data.universe.SeriesUniverses
 import com.slukhayka.audiobooks.data.update.UpdateChecker
 import com.slukhayka.audiobooks.data.catalog.SourceCatalog
 import com.slukhayka.audiobooks.data.catalog.CatalogAvailabilityPolicy
+import com.slukhayka.audiobooks.data.availability.AvailabilityView
+import com.slukhayka.audiobooks.data.availability.LibraryAvailabilityPolicy
 import com.slukhayka.audiobooks.data.downloads.OfflineDownloads
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
 import com.slukhayka.audiobooks.data.imports.KnownBookIdentity
@@ -700,6 +702,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     ) { books, progress, chapters ->
         com.slukhayka.audiobooks.ui.library.buildLibraryBooks(books, progress, chapters.groupBy { it.bookId })
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // ADR-0042 §1 (spec-56 T1) — the availability state per Work, a pure
+    // projection of the book's own source, the persisted verdicts and the
+    // refusal set. Clean books (available audio) are absent from the map, so
+    // the card never gets noise.
+    val libraryAvailability: StateFlow<Map<String, AvailabilityView>> = combine(
+        libraryBooks,
+        App.instance.libraryAvailabilityStore.verdicts,
+        App.instance.sourceAudioRefusal.refusedSources
+    ) { books, verdicts, refused ->
+        buildMap {
+            for (entry in books) {
+                val mergeKey = entry.book.mergeKey
+                if (mergeKey.isBlank()) continue
+                val available = LibraryAvailabilityPolicy.hasAvailableAudio(entry.book.sourceUrl, refused)
+                val refusedId = LibraryAvailabilityPolicy.refusedSourceId(entry.book.sourceUrl, refused)
+                LibraryAvailabilityPolicy.viewFor(available, refusedId, verdicts[mergeKey])
+                    ?.let { view -> put(mergeKey, view) }
+            }
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
     // Wayfinder #62 — the rule-based personalized Listen: local-only prefs
     // (order / hidden / dismissed) feed the pure ListenComposer, whose output

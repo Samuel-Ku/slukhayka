@@ -72,6 +72,10 @@
     <string name="library_availability_not_found">Джерел не знайдено · перевірено %1$s</string>
     <string name="library_availability_found">Знайдено в %1$s</string>
     <string name="library_availability_refused">Аудіо джерела вимкнено</string>
+    <!-- #397: honest partial-offline badge; full offline stays «Офлайн». -->
+    <string name="offline_partial_badge">Офлайн (%1$d/%2$d)</string>
+    <string name="book_detail_chapter_delete_copy">Видалити копію розділу</string>
+    <string name="book_detail_chapter_delete_copy_confirm">Видалити офлайн-копію цього розділу? Решта завантажених розділів лишиться.</string>
     <!-- v1.4 E5: player chrome off hardcoded strings. -->
     <string name="player_chapter_fallback">Розділ %1$d</string>
     <string name="player_feedback_chapter_end">До кінця розділу</string>

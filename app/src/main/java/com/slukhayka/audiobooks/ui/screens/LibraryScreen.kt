@@ -123,6 +123,7 @@ fun LibraryScreen(
 ) {
     val libraryBooks by viewModel.libraryBooks.collectAsState()
     val libraryAvailability by viewModel.libraryAvailability.collectAsState()
+    val bookDownloadCounts by viewModel.bookDownloadCounts.collectAsState()
     // Spec-56 T2 (#729) — every problem Work joins the Source Watch
     // automatically, idempotently and without a listener action.
     LaunchedEffect(libraryBooks) { viewModel.ensureProblemWorksWatched() }
@@ -499,7 +500,8 @@ fun LibraryScreen(
                                         Modifier
                                     },
                                     availability = libraryAvailability[entry.book.mergeKey],
-                                    onRecheck = { viewModel.recheckAvailability(entry.book.id) }
+                                    onRecheck = { viewModel.recheckAvailability(entry.book.id) },
+                                    downloadCount = bookDownloadCounts[entry.book.id]
                                 )
                             }
                         }
@@ -752,7 +754,8 @@ fun LibraryBookCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     availability: com.slukhayka.audiobooks.data.availability.AvailabilityView? = null,
-    onRecheck: (() -> Unit)? = null
+    onRecheck: (() -> Unit)? = null,
+    downloadCount: com.slukhayka.audiobooks.data.db.BookDownloadCount? = null
 ) {
     val author = book.book.displayAuthor
     val description = if (author.isBlank()) {
@@ -810,9 +813,9 @@ fun LibraryBookCard(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
     ) {
         if (grid) {
-            LibraryBookGridContent(book, availability, onRecheck)
+            LibraryBookGridContent(book, availability, onRecheck, downloadCount)
         } else {
-            LibraryBookRowContent(book, availability, onRecheck)
+            LibraryBookRowContent(book, availability, onRecheck, downloadCount)
         }
     }
 }
@@ -821,7 +824,8 @@ fun LibraryBookCard(
 private fun LibraryBookRowContent(
     book: LibraryBook,
     availability: com.slukhayka.audiobooks.data.availability.AvailabilityView? = null,
-    onRecheck: (() -> Unit)? = null
+    onRecheck: (() -> Unit)? = null,
+    downloadCount: com.slukhayka.audiobooks.data.db.BookDownloadCount? = null
 ) {
     // v1.4 E3 (ADR-0033): the library list row IS the canonical BookRow —
     // the old bespoke 56 dp Row (a fifth row style) is gone. The card's
@@ -839,7 +843,19 @@ private fun LibraryBookRowContent(
             // C4: the canonical provenance chip — the local SourceBadge was
             // a pixel-duplicate of MetadataChip(source=…).
             MetadataChip(source = book.sourceName)
-            if (book.book.isDownloaded) {
+            if (downloadCount != null && downloadCount.downloaded > 0 && downloadCount.downloaded < downloadCount.total) {
+                // #397 — honest partial offline: N of M Source Tracks on disk.
+                Spacer(modifier = Modifier.width(AppDimens.SpaceXs))
+                Text(
+                    text = stringResource(
+                        R.string.offline_partial_badge,
+                        downloadCount.downloaded,
+                        downloadCount.total
+                    ),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.secondary
+                )
+            } else if (book.book.isDownloaded) {
                 Spacer(modifier = Modifier.width(AppDimens.SpaceXs))
                 Icon(
                     imageVector = Icons.Default.CloudDone,
@@ -890,7 +906,8 @@ private fun LibraryBookRowContent(
 private fun LibraryBookGridContent(
     book: LibraryBook,
     availability: com.slukhayka.audiobooks.data.availability.AvailabilityView? = null,
-    onRecheck: (() -> Unit)? = null
+    onRecheck: (() -> Unit)? = null,
+    downloadCount: com.slukhayka.audiobooks.data.db.BookDownloadCount? = null
 ) {
     Column {
         BookCoverImage(
@@ -961,7 +978,18 @@ private fun LibraryBookGridContent(
                 // C4: the canonical provenance chip (the local SourceBadge
                 // was a pixel-duplicate of MetadataChip(source=…)).
                 MetadataChip(source = book.sourceName)
-                if (book.book.isDownloaded) {
+                if (downloadCount != null && downloadCount.downloaded > 0 && downloadCount.downloaded < downloadCount.total) {
+                    // #397 — honest partial offline: N of M Source Tracks on disk.
+                    Text(
+                        text = stringResource(
+                            R.string.offline_partial_badge,
+                            downloadCount.downloaded,
+                            downloadCount.total
+                        ),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.secondary
+                    )
+                } else if (book.book.isDownloaded) {
                     Spacer(modifier = Modifier.width(6.dp))
                     Icon(
                         imageVector = Icons.Default.CloudDone,

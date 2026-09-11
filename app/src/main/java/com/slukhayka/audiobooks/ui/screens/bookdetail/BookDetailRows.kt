@@ -99,7 +99,11 @@ fun ChapterRowItem(
     isPlaying: Boolean,
     focusRequester: FocusRequester? = null,
     onPlayClick: () -> Unit,
-    onPauseClick: () -> Unit
+    onPauseClick: () -> Unit,
+    // #397 — the chapter's Source Track copy is on disk; the listener may
+    // delete just this chapter's copy.
+    isDownloadedCopy: Boolean = false,
+    onDeleteCopy: (() -> Unit)? = null
 ) {
     val duration = chapter.durationSeconds.takeIf { it > 0L }?.let(MainViewModel::formatTime)
     val chapterSummary = if (duration != null) {
@@ -196,6 +200,17 @@ fun ChapterRowItem(
                         // Spec-22 T2: tabular figures for duration counters.
                         style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum"),
                         color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            if (isDownloadedCopy && onDeleteCopy != null) {
+                IconButton(onClick = onDeleteCopy) {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = stringResource(R.string.book_detail_chapter_delete_copy),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(24.dp)
                     )
                 }
             }

@@ -168,6 +168,17 @@ data class SourceTrackEntity(
 )
 
 /**
+ * #397 — per-book Source Track download counts for the partial-offline badge.
+ * [downloaded] of [total] tracks are on disk; `0 < downloaded < total` is the
+ * honest «Офлайн (N/M)» state, `downloaded == total` is full «Офлайн».
+ */
+data class BookDownloadCount(
+    val bookId: String,
+    val total: Int,
+    val downloaded: Int
+)
+
+/**
  * One playable source of an Edition (ADR-0007). The row is re-parented from
  * `bookId` to `editionId` (the bookId column is kept during the expand
  * phase); ids are recomputed deterministically as `$type-$editionId`.

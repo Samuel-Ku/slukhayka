@@ -1284,4 +1284,18 @@ interface AudiobookDao {
     /** Every assertion of one kind — expiry is the caller's ([com.slukhayka.audiobooks.data.metadata.PopularityAssertionPolicy.isFresh]). */
     @Query("SELECT * FROM popularity_assertions WHERE kind = :kind")
     suspend fun popularityAssertions(kind: String): List<PopularityAssertionEntity>
+
+    // --- Embedding vectors (#482) -------------------------------------------
+
+    /** The cached vectors for the given Work ids (misses are simply absent). */
+    @Query("SELECT * FROM embedding_vectors WHERE workId IN (:workIds)")
+    suspend fun embeddingVectors(workIds: List<String>): List<EmbeddingVectorEntity>
+
+    /** Every cached vector — the catalogue/signal pools read it in one pass. */
+    @Query("SELECT * FROM embedding_vectors")
+    suspend fun allEmbeddingVectors(): List<EmbeddingVectorEntity>
+
+    /** Upserts vectors (REPLACE by workId — a changed text overwrites its row). */
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertEmbeddingVectors(rows: List<EmbeddingVectorEntity>)
 }

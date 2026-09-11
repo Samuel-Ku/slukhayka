@@ -2740,9 +2740,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 // never on the UI thread). The combine only reads the
                 // published map.
                 val vectors = embeddingService.vectorsFor(candidates, currentEmbedder()).toMutableMap()
-                for (signal in currentSignals(library)) {
-                    if (signal.id !in vectors) vectors[signal.id] = currentEmbedder().embed(signal.text)
+                // #482 — signal vectors go through the SAME per-book cache:
+                // only new/changed signals embed, the rest are a Room read.
+                val signals = currentSignals(library)
+                val signalTexts = signals.associate { it.id to it.text }
+                val cachedSignals = embeddingCache.loadFresh(signalTexts)
+                val persistSignals = LinkedHashMap<String, Pair<String, FloatArray>>()
+                for (signal in signals) {
+                    if (signal.id in vectors || signal.id in cachedSignals) continue
+                    try {
+                        val vector = currentEmbedder().embed(signal.text)
+                        vectors[signal.id] = vector
+                        persistSignals[signal.id] = signal.text to vector
+                    } catch (e: Exception) {
+                        // A failing signal simply misses — the row degrades.
+                    }
                 }
+                cachedSignals.forEach { (id, vector) -> vectors.putIfAbsent(id, vector) }
+                if (persistSignals.isNotEmpty()) embeddingCache.save(persistSignals)
                 _catalogVectors.value = vectors
             } finally {
                 _recommendationsReady.value = true
@@ -2760,8 +2775,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // Q7: catalogue vectors come from the file cache keyed by catalogue
     // version (CatalogEmbeddingService) — the background pass recomputes
     // only on a version change; the row reads the cached map.
-    private val embeddingCache = com.slukhayka.audiobooks.data.recommend.EmbeddingCache(
-        File(application.filesDir, "embeddings")
+    private val embeddingCache = com.slukhayka.audiobooks.data.recommend.RoomEmbeddingCache(
+        App.instance.audiobookDao
     )
     private val embeddingService = com.slukhayka.audiobooks.data.recommend.CatalogEmbeddingService(embeddingCache)
 

@@ -2714,6 +2714,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun refreshEmbeddingVectors() {
         if (!_embeddingPassInFlight.compareAndSet(false, true)) return
+        // #483 — a listener interaction with recommendations starts the one-time model install.
+        if (!modelInstaller.isInstalled()) ensureEmbeddingModel()
         _recommendationsReady.value = false
         viewModelScope.launch(Dispatchers.IO) {
             try {
@@ -2737,9 +2739,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 // few library signal vectors embed right here on IO too (T4:
                 // never on the UI thread). The combine only reads the
                 // published map.
-                val vectors = embeddingService.vectorsFor(candidates, embedder).toMutableMap()
+                val vectors = embeddingService.vectorsFor(candidates, currentEmbedder()).toMutableMap()
                 for (signal in currentSignals(library)) {
-                    if (signal.id !in vectors) vectors[signal.id] = embedder.embed(signal.text)
+                    if (signal.id !in vectors) vectors[signal.id] = currentEmbedder().embed(signal.text)
                 }
                 _catalogVectors.value = vectors
             } finally {
@@ -2763,26 +2765,94 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     )
     private val embeddingService = com.slukhayka.audiobooks.data.recommend.CatalogEmbeddingService(embeddingCache)
 
+    private val embeddingModelDir = File(application.filesDir, "models/e5")
+    private val _embeddingModelState = MutableStateFlow<com.slukhayka.audiobooks.data.recommend.EmbeddingModelState>(
+        com.slukhayka.audiobooks.data.recommend.EmbeddingModelState.NotInstalled
+    )
+    /** #483 — the honest model state the settings/row render. */
+    val embeddingModelState: StateFlow<com.slukhayka.audiobooks.data.recommend.EmbeddingModelState> =
+        _embeddingModelState.asStateFlow()
+    private val modelInstaller = com.slukhayka.audiobooks.data.recommend.EmbeddingModelInstaller(
+        dir = embeddingModelDir,
+        fetcher = com.slukhayka.audiobooks.data.source.HttpFetcher(),
+        onState = { _embeddingModelState.value = it }
+    )
+    private val _embeddingInstallInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    @Volatile
+    private var embedderInstance: com.slukhayka.audiobooks.data.recommend.TextEmbedder? = null
+
+    private fun currentEmbedder(): com.slukhayka.audiobooks.data.recommend.TextEmbedder {
+        embedderInstance?.let { return it }
+        return synchronized(this) {
+            embedderInstance ?: loadEmbedder().also { embedderInstance = it }
+        }
+    }
+
     /**
      * The production embedder (spec-19 T3/T4): the ONNX multilingual-e5-small
-     * model under assets/models/e5 (fetched by the downloadE5Model Gradle
-     * task — never committed). Created lazily, so the first — and only — load
-     * happens on the IO dispatcher inside the background pass, never on the
-     * UI thread. When the asset is absent or fails to load, the keyword
-     * baseline takes over (T2 contract: the row degrades, never crashes).
+     * model. Loaded from the runtime-installed copy first (#483), then the
+     * dev-time asset, else the keyword baseline (T2 contract: the row
+     * degrades, never crashes). Loaded lazily on the IO dispatcher inside the
+     * background pass, never on the UI thread.
      */
-    private val embedder: com.slukhayka.audiobooks.data.recommend.TextEmbedder by lazy {
+    private fun loadEmbedder(): com.slukhayka.audiobooks.data.recommend.TextEmbedder {
+        val fromFiles = try {
+            val model = File(embeddingModelDir, com.slukhayka.audiobooks.data.recommend.EmbeddingModelInstaller.MODEL_NAME)
+                .takeIf { it.length() >= com.slukhayka.audiobooks.data.recommend.EmbeddingModelInstaller.MIN_MODEL_BYTES }
+            val tokenizer = File(embeddingModelDir, com.slukhayka.audiobooks.data.recommend.EmbeddingModelInstaller.TOKENIZER_NAME)
+                .takeIf { it.length() > 0L }
+            if (model != null && tokenizer != null) {
+                com.slukhayka.audiobooks.data.recommend.OnnxEmbedder.fromBytes(
+                    ai.onnxruntime.OrtEnvironment.getEnvironment(), model.readBytes(), tokenizer.readBytes()
+                )
+            } else {
+                null
+            }
+        } catch (e: Exception) {
+            null
+        }
+        if (fromFiles != null) return fromFiles
         val fromAssets = try {
-            val model = application.assets.open("models/e5/model.onnx").use { it.readBytes() }
-            val tokenizer = application.assets.open("models/e5/tokenizer.json").use { it.readBytes() }
+            val assets = getApplication<Application>().assets
+            val model = assets.open("models/e5/model.onnx").use { it.readBytes() }
+            val tokenizer = assets.open("models/e5/tokenizer.json").use { it.readBytes() }
             com.slukhayka.audiobooks.data.recommend.OnnxEmbedder.fromBytes(
                 ai.onnxruntime.OrtEnvironment.getEnvironment(), model, tokenizer
             )
         } catch (e: Exception) {
             null
         }
-        fromAssets ?: com.slukhayka.audiobooks.data.recommend.KeywordEmbedder()
+        return fromAssets ?: com.slukhayka.audiobooks.data.recommend.KeywordEmbedder()
     }
+
+    /**
+     * #483 — starts the one-time model download on listener interaction
+     * (Overview or settings). Idempotent and single-flight; a successful
+     * install rebuilds the embedder and re-embeds with the full model.
+     */
+    fun ensureEmbeddingModel() {
+        if (_embeddingModelState.value is com.slukhayka.audiobooks.data.recommend.EmbeddingModelState.Installed) return
+        if (!_embeddingInstallInFlight.compareAndSet(false, true)) return
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val state = modelInstaller.ensureInstalled()
+                if (state is com.slukhayka.audiobooks.data.recommend.EmbeddingModelState.Installed) {
+                    synchronized(this@MainViewModel) { embedderInstance = null }
+                    refreshEmbeddingVectors()
+                }
+            } finally {
+                _embeddingInstallInFlight.set(false)
+            }
+        }
+    }
+
+    init {
+        if (modelInstaller.isInstalled()) {
+            _embeddingModelState.value = com.slukhayka.audiobooks.data.recommend.EmbeddingModelState.Installed
+        }
+    }
+
 
     /**
      * The weighted listening signals (Q3): favourite 1.0 > completed 0.8 >
@@ -2903,10 +2973,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val merged = vectors.toMutableMap()
         val missing = allSignals.filter { it.id !in merged }
         if (missing.isNotEmpty()) {
-            if (embedder is com.slukhayka.audiobooks.data.recommend.OnnxEmbedder) {
+            if (currentEmbedder() is com.slukhayka.audiobooks.data.recommend.OnnxEmbedder) {
                 refreshEmbeddingVectors()
             } else {
-                for (signal in missing) merged[signal.id] = embedder.embed(signal.text)
+                for (signal in missing) merged[signal.id] = currentEmbedder().embed(signal.text)
             }
         }
         // #486 — the persisted source signals (#485): fresh rank positions and

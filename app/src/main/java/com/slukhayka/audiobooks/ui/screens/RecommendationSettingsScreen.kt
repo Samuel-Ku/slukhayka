@@ -30,6 +30,10 @@ fun RecommendationSettingsScreen(viewModel: MainViewModel, onBackClick: () -> Un
     val settings by viewModel.recommendationSettings.collectAsState()
     val preferences by viewModel.recommendationPreferences.collectAsState()
     val catalog by viewModel.sourceCatalog.unifiedCatalog.collectAsState()
+    // #483 — opening settings is a listener interaction: it may start the
+    // one-time model download. The state is always visible below.
+    val modelState by viewModel.embeddingModelState.collectAsState()
+    LaunchedEffect(Unit) { viewModel.ensureEmbeddingModel() }
     var resetNotice by remember { mutableStateOf<String?>(null) }
     var resetDialogVisible by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
@@ -48,6 +52,12 @@ fun RecommendationSettingsScreen(viewModel: MainViewModel, onBackClick: () -> Un
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            item {
+                ModelStateCard(
+                    state = modelState,
+                    onRetry = { viewModel.ensureEmbeddingModel() }
+                )
+            }
             item {
                 SettingsCard {
                     SettingsSwitchRow(
@@ -141,6 +151,48 @@ fun RecommendationSettingsScreen(viewModel: MainViewModel, onBackClick: () -> Un
                             .semantics { liveRegion = LiveRegionMode.Polite }
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ModelStateCard(
+    state: com.slukhayka.audiobooks.data.recommend.EmbeddingModelState,
+    onRetry: () -> Unit
+) {
+    val mode = com.slukhayka.audiobooks.data.recommend.RecommendationModelPolicy.mode(state)
+    val stateText = when (state) {
+        is com.slukhayka.audiobooks.data.recommend.EmbeddingModelState.Installed ->
+            stringResource(R.string.recommendations_model_full)
+        is com.slukhayka.audiobooks.data.recommend.EmbeddingModelState.Downloading ->
+            state.progress?.let { stringResource(R.string.recommendations_model_downloading, (it * 100).toInt()) }
+                ?: stringResource(R.string.recommendations_model_downloading_unknown)
+        is com.slukhayka.audiobooks.data.recommend.EmbeddingModelState.Failed ->
+            stringResource(R.string.recommendations_model_failed)
+        is com.slukhayka.audiobooks.data.recommend.EmbeddingModelState.NotInstalled ->
+            stringResource(R.string.recommendations_model_simplified)
+    }
+    SettingsCard {
+        Text(
+            text = stringResource(R.string.recommendations_model_title),
+            fontWeight = FontWeight.Medium
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = stateText,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        if (mode == com.slukhayka.audiobooks.data.recommend.RecommendationModelMode.SIMPLIFIED ||
+            mode == com.slukhayka.audiobooks.data.recommend.RecommendationModelMode.FAILED
+        ) {
+            Spacer(Modifier.height(4.dp))
+            TextButton(
+                onClick = onRetry,
+                modifier = Modifier.testTag("recommendations_model_retry")
+            ) {
+                Text(stringResource(R.string.recommendations_model_retry))
             }
         }
     }

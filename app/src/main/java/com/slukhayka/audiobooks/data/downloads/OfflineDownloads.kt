@@ -276,7 +276,13 @@ class OfflineDownloads(
     private val estimatedSizes = ConcurrentHashMap<String, EstimatedSize>()
 
     /** #392 — optional size preview; never a prerequisite for downloading audio. */
-    suspend fun estimateOfflineSize(bookId: String): EstimatedSize = withContext(downloadDispatcher) {
+    suspend fun estimateOfflineSize(bookId: String): EstimatedSize = estimateOfflineSize(bookId, chapterIds = null)
+
+    /**
+     * #396 — the size of ONLY the selected chapters (`null` = the whole book),
+     * so the selective bar can price «Завантажити обрані (N) • X МБ» honestly.
+     */
+    suspend fun estimateOfflineSize(bookId: String, chapterIds: Set<String>?): EstimatedSize = withContext(downloadDispatcher) {
         val book = dao.getAudiobookById(bookId)
         val sourceId = book?.let { sourceIdForUrl(it.sourceUrl) } ?: "unknown"
         val playable = try {
@@ -284,6 +290,7 @@ class OfflineDownloads(
             // playback doctrine — the estimate must still see remote chapters.
             sourceCatalog.getPlayableChapters(bookId, applyLocalLock = false)
         } catch (_: Exception) { emptyList() }
+            .let { chapters -> if (chapterIds == null) chapters else chapters.filter { it.chapter.id in chapterIds } }
         if (playable.isEmpty()) return@withContext EstimatedSize(null, isApproximate = false, knownCount = 0, totalCount = 0)
         var total: Long = 0
         var known = 0
@@ -298,12 +305,21 @@ class OfflineDownloads(
         }
         val estimate = if (known == 0) EstimatedSize(null, isApproximate = false, knownCount = 0, totalCount = playable.size)
         else EstimatedSize(total, isApproximate = known < playable.size, knownCount = known, totalCount = playable.size)
-        estimatedSizes[bookId] = estimate
+        // The whole-book estimate is cached; a subset is a transient preview.
+        if (chapterIds == null) estimatedSizes[bookId] = estimate
         return@withContext estimate
     }
 
     suspend fun downloadAudiobookOffline(bookId: String): OfflineDownloadResult =
         downloadAudiobookOffline(bookId, requestedChapterIds = null)
+
+    /**
+     * #396 — downloads ONLY the selected chapters (by chapter id) through the
+     * same pipeline (URL/hash dedup, pacing, private route). A repeated call
+     * with other ids adds them without re-downloading finished Source Tracks.
+     */
+    suspend fun downloadSelectedChapters(bookId: String, chapterIds: Set<String>): OfflineDownloadResult =
+        downloadAudiobookOffline(bookId, requestedChapterIds = chapterIds)
 
     private suspend fun downloadAudiobookOffline(
         bookId: String,

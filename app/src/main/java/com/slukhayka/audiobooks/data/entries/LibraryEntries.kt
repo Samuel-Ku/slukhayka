@@ -16,6 +16,7 @@ import com.slukhayka.audiobooks.data.metadata.MetadataAssertions
 import com.slukhayka.audiobooks.data.source.FourReadAdapter
 import com.slukhayka.audiobooks.data.source.SourceAdapter
 import com.slukhayka.audiobooks.data.source.SourceBookDetail
+import com.slukhayka.audiobooks.data.source.SourceRegistry
 import com.slukhayka.audiobooks.data.source.sourceDisplayName
 import com.slukhayka.audiobooks.data.source.sourceIdForUrl
 import kotlinx.coroutines.Dispatchers
@@ -306,6 +307,9 @@ class LibraryEntries(
             // pure sourceIdForUrl dispatch; 4read stays the fallback for
             // unknown urls.
             val sourceId = sourceIdForUrl(book.sourceUrl)
+            // A scam source is never healed: the heal would re-create the
+            // 52-second artifact's chapters/tracks after the purge.
+            if (SourceRegistry.isScam(sourceId)) return@withContext
             val adapter = sourceAdapters.firstOrNull { it.sourceId == sourceId }
                 ?: fourReadAdapter
             val detail = adapter.fetchBookPage(book.sourceUrl)

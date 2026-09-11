@@ -802,7 +802,10 @@ class App : Application() {
             streamProbe = { url -> HttpFetcher().isReachable(url) },
             known = { mergeKey -> database.audiobookDao().findByMergeKey(mergeKey) != null },
             import = { sourceId, detail ->
-                libraryImport.importBookFromSource(sourceId, detail)
+                // A scam source is never seeded into the library.
+                if (!com.slukhayka.audiobooks.data.source.SourceRegistry.isScam(sourceId)) {
+                    libraryImport.importBookFromSource(sourceId, detail)
+                }
             }
         )
     }
@@ -857,6 +860,16 @@ class App : Application() {
      */
     val storedMetadataScrub: StoredMetadataScrub by lazy {
         StoredMetadataScrub(database.audiobookDao())
+    }
+
+    /**
+     * The one-time scam-source purge: 4read's 52-second artefact rows leave
+     * the library DB (fake Edition + chapters + sources + tracks + files),
+     * while the Work and the library card stay as an honest «аудіо
+     * недоступне». Idempotent — a second run finds nothing.
+     */
+    val scamSourcePurge: com.slukhayka.audiobooks.data.source.ScamSourcePurge by lazy {
+        com.slukhayka.audiobooks.data.source.ScamSourcePurge(database.audiobookDao())
     }
 
     /**
@@ -1026,6 +1039,8 @@ class App : Application() {
         CoroutineScope(Dispatchers.IO).launch {
             runCatching { storedMetadataScrub.scrubOnce() }
             runCatching { duplicateWorkMerger.mergeOnce() }
+            // Scam rows leave before anything can read them as a book.
+            runCatching { scamSourcePurge.purgeOnce() }
         }
         // Spec-26 T6 (#180): pour the curated universe asset into the shared
         // base (one document per curated series, idempotent — a re-seed on a

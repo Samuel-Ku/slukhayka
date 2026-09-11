@@ -45,8 +45,12 @@ import kotlinx.coroutines.launch
  * registration that forgets it leaves the source un-refusable). Spec-49 T5
  * adds a second home for the same list: the `source_refusals` rules
  * allowlist — a source missing there can never publish its counter.
+ *
+ * A scam source (4read) is NOT listed: it is refused built-in and forever
+ * ([com.slukhayka.audiobooks.data.source.SourceAudioRefusal.ALWAYS_REFUSED]),
+ * so a checkbox for it would be a lie.
  */
-internal val REFUSABLE_SOURCES = listOf("4read", "sluhayua", "soundbooks", "audiobookmp3", "lihtar", "audiobookcoua", "chytaylo", "ukrainianaudiobooks", "knigionline", "chitaka")
+internal val REFUSABLE_SOURCES = listOf("sluhayua", "soundbooks", "audiobookmp3", "lihtar", "audiobookcoua", "chytaylo", "ukrainianaudiobooks", "knigionline", "chitaka")
 
 /**
  * ADR-0037 (spec-49 T1) — the «Аудіо джерел» destination: one checkbox per

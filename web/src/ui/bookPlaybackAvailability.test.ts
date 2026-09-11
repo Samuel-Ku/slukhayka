@@ -4,12 +4,19 @@ import { publicBookProjection } from './BookPage'
 
 describe('cached book playback availability', () => {
   it('does not make a session-only source playable from saved metadata', () => {
-    expect(sourceNeedsBrowserSession('fourread')).toBe(true)
+    expect(sourceNeedsBrowserSession('ukrainianaudiobooks')).toBe(true)
+    expect(canPlayBookFromDisplayedDetail('ukrainianaudiobooks', true)).toBe(false)
+  })
+
+  it('never treats a scam source as playable or a session door', () => {
+    // 4read's audio is not the book: no browser door, no play — cached or not.
+    expect(sourceNeedsBrowserSession('fourread')).toBe(false)
     expect(canPlayBookFromDisplayedDetail('fourread', true)).toBe(false)
+    expect(canPlayBookFromDisplayedDetail('fourread', false)).toBe(false)
   })
 
   it('keeps a fresh verified page and non-session sources playable', () => {
-    expect(canPlayBookFromDisplayedDetail('fourread', false)).toBe(true)
+    expect(canPlayBookFromDisplayedDetail('ukrainianaudiobooks', false)).toBe(true)
     expect(canPlayBookFromDisplayedDetail('sluhay', true)).toBe(true)
   })
 

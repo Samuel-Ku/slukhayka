@@ -11,18 +11,26 @@ import org.junit.Test
  * back through automatic paths against the listener's will), so the list
  * content is pinned here — a new source extends the expectation in the same
  * commit that registers it.
+ *
+ * The scam source (4read) is deliberately NOT here: it is always refused
+ * built-in, so a listener checkbox for it would be a lie.
  */
 class SourceAudioRefusalRegistrationTest {
 
     @Test
-    fun `every catalogued audio source is refusable - waves 47 and 50 joined`() {
+    fun `every catalogued audio source choice is refusable - waves 47 and 50 joined`() {
         assertEquals(
             listOf(
-                "4read", "sluhayua", "soundbooks", "audiobookmp3", "lihtar",
+                "sluhayua", "soundbooks", "audiobookmp3", "lihtar",
                 "audiobookcoua", "chytaylo", "ukrainianaudiobooks",
                 "knigionline", "chitaka"
             ),
             REFUSABLE_SOURCES
         )
+    }
+
+    @Test
+    fun `the scam source is never offered as a listener choice`() {
+        assertEquals(false, REFUSABLE_SOURCES.contains("4read"))
     }
 }

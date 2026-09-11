@@ -13,7 +13,7 @@ import {
   type AvailabilityVerdict,
 } from './catalogAvailability'
 import { sourceNeedsBrowserSession } from './bookPlaybackAvailability'
-import { SOURCE_METADATA, SOURCE_ORDER } from '../worker/sourceMetadata'
+import { isScamSourceKey, SOURCE_METADATA, SOURCE_ORDER } from '../worker/sourceMetadata'
 import { mergeWorkFeed, rankEditionsForPlayback } from '../worker/workFeed'
 import { useTranslate, useUiLocale } from '../i18n/locale'
 import type { DomainStore } from '../local/domain'
@@ -924,7 +924,16 @@ export function CatalogCardRow({ card, editionId, sources, onOpenBook, onPlay, o
     setState('checking')
     setSessionSource(null)
     const details = new Map<string, BookDetail>()
-    const candidates = rankedSources.map((candidate) => ({ ...candidate, editionId }))
+    // A scam source (4read) never enters the playback race: its audio is not
+    // the book. With no candidates left the card reads the honest
+    // «Джерело не віддає аудіо» instead of a fake browser door.
+    const candidates = rankedSources
+      .filter((candidate) => !isScamSourceKey(candidate.sourceId))
+      .map((candidate) => ({ ...candidate, editionId }))
+    if (candidates.length === 0) {
+      setState('audio-missing')
+      return
+    }
     void raceEditionSources(editionId, candidates, async (candidate, signal): Promise<Exclude<AvailabilityVerdict, 'verified-profile'>> => {
       if (actionAbort.signal.aborted || signal.aborted) return 'timeout'
       if (sourceNeedsBrowserSession(candidate.sourceId)) return 'session-required'

@@ -738,6 +738,8 @@ class SourceCatalog(
             // resolver consumes (#721); awaitAll preserves source order, so
             // the merged rows are unchanged.
             val matched = sourceAdapters
+                // #741: a scam source (4read) never appears in search results.
+                .filterNot { SourceRegistry.isScam(it.sourceId) }
                 .map { adapter -> async { searchSource(adapter, cleanQuery) } }
                 .awaitAll()
                 .flatten()
@@ -1823,7 +1825,8 @@ class SourceCatalog(
                     streamOnly = streamOnlyFor(id)
                 )
             )
-        }
+            // #741: a scam source (4read) never renders a source row/badge.
+        }.filterNot { SourceRegistry.isScam(it.sourceId) }
         val downloadedBySource = dao.getSourcesForBookSync(bookId)
             .associate { source ->
                 (source.type to source.url) to dao.getTracksForSourceSync(source.id).any { it.isDownloaded }

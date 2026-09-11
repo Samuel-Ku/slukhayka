@@ -122,3 +122,32 @@ union уже був повний (інакше каталог просяде м�
 - **Android першим**, Web Client — наступною хвилею з delta ledger (ADR-0034).
 - Фаза Ф1 (бекфіл) лишається корисною для глибини Дзеркала, але більше не є умовою повноти екранів; ризик «глибина каталогу» знімається тим, що полиці стоять на Медіатеці, а відкриття — на Дзеркалі.
 - Повне дерево рішень — ADR-0041.
+
+## Скам-статус 4read і прочистка бази (2026-09-11)
+
+4read віддає чистому клієнту 52-секундний артефакт замість книги — це скам, а
+не начитка. Рішення зафіксовано в коді й даних, а не лише в тексті:
+
+- **Скам-факт у Реєстрі джерел**: `"scam": true` (і `streamOnly`) у
+  `sources.json` + `SourceRegistry`; `scamIds()`/`isScam()` — єдине джерело
+  правди для всіх гейтів, Android і web.
+- **Вбудована відмова**: `SourceAudioRefusal.ALWAYS_REFUSED` додається до
+  кожного читання/запису відмови — жодна дія слухача не може дозволити 4read;
+  джерело прибрано зі списку вибору «Аудіо джерел» (це не вибір).
+- **Заборона запису в базу**: clean-fetch двері (`importFromSourceUrl`,
+  `importBrowserSourceDirectPage`, `refreshStreamUrl`), гідратація
+  (`hydrateWebSourceCatalog`, `hydrateFourReadCatalog`), mirror
+  (`persistEnumerated`) і авто-сід відмовляють 4read до мережі; браузерний
+  захват (recovery) лишається dormant — він несе реальне аудіо сесії.
+- **Прочистка наявного сміття** (`ScamSourcePurge`, стартовий пас):
+  для scam-only Edition видаляються завантажені файли, tracks, sources,
+  chapters, bookmarks, Listening State, facet і сам Edition; Work і картка
+  лишаються з нульовими totals і порожнім `sourceUrl` — чесне «аудіо
+  недоступне» без 52-секундної брехні, і заміщення може знайти реальне
+  джерело. Edition із реальним джерелом втрачає лише scam-рядки.
+- **Web**: воркер не подає 4read (`sourceEntry`/`SERVED_REGISTRY`), UI не
+  пропонує його як session-двері; `SOURCE_ORDER` виключає скам-джерела.
+- **Тести**: `SourceRegistryConformanceTest`, `SourceAudioRefusalTest`,
+  `ScamSourcePurgeRoomTest`, `LibraryImportDirectPageTest`, `DownloadPolicyTest`,
+  веб `sourcesJson.test.ts`/`CatalogCardRow.test.tsx`; старі тести 4read-дверей
+  переписані на «двері закриті» або на не-скам джерело.

@@ -58,9 +58,6 @@
     <string name="home_more_books_on">More books on %1$s</string>
     <string name="home_library_results">In your library (%1$d)</string>
     <string name="home_all_sources">All sources (%1$d)</string>
-    <string name="home_search_on_4read">Search “%1$s” on 4read</string>
-    <string name="home_search_browser_fallback">Nothing on 4read? Search in browser</string>
-    <string name="home_browser_only_snackbar">This book is 4read-only — browser needed</string>
     <string name="home_open">Open</string>
     <string name="home_recommendation_updated">Recommendation updated</string>
     <string name="library_remaining">%1$s left</string>
@@ -107,7 +104,6 @@
     <string name="profile_unmute">Unmute</string>
     <string name="profile_write_review">Write a review</string>
     <string name="bookdetail_wrong_universe">Wrong universe?</string>
-    <string name="bookdetail_open_cycle">Open the cycle in 4read</string>
     <string name="bookdetail_precedes">Precedes: “%1$s”</string>
     <string name="bookdetail_continues">Continues: “%1$s”</string>
     <string name="feed_help_recommendations">Help recommendations get better?</string>
@@ -115,7 +111,6 @@
     <string name="update_hide">Hide</string>
     <string name="speed_default_for_all">Default for all</string>
     <string name="speed_remember_for_book">Remember for this book</string>
-    <string name="top100_open_chart">Open the chart in 4read</string>
     <string name="author_all_found">All found authors</string>
     <string name="nav_settings">Settings</string>
     <string name="mini_player_other_book_chapter">In player · %1$s</string>

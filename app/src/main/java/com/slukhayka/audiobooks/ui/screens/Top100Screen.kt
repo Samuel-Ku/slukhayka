@@ -115,11 +115,6 @@ fun Top100Screen(
                                 modifier = Modifier.fillMaxWidth(),
                                 isError = true
                             )
-                            Spacer(modifier = Modifier.height(16.dp))
-                            OutlinedButton(
-                                onClick = { viewModel.openTop100InBrowser() },
-                                modifier = Modifier.testTag("top100_open_browser")
-                            ) { Text(stringResource(R.string.top100_open_chart)) }
                         }
                     }
                 }

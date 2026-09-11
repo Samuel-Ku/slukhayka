@@ -12,7 +12,7 @@
  * redirect hop (redirect: 'manual', re-validated, bounded depth). Failures
  * degrade to `{ok:false}` with an honest reason — never fabricated data.
  */
-import { mayFetch, REGISTRY, sourceEntry, type SourceEntry } from './registry'
+import { mayFetch, SERVED_REGISTRY, sourceEntry, type SourceEntry } from './registry'
 import type { CatalogCard, SourceId } from './types'
 import { mergeWorkFeed } from './workFeed'
 import { decodeWorkFeedCursor, encodeWorkFeedCursor } from './workFeedCursor'
@@ -84,7 +84,7 @@ export default {
     const { pathname, searchParams } = url
 
     if (pathname === '/api/sources') {
-      return ok(Object.entries(REGISTRY).map(([id, entry]) => ({ id, displayName: entry.adapter.displayName })))
+      return ok(Object.entries(SERVED_REGISTRY).map(([id, entry]) => ({ id, displayName: entry.adapter.displayName })))
     }
 
     // #458/#459: one bounded Work page. The opaque cursor carries the next
@@ -97,7 +97,7 @@ export default {
       const rawCursor = searchParams.get('cursor')
       const cursor = rawCursor ? decodeWorkFeedCursor(rawCursor) : null
       if (rawCursor && cursor === null) return fail('invalid work-feed cursor')
-      const entries = Object.entries(REGISTRY).filter(([id]) => !requestedSource || id === requestedSource)
+      const entries = Object.entries(SERVED_REGISTRY).filter(([id]) => !requestedSource || id === requestedSource)
       const currentPages = cursor?.pages ?? Object.fromEntries(entries.map(([id, entry]) => [id, entry.catalogUrl ?? entry.adapter.baseUrl]))
       const settled = await Promise.allSettled(entries.map(async ([id, entry]) => {
         const pageUrl = currentPages[id as SourceId]
@@ -142,7 +142,7 @@ export default {
       const requestedSource = searchParams.get('source')?.trim() ?? ''
       if (query.length < 2) return fail('query too short')
       if (requestedSource && !sourceEntry(requestedSource)) return fail(`unknown source: ${requestedSource}`)
-      const entries = Object.entries(REGISTRY)
+      const entries = Object.entries(SERVED_REGISTRY)
         .filter(([id, entry]) => (!requestedSource || id === requestedSource) && entry.searchUrl && entry.adapter.search)
       const settled = await Promise.allSettled(entries.map(async ([id, entry]) => {
         const searchEntry = entry as Required<Pick<SourceEntry, 'searchUrl' | 'searchHeaders'>> & SourceEntry
@@ -186,7 +186,7 @@ export default {
       }
       // search-all: best-effort across all searchable sources
       const settled = await Promise.allSettled(
-        Object.entries(REGISTRY)
+        Object.entries(SERVED_REGISTRY)
           .filter(([, entry]) => entry.searchUrl && entry.adapter.search)
           .map(async ([id, entry]) => {
             const searchEntry = entry as Required<Pick<SourceEntry, 'searchUrl' | 'searchHeaders'>> & SourceEntry
@@ -218,7 +218,7 @@ export default {
       } catch {
         return fail('bad audio url')
       }
-      const allHosts = [...new Set(Object.values(REGISTRY).flatMap((entry) => entry.allowedHosts))]
+      const allHosts = [...new Set(Object.values(SERVED_REGISTRY).flatMap((entry) => entry.allowedHosts))]
       let host: string
       try {
         host = new URL(target).hostname

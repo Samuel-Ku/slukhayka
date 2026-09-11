@@ -1322,28 +1322,15 @@ class DeepModulesRoomTest {
     // ---------------------------------------------------------------------
 
     @Test
-    fun `importAudiobookFrom4ReadUrl imports through the adapter with the enriched profile`() = runBlocking {
+    fun `importAudiobookFrom4ReadUrl is closed for the scam source`() = runBlocking {
         val mods = fourReadRepo()
 
         val book = mods.imports.importAudiobookFrom4ReadUrl("https://4read.org/7589-neostannij-bij.html")
 
-        // Extracted by the adapter: real title/author/narrator/chapters.
-        assertNotNull(book)
-        assertEquals("Неостанній бій", book!!.title)
-        assertEquals("Костянтин Шелест", book.author)
-        assertEquals("Валерій Завалко", book.narrator)
-        assertEquals(4.9f, book.rating)
-        assertEquals("Максим Темний", book.seriesTitle)
-        val chapters = dao.getChaptersListForBook(book.id)
-        assertEquals(1, chapters.size)
-        // ADR-0007: the physical stream lives on the source's TRACK rows.
-        val tracks = dao.getSourcesForBookSync(book.id)
-            .flatMap { dao.getTracksForSourceSync(it.id) }
-        assertEquals("https://4read.org/uploads/audio/7589/01.mp3", tracks.single().url)
-        // The shared import path writes the source row too.
-        val sources = dao.getSourcesForBookSync(book.id)
-        assertEquals(1, sources.size)
-        assertEquals("4read", sources.single().type)
+        // 4read is a scam source (52-second artefact): the door refuses and
+        // writes nothing — never a fabricated card, never a fake track.
+        assertNull(book)
+        assertEquals(0, dao.getAllAudiobooks().first().size)
     }
 
     @Test
@@ -1521,7 +1508,7 @@ class DeepModulesRoomTest {
     fun `download loop runs for a non-stream-only book and reports the outcome`() = runBlocking {
         val mods = modules()
         val book = TestDataFactory.dataBooks()[0].copy(
-            sourceUrl = "https://4read.org/7589-neostannij-bij.html",
+            sourceUrl = "https://sound-books.net/7589-neostannij-bij.html",
             isDownloaded = false
         ).also { it.downloadProgress = 0f }
         insertLibraryBooks(listOf(book))

@@ -22,16 +22,19 @@ _Avoid_: Edition, book
 
 **Source Access Mode**:
 The static capability of a Source: `DIRECT` for a native HTTP path, `UNKNOWN`
-for a legacy/unclassified path, or `BROWSER` when a live in-app browser
-session is required (4read and the Cloudflare-backed sources). Recommendations
-and automatic playback try local files first, then direct, unknown and browser
-in that order — each filterable by the listener's Source Audio Refusal
-(ADR-0037), which removes a source from every automatic path before any
-probing. A browser Source is never opened as an implicit side effect of
-a card tap; it is an explicit recovery/import action. This is a capability
-order, not a health score, so a transient HTTP failure does not permanently
-demote a Source.
-_Avoid_: health-ranked Source order, silent browser launch
+for a legacy/unclassified path, `BROWSER` when a live in-app browser
+session is required (4read and the Cloudflare-backed sources), or `TELEGRAM`
+when the audio is fetched under the listener's own Telegram account (Спільна
+бібліотека). Recommendations and automatic playback try local files first,
+then direct, unknown and browser in that order, with `TELEGRAM` tried last —
+each filterable by the listener's Source Audio Refusal (ADR-0037), which
+removes a source from every automatic path before any probing. A browser
+Source is never opened as an implicit side effect of a card tap; it is an
+explicit recovery/import action. The same discipline holds for `TELEGRAM`:
+authentication and membership are never an implicit side effect. This is a
+capability order, not a health score, so a transient HTTP failure does not
+permanently demote a Source.
+_Avoid_: health-ranked Source order, silent browser launch, implicit Telegram login
 
 **Resolution Recipe**:
 Знання, як одне Source дає аудіо для одного Edition: URL сторінки плюс
@@ -163,6 +166,32 @@ _Avoid_: background cross-index, multi-request probe, silent browser fallback
 копія подавача — звичайний локальний Source через наявний шлях імпорту.
 _Avoid_: серверний конвертер, модераторський шлюз, хостинг аудіо, публікація без верифікації
 
+**Спільна бібліотека** (Community Library):
+Зареєстрована спільнотна Telegram-група, куди самі слухачі заливають аудіо, а
+адміни/боти групи його модерують. Джерело з режимом доступу `TELEGRAM`: файл
+добуває пристрій слухача під власним Telegram-акаунтом, який мусить бути
+членом групи; проєкт не хостить, не конвертує й не роздає аудіо, а вхід у
+Telegram і членство ніколи не стаються неявно. Модерація — зовнішня (в самій
+групі); у застосунку лишається чинний бар'єр Verified Submission плюс Shared
+Tombstone і скарги. Завантаження файлу — поза застосунком (людина робить це
+в Telegram); завантаження із застосунку та відтворення у Web Client —
+майбутні напрямки, не v1.
+_Avoid_: проєктне сховище файлів, серверний Telegram-релей, хостинг аудіо, плутання зі «Спільним каталогом»
+
+**«Від слухачів»**:
+Ознака походження Source, який подав слухач (YouTube чи Telegram-посилання) і
+який реально заграло, — себто кожне Verified Submission. Це факт походження,
+не оцінка якості, не кураторство й не гарантія модерації. На Огляді —
+рейка «Від слухачів».
+_Avoid_: «ексклюзив», гарантія якості, модерація як зміст ознаки
+
+**«Зі спільної бібліотеки»**:
+Другий рівень ознаки походження: Source, чиє аудіо фізично лежить у Спільній
+бібліотеці (модерованій групі), а не на публічній платформі. Рендериться
+бейджем на картці й фільтрується всередині рейки «Від слухачів» на Огляді, а
+не окремою рейкою.
+_Avoid_: «ексклюзив», «перевірено спільнотою» як гарантія, друга рейка, плутання з Verified Submission
+
 **Observed Chapter Boundary**:
 Межа розділів, яку джерело реально показує: треки плейлиста, часові мітки
 YouTube-розділів в описі, трек-лист TG-посту. Немає спостережених меж — файл
@@ -269,6 +298,10 @@ _Avoid_: Book, collection item
 **Listening State**:
 A listener's progress, bookmarks, completion state, and playback preferences for one Edition. It is independent of the Source currently used to play that Edition — its row is keyed by Edition alone, so a Source switch never forks progress.
 _Avoid_: Library Entry, playback progress
+
+**«Прослухано» (Listened)**:
+Стан завершення одного Listening State, який слухач може виставити й прибрати вручну, а не лише автоматично дійти до кінця. Ручна позначка виставляє той самий прапорець завершення, а не другу правду поруч: окремої сутності «прослухане» немає. Поверхня «Прослухано» — це Медіатека, відфільтрована за завершенням; це не «Добірка слухача» й не кураторська колекція.
+_Avoid_: окремий ручний маркер прослуханого, `listened` поруч із `isCompleted`, друга правда завершення, плутання з «Добіркою слухача»
 
 **Smart Rewind**:
 The Listening State rule that a resume position steps back by how long the pause lasted. One rule serves both in-session resume and resume across restarts.

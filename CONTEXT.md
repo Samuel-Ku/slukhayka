@@ -344,6 +344,22 @@ resetting progress during recovery
 The web-side transport door for the Web Client: it resolves Source pages into structured catalog and book data server-side, and relays an audio stream only when the Source refuses direct playback. Direct-to-source audio is the default path; relaying everything is not this concept.
 _Avoid_: full-traffic proxy, client-side CORS workarounds
 
+**Проксі відтворення**:
+Вбудований HTTP-сервер на телефоні, який віддає байтами аудіо для зовнішнього
+приймача й сам фетчить апстрім крізь єдиний транспорт (`HttpFetcher`),
+зберігаючи per-source `Referer`, приватний маршрут і самозагоєння стрімів.
+Приймач грає `http://<телефон>:<порт>/<токен>/...`; проксі релеїть байти
+дослівно (403 на неправильний токен, 416 на недосяжний діапазон, 502 на
+невдалий апстрім) і ніколи не фабрикує тіла.
+_Avoid_: прямий fetch приймачем, друга мережева дорога, hosted-ресивер як транспорт
+
+**Приймач**:
+Зовнішній пристрій відтворення (Chromecast/ТВ), який грає аудіо з Проксі
+відтворення на телефоні й ніколи не ходить в інтернет сам; телефон лишається
+джерелом байтів і пультом. Втрата приймача завершує сесію, а локальний рушій
+перепідготовлює відтворення `PAUSED` на дзеркальній позиції.
+_Avoid_: приймач як окреме джерело, каст повз телефон-проксі, тихий фолбек на телефон
+
 **Bibliographic Work, Edition-owned narrator**:
 The Work is `title|author` — the mergeKey carries NO narrator. The narrator is an Edition (rendition) property: it lives on `editions` and on the audiobooks row (the user's copy of one rendition), never on `works`. The Edition id hashes `mergeKey|narrator|language`, so two narrations of one Work never share listening state (ADR-0001) even though they share the Work (ADR-0010).
 _Avoid_: narrator in the mergeKey, narrator on the Works row

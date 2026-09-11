@@ -83,8 +83,12 @@ A device's locator, permission, and availability relationship to a Source. Bindi
 _Avoid_: Source, download
 
 **Source Catalog**:
-The union of browseable Works a Source exposes — sections, genres, series listings, people — fetched as Metadata Assertions on demand rather than stored wholesale. A Source of a mixed site contributes only its audio: text-only content (e-books, online reading) of the same site never enters the catalog (spec-47: chytaylo; spec-50: chitaka — its fb2/epub/txt pages share the `/knigi/` path but render no `<audio>`) until a separate recorded decision.
-_Avoid_: Store, browse cache, text content of a mixed site as catalog rows
+The union of browseable Works a Source exposes — sections, genres, series listings, people — observed as Metadata Assertions and mirrored into the Catalog Mirror as it is enumerated; no screen renders the Source Catalog directly. A Source of a mixed site contributes only its audio: text-only content (e-books, online reading) of the same site never enters the catalog (spec-47: chytaylo; spec-50: chitaka — its fb2/epub/txt pages share the `/knigi/` path but render no `<audio>`) until a separate recorded decision.
+_Avoid_: Store, browse cache, text content of a mixed site as catalog rows, a screen rendering the live catalog
+
+**Дзеркало каталогу** (Catalog Mirror):
+Локально збережений перелік Творів, які джерела вже перелічили, разом із придбаними при переліченні Metadata Assertions. Єдина контентна база поверхонь відкриттів — рекомендацій, безкінечного фіду та сусідів на сторінках деталей; полиці стоять на Медіатеці (імпортованих Library Entries). Дзеркало ніколи не є джерелом істини: усе в ньому — чиїсь Metadata Assertions, а твір у Дзеркалі не означає, що слухач його має.
+_Avoid_: Медіатека, живий каталог, сховище істини, імпорт за фактом перелічення
 
 **Search Genre Assertion**:
 Genre-claim, який несе картка пошуку (`SourceBook.genre`) для одного
@@ -145,8 +149,8 @@ _Avoid_: HTML/challenge as proof, catalogue-wide crawl, Work availability,
 cross-Edition fallback, reordering under the listener
 
 **Feed Snapshot**:
-A persisted copy of one Source feed response (homepage sections or page cards) stored in Room with its fetch time. Огляд reads the snapshot first; the network is asked only after the TTL — новинки 6 hours, каталог 24 hours — or on an explicit listener refresh. Books from a snapshot enter through the same upsert path as live fetches: tombstones keep blocking, nothing is ever deleted.
-_Avoid_: re-fetch on every start, feed deletion, snapshot as the only truth
+A persisted copy of one Source feed response (homepage sections or page cards) stored in Room with its fetch time. The ingestion refresh reads the snapshot first; the network is asked only after the TTL — новинки 6 hours, каталог 24 hours — or on an explicit listener refresh. Books from a snapshot enter the Catalog Mirror through the same upsert path as live fetches: tombstones keep blocking, nothing is ever deleted.
+_Avoid_: re-fetch on every start, feed deletion, snapshot as the only truth, a screen rendering a live feed
 
 **Cross-resolve**:
 The one-request check made when a listener taps a card whose only Source needs the browser: the same Work (by MergeKey) is looked up on a Direct Source, and a match imports and plays/opens without the browser. One search per tap, no background crawling; the verdict is memoized with the Edition Availability Assertion windows. Generalized by Replacement Mapping (ADR-0037): all direct sources instead of one, whenever a Work's audio is refused or absent.
@@ -356,17 +360,17 @@ Import dedup is per RENDITION (Edition id), not per Work — the same narration 
 _Avoid_: one card per Work with unreachable second narrations
 
 **Smart collections**:
-The «Колекції» Огляд block is curated external lists (Нобелівські лауреати, Шевченківська премія, Букер) shipped as static JSON assets (`assets/collections/`), matched locally against the catalog union. The strict decoder (`CollectionJson`) and the matcher (`CollectionMatcher`) are pure JVM; the matcher reuses the MergeKey normalization plus diacritics (Cyrillic-preserving) and parenthetical-annotation trimming, requires author agreement, and hides non-matches (author-only fallback for title-less entries). `SourceCatalog.smartCollections` is recomputed on the SAME trigger as the union (`refreshUnifiedCatalog`); empty collections are dropped, nothing is persisted — no schema change (ADR-0012).
-_Avoid_: network lists, Room persistence of match results
+The «Колекції» Огляд block is curated external lists (Нобелівські лауреати, Шевченківська премія, Букер) shipped as static JSON assets (`assets/collections/`), matched locally against the Media Library’s Works. The strict decoder (`CollectionJson`) and the matcher (`CollectionMatcher`) are pure JVM; the matcher reuses the MergeKey normalization plus diacritics (Cyrillic-preserving) and parenthetical-annotation trimming, requires author agreement, and hides non-matches (author-only fallback for title-less entries). `SourceCatalog.smartCollections` is recomputed on the SAME trigger as the union (`refreshUnifiedCatalog`); empty collections are dropped, nothing is persisted — no schema change (ADR-0012).
+_Avoid_: network lists, Room persistence of match results, a collection row for a book the listener does not have
 
 **Live collections**:
-The same matcher also consumes LIVE lists over the `LiveCollectionSource` seam (keyless OpenLibrary trending → «Популярне зараз»; sluhay.com.ua most-viewed → «Популярне у sluhay.com.ua»; sound-books.net top-100 → «ТОП-100 sound-books», spec-37), fetched through the shared HttpFetcher on the union refresh, TTL-cached per source like the feeds, best-effort (failure → no collection, never a broken refresh). Static + live feed one `matchAll`; the JSON parser behind the assets is the shared pure-JVM `MiniJson` (ADR-0013).
+The same matcher also consumes LIVE lists over the `LiveCollectionSource` seam (keyless OpenLibrary trending → «Популярне зараз»; sluhay.com.ua most-viewed → «Популярне у sluhay.com.ua»; sound-books.net top-100 → «ТОП-100 sound-books», spec-37), fetched through the shared HttpFetcher on the union refresh, TTL-cached per source like the feeds, best-effort (failure → no collection, never a broken refresh). Static + live feed one `matchAll` against the Media Library; the JSON parser behind the assets is the shared pure-JVM `MiniJson` (ADR-0013).
 _Avoid_: raw connections in live sources, live lists persisted to Room
 
 ## Discovery surfaces (spec-28)
 
 **Personal Recommendation**:
-Твір, запропонований слухачеві для наступного прослуховування з урахуванням його смаку, зокрема вже доданий у медіатеку, але ще не розпочатий. Персональні рекомендації допомагають швидко обрати цікаву книгу й залишають місце для відкриття незнайомих авторів.
+Твір, запропонований слухачеві для наступного прослуховування з урахуванням його смаку, зокрема вже доданий у медіатеку, але ще не розпочатий. Кандидати приходять із Дзеркала каталогу та Медіатеки; рекомендація без імпорту відкривається тапом через звичайні двері імпорту. Персональні рекомендації допомагають швидко обрати цікаву книгу й залишають місце для відкриття незнайомих авторів.
 _Avoid_: загальна популярність як доказ особистого смаку, рекомендація як гарантія вподобання
 
 **Recommendation Set**:
@@ -376,6 +380,10 @@ _Avoid_: Feed Snapshot, безперервне перемішування вид
 **Successful Recommendation**:
 Вибір із рекомендацій, після якого слухач реально почав твір і продовжив його слухати в інший день або завершив. Явна низька оцінка твору переважає це поведінкове свідчення вдалого підбору.
 _Avoid_: відкриття картки як успіх, непідтверджений успіх як негативне вподобання
+
+**Рейтинг медіатеки** (Library Rating Chart):
+Впорядкований за спільною середньою (ADR-0022) список Творів медіатеки; у рейтинг входять лише твори з хоч одним свідченням — джерельною оцінкою або відгуком слухача. Твір без свідчень у рейтингу відсутній, а не отримує нуль. Це не чарт джерела і не список усього каталогу.
+_Avoid_: rank за замовчуванням, нуль за відсутності оцінок, чарт 4read
 
 **Exploration Recommendation**:
 Персональна рекомендація, яка знайомить слухача з твором поза найочевиднішим продовженням його звичного смаку. Має підставу очікувати інтерес слухача, зокрема змістовий зв’язок або спільні вподобання інших слухачів.

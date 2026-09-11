@@ -192,7 +192,9 @@ jobs:
           path: |
             app/build/outputs/roborazzi/
             app/build/reports/roborazzi/
-          if-no-files-found: warn
+          # Green runs legitimately produce no failure screenshots — the warn
+          # fired on every passing PR. Uploads on red runs still happen.
+          if-no-files-found: ignore
           retention-days: 14
 
   coverage:

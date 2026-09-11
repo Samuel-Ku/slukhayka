@@ -49,8 +49,13 @@ class FirstLanguageChoiceEngine(
     suspend fun evaluate() {
         if (_visible.value) return
         if (prefs.answerRecorded) return
-        // «Усі» is the empty set; anything narrower is a choice already made.
-        if (!prefs.isAll) return
+        // «Усі» is the empty set; anything narrower is a choice already made —
+        // record it as the terminal answer exactly once, so a later reset back
+        // to «Усі» can never re-ask (US15/US16).
+        if (!prefs.isAll) {
+            prefs.markAnswered()
+            return
+        }
         val known = orderContentLanguages(
             knownContentLanguages().filter { it in ContentLanguagePrefs.KNOWN_CONTENT_LANGUAGES }
         )

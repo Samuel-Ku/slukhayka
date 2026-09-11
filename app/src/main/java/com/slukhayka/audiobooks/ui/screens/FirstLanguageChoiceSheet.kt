@@ -132,6 +132,12 @@ fun FirstLanguageChoiceContent(
                 Text(stringResource(R.string.first_language_choice_ukrainian_only))
             }
             Spacer(Modifier.width(8.dp))
+            // «Усі» as an explicit quick action: keeps every language (the
+            // empty selection), never a neutral escape.
+            TextButton(onClick = { onDone(emptySet()) }) {
+                Text(stringResource(R.string.first_language_choice_all))
+            }
+            Spacer(Modifier.width(8.dp))
             Button(
                 onClick = {
                     // Everything on IS «Усі» (the empty selection), so a later

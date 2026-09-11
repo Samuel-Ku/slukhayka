@@ -1,6 +1,7 @@
 package com.slukhayka.audiobooks.ui.screens
 
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import com.slukhayka.audiobooks.R
 import java.util.Locale
@@ -27,5 +28,8 @@ fun contentLanguageDisplayName(tag: String, locale: Locale): String {
 internal fun contentLanguageLabel(tag: String): String = when (tag) {
     "uk" -> stringResource(R.string.content_language_uk)
     "en" -> stringResource(R.string.content_language_en)
-    else -> contentLanguageDisplayName(tag, Locale.getDefault())
+    // The CURRENT App Locale, read from the composition's configuration (the
+    // AppLocale wrapper applies it via createConfigurationContext — `Locale.getDefault`
+    // stays the system locale and would label German «German» under a uk UI).
+    else -> contentLanguageDisplayName(tag, LocalConfiguration.current.locales[0])
 }

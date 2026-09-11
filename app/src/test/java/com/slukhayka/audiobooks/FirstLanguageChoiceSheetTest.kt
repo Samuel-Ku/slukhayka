@@ -52,7 +52,18 @@ class FirstLanguageChoiceSheetTest {
         compose.onNodeWithTag("first_language_choice_en").assertExists()
         compose.onNodeWithTag("first_language_choice_de").assertExists()
         compose.onNodeWithText("Лише українські").assertExists()
+        compose.onNodeWithText("Усі").assertExists()
         compose.onNodeWithText("Готово").assertExists()
+    }
+
+    @Test
+    fun `Uusi action answers with the empty selection`() {
+        var done: Set<String>? = null
+        setContent(onDone = { done = it })
+
+        compose.onNodeWithText("Усі").performClick()
+
+        assertEquals(emptySet<String>(), done)
     }
 
     @Test

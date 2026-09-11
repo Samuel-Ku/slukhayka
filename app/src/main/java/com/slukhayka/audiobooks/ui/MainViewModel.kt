@@ -2719,27 +2719,39 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _recommendationsReady.value = false
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val catalog = sourceCatalog.unifiedCatalog.value
+                // #484 — the pool is the PERSISTENT Room catalogue, not the
+                // ephemeral union: suggestions are stable across sessions and
+                // cover the whole library. Priority: library works first,
+                // then active-feed (union) works, then the rest.
+                val unionKeys = sourceCatalog.unifiedCatalog.value.mapTo(HashSet()) { it.key }
                 val library = libraryBooks.value
-                val worksByKey = recommendationWorks.value.associateBy { it.mergeKey.ifBlank { it.id } }
-                val candidates = catalog.map { result ->
-                    val work = worksByKey[result.key]
-                    com.slukhayka.audiobooks.data.recommend.RecommendationEngine.Candidate(
-                        id = result.key,
-                        title = result.title,
-                        author = result.author,
-                        series = work?.seriesTitle.orEmpty()
-                    )
+                val libraryKeys = library.mapTo(HashSet()) { lb ->
+                    lb.book.mergeKey.ifBlank { lb.book.workId.orEmpty().ifBlank { lb.book.id } }
                 }
-                if (candidates.isEmpty()) {
+                val works = recommendationWorks.value
+                if (works.isEmpty()) {
                     _catalogVectors.value = emptyMap()
                     return@launch
                 }
-                // Catalogue vectors go through the versioned file cache; the
-                // few library signal vectors embed right here on IO too (T4:
-                // never on the UI thread). The combine only reads the
+                val candidates = works.map { work ->
+                    com.slukhayka.audiobooks.data.recommend.RecommendationEngine.Candidate(
+                        id = work.mergeKey.ifBlank { work.id },
+                        title = work.title,
+                        author = work.author,
+                        series = work.seriesTitle.orEmpty()
+                    )
+                }.sortedWith(
+                    compareByDescending<com.slukhayka.audiobooks.data.recommend.RecommendationEngine.Candidate> {
+                        it.id in libraryKeys
+                    }.thenByDescending { it.id in unionKeys }.thenBy { it.id }
+                )
+                // Catalogue vectors warm gradually (a bounded batch per pass);
+                // the few library signal vectors embed right here on IO too
+                // (T4: never on the UI thread). The combine only reads the
                 // published map.
-                val vectors = embeddingService.vectorsFor(candidates, currentEmbedder()).toMutableMap()
+                val vectors = embeddingService
+                    .vectorsFor(candidates, currentEmbedder(), limit = EMBEDDING_BATCH)
+                    .toMutableMap()
                 // #482 — signal vectors go through the SAME per-book cache:
                 // only new/changed signals embed, the rest are a Room read.
                 val signals = currentSignals(library)
@@ -4434,6 +4446,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     companion object {
         /** Human rhythm between queued availability checks; the gate throttles requests. */
         private const val AVAILABILITY_CHECK_PAUSE_MS = 200L
+
+        /** #484 — how many new/changed works one embedding pass warms. */
+        private const val EMBEDDING_BATCH = 150
 
         fun formatTime(seconds: Long): String {
             val hrs = seconds / 3600

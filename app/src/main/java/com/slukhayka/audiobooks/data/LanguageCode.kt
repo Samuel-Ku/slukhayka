@@ -59,11 +59,19 @@ object LanguageCode {
 
     private val PRIMARY_TAG = Regex("^[a-z]{2,8}$")
 
-    /** Two-letter canonical tags we know directly (verbatim pass-through). */
+    /**
+     * Two-letter canonical tags we know directly (verbatim pass-through).
+     * Spec-51 (#742): widened to the LibriVox catalogue vocabulary — a
+     * source that really serves 49 languages must not have half of them
+     * fall out of the filter as "unknown".
+     */
     private val CANONICAL_TAGS = setOf(
         "uk", "en", "de", "fr", "es", "ru", "pl", "it", "pt", "nl",
         "sv", "da", "no", "fi", "cs", "sk", "hu", "ro", "bg", "el",
-        "hr", "sr", "sl", "et", "lv", "lt", "tr", "ar", "he", "zh", "ja"
+        "hr", "sr", "sl", "et", "lv", "lt", "tr", "ar", "he", "zh", "ja",
+        "af", "hy", "bn", "ca", "eo", "hi", "is", "id", "ga", "jv",
+        "kn", "ko", "la", "ml", "mr", "fa", "su", "tl", "ta", "te",
+        "ur", "vi", "cy", "yi"
     )
 
     /** Full-name (and primary-tag alias) → canonical tag. */
@@ -129,7 +137,58 @@ object LanguageCode {
         "chinese" to "zh",
         "zh" to "zh",
         "japanese" to "ja",
-        "ja" to "ja"
+        "ja" to "ja",
+        // Spec-51 (#742) — the rest of the LibriVox language vocabulary (its
+        // API reports the word, e.g. "Afrikaans", "Bengali", "Latin").
+        "afrikaans" to "af",
+        "af" to "af",
+        "armenian" to "hy",
+        "hy" to "hy",
+        "bengali" to "bn",
+        "bn" to "bn",
+        "catalan" to "ca",
+        "ca" to "ca",
+        "esperanto" to "eo",
+        "eo" to "eo",
+        "hindi" to "hi",
+        "hi" to "hi",
+        "icelandic" to "is",
+        "is" to "is",
+        "indonesian" to "id",
+        "id" to "id",
+        "irish" to "ga",
+        "ga" to "ga",
+        "javanese" to "jv",
+        "jv" to "jv",
+        "kannada" to "kn",
+        "kn" to "kn",
+        "korean" to "ko",
+        "ko" to "ko",
+        "latin" to "la",
+        "la" to "la",
+        "malayalam" to "ml",
+        "ml" to "ml",
+        "marathi" to "mr",
+        "mr" to "mr",
+        "persian" to "fa",
+        "fa" to "fa",
+        "sundanese" to "su",
+        "su" to "su",
+        "tagalog" to "tl",
+        "filipino" to "tl",
+        "tl" to "tl",
+        "tamil" to "ta",
+        "ta" to "ta",
+        "telugu" to "te",
+        "te" to "te",
+        "urdu" to "ur",
+        "ur" to "ur",
+        "vietnamese" to "vi",
+        "vi" to "vi",
+        "welsh" to "cy",
+        "cy" to "cy",
+        "yiddish" to "yi",
+        "yi" to "yi"
     )
 
     /** ISO-639-3 / ISO-639-2 → canonical tag (the `eng`-style claims). */
@@ -172,6 +231,36 @@ object LanguageCode {
         "heb" to "he",
         "zho" to "zh",
         "chi" to "zh",
-        "jpn" to "ja"
+        "jpn" to "ja",
+        // Spec-51 (#742) — ISO-639-2/B and /T codes of the wider vocabulary
+        // (the archive mirror reports codes like this, e.g. "dut", "lat").
+        "afr" to "af",
+        "hye" to "hy",
+        "arm" to "hy",
+        "ben" to "bn",
+        "cat" to "ca",
+        "epo" to "eo",
+        "hin" to "hi",
+        "isl" to "is",
+        "ice" to "is",
+        "ind" to "id",
+        "gle" to "ga",
+        "jav" to "jv",
+        "kan" to "kn",
+        "kor" to "ko",
+        "lat" to "la",
+        "mal" to "ml",
+        "mar" to "mr",
+        "fas" to "fa",
+        "per" to "fa",
+        "sun" to "su",
+        "tgl" to "tl",
+        "tam" to "ta",
+        "tel" to "te",
+        "urd" to "ur",
+        "vie" to "vi",
+        "cym" to "cy",
+        "wel" to "cy",
+        "yid" to "yi"
     )
 }

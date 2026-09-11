@@ -7,8 +7,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * A (spec `2026-09-10-remove-4read-source`) — LibriVox bulk depth on the
- * T1-verified transports, no new endpoint:
+ * A (spec `2026-09-10-remove-4read-source`), spec-51 (#742) — LibriVox bulk
+ * depth on the T1-verified transports, no new endpoint:
  * - the librivox.org feed admits every MAPPED language (the tags map in the
  *   registry already carries "Ukrainian"), an unknown language keeps an
  *   honest absent language rather than hiding the record (US17);
@@ -84,5 +84,30 @@ class LibriVoxCatalogTest {
         assertEquals(1, cards.size)
         assertEquals("Книга А", cards.single().title)
         assertEquals("https://archive.org/details/knyha_a_2601_librivox", cards.single().url)
+    }
+
+    @Test
+    fun `catalog drops russian records - the one standing admission exclusion`() = runBlocking {
+        // Spec-51 (#742): «усе, крім російської» is an admission rule, not a
+        // listener preference — the Russian record never becomes a card, so
+        // no selection (not even «Усі») can surface it. The German record is
+        // admitted with its real language by the same pass.
+        val json = """
+            {"books":[
+              {"title":"Война и мир","language":"Russian","url_librivox":"https://librivox.org/voina-i-mir",
+               "url_zip_file":"https://archive.org/compress/voina_i_mir_2601_librivox/128kb/mp3.zip",
+               "totaltimesecs":100.0,"authors":[{"first_name":"Лев","last_name":"Толстой"}]},
+              {"title":"Die Schatzinsel","language":"German","url_librivox":"https://librivox.org/die-schatzinsel",
+               "url_zip_file":"https://archive.org/compress/die_schatzinsel_2601_librivox/128kb/mp3.zip",
+               "totaltimesecs":200.0,"authors":[{"first_name":"Robert Louis","last_name":"Stevenson"}]}
+            ]}
+        """.trimIndent()
+        val adapter = LibriVoxAdapter(FakeFetcher(mapOf(url(0, 2) to json)))
+
+        val cards = adapter.fetchCatalog(2)
+
+        assertEquals(1, cards.size)
+        assertEquals("Die Schatzinsel", cards.single().title)
+        assertEquals("de", cards.single().language)
     }
 }

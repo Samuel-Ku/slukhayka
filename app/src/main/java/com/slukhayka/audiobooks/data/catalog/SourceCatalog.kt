@@ -61,6 +61,8 @@ import com.slukhayka.audiobooks.data.source.SourceSelectionCoordinator
 import com.slukhayka.audiobooks.data.source.contentLanguageVisible
 import com.slukhayka.audiobooks.data.source.streamOnlyFor
 import com.slukhayka.audiobooks.data.source.visibleInContentLanguages
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -646,6 +648,43 @@ class SourceCatalog(
     }
 
     /**
+     * Spec-49 follow-up (#721) — one adapter's search with the
+     * no-endpoint fallback the aggregated search always had: a source
+     * without a usable search endpoint answers from its recent-arrivals
+     * feed filtered by the query, enriched once when a feed entry has no
+     * author. Public so the replacement resolver's volley consumes the SAME
+     * semantics per direct source — an auto-map must never be weaker than
+     * the global search the listener sees.
+     */
+    suspend fun searchSource(adapter: SourceAdapter, query: String): List<SourceBook> {
+        val clean = query.trim()
+        if (clean.isBlank()) return emptyList()
+        val direct = try {
+            adapter.search(clean)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            emptyList()
+        }
+        if (direct.isNotEmpty()) {
+            // Spec-45 (#405) T5 (#493): search results carry their effective
+            // language before merging — the merge derives the card language
+            // from the member claims.
+            return direct.map { it.effectiveFor(adapter) }
+        }
+        return newFeedFor(adapter)
+            .map { it.effectiveFor(adapter) }
+            .filter { book ->
+                book.title.contains(clean, ignoreCase = true) ||
+                    book.author.contains(clean, ignoreCase = true)
+            }
+            // A feed entry with a blank author can't form a merge key — fetch
+            // its book page once and use the real title/author/narrator so
+            // the Work-level merge with other sources actually composes.
+            .map { book -> if (book.author.isBlank()) enrichFeedMatch(adapter, book).effectiveFor(adapter) else book }
+    }
+
+    /**
      * Spec-10 T4 — aggregated search across every verified source.
      *
      * Each adapter is queried through its `search()` endpoint (4read); sources
@@ -677,31 +716,15 @@ class SourceCatalog(
                 return@withContext cached.visibleInContentLanguages(contentLanguageSelection.value)
             }
 
-            val matched = mutableListOf<SourceBook>()
-            for (adapter in sourceAdapters) {
-                val direct = try {
-                    adapter.search(cleanQuery)
-                } catch (e: Exception) {
-                    emptyList()
-                }
-                // Spec-45 (#405) T5 (#493): search results carry their
-                // effective language before merging — the merge derives the
-                // card language from the member claims.
-                matched += direct.map { it.effectiveFor(adapter) }
-                if (direct.isEmpty()) {
-                    matched += newFeedFor(adapter)
-                        .map { it.effectiveFor(adapter) }
-                        .filter { book ->
-                            book.title.contains(cleanQuery, ignoreCase = true) ||
-                                book.author.contains(cleanQuery, ignoreCase = true)
-                        }
-                        // A feed entry with a blank author can't form a merge
-                        // key — fetch its book page once and use the real
-                        // title/author/narrator so the Work-level merge with
-                        // other sources actually composes.
-                        .map { book -> if (book.author.isBlank()) enrichFeedMatch(adapter, book).effectiveFor(adapter) else book }
-                }
-            }
+            // Spec-49 follow-up (#722) — one parallel volley across every
+            // source, never a sequential crawl: each adapter answers through
+            // the same search-with-feed-fallback seam the replacement
+            // resolver consumes (#721); awaitAll preserves source order, so
+            // the merged rows are unchanged.
+            val matched = sourceAdapters
+                .map { adapter -> async { searchSource(adapter, cleanQuery) } }
+                .awaitAll()
+                .flatten()
             // ADR-0040 — search cards carrying a claimed genre land a
             // SEARCH-rank genre document through the one facet door (fill-gap;
             // an enumeration document always supersedes it by provenance rank,

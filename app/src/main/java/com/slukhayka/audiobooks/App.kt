@@ -261,7 +261,11 @@ class App : Application() {
                         if (adapter.sourceId in sourceAudioRefusal.refusedSources.value) {
                             emptyList()
                         } else {
-                            adapter.search(query)
+                            // #721 — the resolver consumes the SAME
+                            // search-with-feed-fallback seam the global
+                            // search serves, so a source without a search
+                            // endpoint is just as findable by auto-mapping.
+                            sourceCatalog.searchSource(adapter, query)
                         }
                     }
                 adapter.sourceId to search

@@ -76,9 +76,25 @@ class SourceGateCompositionTest {
     }
 
     @Test
-    fun `a listener request waits out the dry spell then fetches`() {
+    fun `a listener request waits out the dry spell then fetches`() = runTest {
         val clock = FakeClock()
         val transport = FakeTransport(sourceGate = dryGate(clock))
+
+        val outcome = transport.fetchText(
+            "https://4read.org/book",
+            SourceRequestClass.LISTENER_ACTION
+        )
+
+        assertEquals(GateOutcome.Fetched("<html>page</html>"), outcome)
+        assertEquals(1_000L, clock.now - 1_000_000L)
+        assertEquals(1, transport.calls)
+    }
+
+    @Test
+    fun `the blocking door defers immediately instead of parking the caller`() {
+        val clock = FakeClock()
+        val transport = FakeTransport(sourceGate = dryGate(clock))
+        val startedAt = clock.now
 
         val body = transport.getText(
             "https://4read.org/book",
@@ -87,9 +103,9 @@ class SourceGateCompositionTest {
             0L
         )
 
-        assertEquals("<html>page</html>", body)
-        assertEquals(1_000L, clock.now - 1_000_000L)
-        assertEquals(1, transport.calls)
+        assertEquals("", body)
+        assertEquals(0L, clock.now - startedAt)
+        assertEquals(0, transport.calls)
     }
 
     @Test

@@ -85,6 +85,8 @@ import kotlinx.coroutines.withContext
  * DAG edge (ticket #138): Source Catalog → [LibraryImport] — the catalogue
  * doors persist through the shared import path ([LibraryImport.upsertCatalogBook]
  * for browse-upserts, [LibraryImport.importBookFromSource] for hydration).
+ * The union/feed enumerations additionally land in the local Catalog Mirror
+ * through the merge-on-write door ([persistEnumerated], ADR-0041/#731).
  * Constructing the module performs NO network I/O — the composition root makes
  * one explicit sync call ([fetchCatalogSections] / [refreshUnifiedCatalog] /
  * [refreshSourceFeeds]) when the app wants sync.
@@ -355,8 +357,9 @@ class SourceCatalog(
      * Spec-15 T1 — the deduplicated «Увесь каталог» union: every verified
      * source's catalogue enumeration (category/genre pages) merged into one
      * Work card per book via [mergeGlobalSearchResults] (the same MergeKey
-     * rule import and search use). Ephemeral — nothing is imported until the
-     * user taps a card. Per-adapter results are cached for the session like
+     * rule import and search use). Not an import — no Library Entry is created
+     * until the user taps a card; the enumeration lands in the Catalog Mirror
+     * (ADR-0041/#731). Per-adapter results are cached for the session like
      * the feeds; a session-bound adapter (WebView pattern) always re-enumerates
      * so a fresh challenge session surfaces in the union immediately — never
      * a stale empty cache.
@@ -372,6 +375,11 @@ class SourceCatalog(
                 for (adapter in catalogueAdapters) {
                     books += catalogueFor(adapter, limit, forceRefresh).map { it.effectiveFor(adapter) }
                 }
+                // ADR-0041 (#731): the enumeration feeds the Catalog Mirror — every
+                // mergeable card lands locally through the same merge-on-write door
+                // as hydration, so discovery surfaces and the endless feed read the
+                // mirror, never the live source.
+                persistEnumerated(books)
                 // Spec-45 (#405) T5 (#493): the content-language filter cuts
                 // the union at publish — a hidden-language card never reaches
                 // the flow, the collections (matched over the visible corpus),
@@ -525,6 +533,7 @@ class SourceCatalog(
     suspend fun refreshSourceFeeds(forceRefresh: Boolean = false): List<SourceNewFeed> = withContext(Dispatchers.IO) {
         _isFeedsLoading.value = true
         try {
+            val enumerated = mutableListOf<SourceBook>()
             val feeds = feedAdapters.mapNotNull { adapter ->
                 // Session-bound sources re-hydrate on every refresh (skip the
                 // TTL cache): a fresh challenge session must surface the row
@@ -533,9 +542,12 @@ class SourceCatalog(
                 // language (own claim, else the source's) and hidden-language
                 // books drop — a listener who hid English sees no English
                 // card in the per-source rows either (US21).
-                val books = newFeedFor(adapter, skipCache = adapter.sessionBound, forceRefresh = forceRefresh)
-                    .take(20)
-                    .map { it.effectiveFor(adapter) }
+                val enumeratedBooks =
+                    newFeedFor(adapter, skipCache = adapter.sessionBound, forceRefresh = forceRefresh)
+                        .take(20)
+                        .map { it.effectiveFor(adapter) }
+                enumerated += enumeratedBooks
+                val books = enumeratedBooks
                     .filter { contentLanguageVisible(it.language, contentLanguageSelection.value) }
                 when {
                     books.isNotEmpty() ->
@@ -547,6 +559,9 @@ class SourceCatalog(
                     else -> null
                 }
             }
+            // ADR-0041 (#731): the feed enumeration feeds the Catalog Mirror too —
+            // best-effort, bounded to the same cards the feed itself carries.
+            persistEnumerated(enumerated)
             _sourceFeeds.value = feeds
             // The rail's own half is the feeds just computed; the section half
             // comes from the latest published catalogue (spec-28 #197: never a
@@ -1466,6 +1481,60 @@ class SourceCatalog(
             }
         }
         return WorkWriteResult(work = work, workCreated = existing == null, editionCreated = !sourceAlreadyKnown)
+    }
+
+    /**
+     * ADR-0041 (#731) — the Catalog Mirror write-through: every enumerated
+     * card that carries a Work identity (title, author, url) lands in the
+     * local works/editions layer through the same merge-on-write door as
+     * hydration. Tombstoned Works are never resurrected (ADR-0005); cards
+     * without an identity are skipped instead of materializing a synthetic
+     * blank-key Work that could never merge; a repeated enumeration is a
+     * no-op write. The pass rides one [writeBatchRunner] transaction so the
+     * endless feed is invalidated once, not per row; best-effort — a failing
+     * card never aborts the refresh or the published list, and an empty
+     * enumeration writes nothing.
+     */
+    private suspend fun persistEnumerated(books: List<SourceBook>) {
+        val mergeable = books.filter {
+            it.title.isNotBlank() && it.author.isNotBlank() && it.url.isNotBlank()
+        }
+        if (mergeable.isEmpty()) return
+        try {
+            writeBatchRunner {
+                for (book in mergeable) {
+                    try {
+                        val mergeKey = MergeKey.keyFor(book.title, book.author)
+                        if (mergeKey.isBlank()) continue
+                        val existing = dao.findWorkByMergeKey(mergeKey)
+                        if (dao.isBookTombstoned(existing?.id ?: mergeKey)) continue
+                        writeWorkEdition(
+                            sourceId = book.sourceId,
+                            title = book.title,
+                            author = book.author,
+                            narrator = book.narrator,
+                            sourceUrl = book.url,
+                            streamOnly = streamOnlyFor(book.sourceId),
+                            coverImageUrl = book.coverImageUrl,
+                            durationSeconds = book.totalDurationSeconds.takeIf { it > 0 },
+                            seriesTitle = book.seriesTitle,
+                            seriesIndex = book.seriesIndex,
+                            genreTexts = book.genre.trim().takeIf { it.isNotBlank() }
+                                ?.let { listOf(it) },
+                            language = book.language
+                        )
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (failure: Exception) {
+                        Log.w("SourceCatalog", "catalog mirror write skipped", failure)
+                    }
+                }
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            Log.w("SourceCatalog", "catalog mirror pass skipped", failure)
+        }
     }
 
     // Spec-37 depth budget: a polite crawl deepens the catalogue across daily

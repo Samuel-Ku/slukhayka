@@ -13,5 +13,6 @@
     <string name="first_language_choice_title">Which languages should books be in?</string>
     <string name="first_language_choice_body">Pick the narration languages — you can change this later in settings. Books with an unknown language always stay visible.</string>
     <string name="first_language_choice_ukrainian_only">Ukrainian only</string>
+    <string name="first_language_choice_all">All</string>
     <string name="first_language_choice_done">Done</string>
 </resources>

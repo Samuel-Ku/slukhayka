@@ -13,5 +13,6 @@
     <string name="first_language_choice_title">Якими мовами показувати книжки?</string>
     <string name="first_language_choice_body">Обери мови озвучення — потім це можна змінити в налаштуваннях. Книжки з невідомою мовою залишаються видимими.</string>
     <string name="first_language_choice_ukrainian_only">Лише українські</string>
+    <string name="first_language_choice_all">Усі</string>
     <string name="first_language_choice_done">Готово</string>
 </resources>

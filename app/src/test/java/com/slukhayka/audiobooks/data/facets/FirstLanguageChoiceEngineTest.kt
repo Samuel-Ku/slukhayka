@@ -91,14 +91,22 @@ class FirstLanguageChoiceEngineTest {
     }
 
     @Test
-    fun `an already narrowed choice in settings answers the question`() = runBlocking {
-        val prefs = ContentLanguagePrefs(context())
+    fun `an already narrowed choice in settings answers the question terminally`() = runBlocking {
+        val context = context()
+        val prefs = ContentLanguagePrefs(context)
         prefs.setLanguages(setOf("uk"))
         val engine = FirstLanguageChoiceEngine(prefs) { listOf("uk", "de") }
 
         engine.evaluate()
 
         assertFalse("never ask over an active choice", engine.visible.value)
+
+        // The narrowed choice was recorded as the terminal answer: resetting
+        // to «Усі» later must never re-open the question (US15/US16).
+        prefs.setLanguages(emptySet())
+        val restarted = FirstLanguageChoiceEngine(ContentLanguagePrefs(context)) { listOf("uk", "de") }
+        restarted.evaluate()
+        assertFalse("a recorded answer never asks again", restarted.visible.value)
     }
 
     @Test

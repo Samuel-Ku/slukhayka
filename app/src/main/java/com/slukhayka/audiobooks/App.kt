@@ -278,7 +278,42 @@ class App : Application() {
                     }
                 }
             },
-            cache = searchCache?.refusalAware(sourceAudioRefusal.refusedSources)
+            cache = searchCache?.refusalAware(sourceAudioRefusal.refusedSources),
+            workIndex = { title, author, _ ->
+                workIndexRefresher.lookup(title, author)?.let { entry ->
+                    com.slukhayka.audiobooks.data.catalog.SourceReplacementMapping.Match(
+                        sourceId = entry.sourceId,
+                        url = entry.url,
+                        title = title,
+                        author = author,
+                        narrator = "",
+                        coverImageUrl = null
+                    )
+                }
+            }
+        )
+    }
+
+    /**
+     * ADR-0042 — the local Work index: sitemap URLs (audiobook.co.ua,
+     * chytaylo) plus catalogue-card enumeration for the sources without a book
+     * sitemap (knigi-online, sound-books, sluhayua), persisted between
+     * launches under the catalog TTL. Consulted by [directSourceResolve] with
+     * zero requests.
+     */
+    val workIndexRefresher: com.slukhayka.audiobooks.data.catalog.WorkIndexRefresher by lazy {
+        val cards = HashMap<String, com.slukhayka.audiobooks.data.catalog.WorkIndexRefresher.CardSource>()
+        for (sourceId in listOf("knigionline", "soundbooks", "sluhayua")) {
+            cards[sourceId] = com.slukhayka.audiobooks.data.catalog.WorkIndexRefresher.CardSource { limit ->
+                sourceAdapters.firstOrNull { it.sourceId == sourceId }?.fetchCatalog(limit).orEmpty()
+            }
+        }
+        com.slukhayka.audiobooks.data.catalog.WorkIndexRefresher(
+            fetcher = HttpFetcher(),
+            store = com.slukhayka.audiobooks.data.catalog.WorkIndexStore(
+                java.io.File(filesDir, "work_index.tsv")
+            ),
+            cardSources = cards
         )
     }
 
@@ -995,6 +1030,21 @@ class App : Application() {
         // open Firestore; bookmark sync starts immediately below.
         installAppCheckIfConfigured()
         CoroutineScope(Dispatchers.IO).launch { personBookmarksSync.sync() }
+        // ADR-0042 — warm the local Work index and the replacement verdicts of
+        // library Works without a direct source, so the listener's tap finds a
+        // warm memo instead of paying for a live search. Resolve-only, bounded,
+        // best-effort: the library changes only on a listener touch.
+        CoroutineScope(Dispatchers.IO).launch {
+            runCatching { workIndexRefresher.refreshIfStale() }
+            runCatching {
+                com.slukhayka.audiobooks.data.catalog.MappingPrewarm(
+                    books = { audiobookDao.getAllAudiobooksOnce().map { it.toAudiobookEntity() } },
+                    resolve = { title, author, mergeKey ->
+                        directSourceResolve.resolve(title, author, mergeKey)
+                    }
+                ).runOnce()
+            }
+        }
         // Spec-38 T1 (#253): install the persisted privacy route BEFORE any
         // module can touch the network, and warm the real system WebView
         // User-Agent off the main thread (it initialises the WebView engine;

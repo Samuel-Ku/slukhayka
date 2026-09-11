@@ -58,6 +58,12 @@ class SourceReplacementMapping(
     /** The local union read — zero requests, whatever the catalog already holds. */
     private val union: suspend () -> List<GlobalSearchResult>,
     private val cache: SearchCache? = null,
+    /**
+     * The local sitemap Work index seam (ADR-0042): answers from book URLs
+     * already enumerated, with zero requests. Consulted between the shared
+     * cache and the live volley; a null/absent index changes nothing.
+     */
+    private val workIndex: (suspend (title: String, author: String, mergeKey: String) -> Match?)? = null,
     private val clock: () -> Long = System::currentTimeMillis
 ) {
 
@@ -88,8 +94,8 @@ class SourceReplacementMapping(
 
     /**
      * The direct counterpart of the Work, or null. Fires no network request
-     * while a fresh memo, the union or the shared cache answers — and at most
-     * ONE parallel volley when they all miss.
+     * while a fresh memo, the union, the shared cache or the local Work index
+     * answers — and at most ONE parallel volley when they all miss.
      */
     suspend fun resolve(title: String, author: String, mergeKey: String): Match? {
         if (mergeKey.isBlank()) return null
@@ -108,6 +114,7 @@ class SourceReplacementMapping(
 
         val match = resolveFromUnion(mergeKey)
             ?: resolveFromSharedCache(query, mergeKey)
+            ?: runCatching { workIndex?.invoke(title, author, mergeKey) }.getOrNull()
             ?: resolveVolley(query, mergeKey)
         verdicts[mergeKey] = Verdict(match != null, now, match)
         return match

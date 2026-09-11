@@ -166,7 +166,7 @@ object SourceRegistry {
             id = "librivox",
             displayName = "LibriVox",
             homeUrl = "https://librivox.org",
-            contentLanguage = "en",
+            contentLanguage = "",
             accessMode = SourceAccessMode.DIRECT,
             order = 6,
             catalogUrl = "https://librivox.org/api/feed/audiobooks/?format=json",

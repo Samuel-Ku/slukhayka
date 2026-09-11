@@ -139,7 +139,8 @@ function migrateLegacyDefault(storage: StorageLike): void {
     if (
       Array.isArray(parsed) &&
       parsed.length === LEGACY_DEFAULT.length &&
-      parsed.every((code, index) => code === LEGACY_DEFAULT[index])
+      new Set(parsed).size === LEGACY_DEFAULT.length &&
+      LEGACY_DEFAULT.every((code) => parsed.includes(code))
     ) {
       storage.setItem(KEY, JSON.stringify([]))
     }

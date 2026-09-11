@@ -674,3 +674,25 @@ data class DescriptionRow(
     val id: String,
     val description: String
 )
+
+/**
+ * #482 — the per-book embedding cache. The key is the Work identity AND the
+ * SHA-256 of exactly the text that was embedded, so an unchanged book is
+ * never re-embedded, a changed text re-embeds only that book, and the cache
+ * survives a restart (Room, not filesDir).
+ */
+@Entity(tableName = "embedding_vectors")
+data class EmbeddingVectorEntity(
+    @PrimaryKey val workId: String,
+    val textHash: String,
+    val vector: ByteArray,
+    val updatedAt: Long
+) {
+    override fun equals(other: Any?): Boolean =
+        this === other || (other is EmbeddingVectorEntity &&
+            workId == other.workId && textHash == other.textHash &&
+            vector.contentEquals(other.vector) && updatedAt == other.updatedAt)
+
+    override fun hashCode(): Int =
+        31 * (31 * (31 * workId.hashCode() + textHash.hashCode()) + vector.contentHashCode()) + updatedAt.hashCode()
+}
